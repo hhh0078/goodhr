@@ -224,7 +224,7 @@ export default function TeamPage() {
           border: "1px solid",
           borderColor: "divider",
           borderRadius: "8px",
-          bgcolor: "#f3f8f4",
+          bgcolor: "action.hover",
         }}
       >
         <Typography sx={{ color: "text.secondary", fontSize: 14 }}>

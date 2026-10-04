@@ -24,7 +24,7 @@ func (s *RuntimeConfigService) Current(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.auth.SessionFromRequest(r); err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	config := map[string]any{

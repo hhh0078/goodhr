@@ -560,12 +560,8 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 
 	// 调用认证服务的会话解析方法，用于返回当前登录用户信息。
 	session, err := s.SessionFromRequest(r)
-	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-		return
-	}
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeAuthError(w, err)
 		return
 	}
 	if err := s.userActivity.RecordLogin(session.Email, time.Now()); err != nil {
@@ -629,12 +625,8 @@ func (s *AuthService) AckTrialWelcome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, err := s.SessionFromRequest(r)
-	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusUnauthorized, "session invalid or expired")
-		return
-	}
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeAuthError(w, err)
 		return
 	}
 	if s.userActivity != nil {
@@ -798,7 +790,7 @@ func (s *AuthService) applyInviteOnLogin(email string, inviterID string) error {
 func (s *AuthService) SessionFromRequest(r *http.Request) (Session, error) {
 	token := bearerToken(r.Header.Get("Authorization"))
 	if token == "" {
-		return Session{}, errors.New("请刷新浏览器，重新登录")
+		return Session{}, ErrSessionRequired
 	}
 	return s.SessionFromToken(token)
 }
@@ -806,6 +798,9 @@ func (s *AuthService) SessionFromRequest(r *http.Request) (Session, error) {
 // SessionFromToken 根据访问令牌读取当前登录会话。
 // token 为验证码登录后返回的 access_token，返回会话用于 HTTP 与 WebSocket 认证。
 func (s *AuthService) SessionFromToken(token string) (Session, error) {
+	if strings.TrimSpace(token) == "" {
+		return Session{}, ErrSessionRequired
+	}
 	// 调用 AuthStore 读取会话，用于确认 token 是否有效。
 	session, err := s.store.GetSession(token)
 	if err != nil {
@@ -819,7 +814,7 @@ func (s *AuthService) SessionFromToken(token string) (Session, error) {
 func (s *AuthService) UnsafeSessionFromRequest(r *http.Request) (Session, error) {
 	token := bearerToken(r.Header.Get("Authorization"))
 	if token == "" {
-		return Session{}, errors.New("请刷新浏览器，重新登录")
+		return Session{}, ErrSessionRequired
 	}
 	return s.store.GetSessionUnsafe(token)
 }

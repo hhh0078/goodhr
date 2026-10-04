@@ -130,7 +130,7 @@ func NewAdminUserService(auth *AuthService, users AdminUserStore, subscriptions 
 func (s *AdminUserService) Collection(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	if !s.auth.IsSuperAdmin(session.Email) {
@@ -230,7 +230,7 @@ func (s *AdminUserService) adjustSubscription(w http.ResponseWriter, r *http.Req
 func (s *AdminUserService) UnbindAgent(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	if !s.auth.IsSuperAdmin(session.Email) {
@@ -267,7 +267,7 @@ func (s *AdminUserService) UnbindAgent(w http.ResponseWriter, r *http.Request) {
 func (s *AdminUserService) AdjustAIBalance(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	if !s.auth.IsSuperAdmin(session.Email) {
@@ -400,7 +400,7 @@ func (s *AdminUserService) BatchAdjust(w http.ResponseWriter, r *http.Request) {
 func (s *AdminUserService) requireSuperAdmin(w http.ResponseWriter, r *http.Request) bool {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return false
 	}
 	if !s.auth.IsSuperAdmin(session.Email) {

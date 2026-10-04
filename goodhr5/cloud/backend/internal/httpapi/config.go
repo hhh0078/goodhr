@@ -25,6 +25,7 @@ type Config struct {
 	SMTPPassword                string
 	SMTPFrom                    string
 	UniversalLoginCodeOffsetMin int
+	AutoReplyResumeDir          string
 }
 
 // LoadConfigFromEnv 从环境变量读取云端后端配置。
@@ -41,7 +42,16 @@ func LoadConfigFromEnv() Config {
 		SMTPPassword:                os.Getenv("GOODHR_SMTP_PASSWORD"),
 		SMTPFrom:                    os.Getenv("GOODHR_SMTP_FROM"),
 		UniversalLoginCodeOffsetMin: envInt("GOODHR_UNIVERSAL_LOGIN_CODE_OFFSET_MINUTES", 0),
+		AutoReplyResumeDir:          envString("GOODHR_AUTO_REPLY_RESUME_DIR", "data/auto-reply-resumes"),
 	}
+}
+
+// AutoReplyStore 创建自动回复 PostgreSQL 存储；未配置数据库时返回 nil 并由接口明确提示。
+func (c Config) AutoReplyStore(db *sql.DB) *PostgresAutoReplyStore {
+	if db == nil {
+		return nil
+	}
+	return NewPostgresAutoReplyStore(db)
 }
 
 // PostgresDB 按环境变量创建 PostgreSQL 连接；未配置时返回 nil。
@@ -74,16 +84,20 @@ func (c Config) PostgresDB() (*sql.DB, error) {
 	return db, nil
 }
 
-// AuthStore 创建认证存储；配置 Redis 时先检查连接，未配置时使用内存实现。
-func (c Config) AuthStore() (AuthStore, error) {
+// AuthStore 优先持久保存会话；Redis 保留验证码及旧会话，纯内存仅用于未接数据库的开发环境。
+func (c Config) AuthStore(db *sql.DB) (AuthStore, error) {
+	var legacy AuthStore = NewMemoryAuthStore()
 	if c.RedisAddr != "" {
 		store := NewRedisAuthStore(c.RedisAddr, c.RedisPassword, c.RedisDB)
 		if err := store.Ping(context.Background()); err != nil {
 			return nil, err
 		}
-		return store, nil
+		legacy = store
 	}
-	return NewMemoryAuthStore(), nil
+	if db != nil {
+		return NewPostgresAuthStore(db, legacy), nil
+	}
+	return legacy, nil
 }
 
 // PasswordStore 创建用户密码存储；生产环境使用 PostgreSQL，本地开发使用内存实现。

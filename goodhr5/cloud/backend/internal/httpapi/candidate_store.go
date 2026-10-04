@@ -4,6 +4,7 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,9 +22,14 @@ type PositionCandidate struct {
 	PlatformID          string
 	PlatformCandidateID string
 	CandidateName       string
+	AvatarURL           string
+	Gender              string
 	BirthYM             string
+	BirthYMPrecision    string
+	NormalizedPhone     string
 	Phone               string
 	Email               string
+	Wechat              string
 	WorkRegion          string
 	WorkYears           string
 	ExpectedSalaryMin   *int
@@ -62,13 +68,20 @@ type PositionCandidate struct {
 
 // CandidateProfileInput 表示候选人主体保存参数。
 type CandidateProfileInput struct {
+	CandidateID         string
+	TenantID            string
 	UserEmail           string
 	PlatformID          string
 	PlatformCandidateID string
 	CandidateName       string
+	AvatarURL           string
+	Gender              string
 	BirthYM             string
+	BirthYMPrecision    string
+	NormalizedPhone     string
 	Phone               string
 	Email               string
+	Wechat              string
 	WorkRegion          string
 	WorkYears           string
 	ExpectedSalaryMin   *int
@@ -152,16 +165,28 @@ type CandidateStore interface {
 	ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error)
 	GetPositionCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (PositionCandidate, error)
 	ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error)
-	DeleteTeamCandidates(tenantID string) (int, error)
+	DeleteCandidate(tenantID string, candidateID string) (CandidateDeleteResult, error)
+	DeleteTeamCandidates(tenantID string) (CandidateDeleteResult, error)
+}
+
+// CandidateDeleteResult 表示候选人删除数量，以及事务提交后需要清理的附件和头像。
+type CandidateDeleteResult struct {
+	Deleted         int
+	AttachmentPaths []string
+	AvatarURLs      []string
 }
 
 // PositionCandidateQuery 表示候选人列表查询条件。
 type PositionCandidateQuery struct {
-	PositionID string
-	Keyword    string
-	UserEmail  string
-	Page       int
-	PageSize   int
+	PositionID      string
+	PlatformID      string
+	Keyword         string
+	UserEmail       string
+	PhoneStatus     string
+	ConditionStatus string
+	Sort            string
+	Page            int
+	PageSize        int
 }
 
 // PositionCandidateListResult 表示候选人分页查询结果。
@@ -174,22 +199,24 @@ type PositionCandidateListResult struct {
 
 // MemoryCandidateStore 提供开发期候选人内存存储。
 type MemoryCandidateStore struct {
-	mu          sync.Mutex
-	profiles    map[string]PositionCandidate
-	engagements map[string]CandidateEngagement
-	events      map[string][]CandidateEvent
-	now         func() time.Time
-	nextID      func(prefix string) string
+	mu               sync.Mutex
+	profiles         map[string]PositionCandidate
+	profileTenantIDs map[string]string
+	engagements      map[string]CandidateEngagement
+	events           map[string][]CandidateEvent
+	now              func() time.Time
+	nextID           func(prefix string) string
 }
 
 // NewMemoryCandidateStore 创建候选人内存存储。
 func NewMemoryCandidateStore() *MemoryCandidateStore {
 	seq := 0
 	return &MemoryCandidateStore{
-		profiles:    map[string]PositionCandidate{},
-		engagements: map[string]CandidateEngagement{},
-		events:      map[string][]CandidateEvent{},
-		now:         time.Now,
+		profiles:         map[string]PositionCandidate{},
+		profileTenantIDs: map[string]string{},
+		engagements:      map[string]CandidateEngagement{},
+		events:           map[string][]CandidateEvent{},
+		now:              time.Now,
 		nextID: func(prefix string) string {
 			seq++
 			return fmt.Sprintf("%s_%d", prefix, seq)
@@ -203,17 +230,45 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	tenantID := strings.TrimSpace(item.TenantID)
+	if tenantID == "" {
+		return PositionCandidate{}, fmt.Errorf("候选人团队不能为空")
+	}
 	now := s.now()
-	id := s.nextID("candidate")
+	id := strings.TrimSpace(item.CandidateID)
+	if id == "" {
+		for {
+			id = s.nextID("candidate")
+			if _, exists := s.profiles[id]; !exists {
+				break
+			}
+		}
+	}
+	createdAt := now
+	existing, exists := s.profiles[id]
+	if exists {
+		createdAt = existing.CreatedAt
+	}
+	existingTenantID := strings.TrimSpace(s.profileTenantIDs[id])
+	if exists {
+		if existingTenantID == "" || tenantID != existingTenantID {
+			return PositionCandidate{}, ErrNotFound
+		}
+	}
 	profile := PositionCandidate{
 		ID:                  id,
 		UserEmail:           item.UserEmail,
 		PlatformID:          item.PlatformID,
 		PlatformCandidateID: item.PlatformCandidateID,
 		CandidateName:       item.CandidateName,
+		AvatarURL:           item.AvatarURL,
+		Gender:              item.Gender,
 		BirthYM:             item.BirthYM,
+		BirthYMPrecision:    item.BirthYMPrecision,
+		NormalizedPhone:     normalizeCandidatePhone(firstNonEmpty(item.NormalizedPhone, item.Phone)),
 		Phone:               item.Phone,
 		Email:               item.Email,
+		Wechat:              item.Wechat,
 		WorkRegion:          item.WorkRegion,
 		WorkYears:           item.WorkYears,
 		ExpectedSalaryMin:   item.ExpectedSalaryMin,
@@ -240,11 +295,25 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 		AIGreetReason:       item.AIGreetReason,
 		AIGreetScore:        item.AIGreetScore,
 		FirstSeenAt:         item.FirstSeenAt,
-		CreatedAt:           now,
+		CreatedAt:           createdAt,
 		UpdatedAt:           now,
 	}
 	s.profiles[id] = profile
+	s.profileTenantIDs[id] = tenantID
 	return profile, nil
+}
+
+// candidateBelongsToTenant 判断内存候选人是否明确归属于指定团队。
+// 调用方必须已经持有存储锁；空团队和没有归属记录都按无权访问处理。
+func (s *MemoryCandidateStore) candidateBelongsToTenant(candidateID string, tenantID string) bool {
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		return false
+	}
+	if _, exists := s.profiles[candidateID]; !exists {
+		return false
+	}
+	return strings.TrimSpace(s.profileTenantIDs[candidateID]) == tenantID
 }
 
 // UpsertCandidateEngagement 新增或更新触达上下文。
@@ -278,7 +347,7 @@ func (s *MemoryCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candidat
 func (s *MemoryCandidateStore) ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.profiles[candidateID]; !ok {
+	if !s.candidateBelongsToTenant(candidateID, tenantID) {
 		return nil, ErrNotFound
 	}
 	notes := make([]CandidateNote, 0)
@@ -325,21 +394,115 @@ func (s *MemoryCandidateStore) UpdateCandidateEngagementStatus(engagementID stri
 }
 
 // ListPositionCandidates 按条件分页列出内存候选人记录。
-// tenantID 为团队 ID，内存实现不区分团队；query 为岗位、岗位和关键词筛选。
+// tenantID 为团队 ID，query 为岗位、平台和关键词筛选。
 func (s *MemoryCandidateStore) ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	page, pageSize := normalizeCandidatePage(query.Page, query.PageSize)
 	items := make([]PositionCandidate, 0)
-	for _, item := range s.profiles {
+	tenantID = strings.TrimSpace(tenantID)
+	for candidateID, item := range s.profiles {
+		if tenantID == "" || strings.TrimSpace(s.profileTenantIDs[candidateID]) != tenantID {
+			continue
+		}
 		if query.UserEmail != "" && item.UserEmail != query.UserEmail {
 			continue
 		}
 		if query.Keyword != "" && !candidateContainsKeyword(item, query.Keyword) {
 			continue
 		}
+		hasPhone := candidateHasPhone(item)
+		if query.PhoneStatus == "has" && !hasPhone {
+			continue
+		}
+		if query.PhoneStatus == "none" && hasPhone {
+			continue
+		}
+		// 内存回退没有岗位条件评估表，因此所有候选人都只能视为“未跟踪”。
+		// 这样与 PostgreSQL 中不存在 candidate_position_reviews 的真实语义一致，不把未知状态冒充为已满足。
+		if query.ConditionStatus != "" && query.ConditionStatus != "untracked" {
+			continue
+		}
+		var latestEngagement CandidateEngagement
+		hasEngagement := false
+		for _, engagement := range s.engagements {
+			if engagement.CandidateID != item.ID {
+				continue
+			}
+			if query.PositionID != "" && engagement.PositionID != query.PositionID {
+				continue
+			}
+			if query.PlatformID != "" && !strings.EqualFold(engagement.PlatformID, query.PlatformID) {
+				continue
+			}
+			if !hasEngagement || engagement.CreatedAt.After(latestEngagement.CreatedAt) ||
+				(engagement.CreatedAt.Equal(latestEngagement.CreatedAt) && engagement.ID > latestEngagement.ID) {
+				latestEngagement = engagement
+				hasEngagement = true
+			}
+		}
+		if query.PositionID != "" && !hasEngagement {
+			continue
+		}
+		if query.PlatformID != "" && !hasEngagement {
+			continue
+		}
+		if hasEngagement {
+			item.EngagementID = latestEngagement.ID
+			item.EngagementStatus = latestEngagement.Status
+			item.PositionID = latestEngagement.PositionID
+			item.PlatformAccountID = latestEngagement.PlatformAccountID
+			item.PlatformID = latestEngagement.PlatformID
+			item.DetailFetchedAt = latestEngagement.DetailFetchedAt
+			item.GreetedAt = latestEngagement.GreetedAt
+		}
+		item.AIGreetReason = ""
+		item.AIGreetScore = nil
+		if hasEngagement {
+			var latestAnalysis CandidateEvent
+			hasAnalysis := false
+			for _, event := range s.events[item.ID] {
+				if event.EngagementID != latestEngagement.ID || event.EventType != "greet_analysis" {
+					continue
+				}
+				if !hasAnalysis || event.CreatedAt.After(latestAnalysis.CreatedAt) ||
+					(event.CreatedAt.Equal(latestAnalysis.CreatedAt) && event.ID > latestAnalysis.ID) {
+					latestAnalysis = event
+					hasAnalysis = true
+				}
+			}
+			if hasAnalysis {
+				item.AIGreetReason = latestAnalysis.Reason
+				item.AIGreetScore = latestAnalysis.Score
+			}
+		}
 		items = append(items, item)
+	}
+	if query.Sort == "second_score_desc" {
+		sort.SliceStable(items, func(left, right int) bool {
+			leftScore, rightScore := items[left].AIGreetScore, items[right].AIGreetScore
+			if leftScore != nil && rightScore == nil {
+				return true
+			}
+			if leftScore == nil && rightScore != nil {
+				return false
+			}
+			if leftScore != nil && rightScore != nil && *leftScore != *rightScore {
+				return *leftScore > *rightScore
+			}
+			if !items[left].CreatedAt.Equal(items[right].CreatedAt) {
+				return items[left].CreatedAt.After(items[right].CreatedAt)
+			}
+			return items[left].ID < items[right].ID
+		})
+	} else {
+		sort.SliceStable(items, func(left, right int) bool {
+			if !items[left].CreatedAt.Equal(items[right].CreatedAt) {
+				return items[left].CreatedAt.After(items[right].CreatedAt)
+			}
+			return items[left].ID < items[right].ID
+		})
 	}
 	total := len(items)
 	start := (page - 1) * pageSize
@@ -362,7 +525,7 @@ func (s *MemoryCandidateStore) GetPositionCandidate(tenantID string, candidateID
 	defer s.mu.Unlock()
 
 	item, ok := s.profiles[candidateID]
-	if !ok {
+	if !ok || !s.candidateBelongsToTenant(candidateID, tenantID) {
 		return PositionCandidate{}, ErrNotFound
 	}
 	if !isAdmin && userEmail != "" && item.UserEmail != userEmail {
@@ -381,17 +544,52 @@ func (s *MemoryCandidateStore) GetPositionCandidate(tenantID string, candidateID
 	return item, nil
 }
 
-// DeleteTeamCandidates 清空团队候选人数据。
-// tenantID 为团队 ID，内存实现会清空全部候选人、触达和事件记录。
-func (s *MemoryCandidateStore) DeleteTeamCandidates(tenantID string) (int, error) {
+// DeleteCandidate 删除单个内存候选人及其触达和事件记录。
+// tenantID 为团队 ID，candidateID 为候选人 ID；内存实现没有附件文件。
+func (s *MemoryCandidateStore) DeleteCandidate(tenantID string, candidateID string) (CandidateDeleteResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	deleted := len(s.profiles)
-	s.profiles = map[string]PositionCandidate{}
-	s.engagements = map[string]CandidateEngagement{}
-	s.events = map[string][]CandidateEvent{}
-	return deleted, nil
+	profile, ok := s.profiles[candidateID]
+	if !ok || !s.candidateBelongsToTenant(candidateID, tenantID) {
+		return CandidateDeleteResult{}, ErrNotFound
+	}
+	delete(s.profiles, candidateID)
+	delete(s.profileTenantIDs, candidateID)
+	delete(s.events, candidateID)
+	for engagementID, engagement := range s.engagements {
+		if engagement.CandidateID == candidateID {
+			delete(s.engagements, engagementID)
+		}
+	}
+	return CandidateDeleteResult{Deleted: 1, AttachmentPaths: []string{}, AvatarURLs: []string{profile.AvatarURL}}, nil
+}
+
+// DeleteTeamCandidates 清空团队候选人数据。
+// tenantID 为团队 ID，内存实现只清空该团队候选人、触达和事件记录。
+func (s *MemoryCandidateStore) DeleteTeamCandidates(tenantID string) (CandidateDeleteResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tenantID = strings.TrimSpace(tenantID)
+	candidateIDs := make(map[string]struct{})
+	avatarURLs := make([]string, 0)
+	for candidateID, profile := range s.profiles {
+		if tenantID == "" || strings.TrimSpace(s.profileTenantIDs[candidateID]) != tenantID {
+			continue
+		}
+		candidateIDs[candidateID] = struct{}{}
+		avatarURLs = append(avatarURLs, profile.AvatarURL)
+		delete(s.profiles, candidateID)
+		delete(s.profileTenantIDs, candidateID)
+		delete(s.events, candidateID)
+	}
+	for engagementID, engagement := range s.engagements {
+		if _, owned := candidateIDs[engagement.CandidateID]; owned {
+			delete(s.engagements, engagementID)
+		}
+	}
+	return CandidateDeleteResult{Deleted: len(candidateIDs), AttachmentPaths: []string{}, AvatarURLs: avatarURLs}, nil
 }
 
 // normalizeCandidatePage 规范候选人分页参数。
@@ -412,8 +610,58 @@ func normalizeCandidatePage(page int, pageSize int) (int, int) {
 // candidateContainsKeyword 判断候选人是否命中搜索关键词。
 // item 为候选人记录，keyword 为前端搜索词。
 func candidateContainsKeyword(item PositionCandidate, keyword string) bool {
-	text := item.CandidateName + " " + item.Phone + " " + item.Email + " " + item.WorkRegion + " " + item.WorkYears + " " + item.BasicInfo + " " + item.EducationLevel + " " + item.ExpectedPosition + " " + item.PersonalDescription + " " + item.RawText + " " + item.FilterText + " " + item.ResumeText
+	text := item.CandidateName + " " + item.Phone + " " + item.Email + " " + item.Wechat + " " + item.WorkRegion + " " + item.WorkYears + " " + item.BasicInfo + " " + item.EducationLevel + " " + item.ExpectedPosition + " " + item.PersonalDescription + " " + item.RawText + " " + item.FilterText + " " + item.ResumeText
 	return strings.Contains(strings.ToLower(text), strings.ToLower(keyword))
+}
+
+// candidateHasPhone 判断候选人是否已经保存了可用手机号。
+// item 为候选人记录，标准化手机号和原始手机号任一非空即视为有手机号。
+func candidateHasPhone(item PositionCandidate) bool {
+	return strings.TrimSpace(firstNonEmpty(item.NormalizedPhone, item.Phone)) != ""
+}
+
+// normalizeCandidatePlatformID 规范简历库招聘平台筛选参数。
+// value 只允许当前产品已经适配的平台标识，其他值按全部平台处理。
+func normalizeCandidatePlatformID(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "boss", "zhaopin", "hliepin", "liepin":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+// normalizeCandidatePhoneStatus 规范简历库手机号筛选参数。
+// value 为空或不支持时返回空值，以保持旧接口不筛选手机号的行为。
+func normalizeCandidatePhoneStatus(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "has", "none":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+// normalizeCandidateConditionStatus 规范简历库条件状态筛选参数。
+// value 为空或不支持时返回空值，以保持旧接口不筛选条件状态的行为。
+func normalizeCandidateConditionStatus(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "all_matched", "pending", "unmatched", "untracked":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+// normalizeCandidateSort 规范简历库排序参数。
+// value 为空或不支持时返回空值，由存储层继续使用原来的最近入库排序。
+func normalizeCandidateSort(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "second_score_desc", "recent":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
 }
 
 func toJSONB(value any) []byte {

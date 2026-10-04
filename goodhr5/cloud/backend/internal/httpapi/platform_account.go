@@ -137,12 +137,8 @@ func (s *PlatformAccountService) Delete(w http.ResponseWriter, r *http.Request) 
 // 返回登录会话、租户 ID 和管理员标记，读取失败时已经写入响应。
 func (s *PlatformAccountService) currentAccountContext(w http.ResponseWriter, r *http.Request) (Session, string, bool, bool) {
 	session, err := s.auth.SessionFromRequest(r)
-	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-		return Session{}, "", false, false
-	}
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeAuthError(w, err)
 		return Session{}, "", false, false
 	}
 	tenant, err := s.tenantStore.GetOrCreateTenant(session.Email)

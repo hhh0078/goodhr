@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,20 +43,47 @@ func (l *TaskLogger) ReportAnalysis(taskID string, status shared.AnalysisStatus)
 	status.MatchedExcludes = append([]string(nil), status.MatchedExcludes...)
 	l.analysisMu.Lock()
 	now := time.Now()
+	shouldSaveLog := l.analysisTaskID != taskID ||
+		(!sameAnalysisLogRecord(l.analysis, status) && !sameAnalysisLogRecord(l.pendingAnalysis, status))
+	if l.analysisTaskID == taskID && status.Kind == "auto_reply" {
+		base := l.analysis
+		if sameAnalysisCandidate(l.pendingAnalysis, status) {
+			base = l.pendingAnalysis
+		}
+		status.ProcessedCount = max(status.ProcessedCount, base.ProcessedCount)
+		status.SucceededCount = max(status.SucceededCount, base.SucceededCount)
+		status.SkippedCount = max(status.SkippedCount, base.SkippedCount)
+	}
 	if l.analysisTaskID == taskID &&
 		l.analysis.Terminal &&
 		!l.analysisVisibleAt.IsZero() &&
 		now.Sub(l.analysisVisibleAt) < analysisResultHoldDuration &&
 		analysisChangedCandidate(l.analysis, status) {
+		if sameAnalysisCandidate(l.pendingAnalysis, status) {
+			status.Timeline = mergeAnalysisTimeline(l.pendingAnalysis.Timeline, status)
+		} else {
+			status.Timeline = mergeAnalysisTimeline(nil, status)
+		}
 		l.pendingAnalysis = status
 		l.analysisMu.Unlock()
+		if shouldSaveLog {
+			l.saveAnalysisLog(taskID, status)
+		}
 		return
+	}
+	if l.analysisTaskID == taskID && sameAnalysisCandidate(l.analysis, status) {
+		status.Timeline = mergeAnalysisTimeline(l.analysis.Timeline, status)
+	} else {
+		status.Timeline = mergeAnalysisTimeline(nil, status)
 	}
 	l.analysisTaskID = taskID
 	l.analysis = status
 	l.analysisVisibleAt = now
 	l.pendingAnalysis = shared.AnalysisStatus{}
 	l.analysisMu.Unlock()
+	if shouldSaveLog {
+		l.saveAnalysisLog(taskID, status)
+	}
 }
 
 // AnalysisStatus 返回指定任务最近一次结构化判断状态的副本。
@@ -82,6 +110,7 @@ func (l *TaskLogger) AnalysisStatus(taskID string) *shared.AnalysisStatus {
 	status.MatchedKeywords = append([]string(nil), status.MatchedKeywords...)
 	status.ExcludeKeywords = append([]string(nil), status.ExcludeKeywords...)
 	status.MatchedExcludes = append([]string(nil), status.MatchedExcludes...)
+	status.Timeline = append([]shared.AnalysisEvent(nil), status.Timeline...)
 	return &status
 }
 
@@ -90,6 +119,121 @@ func analysisChangedCandidate(current shared.AnalysisStatus, incoming shared.Ana
 	currentName := strings.TrimSpace(current.CandidateName)
 	incomingName := strings.TrimSpace(incoming.CandidateName)
 	return currentName != "" && incomingName != "" && currentName != incomingName
+}
+
+// sameAnalysisCandidate 判断两条状态是否属于同一任务候选人和同一种分析流程。
+func sameAnalysisCandidate(current shared.AnalysisStatus, incoming shared.AnalysisStatus) bool {
+	return strings.TrimSpace(current.Kind) != "" &&
+		current.Kind == incoming.Kind &&
+		strings.TrimSpace(current.CandidateName) == strings.TrimSpace(incoming.CandidateName)
+}
+
+// sameAnalysisLogRecord 判断两次上报是否只是统计刷新，避免同一 AI 结果反复写入全局日志。
+func sameAnalysisLogRecord(current shared.AnalysisStatus, incoming shared.AnalysisStatus) bool {
+	return strings.TrimSpace(current.Kind) != "" &&
+		current.Kind == incoming.Kind &&
+		current.Phase == incoming.Phase &&
+		current.Stage == incoming.Stage &&
+		current.Terminal == incoming.Terminal &&
+		strings.TrimSpace(current.CandidateName) == strings.TrimSpace(incoming.CandidateName) &&
+		analysisLogMessage(current) == analysisLogMessage(incoming)
+}
+
+// mergeAnalysisTimeline 为自动回复累积最近20条状态，并过滤连续重复记录。
+func mergeAnalysisTimeline(existing []shared.AnalysisEvent, incoming shared.AnalysisStatus) []shared.AnalysisEvent {
+	result := append([]shared.AnalysisEvent(nil), existing...)
+	if incoming.Kind != "auto_reply" || strings.TrimSpace(incoming.Reason) == "" {
+		return result
+	}
+	event := shared.AnalysisEvent{
+		Phase: incoming.Phase, Stage: incoming.Stage,
+		Message: strings.TrimSpace(incoming.Reason), UpdatedAt: incoming.UpdatedAt,
+	}
+	if len(result) > 0 {
+		last := result[len(result)-1]
+		if last.Phase == event.Phase && last.Stage == event.Stage && last.Message == event.Message {
+			return result
+		}
+	}
+	result = append(result, event)
+	if len(result) > 20 {
+		result = append([]shared.AnalysisEvent(nil), result[len(result)-20:]...)
+	}
+	return result
+}
+
+// saveAnalysisLog 把 AI 和关键词分析状态同步到用户可见的全局日志。
+func (l *TaskLogger) saveAnalysisLog(taskID string, status shared.AnalysisStatus) {
+	if l == nil || l.store == nil {
+		return
+	}
+	message := analysisLogMessage(status)
+	if message == "" {
+		return
+	}
+	level := "info"
+	stepStatus := "running"
+	if strings.EqualFold(status.Phase, "error") {
+		level = "error"
+		stepStatus = "failed"
+	} else if status.Terminal {
+		stepStatus = "success"
+	}
+	step := strings.Trim(strings.Join([]string{"analysis", status.Kind, status.Stage}, "."), ".")
+	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
+		TaskID: taskID, Flow: "analysis", Step: step, Status: stepStatus, Level: level, Message: message,
+	}); err != nil {
+		log.Printf("task_id=%s flow=analysis step=save_log status=warning error=%q", taskID, err)
+	}
+}
+
+// analysisLogMessage 生成适合 HR 查看的一行中文分析记录。
+func analysisLogMessage(status shared.AnalysisStatus) string {
+	parts := make([]string, 0, 6)
+	label := analysisKindLabel(status.Kind)
+	if strings.TrimSpace(status.CandidateName) != "" {
+		parts = append(parts, label+"："+strings.TrimSpace(status.CandidateName))
+	} else {
+		parts = append(parts, label)
+	}
+	if status.Score != nil {
+		scoreText := strconv.FormatFloat(*status.Score, 'f', 1, 64)
+		if status.Threshold != nil {
+			scoreText += " / 阈值 " + strconv.FormatFloat(*status.Threshold, 'f', 1, 64)
+		}
+		parts = append(parts, "分数 "+scoreText)
+	}
+	if status.Accepted != nil {
+		if *status.Accepted {
+			parts = append(parts, "结果 通过")
+		} else {
+			parts = append(parts, "结果 未通过")
+		}
+	}
+	if len(status.MatchedKeywords) > 0 {
+		parts = append(parts, "命中 "+strings.Join(status.MatchedKeywords, "、"))
+	}
+	if len(status.MatchedExcludes) > 0 {
+		parts = append(parts, "排除 "+strings.Join(status.MatchedExcludes, "、"))
+	}
+	if strings.TrimSpace(status.Reason) != "" {
+		parts = append(parts, "原因 "+strings.TrimSpace(status.Reason))
+	}
+	return strings.Join(parts, "；")
+}
+
+// analysisKindLabel 返回分析类型的中文名称。
+func analysisKindLabel(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "ai":
+		return "AI 分析"
+	case "keyword":
+		return "关键词匹配"
+	case "auto_reply":
+		return "自动回复 AI"
+	default:
+		return "分析记录"
+	}
 }
 
 // ResetAnalysis 清空旧分析内容并把内存状态归属到当前任务。

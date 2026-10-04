@@ -59,13 +59,18 @@ func (s *PositionExecutionService) SaveLocalCandidate(w http.ResponseWriter, r *
 	s.writeCandidateIngestLog(position.ID, position.UserEmail, "info", "云端收到候选人入库请求："+candidateName)
 	now := time.Now().UTC()
 	profile, err := s.candidateStore.SaveCandidateProfile(CandidateProfileInput{
+		TenantID:            tenantID,
 		UserEmail:           position.UserEmail,
 		PlatformID:          firstNonEmpty(localCandidateString(payload, "platform_id"), position.PlatformID),
 		PlatformCandidateID: localCandidateString(payload, "id"),
 		CandidateName:       firstNonEmpty(localCandidateString(payload, "candidate_name"), localCandidateString(payload, "name")),
+		Gender:              localCandidateString(payload, "gender"),
 		BirthYM:             localCandidateString(payload, "birth_ym"),
+		BirthYMPrecision:    localCandidateString(payload, "birth_ym_precision"),
+		NormalizedPhone:     localCandidateString(payload, "normalized_phone"),
 		Phone:               localCandidateString(payload, "phone"),
 		Email:               localCandidateString(payload, "email"),
+		Wechat:              localCandidateString(payload, "wechat"),
 		WorkRegion:          localCandidateString(payload, "work_region"),
 		WorkYears:           localCandidateString(payload, "work_years"),
 		ExpectedSalaryMin:   localCandidateIntPtr(payload, "expected_salary_min"),

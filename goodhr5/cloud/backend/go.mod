@@ -1,6 +1,6 @@
 module goodhr5/cloud/backend
 
-go 1.24
+go 1.24.1
 
 require (
 	github.com/gorilla/websocket v1.5.3
@@ -12,6 +12,7 @@ require (
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 )

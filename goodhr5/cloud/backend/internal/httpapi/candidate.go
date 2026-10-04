@@ -63,6 +63,7 @@ type CandidateBasicProfile struct {
 	BirthYM                 string                       `json:"birth_ym"`
 	Phone                   string                       `json:"phone"`
 	Email                   string                       `json:"email"`
+	Wechat                  string                       `json:"wechat"`
 	WorkRegion              string                       `json:"work_region"`
 	WorkYears               string                       `json:"work_years"`
 	ExpectedSalary          CandidateSalary              `json:"expected_salary"`

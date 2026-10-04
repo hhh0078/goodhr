@@ -9,11 +9,13 @@ services:
     environment:
       GOODHR_CLOUD_ADDR: ":8084"
       GOODHR_PG_DSN: "postgres://goodhr5_dev:goodhr5_dev@postgres:5432/goodhr5_dev?sslmode=disable"
+      GOODHR_PUBLIC_WEB_BASE_URL: "http://localhost:5173"
     ports:
       - "8084:8084"
     volumes:
       - ./cloud/backend:/app
       - backend_tmp:/app/tmp
+      - backend_auto_reply_resumes:/app/data/auto-reply-resumes
       - backend_go_cache:/go/pkg/mod
       - backend_build_cache:/root/.cache/go-build
     networks:
@@ -47,6 +49,8 @@ networks:
 
 volumes:
   backend_tmp:
+  # 自动回复取得的简历附件保存在独立持久化卷，重建后端容器不会丢失。
+  backend_auto_reply_resumes:
   backend_go_cache:
   backend_build_cache:
   frontend_node_modules:

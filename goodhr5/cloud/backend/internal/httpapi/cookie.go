@@ -29,7 +29,7 @@ func NewCookieService(auth *AuthService, store CookieStore, tenantStore TenantSt
 func (s *CookieService) currentTenant(w http.ResponseWriter, r *http.Request) (string, bool) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, 401, "unauthorized")
+		writeAuthError(w, err)
 		return "", false
 	}
 	t, err := s.tenantStore.GetOrCreateTenant(session.Email)
@@ -66,7 +66,7 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, 401, "unauthorized")
+		writeAuthError(w, err)
 		return
 	}
 	tenantID, ok := s.currentTenant(w, r)
@@ -159,7 +159,7 @@ func (s *CookieService) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, 401, "unauthorized")
+		writeAuthError(w, err)
 		return
 	}
 	tenantID, ok := s.currentTenant(w, r)

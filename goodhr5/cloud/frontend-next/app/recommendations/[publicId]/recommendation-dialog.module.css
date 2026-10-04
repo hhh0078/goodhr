@@ -1,0 +1,171 @@
+/* 本文件负责公开推荐报告中沟通记录弹框和聊天气泡的响应式样式。 */
+
+.modalBackdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  padding: 24px;
+  place-items: center;
+  background: rgba(20, 30, 25, 0.54);
+}
+
+.modal {
+  display: grid;
+  width: min(760px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgba(12, 26, 18, 0.26);
+}
+
+.modal > header {
+  display: flex;
+  padding: 18px 20px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e0e5e1;
+}
+
+.modal > header p,
+.modal > header h2 {
+  margin: 0;
+}
+
+.modal > header p {
+  margin-bottom: 3px;
+  color: #718078;
+  font-size: 11px;
+}
+
+.modal > header h2 {
+  font-size: 20px;
+}
+
+.modal > header button {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  color: #536158;
+  background: #eff2f0;
+  font-size: 25px;
+  cursor: pointer;
+}
+
+.modalBody {
+  padding: 18px 20px;
+  overflow-y: auto;
+}
+
+.loadError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.loadError p {
+  margin: 0;
+  color: #9c342d;
+}
+
+.loadError button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #cbd5cf;
+  border-radius: 8px;
+  color: #2c4e3d;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.loadError button:hover {
+  background: #eef5f0;
+}
+
+.conversation {
+  margin-bottom: 10px;
+  overflow: hidden;
+  border: 1px solid #dfe5e1;
+  border-radius: 8px;
+}
+
+.conversation summary {
+  display: flex;
+  padding: 12px 14px;
+  justify-content: space-between;
+  gap: 12px;
+  background: #f6f8f6;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.conversation summary span {
+  color: #738078;
+  font-size: 12px;
+}
+
+.conversation > div {
+  display: grid;
+  padding: 14px;
+  gap: 8px;
+}
+
+.candidateMessage,
+.hrMessage {
+  max-width: 82%;
+  padding: 9px 11px;
+  border-radius: 8px;
+}
+
+.candidateMessage {
+  justify-self: start;
+  background: #f0f2f0;
+}
+
+.hrMessage {
+  justify-self: end;
+  color: #fff;
+  background: #356c52;
+}
+
+.candidateMessage strong,
+.hrMessage strong,
+.candidateMessage time,
+.hrMessage time {
+  font-size: 10px;
+  opacity: 0.72;
+}
+
+.candidateMessage p,
+.hrMessage p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+@media (max-width: 720px) {
+  .modalBackdrop {
+    padding: 0;
+    place-items: end center;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: 88vh;
+    border-radius: 14px 14px 0 0;
+  }
+}
+
+@media print {
+  .modalBackdrop {
+    display: none !important;
+  }
+}

@@ -15,6 +15,7 @@ const structuredResumeExample = `{
   "birth_ym": "1990-05",
   "phone": "",
   "email": "",
+  "wechat": "",
   "work_region": "上海",
   "work_years": "10年以上",
   "expected_salary_min": 20,
@@ -92,6 +93,9 @@ func parseDecisionWithStructured(content string, threshold float64, includeResum
 // hasStructuredCandidate 判断完整 AI 响应是否真正包含可保存的简历字段。
 func hasStructuredCandidate(candidate cloud.StructuredCandidate) bool {
 	return strings.TrimSpace(candidate.CandidateName) != "" ||
+		strings.TrimSpace(candidate.Phone) != "" ||
+		strings.TrimSpace(candidate.Email) != "" ||
+		strings.TrimSpace(candidate.Wechat) != "" ||
 		strings.TrimSpace(candidate.RawText) != "" ||
 		strings.TrimSpace(candidate.PersonalDescription) != "" ||
 		len(candidate.WorkExperiences) > 0 ||

@@ -12,6 +12,7 @@ type AIRequest struct {
 	Messages       []AIMsg           `json:"messages"`
 	Temperature    float64           `json:"temperature"`
 	ResponseFormat map[string]string `json:"response_format,omitempty"`
+	EnableThinking *bool             `json:"enable_thinking,omitempty"`
 	ReasoningSplit bool              `json:"reasoning_split,omitempty"`
 }
 

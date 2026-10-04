@@ -111,8 +111,9 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 		DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
 	}
 	replyFlow := &auto_reply.Flow{
-		Browser: browserClient, AI: aiClient, Store: store, Cloud: cloudClient,
-		Logger: logger, DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
+		Browser: browserClient, Store: store, Cloud: cloudClient,
+		Responder: &auto_reply.AIResponder{AI: aiClient, Cloud: cloudClient, Logger: logger},
+		Logger:    logger, DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
 	}
 	runner := lifecycle.New(checker, greetingFlow, replyFlow, store, profiles, powerGuard, cloudClient, notifier, logger)
 	downloads := &downloadflow.Monitor{Browser: browserClient, Store: store, Notifier: notifier}

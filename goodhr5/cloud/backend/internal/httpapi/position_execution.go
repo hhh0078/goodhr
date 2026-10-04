@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	stdlog "log"
@@ -33,16 +34,18 @@ type PositionExecutionService struct {
 	dailyStats     SystemDailyStatsStore
 	userFlow       UserFlowStore
 	agents         AgentStore
+	autoReply      *PostgresAutoReplyStore
 }
 
 // NewPositionExecutionService 创建岗位运行服务。
 // 所有运行状态直接归属于岗位，不再创建独立岗位运行记录。
-func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore) *PositionExecutionService {
+func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore, autoReply *PostgresAutoReplyStore) *PositionExecutionService {
 	return &PositionExecutionService{
 		auth: auth, store: store, positionLogs: positionLogs, tenantStore: tenantStore,
 		accounts: accounts, candidateStore: candidateStore, subscriptions: subscriptions,
 		systemConfigs: systemConfigs,
 		aiWallet:      aiWallet, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow, agents: agents,
+		autoReply: autoReply,
 	}
 }
 
@@ -55,7 +58,7 @@ func (s *PositionExecutionService) Start(w http.ResponseWriter, r *http.Request)
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writePositionStartError(w, http.StatusUnauthorized, "SESSION_EXPIRED", "登录状态已经失效，请重新登录")
+		writeAuthError(w, err)
 		return
 	}
 	var payload struct {
@@ -262,6 +265,22 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 			return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "AI 余额不足 0.10 元，岗位这次没有启动，请先充值"}
 		}
 	}
+	if autoReply {
+		if s.autoReply == nil || s.tenantStore == nil {
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AUTO_REPLY_STORAGE_UNAVAILABLE", message: "自动回复存储还没准备好，这次我先不乱启动，请稍后再试"}
+		}
+		tenant, err := s.tenantStore.GetOrCreateTenant(email)
+		if err != nil {
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AUTO_REPLY_CONFIG_LOAD_FAILED", message: "自动回复配置暂时没读出来，这次我先不乱启动"}
+		}
+		config, err := s.autoReply.GetPositionAutoReplyConfig(context.Background(), tenant.ID, position.ID)
+		if errors.Is(err, ErrNotFound) || (err == nil && !config.Enabled) {
+			return &positionStartError{status: http.StatusConflict, code: "AUTO_REPLY_NOT_ENABLED", message: "这个岗位还没有开启自动回复，请先保存自动回复配置"}
+		}
+		if err != nil {
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AUTO_REPLY_CONFIG_LOAD_FAILED", message: "自动回复配置暂时没读出来，这次我先不乱启动"}
+		}
+	}
 	if err := s.store.ClaimPositionStart(email, position.ID); err != nil {
 		if errors.Is(err, ErrPositionAlreadyRunning) {
 			return &positionStartError{status: http.StatusConflict, code: "POSITION_TASK_CONFLICT", message: "这个账号已经有岗位在运行，请先停掉当前任务再开始新的"}
@@ -409,7 +428,7 @@ func positionStatusNoticeLabel(status string) string {
 func (s *PositionExecutionService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		writeAuthError(w, err)
 		return Session{}, false
 	}
 	return session, true
@@ -425,7 +444,7 @@ func (s *PositionExecutionService) currentSessionForFailNotice(w http.ResponseWr
 	if unsafeErr == nil {
 		return session, true
 	}
-	writeError(w, http.StatusUnauthorized, "session invalid or expired")
+	writeAuthError(w, unsafeErr)
 	return Session{}, false
 }
 

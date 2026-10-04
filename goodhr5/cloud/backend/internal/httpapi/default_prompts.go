@@ -3,7 +3,6 @@ package httpapi
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 )
@@ -62,11 +61,7 @@ func (s *Server) GetDefaultPrompts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.auth.SessionFromRequest(r); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-			return
-		}
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeAuthError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

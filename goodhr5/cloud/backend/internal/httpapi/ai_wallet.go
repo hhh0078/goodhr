@@ -104,7 +104,7 @@ func (s *AIWalletService) Summary(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	balance, err := s.wallet.BalanceUnits(session.Email)
@@ -133,7 +133,7 @@ func (s *AIWalletService) Records(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	email := session.Email
@@ -179,7 +179,7 @@ func (s *AIWalletService) UseBuiltin(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	config, err := s.ConfigureUserBuiltinAI(session.Email)

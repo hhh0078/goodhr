@@ -4,7 +4,9 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -14,6 +16,8 @@ type CandidateService struct {
 	auth        *AuthService
 	store       CandidateStore
 	tenantStore TenantStore
+	autoReply   *PostgresAutoReplyStore
+	resumeDir   string
 }
 
 type candidateNoteRequest struct {
@@ -21,9 +25,9 @@ type candidateNoteRequest struct {
 }
 
 // NewCandidateService 创建候选人查询服务。
-// auth 用于认证当前用户，store 用于读取候选人，tenantStore 用于限定团队范围。
-func NewCandidateService(auth *AuthService, store CandidateStore, tenantStore TenantStore) *CandidateService {
-	return &CandidateService{auth: auth, store: store, tenantStore: tenantStore}
+// auth 用于认证当前用户，store 用于读取候选人，tenantStore 用于限定团队范围，autoReply 用于读取关联沟通资料，resumeDir 为附件保存目录。
+func NewCandidateService(auth *AuthService, store CandidateStore, tenantStore TenantStore, autoReply *PostgresAutoReplyStore, resumeDir string) *CandidateService {
+	return &CandidateService{auth: auth, store: store, tenantStore: tenantStore, autoReply: autoReply, resumeDir: strings.TrimSpace(resumeDir)}
 }
 
 // Collection 处理简历库候选人列表请求。
@@ -52,10 +56,14 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := PositionCandidateQuery{
-		PositionID: strings.TrimSpace(r.URL.Query().Get("position_id")),
-		Keyword:    firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("keyword")), strings.TrimSpace(r.URL.Query().Get("q"))),
-		Page:       parsePositiveInt(r.URL.Query().Get("page")),
-		PageSize:   parsePositiveInt(r.URL.Query().Get("page_size")),
+		PositionID:      strings.TrimSpace(r.URL.Query().Get("position_id")),
+		PlatformID:      normalizeCandidatePlatformID(r.URL.Query().Get("platform_id")),
+		Keyword:         firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("keyword")), strings.TrimSpace(r.URL.Query().Get("q"))),
+		PhoneStatus:     normalizeCandidatePhoneStatus(r.URL.Query().Get("has_phone")),
+		ConditionStatus: normalizeCandidateConditionStatus(r.URL.Query().Get("condition_status")),
+		Sort:            normalizeCandidateSort(r.URL.Query().Get("sort")),
+		Page:            parsePositiveInt(r.URL.Query().Get("page")),
+		PageSize:        parsePositiveInt(r.URL.Query().Get("page_size")),
 	}
 	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, session.Email)
 	if !isAdmin {
@@ -96,20 +104,26 @@ func (s *CandidateService) ClearTeam(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "只有团队管理员才能清空简历库")
 		return
 	}
-	deleted, err := s.store.DeleteTeamCandidates(tenant.ID)
+	result, err := s.store.DeleteTeamCandidates(tenant.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to clear candidates")
 		return
 	}
+	cleanupFailed := s.cleanupCandidateAttachments(result.AttachmentPaths) + s.cleanupCandidateAvatars(result.AvatarURLs)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"deleted": deleted,
+		"ok":             true,
+		"deleted":        result.Deleted,
+		"cleanup_failed": cleanupFailed,
 	})
 }
 
 // Detail 处理单个候选人详情请求。
 // 路径格式为 /api/candidates/{id}，只允许查看当前团队内候选人。
 func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		s.Delete(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -143,6 +157,109 @@ func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
 		"ok":        true,
 		"candidate": publicPositionCandidate(item),
 	})
+}
+
+// Delete 删除当前用户有权查看的单个候选人及其全部关联资料。
+// 路径格式为 /api/candidates/{id}，删除数据库事务成功后再清理附件文件。
+func (s *CandidateService) Delete(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	if s.store == nil || s.tenantStore == nil {
+		writeError(w, http.StatusInternalServerError, "简历库还没准备好，请稍后再试")
+		return
+	}
+	candidateID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/candidates/"), "/")
+	if candidateID == "" || strings.Contains(candidateID, "/") {
+		writeError(w, http.StatusBadRequest, "我还没认出要删除哪份简历")
+		return
+	}
+	tenant, err := s.tenantStore.GetOrCreateTenant(session.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "团队信息暂时没读出来，请稍后再试")
+		return
+	}
+	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, session.Email)
+	engagementID := strings.TrimSpace(r.URL.Query().Get("engagement_id"))
+	if _, err = s.store.GetPositionCandidate(tenant.ID, candidateID, engagementID, session.Email, isAdmin); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeError(w, http.StatusNotFound, "这份简历已经不在了，刷新一下就好")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "删除前没确认好这份简历，请稍后再试")
+		return
+	}
+	result, err := s.store.DeleteCandidate(tenant.ID, candidateID)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "这份简历已经不在了，刷新一下就好")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "这份简历暂时没删成功，请稍后再试")
+		return
+	}
+	cleanupFailed := s.cleanupCandidateAttachments(result.AttachmentPaths) + s.cleanupCandidateAvatars(result.AvatarURLs)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":             true,
+		"deleted":        result.Deleted,
+		"cleanup_failed": cleanupFailed,
+	})
+}
+
+// cleanupCandidateAttachments 安全清理数据库删除后不再使用的候选人附件文件。
+// paths 为附件相对路径，返回路径不安全或文件删除失败的数量。
+func (s *CandidateService) cleanupCandidateAttachments(paths []string) int {
+	failed := 0
+	seen := make(map[string]struct{}, len(paths))
+	for _, relativePath := range paths {
+		relativePath = strings.TrimSpace(relativePath)
+		if relativePath == "" {
+			continue
+		}
+		if _, exists := seen[relativePath]; exists {
+			continue
+		}
+		seen[relativePath] = struct{}{}
+		absolutePath, err := autoReplyResumeStoragePath(s.resumeDir, relativePath)
+		if err != nil {
+			failed++
+			log.Printf("[简历删除] 跳过不安全的附件路径")
+			continue
+		}
+		if err = os.Remove(absolutePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failed++
+			log.Printf("[简历删除] 附件文件清理失败 err=%v", err)
+		}
+	}
+	return failed
+}
+
+// cleanupCandidateAvatars 安全清理数据库删除后不再使用的自托管候选人头像。
+// avatarURLs 为数据库原有头像地址，远程地址或不安全路径只跳过、不发起网络请求。
+func (s *CandidateService) cleanupCandidateAvatars(avatarURLs []string) int {
+	failed := 0
+	seen := make(map[string]struct{}, len(avatarURLs))
+	for _, avatarURL := range avatarURLs {
+		avatarURL = strings.TrimSpace(avatarURL)
+		if avatarURL == "" {
+			continue
+		}
+		if _, exists := seen[avatarURL]; exists {
+			continue
+		}
+		seen[avatarURL] = struct{}{}
+		absolutePath, err := candidateAvatarStoragePath(s.resumeDir, avatarURL)
+		if err != nil {
+			log.Printf("[简历删除] 跳过非自托管头像地址")
+			continue
+		}
+		if err = os.Remove(absolutePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failed++
+			log.Printf("[简历删除] 头像文件清理失败 err=%v", err)
+		}
+	}
+	return failed
 }
 
 // Notes 处理候选人备注列表和新增请求。
@@ -218,12 +335,8 @@ func (s *CandidateService) Notes(w http.ResponseWriter, r *http.Request) {
 // currentSession 从请求中解析当前登录会话。
 func (s *CandidateService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	session, err := s.auth.SessionFromRequest(r)
-	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-		return Session{}, false
-	}
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeAuthError(w, err)
 		return Session{}, false
 	}
 	return session, true
@@ -261,9 +374,14 @@ func publicPositionCandidate(item PositionCandidate) map[string]any {
 		"platform_id":              item.PlatformID,
 		"platform_candidate_id":    item.PlatformCandidateID,
 		"candidate_name":           item.CandidateName,
+		"avatar_url":               item.AvatarURL,
+		"gender":                   item.Gender,
 		"birth_ym":                 item.BirthYM,
+		"birth_ym_precision":       item.BirthYMPrecision,
+		"normalized_phone":         item.NormalizedPhone,
 		"phone":                    item.Phone,
 		"email":                    item.Email,
+		"wechat":                   item.Wechat,
 		"work_region":              item.WorkRegion,
 		"work_years":               item.WorkYears,
 		"expected_salary_min":      item.ExpectedSalaryMin,

@@ -358,7 +358,7 @@ func (s *TenantService) writeInvitationActionError(w http.ResponseWriter, err er
 func (s *TenantService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return Session{}, false
 	}
 	return session, true

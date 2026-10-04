@@ -235,10 +235,64 @@ func (s *Store) LatestTaskForPosition(ctx context.Context, positionID string) (T
 	return task, nil
 }
 
+// LatestTask 返回本地最近一次任务状态。
+func (s *Store) LatestTask(ctx context.Context) (TaskRun, error) {
+	return s.latestTaskByWhere(ctx, "", nil)
+}
+
+// LatestTaskForType 返回指定任务类型最近一次本地任务状态。
+func (s *Store) LatestTaskForType(ctx context.Context, taskType string) (TaskRun, error) {
+	taskType = strings.TrimSpace(taskType)
+	if taskType == "" {
+		return TaskRun{}, fmt.Errorf("任务类型不能为空")
+	}
+	return s.latestTaskByWhere(ctx, "WHERE task_type = ?", []any{taskType})
+}
+
+// latestTaskByWhere 根据可选过滤条件读取最近一次任务状态。
+func (s *Store) latestTaskByWhere(ctx context.Context, whereClause string, args []any) (TaskRun, error) {
+	var task TaskRun
+	var startedAt, updatedAt, finishedAt string
+	query := `
+		SELECT task_id, position_id, platform_id, task_type, status, current_step,
+			summary, error_code, error_message, started_at, updated_at, finished_at
+		FROM task_runs
+		` + whereClause + `
+		ORDER BY started_at DESC
+		LIMIT 1`
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(
+		&task.TaskID,
+		&task.PositionID,
+		&task.PlatformID,
+		&task.TaskType,
+		&task.Status,
+		&task.CurrentStep,
+		&task.Summary,
+		&task.ErrorCode,
+		&task.ErrorMessage,
+		&startedAt,
+		&updatedAt,
+		&finishedAt,
+	)
+	if err != nil {
+		return TaskRun{}, err
+	}
+	task.StartedAt, _ = time.Parse(time.RFC3339Nano, startedAt)
+	task.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+	task.FinishedAt, _ = time.Parse(time.RFC3339Nano, finishedAt)
+	if err = s.fillTaskCandidateCounts(ctx, &task); err != nil {
+		return TaskRun{}, err
+	}
+	return task, nil
+}
+
 // fillTaskCandidateCounts 从已有候选人摘要计算本次任务的扫描、打招呼和跳过数量。
 func (s *Store) fillTaskCandidateCounts(ctx context.Context, task *TaskRun) error {
 	if task == nil || strings.TrimSpace(task.TaskID) == "" {
 		return nil
+	}
+	if task.TaskType == "auto_reply" {
+		return s.fillTaskConversationCounts(ctx, task)
 	}
 	err := s.db.QueryRowContext(ctx, `
 		SELECT
@@ -251,6 +305,23 @@ func (s *Store) fillTaskCandidateCounts(ctx context.Context, task *TaskRun) erro
 	).Scan(&task.ScannedCount, &task.GreetedCount, &task.SkippedCount)
 	if err != nil {
 		return fmt.Errorf("统计本次任务候选人数量失败：%w", err)
+	}
+	return nil
+}
+
+// fillTaskConversationCounts 从自动回复摘要计算本次处理会话、成功回复和转人工或跳过数量。
+func (s *Store) fillTaskConversationCounts(ctx context.Context, task *TaskRun) error {
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN result = 'success' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN result != 'success' THEN 1 ELSE 0 END), 0)
+		FROM conversation_records
+		WHERE task_id = ?`,
+		task.TaskID,
+	).Scan(&task.ScannedCount, &task.GreetedCount, &task.SkippedCount)
+	if err != nil {
+		return fmt.Errorf("统计本次自动回复会话数量失败：%w", err)
 	}
 	return nil
 }

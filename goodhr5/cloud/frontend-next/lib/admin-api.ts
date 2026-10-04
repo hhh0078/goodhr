@@ -2,6 +2,8 @@
 "use client";
 
 import { TOKEN_KEY } from "./api";
+import { shouldClearSession } from "./auth-session";
+import { candidateAvatarAssetURL } from "./candidate-avatar-url";
 
 const DEFAULT_CLOUD_API_BASE =
   process.env.NODE_ENV === "production"
@@ -23,6 +25,7 @@ export class APIRequestError extends Error {
     message: string,
     public readonly code: string,
     public readonly status: number,
+    public readonly errorID = "",
   ) {
     super(message);
     this.name = "APIRequestError";
@@ -58,6 +61,11 @@ export function getToken() {
     : localStorage.getItem(TOKEN_KEY) || "";
 }
 
+/** cloudAssetURL 只把云端生成的候选人头像路径转换为可访问地址，拒绝招聘平台远程图片。 */
+export function cloudAssetURL(value: string) {
+  return candidateAvatarAssetURL(value, CLOUD_API_BASE);
+}
+
 /** cloudRequest 统一请求云端接口并处理鉴权与错误。 */
 export async function cloudRequest(path: string, options: RequestOptions = {}) {
   const { body, auth = true, headers, ...rest } = options;
@@ -82,7 +90,34 @@ export async function cloudRequest(path: string, options: RequestOptions = {}) {
   } catch {
     throw new Error("无法连接云端服务，请检查网络后重试");
   }
-  return parseResponse(response, "云端请求失败", Boolean(token));
+  return parseResponse(response, "云端请求失败", token);
+}
+
+/** cloudDownload 携带登录凭证下载云端受保护文件，并使用服务端文件名保存。 */
+export async function cloudDownload(path: string, filename: string) {
+  const token = getToken();
+  let response: Response;
+  try {
+    response = await fetch(`${CLOUD_API_BASE}${path}`, {
+      cache: "no-store",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch {
+    throw new Error("无法连接云端服务，请检查网络后重试");
+  }
+  if (!response.ok) {
+    await parseResponse(response, "简历附件下载失败", token);
+    return;
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || "候选人简历";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 /** localRequest 统一请求本地程序接口。 */
@@ -107,7 +142,7 @@ export async function localRequest(
             ? body
             : JSON.stringify(body),
     });
-    const data = await parseResponse(response, "本地程序请求失败", false);
+    const data = await parseResponse(response, "本地程序请求失败", "");
     return data?.data ?? data;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError")
@@ -319,7 +354,7 @@ function saveLocalAgentDetectCache(cache: {
 async function parseResponse(
   response: Response,
   fallback: string,
-  clearInvalidToken: boolean,
+  requestToken: string,
 ) {
   const text = await response.text();
   let data: any = {};
@@ -336,17 +371,22 @@ async function parseResponse(
     data.ok === false ||
     (data.code != null && code !== 200)
   ) {
-		if (response.status === 401 && clearInvalidToken) {
-			localStorage.removeItem(TOKEN_KEY);
-			if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-				const next = encodeURIComponent(window.location.pathname + window.location.search);
-				window.location.replace(`/login?next=${next}`);
-			}
-		}
+    if (typeof window !== "undefined" && shouldClearSession(
+      response.status, responseErrorCode(data), requestToken, getToken(),
+    )) {
+      localStorage.removeItem(TOKEN_KEY);
+      if (!window.location.pathname.startsWith("/login")) {
+        const next = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.replace(`/login?next=${next}`);
+      }
+    }
+    const errorID = responseErrorID(data);
+    const message = responseErrorMessage(data, fallback);
     throw new APIRequestError(
-      responseErrorMessage(data, fallback),
+      errorID ? `${message}（错误编号：${errorID}）` : message,
       responseErrorCode(data),
       response.status,
+      errorID,
     );
   }
   return data;
@@ -358,6 +398,15 @@ function responseErrorCode(data: unknown) {
   if (typeof data.code === "string") return data.code.trim();
   if (isRecord(data.error) && typeof data.error.code === "string")
     return data.error.code.trim();
+  return "";
+}
+
+/** responseErrorID 从统一错误对象中读取服务端追踪编号。 */
+function responseErrorID(data: unknown) {
+  if (!isRecord(data)) return "";
+  if (typeof data.error_id === "string") return data.error_id.trim();
+  if (isRecord(data.error) && typeof data.error.error_id === "string")
+    return data.error.error_id.trim();
   return "";
 }
 

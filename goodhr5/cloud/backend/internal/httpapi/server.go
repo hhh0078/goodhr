@@ -42,6 +42,7 @@ type Server struct {
 	systemConfigs       SystemConfigStore
 	tenants             *TenantService
 	cookies             *CookieService
+	autoReply           *AutoReplyService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
@@ -62,7 +63,7 @@ func NewServer() (*Server, error) {
 	adminUserStore := config.AdminUserStore(db, subscriptionStore)
 	invitationStore := config.InvitationStore(db)
 	activationCodeStore := config.ActivationCodeStore(db)
-	authStore, err := config.AuthStore()
+	authStore, err := config.AuthStore(db)
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +72,7 @@ func NewServer() (*Server, error) {
 	}
 	dailyStatsStore := config.SystemDailyStatsStore(db)
 	candidateStore := config.CandidateStore(db)
+	autoReplyStore := config.AutoReplyStore(db)
 	agentStore := config.AgentStore(db)
 	userFlowStore := config.UserFlowStore(db)
 	cookieStore := config.CookieStore(db)
@@ -90,6 +92,8 @@ func NewServer() (*Server, error) {
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(systemConfigStore))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	adminEmails.StartRecoveryScheduler()
+	autoReplyService := NewAutoReplyService(auth, autoReplyStore, tenantStore, positionStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, agentStore, mailer, aiConfigStore, config.AutoReplyResumeDir)
+	autoReplyService.StartRecommendationWorker()
 	return &Server{
 		auth:                auth,
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
@@ -101,10 +105,10 @@ func NewServer() (*Server, error) {
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
+		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, autoReplyStore),
 		positionLogs:        positionLogs,
 		browserEvents:       NewBrowserEventService(auth, db),
-		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
+		candidates:          NewCandidateService(auth, candidateStore, tenantStore, autoReplyStore, config.AutoReplyResumeDir),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:            paymentService,
 		runtimeConfig:       NewRuntimeConfigService(auth, systemConfigStore),
@@ -119,6 +123,7 @@ func NewServer() (*Server, error) {
 		systemConfigs:       systemConfigStore,
 		tenants:             NewTenantService(auth, tenantStore, mailer),
 		cookies:             NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
+		autoReply:           autoReplyService,
 	}, nil
 }
 
@@ -139,6 +144,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/agreement-status", s.auth.AgreementStatus)
 	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)
 	mux.HandleFunc("/api/public/stats/today", s.publicStats.Today)
+	mux.HandleFunc("/api/public/recommendations/", s.autoReply.PublicRecommendation)
+	mux.HandleFunc("/api/public/candidate-avatars/", s.autoReply.PublicCandidateAvatar)
 	mux.HandleFunc("/api/public/position-log-shares/", s.positionLogs.PublicShare)
 	// 注册本地程序连接接口，用于云端记录当前账号对应的本地 Agent。
 	mux.HandleFunc("/api/agents/bind", s.agent.Bind)
@@ -191,6 +198,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/positions", s.positions.Collection)
 	mux.HandleFunc("/api/positions/optimize-requirement", s.positions.OptimizeRequirement)
 	mux.HandleFunc("/api/positions/", s.positionRoute)
+	mux.HandleFunc("/api/auto-reply/company-profiles", s.autoReply.CompanyProfiles)
+	mux.HandleFunc("/api/auto-reply/company-profiles/", s.autoReply.CompanyProfile)
+	mux.HandleFunc("/api/auto-reply/attachments/", s.autoReply.Attachment)
+	mux.HandleFunc("/api/auto-reply/positions/", s.autoReply.Position)
+	mux.HandleFunc("/api/auto-reply/agent/", s.autoReply.Agent)
+	mux.HandleFunc("/api/auto-reply/audit", s.autoReply.Audit)
+	mux.HandleFunc("/api/auto-reply/suggestions", s.autoReply.Suggestions)
+	mux.HandleFunc("/api/auto-reply/suggestions/", s.autoReply.Suggestion)
+	mux.HandleFunc("/api/auto-reply/recommendations/", s.autoReply.Recommendation)
 	mux.HandleFunc("/api/fail-notice", s.positionExecution.FailNotice)
 	// 注册简历库接口，用于查看当前团队或指定岗位运行下的候选人。
 	mux.HandleFunc("/api/candidates", s.candidates.Collection)
@@ -224,6 +240,10 @@ func (s *Server) Routes() http.Handler {
 
 // positionRoute 根据路径分发岗位详情、日志和本地程序同步请求。
 func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/auto-reply") {
+		s.autoReply.Position(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/logs/share") {
 		s.positionLogs.Share(w, r)
 		return
