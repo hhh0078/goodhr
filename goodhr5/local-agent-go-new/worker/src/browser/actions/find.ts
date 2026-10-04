@@ -144,12 +144,15 @@ export class FindAction {
         index: resolved.list_index ?? index + startIndex, element_ref: "", text: "", fields: {},
       }));
       const diagnoseNames = report && Object.hasOwn(fields, "name");
+      // 限制整批同时进行的页面读取，避免每张卡片的多个字段把浏览器命令队列挤满。
+      const readWithSlot = createReadLimiter(Math.min(readConcurrency, 4));
       if (diagnoseNames) {
         this.logger.info(actionContext, "list_name_diagnostics", "resolved", {
           page_url: safeURL(page.url()),
           resolved_count: resolvedItems.length,
           field_count: Object.keys(fields).length,
           read_concurrency: readConcurrency,
+          field_read_concurrency: Math.min(readConcurrency, 4),
           matched_selector: resolvedItems[0]?.matched_selector.value ?? "",
           selector_attempts: resolvedItems[0]?.attempts.map(attempt => ({
             level: attempt.level, selector_type: attempt.selector_type,
@@ -158,48 +161,61 @@ export class FindAction {
           })) ?? [],
         });
       }
-      const items = await mapWithConcurrency(
-        resolvedItems,
-        readConcurrency,
-        async (resolved, index): Promise<FindAllItem | null> => {
-          const beforeText = await this.readListText(resolved.locator, actionContext, index, "before", diagnoseNames);
-          if (beforeText === null) return null;
-          const fieldEntries = await Promise.all(
-            Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
-              fieldName,
-              await this.readRelativeField(
-                page,
-                resolved.locator,
-                fieldSpec,
-                actionContext,
-                fieldName,
-                index,
-                diagnoseNames,
-              ),
-            ] as const),
-          );
-          const values: JsonObject = Object.fromEntries(fieldEntries);
-          const afterText = await this.readListText(resolved.locator, actionContext, index, "after", diagnoseNames);
-          if (afterText === null) return null;
-          if (afterText !== beforeText) {
-            this.logger.warn(actionContext, "read_list_item", "changed", {
-              index, before_text_length: beforeText.length, after_text_length: afterText.length,
-            });
-            return null;
-          }
-          return {
-            index: resolved.list_index ?? index + startIndex,
-            element_ref: this.session.elements.remember(
+      /** readItem 读取单张卡片，并在读取前后核对正文，避免列表变化后串人。 */
+      const readItem = async (resolved: ResolvedElement, index: number): Promise<FindAllItem | null> => {
+        const beforeText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, index, "before", diagnoseNames));
+        if (beforeText === null) return null;
+        const fieldEntries = await Promise.all(
+          Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
+            fieldName,
+            await readWithSlot(() => this.readRelativeField(
               page,
               resolved.locator,
-            ),
-            text: afterText,
-            fields: values,
-          };
-        },
-      );
-      if (fields.name) {
-        await this.retryMissingNames(page, resolvedItems, items, fields.name, actionContext, diagnoseNames);
+              fieldSpec,
+              actionContext,
+              fieldName,
+              index,
+              diagnoseNames,
+            )),
+          ] as const),
+        );
+        const values: JsonObject = Object.fromEntries(fieldEntries);
+        const afterText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, index, "after", diagnoseNames));
+        if (afterText === null) return null;
+        if (afterText !== beforeText) {
+          this.logger.warn(actionContext, "read_list_item", "changed", {
+            index, before_text_length: beforeText.length, after_text_length: afterText.length,
+          });
+          return null;
+        }
+        return {
+          index: resolved.list_index ?? index + startIndex,
+          element_ref: this.session.elements.remember(
+            page,
+            resolved.locator,
+          ),
+          text: afterText,
+          fields: values,
+        };
+      };
+      const items = await mapWithConcurrency(resolvedItems, readConcurrency, readItem);
+      for (const [index, item] of items.entries()) {
+        if (item) continue;
+        for (let attempt = 1; attempt <= 2 && items[index] === null; attempt++) {
+          items[index] = await readItem(resolvedItems[index]!, index);
+          this.logger.info(actionContext, "read_list_item", items[index] ? "retry_read" : "retry_failed", { index, attempt });
+        }
+      }
+      await this.retryMissingFields(page, resolvedItems, items, fields, actionContext, diagnoseNames, readWithSlot);
+      for (const [index, item] of items.entries()) {
+        if (item) continue;
+        items[index] = await readItem(resolvedItems[index]!, index);
+        this.logger.info(actionContext, "read_list_item", items[index] ? "identity_retry_read" : "identity_retry_failed", { index });
+      }
+      const unreadable = items.flatMap((item, index) => item === null ? [resolvedItems[index]?.list_index ?? index + startIndex] : []);
+      if (unreadable.length > 0) {
+        throw new WorkerError({ code: "ACTION_TIMEOUT", message: "列表元素重读后仍不完整，暂不跳过", action: actionContext.action,
+          step: "read_list_item", trace_id: actionContext.trace_id, retryable: true, details: { unreadable_indices: unreadable } });
       }
       if (diagnoseNames) {
         this.logger.info(actionContext, "list_name_diagnostics", "summary", {
@@ -240,7 +256,7 @@ export class FindAction {
     }
   }
 
-  /** readListText 保留原有失败丢弃行为，只记录读取阶段、耗时和错误类别，不记录简历正文。 */
+  /** readListText 读取整张卡片文字；失败返回空结果供调用方逐项补读，不记录简历正文。 */
   private async readListText(root: Locator, context: ActionContext, index: number, phase: string, diagnose: boolean): Promise<string | null> {
     const started = Date.now();
     try {
@@ -294,7 +310,7 @@ export class FindAction {
         return await this.readPrimitive.html(resolved.locator);
       }
       const value = await this.readPrimitive.text(resolved.locator);
-      if (diagnose && fieldName === "name") this.logger.info(actionContext, "read_field:name", value ? "read" : "empty", {
+      if (diagnose && (fieldName === "name" || fieldName === "card_text")) this.logger.info(actionContext, `read_field:${fieldName}`, value ? "read" : "empty", {
         index, phase, field_elapsed_ms: Date.now() - started,
         configured_timeout_ms: spec.timeout_ms ?? null, effective_locator_timeout_ms: 0, text_timeout_ms: 1500,
         field_state: spec.state ?? "visible", visible: resolved.view.visible,
@@ -303,7 +319,7 @@ export class FindAction {
       });
       return value;
     } catch (error) {
-      if (diagnose && fieldName === "name") this.logger.warn(actionContext, "read_field:name", "failed", {
+      if (diagnose && (fieldName === "name" || fieldName === "card_text")) this.logger.warn(actionContext, `read_field:${fieldName}`, "failed", {
         index, phase, field_elapsed_ms: Date.now() - started,
         configured_timeout_ms: spec.timeout_ms ?? null, effective_locator_timeout_ms: 0, text_timeout_ms: 1500,
         field_state: spec.state ?? "visible", visible: resolved?.view.visible ?? (error instanceof WorkerError && error.code === "ELEMENT_NOT_VISIBLE" ? false : null),
@@ -315,40 +331,54 @@ export class FindAction {
     }
   }
 
-  /** retryMissingNames 对已找到卡片但姓名读取超时的项目逐个重读，并用卡片正文前后校验防止串人。 */
-  private async retryMissingNames(
+  /** retryMissingFields 对关键字段逐项补读，并核对卡片正文，防止重读时串人。 */
+  private async retryMissingFields(
     page: ResolvedElement["page"],
     resolvedItems: ResolvedElement[],
     items: Array<FindAllItem | null>,
-    nameSpec: SelectorSpec,
+    fields: Record<string, SelectorSpec>,
     actionContext: ActionContext,
     diagnose: boolean,
+    readWithSlot: <T>(operation: () => Promise<T>) => Promise<T>,
   ): Promise<void> {
     for (const [index, item] of items.entries()) {
-      if (!item || String(item.fields.name ?? "").trim()) continue;
+      if (!item) continue;
       const root = resolvedItems[index]?.locator;
       if (!root) continue;
-      const beforeText = await this.readListText(root, actionContext, index, "name_retry_before", diagnose);
-      if (beforeText === null || beforeText !== item.text) {
-        items[index] = null;
-        continue;
-      }
-      const name = await this.readRelativeField(
-        page, root, nameSpec, actionContext, "name", index, diagnose,
-      );
-      const afterText = await this.readListText(root, actionContext, index, "name_retry_after", diagnose);
-      if (afterText === null || afterText !== beforeText) {
-        items[index] = null;
-        continue;
-      }
-      item.fields.name = name;
-      if (diagnose) {
-        this.logger.info(actionContext, "read_field:name", name ? "retry_read" : "retry_empty", {
-          index, text_length: name.length,
-        });
+      for (const fieldName of ["name", "card_text"]) {
+        const fieldSpec = fields[fieldName];
+        if (!fieldSpec || String(item.fields[fieldName] ?? "").trim()) continue;
+        for (let attempt = 1; attempt <= 2 && !String(item.fields[fieldName] ?? "").trim(); attempt++) {
+          const beforeText = await readWithSlot(() => this.readListText(root, actionContext, index, `${fieldName}_retry_before`, diagnose));
+          if (beforeText === null || beforeText !== item.text) { items[index] = null; break; }
+          const value = await readWithSlot(() => this.readRelativeField(page, root, fieldSpec, actionContext, fieldName, index, diagnose));
+          const afterText = await readWithSlot(() => this.readListText(root, actionContext, index, `${fieldName}_retry_after`, diagnose));
+          if (afterText === null || afterText !== beforeText) { items[index] = null; break; }
+          item.fields[fieldName] = value;
+          if (diagnose) this.logger.info(actionContext, `read_field:${fieldName}`, value ? "retry_read" : "retry_empty", {
+            index, attempt, text_length: value.length,
+          });
+        }
+        if (items[index] === null) break;
       }
     }
   }
+}
+
+/** createReadLimiter 为一次列表请求分配有限的浏览器读取槽位，避免并发字段读取排队超时。 */
+function createReadLimiter(limit: number): <T>(operation: () => Promise<T>) => Promise<T> {
+  let available = Math.max(1, limit);
+  const waiting: Array<() => void> = [];
+  return async <T>(operation: () => Promise<T>): Promise<T> => {
+    if (available > 0) available--;
+    else await new Promise<void>(resolve => waiting.push(resolve));
+    try { return await operation(); }
+    finally {
+      const next = waiting.shift();
+      if (next) next();
+      else available++;
+    }
+  };
 }
 
 /** mapWithConcurrency 按指定并发数保持原顺序处理列表，避免把大量浏览器命令同时塞入队列。 */

@@ -25,9 +25,11 @@ test("字段在 resolve 后消失时返回空字段，不把异步拒绝漏出 c
   assert.equal(rows[0].fields.optional, "");
 });
 
-test("读取期间列表行变化时丢弃该行，不拼接不同候选人的信息", async () => {
+test("读取期间列表行变化时重新读取稳定的新行，不拼接不同候选人的信息", async () => {
   const rows = await harness(true).all({}, 1, { optional: {} }, { trace_id: "test", action: "find_all", started_at: Date.now() });
-  assert.equal(rows.length, 0);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].text, "另一条记录");
+  assert.equal(rows[0].fields.optional, "");
 });
 
 test("没有文字的可见图标和弹框仍然保留，不能误判不存在", async () => {
@@ -36,7 +38,7 @@ test("没有文字的可见图标和弹框仍然保留，不能误判不存在",
   assert.equal(rows[0].text, "");
 });
 
-test("大量卡片按个人配置限制并发读取且保持原有顺序", async () => {
+test("大量卡片保留请求并发 10，同时限制字段读取为 4 且保持顺序", async () => {
   let active = 0;
   let maximum = 0;
   const resolved = Array.from({ length: 29 }, (_, index) => ({
@@ -55,6 +57,6 @@ test("大量卡片按个人配置限制并发读取且保持原有顺序", async
   );
   const rows = await action.all({}, 100, { name: {} }, { trace_id: "concurrency", action: "find_all", started_at: Date.now() }, false, 10);
   assert.equal(rows.length, 29);
-  assert.equal(maximum, 10);
+  assert.equal(maximum, 4);
   assert.deepEqual(rows.map(row => row.index), Array.from({ length: 29 }, (_, index) => index));
 });

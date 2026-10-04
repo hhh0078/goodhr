@@ -89,13 +89,25 @@ test("姓名节点存在但隐藏时保留实际错误码和匹配数量", async
   assert.doesNotMatch(JSON.stringify(logs), /私密姓名|私密简历/);
 });
 
-test("正文读取失败不会被误记成页面内容变化，原有丢弃行为保持不变", async () => {
+test("正文偶发超时或变化时逐项重读，恢复卡片而不跳过", async () => {
   const { run, logs } = harness([{ beforeError: timeoutError() }, { afterError: timeoutError() }, { changed: true }]);
-  assert.deepEqual(await run(), []);
+  assert.equal((await run()).length, 3);
   const failed = logs.filter(log => log.status === "read_failed");
   assert.deepEqual(failed.map(log => [log.fields.index, log.fields.phase]), [[0, "before"], [1, "after"]]);
   assert.deepEqual(logs.filter(log => log.status === "changed").map(log => log.fields.index), [2]);
-  assert.deepEqual(logs.find(log => log.status === "summary").fields.dropped_indices, [0, 1, 2]);
+  assert.deepEqual(logs.find(log => log.status === "summary").fields.dropped_indices, []);
+});
+
+test("卡片正文连续读取失败时明确报错，不能把这张卡片静默跳过", async () => {
+  const page = { url: () => "https://example.com/list" };
+  const action = new FindAction(
+    { requirePage: async () => page, elements: { remember: () => "ref" } },
+    { resolveAll: async () => [{ list_index: 7, locator: { innerText: async () => { throw timeoutError(); } } }] },
+    { info() {}, warn() {}, failure() {} },
+  );
+  await assert.rejects(action.all({ description: "列表" }, 1, {},
+    { action: "element.find_all", trace_id: "unreadable", started_at: Date.now() }),
+  error => error.code === "ACTION_TIMEOUT" && error.details.unreadable_indices[0] === 7);
 });
 
 test("可见性探测超时会保留类别，而不是只剩节点不可见", async () => {
