@@ -62,6 +62,14 @@ const LOG_REFRESH_MS = 3000;
 const LOG_LIMIT = 100;
 const ALL_LOG_LIMIT = 1000;
 
+/** truncatePositionCardText 按字符保留岗位卡片前 20 个字，超出时追加省略号。 */
+function truncatePositionCardText(value: unknown): string {
+  const characters = Array.from(String(value ?? ""));
+  return characters.length > 20
+    ? `${characters.slice(0, 20).join("")}...`
+    : characters.join("");
+}
+
 /** normalizeFloatingTaskStatus 把本地任务状态转换为置顶小窗支持的明确状态。 */
 function normalizeFloatingTaskStatus(value: unknown): PositionFloatingStatusValue {
   const status = String(value || "").trim().toLowerCase();
@@ -848,14 +856,8 @@ export default function PositionsPage() {
                   }}
                 >
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontWeight: 760 }}>
-                      {item.name}
-                    </Typography>
-                    <Typography
-                      sx={{ mt: 0.4, color: "text.secondary", fontSize: 12, overflowWrap: "anywhere" }}
-                    >
-                      创建人：{item.creator_email || "当前账号"} · 创建于：
-                      {formatDate(item.created_at) || "--"}
+                    <Typography title={String(item.name || "")} sx={{ fontWeight: 760 }}>
+                      {truncatePositionCardText(item.name)}
                     </Typography>
                     <Typography
                       sx={{
@@ -871,7 +873,9 @@ export default function PositionsPage() {
                         : "关键词筛选"}{" "}
                       · 详情：
                       {detailModeLabel(item.common_config?.detail_mode)} ·
-                      关键词：{(item.keywords || []).join(" / ") || "无"}
+                      关键词：<Box component='span' title={(item.keywords || []).join(" / ") || "无"}>
+                        {truncatePositionCardText((item.keywords || []).join(" / ") || "无")}
+                      </Box>
                     </Typography>
                   </Box>
                   {isCurrentUserPosition(item, user?.email) ? (
@@ -921,14 +925,20 @@ export default function PositionsPage() {
                   )}
                 </Stack>
               </Stack>
-              <Typography sx={{ mt: 1, color: "text.secondary", fontSize: 13 }}>
-                今日 {item.today_greeted_count || 0}
-                {isCurrentUserPosition(item, user?.email) ? <>
-                  {" "}· 本次（扫描 {latestTaskStats[item.id]?.scanned_count || 0} · 打招呼{" "}
-                  {latestTaskStats[item.id]?.greeted_count || 0} · 跳过{" "}
-                  {latestTaskStats[item.id]?.skipped_count || 0}）
-                </> : null}
-              </Typography>
+              <Box sx={{ mt: 1, display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 2, rowGap: 0.5 }}>
+                <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+                  今日 {item.today_greeted_count || 0}
+                  {isCurrentUserPosition(item, user?.email) ? <>
+                    {" "}· 本次（扫描 {latestTaskStats[item.id]?.scanned_count || 0} · 打招呼{" "}
+                    {latestTaskStats[item.id]?.greeted_count || 0} · 跳过{" "}
+                    {latestTaskStats[item.id]?.skipped_count || 0}）
+                  </> : null}
+                </Typography>
+                <Typography sx={{ ml: "auto", maxWidth: "100%", color: "text.secondary", fontSize: 12, textAlign: "right", overflowWrap: "anywhere" }}>
+                  创建人：{item.creator_email || "当前账号"} · 创建于：
+                  {formatDate(item.created_at) || "--"}
+                </Typography>
+              </Box>
               <Collapse in={isCurrentUserPosition(item, user?.email) && expandedLogPositionID === item.id}>
                 <PositionLogPanel
                   logs={logs[item.id] || []}
