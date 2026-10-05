@@ -70,6 +70,8 @@ type Behavior struct {
 	SelectFirstPositionResult bool   `json:"select_first_position_result"`
 	NeedsDetail               bool   `json:"needs_detail"`
 	StitchDetailScreenshots   bool   `json:"stitch_detail_screenshots"`
+	MessageSendEnterFallback  bool   `json:"message_send_enter_fallback"` // 发送按钮明确尚未点击时，允许聚焦输入框后按回车兜底。
+	MessageSendVerifyEmpty    bool   `json:"message_send_verify_empty"`   // 发送后确认输入框清空，避免把按键成功当成消息发送成功。
 }
 
 // Position 表示平台准备阶段所需的岗位信息。

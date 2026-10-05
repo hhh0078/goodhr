@@ -298,6 +298,8 @@ export function parseKeyboardPressRequest(
   const request: KeyboardPressRequest = {
     key: requiredString(record, "key", traceId, action),
   };
+  assignBoolean(request, "diagnostic", optionalBoolean(record, "diagnostic"));
+  assignString(request, "description", optionalString(record, "description"));
   assignNumber(
     request,
     "delay_ms",

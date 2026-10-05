@@ -136,6 +136,8 @@ export interface ElementInputRequest {
 export interface KeyboardPressRequest {
   key: string;
   delay_ms?: number;
+  diagnostic?: boolean;
+  description?: string;
 }
 
 /** ScrollRequest 表示页面或元素真实滚轮滚动参数。 */

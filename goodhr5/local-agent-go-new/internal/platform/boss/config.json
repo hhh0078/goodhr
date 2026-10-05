@@ -50,6 +50,10 @@
     "_comment_select_first_position_result": "Boss 会按岗位名称匹配搜索结果，不固定点击第一项。",
     "needs_detail": true,
     "_comment_needs_detail": "候选人判断需要打开详情。",
+    "message_send_enter_fallback": true,
+    "_comment_message_send_enter_fallback": "发送按钮未找到或明确尚未点击时，聚焦原输入框后按回车发送；结果不确定时不重复发送。",
+    "message_send_verify_empty": true,
+    "_comment_message_send_verify_empty": "发送后确认消息输入框已清空，否则记录发送未确认的错误。",
     "stitch_detail_screenshots": true,
     "_comment_stitch_detail_screenshots": "Boss 详情分段截图必须先拼成完整长图，再交给 OCR 或多模态 AI。"
   },
@@ -464,7 +468,8 @@
       "target": {
         "_comment": "输入消息后才会变为可用的发送按钮。",
         "selectors": [
-          { "_comment": "排除尚未输入内容时的禁用按钮。", "type": "css", "value": ".btn-send:not(.btn-disabled)" }
+          { "_comment": "新版聊天框输入消息后启用的发送按钮。", "type": "css", "value": ".submit-content .submit.active" },
+          { "_comment": "兼容旧版聊天框，排除尚未输入内容时的禁用按钮。", "type": "css", "value": ".btn-send:not(.btn-disabled)" }
         ]
       },
       "state": "enabled",

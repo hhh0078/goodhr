@@ -362,25 +362,3 @@ func waitConversationPoll(ctx context.Context) error {
 		return nil
 	}
 }
-
-// sendMessage 使用指定输入框和发送按钮发送消息，未配置按钮时按 Enter。
-func sendMessage(ctx context.Context, browser model.Browser, cfg model.Config, inputKey string, sendKey string, message string) error {
-	if strings.TrimSpace(message) == "" {
-		return fmt.Errorf("发送内容不能为空")
-	}
-	if err := InputRequired(ctx, browser, cfg, inputKey, message); err != nil {
-		return fmt.Errorf("输入消息失败：%w", err)
-	}
-	if _, configured := cfg.Selectors[sendKey]; configured {
-		if err := ClickRequired(ctx, browser, cfg, sendKey); err != nil {
-			return fmt.Errorf("点击发送消息失败：%w", err)
-		}
-		// 招聘页面发送消息后会短暂刷新聊天组件，等一轮再执行关闭等后续动作。
-		return waitConversationPoll(ctx)
-	}
-	if _, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Enter", DelayMS: 80}); err != nil {
-		return fmt.Errorf("按 Enter 发送消息失败：%w", err)
-	}
-	// 招聘页面发送消息后会短暂刷新聊天组件，等一轮再执行关闭等后续动作。
-	return waitConversationPoll(ctx)
-}

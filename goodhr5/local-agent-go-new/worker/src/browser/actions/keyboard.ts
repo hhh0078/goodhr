@@ -28,7 +28,9 @@ export class KeyboardAction {
     actionContext: ActionContext,
   ): Promise<KeyboardPressResult> {
     const step = "press_key";
-    this.logger.info(actionContext, step, "start", { key: request.key });
+    const summary = { key: request.key, diagnostic: request.diagnostic ?? false,
+      target_description: request.description ?? "" };
+    this.logger.info(actionContext, step, "start", summary);
     try {
       const page = await this.session.requirePage(actionContext, step);
       await this.primitive.press(page, request.key, request.delay_ms ?? 0);
@@ -36,9 +38,7 @@ export class KeyboardAction {
         pressed: true,
         key: request.key,
       };
-      this.logger.info(actionContext, step, "success", {
-        key: request.key,
-      });
+      this.logger.info(actionContext, step, "success", summary);
       return result;
     } catch (error) {
       const normalized = normalizeWorkerError(error, {
@@ -47,6 +47,7 @@ export class KeyboardAction {
         trace_id: actionContext.trace_id,
         retryable: true,
         message: `按键 ${request.key} 没执行成功`,
+        details: { target_description: request.description ?? "" },
       });
       this.logger.failure(actionContext, normalized);
       throw normalized;

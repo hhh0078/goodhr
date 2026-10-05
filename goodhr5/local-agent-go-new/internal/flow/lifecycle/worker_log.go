@@ -38,6 +38,10 @@ type workerLogLine struct {
 	Input             json.RawMessage `json:"input"`
 	Output            json.RawMessage `json:"output"`
 	Diagnostic        bool            `json:"diagnostic"`
+	IsError           bool            `json:"is_error"`
+	Description       string          `json:"description"`
+	Attempts          json.RawMessage `json:"attempts"`
+	ClickStarted      *bool           `json:"click_started"`
 }
 
 // WorkerLine 解析 Worker JSON 行，并按 trace_id 汇入对应任务的岗位日志。
@@ -62,11 +66,14 @@ func (l *TaskLogger) WorkerLine(line []byte) {
 	if item.Action == "worker.exit" && item.ExitCode != 0 && item.ErrorMessage == "" {
 		item.ErrorMessage = item.ExitReason
 	}
-	if item.ErrorMessage == "" && (strings.EqualFold(item.Status, "failed") || strings.EqualFold(item.Level, "error")) {
+	if item.ErrorMessage == "" && (item.IsError || strings.EqualFold(item.Status, "failed") || strings.EqualFold(item.Level, "error")) {
 		item.ErrorMessage = strings.TrimSpace(item.OriginalError)
 		if item.ErrorMessage == "" {
 			item.ErrorMessage = strings.TrimSpace(item.Message)
 		}
+	}
+	if item.TargetDescription == "" {
+		item.TargetDescription = item.Description
 	}
 	exists, err := l.store.TaskExists(context.Background(), item.TraceID)
 	if err != nil {
@@ -76,15 +83,21 @@ func (l *TaskLogger) WorkerLine(line []byte) {
 	if !exists {
 		return
 	}
+	if item.IsError {
+		item.Level = "error"
+	}
 	message := workerLogMessage(item)
 	if strings.EqualFold(item.Status, "start") && keepWorkerLog(item) {
 		l.updateCurrentStep(item.TraceID, l.withCandidate(item.TraceID, workerCurrentStep(item)))
 	}
-	isError := strings.EqualFold(item.Level, "error") || strings.EqualFold(item.Status, "failed") || item.Action == "worker.crash" || (item.Action == "worker.exit" && item.ExitCode != 0)
+	isError := item.IsError || strings.EqualFold(item.Level, "error") || strings.EqualFold(item.Status, "failed") || item.Action == "worker.crash" || (item.Action == "worker.exit" && item.ExitCode != 0)
 	if !isError && !item.Diagnostic {
 		return
 	}
 	message = strings.TrimSpace(string(diagnostics.Redact([]byte(l.withCandidate(item.TraceID, message)))))
+	if isError {
+		item.Level, item.Category = "error", "错误"
+	}
 	input, output := workerLogObjects(item)
 	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
 		TaskID: item.TraceID, Flow: "browser_worker", Step: item.Step,
@@ -113,6 +126,12 @@ func workerLogObjects(item workerLogLine) (json.RawMessage, json.RawMessage) {
 	input["step"] = item.Step
 	if item.TargetDescription != "" {
 		input["target_description"] = item.TargetDescription
+	}
+	if json.Valid(item.Attempts) {
+		input["attempts"] = item.Attempts
+	}
+	if item.ClickStarted != nil {
+		output["click_started"] = *item.ClickStarted
 	}
 	if item.TimeoutMS > 0 {
 		input["timeout_ms"] = item.TimeoutMS

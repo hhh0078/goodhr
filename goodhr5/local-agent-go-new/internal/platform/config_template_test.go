@@ -157,9 +157,13 @@ func TestLoadConfigIncludesBossConversationMessageSelectors(t *testing.T) {
 		input.Target.Selectors[0].Value != ".bosschat-chat-input.chat-global-message.boss-chat-editor-input[contenteditable='true']" {
 		t.Fatalf("Boss 聊天输入框选择器没有保持为当前可编辑区域：%+v", input.Target.Selectors)
 	}
-	if len(send.Target.Selectors) != 1 ||
-		send.Target.Selectors[0].Value != ".btn-send:not(.btn-disabled)" {
-		t.Fatalf("Boss 发送按钮选择器没有排除禁用状态：%+v", send.Target.Selectors)
+	if len(send.Target.Selectors) != 2 ||
+		send.Target.Selectors[0].Value != ".submit-content .submit.active" ||
+		send.Target.Selectors[1].Value != ".btn-send:not(.btn-disabled)" {
+		t.Fatalf("Boss 发送按钮必须兼容新旧可用状态：%+v", send.Target.Selectors)
+	}
+	if !cfg.Behavior.MessageSendEnterFallback || !cfg.Behavior.MessageSendVerifyEmpty {
+		t.Fatal("Boss 必须开启回车兜底和发送后输入框清空确认")
 	}
 }
 

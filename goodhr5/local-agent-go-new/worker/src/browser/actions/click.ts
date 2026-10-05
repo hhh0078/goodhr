@@ -44,6 +44,7 @@ export class ClickAction {
     actionContext: ActionContext,
   ): Promise<ClickResult> {
     let newPageWaiter: NewPageWaiter | undefined;
+    let clickStarted = false;
     const diagnosticInput: JsonObject = request.diagnostic ? { selector: selectorDiagnostic(request.selector), attempt: request.diagnostic_attempt ?? 0,
       verification_configured: Boolean(request.verify) } : {};
     this.logger.info(actionContext, "click", "start", {
@@ -92,6 +93,8 @@ export class ClickAction {
       for (let index = 0; index < clickCount; index += 1) {
         const holdMs = randomInteger(70, 190);
         try {
+          // 一旦尝试按下鼠标，点击结果就可能不确定，调用方不得盲目再次发送。
+          clickStarted = true;
           await this.mouse.down(found.resolved.page, button);
           await delay(holdMs);
         } finally {
@@ -155,6 +158,7 @@ export class ClickAction {
         retryable: true,
         details: { target_description: request.selector.description },
       });
+      normalized.details.click_started = clickStarted;
       this.logger.failure(actionContext, normalized);
       throw normalized;
     } finally {

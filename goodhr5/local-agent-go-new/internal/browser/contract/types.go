@@ -239,8 +239,10 @@ type InputResult struct {
 
 // KeyboardPressRequest 表示通用按键请求。
 type KeyboardPressRequest struct {
-	Key     string `json:"key"`
-	DelayMS int    `json:"delay_ms,omitempty"`
+	Key         string `json:"key"`
+	DelayMS     int    `json:"delay_ms,omitempty"`
+	Diagnostic  bool   `json:"diagnostic,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // KeyboardPressResult 表示通用按键结果。

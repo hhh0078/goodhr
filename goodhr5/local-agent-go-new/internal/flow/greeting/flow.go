@@ -678,7 +678,8 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 				if shared.ShouldStopTaskImmediately(err) {
 					return err
 				}
-				f.log(prepared.Request.TaskID, "send_candidate_message", "warning", startedAt, err)
+				f.log(prepared.Request.TaskID, "send_candidate_message", "failed", startedAt, err)
+				shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "打招呼消息没发成功，请检查当前聊天", "failed", err)
 				f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "发送候选人消息失败")
 			} else {
 				f.log(prepared.Request.TaskID, "send_candidate_message", "success", startedAt, nil)
