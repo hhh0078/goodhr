@@ -36,6 +36,52 @@ func TestLogRedactionAndRotation(t *testing.T) {
 	}
 }
 
+// TestAIResponseLogExemptsLineLimitAndRotates 验证完整 AI 失败原文真实写入 agent.log，普通超长日志仍限制。
+func TestAIResponseLogExemptsLineLimitAndRotates(t *testing.T) {
+	writer, err := Open(t.TempDir(), "agent.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	writer.limit = 1024
+	response := strings.Repeat("完整 AI 返回\n", 10000) + `末尾证据 {"api_key":"private-key"}`
+	line, _ := json.Marshal(map[string]any{"is_error": true, "output": map[string]any{"ai_response_diagnostic": map[string]any{"response": response, "model": "test-model"}}})
+	if _, err := writer.Write(line); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("下一条日志")); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(writer.path + ".1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var event struct {
+		Output struct {
+			AI struct {
+				Response string `json:"response"`
+			} `json:"ai_response_diagnostic"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(saved, &event); err != nil {
+		t.Fatal(err)
+	}
+	expected := strings.Replace(response, "private-key", "[已隐藏]", 1)
+	if event.Output.AI.Response != expected {
+		t.Fatal("agent.log 的完整 AI 返回被单行限额、轮转或脱敏截断")
+	}
+	if _, err := writer.Write([]byte(strings.Repeat("x", 100000))); err != nil {
+		t.Fatal(err)
+	}
+	saved, err = os.ReadFile(writer.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(saved), "日志过长已截断") {
+		t.Fatal("普通超长日志没有维持限制")
+	}
+}
+
 // TestLogAlwaysWritesJSONLines 验证普通 Go 输出与 Worker 输出都满足一行一个完整 JSON 对象。
 func TestLogAlwaysWritesJSONLines(t *testing.T) {
 	writer, err := Open(t.TempDir(), "goodhr.jsonl")

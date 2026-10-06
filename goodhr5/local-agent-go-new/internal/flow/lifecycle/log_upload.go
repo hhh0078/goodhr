@@ -76,9 +76,23 @@ func uploadLogObject(value json.RawMessage) json.RawMessage {
 		return json.RawMessage(`{}`)
 	}
 	safe := json.RawMessage(strings.TrimSpace(string(diagnostics.Redact(value))))
-	if len(safe) > 12<<10 || len(safe) == 0 || safe[0] != '{' {
+	if len(safe) == 0 || safe[0] != '{' {
 		return json.RawMessage(`{"summary":"内容过长或格式不适合分享"}`)
 	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(safe, &fields) != nil {
+		return json.RawMessage(`{}`)
+	}
+	aiResponse := fields["ai_response_diagnostic"]
+	delete(fields, "ai_response_diagnostic")
+	ordinary, _ := json.Marshal(fields)
+	if len(ordinary) > 12<<10 {
+		fields = map[string]json.RawMessage{"summary": json.RawMessage(`"内容过长或格式不适合分享"`)}
+	}
+	if len(aiResponse) > 0 && aiResponse[0] == '{' {
+		fields["ai_response_diagnostic"] = aiResponse
+	}
+	safe, _ = json.Marshal(fields)
 	return safe
 }
 

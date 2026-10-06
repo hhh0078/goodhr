@@ -12,6 +12,22 @@ import (
 
 const maxPositionTaskLogs = 1000
 
+// TaskLogRetainedAfterAppend 判断再增加一条日志后原文是否仍在千条保留范围内，避免引用即将淘汰的记录。
+func (s *Store) TaskLogRetainedAfterAppend(ctx context.Context, logID int64) (bool, error) {
+	if logID <= 0 {
+		return false, nil
+	}
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM task_logs AS original WHERE original.id = ? AND (
+			original.position_id = '' OR (
+				SELECT COUNT(*) FROM task_logs AS newer WHERE newer.position_id = original.position_id AND newer.id > original.id
+			) < ?
+		)
+	)`, logID, maxPositionTaskLogs-1).Scan(&exists)
+	return exists, err
+}
+
 // TaskLog 表示一条不含敏感页面正文的本地任务日志。
 type TaskLog struct {
 	ID           int64           `json:"id"`

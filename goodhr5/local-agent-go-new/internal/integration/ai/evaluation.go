@@ -71,6 +71,11 @@ func startEvaluation(
 	case result := <-final:
 		return Evaluation{Decision: result.Decision}, result.Err
 	case <-ctx.Done():
+		// 请求使用同一个上下文，等待读取收尾后才能保留中断前已经收到的 AI 正文。
+		result := <-final
+		if result.Err != nil {
+			return Evaluation{Decision: result.Decision}, result.Err
+		}
 		return Evaluation{}, ctx.Err()
 	}
 }

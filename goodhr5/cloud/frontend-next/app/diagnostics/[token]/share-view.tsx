@@ -5,6 +5,7 @@ import { Alert, Box, Button, CircularProgress, Container, Paper, Stack, TextFiel
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { cloudRequest } from "@/lib/admin-api";
+import AIResponseDiagnosticDetails, { ordinaryDiagnosticOutput } from "@/components/admin/AIResponseDiagnosticDetails";
 
 type DiagnosticEvent = {
   timestamp: string;
@@ -102,11 +103,12 @@ function DiagnosticLine({ item }: { item: SharedLog }) {
     </Stack>
     <Typography sx={{ mt: 1, whiteSpace: "pre-wrap", wordBreak: "break-word", fontWeight: isError ? 650 : 400 }}>{event?.message || item.message}</Typography>
     {isError && event?.error_message && event.error_message !== event.message ? <Alert severity="error" sx={{ mt: 1 }}>{event.error_message}</Alert> : null}
+    {event ? <Box sx={{ mt: 1 }}><AIResponseDiagnosticDetails output={event.output} /></Box> : null}
     {event ? <Box component="details" sx={{ mt: 1.5, fontSize: 13 }}>
       <Box component="summary" sx={{ cursor: "pointer", color: "primary.main" }}>查看入参、出参和任务编号</Box>
       <Stack spacing={1} sx={{ mt: 1 }}>
         <DataBlock label="入参" value={event.input} />
-        <DataBlock label="出参" value={event.output} />
+        <DataBlock label="出参" value={ordinaryDiagnosticOutput(event.output)} />
         {event.task_id ? <Typography sx={{ fontSize: 12, color: "text.secondary" }}>任务编号：{event.task_id}</Typography> : null}
       </Stack>
     </Box> : null}

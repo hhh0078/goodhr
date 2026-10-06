@@ -8,6 +8,7 @@ import { safeURL } from "../session/navigation.js";
 import { pageDiagnostic } from "../session/page-diagnostics.js";
 import { nativeInputSafetyDiagnostic } from "../session/native-input-safety.js";
 import { WorkerError } from "../../errors/worker-error.js";
+import { assertInputAllowed, trackNativeInput } from "./input-lifecycle.js";
 
 /** MousePrimitive 封装 Playwright 鼠标最小操作，不查找元素也不决定流程。 */
 export class MousePrimitive {
@@ -32,10 +33,14 @@ export class MousePrimitive {
     page: Page,
     button: "left" | "right" | "middle",
   ): Promise<void> {
-    const buttons = this.pressed.get(page) ?? new Set<"left" | "right" | "middle">();
-    buttons.add(button);
-    this.pressed.set(page, buttons);
-    await this.traceMouse(page, "mouse_down", () => page.mouse.down({ button }), { button });
+    assertInputAllowed();
+    await this.traceMouse(page, "mouse_down", () => {
+      // 只有通过全部取消检查、即将真正发送 down 时才记录，避免补发没有对应按下的 mouseup。
+      const buttons = this.pressed.get(page) ?? new Set<"left" | "right" | "middle">();
+      buttons.add(button);
+      this.pressed.set(page, buttons);
+      return page.mouse.down({ button });
+    }, { button });
   }
 
   /** up 松开指定鼠标按键。 */
@@ -46,8 +51,8 @@ export class MousePrimitive {
     const buttons = this.pressed.get(page);
     // Camoufox 在未按下时收到多余的 mouseup 可能不返回；只释放本实例曾按下的键。
     if (!buttons?.has(button)) return;
-    await this.traceMouse(page, "mouse_up", () => page.mouse.up({ button }), { button });
-    buttons.delete(button);
+    // 请求取消后仍只松开本实例已经按下的键，避免保留窗口时留下拖选状态。
+    await this.traceMouse(page, "mouse_up", () => page.mouse.up({ button }).finally(() => buttons.delete(button)), { button }, true);
   }
 
   /** wheel 发送真实鼠标滚轮事件。 */
@@ -56,28 +61,29 @@ export class MousePrimitive {
   }
 
   /** traceMouse 保留输入前后页面事件，原生调用失败或浏览器关闭时也能取得缓存证据。 */
-  private async traceMouse(page: Page, step: string, operation: () => Promise<void>, input: JsonObject): Promise<void> {
+  private async traceMouse(page: Page, step: string, operation: () => Promise<void>, input: JsonObject, cleanup = false): Promise<void> {
+    if (!cleanup) assertInputAllowed();
     const fields = this.diagnosticFields(page, input);
     const context = actionContextStorage.getStore();
-    const timeoutMS = Math.max(1, Math.min(this.inputTimeoutMS, (context?.deadline_at ?? Infinity) - Date.now()));
+    const timeoutMS = Math.max(1, Math.min(this.inputTimeoutMS, (cleanup ? Infinity : context?.deadline_at ?? Infinity) - Date.now()));
     (fields.input as JsonObject).input_timeout_ms = timeoutMS;
     await traceOperation(step, async () => {
       const startedAt = Date.now();
       const wait: JsonObject = { origin: "worker", stage: "playwright_input", timeout_ms: timeoutMS, status: "pending" };
       let timer: ReturnType<typeof setTimeout> | undefined;
-      /** timeoutError 标记无法撤销的输入超时，让队列关闭旧浏览器并禁止后续动作。 */
+      /** timeoutError 标记无法撤销的输入超时，让队列保留浏览器并禁止后续动作。 */
       const timeoutError = (): WorkerError => {
         wait.status = "timed_out";
         wait.elapsed_ms = Date.now() - startedAt;
-        return new WorkerError({ code: "WORKER_UNRESPONSIVE", message: "浏览器输入等太久了，岗位先停一下；重新开始后会恢复浏览器",
+        return new WorkerError({ code: "WORKER_UNRESPONSIVE", message: "浏览器输入等太久了，岗位先停一下；窗口保留着，请检查页面后重新开始",
           action: context?.action ?? "interaction", step, trace_id: context?.trace_id ?? "", retryable: false,
-          details: { reason: "native_input_deadline", recovery_required: true, request_id: context?.request_id ?? "",
+          details: { reason: "native_input_deadline", recovery_required: true, browser_retained: true, request_id: context?.request_id ?? "",
             input: fields.input ?? {}, output: { input_wait: wait, page_state_after: pageDiagnostic(page) } } });
       };
       try {
         // 先启动 Worker 定时器，再发协议调用；底层 Promise 的迟到结果由 race 接收，不产生无人处理的拒绝。
         const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(timeoutError()), timeoutMS); });
-        await Promise.race([operation(), deadline]);
+        await Promise.race([trackNativeInput(operation, cleanup), deadline]);
         if (Date.now() - startedAt >= timeoutMS) throw timeoutError();
         wait.status = "completed";
       } catch (error) {

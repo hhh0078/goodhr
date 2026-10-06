@@ -20,9 +20,8 @@ import (
 
 // Client 是 Browser Worker 强类型客户端。
 type Client struct {
-	baseURL  string
-	http     *http.Client
-	recovery func() error
+	baseURL string
+	http    *http.Client
 }
 
 // envelope 表示 Worker 统一响应边界。
@@ -41,9 +40,6 @@ func New(baseURL string) *Client {
 	}
 }
 
-// SetRecovery 设置操作失联后的进程回收方法，不自动重试可能已经发送的消息。
-func (c *Client) SetRecovery(recovery func() error) { c.recovery = recovery }
-
 // requestTimeout 根据逐字输入和长截图的实际工作量安排预算，普通请求仍为 45 秒。
 func requestTimeout(payload any) time.Duration {
 	timeout := 45 * time.Second
@@ -61,19 +57,6 @@ func requestTimeout(payload any) time.Duration {
 		timeout = 180 * time.Second
 	}
 	return timeout
-}
-
-// recoverWorker 回收失联进程，确保旧动作不可能在后续任务中继续发送。
-func (c *Client) recoverWorker(path string) {
-	if c.recovery == nil {
-		return
-	}
-	log.Printf("event=worker_recovery path=%s status=start", path)
-	if err := c.recovery(); err != nil {
-		log.Printf("event=worker_recovery path=%s status=failed error=%v", path, err)
-	} else {
-		log.Printf("event=worker_recovery path=%s status=success", path)
-	}
 }
 
 // Health 检查 Worker HTTP 服务是否可用。
@@ -296,8 +279,7 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 			log.Printf("event=worker_request_failed path=%s trace_id=%s duration_ms=%d error=%v", path, traceIDFromContext(ctx), time.Since(started).Milliseconds(), err)
 		}
 		if method == http.MethodPost && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
-			client.recoverWorker(path)
-			return &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE", Message: "浏览器连接中断，当前任务已停止，重新开始时会恢复浏览器", Action: path, Step: "http_request", TraceID: traceIDFromContext(ctx)}}
+			return &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE", Message: "浏览器操作超时或中断，岗位先停一下；窗口保留着，请检查页面后重新开始", Action: path, Step: "http_request", TraceID: traceIDFromContext(ctx)}}
 		}
 		return fmt.Errorf("连接 Browser Worker 失败：%w", err)
 	}
@@ -321,9 +303,6 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 			return nil
 		}
 		log.Printf("event=worker_action_failed path=%s trace_id=%s duration_ms=%d code=%s step=%s", path, traceIDFromContext(ctx), time.Since(started).Milliseconds(), wrapped.Error.Code, wrapped.Error.Step)
-		if wrapped.Error.Code == "WORKER_UNRESPONSIVE" || windowErrorWithoutInput(wrapped.Error) {
-			client.recoverWorker(path)
-		}
 		return &contract.WorkerError{Status: response.StatusCode, Body: wrapped.Error}
 	}
 	if result == nil || len(wrapped.Data) == 0 {
@@ -333,24 +312,6 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 		return fmt.Errorf("解析 Worker 结果失败：%w", err)
 	}
 	return nil
-}
-
-// windowErrorWithoutInput 确认窗口失活前没有发出原生输入，才回收浏览器供下次岗位使用。
-func windowErrorWithoutInput(body contract.WorkerErrorBody) bool {
-	if body.Code != "BROWSER_WINDOW_NOT_READY" {
-		return false
-	}
-	var details struct {
-		NativeMouse struct {
-			EventsSent         *int `json:"events_sent"`
-			EventsAcknowledged *int `json:"events_acknowledged"`
-		} `json:"native_mouse"`
-	}
-	if err := json.Unmarshal(body.Details, &details); err != nil {
-		return false
-	}
-	return details.NativeMouse.EventsSent != nil && *details.NativeMouse.EventsSent == 0 &&
-		details.NativeMouse.EventsAcknowledged != nil && *details.NativeMouse.EventsAcknowledged == 0
 }
 
 type traceKey struct{}

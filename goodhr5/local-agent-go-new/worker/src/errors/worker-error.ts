@@ -101,7 +101,7 @@ export function normalizeWorkerError(
   const windowNotReady = nativeMouse?.native_error_code === "GOODHR_MOUSE_WINDOW_NOT_READY";
   return new WorkerError({
     code: windowNotReady ? "BROWSER_WINDOW_NOT_READY" : nativeMouse?.recovery_required === true ? "WORKER_UNRESPONSIVE" : fallback.code ?? "INTERNAL_ERROR",
-    message: windowNotReady ? "浏览器没能切到桌面前面，岗位先停一下；请解锁电脑、把浏览器放到最前面后重试" : nativeMouse?.recovery_required === true ? "浏览器输入卡住了，当前任务已停止；重新开始时会恢复浏览器" : fallback.message ?? "浏览器操作没处理成功，但问题不大，我们再看看",
+    message: windowNotReady ? "浏览器没能切到桌面前面，岗位先停一下；请解锁电脑、把浏览器放到最前面后重试" : nativeMouse?.recovery_required === true ? "浏览器输入卡住了，岗位先停一下；窗口保留着，请检查页面后重新开始" : fallback.message ?? "浏览器操作没处理成功，但问题不大，我们再看看",
     action: fallback.action,
     step: fallback.step,
     trace_id: fallback.trace_id,

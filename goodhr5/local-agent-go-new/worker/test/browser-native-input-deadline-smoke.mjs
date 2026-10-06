@@ -29,12 +29,11 @@ try {
   assert.ok(Date.now() - started < 25000);
   await assert.rejects(run('page.scroll', 'blocked-followup', context => actions.scroll({ distance: 100 }, context)), { code: 'WORKER_UNRESPONSIVE' });
   assert.equal(actions.healthStatus().queue.blocked, true);
-  const cleanupDeadline = Date.now() + 10000;
-  while ((await actions.browserStatus()).running && Date.now() < cleanupDeadline) await new Promise(resolve => setTimeout(resolve, 50));
-  assert.equal((await actions.browserStatus()).running, false, '故障回调必须回收旧浏览器');
-  console.log('NATIVE_INPUT_DEADLINE_SMOKE_OK ' + JSON.stringify({ elapsed_ms: Date.now() - started, timeout_origin: 'worker', queue_isolated: true, old_browser_stopped: true }));
+  assert.equal((await actions.browserStatus()).running, true, '故障只隔离输入，必须保留浏览器');
+  await assert.rejects(run('browser.start', 'blocked-recovery', context => actions.startBrowser({}, context)), { step: 'queue_recovery_wait' });
+  console.log('NATIVE_INPUT_DEADLINE_SMOKE_OK ' + JSON.stringify({ elapsed_ms: Date.now() - started, timeout_origin: 'worker', queue_isolated: true, old_browser_retained: true }));
 } finally {
-  // 隔离队列按设计拒绝所有新动作，故障回调已经负责关闭浏览器；正常路径仍显式关闭。
-  if (!actions.healthStatus().queue.blocked) await run('browser.stop', 'stop', context => actions.stopBrowser(context));
+  // 测试完毕明确关闭独立窗口；隔离状态也必须保留用户主动关闭能力。
+  await run('browser.stop', 'stop', context => actions.stopBrowser(context));
   await new Promise(resolve => server.close(resolve));
 }

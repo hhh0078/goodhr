@@ -7,6 +7,7 @@ import { Fragment, useEffect, useState } from "react";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { EmptyState, PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { cloudRequest } from "@/lib/admin-api";
+import AIResponseDiagnosticDetails, { ordinaryDiagnosticOutput } from "@/components/admin/AIResponseDiagnosticDetails";
 
 type LogEvent = {
   message?: string;
@@ -134,10 +135,11 @@ function LogRow({ item }: { item: LogItem }) {
             {logText(event?.page_url) && <Typography variant="body2">页面：{logText(event?.page_url)}</Typography>}
             {(logText(event?.action) || logText(event?.step)) && <Typography variant="body2" color="text.secondary">动作：{logText(event?.action) || "--"}　步骤：{logText(event?.step) || "--"}</Typography>}
             {logText(event?.trace_id) && <Typography variant="body2" color="text.secondary">跟踪编号：{logText(event?.trace_id)}</Typography>}
+            <AIResponseDiagnosticDetails output={event?.output} />
             {(event?.input || event?.output) && <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2 }}>
               {(["input", "output"] as const).map((field) => <Box key={field} sx={{ minWidth: 0 }}>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>{field === "input" ? "入参" : "出参"}</Typography>
-                <Box component="pre" sx={{ m: 0, mt: 0.5, p: 1.25, maxHeight: 260, overflow: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, bgcolor: "background.paper", borderRadius: 1 }}>{JSON.stringify(event[field] || {}, null, 2)}</Box>
+                <Box component="pre" sx={{ m: 0, mt: 0.5, p: 1.25, maxHeight: 260, overflow: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, bgcolor: "background.paper", borderRadius: 1 }}>{JSON.stringify(field === "output" ? ordinaryDiagnosticOutput(event.output) : event.input || {}, null, 2)}</Box>
               </Box>)}
             </Box>}
             {event && <Box component="details">

@@ -29,6 +29,7 @@ import { BrowserLifecycle } from "./browser-lifecycle.js";
 import { buildLaunchOptions } from "./launch-options.js";
 import { nativeInputSafetyDiagnostic } from "./native-input-safety.js";
 import { focusCurrentBrowserWindow, type WindowFocusResult } from "./window-focus.js";
+import { assertInputAllowed } from "../primitives/input-lifecycle.js";
 
 export { pageURLContainsTarget } from "./navigation.js";
 
@@ -77,10 +78,13 @@ export class BrowserSession {
       input: { headless: request.headless ?? false, persistent: Boolean(request.user_data_dir), native_input_patch: nativeInputSafetyDiagnostic() },
     });
     try {
-      if (await this.isRunning()) {
+      assertInputAllowed(actionContext);
+      const running = await this.isRunning();
+      assertInputAllowed(actionContext);
+      if (running) {
         if (
-          request.user_data_dir === this.userDataDir &&
-          samePaths(request.extension_paths, this.extensionPaths)
+          (request.user_data_dir ?? this.userDataDir) === this.userDataDir &&
+          samePaths(request.extension_paths ?? this.extensionPaths, this.extensionPaths)
         ) {
           if (pageRequest) {
             await this.open(
@@ -99,12 +103,21 @@ export class BrowserSession {
           });
           return status;
         }
-        await this.stop(actionContext);
+        throw new WorkerError({ code: "INVALID_REQUEST", message: "旧浏览器窗口还留着，请先手动关闭，再切换账号配置",
+          action: actionContext.action, step: "browser_config_change", trace_id: actionContext.trace_id,
+          details: { browser_retained: true, manual_close_required: true } });
       } else if (this.context || this.browser) {
-        await this.dispose();
+        assertInputAllowed(actionContext);
+        // 已断开的旧会话只清理引用；不向浏览器发关闭指令，保留失联时可能仍存在的窗口。
+        if (this.browser?.isConnected()) throw new WorkerError({ code: "BROWSER_NOT_RUNNING",
+          message: "浏览器窗口还留着，但页面连接没准备好，请先手动关闭后再开始", action: actionContext.action,
+          step: "existing_session_unavailable", trace_id: actionContext.trace_id,
+          details: { browser_retained: true, manual_close_required: true } });
+        this.clearSessionReferences();
       }
 
       await this.downloadManager.prepare(request.downloads_path);
+      assertInputAllowed(actionContext);
       this.lifecycle.begin();
       const nativeDownloadPrefs = await this.downloadManager.prepareNativeSession();
       this.extensionPaths = [...(request.extension_paths ?? [])];
@@ -115,9 +128,11 @@ export class BrowserSession {
           this.userDataDir,
         );
         const options = await buildLaunchOptions(request, actionContext, fingerprint);
+        assertInputAllowed(actionContext);
         await initializeChineseLanguagePack(this.userDataDir, options);
         options.firefoxUserPrefs = { ...options.firefoxUserPrefs, ...nativeDownloadPrefs };
         await this.downloadManager.resetSnapshot();
+        assertInputAllowed(actionContext);
         this.context = await firefox.launchPersistentContext(
           this.userDataDir,
           {
@@ -130,6 +145,7 @@ export class BrowserSession {
         this.userDataDir = "";
         const options = await buildLaunchOptions(request, actionContext);
         options.firefoxUserPrefs = { ...options.firefoxUserPrefs, ...nativeDownloadPrefs };
+        assertInputAllowed(actionContext);
         this.browser = await firefox.launch(options);
         this.context = await this.browser.newContext({
           viewport: null,
@@ -138,6 +154,7 @@ export class BrowserSession {
       }
       this.registerContext(this.context);
       await this.downloadManager.waitForReady();
+      assertInputAllowed(actionContext);
       this.currentPage =
         this.context.pages().find((item) => !item.isClosed()) ??
         (await this.context.newPage());
@@ -167,7 +184,7 @@ export class BrowserSession {
         retryable: true,
       });
       this.logger.failure(actionContext, normalized);
-      await this.dispose();
+      // 启动或复用中的错误只记日志；已有窗口留给用户检查，不自动关闭。
       throw normalized;
     }
   }
@@ -223,6 +240,7 @@ export class BrowserSession {
       new_tab: request.new_tab ?? false,
     });
     try {
+      assertInputAllowed(actionContext);
       let page: Page;
       if (request.new_tab) {
         const context = this.requireContext(actionContext, step);
@@ -242,6 +260,7 @@ export class BrowserSession {
           this.currentPage = reusable;
           this.registerPage(reusable);
           this.elements.clear();
+          assertInputAllowed(actionContext);
           await reusable.bringToFront();
           const reusedResult = await this.pageInfo(reusable);
           this.logger.info(actionContext, step, "success", {
@@ -254,10 +273,12 @@ export class BrowserSession {
         }
         page = await this.requirePage(actionContext, step);
       }
+      assertInputAllowed(actionContext);
       await page.goto(request.url, {
         waitUntil: request.wait_until ?? "domcontentloaded",
         timeout: request.timeout_ms ?? 30_000,
       });
+      assertInputAllowed(actionContext);
       await page.bringToFront();
       this.elements.clearPage(page);
       const result = await this.pageInfo(page);
@@ -303,6 +324,7 @@ export class BrowserSession {
     pageID: string,
     actionContext: ActionContext,
   ): Promise<PageInfo> {
+    assertInputAllowed(actionContext);
     const context = this.requireContext(actionContext, "use_page");
     const index = Number.parseInt(pageID, 10);
     const page = context.pages()[index];
@@ -325,12 +347,14 @@ export class BrowserSession {
 
   /** reactivatePage 先激活当前 Worker 的桌面窗口，再尝试标签切换；不触碰招聘页面脚本或重放输入。 */
   async reactivatePage(page: Page, actionContext: ActionContext): Promise<void> {
+    assertInputAllowed(actionContext);
     const context = this.requireContext(actionContext, "window_tab_cycle");
     if (page.isClosed() || page.context() !== context) {
       throw new Error("待恢复的浏览器标签已关闭或不属于当前会话");
     }
     const focus = await this.focusBrowserWindow();
     this.logger.info(actionContext, "window_os_focus", focus.status, { ...focus });
+    assertInputAllowed(actionContext);
     if (focus.status === "focused" || focus.status === "already_active") {
       await page.bringToFront();
       this.currentPage = page;
@@ -340,6 +364,7 @@ export class BrowserSession {
     this.logger.info(actionContext, "window_tab_cycle", "start", { temporary_tab: true });
     try {
       temporary = await context.newPage();
+      assertInputAllowed(actionContext);
       await temporary.bringToFront();
       await page.bringToFront();
       await temporary.close();
@@ -358,7 +383,9 @@ export class BrowserSession {
 
   /** closeCurrentPage 关闭当前标签页并切换到剩余页面。 */
   async closeCurrentPage(actionContext: ActionContext): Promise<JsonObject> {
+    assertInputAllowed(actionContext);
     const page = await this.requirePage(actionContext, "close_page");
+    assertInputAllowed(actionContext);
     this.elements.clearPage(page);
     await page.close();
     const pages = this.context?.pages().filter((item) => !item.isClosed()) ?? [];
@@ -445,7 +472,7 @@ export class BrowserSession {
     if (this.browser && !this.browser.isConnected()) {
       return false;
     }
-    return this.context.pages().some((item) => !item.isClosed());
+    return Boolean(this.browser?.isConnected()) || this.context.pages().some((item) => !item.isClosed());
   }
 
   /** requireContext 返回浏览器上下文，不存在时统一抛错。 */
@@ -512,16 +539,10 @@ export class BrowserSession {
 
   /** dispose 关闭浏览器并清理本地引用。 */
   private async dispose(): Promise<void> {
-    this.lifecycle.dispose();
     const context = this.context;
     const browser = this.browser;
     await this.downloadManager.list().catch(() => undefined);
-    this.context = null;
-    this.browser = null;
-    this.currentPage = null;
-    this.userDataDir = "";
-    this.extensionPaths = [];
-    this.elements.clear();
+    this.clearSessionReferences();
     if (context) {
       await context.close().catch(() => undefined);
     }
@@ -530,6 +551,17 @@ export class BrowserSession {
     }
     await this.downloadManager.list().catch(() => undefined);
     await this.downloadManager.reset();
+  }
+
+  /** clearSessionReferences 只释放本地引用，不关闭浏览器，用于已断开连接后的明确重新启动。 */
+  private clearSessionReferences(): void {
+    this.lifecycle.dispose();
+    this.context = null;
+    this.browser = null;
+    this.currentPage = null;
+    this.userDataDir = "";
+    this.extensionPaths = [];
+    this.elements.clear();
   }
 
 }

@@ -23,6 +23,8 @@ var urlQuery = regexp.MustCompile(`(https?://[^\s?"<>]+)\?[^\s"<>]*`)
 var bearer = regexp.MustCompile(`(?i)Bearer\s+[^\s",;]+`)
 var phoneText = regexp.MustCompile(`\b1[3-9][0-9]{9}\b`)
 var emailText = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
+var credentialKey = regexp.MustCompile(`(?i)cookie|authorization|token|password|secret|api[_-]?key|proxy.*(user|pass)`)
+var credentialJSONText = regexp.MustCompile(`(?i)("(?:cookie|authorization|token|password|secret|api[_-]?key)"\s*:\s*")[^"\r\n]*(")`)
 
 // Writer 保存独立日志文件，所有写入先脱敏，超过上限自动轮转。
 type Writer struct {
@@ -65,7 +67,7 @@ func (w *Writer) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	safe := Normalize(data)
-	if len(safe) > 64<<10 {
+	if len(safe) > 64<<10 && !hasAIResponseDiagnostic(safe) {
 		safe = Normalize([]byte(fmt.Sprintf("日志过长已截断，原始字节数=%d", len(data))))
 	}
 	if w.size+int64(len(safe)) > w.limit {
@@ -82,6 +84,18 @@ func (w *Writer) Write(data []byte) (int, error) {
 		return 0, err
 	}
 	return len(data), nil
+}
+
+// hasAIResponseDiagnostic 只让明确的 AI 失败原文绕过普通单行日志限额，轮转规则继续生效。
+func hasAIResponseDiagnostic(data []byte) bool {
+	var event struct {
+		Output struct {
+			AIResponseDiagnostic *struct {
+				Response string `json:"response"`
+			} `json:"ai_response_diagnostic"`
+		} `json:"output"`
+	}
+	return json.Unmarshal(data, &event) == nil && event.Output.AIResponseDiagnostic != nil
 }
 
 // Normalize 把 Go 与 Worker 的输出统一成一行一个完整 JSON 日志对象。
@@ -184,7 +198,9 @@ func redactValue(value any) any {
 	switch item := value.(type) {
 	case map[string]any:
 		for key, child := range item {
-			if sensitiveKey.MatchString(key) {
+			if key == "ai_response_diagnostic" {
+				item[key] = redactAIResponseDiagnostic(child)
+			} else if sensitiveKey.MatchString(key) {
 				item[key] = "[已隐藏]"
 			} else {
 				item[key] = redactValue(child)
@@ -204,6 +220,30 @@ func redactValue(value any) any {
 	return value
 }
 
+// redactAIResponseDiagnostic 完整保留经用户授权的 AI 失败原文，只隐藏访问凭据和 URL 私密参数。
+func redactAIResponseDiagnostic(value any) any {
+	switch item := value.(type) {
+	case map[string]any:
+		for key, child := range item {
+			if credentialKey.MatchString(key) {
+				item[key] = "[已隐藏]"
+			} else {
+				item[key] = redactAIResponseDiagnostic(child)
+			}
+		}
+	case []any:
+		for index, child := range item {
+			item[index] = redactAIResponseDiagnostic(child)
+		}
+	case string:
+		safe := credentialJSONText.ReplaceAllString(item, "${1}[已隐藏]${2}")
+		safe = sensitiveText.ReplaceAllString(safe, "${1}[已隐藏]")
+		safe = bearer.ReplaceAllString(safe, "Bearer [已隐藏]")
+		return urlQuery.ReplaceAllString(safe, "${1}?[已隐藏]")
+	}
+	return value
+}
+
 // WorkerLine 将 Worker 输出统一成脱敏 JSON 行，并把异常 stderr 归入运行中的岗位。
 func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
 	nativeTrace := &browserProcessTrace{}
@@ -213,7 +253,9 @@ func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
 			return
 		}
 		if !json.Valid(data) {
-			if native := nativeTrace.observe(string(data)); len(native) > 0 { data = native }
+			if native := nativeTrace.observe(string(data)); len(native) > 0 {
+				data = native
+			}
 		}
 		if !json.Valid(data) {
 			message := strings.TrimSpace(string(Redact(data)))
