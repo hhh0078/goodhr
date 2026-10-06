@@ -28,7 +28,7 @@ func (s *Store) TaskLogRetainedAfterAppend(ctx context.Context, logID int64) (bo
 	return exists, err
 }
 
-// TaskLog 表示一条不含敏感页面正文的本地任务日志。
+// TaskLog 表示一条本地任务日志，AI 失败原文在独立诊断字段中保存。
 type TaskLog struct {
 	ID           int64           `json:"id"`
 	TaskID       string          `json:"task_id"`

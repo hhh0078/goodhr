@@ -114,7 +114,7 @@ func (s *PositionLogService) Replace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "count": len(items)})
 }
 
-// sanitizeDiagnosticObject 清理入参或出参中的敏感字段，并限制单项内容长度。
+// sanitizeDiagnosticObject 清理普通入参出参并限制大小，明确的 AI 失败诊断保留完整原文。
 func sanitizeDiagnosticObject(raw json.RawMessage) (json.RawMessage, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return json.RawMessage(`{}`), nil
@@ -140,7 +140,7 @@ func sanitizeDiagnosticObject(raw json.RawMessage) (json.RawMessage, error) {
 	return json.RawMessage(encoded), err
 }
 
-// sanitizeDiagnosticValue 递归隐藏凭据及候选人敏感字段。
+// sanitizeDiagnosticValue 递归清理普通字段，AI 失败诊断单独保留原文并隐藏凭据。
 func sanitizeDiagnosticValue(value any) any {
 	switch item := value.(type) {
 	case map[string]any:

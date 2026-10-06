@@ -70,7 +70,7 @@ func uploadLogText(value string) string {
 	return value[:boundary] + "…"
 }
 
-// uploadLogObject 只上传脱敏且大小受限的 JSON 对象，避免敏感内容及超大响应进入云端。
+// uploadLogObject 完整保留经授权的 AI 失败诊断，普通出参继续脱敏并限制大小。
 func uploadLogObject(value json.RawMessage) json.RawMessage {
 	if !json.Valid(value) {
 		return json.RawMessage(`{}`)
