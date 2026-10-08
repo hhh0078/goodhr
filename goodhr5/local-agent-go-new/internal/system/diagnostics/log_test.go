@@ -4,6 +4,7 @@ package diagnostics
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -315,5 +316,128 @@ func TestWorkerStructuredObjectFailureStaysError(t *testing.T) {
 	output, ok := item["output"].(map[string]any)
 	if !ok || output["query_error_type"] != "StaleObjectReference" || len(output) != 1 {
 		t.Fatalf("真实操作错误详情被改写：%s", local.Bytes())
+	}
+}
+
+// TestWorkerBrowserStartupOutputs 验证真实十五条 Firefox 内部启动输出只记诊断警告，同文案的结构化动作失败仍保留。
+func TestWorkerBrowserStartupOutputs(t *testing.T) {
+	const rustSource = "moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustSearch.sys.mjs"
+	const recordFailure = "reason: JSON error: missing field `recordType` at line 1 column 114"
+	rustError := "JavaScript error: " + rustSource + ", line 2681: Error: " + recordFailure
+	for index, sample := range []struct {
+		timestamp string
+		stream    string
+		payload   string
+		family    string
+	}{
+		{"2026-10-08T17:22:37.206Z", "out", `console.error: "Warning: unrecognized command line flag" "-foreground"`, "foreground_flag"},
+		{"2026-10-08T17:22:37.667Z", "out", "console.error: CustomizableUI:", "customizable_ui_header"},
+		{"2026-10-08T17:22:37.924Z", "out", `console.error: SearchService: "#init: failure initializing search:" (new Error("` + recordFailure + `", "` + rustSource + `", 2681))`, "search_init_record_type"},
+		{"2026-10-08T17:22:37.924Z", "err", rustError, "rust_search_record_type"},
+		{"2026-10-08T17:22:37.925Z", "err", rustError, "rust_search_record_type"},
+		{"2026-10-08T17:22:37.925Z", "err", rustError, "rust_search_record_type"},
+		{"2026-10-08T17:22:37.925Z", "err", rustError, "rust_search_record_type"},
+		{"2026-10-08T17:22:38.194Z", "out", `console.error: "Could not parse ASRouter preference. Try resetting browser.newtabpage.activity-stream.asrouter.providers.snippets in about:config."`, "asrouter_snippets_preference"},
+		{"2026-10-08T17:22:38.951Z", "out", `console.error: SearchSettings: "_write: Could not write to settings file:" (new Error("cannot write without any engine.", "moz-src:///toolkit/components/search/SearchSettings.sys.mjs", 346))`, "search_settings_no_engines"},
+		{"2026-10-08T17:22:39.210Z", "err", "JavaScript error: chrome://juggler/content/Helper.js, line 82: NS_ERROR_FAILURE: Component returned failure code: 0x80004005 (NS_ERROR_FAILURE) [nsIWebProgress.removeProgressListener]", "juggler_progress_listener"},
+		{"2026-10-08T17:22:39.359Z", "out", "console.error: WebExtensions:", "webextensions_header"},
+		{"2026-10-08T17:22:39.360Z", "out", "    - message = " + recordFailure, "search_record_type_continuation"},
+		{"2026-10-08T17:22:39.360Z", "out", "    - reason = JSON error: missing field `recordType` at line 1 column 114", "search_record_type_continuation"},
+		{"2026-10-08T17:22:40.584Z", "out", `console.error: "Search service failed to init"`, "search_service_init"},
+		{"2026-10-08T17:22:58.044Z", "err", rustError, "rust_search_record_type"},
+	} {
+		t.Run(fmt.Sprintf("sample_%02d_%s", index+1, sample.family), func(t *testing.T) {
+			line := fmt.Sprintf("%s pw:browser [pid=36176][%s] %s", sample.timestamp, sample.stream, sample.payload)
+			var local bytes.Buffer
+			var forwarded []byte
+			sink := WorkerLine(&local, func(line []byte) { forwarded = append([]byte(nil), line...) })
+			sink([]byte(line))
+			var item struct {
+				Action       string            `json:"action"`
+				Status       string            `json:"status"`
+				Level        string            `json:"level"`
+				IsError      bool              `json:"is_error"`
+				ErrorMessage string            `json:"error_message"`
+				Message      string            `json:"message"`
+				Diagnostic   bool              `json:"diagnostic"`
+				Output       map[string]string `json:"output"`
+			}
+			if err := json.Unmarshal(forwarded, &item); err != nil {
+				t.Fatal(err)
+			}
+			if item.Action != "worker.stderr" || item.Status != "warning" || item.Level != "warn" || item.IsError || item.ErrorMessage != "" || item.Diagnostic || item.Message != line || item.Output["stderr_kind"] != "browser_internal_startup_output" || item.Output["startup_family"] != sample.family || item.Output["operation_outcome"] != "unknown" {
+				t.Fatalf("已知内部输出被当成动作失败或原文丢失：%s", forwarded)
+			}
+			if !bytes.Equal(bytes.TrimSpace(local.Bytes()), forwarded) {
+				t.Fatal("本地诊断与转发的分类字段不一致")
+			}
+			local.Reset()
+			structured, err := json.Marshal(map[string]any{
+				"action": "element.read", "step": "read", "trace_id": "actual-task", "request_id": "actual-request",
+				"status": "failed", "level": "error", "is_error": true, "error_code": "BROWSER_OPERATION_FAILED", "error_message": line,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sink(structured)
+			var failure map[string]any
+			if err := json.Unmarshal(local.Bytes(), &failure); err != nil {
+				t.Fatal(err)
+			}
+			if failure["action"] != "element.read" || failure["status"] != "failed" || failure["level"] != "error" || failure["is_error"] != true || failure["error_code"] != "BROWSER_OPERATION_FAILED" || failure["error_message"] != line || failure["trace_id"] != "actual-task" || failure["request_id"] != "actual-request" {
+				t.Fatalf("真实结构化失败被内部输出分类覆盖：%s", local.Bytes())
+			}
+		})
+	}
+}
+
+// TestWorkerUnknownBrowserStartupErrorsStayFailed 验证近似签名、未知浏览器输出和致命错误都不会被内部启动输出规则降级。
+func TestWorkerUnknownBrowserStartupErrorsStayFailed(t *testing.T) {
+	const out = "2026-10-08T17:22:37.206Z pw:browser [pid=36176][out] "
+	const errPrefix = "2026-10-08T17:22:37.206Z pw:browser [pid=36176][err] "
+	const rustError = "JavaScript error: moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustSearch.sys.mjs, line 2681: Error: reason: JSON error: missing field `recordType` at line 1 column 114"
+	const listener = "JavaScript error: chrome://juggler/content/Helper.js, line 82: NS_ERROR_FAILURE: Component returned failure code: 0x80004005 (NS_ERROR_FAILURE) [nsIWebProgress.removeProgressListener]"
+	for index, line := range []string{
+		"Error: Worker startup failed",
+		"console.error: WebExtensions:",
+		out + `console.error: "Warning: unrecognized command line flag" "-unsafe-launch"`,
+		out + "console.error: CustomizableUI: Error: widget initialization failed",
+		out + "console.error: WebExtensions: Error: permissions rejected",
+		errPrefix + strings.Replace(rustError, "recordType", "engineId", 1),
+		errPrefix + strings.Replace(rustError, "RustSearch.sys.mjs", "OtherSearch.sys.mjs", 1),
+		out + rustError,
+		out + `console.error: SearchService: "#init: failure initializing search:" (new Error("permission denied", "moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustSearch.sys.mjs", 2681))`,
+		out + `console.error: "Could not parse ASRouter preference. Try resetting browser.newtabpage.activity-stream.asrouter.providers.custom in about:config."`,
+		out + `console.error: SearchSettings: "_write: Could not write to settings file:" (new Error("permission denied", "moz-src:///toolkit/components/search/SearchSettings.sys.mjs", 346))`,
+		errPrefix + strings.Replace(listener, "removeProgressListener", "addProgressListener", 1),
+		errPrefix + strings.ReplaceAll(listener, "NS_ERROR_FAILURE", "NS_ERROR_UNEXPECTED"),
+		errPrefix + strings.Replace(listener, "Helper.js", "Helper.js.backup", 1),
+		out + "    - message = reason: JSON error: missing field `engineId` at line 1 column 114",
+		out + "    - reason = JSON error: missing field `recordType` at line 1 column 114; Error: channel closed",
+		out + `console.error: "Search service failed to init: BROWSER_NOT_FOUND"`,
+		out + "console.error: (void 0)",
+		errPrefix + "JavaScript error: resource://gre/modules/AsyncShutdown.sys.mjs, line 587: uncaught exception: undefined",
+		"panic: " + out + "console.error: WebExtensions:",
+		"fatal error: " + out + "console.error: WebExtensions:",
+		"out of memory: " + out + "console.error: WebExtensions:",
+		"assertion failed: " + out + "console.error: WebExtensions:",
+		errPrefix + "out of memory",
+		errPrefix + "assertion failed",
+	} {
+		t.Run(fmt.Sprintf("unknown_%02d", index+1), func(t *testing.T) {
+			var local bytes.Buffer
+			sink := WorkerLine(&local, nil)
+			sink([]byte(line))
+			var item map[string]any
+			if err := json.Unmarshal(local.Bytes(), &item); err != nil {
+				t.Fatal(err)
+			}
+			if item["status"] != "failed" || item["level"] != "error" || item["is_error"] != true || item["error_message"] != line || item["message"] != line {
+				t.Fatalf("未知或致命错误被错误降级：%s", local.Bytes())
+			}
+			if output, ok := item["output"].(map[string]any); !ok || len(output) != 0 {
+				t.Fatalf("未知错误被误归入已知内部输出：%s", local.Bytes())
+			}
+		})
 	}
 }

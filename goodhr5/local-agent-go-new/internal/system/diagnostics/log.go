@@ -27,6 +27,16 @@ var credentialKey = regexp.MustCompile(`(?i)cookie|authorization|token|password|
 var credentialJSONText = regexp.MustCompile(`(?i)("(?:cookie|authorization|token|password|secret|api[_-]?key)"\s*:\s*")[^"\r\n]*(")`)
 var browserRuntimeStack = regexp.MustCompile(`chrome://juggler/content/(?:content/)?Runtime\.js(?:[:\s]|$)`)
 
+const rustSearchSource = "moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustSearch.sys.mjs"
+const searchRecordTypePattern = `JSON error: missing field \x60recordType\x60 at line [0-9]+ column [0-9]+`
+
+var browserStartupOutput = regexp.MustCompile(`^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z\s+)?pw:browser \[pid=[0-9]+\]\[(out|err)\]\s*(.*)$`)
+var browserSearchInitOutput = regexp.MustCompile(`^console\.error: SearchService: "#init: failure initializing search:" \(new Error\("reason: ` + searchRecordTypePattern + `", "` + regexp.QuoteMeta(rustSearchSource) + `", [0-9]+\)\)$`)
+var browserRustSearchOutput = regexp.MustCompile(`^JavaScript error: ` + regexp.QuoteMeta(rustSearchSource) + `, line [0-9]+: Error: reason: ` + searchRecordTypePattern + `$`)
+var browserSearchSettingsOutput = regexp.MustCompile(`^console\.error: SearchSettings: "_write: Could not write to settings file:" \(new Error\("cannot write without any engine\.", "moz-src:///toolkit/components/search/SearchSettings\.sys\.mjs", [0-9]+\)\)$`)
+var browserProgressListenerOutput = regexp.MustCompile(`^JavaScript error: chrome://juggler/content/Helper\.js, line [0-9]+: NS_ERROR_FAILURE: Component returned failure code: 0x80004005 \(NS_ERROR_FAILURE\) \[nsIWebProgress\.removeProgressListener\]$`)
+var browserRecordTypeContinuation = regexp.MustCompile(`^- (?:message = reason: |reason = )` + searchRecordTypePattern + `$`)
+
 // Writer 保存独立日志文件，所有写入先脱敏，超过上限自动轮转。
 type Writer struct {
 	mu    sync.Mutex
@@ -260,16 +270,23 @@ func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
 		}
 		if !json.Valid(data) {
 			message := strings.TrimSpace(string(Redact(data)))
-			isError := strings.Contains(strings.ToLower(message), "error") || strings.Contains(strings.ToLower(message), "panic") || strings.Contains(message, "失败")
+			isError := hasFatalBrowserOutput(message) || strings.Contains(strings.ToLower(message), "error") || strings.Contains(message, "失败")
 			status := "info"
 			level := "info"
 			if isError {
 				status, level = "failed", "error"
 			}
 			output := map[string]any{}
+			stderrKind := ""
 			if isBrowserInternalStaleObject(message) {
+				stderrKind = "browser_internal_stale_object"
+			} else if family := browserStartupOutputFamily(message); family != "" {
+				stderrKind = "browser_internal_startup_output"
+				output["startup_family"] = family
+			}
+			if stderrKind != "" {
 				status, level, isError = "warning", "warn", false
-				output["stderr_kind"] = "browser_internal_stale_object"
+				output["stderr_kind"] = stderrKind
 				output["operation_outcome"] = "unknown"
 			}
 			errorMessage := ""
@@ -298,10 +315,59 @@ func isBrowserInternalStaleObject(message string) bool {
 	if !strings.Contains(message, "pw:browser") || !strings.Contains(message, "Cannot find object with id") {
 		return false
 	}
-	lower := strings.ToLower(message)
-	if strings.Contains(lower, "panic") || strings.Contains(lower, "fatal error") || strings.Contains(lower, "out of memory") || strings.Contains(lower, "assertion failed") {
+	if hasFatalBrowserOutput(message) {
 		return false
 	}
 	contentChannel := strings.Contains(message, "error in channel content::") && strings.Contains(message, "exception callFunction namespace page Cannot find object with id")
 	return browserRuntimeStack.MatchString(message) || contentChannel
+}
+
+// browserStartupOutputFamily 仅分类已经核实的 Firefox 内部输出签名，不把空模块标题或内置搜索失败当作岗位动作失败。
+func browserStartupOutputFamily(message string) string {
+	if hasFatalBrowserOutput(message) {
+		return ""
+	}
+	match := browserStartupOutput.FindStringSubmatch(message)
+	if match == nil {
+		return ""
+	}
+	stream, payload := match[1], strings.TrimSpace(match[2])
+	if stream == "out" {
+		switch payload {
+		case `console.error: "Warning: unrecognized command line flag" "-foreground"`:
+			return "foreground_flag"
+		case "console.error: CustomizableUI:":
+			return "customizable_ui_header"
+		case "console.error: WebExtensions:":
+			return "webextensions_header"
+		case `console.error: "Could not parse ASRouter preference. Try resetting browser.newtabpage.activity-stream.asrouter.providers.snippets in about:config."`:
+			return "asrouter_snippets_preference"
+		case `console.error: "Search service failed to init"`:
+			return "search_service_init"
+		}
+		if browserSearchInitOutput.MatchString(payload) {
+			return "search_init_record_type"
+		}
+		if browserSearchSettingsOutput.MatchString(payload) {
+			return "search_settings_no_engines"
+		}
+		if browserRecordTypeContinuation.MatchString(payload) {
+			return "search_record_type_continuation"
+		}
+	}
+	if stream == "err" {
+		if browserRustSearchOutput.MatchString(payload) {
+			return "rust_search_record_type"
+		}
+		if browserProgressListenerOutput.MatchString(payload) {
+			return "juggler_progress_listener"
+		}
+	}
+	return ""
+}
+
+// hasFatalBrowserOutput 保留 panic、内存耗尽、断言和致命错误，已知内部输出不得覆盖这些故障证据。
+func hasFatalBrowserOutput(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "panic") || strings.Contains(lower, "fatal error") || strings.Contains(lower, "out of memory") || strings.Contains(lower, "assertion failed")
 }
