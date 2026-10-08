@@ -1,4 +1,4 @@
-// 文件作用：验证原生移动回执超时只重试一次移动，并重新读取目标，不重放点击。
+// 文件作用：验证原生移动回执超时及安全的途中最小化恢复，只重试一次移动并重读目标，不重放点击。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MoveAction } from '../dist/browser/actions/move.js';
@@ -48,11 +48,12 @@ test('窗口未激活且鼠标未发出时，重选标签并重新读取目标�
   const page = { isClosed: () => false, async bringToFront() { activations++; } };
   const found = { page, locator: {}, view: { visible: true, box: { x: 50, y: 50, width: 100, height: 40 }, viewport: { width: 800, height: 600 } } };
   const action = new MoveAction({ async move() { if (++moves === 1) throw windowError(); } },
-    { info(_ctx, step, status) { events.push([step, status]); }, warn(_ctx, step, status) { events.push([step, status]); }, failure() {}, error() {} },
+    { info(_ctx, step, status, details) { events.push([step, status, details]); }, warn(_ctx, step, status) { events.push([step, status]); }, failure() {}, error() {} },
     { async view() { reads++; return found.view; } });
   await action.toElement(found, { action: 'element.scroll', trace_id: 'window', started_at: Date.now() });
   assert.deepEqual({ moves, activations, reads }, { moves: 2, activations: 1, reads: 1 });
   assert.ok(events.some(([step, status]) => step === 'window_recovery' && status === 'retry'));
+  assert.equal(events.find(([step, status]) => step === 'window_recovery' && status === 'retry')[2].input_sent_before_retry, false);
 });
 
 test('恢复一次后仍未激活就停止，不无限重试', async () => {
@@ -77,7 +78,7 @@ test('重新激活后无法确认目标位置时保留窗口错误，避免按�
   assert.equal(moves, 1);
 });
 
-test('已有原生输入时绝不重选标签或重试', async () => {
+test('已有原生输入但回执不完整时不重选标签或重试', async () => {
   let moves = 0, activations = 0;
   const page = { isClosed: () => false, async bringToFront() { activations++; } };
   const view = { visible: true, box: { x: 50, y: 50, width: 100, height: 40 }, viewport: { width: 800, height: 600 } };
@@ -86,6 +87,104 @@ test('已有原生输入时绝不重选标签或重试', async () => {
   await assert.rejects(action.toElement({ page, locator: {}, view },
     { action: 'element.scroll', trace_id: 'window', started_at: Date.now() }));
   assert.deepEqual({ moves, activations }, { moves: 1, activations: 0 });
+});
+
+/** minimizedMoveError 构造途中最小化、已完整确认悬停点的原生错误，允许覆盖不安全边界。 */
+function minimizedMoveError(overrides = {}, code = 'GOODHR_MOUSE_WINDOW_NOT_READY') {
+  const diagnostic = {
+    schema_version: 1, event_types: 'mousemove', events_sent: 52, events_acknowledged: 52,
+    buttons: 0, last_event: 'mousemove',
+    window_at_failure: { window_minimized: true, browser_hidden: false, tab_selected: true, browser_selected: true },
+    ...overrides,
+  };
+  return new Error(`${code}:${diagnostic.event_types} GOODHR_MOUSE_DIAGNOSTICS=` + JSON.stringify(diagnostic));
+}
+
+/** minimizedMoveFixture 区分重新激活、重读坐标和鼠标按键，第二次移动必须使用恢复后的新位置。 */
+function minimizedMoveFixture(error = minimizedMoveError(), alwaysFail = false) {
+  let moves = 0, activations = 0, reads = 0, downs = 0, ups = 0;
+  const steps = [], points = [], logs = [];
+  const page = { isClosed: () => false, async bringToFront() { activations++; steps.push('activate'); } };
+  const view = { visible: true, box: { x: 50, y: 50, width: 100, height: 40 }, viewport: { width: 800, height: 600 } };
+  const refreshedView = { ...view, box: { x: 350, y: 250, width: 100, height: 40 } };
+  const found = { page, locator: {}, view };
+  const action = new MoveAction({
+    async move(_page, x, y) { moves++; steps.push('move'); points.push({ x, y }); if (moves === 1 || alwaysFail) throw error; },
+    async down() { downs++; }, async up() { ups++; },
+  }, {
+    info(_ctx, step, status, details) { logs.push({ step, status, details }); }, warn() {}, error() {}, failure() {},
+  }, {
+    async view() { reads++; steps.push('read'); return refreshedView; },
+  });
+  return { action, found, steps, points, logs, refreshedView, counts: () => ({ moves, activations, reads, downs, ups }) };
+}
+
+test('途中最小化的无按键移动回执完整时，恢复窗口并按新坐标仅重新移动', async () => {
+  const f = minimizedMoveFixture();
+  const result = await f.action.toElement(f.found, { action: 'element.click', trace_id: 'mid-move', started_at: Date.now() });
+  assert.deepEqual(f.counts(), { moves: 2, activations: 1, reads: 1, downs: 0, ups: 0 });
+  assert.deepEqual(f.steps, ['move', 'activate', 'read', 'move']);
+  assert.strictEqual(result.view, f.refreshedView);
+  assert.ok(result.x > 350 && result.x < 450 && result.y > 250 && result.y < 290);
+  const retry = f.logs.find(log => log.step === 'window_recovery' && log.status === 'retry');
+  assert.equal(retry.details.input_sent_before_retry, true);
+  assert.equal(retry.details.reason, 'minimized_during_acknowledged_hover');
+});
+
+const unsafeMidMoveCases = [
+  ['鼠标按键仍按住', { buttons: 1 }],
+  ['缺少按键状态', { buttons: undefined }],
+  ['存在尚未收到的回执', { events_acknowledged: 51 }],
+  ['回执数量不一致', { events_acknowledged: 53 }],
+  ['发送数量不是整数', { events_sent: 52.5, events_acknowledged: 52.5 }],
+  ['最后事件不是移动', { last_event: 'mouseup' }],
+  ['缺少最后事件', { last_event: undefined }],
+  ['包含鼠标按下', { event_types: 'mousemove,mousedown' }],
+  ['诊断版本不可识别', { schema_version: 2 }],
+  ['缺少窗口证据', { window_at_failure: undefined }],
+  ['窗口没有最小化', { window_at_failure: { window_minimized: false, browser_hidden: false, tab_selected: true, browser_selected: true } }],
+  ['内容容器被隐藏', { window_at_failure: { window_minimized: true, browser_hidden: true, tab_selected: true, browser_selected: true } }],
+  ['选中了其他标签', { window_at_failure: { window_minimized: true, browser_hidden: false, tab_selected: false, browser_selected: true } }],
+  ['选中了其他内容容器', { window_at_failure: { window_minimized: true, browser_hidden: false, tab_selected: true, browser_selected: false } }],
+  ['标签状态未知', { window_at_failure: { window_minimized: true, browser_hidden: false, tab_selected: null, browser_selected: true } }],
+];
+for (const [description, overrides] of unsafeMidMoveCases) {
+  test(`途中最小化恢复遇到${description}时不重试`, async () => {
+    const f = minimizedMoveFixture(minimizedMoveError(overrides));
+    await assert.rejects(f.action.toElement(f.found, { action: 'element.click', trace_id: 'unsafe-mid-move', started_at: Date.now() }));
+    assert.deepEqual(f.counts(), { moves: 1, activations: 0, reads: 0, downs: 0, ups: 0 });
+  });
+}
+
+test('原生输入已超时时即使存在完整移动证据也不恢复或重试', async () => {
+  const f = minimizedMoveFixture(minimizedMoveError({}, 'GOODHR_MOUSE_INPUT_TIMEOUT'));
+  await assert.rejects(f.action.toElement(f.found, { action: 'element.click', trace_id: 'expired-mid-move', started_at: Date.now() }));
+  assert.deepEqual(f.counts(), { moves: 1, activations: 0, reads: 0, downs: 0, ups: 0 });
+});
+
+test('途中最小化恢复后再次失败，只重新移动一次', async () => {
+  const f = minimizedMoveFixture(minimizedMoveError(), true);
+  await assert.rejects(f.action.toElement(f.found, { action: 'element.click', trace_id: 'repeated-mid-move', started_at: Date.now() }),
+    error => error.code === 'BROWSER_WINDOW_NOT_READY');
+  assert.deepEqual(f.counts(), { moves: 2, activations: 1, reads: 1, downs: 0, ups: 0 });
+});
+
+test('途中最小化恢复保留取消和剩余时间保护', async () => {
+  for (const context of [
+    { signal: AbortSignal.abort() },
+    { deadline_at: Date.now() + 1000 },
+  ]) {
+    const f = minimizedMoveFixture();
+    await assert.rejects(f.action.toElement(f.found, { action: 'element.click', trace_id: 'limited-mid-move', started_at: Date.now(), ...context }));
+    assert.deepEqual(f.counts(), { moves: 1, activations: 0, reads: 0, downs: 0, ups: 0 });
+  }
+});
+
+test('途中最小化时没有可重读目标的视口中心移动不放宽恢复条件', async () => {
+  const f = minimizedMoveFixture();
+  await assert.rejects(f.action.toViewportCenter(f.found.page, 800, 600,
+    { action: 'element.scroll', trace_id: 'center-mid-move', started_at: Date.now() }));
+  assert.deepEqual(f.counts(), { moves: 1, activations: 0, reads: 0, downs: 0, ups: 0 });
 });
 
 test('桌面窗口激活成功后只重选原标签，不创建临时标签', async () => {

@@ -27,7 +27,7 @@ try {
   await assert.rejects(run('page.scroll', 'minimize-before-wheel', context => actions.scroll({ distance: 200, max_attempts: 1, wait_ms: 0 }, context)), error => {
     const evidence = error.details.native_mouse ?? error.details.output?.native_mouse;
     assert.match(error.details.original_error ?? error.details.output?.original_error ?? '', /GOODHR_WINDOW_SMOKE_SUCCESS/);
-    assert.equal(evidence.mouse_safety_version, 'v10');
+    assert.equal(evidence.mouse_safety_version, 'v11');
     assert.equal(evidence.window_before.headless, false);
     assert.equal(evidence.window_before.window_minimized, true);
     assert.equal(evidence.window_ready_before_input.window_minimized, false);
@@ -35,7 +35,7 @@ try {
     assert.equal(evidence.window_ready_before_input.browser_active, true);
     assert.ok(evidence.window_restore_attempts >= 1);
     assert.equal(evidence.events_sent, 1);
-    console.log('NATIVE_WINDOW_SMOKE_OK ' + JSON.stringify({ runtime_version: 'v10', real_minimized_window: true,
+    console.log('NATIVE_WINDOW_SMOKE_OK ' + JSON.stringify({ runtime_version: 'v11', real_minimized_window: true,
       window_restored_and_active: true, events_sent: evidence.events_sent, restore_attempts: evidence.window_restore_attempts }));
     return true;
   });
