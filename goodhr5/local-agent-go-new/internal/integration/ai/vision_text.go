@@ -32,7 +32,8 @@ func (c *Client) ReadDetailTextVision(ctx context.Context, cfg cloud.AIConfig, i
 	var result struct {
 		Text *string `json:"text"`
 	}
-	object := strings.TrimSpace(content)
+	// 复用评分入口的 JSON 提取能力，兼容代码块和说明文字，失败诊断仍保留完整原文。
+	object := extractJSONObject(content)
 	if err := json.Unmarshal([]byte(object), &result); err != nil {
 		return "", withResponseModel(newParsedResponseError(fmt.Errorf("AI 没有返回有效的详情文字，已停止本次判断：%w", err), content, object, "model_content"), cfg.Model)
 	}
