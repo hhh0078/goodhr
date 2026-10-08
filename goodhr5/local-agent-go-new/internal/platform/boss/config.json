@@ -329,24 +329,27 @@
       "description": "Boss候选人详情弹窗"
     },
     "candidate.detail_close": {
-      "_comment": "复用既有 Boss 详情关闭按钮，按钮缺失时退回 Escape 并验证弹窗消失。",
+      "_comment": "优先关闭推荐框架中的外层简历弹窗，兼容旧详情框架按钮，按钮缺失时退回 Escape 并验证弹窗消失。",
       "frames": [
         {
-          "_comment": "优先在主页面详情 iframe 内查找关闭按钮。",
+          "_comment": "当前关闭按钮位于推荐列表框架内、简历正文 iframe 外。",
           "selectors": [
-            { "_comment": "当前可见的简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }
+            { "_comment": "Boss 推荐列表框架。", "type": "css", "value": "iframe[name='recommendFrame']" }
           ]
         }
       ],
-      "_comment_frame_fallbacks": "兼容推荐列表内嵌详情的关闭按钮。",
+      "_comment_frame_fallbacks": "兼容主页面并列详情和推荐列表内嵌详情中的旧关闭按钮。",
       "frame_fallbacks": [[
+        { "_comment": "旧版主页面并列的详情框架。", "selectors": [{ "_comment": "当前可见的简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }] }
+      ], [
         { "_comment": "内嵌详情的外层推荐列表框架。", "selectors": [{ "_comment": "Boss 推荐列表框架。", "type": "css", "value": "iframe[name='recommendFrame']" }] },
         { "_comment": "推荐列表内当前可见的详情框架。", "selectors": [{ "_comment": "内嵌简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }] }
       ]],
       "parents": [],
       "target": {
-        "_comment": "既有平台配置使用的详情关闭按钮。",
+        "_comment": "优先使用当前可见外层简历弹窗的关闭按钮，保留旧布局按钮。",
         "selectors": [
+          { "_comment": "当前外层简历弹窗的可见关闭按钮。", "type": "css", "value": ".lib-standard-resume .close-btn:visible" },
           { "_comment": "简历详情自定义关闭按钮。", "type": "css", "value": ".resume-custom-close" },
           { "_comment": "兼容既有详情弹窗关闭按钮。", "type": "css", "value": ".boss-popup__close" }
         ]

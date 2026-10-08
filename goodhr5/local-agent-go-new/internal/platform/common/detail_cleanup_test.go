@@ -17,6 +17,9 @@ type detailCleanupBrowser struct {
 	closeCalls, escapes                   int
 	openCalls, bodyProbes, bodyReadyAfter int
 	verifiedDialog                        bool
+	closeMissing                          bool
+	closeProbeErr, closeClickErr          error
+	closeProbes                           []contract.ElementFindAllRequest
 }
 
 // Click 模拟入口打开弹窗，关闭按钮只在验证目标为弹窗本身时成功。
@@ -24,6 +27,9 @@ func (b *detailCleanupBrowser) Click(_ context.Context, request contract.Element
 	if request.Selector.Description == "详情关闭按钮" {
 		b.closeCalls++
 		b.verifiedDialog = request.Diagnostic && request.Verify != nil && request.Verify.TargetHidden != nil && request.Verify.TargetHidden.Description == "详情弹窗"
+		if b.closeClickErr != nil {
+			return contract.ClickResult{}, b.closeClickErr
+		}
 		if b.closeFails {
 			return contract.ClickResult{}, errors.New("测试关闭按钮没有生效")
 		}
@@ -37,6 +43,16 @@ func (b *detailCleanupBrowser) Click(_ context.Context, request contract.Element
 
 // FindAll 正文一直缺失，弹窗状态独立于正文存在与否。
 func (b *detailCleanupBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if request.Selector.Description == "详情关闭按钮" {
+		b.closeProbes = append(b.closeProbes, request)
+		if b.closeProbeErr != nil {
+			return nil, b.closeProbeErr
+		}
+		if b.present && !b.closeMissing {
+			return []contract.FindAllItem{{}}, nil
+		}
+		return nil, nil
+	}
 	if request.Selector.Description == "详情正文" {
 		b.bodyProbes++
 		if b.bodyReadyAfter > 0 && b.bodyProbes >= b.bodyReadyAfter {
@@ -106,5 +122,47 @@ func TestMissingDialogDoesNotSendEscape(t *testing.T) {
 	browser := &detailCleanupBrowser{}
 	if err := CloseCandidateDetail(context.Background(), browser, cleanupConfig()); err != nil || browser.closeCalls != 0 || browser.escapes != 0 {
 		t.Fatalf("没有弹窗时不应继续关闭：%v %+v", err, browser)
+	}
+}
+
+// TestMissingDetailCloseUsesVerifiedEscape 验证按钮缺失只记为预期探测，Escape 关闭并确认弹窗隐藏后才成功。
+func TestMissingDetailCloseUsesVerifiedEscape(t *testing.T) {
+	missing := &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	for _, probeErr := range []error{nil, missing} {
+		browser := &detailCleanupBrowser{present: true, closeMissing: true, closeProbeErr: probeErr, escapeWorks: true}
+		if err := CloseCandidateDetail(context.Background(), browser, cleanupConfig()); err != nil {
+			t.Fatalf("按钮缺失后已确认关闭，不应报关闭失败：%v", err)
+		}
+		if browser.present || browser.closeCalls != 0 || browser.escapes != 1 || len(browser.closeProbes) != 1 {
+			t.Fatalf("按钮缺失应直接按 Escape 并验证，不能再发失败的点击：%+v", browser)
+		}
+		probe := browser.closeProbes[0]
+		if !probe.ExpectedMissing || !probe.ProbeOnly || !probe.Diagnostic || probe.MaxItems != 1 {
+			t.Fatalf("按钮缺失探测必须保留信息级诊断：%+v", probe)
+		}
+	}
+}
+
+// TestMissingDetailCloseRejectsUnconfirmedEscape 验证按过 Escape 但弹窗仍存在时，不能把动作记录为成功。
+func TestMissingDetailCloseRejectsUnconfirmedEscape(t *testing.T) {
+	browser := &detailCleanupBrowser{present: true, closeMissing: true}
+	if err := CloseCandidateDetail(context.Background(), browser, cleanupConfig()); err == nil || browser.closeCalls != 0 || browser.escapes != 1 || !browser.present {
+		t.Fatalf("未确认关闭时必须返回错误：%v %+v", err, browser)
+	}
+}
+
+// TestDetailClosePreservesSessionFailures 验证探测或点击遇到会话故障时，保留真实错误且不再发送 Escape。
+func TestDetailClosePreservesSessionFailures(t *testing.T) {
+	fatal := &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE"}}
+	for _, duringProbe := range []bool{true, false} {
+		browser := &detailCleanupBrowser{present: true}
+		if duringProbe {
+			browser.closeProbeErr = fatal
+		} else {
+			browser.closeClickErr = fatal
+		}
+		if err := CloseCandidateDetail(context.Background(), browser, cleanupConfig()); !errors.Is(err, fatal) || browser.escapes != 0 {
+			t.Fatalf("会话错误不应被降级隐藏：%v %+v", err, browser)
+		}
 	}
 }
