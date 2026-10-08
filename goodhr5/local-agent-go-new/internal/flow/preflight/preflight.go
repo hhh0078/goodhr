@@ -170,6 +170,9 @@ func validateRequest(_ context.Context, prepared *shared.PreparedTask) error {
 	if request.TaskType != "greeting" && request.TaskType != "auto_reply" {
 		return fmt.Errorf("任务类型只支持打招呼或自动回复")
 	}
+	if request.EnableGreet != nil && !*request.EnableGreet && request.TaskType == "auto_reply" {
+		return fmt.Errorf("只检查候选人不能用于自动回复，请选择打招呼任务")
+	}
 	if strings.TrimSpace(request.Token) == "" {
 		return fmt.Errorf("登录令牌不能为空")
 	}

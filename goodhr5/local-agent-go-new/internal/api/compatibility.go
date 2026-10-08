@@ -53,6 +53,18 @@ type localPositionRunRequest struct {
 	TaskType    string `json:"task_type"`
 }
 
+// startRequest 保留岗位启动的三态打招呼开关，并统一默认任务类型。
+func (request localPositionRunRequest) startRequest(positionID string, taskID string) shared.StartRequest {
+	taskType := strings.ToLower(strings.TrimSpace(request.TaskType))
+	if taskType == "" {
+		taskType = "greeting"
+	}
+	return shared.StartRequest{
+		TaskID: taskID, PositionID: positionID, TaskType: taskType,
+		Token: request.Token, Headless: request.Headless, EnableGreet: request.EnableGreet,
+	}
+}
+
 // screenshotCompatibilityRequest 表示旧控制台提交的本地截图元数据。
 type screenshotCompatibilityRequest struct {
 	FilePath   string `json:"file_path"`
@@ -176,15 +188,8 @@ func (s *Server) handleLocalPositionRun(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
 		return
 	}
-	taskType := strings.ToLower(strings.TrimSpace(request.TaskType))
-	if taskType == "" {
-		taskType = "greeting"
-	}
 	taskID := positionID + "-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
-	result, err := s.runner.StartTask(r.Context(), shared.StartRequest{
-		TaskID: taskID, PositionID: positionID, TaskType: taskType,
-		Token: request.Token, Headless: request.Headless,
-	})
+	result, err := s.runner.StartTask(r.Context(), request.startRequest(positionID, taskID))
 	if err != nil {
 		writeJSON(w, http.StatusConflict, struct {
 			OK        bool                 `json:"ok"`

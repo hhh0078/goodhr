@@ -108,3 +108,56 @@ func TestAutoReplyAllowsMaxPermission(t *testing.T) {
 		t.Fatalf("Max 会员应通过自动回复权限检查：%v", err)
 	}
 }
+
+// TestValidateGreetingSetting 验证仅检查任务能启动，自动回复不能借用关闭打招呼参数绕过发送边界。
+func TestValidateGreetingSetting(t *testing.T) {
+	enabled, disabled := true, false
+	for _, test := range []struct {
+		name, taskType string
+		setting        *bool
+		wantError      bool
+	}{
+		{name: "greeting_default", taskType: "greeting"},
+		{name: "greeting_enabled", taskType: "greeting", setting: &enabled},
+		{name: "greeting_check_only", taskType: "greeting", setting: &disabled},
+		{name: "reply_default", taskType: "auto_reply"},
+		{name: "reply_enabled", taskType: "auto_reply", setting: &enabled},
+		{name: "reply_check_only_rejected", taskType: "auto_reply", setting: &disabled, wantError: true},
+		{name: "missing_type_rejected", setting: &disabled, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prepared := &shared.PreparedTask{Request: shared.StartRequest{
+				TaskID: "task-1", PositionID: "position-1", Token: "fixture",
+				TaskType: test.taskType, EnableGreet: test.setting,
+			}}
+			err := validateRequest(context.Background(), prepared)
+			if (err != nil) != test.wantError {
+				t.Fatalf("发送开关边界不符，错误：%v", err)
+			}
+		})
+	}
+}
+
+// checkOnlyPositionCloudStub 提供包含消息和资料索要配置的岗位快照。
+type checkOnlyPositionCloudStub struct{ Cloud }
+
+// Position 返回测试岗位，不能覆盖本次请求明确关闭的发送开关。
+func (checkOnlyPositionCloudStub) Position(context.Context, string, string) (cloud.PositionSnapshot, error) {
+	return cloud.PositionSnapshot{ProfileID: "profile-1", GreetMessage: "测试消息", RequestPhone: true, RequestWechat: true, RequestResume: true}, nil
+}
+
+// TestLoadPositionPreservesDisabledGreeting 验证冻结岗位配置时不会让明确关闭的发送开关失效。
+func TestLoadPositionPreservesDisabledGreeting(t *testing.T) {
+	disabled := false
+	prepared := &shared.PreparedTask{Request: shared.StartRequest{
+		TaskID: "task-1", PositionID: "position-1", TaskType: "greeting",
+		Token: "fixture", EnableGreet: &disabled,
+	}}
+	checker := &Checker{Cloud: checkOnlyPositionCloudStub{}}
+	if err := checker.loadPosition(context.Background(), prepared); err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Request.EnableGreet == nil || *prepared.Request.EnableGreet || prepared.Request.TaskType != "greeting" || prepared.Request.ProfileID != "profile-1" {
+		t.Fatal("岗位快照覆盖了任务请求的只检查设置")
+	}
+}

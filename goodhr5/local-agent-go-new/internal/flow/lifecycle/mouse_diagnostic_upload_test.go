@@ -15,7 +15,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
-// TestNativeMouseLogsUploadAndRetry 验证正常首尾与原生错误可上传，断网失败保留补传标记。
+// TestNativeMouseLogsUploadAndRetry 验证正常鼠标首尾不刷岗位日志，原生错误与重要诊断仍完整上传并支持补传。
 func TestNativeMouseLogsUploadAndRetry(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.Open(filepath.Join(t.TempDir(), "state.db"))
@@ -37,8 +37,8 @@ func TestNativeMouseLogsUploadAndRetry(t *testing.T) {
 		logger.WorkerLine([]byte(event))
 	}
 	items, err := store.ListPositionLogs(ctx, "mouse-position", 1000)
-	if err != nil || len(items) != 4 {
-		t.Fatalf("重要首尾没有保留或普通查找被误保存：%+v %v", items, err)
+	if err != nil || len(items) != 3 {
+		t.Fatalf("正常鼠标过程仍刷屏或重要诊断丢失：%+v %v", items, err)
 	}
 	if !strings.Contains(items[0].Message, "移动鼠标") {
 		t.Fatalf("原子步骤不清楚：%s", items[0].Message)
@@ -78,7 +78,7 @@ func TestNativeMouseLogsUploadAndRetry(t *testing.T) {
 	if err := runner.UploadPositionLogs(ctx, "test-token", "mouse-position"); err != nil {
 		t.Fatal(err)
 	}
-	if len(received) != 4 || !received[1].IsError {
+	if len(received) != 3 || !received[0].IsError {
 		t.Fatalf("上传记录不完整：%+v", received)
 	}
 	var output struct {
@@ -91,13 +91,13 @@ func TestNativeMouseLogsUploadAndRetry(t *testing.T) {
 			} `json:"window_at_failure"`
 		} `json:"native_mouse"`
 	}
-	if err := json.Unmarshal(received[1].Output, &output); err != nil {
+	if err := json.Unmarshal(received[0].Output, &output); err != nil {
 		t.Fatal(err)
 	}
 	if output.RequestID != "mouse-request" || output.NativeMouse.Stage != "apz_repaint" || !output.NativeMouse.Window.Minimized || output.NativeMouse.EventsSent != 0 {
 		t.Fatalf("服务器所需证据在上传时丢失：%+v", output)
 	}
-	if !strings.Contains(string(received[2].Output), `"frame[1]"`) || !strings.Contains(string(received[2].Output), `"status":403`) || !strings.Contains(string(received[3].Output), "dialog-mask") {
+	if !strings.Contains(string(received[1].Output), `"frame[1]"`) || !strings.Contains(string(received[1].Output), `"status":403`) || !strings.Contains(string(received[2].Output), "dialog-mask") {
 		t.Fatal("详情匹配、网络和遮挡证据在上传时丢失")
 	}
 	pending, err = store.PendingPositionLogUploads(ctx)

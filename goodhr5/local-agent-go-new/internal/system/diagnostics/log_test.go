@@ -2,6 +2,7 @@
 package diagnostics
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -222,5 +223,97 @@ func TestWorkerStderrWithoutTrace(t *testing.T) {
 	}
 	if !strings.Contains(string(forwarded), `"action":"worker.stderr"`) || !strings.Contains(string(data), "startup failed") || strings.Contains(string(data), "super-secret") || strings.Contains(string(forwarded), "super-secret") {
 		t.Fatal("崩溃诊断未保存或未脱敏")
+	}
+}
+
+// TestWorkerStderrClassifiesBrowserObjectFailure 验证已知浏览器对象失效仅记警告，未知错误和致命输出仍保留失败。
+func TestWorkerStderrClassifiesBrowserObjectFailure(t *testing.T) {
+	const reported = "pw:browser [pid=123][err] ERROR: error in channel content::2/3/2 exception callFunction namespace page Cannot find object with id = id-1448 evaluateFunction/args<@chrome://juggler/content/content/Runtime.js:747:17"
+	for _, sample := range []struct {
+		name    string
+		line    string
+		warning bool
+	}{
+		{"reported_browser_stack", reported, true},
+		{"single_content_stack", "pw:browser [pid=123][err] ERROR: Cannot find object with id = id-1448 @chrome://juggler/content/Runtime.js:747:17", true},
+		{"explicit_content_channel", "pw:browser [pid=123][err] ERROR: error in channel content::2/3/2 exception callFunction namespace page Cannot find object with id = id-1448", true},
+		{"redacted_browser_stack", reported + " password=private-stderr-value", true},
+		{"missing_browser_source", strings.Replace(reported, "pw:browser", "worker", 1), false},
+		{"unknown_object_failure", "pw:browser [pid=123][err] ERROR: Cannot find object with id = id-1448", false},
+		{"other_runtime_path", "pw:browser [pid=123][err] ERROR: Cannot find object with id = id-1448 @chrome://other/content/Runtime.js:747:17", false},
+		{"lookalike_runtime_path", "pw:browser [pid=123][err] ERROR: Cannot find object with id = id-1448 @chrome://juggler/content/Runtime.js.backup:747:17", false},
+		{"other_channel_namespace", "pw:browser [pid=123][err] ERROR: error in channel content::2/3/2 exception callFunction namespace browser Cannot find object with id = id-1448", false},
+		{"lookalike_channel_namespace", "pw:browser [pid=123][err] ERROR: error in channel content::2/3/2 exception callFunction namespace page_aux Cannot find object with id = id-1448", false},
+		{"missing_channel_function", "pw:browser [pid=123][err] ERROR: error in channel content::2/3/2 namespace page Cannot find object with id = id-1448", false},
+		{"different_browser_error", "pw:browser [pid=123][err] ERROR: channel failed @chrome://juggler/content/Runtime.js:747:17", false},
+		{"worker_startup_error", "Error: startup failed: Cannot find object with id = id-1448", false},
+		{"worker_panic", "panic: Worker initialization failed", false},
+		{"browser_fatal_output", "fatal error: " + reported, false},
+		{"browser_panic_output", "panic: " + reported, false},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			var local bytes.Buffer
+			var forwarded []byte
+			sink := WorkerLine(&local, func(line []byte) { forwarded = append([]byte(nil), line...) })
+			sink([]byte(sample.line))
+			var item struct {
+				Action       string         `json:"action"`
+				Step         string         `json:"step"`
+				Status       string         `json:"status"`
+				Level        string         `json:"level"`
+				IsError      bool           `json:"is_error"`
+				ErrorMessage string         `json:"error_message"`
+				Message      string         `json:"message"`
+				Diagnostic   bool           `json:"diagnostic"`
+				Output       map[string]any `json:"output"`
+			}
+			if err := json.Unmarshal(forwarded, &item); err != nil {
+				t.Fatal(err)
+			}
+			if item.Action != "worker.stderr" || item.Step != "process_output" || item.Diagnostic {
+				t.Fatalf("原始输出类型不正确：%s", forwarded)
+			}
+			expectedMessage := strings.TrimSpace(string(Redact([]byte(sample.line))))
+			if item.Message != expectedMessage || !bytes.Equal(bytes.TrimSpace(local.Bytes()), forwarded) {
+				t.Fatalf("本地原文或分类字段没有完整保留：%s", local.Bytes())
+			}
+			if strings.Contains(string(local.Bytes()), "private-stderr-value") {
+				t.Fatal("原始输出中的凭据没有脱敏")
+			}
+			if sample.warning {
+				if item.Status != "warning" || item.Level != "warn" || item.IsError || item.ErrorMessage != "" || item.Output["stderr_kind"] != "browser_internal_stale_object" || item.Output["operation_outcome"] != "unknown" {
+					t.Fatalf("已知内部对象失效被误报成操作失败或恢复成功：%s", forwarded)
+				}
+			} else if item.Status != "failed" || item.Level != "error" || !item.IsError || item.ErrorMessage != expectedMessage || len(item.Output) != 0 {
+				t.Fatalf("未知或致命错误被错误降级：%s", forwarded)
+			}
+		})
+	}
+}
+
+// TestWorkerStructuredObjectFailureStaysError 验证真实操作的结构化失败不会因同样的浏览器原文被降级。
+func TestWorkerStructuredObjectFailureStaysError(t *testing.T) {
+	message := "pw:browser ERROR: Cannot find object with id = id-1448 @chrome://juggler/content/content/Runtime.js:747:17"
+	line, err := json.Marshal(map[string]any{
+		"trace_id": "failed-task", "request_id": "failed-request", "action": "element.find", "step": "find",
+		"status": "failed", "level": "error", "is_error": true, "error_code": "ELEMENT_NOT_FOUND", "error_message": message,
+		"output": map[string]any{"query_error_type": "StaleObjectReference"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var local bytes.Buffer
+	sink := WorkerLine(&local, nil)
+	sink(line)
+	var item map[string]any
+	if err := json.Unmarshal(local.Bytes(), &item); err != nil {
+		t.Fatal(err)
+	}
+	if item["action"] != "element.find" || item["trace_id"] != "failed-task" || item["request_id"] != "failed-request" || item["status"] != "failed" || item["level"] != "error" || item["is_error"] != true || item["error_code"] != "ELEMENT_NOT_FOUND" || item["error_message"] != message {
+		t.Fatalf("真实操作失败被原始 stderr 分类覆盖：%s", local.Bytes())
+	}
+	output, ok := item["output"].(map[string]any)
+	if !ok || output["query_error_type"] != "StaleObjectReference" || len(output) != 1 {
+		t.Fatalf("真实操作错误详情被改写：%s", local.Bytes())
 	}
 }

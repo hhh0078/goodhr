@@ -120,7 +120,7 @@ func (s *Store) SaveTaskLog(ctx context.Context, item TaskLog) (TaskLog, error) 
 	return item, nil
 }
 
-// ListPositionLogs 按岗位读取最近的本地任务日志，并按时间正序返回。
+// ListPositionLogs 从最近千条原始日志中隐藏正常鼠标细节，再按时间正序返回最后指定条数，不删除原始记录。
 func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit int) ([]TaskLog, error) {
 	positionID = strings.TrimSpace(positionID)
 	if positionID == "" {
@@ -145,7 +145,7 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 		)
 		ORDER BY id ASC`,
 		positionID,
-		limit,
+		maxPositionTaskLogs,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("读取岗位日志失败：%w", err)
@@ -176,12 +176,133 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 		}
 		item.Input = json.RawMessage(inputJSON)
 		item.Output = json.RawMessage(outputJSON)
-		logs = append(logs, item)
+		if !IsRoutineMouseDiagnostic(item) {
+			logs = append(logs, item)
+		}
 	}
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("遍历岗位日志失败：%w", err)
 	}
+	if len(logs) > limit {
+		logs = logs[len(logs)-limit:]
+	}
 	return logs, nil
+}
+
+// IsRoutineMouseDiagnostic 只隐藏已确认正常的鼠标首尾，保留当前异常、恢复和无法解析的输出，不把页面历史快照当成本次故障。
+func IsRoutineMouseDiagnostic(item TaskLog) bool {
+	if item.Flow != "browser_worker" || item.IsError || strings.TrimSpace(item.ErrorMessage) != "" || strings.Contains(item.Category, "错误") || strings.Contains(item.Category, "异常") {
+		return false
+	}
+	switch strings.TrimSpace(item.Step) {
+	case "mouse_move", "mouse_down", "mouse_up", "mouse_wheel":
+	default:
+		return false
+	}
+	level := strings.ToLower(strings.TrimSpace(item.Level))
+	if level != "" && level != "info" && level != "debug" {
+		return false
+	}
+	status := strings.ToLower(strings.TrimSpace(item.Status))
+	if status != "start" && status != "success" {
+		return false
+	}
+	message := strings.ToLower(item.Message)
+	if strings.Contains(message, "恢复") || strings.Contains(message, "重试") || strings.Contains(message, "recover") || strings.Contains(message, "retry") {
+		return false
+	}
+	var output map[string]any
+	if json.Unmarshal(item.Output, &output) != nil || output == nil {
+		return false
+	}
+	return !hasMouseDiagnosticEvidence(output, status, false)
+}
+
+// hasMouseDiagnosticEvidence 检查当前输出的明确异常字段，页面累计事件只保留在原始日志，不据此误判当前鼠标操作。
+func hasMouseDiagnosticEvidence(value any, operationStatus string, pageSnapshot bool) bool {
+	switch item := value.(type) {
+	case map[string]any:
+		for key, child := range item {
+			key = strings.ToLower(key)
+			if pageSnapshot && (key == "recent_page_events" || key == "recent_page_failures") {
+				continue
+			}
+			if key == "is_error" || key == "page_closed" || key == "recovery_required" {
+				flag, ok := child.(bool)
+				if !ok || flag {
+					return true
+				}
+			}
+			if strings.Contains(key, "error") || strings.Contains(key, "failure") || strings.Contains(key, "recover") || key == "page_closed" {
+				if mouseDiagnosticValueHasEvidence(child) {
+					return true
+				}
+			}
+			if key == "status" || key == "operation_outcome" {
+				status, ok := child.(string)
+				if !ok {
+					return true
+				}
+				switch strings.ToLower(strings.TrimSpace(status)) {
+				case "start", "success", "completed":
+				case "pending", "running":
+					if operationStatus != "start" {
+						return true
+					}
+				default:
+					return true
+				}
+			}
+			if key == "level" {
+				level, ok := child.(string)
+				level = strings.ToLower(strings.TrimSpace(level))
+				if !ok || (level != "" && level != "info" && level != "debug") {
+					return true
+				}
+			}
+			if key == "input_wait" {
+				wait, ok := child.(map[string]any)
+				if !ok || wait["status"] == nil {
+					return true
+				}
+			}
+			if key == "native_mouse" {
+				if _, ok := child.(map[string]any); !ok {
+					return true
+				}
+			}
+			if hasMouseDiagnosticEvidence(child, operationStatus, pageSnapshot || key == "page_state" || key == "page_state_after" || key == "page_state_before") {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range item {
+			if hasMouseDiagnosticEvidence(child, operationStatus, pageSnapshot) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// mouseDiagnosticValueHasEvidence 判断异常字段是否含有实际内容，空值和明确的零值不构成故障证据。
+func mouseDiagnosticValueHasEvidence(value any) bool {
+	switch item := value.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(item) != ""
+	case bool:
+		return item
+	case float64:
+		return item != 0
+	case map[string]any:
+		return len(item) > 0
+	case []any:
+		return len(item) > 0
+	default:
+		return true
+	}
 }
 
 // ClearPositionLogs 清空一个岗位的全部本地任务日志。

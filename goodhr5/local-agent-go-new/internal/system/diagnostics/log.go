@@ -25,6 +25,7 @@ var phoneText = regexp.MustCompile(`\b1[3-9][0-9]{9}\b`)
 var emailText = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
 var credentialKey = regexp.MustCompile(`(?i)cookie|authorization|token|password|secret|api[_-]?key|proxy.*(user|pass)`)
 var credentialJSONText = regexp.MustCompile(`(?i)("(?:cookie|authorization|token|password|secret|api[_-]?key)"\s*:\s*")[^"\r\n]*(")`)
+var browserRuntimeStack = regexp.MustCompile(`chrome://juggler/content/(?:content/)?Runtime\.js(?:[:\s]|$)`)
 
 // Writer 保存独立日志文件，所有写入先脱敏，超过上限自动轮转。
 type Writer struct {
@@ -265,6 +266,12 @@ func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
 			if isError {
 				status, level = "failed", "error"
 			}
+			output := map[string]any{}
+			if isBrowserInternalStaleObject(message) {
+				status, level, isError = "warning", "warn", false
+				output["stderr_kind"] = "browser_internal_stale_object"
+				output["operation_outcome"] = "unknown"
+			}
 			errorMessage := ""
 			if isError {
 				errorMessage = message
@@ -273,7 +280,7 @@ func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
 				"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": "worker",
 				"action": "worker.stderr", "step": "process_output", "status": status, "level": level,
 				"is_error": isError, "error_message": errorMessage, "message": message,
-				"input": map[string]any{}, "output": map[string]any{},
+				"input": map[string]any{}, "output": output,
 			})
 		}
 		safe := Normalize(data)
@@ -284,4 +291,17 @@ func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
 			next(bytes.TrimSpace(safe))
 		}
 	}
+}
+
+// isBrowserInternalStaleObject 仅识别 Firefox 调试输出中的 Juggler 对象失效，不推断操作已经恢复。
+func isBrowserInternalStaleObject(message string) bool {
+	if !strings.Contains(message, "pw:browser") || !strings.Contains(message, "Cannot find object with id") {
+		return false
+	}
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "panic") || strings.Contains(lower, "fatal error") || strings.Contains(lower, "out of memory") || strings.Contains(lower, "assertion failed") {
+		return false
+	}
+	contentChannel := strings.Contains(message, "error in channel content::") && strings.Contains(message, "exception callFunction namespace page Cannot find object with id")
+	return browserRuntimeStack.MatchString(message) || contentChannel
 }
