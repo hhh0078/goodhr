@@ -45,6 +45,12 @@ func NewMemorySystemConfigStore() *MemorySystemConfigStore {
 // defaultMemorySystemConfigs 返回开发环境默认系统配置。
 func defaultMemorySystemConfigs() map[string]SystemConfig {
 	return map[string]SystemConfig{
+		wechatOfficialConfigKey: {
+			ConfigKey:   wechatOfficialConfigKey,
+			ConfigValue: `{"enabled":false,"account_name":"GoodHR","app_id":"","original_id":"","token":"","encoding_aes_key":"","qr_image_url":""}`,
+			Description: "公众号关注绑定配置，密钥仅服务端保存，首次关注绑定赠送5天会员",
+			Enabled:     true,
+		},
 		"system.app_config": {
 			ConfigKey: "system.app_config",
 			ConfigValue: `{

@@ -42,6 +42,7 @@ type Server struct {
 	systemConfigs       SystemConfigStore
 	tenants             *TenantService
 	cookies             *CookieService
+	wechatOfficial      *WechatOfficialService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
@@ -59,6 +60,12 @@ func NewServer() (*Server, error) {
 	tenantStore := config.TenantStore(db)
 	systemConfigStore := config.SystemConfigStore(db)
 	subscriptionStore := config.SubscriptionStore(db)
+	var wechatFollowStore WechatFollowStore
+	if db != nil {
+		wechatFollowStore = NewPostgresWechatFollowStore(db)
+	} else {
+		wechatFollowStore = NewMemoryWechatFollowStore(subscriptionStore.(*MemorySubscriptionStore))
+	}
 	adminUserStore := config.AdminUserStore(db, subscriptionStore)
 	invitationStore := config.InvitationStore(db)
 	activationCodeStore := config.ActivationCodeStore(db)
@@ -80,6 +87,7 @@ func NewServer() (*Server, error) {
 	aiWalletStore := config.AIWalletStore(db)
 	aiWalletService := NewAIWalletService(nil, aiWalletStore, aiConfigStore, systemConfigStore)
 	auth := NewAuthService(authStore, config.PasswordStore(db), mailer, exposeDebugCode, tenantStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins, config.UniversalLoginCodeOffsetMin)
+	auth.wechatFollowStore = wechatFollowStore
 	aiWalletService.auth = auth
 	agentWS := NewAgentWSHub(auth)
 	userPreferencesStore := config.UserPreferencesStore(db)
@@ -119,6 +127,7 @@ func NewServer() (*Server, error) {
 		systemConfigs:       systemConfigStore,
 		tenants:             NewTenantService(auth, tenantStore, mailer),
 		cookies:             NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
+		wechatOfficial:      NewWechatOfficialService(auth, wechatFollowStore, systemConfigStore),
 	}, nil
 }
 
@@ -138,6 +147,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/me", s.auth.Me)
 	mux.HandleFunc("/api/auth/agreement-status", s.auth.AgreementStatus)
 	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)
+	// 公众号绑定仅连接用户身份和会员，不影响本地程序任务执行。
+	if s.wechatOfficial != nil {
+		mux.HandleFunc("/api/wechat-official/status", s.wechatOfficial.Status)
+		mux.HandleFunc("/api/wechat-official/binding", s.wechatOfficial.CreateBinding)
+		mux.HandleFunc("/api/wechat-official/callback", s.wechatOfficial.Callback)
+	}
 	mux.HandleFunc("/api/public/stats/today", s.publicStats.Today)
 	mux.HandleFunc("/api/public/position-log-shares/", s.positionLogs.PublicShare)
 	// 注册本地程序连接接口，用于云端记录当前账号对应的本地 Agent。
@@ -493,6 +508,9 @@ func (s *Server) ListAdminSystemConfigs(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to load system configs")
 		return
 	}
+	for i := range configs {
+		configs[i] = redactWechatOfficialRecord(configs[i])
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
@@ -559,6 +577,14 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+	if configKey == wechatOfficialConfigKey {
+		var err error
+		raw, err = mergeWechatOfficialConfig(existing.ConfigValue, raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "公众号配置没保存："+err.Error())
+			return
+		}
+	}
 
 	existing.ConfigValue = raw
 	if err := s.systemConfigs.Save(existing); err != nil {
@@ -568,7 +594,7 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
-		"config": existing,
+		"config": redactWechatOfficialRecord(existing),
 	})
 }
 

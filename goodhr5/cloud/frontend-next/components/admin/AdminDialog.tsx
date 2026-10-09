@@ -2,6 +2,7 @@
 "use client";
 import { Button, Flex, Modal, Typography } from "antd";
 import type { ReactNode } from "react";
+import { useAdminOverlay } from "./AdminOverlay";
 type AdminDialogProps = {
   open: boolean;
   title: string;
@@ -18,6 +19,7 @@ type AdminDialogProps = {
   onClose: () => void;
   onConfirm?: () => void;
   extraActions?: ReactNode;
+  priority?: "normal" | "promotion";
 };
 const dialogWidths = { xs: 444, sm: 600, md: 900, lg: 1200, xl: 1536 };
 /** AdminDialog 在提交期间阻止关闭和重复提交，并让长表单只滚动内容区。 */
@@ -37,7 +39,9 @@ export default function AdminDialog({
   onClose,
   onConfirm,
   extraActions,
+  priority = "normal",
 }: AdminDialogProps) {
+  useAdminOverlay(open && priority === "normal");
   return (
     <Modal
       open={open}
@@ -46,6 +50,7 @@ export default function AdminDialog({
       className="goodhr-admin-modal"
       closable={!hideClose && !loading}
       keyboard={!loading}
+      focusable={{ focusTriggerAfterClose: priority !== "promotion" }}
       mask={{ closable: !loading }}
       onCancel={() => {
         if (!loading) onClose();

@@ -1,5 +1,6 @@
 /** 本文件负责新版后台会员、AI 余额、激活码、支付记录和 AI 使用记录展示。 */
 "use client";
+import { AdminOverlayModal as Modal } from "@/components/admin/AdminOverlay";
 import {
   Button,
   Card,
@@ -7,7 +8,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Select,
   Table,
   Tabs,

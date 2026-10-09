@@ -1,5 +1,6 @@
 /** 本文件负责新版后台控制台概览、醒目新手引导和本地状态。 */
 "use client";
+import { AdminOverlayModal as Modal } from "@/components/admin/AdminOverlay";
 import {
   Button,
   Card,
@@ -7,7 +8,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Progress,
   Select,
   Tag,
@@ -16,6 +16,7 @@ import {
 import {
   CheckCircleOutlined,
   CreditCardOutlined,
+  WechatOutlined,
   DownloadOutlined,
   FileTextOutlined,
   LoadingOutlined,
@@ -122,6 +123,10 @@ const guideSteps: GuideStep[] = [
 export default function DashboardPage() {
   const {
     agentBase,
+    user,
+    wechatOfficialStatus,
+    openWechatOfficial,
+    refreshWechatOfficialStatus,
     subscription,
     refreshAgent,
     refreshSession,
@@ -307,16 +312,44 @@ export default function DashboardPage() {
         title="控制台"
         description="今天的招聘进展、本地组件和常用账号都在这里。"
         actions={
-          <Button
-            disabled={loading}
-            onClick={() =>
-              void Promise.all([refreshAgent(), load(), loadRuntime()])
-            }
-            type={"default"}
-            icon={<ReloadOutlined aria-hidden="true" />}
-          >
-            刷新状态
-          </Button>
+          <>
+            {wechatOfficialStatus?.enabled &&
+            wechatOfficialStatus.configured &&
+            !wechatOfficialStatus.bound ? (
+              <Button
+                type="primary"
+                icon={<WechatOutlined aria-hidden="true" />}
+                onClick={openWechatOfficial}
+              >
+                {wechatOfficialStatus.gift_granted ||
+                user?.wechat_follow_gift_granted
+                  ? "关注公众号"
+                  : "关注领会员"}
+              </Button>
+            ) : null}
+            <Button
+              disabled={loading}
+              onClick={() =>
+                void Promise.all([
+                  refreshAgent(),
+                  load(),
+                  loadRuntime(),
+                  refreshWechatOfficialStatus(),
+                ]).catch((error) =>
+                  notify(
+                    error instanceof Error
+                      ? error.message
+                      : "状态暂时没同步，再刷新一次就好",
+                    "warning",
+                  ),
+                )
+              }
+              type={"default"}
+              icon={<ReloadOutlined aria-hidden="true" />}
+            >
+              刷新状态
+            </Button>
+          </>
         }
       />
 

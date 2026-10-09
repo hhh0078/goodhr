@@ -1,8 +1,9 @@
 /** 本文件负责展示微信 Native 支付二维码并轮询云端订单状态。 */
 "use client";
+import { AdminOverlayModal as Modal } from "@/components/admin/AdminOverlay";
 
 import { CheckCircleOutlined } from "@ant-design/icons";
-import { Button, Flex, Modal, QRCode, Spin, Typography } from "antd";
+import { Button, Flex, QRCode, Spin, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { cloudRequest } from "@/lib/admin-api";
 

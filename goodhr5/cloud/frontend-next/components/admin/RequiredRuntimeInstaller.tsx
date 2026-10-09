@@ -1,17 +1,12 @@
 /** 本文件负责在必要运行组件缺失时展示强制安装弹框。 */
 "use client";
+import {
+  AdminOverlayModal as Modal,
+  useAdminOverlay,
+} from "@/components/admin/AdminOverlay";
 
 import { DownloadOutlined } from "@ant-design/icons";
-import {
-  Alert,
-  Button,
-  Card,
-  Flex,
-  Modal,
-  Progress,
-  Tag,
-  Typography,
-} from "antd";
+import { Alert, Button, Card, Flex, Progress, Tag, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
 import {
@@ -58,6 +53,7 @@ export default function RequiredRuntimeInstaller({
     agentBase && components.some((item) => !item.installed),
   );
   const running = Boolean(installing || progress?.running);
+  useAdminOverlay(visible || running || checkingSystem);
   const percent = clampPercent(progress?.percent);
   const progressBytes = progress?.received
     ? progress.total > 0
