@@ -4,6 +4,7 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,13 @@ import (
 
 // PositionCandidate 表示简历库候选人展示记录。
 type PositionCandidate struct {
+	TenantID            string
+	CreatorName         string
+	LibraryFields       map[string]any
+	ManualFields        []string
+	RowVersion          int64
+	Sources             []CandidateSource
+	Recommendations     []CandidateRecommendation
 	ID                  string
 	EngagementID        string
 	EngagementStatus    string
@@ -26,8 +34,8 @@ type PositionCandidate struct {
 	Email               string
 	WorkRegion          string
 	WorkYears           string
-	ExpectedSalaryMin   *int
-	ExpectedSalaryMax   *int
+	ExpectedSalaryMin   *float64
+	ExpectedSalaryMax   *float64
 	BasicInfo           string
 	EducationLevel      string
 	ExpectedPosition    string
@@ -62,6 +70,7 @@ type PositionCandidate struct {
 
 // CandidateProfileInput 表示候选人主体保存参数。
 type CandidateProfileInput struct {
+	TenantID            string
 	UserEmail           string
 	PlatformID          string
 	PlatformCandidateID string
@@ -71,8 +80,8 @@ type CandidateProfileInput struct {
 	Email               string
 	WorkRegion          string
 	WorkYears           string
-	ExpectedSalaryMin   *int
-	ExpectedSalaryMax   *int
+	ExpectedSalaryMin   *float64
+	ExpectedSalaryMax   *float64
 	BasicInfo           string
 	EducationLevel      string
 	ExpectedPosition    string
@@ -140,6 +149,7 @@ type CandidateNote struct {
 	CandidateID string    `json:"candidate_id"`
 	Content     string    `json:"content"`
 	AuthorEmail string    `json:"author_email"`
+	AuthorName  string    `json:"author_name"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -157,11 +167,12 @@ type CandidateStore interface {
 
 // PositionCandidateQuery 表示候选人列表查询条件。
 type PositionCandidateQuery struct {
-	PositionID string
-	Keyword    string
-	UserEmail  string
-	Page       int
-	PageSize   int
+	Phone, SourceType, Region, Education, WorkYears, WorkStatus, Tag, Creator, CreatedFrom, CreatedTo string
+	PositionID                                                                                        string
+	Keyword                                                                                           string
+	UserEmail                                                                                         string
+	Page                                                                                              int
+	PageSize                                                                                          int
 }
 
 // PositionCandidateListResult 表示候选人分页查询结果。
@@ -174,22 +185,26 @@ type PositionCandidateListResult struct {
 
 // MemoryCandidateStore 提供开发期候选人内存存储。
 type MemoryCandidateStore struct {
-	mu          sync.Mutex
-	profiles    map[string]PositionCandidate
-	engagements map[string]CandidateEngagement
-	events      map[string][]CandidateEvent
-	now         func() time.Time
-	nextID      func(prefix string) string
+	mu              sync.Mutex
+	profiles        map[string]PositionCandidate
+	engagements     map[string]CandidateEngagement
+	events          map[string][]CandidateEvent
+	requests        map[string]candidateRequestReceipt
+	recommendations map[string]CandidateRecommendation
+	now             func() time.Time
+	nextID          func(prefix string) string
 }
 
 // NewMemoryCandidateStore 创建候选人内存存储。
 func NewMemoryCandidateStore() *MemoryCandidateStore {
 	seq := 0
 	return &MemoryCandidateStore{
-		profiles:    map[string]PositionCandidate{},
-		engagements: map[string]CandidateEngagement{},
-		events:      map[string][]CandidateEvent{},
-		now:         time.Now,
+		profiles:        map[string]PositionCandidate{},
+		engagements:     map[string]CandidateEngagement{},
+		events:          map[string][]CandidateEvent{},
+		requests:        map[string]candidateRequestReceipt{},
+		recommendations: map[string]CandidateRecommendation{},
+		now:             time.Now,
 		nextID: func(prefix string) string {
 			seq++
 			return fmt.Sprintf("%s_%d", prefix, seq)
@@ -207,6 +222,10 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 	id := s.nextID("candidate")
 	profile := PositionCandidate{
 		ID:                  id,
+		TenantID:            item.TenantID,
+		RowVersion:          1,
+		LibraryFields:       map[string]any{},
+		Sources:             []CandidateSource{{PlatformID: item.PlatformID, PlatformCandidateID: item.PlatformCandidateID, SourceType: "automatic"}},
 		UserEmail:           item.UserEmail,
 		PlatformID:          item.PlatformID,
 		PlatformCandidateID: item.PlatformCandidateID,
@@ -243,8 +262,7 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
-	s.profiles[id] = profile
-	return profile, nil
+	return s.saveAutomaticProfileLocked(profile), nil
 }
 
 // UpsertCandidateEngagement 新增或更新触达上下文。
@@ -267,6 +285,16 @@ func (s *MemoryCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candidat
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if key := stringFromMap(item.Metadata, "idempotency_key"); key != "" {
+		for _, event := range s.events[item.CandidateID] {
+			if event.EventType == item.EventType && candidateNoteRequestIdentity(event.Metadata) == candidateNoteRequestIdentity(item.Metadata) {
+				if event.MessageText != item.MessageText || stringFromMap(event.Metadata, "author_email") != stringFromMap(item.Metadata, "author_email") {
+					return CandidateEvent{}, ErrCandidateRequest
+				}
+				return event, nil
+			}
+		}
+	}
 	item.ID = s.nextID("event")
 	item.CreatedAt = s.now()
 	s.events[item.CandidateID] = append(s.events[item.CandidateID], item)
@@ -278,7 +306,7 @@ func (s *MemoryCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candidat
 func (s *MemoryCandidateStore) ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.profiles[candidateID]; !ok {
+	if item, ok := s.profiles[candidateID]; !ok || item.TenantID != tenantID {
 		return nil, ErrNotFound
 	}
 	notes := make([]CandidateNote, 0)
@@ -292,6 +320,7 @@ func (s *MemoryCandidateStore) ListCandidateNotes(tenantID string, candidateID s
 			CandidateID: event.CandidateID,
 			Content:     event.MessageText,
 			AuthorEmail: stringFromMap(event.Metadata, "author_email"),
+			AuthorName:  firstNonEmpty(stringFromMap(event.Metadata, "author_name"), stringFromMap(event.Metadata, "author_email")),
 			CreatedAt:   event.CreatedAt,
 		})
 	}
@@ -333,14 +362,23 @@ func (s *MemoryCandidateStore) ListPositionCandidates(tenantID string, query Pos
 	page, pageSize := normalizeCandidatePage(query.Page, query.PageSize)
 	items := make([]PositionCandidate, 0)
 	for _, item := range s.profiles {
+		if item.TenantID != tenantID {
+			continue
+		}
 		if query.UserEmail != "" && item.UserEmail != query.UserEmail {
+			continue
+		}
+		item = s.decorateLibraryCandidateLocked(item)
+		if !candidateMatchesFilters(item, query) {
 			continue
 		}
 		if query.Keyword != "" && !candidateContainsKeyword(item, query.Keyword) {
 			continue
 		}
+		item = s.decorateLibraryCandidateLocked(item)
 		items = append(items, item)
 	}
+	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
 	total := len(items)
 	start := (page - 1) * pageSize
 	if start >= total {
@@ -362,7 +400,7 @@ func (s *MemoryCandidateStore) GetPositionCandidate(tenantID string, candidateID
 	defer s.mu.Unlock()
 
 	item, ok := s.profiles[candidateID]
-	if !ok {
+	if !ok || item.TenantID != tenantID {
 		return PositionCandidate{}, ErrNotFound
 	}
 	if !isAdmin && userEmail != "" && item.UserEmail != userEmail {
@@ -378,7 +416,7 @@ func (s *MemoryCandidateStore) GetPositionCandidate(tenantID string, candidateID
 		}
 	}
 	item.Events = append([]CandidateEvent{}, events...)
-	return item, nil
+	return s.decorateLibraryCandidateLocked(item), nil
 }
 
 // DeleteTeamCandidates 清空团队候选人数据。
@@ -387,10 +425,25 @@ func (s *MemoryCandidateStore) DeleteTeamCandidates(tenantID string) (int, error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	deleted := len(s.profiles)
-	s.profiles = map[string]PositionCandidate{}
-	s.engagements = map[string]CandidateEngagement{}
-	s.events = map[string][]CandidateEvent{}
+	deleted := 0
+	for id, item := range s.profiles {
+		if item.TenantID == tenantID {
+			delete(s.profiles, id)
+			delete(s.events, id)
+			deleted++
+			for key, rec := range s.recommendations {
+				if rec.CandidateID == id {
+					delete(s.recommendations, key)
+				}
+			}
+			for key, eng := range s.engagements {
+				if eng.CandidateID == id {
+					delete(s.engagements, key)
+				}
+			}
+		}
+	}
+
 	return deleted, nil
 }
 

@@ -29,6 +29,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   StopOutlined,
+  TeamOutlined,
 } from "@ant-design/icons";
 import type { CSSProperties } from "react";
 import styles from "../heavy-ui.module.css";
@@ -1036,6 +1037,15 @@ export default function PositionsPage() {
                             type="text"
                             aria-label="编辑"
                             icon={<EditOutlined aria-hidden="true" />}
+                          />
+                        </Tooltip>
+                        <Tooltip title="候选人及推荐记录">
+                          <Button
+                            className={styles.positionCardActionIcon}
+                            onClick={() => router.push(`/admin/resumes?position_id=${encodeURIComponent(item.id)}`)}
+                            type="text"
+                            aria-label="候选人及推荐记录"
+                            icon={<TeamOutlined aria-hidden="true" />}
                           />
                         </Tooltip>
                         <Tooltip title="删除">

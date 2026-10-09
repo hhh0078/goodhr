@@ -1,104 +1,23 @@
-/* 本文件负责简历库查询控件对齐、列表内容边界与备注弹框的响应式布局。 */
-.filters.filters {
-  min-width: 0;
-  margin-bottom: 12px;
-}
-.filterField.filterField {
-  min-width: 0;
-  margin-bottom: 0;
-}
-.filterField :global(.ant-form-item-label) {
-  padding-bottom: 6px;
-}
-.filterField :global(.ant-form-item-control-input) {
-  min-height: 38px;
-}
-.searchField.searchField {
-  flex: 1 1 320px;
-}
-.positionField.positionField {
-  flex: 0 1 240px;
-  max-width: 280px;
-}
-.filterControl.filterControl {
-  height: 38px;
-  min-width: 0;
-}
-.filterActions.filterActions {
-  flex: 0 0 auto;
-}
-.filterButton.filterButton {
-  width: auto;
-  height: 38px;
-  flex: none;
-  padding-inline: 14px;
-  white-space: nowrap;
-}
-.resumeTable :global(.ant-table-cell) {
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-.cellContent.cellContent,
-.candidateText.candidateText {
-  min-width: 0;
-  max-width: 100%;
-}
-.candidateText.candidateText {
-  flex: 1;
-}
-.candidateLink {
-  display: block;
-  max-width: 100%;
-  color: inherit;
-}
-.cellText.cellText {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-.noteButton.noteButton {
-  max-width: 100%;
-}
-.pagination.pagination {
-  padding: 16px;
-  min-width: 0;
-}
-.pagination :global(.ant-pagination) {
-  display: flex;
-  flex-wrap: wrap;
-  row-gap: 8px;
-}
-.notesLayout.notesLayout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
-}
-.noteHistory.noteHistory {
-  min-width: 0;
-  max-height: 420px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-.noteCard.noteCard,
-.noteEditor.noteEditor {
-  min-width: 0;
-}
-@media (min-width: 900px) {
-  .notesLayout.notesLayout {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
-  }
-}
-@media (max-width: 599px) {
-  .searchField.searchField,
-  .positionField.positionField {
-    flex-basis: 100%;
-    max-width: none;
-  }
-  .filterActions.filterActions {
-    flex-basis: 100%;
-  }
-  .pagination.pagination {
-    padding: 12px;
-  }
-}
+/* 文件作用说明：提供简历库紧凑搜索栏、表格摘要和移动端换行布局。 */
+.toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; min-width: 0; }
+.searchControls { flex: 1; min-width: 0; }
+.keyword.keyword { width: 230px; flex: 0 1 230px; }
+.phone.phone { width: 158px; flex: 0 1 158px; }
+.position.position { width: 180px; flex: 0 1 180px; }
+.source.source { width: 130px; flex: 0 1 130px; }
+.toolbarActions { flex: none; }
+.toolbar :global(.ant-btn) { flex: none; white-space: nowrap; }
+.moreFilters { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; padding: 12px; margin-bottom: 12px; border: 1px solid var(--goodhr-border); border-radius: 8px; background: var(--goodhr-hover); min-width: 0; }
+.dateField { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--goodhr-text-secondary); white-space: nowrap; }
+.dateField :global(.ant-input) { min-width: 0; }
+.resumeTable :global(.ant-table-cell) { vertical-align: top; overflow-wrap: anywhere; padding-top: 12px; padding-bottom: 12px; }
+.cellText { min-width: 0; max-width: 100%; margin: 0 !important; overflow-wrap: anywhere; }
+.meta { font-size: 12px; line-height: 1.55; min-width: 0; overflow-wrap: anywhere; }
+.nameButton.nameButton { height: auto; padding: 0; justify-content: flex-start; font-weight: 700; overflow: hidden; white-space: normal; text-align: left; }
+.inlineButton.inlineButton { height: auto; padding: 0; justify-content: flex-start; }
+.noteButton.noteButton { width: 100%; height: auto; padding: 0; display: block; text-align: left; white-space: normal; }
+.pagination { padding: 14px 16px; }
+.pagination :global(.ant-pagination) { display: flex; flex-wrap: wrap; row-gap: 8px; }
+@media (max-width: 1200px) { .toolbar { flex-wrap: wrap; } .toolbarActions { margin-left: auto; } .moreFilters { grid-template-columns: repeat(3, minmax(120px, 1fr)); } }
+@media (max-width: 700px) { .moreFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .keyword.keyword { flex: 1 1 100%; width: auto; } .phone.phone, .position.position, .source.source { flex: 1 1 140px; width: auto; } }
+@media (max-width: 450px) { .moreFilters { grid-template-columns: minmax(0, 1fr); } .toolbarActions { flex-wrap: wrap; width: 100%; justify-content: flex-end; } }

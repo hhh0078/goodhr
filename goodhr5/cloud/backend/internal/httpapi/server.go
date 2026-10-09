@@ -104,7 +104,7 @@ func NewServer() (*Server, error) {
 		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
 		positionLogs:        positionLogs,
 		browserEvents:       NewBrowserEventService(auth, db),
-		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
+		candidates:          NewCandidateService(auth, candidateStore, tenantStore, positionStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:            paymentService,
 		runtimeConfig:       NewRuntimeConfigService(auth, systemConfigStore),
@@ -136,6 +136,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/password/reset-code", s.auth.SendPasswordResetCode)
 	mux.HandleFunc("/api/auth/password/reset", s.auth.ResetPassword)
 	mux.HandleFunc("/api/auth/me", s.auth.Me)
+	mux.HandleFunc("/api/auth/extension-login", s.auth.ExtensionLogin)
+	mux.HandleFunc("/api/auth/extension-send-code", s.auth.SendCode)
+	mux.HandleFunc("/api/auth/extension-session", s.auth.ExtensionSession)
+	mux.HandleFunc("/api/auth/extension-refresh", s.auth.ExtensionRefresh)
+	mux.HandleFunc("/api/auth/extension-logout", s.auth.ExtensionLogout)
+	mux.HandleFunc("/api/system/browser-extension", s.GetBrowserExtension)
 	mux.HandleFunc("/api/auth/agreement-status", s.auth.AgreementStatus)
 	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)
 	mux.HandleFunc("/api/public/stats/today", s.publicStats.Today)
@@ -194,13 +200,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/fail-notice", s.positionExecution.FailNotice)
 	// 注册简历库接口，用于查看当前团队或指定岗位运行下的候选人。
 	mux.HandleFunc("/api/candidates", s.candidates.Collection)
-	mux.HandleFunc("/api/candidates/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/notes") {
-			s.candidates.Notes(w, r)
-			return
-		}
-		s.candidates.Detail(w, r)
-	})
+	mux.HandleFunc("/api/candidates/", s.candidates.Route)
 	// 注册平台配置接口，用于读取平台选择器和行为配置供岗位运行执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
 	mux.HandleFunc("/api/system/app-config", s.GetAppConfig)
@@ -219,7 +219,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/cookies", s.cookies.List)
 	mux.HandleFunc("/api/cookies/create", s.cookies.Create)
 	mux.HandleFunc("/api/cookies/", s.cookieRoute)
-	return cors(mux)
+	return cors(s.extensionSessionGuard(mux))
 }
 
 // positionRoute 根据路径分发岗位详情、日志和本地程序同步请求。
@@ -603,10 +603,11 @@ func (s *Server) cookieRoute(w http.ResponseWriter, r *http.Request) {
 	s.cookies.Delete(w, r)
 }
 
+// cors 为云端接口提供跨域预检响应，允许简历差异更新使用 PATCH。
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-GoodHR-Agent-BaseURL")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

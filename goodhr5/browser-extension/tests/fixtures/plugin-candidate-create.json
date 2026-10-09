@@ -1,0 +1,74 @@
+{
+  "candidate_name": "插件合同测试候选人",
+  "phone": "13800000001",
+  "email": "fixture@example.test",
+  "birth_ym": "1992-06",
+  "gender": "male",
+  "work_region": "合同测试城市",
+  "current_region": "合同测试城市",
+  "expected_region": "期望测试城市",
+  "work_years": "8",
+  "education_level": "本科",
+  "current_position": "测试工程师",
+  "expected_position": "测试负责人",
+  "current_salary_text": "18K×13薪",
+  "expected_salary_text": "20-25K/月",
+  "personal_description": "只用于自动测试的合成简介。",
+  "work_status": "在职，考虑机会",
+  "online_status": "近期活跃",
+  "platform_id": "liepin",
+  "platform_candidate_id": "fixture-resume-id",
+  "source_url": "https://lpt.liepin.com/chat/im",
+  "basic_info": "",
+  "age": 34,
+  "source_type": "browser_extension",
+  "tags": [
+    "合成标签",
+    "薪资单位K"
+  ],
+  "expected_salary_min": 20,
+  "expected_salary_max": 25,
+  "work_experiences": [
+    {
+      "company_name": "合成测试公司",
+      "position_name": "测试工程师",
+      "content": "合成工作经历",
+      "start_ym": "2020-01",
+      "end_ym": ""
+    }
+  ],
+  "educations": [
+    {
+      "school_name": "合成测试学校",
+      "major_name": "测试专业",
+      "education_level": "本科",
+      "start_ym": "2010-09",
+      "end_ym": "2014-06"
+    }
+  ],
+  "project_experiences": [
+    {
+      "project_name": "合成测试项目",
+      "role_name": "测试负责人",
+      "content": "合成项目经历",
+      "start_ym": "2021-01",
+      "end_ym": "2022-06"
+    }
+  ],
+  "certificates": [
+    {
+      "certificate_name": "合成测试证书",
+      "issued_by": "合成测试机构",
+      "issued_ym": "2018-06"
+    }
+  ],
+  "honors": [
+    {
+      "honor_name": "合成测试荣誉",
+      "issued_by": "合成测试机构",
+      "issued_ym": "2019-06",
+      "description": "合成荣誉说明"
+    }
+  ],
+  "idempotency_key": "plugin-cross-module-fixture-1"
+}

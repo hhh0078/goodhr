@@ -67,6 +67,11 @@ func (h *AgentWSHub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
 		return
 	}
+	// 插件只处理简历业务，不能接管本地程序连接或接收岗位任务消息。
+	if session.Kind == extensionSessionKind {
+		writeError(w, http.StatusForbidden, "插件不能连接本地任务通道，请使用 GoodHR 本地程序")
+		return
+	}
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[云端WS] 升级连接失败 user=%s err=%v", session.Email, err)

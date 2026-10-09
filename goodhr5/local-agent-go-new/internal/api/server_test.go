@@ -37,6 +37,10 @@ func TestPageOpenAcceptsLegacyViewportFields(t *testing.T) {
 // TestAgentBindRouteUsesLocalDeviceID 验证浏览器只提交 Token，稳定设备编号由本地程序补齐后发往云端。
 func TestAgentBindRouteUsesLocalDeviceID(t *testing.T) {
 	cloudServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth/me" && r.Header.Get("Authorization") == "Bearer browser-token" {
+			_, _ = w.Write([]byte(`{"user":{"id":"user-1","email":"test@example.com"}}`))
+			return
+		}
 		if r.URL.Path != "/api/agents/bind" || r.Header.Get("Authorization") != "Bearer browser-token" {
 			t.Fatalf("unexpected cloud request: %s authorization=%q", r.URL.Path, r.Header.Get("Authorization"))
 		}
@@ -62,6 +66,9 @@ func TestAgentBindRouteUsesLocalDeviceID(t *testing.T) {
 	server.http.Handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "goodhr-device-v1-local") {
 		t.Fatalf("bind status=%d body=%s", response.Code, response.Body.String())
+	}
+	if server.extensionUserID != "user-1" || server.extensionToken != "browser-token" {
+		t.Fatal("配对恢复未绑定已验证的网页登录会话")
 	}
 }
 

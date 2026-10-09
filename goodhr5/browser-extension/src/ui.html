@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- 文件作用：工具栏弹窗和浏览器原生侧栏共用的简历采集、登录及记录界面；不嵌入招聘页面。 -->
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>GoodHR 简历助手</title><link rel="stylesheet" href="ui.css"></head>
+<body>
+  <header><div><strong>GoodHR 简历助手</strong><small id="version">v1.0.0</small></div><button id="sidebar" class="quiet" type="button">放到侧栏</button></header>
+  <main>
+    <p id="status" role="status" aria-live="polite">我先看看当前简历……</p>
+    <section class="consent"><label><input id="consent" type="checkbox">同意把我确认的简历资料保存到 GoodHR</label><p>只读取当前可见简历；不会替你点击、购买手机号或滚动页面。详情：<a href="privacy.html" target="_blank" rel="noreferrer">插件数据说明</a></p></section>
+    <section id="revocation-panel" hidden><p id="revocation-message" class="error"></p><button id="revoke-retry" type="button">重试撤销旧授权</button></section>
+    <details id="login-panel" hidden><summary>登录后查重和入库，未登录可先看下面预览</summary>
+      <h1>先登录，我再替你记账</h1>
+      <div class="tabs"><button id="password-mode" aria-pressed="true">密码登录</button><button id="code-mode" aria-pressed="false">验证码登录</button></div>
+      <form id="login-form">
+        <label>GoodHR 邮箱<input id="email" type="email" autocomplete="username" required></label>
+        <label id="password-row">密码<input id="password" type="password" autocomplete="current-password"></label>
+        <label id="code-row" hidden>邮箱验证码<div class="inline"><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="12"><button id="send-code" type="button">获取验证码</button></div></label>
+        <label class="check"><input id="agreement" type="checkbox" required>我已阅读并同意 <a href="https://goodhr.58it.cn/login" target="_blank" rel="noreferrer">GoodHR 登录页的使用协议与隐私说明</a></label>
+        <button class="primary" type="submit">登录 GoodHR</button>
+      </form>
+      <details><summary>本地程序已经登录？</summary><p>首次连接需要在 GoodHR 控制台确认一次，后续可自动恢复。</p><label>本地程序端口<input id="local-port" type="number" min="1" max="65535" value="43129"></label><div class="inline"><button id="pair">连接并授权</button><button id="restore">恢复已配对登录</button></div><p id="pair-status"></p></details>
+    </details>
+    <section id="workspace" hidden>
+      <div id="account-row" class="account"><span id="account"></span><button id="logout" class="quiet">退出</button></div>
+      <div class="inline"><h1>当前简历预览</h1><button id="reload" class="quiet">重新读取</button></div>
+      <p id="source" class="muted"></p>
+      <form id="candidate-form">
+        <div class="grid"><label>姓名 <span>*</span><input id="name" maxlength="80" required></label><label>手机号 <span>*</span><input id="phone" inputmode="tel" maxlength="32" placeholder="未识别到时请补填" required></label></div>
+        <div class="grid"><label>邮箱<input id="candidate-email" type="email" maxlength="120"></label><label>城市<input id="city" maxlength="80"></label></div>
+        <div class="grid"><label>当前职位<input id="position" maxlength="120"></label><label>期望职位<input id="expected-position" maxlength="120"></label></div>
+        <details><summary>已读取的更多资料</summary><div id="resume-preview"></div><p class="muted">未登录也可在本地查看。原页面未展示的字段留空；登录并同意后才可查重和保存。</p></details>
+        <div class="inline search"><input id="duplicate-keyword" placeholder="姓名、学校、公司等相似线索" maxlength="200" aria-label="相似查询关键字"><button id="check" type="button">查重</button></div>
+        <div id="duplicates" aria-live="polite"></div>
+        <label>岗位（可不选）<input id="job-filter" placeholder="搜索岗位名称" maxlength="120"><select id="job"><option value="">先放进简历库</option></select></label>
+        <label>本次备注（可不填）<textarea id="note" rows="3" maxlength="6000" placeholder="沟通情况、看法、下一步都可以写"></textarea></label>
+        <div class="actions"><button id="save" class="primary" type="submit">添加简历</button><button id="save-related" type="button" hidden>保存备注 / 关联岗位</button><button id="update" class="quiet" type="button" hidden>确认更新已有资料</button></div>
+      </form>
+      <section id="records" hidden><h2>备注和推荐记录</h2><div id="notes"></div><div id="recommendations"></div></section>
+    </section>
+  </main><footer>页面上没有小悬浮框，工具栏 + 号会小声提醒你。</footer>
+  <script src="shared.js"></script><script src="ui.js"></script>
+</body></html>

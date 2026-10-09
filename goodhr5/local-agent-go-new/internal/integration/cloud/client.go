@@ -38,9 +38,15 @@ func New(baseURL string) *Client {
 // ValidateSession 验证云端登录态。
 func (c *Client) ValidateSession(ctx context.Context, token string) (UserSession, error) {
 	var response struct {
-		User UserSession `json:"user"`
+		User    UserSession `json:"user"`
+		Session struct {
+			Kind string `json:"kind"`
+		} `json:"session"`
 		Data struct {
-			User UserSession `json:"user"`
+			User    UserSession `json:"user"`
+			Session struct {
+				Kind string `json:"kind"`
+			} `json:"session"`
 		} `json:"data"`
 	}
 	if err := c.do(ctx, http.MethodGet, "/api/auth/me", token, nil, &response); err != nil {
@@ -49,6 +55,11 @@ func (c *Client) ValidateSession(ctx context.Context, token string) (UserSession
 	session := response.User
 	if session.UserID == "" {
 		session = response.Data.User
+	}
+	if response.Session.Kind != "" {
+		session.SessionKind = response.Session.Kind
+	} else if response.Data.Session.Kind != "" {
+		session.SessionKind = response.Data.Session.Kind
 	}
 	session.LoggedIn = session.UserID != ""
 	if !session.LoggedIn {

@@ -45,6 +45,7 @@ func NewMemorySystemConfigStore() *MemorySystemConfigStore {
 // defaultMemorySystemConfigs 返回开发环境默认系统配置。
 func defaultMemorySystemConfigs() map[string]SystemConfig {
 	return map[string]SystemConfig{
+		browserExtensionConfigKey: {ConfigKey: browserExtensionConfigKey, ConfigValue: defaultBrowserExtensionConfig, Description: "浏览器插件统一版本、Chrome/Firefox 下载地址、校验值和更新说明", Enabled: true},
 		"system.app_config": {
 			ConfigKey: "system.app_config",
 			ConfigValue: `{

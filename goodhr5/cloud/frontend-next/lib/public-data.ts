@@ -33,6 +33,23 @@ export type GuideVideo = {
 	enabled: boolean;
 };
 
+/** BrowserExtensionRelease 表示后台维护的统一插件版本和不同浏览器下载包。 */
+export type BrowserExtensionRelease = {
+  version: string; note: string; url_chrome: string; url_firefox: string;
+  sha256_chrome: string; sha256_firefox: string; firefox_signed: boolean;
+};
+
+/** getBrowserExtensionRelease 在服务端读取插件下载配置，保持官网和后台使用同一版本。 */
+export async function getBrowserExtensionRelease(): Promise<BrowserExtensionRelease | null> {
+  if (process.env.GOODHR_STATIC_EXPORT === "1") return null;
+  try {
+    const response = await fetch(`${cloudBaseURL()}/api/system/browser-extension`, {cache: "no-store"});
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.release?.version ? data.release as BrowserExtensionRelease : null;
+  } catch { return null; }
+}
+
 /** getPublicStats 在服务端读取官网统计，失败时返回空数据且不影响页面。 */
 export async function getPublicStats(): Promise<PublicStatsData> {
   const baseURL = cloudBaseURL();

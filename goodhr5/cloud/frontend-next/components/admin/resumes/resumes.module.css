@@ -1,0 +1,20 @@
+/* 文件作用说明：管理简历维护表单、详情工作区及导入结果的紧凑响应式布局。 */
+.editorForm :global(.ant-form-item) { margin-bottom: 12px; }
+.fieldGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; min-width: 0; }
+.wideField { grid-column: 1 / -1; }
+.experienceEditor { padding: 12px; border: 1px solid var(--goodhr-border); border-radius: 8px; min-width: 0; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); gap: 0; min-width: 0; }
+.resumeBody { min-width: 0; padding: 8px 22px 8px 0; }
+.recordAside { min-width: 0; padding: 0 0 0 20px; border-left: 1px solid var(--goodhr-border); }
+.resumeSection { padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--goodhr-border); min-width: 0; }
+.resumeSection :global(.ant-descriptions-item-label) { white-space: nowrap; }
+.candidateHeader { min-width: 0; }
+.preWrap { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 8px; }
+.workspace :global(.ant-typography) { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.recordHistory { max-height: 660px; overflow-y: auto; min-width: 0; }
+.record { padding: 12px 0; border-bottom: 1px solid var(--goodhr-border); min-width: 0; }
+.meta { font-size: 12px; color: var(--goodhr-text-secondary); overflow-wrap: anywhere; }
+.experience { margin-bottom: 14px; min-width: 0; }
+.importTable :global(.ant-table-cell) { overflow-wrap: anywhere; }
+@media (max-width: 1000px) { .workspace { grid-template-columns: minmax(0, 1fr); } .resumeBody { padding: 0; } .recordAside { border-left: 0; border-top: 1px solid var(--goodhr-border); padding: 16px 0 0; margin-top: 18px; } }
+@media (max-width: 599px) { .fieldGrid { grid-template-columns: minmax(0, 1fr); } .candidateHeader { flex-wrap: wrap; } .recordHistory { max-height: none; } }
