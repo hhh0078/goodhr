@@ -181,19 +181,32 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 		if selectorErr != nil {
 			return selectorErr
 		}
-		_, clickErr = browser.Click(ctx, contract.ElementClickRequest{
-			Selector:   closeSelector,
-			Diagnostic: true,
-			Verify: &contract.ClickVerification{
-				TargetHidden: &detail,
-				TimeoutMS:    2000,
-			},
-		})
-		if clickErr == nil {
-			return nil
+		closePresent := true
+		if hasDialog {
+			// 关闭按钮缺失是可恢复的探测结果，先保留诊断，再由 Escape 和弹窗隐藏确认最终结果。
+			items, probeErr := browser.FindAll(ctx, contract.ElementFindAllRequest{
+				Selector: closeSelector, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true, Diagnostic: true,
+			})
+			if probeErr != nil && !IsElementMissing(probeErr) {
+				return probeErr
+			}
+			closePresent = probeErr == nil && len(items) > 0
 		}
-		if contract.IsSessionUnavailable(clickErr) {
-			return clickErr
+		if closePresent {
+			_, clickErr = browser.Click(ctx, contract.ElementClickRequest{
+				Selector:   closeSelector,
+				Diagnostic: true,
+				Verify: &contract.ClickVerification{
+					TargetHidden: &detail,
+					TimeoutMS:    2000,
+				},
+			})
+			if clickErr == nil {
+				return nil
+			}
+			if contract.IsSessionUnavailable(clickErr) {
+				return clickErr
+			}
 		}
 	} else if !hasDialog {
 		_, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})

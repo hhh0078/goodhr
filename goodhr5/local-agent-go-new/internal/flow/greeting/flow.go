@@ -585,6 +585,13 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "匹配度未达标，已跳过", "skipped", nil)
 		return nil
 	}
+	if prepared.Request.EnableGreet != nil && !*prepared.Request.EnableGreet {
+		evaluationStatus = "scanned"
+		stats.Skipped++
+		f.saveCandidate(ctx, prepared, candidate, "check_only", "skipped", "本次只检查，未打招呼")
+		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "本次只检查，未打招呼", "skipped", nil)
+		return nil
+	}
 	if err := waitRandomSeconds(
 		ctx, f.Logger, prepared.Request.TaskID, "before_greet",
 		prepared.Preferences.GreetBeforeDelayMin, prepared.Preferences.GreetBeforeDelayMax,

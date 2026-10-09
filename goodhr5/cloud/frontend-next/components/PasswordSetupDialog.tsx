@@ -2,7 +2,7 @@
 "use client";
 
 import { LockOutlined } from "@ant-design/icons";
-import { Alert, Button, Form, Input, Modal } from "antd";
+import { Alert, Button, Form, Input, Modal, Typography } from "antd";
 import { useState } from "react";
 
 type PasswordSetupDialogProps = {
@@ -64,15 +64,16 @@ export default function PasswordSetupDialog({
         </Button>
       }
     >
-      <p
+      <Typography.Paragraph
         style={{
+          margin: "1em 0",
           color: "var(--goodhr-text-secondary, #637069)",
           lineHeight: 1.7,
         }}
       >
         我小声提醒一下：{email || "这个账号"}{" "}
         以前只用验证码，还没有密码。设置好以后，登录会快很多。
-      </p>
+      </Typography.Paragraph>
       <Form layout="vertical" onFinish={() => void submit()}>
         <Form.Item
           label="新密码"

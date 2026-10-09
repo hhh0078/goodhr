@@ -38,6 +38,25 @@ func (c *Client) UploadPositionLogs(ctx context.Context, token, positionID strin
 	if len(logs) > 1000 {
 		logs = logs[len(logs)-1000:]
 	}
+	request := struct {
+		Logs []PositionDiagnosticLog `json:"logs"`
+	}{Logs: logs}
+	for _, item := range logs {
+		var output struct {
+			AIResponse json.RawMessage `json:"ai_response_diagnostic"`
+		}
+		if json.Unmarshal(item.Output, &output) == nil && len(output.AIResponse) > 0 && string(output.AIResponse) != "null" {
+			// AI 失败证据必须完整上传；超过明确协议上限时保留本地记录及补传标记。
+			encoded, err := json.Marshal(request)
+			if err != nil {
+				return err
+			}
+			if len(encoded) > 64<<20 {
+				return fmt.Errorf("AI 完整诊断日志超过 64 MiB 上传上限，原始记录仍保存在本地")
+			}
+			return c.do(ctx, http.MethodPut, "/api/positions/"+url.PathEscape(positionID)+"/logs", token, request, nil)
+		}
+	}
 	// 云端请求上限为 8 MiB；详细诊断增大后保留最新完整记录，留出编码和协议余量。
 	bytesUsed, start := 16, len(logs)
 	for start > 0 {
@@ -55,8 +74,6 @@ func (c *Client) UploadPositionLogs(ctx context.Context, token, positionID strin
 		return fmt.Errorf("单条岗位日志超过上传大小限制")
 	}
 	logs = logs[start:]
-	request := struct {
-		Logs []PositionDiagnosticLog `json:"logs"`
-	}{Logs: logs}
+	request.Logs = logs
 	return c.do(ctx, http.MethodPut, "/api/positions/"+url.PathEscape(positionID)+"/logs", token, request, nil)
 }

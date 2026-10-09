@@ -97,7 +97,6 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 		incidents.RecordLifecycleDetails("agent.previous_exit", "检测到上次异常退出："+previous.Reason, true, previous.Diagnostics())
 	}
 	workerProcess.SetLogSink(runtimeLog)
-	browserClient.SetRecovery(workerProcess.Stop)
 	checker := &preflight.Checker{
 		Cloud: cloudClient, Runtime: runtimeManager, Browser: browserClient,
 		Storage: store, Profiles: profiles, AI: aiClient, OCR: ocrClient,

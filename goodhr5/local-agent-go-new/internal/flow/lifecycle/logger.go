@@ -18,16 +18,24 @@ const analysisResultHoldDuration = 8 * time.Second
 
 // TaskLogger 同时输出日志并更新任务当前步骤。
 type TaskLogger struct {
-	store             *storage.Store
-	next              shared.Logger
-	candidateMu       sync.RWMutex
-	candidateTaskID   string
-	candidateName     string
-	analysisMu        sync.RWMutex
-	analysisTaskID    string
-	analysis          shared.AnalysisStatus
-	analysisVisibleAt time.Time
-	pendingAnalysis   shared.AnalysisStatus
+	store              *storage.Store
+	next               shared.Logger
+	candidateMu        sync.RWMutex
+	candidateTaskID    string
+	candidateName      string
+	analysisMu         sync.RWMutex
+	analysisTaskID     string
+	analysis           shared.AnalysisStatus
+	analysisVisibleAt  time.Time
+	pendingAnalysis    shared.AnalysisStatus
+	aiDiagnosticMu     sync.Mutex
+	aiDiagnosticErrors []aiDiagnosticLog
+}
+
+// aiDiagnosticLog 只保存诊断编号和已落库的记录编号，避免去重缓存保留大型原文。
+type aiDiagnosticLog struct {
+	DiagnosticID uint64
+	LogID        int64
 }
 
 // ReportAnalysis 保存当前任务最近一次 AI 或关键词判断状态。
@@ -133,22 +141,35 @@ func (l *TaskLogger) Step(taskID string, flow string, step string, status string
 			Flow string `json:"flow"`
 			Step string `json:"step"`
 		}{flow, step})
-		output, _ := json.Marshal(struct {
-			Status     string `json:"status"`
-			DurationMS int64  `json:"duration_ms"`
-		}{status, time.Since(startedAt).Milliseconds()})
+		output := l.taskLogOutput(status, time.Since(startedAt).Milliseconds(), err)
 		isError := status == "failed" || status == "panic" || (status == "warning" && err != nil)
 		category := "运行"
 		if isError {
 			category = "错误"
 		}
-		if _, saveErr := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
+		var diagnostic struct {
+			AIResponse json.RawMessage `json:"ai_response_diagnostic"`
+		}
+		if json.Unmarshal(output, &diagnostic) == nil && len(diagnostic.AIResponse) > 0 {
+			if line, marshalErr := json.Marshal(map[string]any{
+				"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "task_id": taskID,
+				"action": flow, "step": step, "status": status, "category": category,
+				"is_error": isError, "message": message, "error_message": errorMessage,
+				"input": input, "output": output,
+			}); marshalErr == nil {
+				log.Print(string(line))
+			}
+		}
+		saved, saveErr := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
 			TaskID: taskID, Flow: flow, Step: step, Status: status,
 			Message: message, DurationMS: time.Since(startedAt).Milliseconds(), Category: category,
 			IsError: isError, ErrorMessage: errorMessage,
 			Input: input, Output: output,
-		}); saveErr != nil {
+		})
+		if saveErr != nil {
 			log.Printf("task_id=%s flow=lifecycle step=save_task_log status=warning error=%q", taskID, saveErr)
+		} else {
+			l.recordAIResponseDiagnostic(err, output, saved.ID)
 		}
 	}
 }
@@ -222,21 +243,25 @@ func (l *TaskLogger) CandidateActivity(taskID string, candidateName string, acti
 	input, _ := json.Marshal(map[string]string{"action": action})
 	message = strings.TrimSpace(string(diagnostics.Redact([]byte(message))))
 	errorMessage := candidateErrorText(err)
+	output := l.taskLogOutput(status, 0, err)
 	if line, marshalErr := json.Marshal(map[string]any{
 		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
 		"category":  category, "is_error": isError, "error_message": errorMessage,
 		"message": message, "task_id": taskID, "action": "candidate", "step": action,
-		"status": status, "input": json.RawMessage(input), "output": map[string]any{},
+		"status": status, "input": json.RawMessage(input), "output": output,
 	}); marshalErr == nil {
 		log.Print(string(line))
 	}
-	if _, saveErr := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
+	saved, saveErr := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
 		TaskID: taskID, Flow: "candidate", Step: action, Status: status,
 		Message:  message,
 		Category: category, IsError: isError,
-		ErrorMessage: errorMessage, Input: input,
-	}); saveErr != nil {
+		ErrorMessage: errorMessage, Input: input, Output: output,
+	})
+	if saveErr != nil {
 		log.Printf("task_id=%s flow=lifecycle step=save_candidate_activity status=warning error=%q", taskID, saveErr)
+	} else {
+		l.recordAIResponseDiagnostic(err, output, saved.ID)
 	}
 }
 

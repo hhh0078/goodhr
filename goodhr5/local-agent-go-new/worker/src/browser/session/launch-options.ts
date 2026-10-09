@@ -7,6 +7,7 @@ import type { ActionContext } from "../../contracts/common.js";
 import type { loadStableProfileFingerprint } from "./fingerprint.js";
 import { offlineAddonOptions } from "./bundled-addon.js";
 import { useAutomaticWindowSize } from "./window-size.js";
+import { useBackgroundWindowInput } from "./window-input.js";
 
 /** toPlaywrightLaunchOptions 校验外部启动配置，不把未知字段直接传入浏览器。 */
 export function toPlaywrightLaunchOptions(prepared: Record<string, unknown>): LaunchOptions {
@@ -78,5 +79,5 @@ export async function buildLaunchOptions(
     },
     ...(fingerprint ? { fingerprint } : {}),
   });
-  return useAutomaticWindowSize(toPlaywrightLaunchOptions(prepared));
+  return useBackgroundWindowInput(useAutomaticWindowSize(toPlaywrightLaunchOptions(prepared)));
 }

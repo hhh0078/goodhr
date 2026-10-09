@@ -956,8 +956,11 @@ function UserActions({
 /** SmallTag 展示用户画像小标签。 */
 function SmallTag({ label }: { label: string }) {
   return (
-    <span
+    <Tag
+      variant="filled"
       style={{
+        marginInlineEnd: 0,
+        border: 0,
         paddingLeft: 6,
         paddingRight: 6,
         paddingTop: 2,
@@ -966,11 +969,12 @@ function SmallTag({ label }: { label: string }) {
         backgroundColor: "var(--goodhr-primary-soft)",
         color: "var(--goodhr-primary-dark)",
         fontSize: 11,
+        fontWeight: "inherit",
         lineHeight: 1.55,
       }}
     >
       {label}
-    </span>
+    </Tag>
   );
 }
 /** profileTags 将通知画像转换为用户标签。 */

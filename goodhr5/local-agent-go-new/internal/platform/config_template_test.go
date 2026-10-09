@@ -14,13 +14,13 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// TestBossDetailUsesBothFrameLayouts 验证详情正文、截图与关闭兼容并列和内嵌框架，清理探测不依赖正文加载。
+// TestBossDetailUsesBothFrameLayouts 验证详情正文与截图兼容并列和内嵌框架，清理探测不依赖正文加载。
 func TestBossDetailUsesBothFrameLayouts(t *testing.T) {
 	cfg, err := LoadConfig("boss")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"candidate.detail", "candidate.detail_screenshot", "candidate.detail_close"} {
+	for _, key := range []string{"candidate.detail", "candidate.detail_screenshot"} {
 		spec := cfg.Selectors[key]
 		if len(spec.Frames) != 1 || len(spec.Frames[0].Selectors) == 0 || !strings.Contains(spec.Frames[0].Selectors[0].Value, "c-resume/") || strings.Contains(spec.Frames[0].Selectors[0].Value, "recommendFrame") {
 			t.Fatalf("%s 仍在推荐 iframe 内找详情：%+v", key, spec)
@@ -37,6 +37,48 @@ func TestBossDetailUsesBothFrameLayouts(t *testing.T) {
 	}
 	if len(dialog.FrameFallbacks) != 1 || len(dialog.FrameFallbacks[0]) != 1 || !strings.Contains(dialog.FrameFallbacks[0][0].Selectors[0].Value, "recommendFrame") {
 		t.Fatal("弹窗清理缺少内嵌框架路径")
+	}
+}
+
+// TestBossDetailCloseUsesOuterContainerAndLegacyFallbacks 验证关闭优先定位外层简历弹窗，并保留旧详情框架与旧按钮。
+func TestBossDetailCloseUsesOuterContainerAndLegacyFallbacks(t *testing.T) {
+	cfg, err := LoadConfig("boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := cfg.Selectors["candidate.detail_close"]
+	if len(spec.Frames) != 1 || len(spec.Frames[0].Selectors) != 1 || spec.Frames[0].Selectors[0].Value != "iframe[name='recommendFrame']" {
+		t.Fatalf("关闭按钮必须优先在推荐框架内、简历正文框架外查找：%+v", spec.Frames)
+	}
+	wantPaths := [][]string{
+		{"iframe[src*='/web/frame/c-resume/']:visible"},
+		{"iframe[name='recommendFrame']", "iframe[src*='/web/frame/c-resume/']:visible"},
+	}
+	if len(spec.FrameFallbacks) != len(wantPaths) {
+		t.Fatalf("关闭按钮必须保留两种旧详情框架路径：%+v", spec.FrameFallbacks)
+	}
+	for pathIndex, wantPath := range wantPaths {
+		path := spec.FrameFallbacks[pathIndex]
+		if len(path) != len(wantPath) {
+			t.Fatalf("旧详情框架路径 %d 层级不正确：%+v", pathIndex, path)
+		}
+		for groupIndex, want := range wantPath {
+			if len(path[groupIndex].Selectors) != 1 || path[groupIndex].Selectors[0].Value != want {
+				t.Fatalf("旧详情框架路径 %d 第 %d 层不正确：%+v", pathIndex, groupIndex, path[groupIndex])
+			}
+		}
+	}
+	wantTargets := []string{".lib-standard-resume .close-btn:visible", ".resume-custom-close", ".boss-popup__close"}
+	if len(spec.Target.Selectors) != len(wantTargets) {
+		t.Fatalf("关闭按钮必须保留当前外层按钮和两个旧按钮：%+v", spec.Target.Selectors)
+	}
+	for index, want := range wantTargets {
+		if spec.Target.Selectors[index].Type != "css" || spec.Target.Selectors[index].Value != want {
+			t.Fatalf("关闭按钮顺序 %d 不正确：%+v", index, spec.Target.Selectors[index])
+		}
+	}
+	if spec.State != "visible" || spec.TimeoutMS != 1500 {
+		t.Fatalf("关闭按钮必须保持可见状态检查和统一等待期限：%+v", spec)
 	}
 }
 

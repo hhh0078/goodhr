@@ -47,10 +47,7 @@ export default function ResumeDetailPage() {
   if (!candidateID)
     return (
       <SectionPanel>
-        <Typography.Text
-          type="danger"
-          style={{ display: "block", margin: 0 }}
-        >
+        <Typography.Text type="danger" style={{ display: "block", margin: 0 }}>
           缺少候选人 ID
         </Typography.Text>
       </SectionPanel>

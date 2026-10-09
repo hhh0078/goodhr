@@ -7,7 +7,7 @@ import {
   MailOutlined,
   SafetyCertificateOutlined,
 } from "@ant-design/icons";
-import { Alert, Button, Checkbox, Form, Input, Modal } from "antd";
+import { Alert, Button, Checkbox, Form, Input, Modal, Typography } from "antd";
 import "@/components/public-site.css";
 import { useEffect, useMemo, useState, type UIEvent } from "react";
 import {
@@ -464,9 +464,16 @@ export default function LoginForm() {
           </Form.Item>
         ) : null}
         <div className="public-login-inline">
-          <p className="public-login-hint">
+          <Typography.Paragraph
+            className="public-login-hint"
+            style={{
+              margin: 0,
+              fontSize: 12,
+              color: "var(--goodhr-text-secondary, #637069)",
+            }}
+          >
             同一账号支持多处登录，不会再互相挤下线。
-          </p>
+          </Typography.Paragraph>
           <div className="public-login-actions">
             <Button
               type="text"
@@ -527,9 +534,17 @@ export default function LoginForm() {
                 : "登录并进入控制台"}
         </Button>
       </Form>
-      <p className="public-login-note">
+      <Typography.Paragraph
+        className="public-login-note"
+        style={{
+          margin: "20px 0 16px",
+          fontSize: 13,
+          lineHeight: 1.7,
+          color: "var(--goodhr-text-secondary, #637069)",
+        }}
+      >
         新邮箱注册需要验证码和密码。老账号没有密码也别慌，先用验证码登录，我会带你补上。
-      </p>
+      </Typography.Paragraph>
       <Modal
         open={agreementOpen}
         onCancel={() => setAgreementOpen(false)}
@@ -594,10 +609,18 @@ export default function LoginForm() {
           </div>
         }
       >
-        <p className="public-login-note">
+        <Typography.Paragraph
+          className="public-login-note"
+          style={{
+            margin: "20px 0 16px",
+            fontSize: 13,
+            lineHeight: 1.7,
+            color: "var(--goodhr-text-secondary, #637069)",
+          }}
+        >
           别慌，用 {normalizedEmail || "你的邮箱"}{" "}
           收一个验证码，就能设一个新密码。
-        </p>
+        </Typography.Paragraph>
         <Form layout="vertical" requiredMark={false}>
           <Form.Item label="验证码" htmlFor="reset-password-code">
             <Input
@@ -682,27 +705,29 @@ function AgreementMarkdown({ markdown }: { markdown: string }) {
         if (!text) return <div key={index} style={{ height: 4 }} />;
         if (text.startsWith("## ")) {
           return (
-            <h2
+            <Typography.Title
               key={index}
+              level={2}
               style={{ margin: 0, fontSize: 22, fontWeight: 820 }}
             >
               {stripMarkdown(text.replace(/^##\s+/, ""))}
-            </h2>
+            </Typography.Title>
           );
         }
         if (text.startsWith("### ")) {
           return (
-            <h3
+            <Typography.Title
               key={index}
+              level={3}
               style={{ margin: "12px 0 0", fontSize: 17, fontWeight: 800 }}
             >
               {stripMarkdown(text.replace(/^###\s+/, ""))}
-            </h3>
+            </Typography.Title>
           );
         }
         const strong = text.match(/^\*\*(.*)\*\*$/);
         return (
-          <p
+          <Typography.Paragraph
             key={index}
             style={{
               margin: 0,
@@ -714,7 +739,7 @@ function AgreementMarkdown({ markdown }: { markdown: string }) {
             }}
           >
             {stripMarkdown(strong?.[1] || text)}
-          </p>
+          </Typography.Paragraph>
         );
       })}
     </div>

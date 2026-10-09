@@ -70,15 +70,29 @@ func uploadLogText(value string) string {
 	return value[:boundary] + "…"
 }
 
-// uploadLogObject 只上传脱敏且大小受限的 JSON 对象，避免敏感内容及超大响应进入云端。
+// uploadLogObject 完整保留经授权的 AI 失败诊断，普通出参继续脱敏并限制大小。
 func uploadLogObject(value json.RawMessage) json.RawMessage {
 	if !json.Valid(value) {
 		return json.RawMessage(`{}`)
 	}
 	safe := json.RawMessage(strings.TrimSpace(string(diagnostics.Redact(value))))
-	if len(safe) > 12<<10 || len(safe) == 0 || safe[0] != '{' {
+	if len(safe) == 0 || safe[0] != '{' {
 		return json.RawMessage(`{"summary":"内容过长或格式不适合分享"}`)
 	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(safe, &fields) != nil {
+		return json.RawMessage(`{}`)
+	}
+	aiResponse := fields["ai_response_diagnostic"]
+	delete(fields, "ai_response_diagnostic")
+	ordinary, _ := json.Marshal(fields)
+	if len(ordinary) > 12<<10 {
+		fields = map[string]json.RawMessage{"summary": json.RawMessage(`"内容过长或格式不适合分享"`)}
+	}
+	if len(aiResponse) > 0 && aiResponse[0] == '{' {
+		fields["ai_response_diagnostic"] = aiResponse
+	}
+	safe, _ = json.Marshal(fields)
 	return safe
 }
 

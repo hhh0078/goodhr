@@ -36,11 +36,7 @@ import { ActionQueue } from "./action-queue.js";
 
 /** ActionService 只暴露完整封装能力，原子能力不会越过本类进入 HTTP 层。 */
 export class ActionService {
-  private readonly interactionQueue = new ActionQueue((context) => {
-    void this.session.stop(context).catch((error: unknown) => {
-      this.logger.error(context, "queue_recovery", "failed", { error: String(error) });
-    });
-  });
+  private readonly interactionQueue = new ActionQueue();
   private readonly logger = new WorkerLogger();
   private readonly session = new BrowserSession(this.logger);
   private readonly locator = new LocatorPrimitive();
@@ -93,18 +89,20 @@ export class ActionService {
 
   /** startBrowser 启动或复用 Camoufox 会话。 */
   startBrowser(request: BrowserStartRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.session.start(request, context), context);
+    return this.interactionQueue.runAfterRecovery(() => this.session.start(request, context), context);
   }
 
   /** stopBrowser 关闭浏览器会话。 */
   stopBrowser(context: ActionContext) {
+    // 用户或主程序明确关闭时允许结束已隔离的会话；故障本身不会进入这条路径。
+    if (this.interactionQueue.status().blocked) return this.session.stop(context);
     return this.interactionQueue.run(() => this.session.stop(context), context);
   }
 
-  /** healthStatus 返回队列实际状态，避免卡死时仍报告完全正常。 */
+  /** healthStatus 报告 Worker 存活并单独标明输入隔离，避免健康检查误杀保留的浏览器。 */
   healthStatus() {
     const queue = this.interactionQueue.status();
-    return { status: queue.blocked ? "blocked" : "ok", version: "v1", queue };
+    return { status: "ok", version: "v1", queue };
   }
 
   /** browserStatus 返回浏览器当前状态。 */

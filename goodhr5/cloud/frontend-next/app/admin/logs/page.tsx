@@ -15,9 +15,8 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { DownOutlined } from "@ant-design/icons";
 import styles from "./page.module.css";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAdmin } from "@/components/admin/AdminApp";
 import {
   EmptyState,
@@ -25,6 +24,9 @@ import {
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { cloudRequest } from "@/lib/admin-api";
+import AIResponseDiagnosticDetails, {
+  ordinaryDiagnosticOutput,
+} from "@/components/admin/AIResponseDiagnosticDetails";
 type LogEvent = {
   message?: string;
   error_message?: string;
@@ -72,11 +74,6 @@ const logActionLabels: Record<string, string> = {
   "agent.previous_exit": "上次本地程序异常退出",
   start_browser: "启动浏览器",
   stop_browser: "关闭浏览器",
-};
-const ellipsisSx = {
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
 };
 /** toISOString 将本地输入的时间转换为云端筛选使用的时间。 */
 function toISOString(value: string): string {
@@ -140,7 +137,6 @@ function formatLogTime(value: string): string {
     hour12: false,
   });
 }
-/** LogRow 用单行摘要展示日志，展开后才显示完整错误、上下文及入参出参。 */
 /** LogDetails 展示完整日志和上下文，并允许展开原始日志。 */
 function LogDetails({ item }: { item: LogItem }) {
   const event = logEvent(item);
@@ -174,6 +170,12 @@ function LogDetails({ item }: { item: LogItem }) {
           </Typography.Text>
         ) : null,
       )}
+      {logText(event?.trace_id) && (
+        <Typography.Text type="secondary">
+          跟踪编号：{logText(event?.trace_id)}
+        </Typography.Text>
+      )}
+      <AIResponseDiagnosticDetails output={event?.output} />
       {(event?.input || event?.output) && (
         <Flex gap={16} wrap>
           {(["input", "output"] as const).map((field) => (
@@ -194,7 +196,13 @@ function LogDetails({ item }: { item: LogItem }) {
                   borderRadius: 4,
                 }}
               >
-                {JSON.stringify(event?.[field] || {}, null, 2)}
+                {JSON.stringify(
+                  field === "output"
+                    ? ordinaryDiagnosticOutput(event?.output)
+                    : event?.input || {},
+                  null,
+                  2,
+                )}
               </pre>
             </div>
           ))}

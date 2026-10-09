@@ -1,11 +1,23 @@
 /** 本文件负责只读排障链接的错误置顶、搜索筛选和结构化入参出参展示。 */
 "use client";
 
-import { Alert, Button, Input, Spin } from "antd";
+import {
+  Alert,
+  Button,
+  Card,
+  Collapse,
+  Flex,
+  Input,
+  Spin,
+  Typography,
+} from "antd";
 import "@/components/public-site.css";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { cloudRequest } from "@/lib/admin-api";
+import AIResponseDiagnosticDetails, {
+  ordinaryDiagnosticOutput,
+} from "@/components/admin/AIResponseDiagnosticDetails";
 
 type DiagnosticEvent = {
   timestamp: string;
@@ -100,97 +112,107 @@ export default function DiagnosticShareView() {
   );
 
   return (
-    <main className="public-container public-diagnostic-layout">
-      <header>
-        <h1 style={{ margin: 0, fontSize: 32, fontWeight: 760 }}>
-          岗位排障日志
-        </h1>
-        <p className="public-diagnostic-muted">
-          这是创建链接时保存的只读日志快照。错误信息排在前面，入参和出参可按需展开。
-        </p>
-      </header>
-      {loading ? (
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Spin size="small" />
-          <span>正在读取日志</span>
-        </div>
-      ) : null}
-      {error ? <Alert type="warning" title={error} showIcon /> : null}
-      {!loading && !error ? (
-        <>
-          <section className="public-diagnostic-panel">
-            <div className="public-diagnostic-toolbar">
-              <p style={{ margin: 0 }}>
-                共 {ordered.length} 条，错误 {errors.length} 条。链接有效至{" "}
-                {formatTime(expiresAt)}。
-              </p>
-              <div className="public-login-actions">
-                <Button
-                  type={onlyErrors ? "default" : "primary"}
-                  onClick={() => {
-                    setOnlyErrors(false);
+    <main className="public-container">
+      <Flex vertical gap={24} className="public-diagnostic-layout">
+        <header>
+          <Typography.Title
+            level={1}
+            style={{ margin: 0, fontSize: 32, fontWeight: 760 }}
+          >
+            岗位排障日志
+          </Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ margin: "8px 0 0" }}>
+            这是创建链接时保存的只读日志快照。错误信息排在前面，入参和出参可按需展开。
+          </Typography.Paragraph>
+        </header>
+        {loading ? (
+          <Flex gap={8} align="center">
+            <Spin size="small" />
+            <Typography.Text>正在读取日志</Typography.Text>
+          </Flex>
+        ) : null}
+        {error ? <Alert type="warning" title={error} showIcon /> : null}
+        {!loading && !error ? (
+          <>
+            <Card
+              className="public-diagnostic-panel"
+              style={{ padding: 0 }}
+              styles={{ body: { padding: 16 } }}
+            >
+              <Flex vertical gap={16}>
+                <Flex wrap gap={16} align="center" justify="space-between">
+                  <Typography.Paragraph style={{ margin: 0 }}>
+                    共 {ordered.length} 条，错误 {errors.length} 条。链接有效至{" "}
+                    {formatTime(expiresAt)}。
+                  </Typography.Paragraph>
+                  <Flex wrap gap={8} align="center" justify="flex-end">
+                    <Button
+                      type={onlyErrors ? "default" : "primary"}
+                      onClick={() => {
+                        setOnlyErrors(false);
+                        setVisibleCount(100);
+                      }}
+                    >
+                      全部日志
+                    </Button>
+                    <Button
+                      type={onlyErrors ? "primary" : "default"}
+                      danger
+                      onClick={() => {
+                        setOnlyErrors(true);
+                        setVisibleCount(100);
+                      }}
+                    >
+                      只看错误
+                    </Button>
+                  </Flex>
+                </Flex>
+                <Input
+                  aria-label="搜索错误、方法或步骤"
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
                     setVisibleCount(100);
                   }}
-                >
-                  全部日志
-                </Button>
-                <Button
-                  type={onlyErrors ? "primary" : "default"}
-                  danger
-                  onClick={() => {
-                    setOnlyErrors(true);
-                    setVisibleCount(100);
-                  }}
-                >
-                  只看错误
-                </Button>
-              </div>
-            </div>
-            <Input
-              aria-label="搜索错误、方法或步骤"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setVisibleCount(100);
-              }}
-              placeholder="搜索错误、方法或步骤"
-              style={{ marginTop: 16 }}
-            />
-          </section>
-          {errors.length > 0 && !onlyErrors && !query ? (
-            <Alert
-              type="error"
-              title={
-                <>
-                  最近一条错误：
-                  {errors[0].event?.error_message ||
-                    errors[0].event?.message ||
-                    errors[0].message}
-                </>
-              }
-              showIcon
-            />
-          ) : null}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {filtered.slice(0, visibleCount).map((item, index) => (
-              <DiagnosticLine
-                key={`${item.id || item.created_at}-${index}`}
-                item={item}
+                  placeholder="搜索错误、方法或步骤"
+                />
+              </Flex>
+            </Card>
+            {errors.length > 0 && !onlyErrors && !query ? (
+              <Alert
+                type="error"
+                title={
+                  <>
+                    最近一条错误：
+                    {errors[0].event?.error_message ||
+                      errors[0].event?.message ||
+                      errors[0].message}
+                  </>
+                }
+                showIcon
               />
-            ))}
-            {filtered.length === 0 ? (
-              <p className="public-diagnostic-muted">
-                这里没有符合条件的日志。
-              </p>
             ) : null}
-            {filtered.length > visibleCount ? (
-              <Button onClick={() => setVisibleCount((count) => count + 100)}>
-                再显示 100 条（还剩 {filtered.length - visibleCount} 条）
-              </Button>
-            ) : null}
-          </div>
-        </>
-      ) : null}
+            <Flex vertical gap={12}>
+              {filtered.slice(0, visibleCount).map((item, index) => (
+                <DiagnosticLine
+                  key={`${item.id || item.created_at}-${index}`}
+                  item={item}
+                />
+              ))}
+              {filtered.length === 0 ? (
+                <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+                  这里没有符合条件的日志。
+                </Typography.Paragraph>
+              ) : null}
+              {filtered.length > visibleCount ? (
+                <Button onClick={() => setVisibleCount((count) => count + 100)}>
+                  再显示 100 条（还剩 {filtered.length - visibleCount} 条）
+                </Button>
+              ) : null}
+            </Flex>
+          </>
+        ) : null}
+      </Flex>
     </main>
   );
 }
@@ -200,81 +222,87 @@ function DiagnosticLine({ item }: { item: SharedLog }) {
   const event = item.event;
   const isError = Boolean(event?.is_error || item.level === "error");
   return (
-    <article
+    <Card
       className="public-diagnostic-panel"
-      style={{ borderColor: isError ? "#c83f49" : undefined }}
+      style={{ padding: 0, borderColor: isError ? "#c83f49" : undefined }}
+      styles={{ body: { padding: 16 } }}
     >
-      <div
-        className="public-diagnostic-toolbar"
-        style={{
-          fontSize: 12,
-          justifyContent: "flex-start",
-          gap: 8,
-          color: "var(--goodhr-text-secondary, #637069)",
-        }}
-      >
-        <time style={{ minWidth: 205 }}>
-          {formatTime(event?.timestamp || item.created_at)}
-        </time>
-        <span
-          style={{ fontWeight: 700, color: isError ? "#c83f49" : undefined }}
+      <Flex vertical gap={8} style={{ minWidth: 0 }}>
+        <Flex wrap gap={8} align="center">
+          <Typography.Text
+            type="secondary"
+            style={{ fontSize: 12, minWidth: 205 }}
+          >
+            {formatTime(event?.timestamp || item.created_at)}
+          </Typography.Text>
+          <Typography.Text
+            type={isError ? "danger" : "secondary"}
+            style={{ fontSize: 12, fontWeight: 700 }}
+          >
+            {isError ? "错误" : "正常"}
+          </Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {diagnosticActionLabel(event)}
+            {event?.duration_ms != null ? ` · ${event.duration_ms}ms` : ""}
+          </Typography.Text>
+        </Flex>
+        <Typography.Paragraph
+          style={{
+            margin: 0,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            fontWeight: isError ? 650 : 400,
+          }}
         >
-          {isError ? "错误" : "正常"}
-        </span>
-        <span>
-          {diagnosticActionLabel(event)}
-          {event?.duration_ms != null ? ` · ${event.duration_ms}ms` : ""}
-        </span>
-      </div>
-      <p
-        style={{
-          margin: "8px 0 0",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-          fontWeight: isError ? 650 : 400,
-        }}
-      >
-        {event?.message || item.message}
-      </p>
-      {isError &&
-      event?.error_message &&
-      event.error_message !== event.message ? (
-        <Alert
-          type="error"
-          title={event.error_message}
-          showIcon
-          style={{ marginTop: 8 }}
-        />
-      ) : null}
-      {event ? (
-        <details style={{ marginTop: 12, fontSize: 13 }}>
-          <summary
-            style={{
-              cursor: "pointer",
-              color: "var(--goodhr-primary, #159a62)",
-            }}
-          >
-            查看入参、出参和任务编号
-          </summary>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              marginTop: 8,
-            }}
-          >
-            <DataBlock label="入参" value={event.input} />
-            <DataBlock label="出参" value={event.output} />
-            {event.task_id ? (
-              <p className="public-diagnostic-muted" style={{ fontSize: 12 }}>
-                任务编号：{event.task_id}
-              </p>
-            ) : null}
-          </div>
-        </details>
-      ) : null}
-    </article>
+          {event?.message || item.message}
+        </Typography.Paragraph>
+        {isError &&
+        event?.error_message &&
+        event.error_message !== event.message ? (
+          <Alert type="error" title={event.error_message} showIcon />
+        ) : null}
+        {event ? <AIResponseDiagnosticDetails output={event.output} /> : null}
+        {event ? (
+          <Collapse
+            ghost
+            size="small"
+            style={{ marginTop: 4, minWidth: 0, fontSize: 13 }}
+            items={[
+              {
+                key: "parameters",
+                label: (
+                  <Typography.Text
+                    style={{
+                      color: "var(--goodhr-primary, #159a62)",
+                      fontSize: 13,
+                    }}
+                  >
+                    查看入参、出参和任务编号
+                  </Typography.Text>
+                ),
+                children: (
+                  <Flex vertical gap={8} style={{ minWidth: 0 }}>
+                    <DataBlock label="入参" value={event.input} />
+                    <DataBlock
+                      label="出参"
+                      value={ordinaryDiagnosticOutput(event.output)}
+                    />
+                    {event.task_id ? (
+                      <Typography.Paragraph
+                        type="secondary"
+                        style={{ margin: 0, fontSize: 12 }}
+                      >
+                        任务编号：{event.task_id}
+                      </Typography.Paragraph>
+                    ) : null}
+                  </Flex>
+                ),
+              },
+            ]}
+          />
+        ) : null}
+      </Flex>
+    </Card>
   );
 }
 
@@ -302,8 +330,10 @@ function DataBlock({
   value: Record<string, unknown>;
 }) {
   return (
-    <div>
-      <p style={{ margin: 0, fontWeight: 700, fontSize: 12 }}>{label}</p>
+    <Flex vertical style={{ minWidth: 0 }}>
+      <Typography.Text strong style={{ fontSize: 12 }}>
+        {label}
+      </Typography.Text>
       <pre
         style={{
           margin: 0,
@@ -315,7 +345,7 @@ function DataBlock({
       >
         {JSON.stringify(value || {}, null, 2)}
       </pre>
-    </div>
+    </Flex>
   );
 }
 

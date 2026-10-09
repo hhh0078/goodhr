@@ -11,8 +11,15 @@ const {
 }: {
   runAdminPageChecks: (baseURL: string) => Promise<string[]>;
 } = require("./flows/admin-pages.cjs");
+const {
+  runFloatingChecks,
+}: {
+  runFloatingChecks: (baseURL: string) => Promise<string[]>;
+} = require("./flows/floating.cjs");
 
 type MockOptions = {
+  signedOut?: boolean;
+  diagnostic?: boolean;
   member?: string;
   disconnected?: boolean;
   missingRuntime?: boolean;
@@ -21,6 +28,8 @@ type MockOptions = {
   invitation?: boolean;
   delayInvitation?: boolean;
 };
+
+const fullAIReply = `测试开头\n${"完整的 AI 实际回复\n".repeat(300)}测试原文末尾`;
 
 /** mockSession 拦截全部云端和本地程序请求，避免测试写入真实账号或操作浏览器。 */
 async function mockSession(page: Page, options: MockOptions = {}) {
@@ -31,9 +40,11 @@ async function mockSession(page: Page, options: MockOptions = {}) {
       ? route.continue()
       : route.abort();
   });
-  await page.addInitScript(() =>
-    localStorage.setItem("goodhr5_access_token", "test-only-token"),
-  );
+  if (!options.signedOut) {
+    await page.addInitScript(() =>
+      localStorage.setItem("goodhr5_access_token", "test-only-token"),
+    );
+  }
   await page.route(
     /^https?:\/\/(127\.0\.0\.1:(8084|43129)|goodhr\.58it\.cn)\//,
     async (route) => {
@@ -64,7 +75,44 @@ async function mockSession(page: Page, options: MockOptions = {}) {
         else if (path === "/api/v1/app-update/status")
           data = { current_version: "6.2.10.1", stage: "idle" };
       } else {
-        if (path === "/api/auth/me")
+        if (
+          (path === "/api/admin/logs" ||
+            path.startsWith("/api/public/position-log-shares/")) &&
+          options.diagnostic
+        ) {
+          data = {
+            logs: [
+              {
+                id: "test-ai-log",
+                category: "错误",
+                level: "error",
+                position_name: "测试诊断岗位",
+                created_at: "2026-10-09T10:00:00+08:00",
+                message: "AI 解析失败",
+                event: {
+                  task_id: "test-only-task",
+                  is_error: true,
+                  message: "AI 解析失败",
+                  error_message: "测试解析错误",
+                  input: {},
+                  output: {
+                    status: "failed",
+                    ai_response_diagnostic: {
+                      model: "qwen-test",
+                      response: fullAIReply,
+                      response_kind: "model_content",
+                      parse_error: "返回不符合 JSON 格式",
+                      parse_offset: 0,
+                      response_complete: false,
+                    },
+                  },
+                },
+              },
+            ],
+            total: 1,
+            expires_at: "2026-10-10T10:00:00+08:00",
+          };
+        } else if (path === "/api/auth/me")
           data = {
             user: {
               email: "ui-test@example.invalid",
@@ -188,7 +236,10 @@ test("新增账号取消后保留草稿，空名称不能提交", async ({ page 
   ).toBeDisabled();
   await dialog.getByPlaceholder("例如：成都招聘账号").fill("保留这个草稿");
   await dialog.getByRole("radio", { name: /智联招聘/ }).check();
-  await page.screenshot({ path: "artifacts/antd-account-modal-desktop.png" });
+  await page.screenshot({
+    path: "artifacts/antd-account-modal-desktop.png",
+    animations: "disabled",
+  });
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await page.getByRole("button", { name: "新增账号", exact: true }).click();
@@ -312,8 +363,21 @@ test("手机上的长表单和菜单都能打开关闭", async ({ page }) => {
   await expect(menu).not.toBeVisible();
   await page.getByRole("button", { name: "新增账号", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "新增平台账号" });
+  await expect(dialog).toHaveCSS("animation-name", "none");
+  await expect(dialog).toHaveCSS("transform", "none");
+  await expect(dialog).toHaveCSS("opacity", "1");
+  await expect(dialog.locator(".goodhr-choice-grid")).toHaveCSS(
+    "display",
+    "grid",
+  );
+  const choiceBox = await dialog
+    .locator(".goodhr-choice")
+    .first()
+    .boundingBox();
+  expect(choiceBox!.width).toBeGreaterThanOrEqual(270);
   const box = await dialog.boundingBox();
   expect(box).not.toBeNull();
+  expect(box!.width).toBeGreaterThanOrEqual(300);
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(391);
   await page.screenshot({ path: "artifacts/antd-account-modal-mobile.png" });
@@ -335,9 +399,9 @@ test("必要升级无法用遮罩或 Escape 关闭", async ({ page }) => {
   await expect(required).toBeVisible();
 });
 
-test("岗位、会员、支付和个人配置的 58 项交互", async ({ baseURL }) => {
+test("岗位、会员、支付和个人配置的 59 项交互", async ({ baseURL }) => {
   test.setTimeout(120_000);
-  expect((await runHeavyChecks(baseURL!)).length).toBeGreaterThanOrEqual(58);
+  expect((await runHeavyChecks(baseURL!)).length).toBeGreaterThanOrEqual(59);
 });
 
 test("后台业务弹框和表格的 24 项交互", async ({ baseURL }) => {
@@ -345,6 +409,106 @@ test("后台业务弹框和表格的 24 项交互", async ({ baseURL }) => {
   expect((await runAdminPageChecks(baseURL!)).length).toBeGreaterThanOrEqual(
     24,
   );
+});
+
+test("置顶小窗在独立窗口内显示样式，并正确更新和关闭", async ({ baseURL }) => {
+  test.setTimeout(120_000);
+  expect((await runFloatingChecks(baseURL!)).length).toBeGreaterThanOrEqual(15);
+});
+
+test("AI 诊断折叠后能完整显示长原文和零字节位置", async ({ page }) => {
+  await mockSession(page, { diagnostic: true });
+  await page.goto("/admin/logs");
+  await page.getByRole("row").filter({ hasText: "测试诊断岗位" }).click();
+  await page
+    .getByText("查看 AI 实际返回（qwen-test）", { exact: true })
+    .click();
+  await expect(
+    page.getByText("返回不符合 JSON 格式", { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText(/第 0 字节/)).toBeVisible();
+  const original = page.locator("pre").filter({ hasText: "测试原文末尾" });
+  await expect(original).toHaveText(fullAIReply);
+  await expect(
+    page.getByText(/连接中断，以下是已收到的全部内容/),
+  ).toBeVisible();
+});
+
+test("分享日志的参数、任务编号和 AI 原文都能独立展开", async ({ page }) => {
+  await mockSession(page, { signedOut: true, diagnostic: true });
+  await page.goto(`/diagnostics/${"a".repeat(64)}`);
+  await expect(
+    page.getByRole("heading", { name: "岗位排障日志", exact: true }),
+  ).toBeVisible();
+  await page.getByText("查看入参、出参和任务编号", { exact: true }).click();
+  await expect(
+    page.getByText("任务编号：test-only-task", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".public-diagnostic-panel.ant-card")).toHaveCount(
+    2,
+  );
+  const normalOutput = page
+    .locator("pre")
+    .filter({ hasText: '"status": "failed"' });
+  await expect(normalOutput).toBeVisible();
+  await expect(normalOutput).not.toContainText("ai_response_diagnostic");
+  await page
+    .getByText("查看 AI 实际返回（qwen-test）", { exact: true })
+    .click();
+  await expect(
+    page.locator("pre").filter({ hasText: "测试原文末尾" }),
+  ).toHaveText(fullAIReply);
+});
+
+test("手机协议弹窗可滚动，读到底部前不能勾选", async ({ page }) => {
+  await mockSession(page, { signedOut: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/login");
+  await page.getByRole("button", { name: "阅读协议", exact: true }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "GoodHR 使用协议与隐私说明",
+  });
+  await expect(dialog.getByRole("checkbox")).toBeDisabled();
+  const box = await dialog.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(376);
+  await dialog.locator(".public-agreement-content").press("Control+End");
+  await expect(dialog.getByRole("checkbox")).toBeEnabled();
+  await expect(
+    dialog.getByRole("button", { name: "同意并继续", exact: true }),
+  ).toBeDisabled();
+  await page.screenshot({
+    path: "artifacts/antd-login-agreement-mobile.png",
+    animations: "disabled",
+  });
+  await dialog.getByRole("button", { name: "先不登录", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+});
+
+test("重置密码校验错误时不提交，取消重开会清空输入", async ({ page }) => {
+  const calls = await mockSession(page, { signedOut: true });
+  await page.goto("/login");
+  await page.getByLabel("邮箱", { exact: true }).fill("test@example.invalid");
+  await page.getByRole("button", { name: "忘记密码", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "忘记密码", exact: true });
+  await dialog.getByRole("button", { name: "重设密码", exact: true }).click();
+  await expect(
+    dialog.getByText("请输入 4 位验证码", { exact: true }),
+  ).toBeVisible();
+  await dialog.getByLabel("验证码", { exact: true }).fill("1234");
+  await dialog.getByLabel("新密码", { exact: true }).fill("test-only-password");
+  await dialog
+    .getByLabel("再输入一次新密码", { exact: true })
+    .fill("different-password");
+  await dialog.getByRole("button", { name: "重设密码", exact: true }).click();
+  await expect(
+    dialog.getByText("两次新密码不一样，再核对一下", { exact: true }),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "先不换了", exact: true }).click();
+  await page.getByRole("button", { name: "忘记密码", exact: true }).click();
+  await expect(dialog.getByLabel("验证码", { exact: true })).toHaveValue("");
+  await expect(dialog.getByLabel("新密码", { exact: true })).toHaveValue("");
+  expect(calls.filter((call) => call.method === "POST")).toHaveLength(0);
 });
 
 test("小补丁允许忽略，并记住当前版本的选择", async ({ page }) => {

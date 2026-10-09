@@ -72,7 +72,10 @@ export default function ChoiceCards({
                 <Typography.Text strong>{option.label}</Typography.Text>
               ) : null}
               {value === option.value ? (
-                <CheckCircleFilled className="goodhr-choice-check" />
+                <CheckCircleFilled
+                  className="goodhr-choice-check"
+                  aria-hidden="true"
+                />
               ) : null}
             </Flex>
             {!option.iconOnly ? (

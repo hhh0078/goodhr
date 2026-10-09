@@ -70,13 +70,13 @@
 .goodhr-admin-modal .ant-input-number {
   max-width: 100%;
 }
-.goodhr-choice-grid {
+.goodhr-choice-grid.ant-radio-group {
   display: grid;
   grid-template-columns: repeat(var(--choice-columns, 2), minmax(0, 1fr));
   gap: 8px;
   width: 100%;
 }
-.goodhr-choice-auto {
+.goodhr-choice-auto.ant-radio-group {
   display: flex;
   flex-wrap: wrap;
 }
@@ -168,7 +168,7 @@
   .goodhr-admin-content {
     border-radius: 8px 8px 0 0;
   }
-  .goodhr-choice-grid {
+  .goodhr-choice-grid.ant-radio-group {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -179,11 +179,11 @@
   .goodhr-mobile-sm {
     display: inline-flex !important;
   }
-  .goodhr-choice-grid {
+  .goodhr-choice-grid.ant-radio-group {
     grid-template-columns: 1fr;
   }
-  .goodhr-choice-auto {
-    display: flex;
+  .goodhr-choice-auto.ant-radio-group {
+    display: grid;
   }
   .goodhr-admin-modal.ant-modal {
     top: 16px;

@@ -2,9 +2,8 @@
 "use client";
 
 import { CheckCircleOutlined } from "@ant-design/icons";
-import { Button, Modal, Spin } from "antd";
+import { Button, Flex, Modal, QRCode, Spin, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
 import { cloudRequest } from "@/lib/admin-api";
 
 export type WechatPaymentState = {
@@ -92,16 +91,10 @@ export function WechatPayDialog({
       footer={<Button onClick={onClose}>稍后再付</Button>}
     >
       {payment ? (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 16,
-            alignItems: "center",
-            textAlign: "center",
-          }}
-        >
-          <div
+        <Flex vertical gap={16} align="center" style={{ textAlign: "center" }}>
+          <Flex
+            align="center"
+            justify="center"
             style={{
               padding: 16,
               background: "#fff",
@@ -110,25 +103,31 @@ export function WechatPayDialog({
               lineHeight: 0,
             }}
           >
-            <QRCodeSVG
+            <QRCode
+              type="svg"
               value={payment.codeURL}
               size={220}
-              level="H"
-              imageSettings={{
-                src: "/assets/payment/wechat-pay.png",
-                width: 48,
-                height: 40,
-                excavate: true,
-              }}
+              errorLevel="H"
+              color="#000000"
+              bgColor="#ffffff"
+              bordered={false}
+              marginSize={0}
+              icon="/assets/payment/wechat-pay.png"
+              iconSize={{ width: 48, height: 40 }}
+              style={{ padding: 0, border: 0 }}
             />
-          </div>
-          <div>
-            <p style={{ margin: 0, fontWeight: 800 }}>{payment.title}</p>
-            <p style={{ margin: "4px 0 0", fontSize: 28, fontWeight: 850 }}>
+          </Flex>
+          <Flex vertical gap={4}>
+            <Typography.Paragraph style={{ margin: 0, fontWeight: 800 }}>
+              {payment.title}
+            </Typography.Paragraph>
+            <Typography.Paragraph
+              style={{ margin: 0, fontSize: 28, fontWeight: 850 }}
+            >
               ￥{payment.amount}
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            </Typography.Paragraph>
+          </Flex>
+          <Flex gap={8} align="center">
             {status === "paid" ? (
               <CheckCircleOutlined
                 style={{ color: "#238653", fontSize: 20 }}
@@ -137,7 +136,7 @@ export function WechatPayDialog({
             ) : (
               <Spin size="small" />
             )}
-            <p
+            <Typography.Paragraph
               style={{
                 margin: 0,
                 color:
@@ -151,9 +150,9 @@ export function WechatPayDialog({
                 : status === "error"
                   ? "暂时没查到结果，我再悄悄试一次。"
                   : "请使用微信扫码，付完不用点按钮。"}
-            </p>
-          </div>
-          <p
+            </Typography.Paragraph>
+          </Flex>
+          <Typography.Paragraph
             style={{
               margin: 0,
               color: "var(--goodhr-text-secondary, #637069)",
@@ -161,8 +160,8 @@ export function WechatPayDialog({
             }}
           >
             订单号：{payment.orderNo}
-          </p>
-        </div>
+          </Typography.Paragraph>
+        </Flex>
       ) : null}
     </Modal>
   );

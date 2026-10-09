@@ -36,30 +36,42 @@ func TestMouseSafetyPatch(t *testing.T) {
 	}
 }
 
-// TestMouseSafetyLegacyUpgrade 验证已经安装的 v7/v8/v9 升级到 v10，保留其他浏览器修正并拒绝损坏资源。
+// TestMouseSafetyLegacyUpgrade 验证已经安装的 v7/v8/v9/v10 升级到 v11，保留其他浏览器修正并拒绝损坏资源。
 func TestMouseSafetyLegacyUpgrade(t *testing.T) {
-	for _, version := range []string{"v7", "v8", "v9"} {
+	for _, version := range []string{"v7", "v8", "v9", "v10"} {
 		t.Run(version, func(t *testing.T) {
 			legacy := []byte("// GoodHR native mouse safety " + version + "\nunchanged-browser-settings\n")
-			legacy = append(legacy, []byte("// 文件作用：给浏览器原生输入增加激活阶段保护和窗口证据，超时后禁止迟到的输入，不读取招聘页面。\n  async _goodhrRunInput(diagnostic, operation) {}\n")...)
+			helper := []byte("// 文件作用：给浏览器原生输入增加激活阶段保护和窗口证据，超时后禁止迟到的输入，不读取招聘页面。\n  async _goodhrRunInput(diagnostic, operation) {}\n")
+			if version == "v10" {
+				// 重建上一版完整公共保护，验证升级确实替换旧活动状态门槛。
+				helper = bytes.Replace(nativeInputSafety, []byte("mouse_safety_version: 'v11'"), []byte("mouse_safety_version: 'v10'"), 1)
+				helper = bytes.Replace(helper, []byte("return snapshot.window_minimized === false;"), []byte("return snapshot.window_minimized === false && snapshot.chrome_document_hidden === false && snapshot.browser_active === true;"), 1)
+			}
+			legacy = append(legacy, helper...)
+			legacy = append(legacy, '\n')
 			tail := []byte("  async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) { GOODHR_MOUSE_ACK_TIMEOUT: }\n  async ['Page.dispatchWheelEvent']() { GOODHR_MOUSE_APZ_TIMEOUT:wheel }\nunchanged-download-settings")
 			legacy = append(legacy, tail...)
 			updated, err := patchMouseSafety(legacy)
 			if err != nil || !bytes.HasPrefix(updated, []byte(mouseSafetyMarker+"\nunchanged-browser-settings\n")) || !bytes.HasSuffix(updated, tail) || !bytes.Contains(updated, []byte("mouseUpAcknowledged")) || !bytes.Contains(updated, []byte("window_focus_attempts")) {
 				t.Fatal("旧版公共保护没有安全升级", err)
 			}
+			if version == "v10" && (bytes.Contains(updated, []byte("snapshot.chrome_document_hidden === false")) ||
+				!bytes.Contains(updated, []byte("mouse_safety_version: 'v11'")) ||
+				!bytes.Contains(updated, []byte("GOODHR_MOUSE_INPUT_TIMEOUT:"))) {
+				t.Fatal("v10 升级没有移除遮挡门槛或丢失输入限时保护")
+			}
 			repeated, err := patchMouseSafety(updated)
 			if err != nil || !bytes.Equal(repeated, updated) {
 				t.Fatal("升级后重复安装改写资源", err)
 			}
-			if _, err := patchMouseSafety(bytes.Replace(legacy, []byte("_goodhrRunInput"), []byte("brokenHelper"), 1)); err == nil {
+			if _, err := patchMouseSafety(bytes.Replace(legacy, []byte("async _goodhrRunInput(diagnostic, operation)"), []byte("async brokenHelper(diagnostic, operation)"), 1)); err == nil {
 				t.Fatal("损坏的旧版资源没有拒绝升级")
 			}
 		})
 	}
 }
 
-// TestMouseSafetyV9IsolatedBrowserUpgrade 验证旧版真实隔离浏览器会升级到 v10，且其他资源保持完整。
+// TestMouseSafetyV9IsolatedBrowserUpgrade 验证旧版真实隔离浏览器会升级到当前版本，且其他资源保持完整。
 func TestMouseSafetyV9IsolatedBrowserUpgrade(t *testing.T) {
 	browserDir := os.Getenv("GOODHR_NATIVE_V9_SMOKE_DIR")
 	if browserDir == "" {
@@ -76,11 +88,11 @@ func TestMouseSafetyV9IsolatedBrowserUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := InspectCamoufoxMouseSafety(browserDir)
-	if after.InstalledVersion != "v10" || !after.Ready || before.ResourceSHA256 == after.ResourceSHA256 {
-		t.Fatalf("隔离浏览器没有升级到 v10：%+v", after)
+	if after.InstalledVersion != nativeInputSafetyVersion || !after.Ready || before.ResourceSHA256 == after.ResourceSHA256 {
+		t.Fatalf("隔离浏览器没有升级到当前版本：%+v", after)
 	}
 	if err := EnsureCamoufoxMouseSafety(browserDir); err != nil {
-		t.Fatalf("v10 资源重复安装失败：%v", err)
+		t.Fatalf("当前资源重复安装失败：%v", err)
 	}
 	stable := InspectCamoufoxMouseSafety(browserDir)
 	if stable.ResourceSHA256 != after.ResourceSHA256 {

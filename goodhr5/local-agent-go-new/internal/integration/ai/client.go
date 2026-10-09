@@ -128,11 +128,12 @@ func (c *Client) evaluateCandidate(
 	if err != nil {
 		return Decision{}, err
 	}
-	return parseDecisionWithStructured(
+	decision, err := parseDecisionWithStructured(
 		content,
 		decisionThreshold(cfg, position),
 		position.CommonConfig.OutputStructuredResume,
 	)
+	return decision, withResponseModel(err, cfg.Model)
 }
 
 // EvaluateCandidatePreview 只根据候选人基础信息判断是否值得打开详情。
@@ -144,7 +145,8 @@ func (c *Client) EvaluateCandidatePreview(ctx context.Context, cfg cloud.AIConfi
 	if err != nil {
 		return Decision{}, err
 	}
-	return parseDecision(content, detailDecisionThreshold(position))
+	decision, err := parseDecision(content, detailDecisionThreshold(position))
+	return decision, withResponseModel(err, cfg.Model)
 }
 
 // EvaluateCandidateVision 根据候选人详情截图和文本生成强类型图片判断。
@@ -185,11 +187,12 @@ func (c *Client) evaluateCandidateVision(
 	if err != nil {
 		return Decision{}, err
 	}
-	return parseDecisionWithStructured(
+	decision, err := parseDecisionWithStructured(
 		content,
 		decisionThreshold(cfg, position),
 		position.CommonConfig.OutputStructuredResume,
 	)
+	return decision, withResponseModel(err, cfg.Model)
 }
 
 // GenerateReply 根据会话上下文生成一条简短回复。
@@ -209,11 +212,10 @@ func (c *Client) GenerateReply(ctx context.Context, cfg cloud.AIConfig, position
 	if err != nil {
 		return "", err
 	}
-	reply = strings.TrimSpace(reply)
-	if reply == "" {
-		return "", fmt.Errorf("AI 没有生成回复")
+	if strings.TrimSpace(reply) == "" {
+		return "", withResponseModel(newResponseError(fmt.Errorf("AI 没有生成回复"), reply, "model_content", true), cfg.Model)
 	}
-	return reply, nil
+	return strings.TrimSpace(reply), nil
 }
 
 // chatOptions 保存单次 AI 请求的思考模式和流式提前评分配置。
@@ -250,10 +252,22 @@ func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMe
 	}
 	endpoint := chatCompletionsURL(cfg.BaseURL)
 	var lastErr error
+	var receivedDiagnostic *ResponseDiagnostic
 	for attempt := 1; attempt <= 3; attempt++ {
 		content, requestErr := c.doChatRequest(ctx, endpoint, cfg.APIKey, encoded, options)
 		if requestErr == nil {
 			return content, nil
+		}
+		requestErr = withResponseModel(requestErr, cfg.Model)
+		if diagnostic, ok := ResponseDiagnosticFromError(requestErr); ok {
+			diagnostic.RequestAttempt = attempt
+			receivedDiagnostic = &diagnostic
+			requestErr = &ResponseError{Cause: requestErr, Diagnostic: diagnostic}
+		} else if receivedDiagnostic != nil {
+			// 后续重试若连接都未建立，仍保留先前实际收到的正文，并注明最终连接错误。
+			diagnostic := *receivedDiagnostic
+			diagnostic.FinalRequestError = requestErr.Error()
+			requestErr = &ResponseError{Cause: requestErr, Diagnostic: diagnostic}
 		}
 		lastErr = requestErr
 		var serviceErr *ServiceError
@@ -261,6 +275,9 @@ func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMe
 			return "", requestErr
 		}
 		if err = waitRetry(ctx, serviceErr.RetryAfter, attempt); err != nil {
+			if diagnostic, ok := ResponseDiagnosticFromError(lastErr); ok {
+				return "", &ResponseError{Cause: err, Diagnostic: diagnostic}
+			}
 			return "", err
 		}
 	}
@@ -285,16 +302,21 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 	}
 	defer response.Body.Close()
 	if response.StatusCode >= 400 {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		return "", newHTTPServiceError(response.StatusCode, string(body), response.Header.Get("Retry-After"))
+		body, readErr := io.ReadAll(response.Body)
+		serviceErr := newHTTPServiceError(response.StatusCode, string(body), response.Header.Get("Retry-After"))
+		if readErr != nil {
+			serviceErr.Cause = readErr
+			serviceErr.Message += "，响应读取中断：" + readErr.Error()
+		}
+		return "", newResponseError(serviceErr, string(body), "http_body", readErr == nil)
 	}
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/event-stream") {
 		return readChatStream(response.Body, options.Threshold, options.EarlyDecision)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return "", &ServiceError{Message: "读取 AI 响应失败：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
+		return "", newResponseError(&ServiceError{Message: "读取 AI 响应失败：" + err.Error(), Retryable: true, Fatal: true, Cause: err}, string(body), "http_body", false)
 	}
 	if strings.HasPrefix(strings.TrimSpace(string(body)), "data:") {
 		return readChatStream(bytes.NewReader(body), options.Threshold, options.EarlyDecision)
@@ -306,47 +328,83 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 func readChatJSON(body []byte) (string, error) {
 	var response chatResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		return "", fmt.Errorf("解析 AI 响应失败：%w", err)
+		return "", newResponseError(fmt.Errorf("解析 AI 响应失败：%w", err), string(body), "http_body", true)
 	}
 	if len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.Content) == "" {
-		return "", fmt.Errorf("AI 没有返回内容")
+		responseErr := newResponseError(fmt.Errorf("AI 没有返回内容"), string(body), "http_body", true)
+		responseErr.Diagnostic.ParseField = "choices[0].message.content"
+		return "", responseErr
 	}
 	return response.Choices[0].Message.Content, nil
 }
 
 // readChatStream 逐行读取 OpenAI 兼容 SSE 内容，并在评分字段完整时提前回调。
 func readChatStream(reader io.Reader, threshold float64, earlyDecision func(Decision)) (string, error) {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	stream := bufio.NewReader(reader)
 	var content strings.Builder
+	var body strings.Builder
+	var protocolErr *ResponseError
 	earlySent := false
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	for {
+		line, readErr := stream.ReadString('\n')
+		body.WriteString(line)
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return "", streamResponseError(&ServiceError{Message: "AI 流式响应中断：" + readErr.Error(), Retryable: true, Fatal: true, Cause: readErr}, content.String(), body.String(), false)
+		}
+		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "data:") {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "" || data == "[DONE]" {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
 			continue
 		}
 		var chunk streamChunk
-		if json.Unmarshal([]byte(data), &chunk) != nil || len(chunk.Choices) == 0 {
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			if protocolErr == nil {
+				protocolErr = newParsedResponseError(fmt.Errorf("解析 AI 流式响应失败：%w", err), body.String(), data, "sse_body")
+			}
 			continue
 		}
-		delta := chunk.Choices[0].Delta.Content
-		content.WriteString(delta)
-		if delta != "" && earlyDecision != nil && !earlySent {
-			if decision, ok := tryExtractStreamDecision(content.String(), threshold); ok {
-				earlySent = true
-				earlyDecision(decision)
+		if len(chunk.Choices) == 0 {
+			// 兼容 OpenAI 在末尾单独发送的 usage 统计块；错误块必须保留原文。
+			var fields struct {
+				Error json.RawMessage `json:"error"`
+			}
+			if json.Unmarshal([]byte(data), &fields) == nil && len(fields.Error) > 0 && string(fields.Error) != "null" {
+				if protocolErr == nil {
+					protocolErr = newResponseError(fmt.Errorf("AI 流式响应返回服务错误"), body.String(), "sse_body", true)
+					protocolErr.Diagnostic.ParseField = "error"
+				}
+			}
+		} else {
+			delta := chunk.Choices[0].Delta.Content
+			content.WriteString(delta)
+			if delta != "" && earlyDecision != nil && !earlySent && protocolErr == nil {
+				if decision, ok := tryExtractStreamDecision(content.String(), threshold); ok {
+					earlySent = true
+					earlyDecision(decision)
+				}
 			}
 		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
 	}
-	if err := scanner.Err(); err != nil {
-		return "", &ServiceError{Message: "AI 流式响应中断：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
+	if protocolErr != nil {
+		// 协议坏块后仍接收剩余内容，保存的是服务实际返回的完整事件流。
+		protocolErr.Diagnostic.Response = body.String()
+		protocolErr.Diagnostic.ResponseBody = body.String()
+		return "", protocolErr
 	}
 	if strings.TrimSpace(content.String()) == "" {
-		return "", fmt.Errorf("AI 流式响应没有返回内容")
+		return "", streamResponseError(fmt.Errorf("AI 流式响应没有返回内容"), content.String(), body.String(), true)
 	}
 	return content.String(), nil
 }

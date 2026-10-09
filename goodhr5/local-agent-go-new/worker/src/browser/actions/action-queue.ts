@@ -3,31 +3,56 @@ import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { WorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { exitDiagnostics } from "../../logging/exit-diagnostics.js";
+import { actionContextStorage } from "../../logging/operation.js";
+import { waitForNativeInputs } from "../primitives/input-lifecycle.js";
 
 /** ActionQueue 保证鼠标、键盘及页面切换一次只执行一个动作。 */
 export class ActionQueue {
   private tail: Promise<void> = Promise.resolve();
   private fault: WorkerError | undefined;
-  private readonly faultSignal = new AbortController();
+  private faultSignal = new AbortController();
   private active: ActionContext | undefined;
   private pending = 0;
   private readonly logger = new WorkerLogger();
 
-  /** 创建队列；故障回调只用于关闭旧浏览器，不允许直接放行新动作。 */
+  /** 创建队列；故障回调只记录隔离信息，不能关闭浏览器或直接放行新动作。 */
   constructor(private readonly onFault: (context: ActionContext) => void = () => {}) {}
 
-  /** status 返回排队数量、当前操作及是否必须重启 Worker。 */
+  /** status 区分 Worker 存活、输入隔离及旧操作是否已结束。 */
   status(): JsonObject {
-    return { blocked: Boolean(this.fault), pending: this.pending,
+    return { blocked: Boolean(this.fault), recoverable: Boolean(this.fault) && !this.active && this.pending === 0, pending: this.pending,
       active_action: this.active?.action ?? "", active_request_id: this.active?.request_id ?? "",
       active_ms: this.active ? Date.now() - this.active.started_at : 0 };
   }
 
-  /** run 排队执行；超时后隔离旧会话，由 Go 回收进程树，不能仅放行后续动作。 */
+  /** runAfterRecovery 仅在明确重新启动且旧动作已结束时恢复队列，不自动重放历史请求。 */
+  runAfterRecovery<T>(operation: () => Promise<T>, context: ActionContext): Promise<T> {
+    if (context.signal?.aborted || Date.now() >= (context.deadline_at ?? Infinity)) {
+      return Promise.reject(this.cancelError(context, false));
+    }
+    if (this.fault) {
+      if (this.active || this.pending > 0) return Promise.reject(new WorkerError({
+        code: "WORKER_UNRESPONSIVE", message: "上一次浏览器操作还没结束，窗口已经保留，请稍后再开始",
+        action: context.action, step: "queue_recovery_wait", trace_id: context.trace_id, retryable: false,
+        details: { browser_retained: true, output: { queue: this.status() } },
+      }));
+      this.fault = undefined;
+      this.faultSignal = new AbortController();
+      this.logger.info(context, "queue_recovery", "success", { browser_retained: true, input_replayed: false });
+    }
+    return this.run(operation, context);
+  }
+
+  /** run 排队执行；超时后保留浏览器并隔离输入，等待底层旧操作结束后才允许明确恢复。 */
   run<T>(operation: () => Promise<T>, context: ActionContext = {
     trace_id: "", action: "interaction", started_at: Date.now(),
   }): Promise<T> {
     if (this.fault) return Promise.reject(this.fault);
+    const requestSignal = context.signal;
+    const executionCancel = new AbortController();
+    const executionContext: ActionContext = { ...context,
+      signal: requestSignal ? AbortSignal.any([requestSignal, executionCancel.signal]) : executionCancel.signal };
+    const faultSignal = this.faultSignal.signal;
     this.pending++;
     this.logger.info(context, "queue", "queued", this.status());
     let started = false;
@@ -38,61 +63,69 @@ export class ActionQueue {
       const queued = this.tail.then(async () => {
         if (finished) return;
         if (this.fault) throw this.fault;
-        if (context.signal?.aborted) throw this.cancelError(context, false);
+        if (requestSignal?.aborted || Date.now() >= (context.deadline_at ?? Infinity)) throw this.cancelError(context, false);
         started = true;
         this.active = context;
         this.logger.info(context, "queue", "start", this.status());
-        const value = await operation();
-        if (!finished) resolve(value);
+        try {
+          const value = await actionContextStorage.run(executionContext, operation);
+          if (!finished) resolve(value);
+        } catch (error) {
+          if (error instanceof WorkerError && error.code === "WORKER_UNRESPONSIVE") this.isolate(context, error, executionCancel);
+          reject(error);
+        } finally {
+          // 鼠标独立限时可能先返回，但原生 Promise 仍在执行，不能在这里提前放行下一次启动。
+          await waitForNativeInputs(executionContext);
+        }
       });
       this.tail = queued.then(() => undefined, (error: unknown) => {
-        if (error instanceof WorkerError && error.code === "WORKER_UNRESPONSIVE" && !this.fault) {
-          this.fault = error;
-          this.logger.failure(context, error);
-          this.faultSignal.abort();
-          this.onFault(context);
-        }
         reject(error);
+      }).finally(() => {
+        if (this.active === context) this.active = undefined;
       });
     });
     /** cancel 取消未执行请求；已开始的动作无法安全撤销，因此隔离整个队列。 */
     const cancel = (): void => {
       if (finished) return;
       const error = this.cancelError(context, started);
-      if (started && !this.fault) {
-        this.fault = error;
-        this.logger.failure(context, error);
-        this.faultSignal.abort();
-        this.onFault(context);
-      }
+      if (started) this.isolate(context, error, executionCancel);
       rejectResult(error);
     };
     /** rejectFault 让等待中的请求立即收到队列故障，不再各等一次超时。 */
     const rejectFault = (): void => { if (this.fault) rejectResult(this.fault); };
-    this.faultSignal.signal.addEventListener("abort", rejectFault, { once: true });
+    faultSignal.addEventListener("abort", rejectFault, { once: true });
     const timer = setTimeout(cancel, Math.max(1, (context.deadline_at ?? Date.now() + 40_000) - Date.now()));
-    context.signal?.addEventListener("abort", cancel, { once: true });
-    if (context.signal?.aborted) cancel();
+    requestSignal?.addEventListener("abort", cancel, { once: true });
+    if (requestSignal?.aborted) cancel();
     return result.finally(() => {
       finished = true;
       clearTimeout(timer);
-      this.faultSignal.signal.removeEventListener("abort", rejectFault);
-      context.signal?.removeEventListener("abort", cancel);
+      faultSignal.removeEventListener("abort", rejectFault);
+      requestSignal?.removeEventListener("abort", cancel);
       this.pending--;
-      if (this.active === context && !this.fault) this.active = undefined;
       this.logger.info(context, "queue", this.fault ? "blocked" : "finished", this.status());
     });
   }
 
-  /** cancelError 区分尚未执行的过期请求与必须回收浏览器的进行中请求。 */
+  /** isolate 取消当前请求的后续输入并拒绝排队请求，保留浏览器供人工检查。 */
+  private isolate(context: ActionContext, error: WorkerError, executionCancel: AbortController): void {
+    if (this.fault) { executionCancel.abort(error); return; }
+    this.fault = error;
+    this.logger.failure(context, error);
+    this.faultSignal.abort();
+    executionCancel.abort(error);
+    this.onFault(context);
+  }
+
+  /** cancelError 区分尚未执行的过期请求与需要保留窗口、隔离输入的进行中请求。 */
   private cancelError(context: ActionContext, started: boolean): WorkerError {
     return new WorkerError({
       code: started ? "WORKER_UNRESPONSIVE" : "ACTION_CANCELLED",
-      message: started ? "浏览器操作未在限定时间内完成，当前任务已停止；重新开始时会恢复浏览器" : "这次操作已取消，还没有执行页面动作",
+      message: started ? "浏览器操作没按时结束，岗位先停一下；窗口保留着，请检查页面后重新开始" : "这次操作已取消，还没有执行页面动作",
       action: context.action, step: "queue", trace_id: context.trace_id, retryable: false,
       details: { request_id: context.request_id ?? "", elapsed_ms: Date.now() - context.started_at,
         timeout_ms: context.deadline_at ? context.deadline_at - context.started_at : 40_000,
-        reason: context.signal?.aborted ? "client_disconnected" : "deadline_exceeded", recovery_required: started,
+        reason: context.signal?.aborted ? "client_disconnected" : "deadline_exceeded", recovery_required: started, browser_retained: true,
         output: { queue: this.status(), diagnostics: exitDiagnostics(context.trace_id) } },
     });
   }

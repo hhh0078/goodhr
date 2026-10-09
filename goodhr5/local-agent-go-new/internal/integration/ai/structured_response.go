@@ -63,8 +63,9 @@ func parseDecisionWithStructured(content string, threshold float64, includeResum
 		cloud.StructuredCandidate
 		Resume *cloud.StructuredCandidate `json:"resume"`
 	}
-	if err := json.Unmarshal([]byte(extractJSONObject(content)), &parsed); err != nil {
-		return Decision{}, fmt.Errorf("AI 判断格式不正确：%w", err)
+	object := extractJSONObject(content)
+	if err := json.Unmarshal([]byte(object), &parsed); err != nil {
+		return Decision{}, newParsedResponseError(fmt.Errorf("AI 判断格式不正确：%w", err), content, object, "model_content")
 	}
 	score := parsed.Score
 	reason := parsed.Reason
@@ -73,7 +74,12 @@ func parseDecisionWithStructured(content string, threshold float64, includeResum
 		reason = parsed.Analysis.Reason
 	}
 	if score == nil {
-		return Decision{}, fmt.Errorf("AI 判断没有返回 score，当前岗位提示词格式可能需要兼容")
+		responseErr := newResponseError(fmt.Errorf("AI 判断没有返回 score，当前岗位提示词格式可能需要兼容"), content, "model_content", true)
+		responseErr.Diagnostic.ParseField = "score"
+		if parsed.Analysis != nil {
+			responseErr.Diagnostic.ParseField = "analysis.score"
+		}
+		return Decision{}, responseErr
 	}
 	decision := normalizedDecision(*score, reason, threshold)
 	if !includeResume {

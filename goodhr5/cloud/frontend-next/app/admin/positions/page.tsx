@@ -34,6 +34,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
+import AIResponseDiagnosticDetails, {
+  aiResponseDiagnosticFromOutput,
+} from "@/components/admin/AIResponseDiagnosticDetails";
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
   EmptyState,
@@ -2637,17 +2640,20 @@ function PositionLogLine(props: { item: any; previous: any | null }) {
       >
         {appearance.label}
       </Typography.Paragraph>
-      <Typography.Paragraph
-        className={`${styles.text} ${styles.s117}`}
-        style={
-          {
-            "--heavy-19": appearance.color,
-            "--heavy-20": appearance.weight,
-          } as CSSProperties
-        }
-      >
-        {positionLogMessage(item)}
-      </Typography.Paragraph>
+      <Flex vertical gap={6} style={{ minWidth: 0 }}>
+        <Typography.Paragraph
+          className={`${styles.text} ${styles.s117}`}
+          style={
+            {
+              "--heavy-19": appearance.color,
+              "--heavy-20": appearance.weight,
+            } as CSSProperties
+          }
+        >
+          {positionLogMessage(item)}
+        </Typography.Paragraph>
+        <AIResponseDiagnosticDetails output={positionLogEvent(item)?.output} />
+      </Flex>
     </div>
   );
 }
@@ -2661,7 +2667,39 @@ function sortPositionLogsNewestFirst(logs: any[]) {
 }
 /** positionLogMessage 提取兼容新旧结构的日志正文。 */
 function positionLogMessage(item: any) {
-  return String(item?.message || item?.msg || item?.detail || "");
+  const event = positionLogEvent(item);
+  return String(
+    event?.message ||
+      event?.error_message ||
+      item?.message ||
+      item?.msg ||
+      item?.detail ||
+      "",
+  );
+}
+
+/** positionLogEvent 兼容本地结构化日志、云端事件和历史 JSON 文本。 */
+function positionLogEvent(item: any): Record<string, unknown> | null {
+  if (
+    item?.event &&
+    typeof item.event === "object" &&
+    !Array.isArray(item.event)
+  )
+    return item.event;
+  if (
+    item?.output &&
+    typeof item.output === "object" &&
+    !Array.isArray(item.output)
+  )
+    return item;
+  try {
+    const event: unknown = JSON.parse(String(item?.message || ""));
+    if (event && typeof event === "object" && !Array.isArray(event))
+      return event as Record<string, unknown>;
+  } catch {
+    // 旧版纯文本日志继续使用原正文。
+  }
+  return null;
 }
 /** positionLogTimeMs 将日志时间转换成用于排序的毫秒时间戳。 */
 function positionLogTimeMs(value: unknown) {
@@ -2690,7 +2728,13 @@ function buildPositionLogText(logs: any[]) {
     .map((item, index) => {
       const previous =
         index < orderedLogs.length - 1 ? orderedLogs[index + 1] : null;
-      return `${formatPositionLogTime(item.created_at || item.time)} ${positionLogDelta(item, previous)} ${positionLogAppearance(item.level, item.is_error).label} ${positionLogMessage(item)}`;
+      const summary = `${formatPositionLogTime(item.created_at || item.time)} ${positionLogDelta(item, previous)} ${positionLogAppearance(item.level, item.is_error).label} ${positionLogMessage(item)}`;
+      const aiResponse = aiResponseDiagnosticFromOutput(
+        positionLogEvent(item)?.output,
+      );
+      return aiResponse
+        ? `${summary}\nAI 完整诊断：\n${JSON.stringify(aiResponse, null, 2)}`
+        : summary;
     })
     .join("\n");
 }

@@ -94,7 +94,7 @@ export class MoveAction {
       });
       return result;
     } catch (error) {
-      if (options.allowWindowRetry !== false && await this.reactivateWindowBeforeMove(found.page, actionContext, error)) {
+      if (options.allowWindowRetry !== false && await this.reactivateWindowBeforeMove(found.page, actionContext, error, true)) {
         try {
           // 标签重新激活后重新读取坐标，避免把旧位置用于后续候选人。
           found.view = await this.locator.view(found.page, found.locator);
@@ -173,16 +173,28 @@ export class MoveAction {
     });
   }
 
-  /** reactivateWindowBeforeMove 只在原生鼠标尚未发出时恢复窗口，并记录一次恢复结果。 */
+  /** reactivateWindowBeforeMove 仅恢复尚未输入或可重读目标且回执完整的途中最小化悬停，不重放点击。 */
   private async reactivateWindowBeforeMove(
     page: ResolvedElement["page"],
     actionContext: ActionContext,
     error: unknown,
+    allowAcknowledgedMinimize = false,
   ): Promise<boolean> {
     const diagnostic = nativeMouseDiagnostics(error);
+    const eventsSent = diagnostic?.events_sent;
+    const window = diagnostic?.window_at_failure;
+    // 原生调用已明确失败且每个悬停点均已收到回执，恢复后由调用方重读坐标再移动。
+    const acknowledgedHoverMinimized = allowAcknowledgedMinimize && diagnostic?.diagnostic_available === true &&
+      typeof eventsSent === "number" && Number.isSafeInteger(eventsSent) && eventsSent > 0 &&
+      diagnostic.events_acknowledged === eventsSent && diagnostic.buttons === 0 &&
+      diagnostic.last_event === "mousemove" &&
+      window !== null && typeof window === "object" && !Array.isArray(window) &&
+      window.window_minimized === true && window.browser_hidden === false &&
+      window.tab_selected === true && window.browser_selected === true;
+    const noInputSent = eventsSent === 0 && diagnostic?.events_acknowledged === 0;
     if (diagnostic?.native_error_code !== "GOODHR_MOUSE_WINDOW_NOT_READY" ||
-        diagnostic.event_types !== "mousemove" || diagnostic.events_sent !== 0 ||
-        diagnostic.events_acknowledged !== 0 || actionContext.signal?.aborted ||
+        diagnostic.event_types !== "mousemove" || (!noInputSent && !acknowledgedHoverMinimized) ||
+        actionContext.signal?.aborted ||
         (actionContext.deadline_at ?? Infinity) - Date.now() < 7_000 ||
         (typeof page.isClosed === "function" && page.isClosed())) {
       return false;
@@ -193,7 +205,8 @@ export class MoveAction {
     try {
       await this.reactivatePage(page, actionContext);
       this.logger.info(actionContext, "window_recovery", "retry", {
-        attempt: 1, action: "window_reactivation", input_sent_before_retry: false,
+        attempt: 1, action: "window_reactivation", input_sent_before_retry: !noInputSent,
+        reason: acknowledgedHoverMinimized ? "minimized_during_acknowledged_hover" : "window_not_ready_before_input",
       });
       return true;
     } catch (recoveryError) {

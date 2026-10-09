@@ -1,6 +1,16 @@
 /** 本文件负责 平台账号管理与登录 的 Ant Design 页面。 */
 "use client";
-import { Alert, Button, Flex, Form, Input, Table, Tag, Typography } from "antd";
+import {
+  Alert,
+  Button,
+  Flex,
+  Form,
+  Image,
+  Input,
+  Table,
+  Tag,
+  Typography,
+} from "antd";
 import {
   DeleteOutlined,
   ExportOutlined,
@@ -302,8 +312,10 @@ export default function AccountsPage() {
               </>
             }
             icon={
-              <img
-                style={{ width: 28, height: 28 }}
+              <Image
+                width={28}
+                height={28}
+                preview={false}
                 src={CHROMIUM_ICON_SRC}
                 alt="浏览器图标"
               />

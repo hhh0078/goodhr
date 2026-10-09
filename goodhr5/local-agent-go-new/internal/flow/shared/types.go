@@ -11,12 +11,13 @@ import (
 
 // StartRequest 表示本地任务统一启动参数。
 type StartRequest struct {
-	TaskID     string `json:"task_id"`
-	PositionID string `json:"position_id"`
-	TaskType   string `json:"task_type"`
-	Token      string `json:"token"`
-	ProfileID  string `json:"profile_id,omitempty"`
-	Headless   bool   `json:"headless"`
+	TaskID      string `json:"task_id"`
+	PositionID  string `json:"position_id"`
+	TaskType    string `json:"task_type"`
+	Token       string `json:"token"`
+	ProfileID   string `json:"profile_id,omitempty"`
+	Headless    bool   `json:"headless"`
+	EnableGreet *bool  `json:"enable_greet,omitempty"` // 未指定或为 true 时照常发送，false 只检查候选人。
 }
 
 // PreparedTask 表示启动前检查生成且后续流程直接复用的快照。

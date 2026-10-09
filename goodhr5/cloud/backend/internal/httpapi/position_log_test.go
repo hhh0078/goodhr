@@ -56,6 +56,16 @@ func TestPositionLogAddAndList(t *testing.T) {
 // TestPositionStopUpdatesStatusAndKeepsLogs 验证岗位停止接口会更新状态并追加日志，不会清空原有日志。
 func TestPositionStopUpdatesStatusAndKeepsLogs(t *testing.T) {
 	server := mustNewServer(t)
+	logStore, ok := server.positionLogs.logStore.(*MemoryPositionLogStore)
+	if !ok {
+		t.Fatal("停止日志测试需要可注入时钟的内存存储")
+	}
+	createdAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	// 每次写入严格增加一秒，避免系统时钟精度让旧排序断言偶然通过。
+	logStore.now = func() time.Time {
+		createdAt = createdAt.Add(time.Second)
+		return createdAt
+	}
 	routes := server.Routes()
 	token := loginForTest(t, routes, "position-stop@example.com")
 	positionID := createPositionForTest(t, routes, token)
@@ -110,8 +120,8 @@ func TestPositionStopUpdatesStatusAndKeepsLogs(t *testing.T) {
 	if err := json.NewDecoder(listResp.Body).Decode(&logPayload); err != nil {
 		t.Fatal(err)
 	}
-	// 岗位日志按最新在前返回，停止记录应排在原有日志前面。
-	if len(logPayload.Logs) != 2 || logPayload.Logs[0].Message != "岗位运行已停止" || logPayload.Logs[1].Message != "原有日志" {
+	// 岗位日志 API 按从旧到新返回，停止后保留原日志并追加停止记录。
+	if len(logPayload.Logs) != 2 || logPayload.Logs[0].Message != "原有日志" || logPayload.Logs[1].Message != "岗位运行已停止" {
 		t.Fatalf("unexpected logs: %+v", logPayload.Logs)
 	}
 }

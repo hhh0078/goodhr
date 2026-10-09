@@ -32,8 +32,15 @@ func (c *Client) ReadDetailTextVision(ctx context.Context, cfg cloud.AIConfig, i
 	var result struct {
 		Text *string `json:"text"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(content)), &result); err != nil || result.Text == nil {
-		return "", fmt.Errorf("AI 没有返回有效的详情文字，已停止本次判断")
+	// 复用评分入口的 JSON 提取能力，兼容代码块和说明文字，失败诊断仍保留完整原文。
+	object := extractJSONObject(content)
+	if err := json.Unmarshal([]byte(object), &result); err != nil {
+		return "", withResponseModel(newParsedResponseError(fmt.Errorf("AI 没有返回有效的详情文字，已停止本次判断：%w", err), content, object, "model_content"), cfg.Model)
+	}
+	if result.Text == nil {
+		responseErr := newResponseError(fmt.Errorf("AI 没有返回有效的详情文字，已停止本次判断"), content, "model_content", true)
+		responseErr.Diagnostic.ParseField = "text"
+		return "", withResponseModel(responseErr, cfg.Model)
 	}
 	return strings.TrimSpace(*result.Text), nil
 }

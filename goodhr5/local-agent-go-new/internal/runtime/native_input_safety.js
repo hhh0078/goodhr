@@ -22,12 +22,12 @@
     } catch (_) { return { window_state_unavailable: true }; }
   }
 
-  /** _goodhrWindowReady 按实际有窗口或无窗口模式检查内容容器是否可以接收原生输入。 */
+  /** _goodhrWindowReady 保留容器、标签和最小化保护；遮挡或失焦的可见状态只用于诊断。 */
   _goodhrWindowReady(snapshot) {
     if (snapshot.window_state_unavailable || snapshot.browser_hidden !== false ||
         snapshot.tab_selected === false || snapshot.browser_selected === false) return false;
     if (snapshot.headless === true) return true;
-    return snapshot.window_minimized === false && snapshot.chrome_document_hidden === false && snapshot.browser_active === true;
+    return snapshot.window_minimized === false;
   }
 
   /** _goodhrWindowError 标记窗口不可操作并保留恢复前后证据，不要求重放已经发出的输入。 */
@@ -39,7 +39,7 @@
       }));
   }
 
-  /** _goodhrEnsureWindowReady 恢复最小化窗口并等待真实显示状态，不修改招聘页面或伪造活动状态。 */
+  /** _goodhrEnsureWindowReady 恢复最小化窗口并确认标签与容器，不修改招聘页面或伪造活动状态。 */
   async _goodhrEnsureWindowReady(diagnostic, guard, timeoutMS = 3000) {
     const { setTimeout } = ChromeUtils.importESModule('resource://gre/modules/Timer.sys.mjs');
     const started = Date.now();
@@ -78,7 +78,7 @@
   /** _goodhrInputDiagnostic 创建鼠标和滚轮共用的阶段证据。 */
   _goodhrInputDiagnostic(eventTypes, x, y, extra = {}) {
     return {
-      schema_version: 1, mouse_safety_version: 'v10', stage: 'activation', event_types: eventTypes,
+      schema_version: 1, mouse_safety_version: 'v11', stage: 'activation', event_types: eventTypes,
       target_x: Math.round(x), target_y: Math.round(y), input_started_at: Date.now(),
       activation_wait_ms: 0, apz_wait_ms: 0, mouse_ack_wait_ms: 0,
       apz_flush_requested: false, apz_flush_result: null, apz_repaint_received: false,

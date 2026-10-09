@@ -3,7 +3,7 @@ const { chromium } = require("@playwright/test");
 const fs = require("node:fs");
 const path = require("node:path");
 const assert = require("node:assert/strict");
-/** runHeavyChecks 通过全部拦截的本地接口验证岗位、会员、支付和个人配置的 58 项交互。 */
+/** runHeavyChecks 通过全部拦截的本地接口验证岗位、会员、支付和个人配置的 59 项交互。 */
 async function runHeavyChecks(baseURL = "http://127.0.0.1:5190") {
   const origin = new URL(baseURL).origin;
   const output = path.resolve(__dirname, "../../../artifacts/antd-heavy-qa");
@@ -551,9 +551,30 @@ async function runHeavyChecks(baseURL = "http://127.0.0.1:5190") {
     await expectVisible(understanding, "创建支付订单时禁止误关");
     const qr = page.getByRole("dialog", { name: "微信扫码支付", exact: true });
     await expectVisible(qr, "二维码支付弹框打开");
+    await qr.locator(".ant-qrcode svg").waitFor({ state: "visible" });
+    assert.ok(await qr.locator(".ant-qrcode svg path").count());
+    const logo = qr.locator(".ant-qrcode svg image");
+    assert.equal(
+      (await logo.getAttribute("href")) ||
+        (await logo.getAttribute("xlink:href")),
+      "/assets/payment/wechat-pay.png",
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    const qrBox = await qr.locator(".ant-qrcode").boundingBox();
+    assert.ok(qrBox.x >= 0 && qrBox.x + qrBox.width <= 390);
+    await page.locator(".ant-notification-notice").last().waitFor({
+      state: "hidden",
+      timeout: 10000,
+    });
+    await page.screenshot({
+      path: output + "/wechat-payment-mobile.png",
+      animations: "disabled",
+    });
+    checks.push("Ant Design 原生二维码保留微信图标且手机显示不溢出");
     await expectHidden(understanding, "订单创建后关闭理解弹框");
     await qr.getByRole("button", { name: "稍后再付", exact: true }).click();
     await expectHidden(qr, "二维码支付弹框关闭");
+    await page.setViewportSize({ width: 1440, height: 1050 });
     const rechargeRequest = requests.findLast(
       (x) => x.path === "/api/payment/ai-balance" && x.method === "POST",
     );

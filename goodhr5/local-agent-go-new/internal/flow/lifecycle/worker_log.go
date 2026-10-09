@@ -54,6 +54,10 @@ func (l *TaskLogger) WorkerLine(line []byte) {
 		log.Printf("flow=browser_worker step=parse_log status=warning error=%q", err)
 		return
 	}
+	if isRoutineMouseDiagnostic(item) {
+		// 完整原子记录已由 diagnostics.WorkerLine 写入本地文件，岗位时间线只展示关键动作和异常。
+		return
+	}
 	item.TraceID = strings.TrimSpace(item.TraceID)
 	if item.TraceID == "" {
 		if strings.HasPrefix(item.Action, "worker.") || strings.HasPrefix(item.Action, "browser.") {
@@ -175,8 +179,26 @@ func workerCurrentStep(item workerLogLine) string {
 	return "正在" + label
 }
 
-// keepWorkerLog 只保留封装操作的首尾日志和所有失败，隐藏查找、移动等重复内部过程。
+// isRoutineMouseDiagnostic 识别没有异常字段的正常鼠标首尾，避免细节刷屏或覆盖关键动作状态。
+func isRoutineMouseDiagnostic(item workerLogLine) bool {
+	if !item.Diagnostic || strings.TrimSpace(item.ErrorCode) != "" || strings.TrimSpace(item.OriginalError) != "" {
+		return false
+	}
+	output := item.Output
+	if len(output) == 0 {
+		output = json.RawMessage(`{}`)
+	}
+	return storage.IsRoutineMouseDiagnostic(storage.TaskLog{
+		Flow: "browser_worker", Step: item.Step, Status: item.Status, Level: item.Level,
+		Category: item.Category, Message: item.Message, IsError: item.IsError, ErrorMessage: item.ErrorMessage, Output: output,
+	})
+}
+
+// keepWorkerLog 保留封装动作首尾、重要诊断和所有失败，正常鼠标细节仅保存在本地诊断文件。
 func keepWorkerLog(item workerLogLine) bool {
+	if isRoutineMouseDiagnostic(item) {
+		return false
+	}
 	if item.Diagnostic || strings.EqualFold(item.Status, "failed") || strings.EqualFold(item.Level, "error") {
 		return true
 	}

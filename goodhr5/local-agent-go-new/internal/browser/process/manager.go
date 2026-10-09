@@ -66,10 +66,11 @@ func New(nodePath string, entryPath string, port int, health HealthChecker) *Man
 	}
 }
 
-// Start 启动 Worker，已经健康时直接复用。
+// Start 启动 Worker，已有进程只复用或报错，健康检查失败不能关闭用户浏览器。
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var healthErr error
 	if m.health != nil {
 		checkCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 		err := m.health.Health(checkCtx)
@@ -77,21 +78,21 @@ func (m *Manager) Start(ctx context.Context) error {
 		if err == nil {
 			return nil
 		}
+		healthErr = err
 	}
 	if m.command != nil && m.command.Process != nil {
-		log.Printf("event=worker_unhealthy pid=%d action=stop_before_restart", m.command.Process.Pid)
-		if m.lineWriter != nil {
-			m.lineWriter.MarkStopping("健康检查未通过，主动结束旧 Worker 后重启")
-		}
-		if err := stopProcess(m.command.Process); err != nil {
-			return err
-		}
 		select {
 		case <-m.done:
-		case <-time.After(5 * time.Second):
-			return fmt.Errorf("旧 Worker 尚未退出，暂不启动第二个进程")
+			m.command = nil
+			m.lineWriter = nil
+			m.done = nil
+		default:
+			if healthErr == nil {
+				return nil
+			}
+			log.Printf("event=worker_unhealthy pid=%d action=retain_browser error=%v", m.command.Process.Pid, healthErr)
+			return fmt.Errorf("浏览器窗口保留着，操作组件暂时没有回应，请稍后再开始：%w", healthErr)
 		}
-		m.command = nil
 	}
 	if _, err := os.Stat(m.entryPath); err != nil {
 		return fmt.Errorf("Worker 入口不存在，请先编译 TypeScript：%w", err)
@@ -112,8 +113,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.done = done
 	go m.wait(command, lineWriter, done)
 	if err := m.waitHealthy(ctx, done); err != nil {
-		lineWriter.MarkStopping("Worker 启动检查失败，主动清理进程：" + err.Error())
-		_ = stopProcess(command.Process)
+		log.Printf("event=worker_start_check_failed pid=%d action=retain_browser error=%v", command.Process.Pid, err)
 		return err
 	}
 	return nil

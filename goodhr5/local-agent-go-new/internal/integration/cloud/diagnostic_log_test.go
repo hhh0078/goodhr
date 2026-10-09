@@ -46,3 +46,26 @@ func TestDiagnosticUploadKeepsNewestWithinRequestLimit(t *testing.T) {
 		t.Fatalf("没有保留大小限制内的最新完整证据：count=%d first=%s last=%s", count, first, last)
 	}
 }
+
+// TestAIResponseUploadDoesNotDropEarlierEvidence 验证含完整 AI 回复的批次超过旧限额时仍保留全部最新千条。
+func TestAIResponseUploadDoesNotDropEarlierEvidence(t *testing.T) {
+	response := strings.Repeat("x", 7<<20) + "末尾证据"
+	output, _ := json.Marshal(map[string]any{"ai_response_diagnostic": map[string]any{"response": response, "model": "test-model"}})
+	logs := []PositionDiagnosticLog{{TaskID: "AI-failure", Output: output}, {TaskID: "later-ordinary", Output: json.RawMessage(`{}`)}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Logs []PositionDiagnosticLog `json:"logs"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		if len(request.Logs) != 2 || request.Logs[0].TaskID != "AI-failure" || string(request.Logs[0].Output) != string(output) {
+			t.Error("完整 AI 失败记录被请求预算删除或改写")
+		}
+		fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer server.Close()
+	if err := New(server.URL).UploadPositionLogs(context.Background(), "test-token", "test-position", logs); err != nil {
+		t.Fatal(err)
+	}
+}
