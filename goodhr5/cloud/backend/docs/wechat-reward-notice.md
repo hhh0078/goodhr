@@ -30,3 +30,23 @@ SMTP 建连、TLS 握手和协议读写使用同一连接截止，最多 30 秒�
 历史通知默认不群发补发。确需补通知时，先确认目标奖励未发过、`mail_status='skipped'` 且 `mail_attempts=0`，以明确邮箱和该奖励入账时间为条件仅改邮件状态及下次发送时间。不得再次延长会员，不应自动重试 `sent/sending/uncertain`。
 
 2026-10-10 本地验证：真实隔离 PostgreSQL 的通知存储 10 组通过；连同工作进程共 16 组、35 个含子场景通过，零失败和跳过。SMTP 新增 9 组本地网络测试通过。配置隔离 PostgreSQL 的 `go test ./... -count=1` 共 400 项通过，4 项因缺少租户/真实 Redis 的对应环境跳过；`go vet ./...` 通过。测试不会使用正式凭据或向真实用户发送邮件。
+
+## 2026-10-10 生产发布记录
+
+- 目标服务器 `ldclouda31539 / 43.228.79.108`，站点 `https://goodhr.58it.cn`。
+- 镜像源码提交 `7ba817bb0da72f7f676bb6928a66c65bfe10d956`；源归档 SHA256 `7f337bf3a9b68c44d5d73b28eb778c0e0d4534744016a9f46d8ca75b04db3854`。
+- 镜像 `goodhr-production-backend:wechat-reward-mail-20261010-7ba817bb`，ID `sha256:9f8f624a324e2ee6bb51c05b68f529f7c1b571634bb5b833e14e5f14afea0557`。
+- 正式后端容器 `59d18e0aa4c65e4755b473bfc2964cd3dbfdb231d239addbace8c374d03282dc`；候选端口 8087 禁发验证通过，再切正式 8086。正式邮件调度沿用原 `false` 禁用值，关注通知任务启动一次。
+- 只切后端，前端、PostgreSQL、Redis 的 ID 和启动时间保持原值，官网、登录、robots、sitemap 均 200，匿名关注状态 401。
+- `0086` 迁移登记一次，总迁移数由 89 到 90，六个邮件列均有中文备注。候选阶段历史奖励仍为 `skipped`，公众号与 onboarding 完整私有配置一致，原奖励字段和全部用户会员摘要保留。
+- 为反馈问题的用户本人既有唯一 2 天奖励，以邮箱、入账时刻、`skipped` 和零尝试为条件只改通知状态。北京时间 2026-10-10 00:59:26，SMTP 已接受，账本 `sent / attempts=1`；未再次赠送会员，全部会员摘要仍为 `f889505da5f79c551e30e568ae9e066a`。
+- 公网五个协议探针全部通过：普通签名 GET 和 AES GET 正确回显，忽略图片的加密 POST 返回 `success`，错误收件人 400，明文降级 403。探针未发送关注或绑定消息，前后关注、奖励、绑定、会员和码表数量与摘要一致。
+- 后续发布文档提交不改变镜像产品代码；本地测试容器已清理。安全证据在前端忽略目录 `artifacts/wechat-reward-mail-qa/`。
+
+备份目录 `/www/wwwroot/goodhr-production/backups/wechat-reward-mail-20261010-004441`。目录权限 700，私有参数和数据库备份 600。数据库备份 87,356,181 字节，SHA256 `b100914f36b0f44cb2242b3c56f48f5913758a0e2bf493fcb9734aa694f69cba`，`pg_restore -l` 验证可读，未做整库恢复演练。旧后端保留为 `goodhr-production-backend-backup-20261010-004441`。
+
+已确认目标服务器后，可按原参数回退后端；保留邮件状态、会员及实时业务数据：
+
+```sh
+python3 /www/wwwroot/goodhr-production/backups/wechat-reward-mail-20261010-004441/deploy-backend.py rollback /www/wwwroot/goodhr-production/backups/wechat-reward-mail-20261010-004441 7ba817bb0da72f7f676bb6928a66c65bfe10d956
+```
