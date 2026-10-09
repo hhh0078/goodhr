@@ -88,3 +88,5 @@
 - 实际生产 HTTPS 页面与本机 6.2.10.1 Agent 的只读 GET `/health`、runtime/status、app-update/status 可连通，未强制更改浏览器安全权限；账号数据与绑定等写请求使用模拟接口。
 
 生产发布仅更新前端 Docker，使用 Git 中的前端目录创建隔离构建上下文。旧容器、配置、构建标识、更新配置哈希和回退脚本已保存于服务器 `/www/wwwroot/goodhr-production/backups/frontend-antd-20261009-205056/`；正式切换前须先通过备用端口 HTTP、SEO 和静态资源检查。
+
+正式发布已于北京时间 2026-10-09 21:08 完成。候选与正式站点均通过 30 个页面、6 个官网 SEO 页面、5 个永久重定向和 20 个静态资源检查。后端、PostgreSQL、Redis 的容器/镜像/启动时间及本地程序发布配置完整响应哈希均保持原样；旧前端容器和回退脚本保留。实际代码提交、镜像及构建标识详见 [前端生产发布记录](./frontend-production-release-20261009.md)。
