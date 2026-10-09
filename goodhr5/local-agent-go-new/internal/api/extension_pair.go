@@ -224,6 +224,7 @@ func (s *Server) handleExtensionPairRevoke(w http.ResponseWriter, r *http.Reques
 		writeError(w, 500, "PAIR_REVOKE_FAILED", err)
 		return
 	}
+	s.resumeSummaries.CancelActive("extension:" + extensionHash(req.InstallationID))
 	for id, pair := range s.extensionPairs {
 		if pair.InstallationID == req.InstallationID {
 			delete(s.extensionPairs, id)
@@ -241,6 +242,11 @@ func (s *Server) bindExtensionSessionLocked(token, userID string) {
 	}
 	if s.extensionToken != token || s.extensionUserID != userID {
 		s.extensionGeneration++
+		// 完整登录会话已被替换，旧凭证发起的收费调用只能停止，不能把结果交给新会话。
+		if s.extensionToken != "" {
+			s.resumeSummaries.CancelActive("")
+			s.resumeImports.CancelActive()
+		}
 	}
 	s.extensionToken, s.extensionUserID = token, userID
 }

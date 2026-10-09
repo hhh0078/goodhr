@@ -23,6 +23,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
 	"goodhr5/local-agent-go-new/internal/flow/preflight"
 	resumeflow "goodhr5/local-agent-go-new/internal/flow/resume_import"
+	summaryflow "goodhr5/local-agent-go-new/internal/flow/resume_summary"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	cloudintegration "goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/integration/ocr"
@@ -57,22 +58,24 @@ type Server struct {
 	extensionGeneration uint64
 	extensionPairs      map[string]*extensionPair
 	resumeImports       *resumeflow.Manager
+	resumeSummaries     *summaryflow.Manager
 }
 
 // Dependencies 保存本地 HTTP 接口调用的应用服务。
 type Dependencies struct {
-	Runner        *lifecycle.Runner
-	Runtime       *runtime.Manager
-	Browser       *client.Client
-	Downloads     *downloadflow.Monitor
-	Store         *storage.Store
-	Profiles      *profile.Manager
-	OCR           *ocr.Client
-	Updater       *updater.Manager
-	Cloud         *cloudintegration.Client
-	DeviceID      func() (string, error)
-	Incidents     *diagnostics.BrowserIncidentRecorder
-	ResumeImports *resumeflow.Manager
+	Runner          *lifecycle.Runner
+	Runtime         *runtime.Manager
+	Browser         *client.Client
+	Downloads       *downloadflow.Monitor
+	Store           *storage.Store
+	Profiles        *profile.Manager
+	OCR             *ocr.Client
+	Updater         *updater.Manager
+	Cloud           *cloudintegration.Client
+	DeviceID        func() (string, error)
+	Incidents       *diagnostics.BrowserIncidentRecorder
+	ResumeImports   *resumeflow.Manager
+	ResumeSummaries *summaryflow.Manager
 }
 
 // NewServer 创建本地 HTTP 服务。
@@ -88,8 +91,10 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	server.loadPersistedDownloadRoots()
 	server.extensionPairs = make(map[string]*extensionPair)
 	server.initResumeImports(dependencies.ResumeImports)
+	server.initResumeSummaries(dependencies.ResumeSummaries)
 	mux := http.NewServeMux()
 	server.registerResumeImportRoutes(mux)
+	server.registerResumeSummaryRoutes(mux)
 	mux.HandleFunc("GET /health", server.handleHealth)
 	mux.HandleFunc("POST /api/v1/session/bind", server.handleAgentBind)
 	mux.HandleFunc("POST /api/v1/extensions/pair/start", server.handleExtensionPairStart)
@@ -156,6 +161,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	err := s.http.Shutdown(ctx)
 	if s.resumeImports != nil {
 		s.resumeImports.Close()
+	}
+	if s.resumeSummaries != nil {
+		s.resumeSummaries.Close()
 	}
 	return err
 }

@@ -145,12 +145,15 @@ type CandidateEvent struct {
 
 // CandidateNote 表示人工添加的候选人备注。
 type CandidateNote struct {
-	ID          string    `json:"id"`
-	CandidateID string    `json:"candidate_id"`
-	Content     string    `json:"content"`
-	AuthorEmail string    `json:"author_email"`
-	AuthorName  string    `json:"author_name"`
-	CreatedAt   time.Time `json:"created_at"`
+	TenantID       string    `json:"-"`
+	IdempotencyKey string    `json:"-"`
+	ID             string    `json:"id"`
+	CandidateID    string    `json:"candidate_id"`
+	Content        string    `json:"content"`
+	AuthorEmail    string    `json:"author_email"`
+	AuthorName     string    `json:"author_name"`
+	OccurredAt     time.Time `json:"occurred_at"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // CandidateStore 定义候选人主体、触达上下文和事件流水能力。
@@ -158,6 +161,7 @@ type CandidateStore interface {
 	SaveCandidateProfile(item CandidateProfileInput) (PositionCandidate, error)
 	UpsertCandidateEngagement(item CandidateEngagement) (CandidateEngagement, error)
 	SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error)
+	SaveCandidateNote(scope CandidateLibraryScope, item CandidateNote) (CandidateNote, error)
 	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error
 	ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error)
 	GetPositionCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (PositionCandidate, error)
@@ -189,6 +193,7 @@ type MemoryCandidateStore struct {
 	profiles        map[string]PositionCandidate
 	engagements     map[string]CandidateEngagement
 	events          map[string][]CandidateEvent
+	notes           map[string][]CandidateNote
 	requests        map[string]candidateRequestReceipt
 	recommendations map[string]CandidateRecommendation
 	now             func() time.Time
@@ -202,6 +207,7 @@ func NewMemoryCandidateStore() *MemoryCandidateStore {
 		profiles:        map[string]PositionCandidate{},
 		engagements:     map[string]CandidateEngagement{},
 		events:          map[string][]CandidateEvent{},
+		notes:           map[string][]CandidateNote{},
 		requests:        map[string]candidateRequestReceipt{},
 		recommendations: map[string]CandidateRecommendation{},
 		now:             time.Now,
@@ -282,6 +288,19 @@ func (s *MemoryCandidateStore) UpsertCandidateEngagement(item CandidateEngagemen
 // SaveCandidateEvent 保存候选人事件流水。
 // item 为事件内容，返回保存后的事件。
 func (s *MemoryCandidateStore) SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error) {
+	// 兼容旧内部人工备注调用，实际写入专用表而不是自动事件集合。
+	if item.EventType == "manual_note" {
+		s.mu.Lock()
+		profile, exists := s.profiles[item.CandidateID]
+		s.mu.Unlock()
+		if !exists {
+			return CandidateEvent{}, ErrNotFound
+		}
+		scope := CandidateLibraryScope{TenantID: profile.TenantID, UserEmail: firstNonEmpty(stringFromMap(item.Metadata, "author_email"), profile.UserEmail), AuthorName: stringFromMap(item.Metadata, "author_name")}
+		note, err := s.SaveCandidateNote(scope, CandidateNote{CandidateID: item.CandidateID, Content: item.MessageText, IdempotencyKey: stringFromMap(item.Metadata, "idempotency_key")})
+		item.ID, item.CreatedAt = note.ID, note.CreatedAt
+		return item, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -309,22 +328,7 @@ func (s *MemoryCandidateStore) ListCandidateNotes(tenantID string, candidateID s
 	if item, ok := s.profiles[candidateID]; !ok || item.TenantID != tenantID {
 		return nil, ErrNotFound
 	}
-	notes := make([]CandidateNote, 0)
-	for index := len(s.events[candidateID]) - 1; index >= 0; index-- {
-		event := s.events[candidateID][index]
-		if event.EventType != "manual_note" {
-			continue
-		}
-		notes = append(notes, CandidateNote{
-			ID:          event.ID,
-			CandidateID: event.CandidateID,
-			Content:     event.MessageText,
-			AuthorEmail: stringFromMap(event.Metadata, "author_email"),
-			AuthorName:  firstNonEmpty(stringFromMap(event.Metadata, "author_name"), stringFromMap(event.Metadata, "author_email")),
-			CreatedAt:   event.CreatedAt,
-		})
-	}
-	return notes, nil
+	return s.candidateNotesLocked(candidateID), nil
 }
 
 // UpdateCandidateEngagementStatus 更新触达上下文状态。
@@ -430,6 +434,7 @@ func (s *MemoryCandidateStore) DeleteTeamCandidates(tenantID string) (int, error
 		if item.TenantID == tenantID {
 			delete(s.profiles, id)
 			delete(s.events, id)
+			delete(s.notes, id)
 			deleted++
 			for key, rec := range s.recommendations {
 				if rec.CandidateID == id {
@@ -466,6 +471,11 @@ func normalizeCandidatePage(page int, pageSize int) (int, int) {
 // item 为候选人记录，keyword 为前端搜索词。
 func candidateContainsKeyword(item PositionCandidate, keyword string) bool {
 	text := item.CandidateName + " " + item.Phone + " " + item.Email + " " + item.WorkRegion + " " + item.WorkYears + " " + item.BasicInfo + " " + item.EducationLevel + " " + item.ExpectedPosition + " " + item.PersonalDescription + " " + item.RawText + " " + item.FilterText + " " + item.ResumeText
+	text += " " + candidateString(item.LibraryFields, "current_position")
+	for _, value := range []any{item.WorkExperiences, item.Educations, item.ProjectExperiences} {
+		raw, _ := json.Marshal(value)
+		text += " " + string(raw)
+	}
 	return strings.Contains(strings.ToLower(text), strings.ToLower(keyword))
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CandidateService 处理简历库和岗位候选人查询请求。
@@ -20,6 +21,7 @@ type CandidateService struct {
 type candidateNoteRequest struct {
 	Content        string `json:"content"`
 	IdempotencyKey string `json:"idempotency_key"`
+	OccurredAt     string `json:"occurred_at"`
 }
 
 // NewCandidateService 创建候选人查询服务。
@@ -223,17 +225,19 @@ func (s *CandidateService) Notes(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		noteEvent, err := s.store.SaveCandidateEvent(CandidateEvent{
-			CandidateID: candidateID,
-			EventType:   "manual_note",
-			MessageText: content,
-			Metadata:    map[string]any{"author_email": session.Email, "author_name": session.Email, "idempotency_key": key},
-		})
+		var occurredAt time.Time
+		if req.OccurredAt != "" {
+			occurredAt, err = parseCandidateOccurredAt(req.OccurredAt)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		note, err := s.store.SaveCandidateNote(CandidateLibraryScope{TenantID: tenant.ID, UserEmail: session.Email, AuthorName: session.Email, IsAdmin: isAdmin}, CandidateNote{CandidateID: candidateID, Content: content, OccurredAt: occurredAt, IdempotencyKey: key})
 		if err != nil {
 			writeCandidateError(w, err)
 			return
 		}
-		note := CandidateNote{ID: noteEvent.ID, CandidateID: candidateID, Content: content, AuthorEmail: session.Email, AuthorName: session.Email, CreatedAt: noteEvent.CreatedAt}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "note": publicCandidateNote(note)})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -328,8 +332,15 @@ func publicPositionCandidate(item PositionCandidate) map[string]any {
 		}
 	}
 	response["source_type"] = firstNonEmpty(candidateString(item.LibraryFields, "source_type"), "automatic")
+	response["latest_note"] = nil
+	if len(item.Notes) > 0 {
+		response["latest_note"] = publicCandidateNote(item.Notes[0])
+	}
 	events := []map[string]any{}
 	for _, event := range item.Events {
+		if event.EventType == "manual_note" {
+			continue
+		}
 		events = append(events, map[string]any{"id": event.ID, "event_type": event.EventType, "position_id": event.PositionID, "score": event.Score, "reason": event.Reason, "message_text": event.MessageText, "model": event.Model, "created_at": event.CreatedAt})
 	}
 	response["events"] = events
@@ -356,6 +367,7 @@ func publicCandidateNote(item CandidateNote) map[string]any {
 		"author_email": item.AuthorEmail,
 		"author_name":  firstNonEmpty(item.AuthorName, item.AuthorEmail),
 		"created_at":   item.CreatedAt,
+		"occurred_at":  item.OccurredAt,
 	}
 }
 

@@ -2,7 +2,12 @@
 package httpapi
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +15,58 @@ import (
 	"strings"
 	"testing"
 )
+
+// TestBrowserExtensionReleaseArtifactsMatchDefaults 验证默认配置、迁移、官网文件及包内清单使用同一版本和真实摘要。
+func TestBrowserExtensionReleaseArtifactsMatchDefaults(t *testing.T) {
+	var release BrowserExtensionRelease
+	if err := json.Unmarshal([]byte(defaultBrowserExtensionConfig), &release); err != nil {
+		t.Fatal(err)
+	}
+	migration, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "0085_browser_extension_release_config.sql"))
+	if err != nil || !strings.Contains(string(migration), defaultBrowserExtensionConfig) {
+		t.Fatal("下载迁移和默认配置不同步")
+	}
+	for _, item := range []struct{ browser, url, digest string }{{"chrome", release.URLChrome, release.SHA256Chrome}, {"firefox", release.URLFirefox, release.SHA256Firefox}} {
+		path := filepath.Join("..", "..", "..", "frontend-next", "public", filepath.FromSlash(strings.TrimPrefix(item.url, "/")))
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s 官网文件不存在: %v", item.browser, err)
+		}
+		digest := sha256.Sum256(content)
+		if hex.EncodeToString(digest[:]) != item.digest {
+			t.Fatalf("%s 官网包摘要和下载配置不符", item.browser)
+		}
+		archive, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, entry := range archive.File {
+			if entry.Name != "manifest.json" {
+				continue
+			}
+			reader, err := entry.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := io.ReadAll(io.LimitReader(reader, 64*1024))
+			reader.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parsed struct {
+				Version string `json:"version"`
+			}
+			if json.Unmarshal(manifest, &parsed) != nil || parsed.Version != release.Version {
+				t.Fatalf("%s 包内版本和后台默认版本不一致", item.browser)
+			}
+			found = true
+		}
+		if !found {
+			t.Fatalf("%s 包没有 manifest.json", item.browser)
+		}
+	}
+}
 
 // TestBrowserExtensionReleaseReflectsConfig 验证公开接口只返回允许的下载字段，且后台变更不被缓存。
 func TestBrowserExtensionReleaseReflectsConfig(t *testing.T) {
@@ -61,7 +118,7 @@ func TestBrowserExtensionReleasePostgresMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var release BrowserExtensionRelease
-	if json.Unmarshal([]byte(cfg.ConfigValue), &release) != nil || release.Version != "1.0.1" || len(release.SHA256Chrome) != 64 || len(release.SHA256Firefox) != 64 || release.FirefoxSigned {
+	if json.Unmarshal([]byte(cfg.ConfigValue), &release) != nil || release.Version != "1.0.2" || len(release.SHA256Chrome) != 64 || len(release.SHA256Firefox) != 64 || release.FirefoxSigned {
 		t.Fatal("迁移中的开发包信息不完整")
 	}
 	cfg.ConfigValue = `{"version":"custom-admin-release"}`

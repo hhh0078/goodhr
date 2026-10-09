@@ -8,7 +8,7 @@ const screenshotDirectory = resolve("artifacts/resume-library");
 // 合成16px纯色PNG只用于界面验证，不含任何真实候选人的照片。
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 type Call = { path: string; method: string; body: any; query: URLSearchParams };
-type State = { calls: Call[]; notes: any[]; recommendations: any[]; candidates: any[]; failFirstNote: boolean; failConfirmAt?: number; task: any; errors: string[] };
+type State = { calls: Call[]; notes: any[]; recommendations: any[]; candidates: any[]; failFirstNote: boolean; failConfirmAt?: number; task: any; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[] };
 const existing = { id: "resume-existing", candidate_name: "原有候选人", phone: "13800138000", row_version: 3, source_type: "automatic", education_level: "本科", expected_salary_min: null, expected_salary_max: null, work_experiences: [{ company_name: "原有公司", position_name: "产品经理", start_ym: "2021-01", content: "已有工作经历保留" }], user_email: "test@example.invalid", created_at: "2026-10-10T10:00:00+08:00", ai: { detail: { score: null, reason: "" } } };
 test.use({ storageState: { cookies: [], origins: [{ origin: previewOrigin, localStorage: [{ name: "goodhr5_access_token", value: "resume-test-only" }] }] } });
 
@@ -29,6 +29,19 @@ async function mockResumeSession(page: Page): Promise<State> {
       if (url.pathname === "/health") data = { ok: true, version: "6.2.10.1" };
       else if (url.pathname === "/api/v1/runtime/status") data = { version: "6.2.10.1", node_installed: true, camoufox_installed: true, system_runtime: { ready: true, required: false } };
       else if (url.pathname === "/api/v1/app-update/status") data = { stage: "idle", current_version: "6.2.10.1" };
+      else if (url.pathname.startsWith("/api/v1/resume-summary/tasks")) {
+        if (url.pathname === "/api/v1/resume-summary/tasks" && method === "POST") {
+          if (state.rejectSummaryOnce) { state.rejectSummaryOnce = false; return route.fulfill({ status: 400, headers, json: { ok: false, error: { code: "SUMMARY_INVALID", message: "源资料太长，任务未启动" } } }); }
+          state.summaryRequests ||= {};
+          state.summaryRequests[body.request_key] ||= { id: "summary-test", status: "queued", ai_summary: "", model: "fake-model", error: "", possibly_charged: false };
+          state.summaryTask = state.summaryRequests[body.request_key];
+          if (state.failSummaryResponseOnce) { state.failSummaryResponseOnce = false; return route.abort("failed"); }
+        }
+        else if (url.pathname.endsWith("/cancel")) state.summaryTask.status = "cancelled";
+        else if (method === "GET" && ["failed", "cancelled"].includes(state.summaryTask?.status)) { /* 读取失败草稿不会隐式重试AI。 */ }
+        else Object.assign(state.summaryTask, { status: "completed", ai_summary: "五年产品经验，熟悉需求整理与交付。" });
+        data = { ok: true, data: { task: state.summaryTask } };
+      }
       else if (url.pathname.startsWith("/api/v1/resume-import/tasks")) {
         if (url.pathname.endsWith("/confirm")) {
           if (state.calls.filter((call) => call.path.endsWith("/confirm")).length === state.failConfirmAt) return route.fulfill({ status: 503, headers, json: { error: { message: "模拟本地确认暂时没完成" } } });
@@ -59,11 +72,11 @@ async function mockResumeSession(page: Page): Promise<State> {
     } else if (url.pathname.endsWith("/notes")) {
       if (method === "POST") {
         if (state.failFirstNote) { state.failFirstNote = false; return route.fulfill({ status: 503, headers, json: { error: { message: "模拟备注暂时没保存成功" } } }); }
-        const note = { id: "new-note", content: body.content, author_name: "测试HR", created_at: "2026-10-10T10:01:00+08:00" }; state.notes.push(note); data = { note };
+        const note = { id: "new-note", content: body.content, author_name: "测试HR", occurred_at: "2026-10-09T09:15:00+08:00", created_at: "2026-10-10T10:01:00+08:00" }; state.notes.push(note); data = { note };
       } else data = { notes: state.notes };
     } else if (url.pathname.endsWith("/recommendations")) {
       if (method === "POST") {
-        const recommendation = { id: `rec-${body.position_id}`, position_id: body.position_id, position_name: "产品经理", stage: body.stage, events: [{ id: "event-one", to_stage: body.stage, content: body.content, author_name: "测试HR", created_at: "2026-10-10T10:02:00+08:00" }] };
+        const recommendation = { id: `rec-${body.position_id}`, position_id: body.position_id, position_name: "产品经理", stage: body.stage, events: [{ id: "event-one", to_stage: body.stage, content: body.content, author_name: "测试HR", occurred_at: "2026-10-08T14:20:00+08:00", created_at: "2026-10-10T10:02:00+08:00" }] };
         state.recommendations = [recommendation]; data = { recommendation };
       } else data = { recommendations: state.recommendations };
     } else if (url.pathname.startsWith("/api/candidates/")) {
@@ -108,6 +121,161 @@ test("手机号必填，备注失败后的重试不会再创建简历", async ({
   await expect(editor).not.toBeVisible();
   expect(state.calls.filter((call) => call.path === "/api/candidates" && call.method === "POST")).toHaveLength(1);
   expect(state.notes).toHaveLength(1);
+  expect(state.errors).toEqual([]);
+});
+
+test("人工摘要收起再打开保留修订和保存幂等键，轮询不会覆盖手改文字", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  await page.goto("/admin/resumes");
+  await page.getByRole("button", { name: "原有候选人", exact: true }).click();
+  await page.getByRole("button", { name: "生成摘要", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "AI 简历摘要", exact: true });
+  await dialog.getByRole("button", { name: "开始生成摘要", exact: true }).click();
+  await expect(dialog.getByLabel("摘要草稿")).toHaveValue("五年产品经验，熟悉需求整理与交付。");
+  await dialog.getByLabel("摘要草稿").fill("人工修订：保留产品交付经历，删除未经确认的年限。");
+  const cacheKey = "goodhr5_resume_summary:resume-user:resume-existing";
+  const cached = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || "null"), cacheKey);
+  expect(cached.editedSummary).toBe("人工修订：保留产品交付经历，删除未经确认的年限。");
+  expect(cached.saveKey).toBeTruthy();
+  await dialog.getByRole("button", { name: /收起（草稿保留）$/ }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.getByRole("button", { name: "生成摘要", exact: true }).click();
+  await expect(dialog.getByLabel("摘要草稿")).toHaveValue(cached.editedSummary);
+  await expect.poll(() => state.calls.filter((call) => call.path === "/api/v1/resume-summary/tasks/summary-test").length).toBeGreaterThanOrEqual(2);
+  await expect(dialog.getByLabel("摘要草稿")).toHaveValue(cached.editedSummary);
+  await dialog.getByRole("button", { name: /保存摘要$/ }).click();
+  await expect(dialog).not.toBeVisible();
+  const update = state.calls.find((call) => call.path === `/api/candidates/${existing.id}` && call.method === "PATCH");
+  expect(update?.body.ai_summary).toBe(cached.editedSummary);
+  expect(update?.body.idempotency_key).toBe(cached.saveKey);
+  expect(state.calls.filter((call) => call.path === "/api/v1/resume-summary/tasks" && call.method === "POST")).toHaveLength(1);
+  expect(state.errors).toEqual([]);
+});
+
+test("摘要启动回包丢失后资料变化，用原请求和冻结资料恢复，不新增AI任务", async ({ page }) => {
+  const state = await mockResumeSession(page); state.failSummaryResponseOnce = true;
+  await page.goto("/admin/resumes");
+  await page.getByRole("button", { name: "原有候选人", exact: true }).click();
+  await page.getByRole("button", { name: "生成摘要", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "AI 简历摘要", exact: true });
+  await dialog.getByRole("button", { name: "开始生成摘要", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "恢复上次摘要任务", exact: true })).toBeEnabled();
+  const cached = await page.evaluate(() => JSON.parse(localStorage.getItem("goodhr5_resume_summary:resume-user:resume-existing") || "null"));
+  expect(cached.pending).toBe(true); expect(cached.id).toBeUndefined();
+  expect(cached.source.work_experiences).toEqual(existing.work_experiences);
+  for (const field of ["avatar_data_url", "phone", "email", "candidate_name"]) expect(cached.source).not.toHaveProperty(field);
+  await dialog.getByRole("button", { name: /收起（草稿保留）$/ }).click();
+  state.candidates[0].row_version = 4;
+  state.candidates[0].work_experiences = [{ company_name: "更新后的公司", content: "资料已更新" }];
+  await page.reload();
+  await page.getByRole("button", { name: "原有候选人", exact: true }).click();
+  await page.getByRole("button", { name: "生成摘要", exact: true }).click();
+  await expect(dialog.getByText(/先恢复上次任务，再决定是否按新资料/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "开始生成摘要", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "恢复上次摘要任务", exact: true }).click();
+  await expect(dialog.getByLabel("摘要草稿")).toHaveValue("五年产品经验，熟悉需求整理与交付。");
+  const requests = state.calls.filter((call) => call.path === "/api/v1/resume-summary/tasks" && call.method === "POST");
+  expect(requests).toHaveLength(2);
+  expect(requests[0].body.request_key).toBe(requests[1].body.request_key);
+  expect(requests[1].body.candidate).toEqual(cached.source);
+  expect(Object.keys(state.summaryRequests || {})).toHaveLength(1);
+  await expect(dialog.getByRole("button", { name: /保存摘要$/ })).toBeDisabled();
+  expect(state.calls.filter((call) => call.path === `/api/candidates/${existing.id}` && call.method === "PATCH")).toHaveLength(0);
+  expect(state.errors).toEqual([]);
+});
+
+test("摘要草稿实际写入或参数拒绝会解锁按钮且不发AI，手改存储失败保留当前文字", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  await page.goto("/admin/resumes");
+  await page.getByRole("button", { name: "原有候选人", exact: true }).click();
+  await page.getByRole("button", { name: "生成摘要", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "AI 简历摘要", exact: true });
+  await page.evaluate(() => {
+    (window as any).__summaryOriginalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith("goodhr5_resume_summary:")) throw new DOMException("test quota", "QuotaExceededError");
+      (window as any).__summaryOriginalSetItem.call(this, key, value);
+    };
+  });
+  await dialog.getByRole("button", { name: "开始生成摘要", exact: true }).click();
+  await expect(dialog.getByText(/浏览器草稿没记住，空间可能不够/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "开始生成摘要", exact: true })).toBeEnabled();
+  expect(state.calls.filter((call) => call.path === "/api/v1/resume-summary/tasks" && call.method === "POST")).toHaveLength(0);
+  await page.evaluate(() => { Storage.prototype.setItem = (window as any).__summaryOriginalSetItem; });
+  state.rejectSummaryOnce = true;
+  await dialog.getByRole("button", { name: "开始生成摘要", exact: true }).click();
+  await expect(dialog.getByText("源资料太长，任务未启动", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "开始生成摘要", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "恢复上次摘要任务", exact: true })).toHaveCount(0);
+  expect(Object.keys(state.summaryRequests || {})).toHaveLength(0);
+  await dialog.getByRole("button", { name: "开始生成摘要", exact: true }).click();
+  await expect(dialog.getByLabel("摘要草稿")).toHaveValue("五年产品经验，熟悉需求整理与交付。");
+  await page.evaluate(() => { Storage.prototype.setItem = function (key, value) { if (key.startsWith("goodhr5_resume_summary:")) throw new DOMException("test quota", "QuotaExceededError"); (window as any).__summaryOriginalSetItem.call(this, key, value); }; });
+  await dialog.getByLabel("摘要草稿").fill("存储失败时仍保留的人工修订");
+  await expect(dialog.getByText(/修改已留在当前窗口，但浏览器没记住/)).toBeVisible();
+  await expect(dialog.getByLabel("摘要草稿")).toHaveValue("存储失败时仍保留的人工修订");
+  await page.evaluate(() => { Storage.prototype.setItem = (window as any).__summaryOriginalSetItem; });
+  expect(state.calls.filter((call) => call.path === "/api/v1/resume-summary/tasks" && call.method === "POST")).toHaveLength(2);
+  expect(Object.keys(state.summaryRequests || {})).toHaveLength(1);
+  expect(state.errors).toEqual([]);
+});
+
+test("失败摘要已过期时直接生成当前简历新任务，不重试旧资料", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.summaryTask = { id: "summary-old", status: "failed", ai_summary: "", model: "fake-model", error: "上次请求中断", possibly_charged: true };
+  state.candidates[0].work_experiences = [{ company_name: "当前公司", position_name: "产品负责人", content: "最新工作内容" }];
+  await page.goto("/admin/resumes");
+  await page.evaluate(() => localStorage.setItem("goodhr5_resume_summary:resume-user:resume-existing", JSON.stringify({ id: "summary-old", key: "old-source-request", version: 2 })));
+  await page.getByRole("button", { name: "原有候选人", exact: true }).click();
+  await page.getByRole("button", { name: "生成摘要", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "AI 简历摘要", exact: true });
+  await expect(dialog.getByText("上次请求中断", { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/这份简历在生成后有更新/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "确认重试摘要", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "按当前简历重新生成摘要（可能再次计费）", exact: true }).click();
+  await expect(dialog.getByLabel("摘要草稿")).toHaveValue("五年产品经验，熟悉需求整理与交付。");
+  const local = state.calls.find((call) => call.path === "/api/v1/resume-summary/tasks" && call.method === "POST");
+  expect(local?.body.request_key).not.toBe("old-source-request");
+  expect(local?.body.candidate.work_experiences).toEqual(state.candidates[0].work_experiences);
+  expect(state.calls.filter((call) => call.path.endsWith("/retry") && call.path.includes("resume-summary"))).toHaveLength(0);
+  await dialog.getByRole("button", { name: /保存摘要$/ }).click();
+  await expect(dialog).not.toBeVisible();
+  const update = state.calls.find((call) => call.path === `/api/candidates/${existing.id}` && call.method === "PATCH");
+  expect(update?.body.row_version).toBe(3);
+  expect(state.calls.filter((call) => call.path === "/api/v1/resume-summary/tasks" && call.method === "POST")).toHaveLength(1);
+  expect(state.errors).toEqual([]);
+});
+
+test("本地AI摘要先预览再保存，只更新摘要和版本且不发送头像联系方式", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.candidates[0].avatar_data_url = syntheticAvatar;
+  state.candidates[0].email = "synthetic@example.invalid";
+  state.candidates[0].ai_summary = "原有摘要保留到明确保存";
+  await page.goto("/admin/resumes");
+  await page.getByRole("button", { name: "原有候选人", exact: true }).click();
+  await page.getByRole("button", { name: "生成摘要", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "AI 简历摘要", exact: true });
+  await expect(dialog.getByText(/可能产生AI费用/)).toBeVisible();
+  expect(state.calls.filter((call) => call.path === "/api/v1/resume-summary/tasks")).toHaveLength(0);
+  await dialog.getByRole("button", { name: "开始生成摘要", exact: true }).click();
+  await expect(dialog.getByLabel("摘要草稿")).toHaveValue("五年产品经验，熟悉需求整理与交付。");
+  const local = state.calls.find((call) => call.path === "/api/v1/resume-summary/tasks" && call.method === "POST");
+  expect(local?.body.candidate.work_experiences).toEqual(existing.work_experiences);
+  for (const field of ["avatar_data_url", "phone", "email", "candidate_name", "ai_summary", "notes", "recommendations"]) expect(local?.body.candidate).not.toHaveProperty(field);
+  expect(state.calls.filter((call) => call.path === `/api/candidates/${existing.id}` && call.method === "PATCH")).toHaveLength(0);
+  await dialog.getByLabel("摘要草稿").fill("经人工核对的产品经验摘要");
+  mkdirSync(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: resolve(screenshotDirectory, "summary-draft.png"), fullPage: true });
+  await dialog.getByRole("button", { name: /保存摘要$/ }).click();
+  await expect(dialog).not.toBeVisible();
+  const update = state.calls.find((call) => call.path === `/api/candidates/${existing.id}` && call.method === "PATCH");
+  expect(Object.keys(update?.body).sort()).toEqual(["ai_summary", "idempotency_key", "row_version"]);
+  expect(update?.body.row_version).toBe(3);
+  expect(update?.body.ai_summary).toBe("经人工核对的产品经验摘要");
+  expect(state.candidates[0].work_experiences).toEqual(existing.work_experiences);
+  expect(state.candidates[0].email).toBe("synthetic@example.invalid");
+  expect(state.calls.filter((call) => call.path.endsWith("/notes") && call.method === "POST")).toHaveLength(0);
+  expect(state.calls.filter((call) => call.path === "/api/v1/resume-summary/tasks" && call.method === "POST")).toHaveLength(1);
   expect(state.errors).toEqual([]);
 });
 
@@ -209,6 +377,7 @@ test("手动删除末经历和清空邮箱默认保留，勾选后仅清空明�
 test("查询写回URL，详情抽屉独立保存备注和人工推荐，窄屏无横向溢出", async ({ page }) => {
   const state = await mockResumeSession(page);
   state.candidates[0].expected_salary_text = "面议（按年包沟通）";
+  state.candidates[0].events = [{ event_type: "manual_note", message_text: "通用备注仅在备注接口保存", created_at: "2026-10-10T10:00:00+08:00" }];
   await page.setViewportSize({ width: 1920, height: 1000 });
   await page.goto("/admin/resumes?phone=3800&position_id=position-one");
   mkdirSync(screenshotDirectory, { recursive: true });
@@ -226,12 +395,15 @@ test("查询写回URL，详情抽屉独立保存备注和人工推荐，窄屏�
   await drawer.getByPlaceholder("比如：意向不错，周五再约一次。").fill("通用备注仅在备注接口保存");
   await drawer.getByRole("button", { name: "加备注", exact: true }).click();
   await expect(drawer.getByText("通用备注仅在备注接口保存", { exact: true })).toBeVisible();
+  await expect(drawer.getByText(/测试HR · 2026\/10\/09/)).toBeVisible();
   await drawer.getByRole("tab", { name: /^推荐/ }).click();
   await drawer.getByLabel("选择推荐岗位").click(); await page.getByText("产品经理", { exact: true }).last().click();
   await drawer.getByLabel("推荐阶段").click(); await page.getByText("已推荐", { exact: true }).last().click();
   await drawer.getByPlaceholder("只记这个岗位的推荐、面试和跟进情况。").fill("岗位专属备注");
   await drawer.getByRole("button", { name: "记录推荐", exact: true }).click();
   await expect(drawer.getByText("推进记录 · 1 条", { exact: true })).toBeVisible();
+  await drawer.getByText("推进记录 · 1 条", { exact: true }).click();
+  await expect(drawer.getByText(/测试HR · 2026\/10\/08/)).toBeVisible();
   await dismissNotices(page);
   await page.screenshot({ path: resolve(screenshotDirectory, "detail-desktop.png"), fullPage: true, animations: "disabled" });
   expect(state.recommendations[0].stage).toBe("recommended"); expect(state.recommendations[0].events[0].content).toBe("岗位专属备注");
@@ -241,6 +413,8 @@ test("查询写回URL，详情抽屉独立保存备注和人工推荐，窄屏�
   const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(documentWidth).toBeLessThanOrEqual(390);
   await page.screenshot({ path: resolve(screenshotDirectory, "detail-mobile.png"), fullPage: true, animations: "disabled" });
+  await drawer.getByRole("tab", { name: "自动任务", exact: true }).click();
+  await expect(drawer.getByRole("tabpanel", { name: "自动任务" }).getByText("通用备注仅在备注接口保存", { exact: true })).toHaveCount(0);
   expect(state.errors).toEqual([]);
 });
 

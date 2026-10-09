@@ -20,6 +20,39 @@ test("没有备注和岗位时没有多余写请求", async () => {
   assert.deepEqual(result, { notes_saved: true, recommendation_saved: true, errors: [] });
 });
 
+test("推荐状态、专属备注和发生时间独立传递，备注时间不混入推荐", async () => {
+  const calls = []; const time = "2026-10-09T08:00:00Z";
+  await shared.saveFollowups(async (path, body) => calls.push({ path, body }), "fixture", { note: "独立沟通备注", note_time: time, note_key: "note", position_id: "job", stage: "interview", recommendation_note: "合成面试进展", recommendation_time: "2026-10-09T09:00:00Z", recommendation_key: "recommendation" });
+  assert.equal(calls[0].body.content, "独立沟通备注"); assert.equal(calls[0].body.occurred_at, time);
+  assert.deepEqual(calls[1].body, { position_id: "job", stage: "interview", content: "合成面试进展", occurred_at: "2026-10-09T09:00:00Z", idempotency_key: "recommendation" });
+});
+
+test("查重只提交结构化依据，唯一精确自动选而模糊及多条需要确认", () => {
+  const result = shared.duplicateInput({ candidate_name: "合成陈先生", phone: "+44 7700 900123", gender: "male", age: 30, avatar_data_url: "data:image/png;base64,AAAA", work_experiences: [{ company_name: "合成公司", start_ym: "2018-01", content: "不发全文" }], educations: [{ school_name: "合成学校", start_ym: "2014-09" }] });
+  assert.equal(result.phone, "+447700900123"); assert.equal(result.avatar_data_url, undefined); assert.equal(result.work_experiences[0].content, undefined);
+  const match = { match_type: "exact", candidate: { id: "only" } }; assert.equal(shared.classifyDuplicates({ matches: [match] }, result.phone).selected.id, "only");
+  for (const matches of [[{ ...match, match_type: "possible" }], [match, { ...match, candidate: { id: "second" } }]]) assert.equal(shared.classifyDuplicates({ matches }, result.phone).selected, null);
+  assert.equal(shared.classifyDuplicates({ matches: [] }, "").state, "no-phone"); assert.equal(shared.classifyDuplicates({ hidden_match: true, matches: [match] }, result.phone).selected, null);
+});
+
+test("草稿身份不因人工手机号补齐变化，版本仅较新提示，摘要去掉联系方式", () => {
+  const original = { platform_id: "liepin", platform_candidate_id: "synthetic-id", candidate_name: "合成候选人", phone: "" };
+  assert.equal(shared.resumeIdentity(original), shared.resumeIdentity({ ...original, phone: "13800000001" }));
+  assert.notEqual(shared.resumeIdentity(original), shared.resumeIdentity({ ...original, candidate_name: "另一合成候选人" }));
+  assert.equal(shared.compareVersions("1.0.2", "1.0.1"), 1); assert.equal(shared.compareVersions("1.0.1", "1.0.2"), -1); assert.equal(shared.compareVersions("invalid", "1.0.2"), 0);
+  const summary = shared.stripSummaryContacts({ ...original, email: "fake@example.test", work_experiences: [{ company_name: "合成公司" }] });
+  for (const key of ["candidate_name", "phone", "email", "platform_candidate_id", "source_url", "avatar_data_url"]) assert.equal(key in summary, false);
+  assert.equal(summary.work_experiences[0].company_name, "合成公司");
+});
+
+test("AI完成后显式新生成，失败旧源只能重试、改源可新生成，未知响应冻结恢复", () => {
+  const original = { current_position: "合成原职位", phone: "13800000001" }, changed = { ...original, current_position: "合成新职位" };
+  assert.equal(shared.summaryAction({ status: "completed" }, false, original, changed), "new");
+  assert.equal(shared.summaryAction({ status: "failed" }, false, original, original), "retry"); assert.equal(shared.summaryAction({ status: "cancelled" }, false, original, changed), "changed");
+  assert.equal(shared.summaryAction({ status: "running" }, false, original, changed), "wait"); assert.equal(shared.summaryAction({ status: "failed" }, true, original, changed), "recover");
+  assert.equal(shared.summaryAction({ status: "failed" }, false, original, { ...original, phone: "13800000002" }), "retry");
+});
+
 test("备注按Unicode字符限1000字，超长保留原文不截断且岗位仍独立保存", async () => {
   const calls = [], note = "😀".repeat(1001), draft = { note, position_id: "fixture-job", note_key: "note-key", recommendation_key: "job-key" };
   const result = await shared.saveFollowups(async (path, body) => { calls.push({ path, body }); return { ok: true }; }, "fixture", draft);
@@ -38,7 +71,7 @@ test("更新前差异预览只列非空变化，并用中文显示职位与经�
 
 test("Chrome 和 Firefox 版本统一，使用各自后台和原生侧栏且无全站/网络拦截权限", () => {
   const chrome = manifest("chrome"), firefox = manifest("firefox");
-  assert.equal(chrome.version, "1.0.1"); assert.equal(chrome.version, firefox.version);
+  assert.equal(chrome.version, "1.0.2"); assert.equal(chrome.version, firefox.version);
   assert.equal(chrome.background.service_worker, "src/background.js"); assert.equal(firefox.background.service_worker, undefined); assert.deepEqual(firefox.background.scripts, ["src/shared.js", "src/avatar.js", "src/background.js"]);
   assert.equal(chrome.side_panel.default_path, firefox.sidebar_action.default_panel);
   for (const value of [chrome, firefox]) {

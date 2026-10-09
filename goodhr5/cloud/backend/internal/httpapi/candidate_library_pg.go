@@ -281,8 +281,12 @@ func (s *PostgresCandidateStore) FindCandidateDuplicates(scope CandidateLibraryS
 		args = append(args, query.PlatformID, query.PlatformCandidateID)
 		conditions = append(conditions, fmt.Sprintf("(cp.source_platform_id=$%d AND cp.source_platform_candidate_id=$%d) OR EXISTS(SELECT 1 FROM candidate_profile_sources cs WHERE cs.candidate_id=cp.id AND cs.platform_id=$%d AND cs.platform_candidate_id=$%d)", len(args)-1, len(args), len(args)-1, len(args)))
 	}
-	add(candidateLike(query.Name), "cp.candidate_name ILIKE $%d")
-	add(candidateLike(query.Keyword), "(cp.work_experiences::text||' '||cp.educations::text||' '||cp.raw_text) ILIKE $%d")
+	if candidateDuplicateStructured(query) {
+		conditions = append(conditions, candidateDuplicateSQLClauses(query, &args)...)
+	} else {
+		add(candidateLike(query.Name), "cp.candidate_name ILIKE $%d")
+		add(candidateLike(query.Keyword), "(cp.work_experiences::text||' '||cp.educations::text||' '||cp.raw_text) ILIKE $%d")
+	}
 	if len(conditions) == 0 {
 		return []CandidateDuplicateMatch{}, false, nil
 	}
@@ -292,32 +296,18 @@ func (s *PostgresCandidateStore) FindCandidateDuplicates(scope CandidateLibraryS
 		return nil, false, err
 	}
 	defer rows.Close()
-	matches := []CandidateDuplicateMatch{}
-	hidden := false
+	items := []PositionCandidate{}
 	for rows.Next() {
 		item, err := scanCandidateRow(rows)
 		if err != nil {
 			return nil, false, err
 		}
-		kind, reasons := candidateDuplicateReasons(item, query)
-		if kind == "" {
-			continue
-		}
-		if !candidateVisible(scope, item) {
-			if kind == "exact" {
-				hidden = true
-			}
-			continue
-		}
-		matches = append(matches, CandidateDuplicateMatch{item, kind, reasons})
+		items = append(items, item)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, false, err
 	}
-	sort.SliceStable(matches, func(i, j int) bool { return matches[i].MatchType == "exact" && matches[j].MatchType != "exact" })
-	if len(matches) > 20 {
-		matches = matches[:20]
-	}
+	matches, hidden := selectCandidateDuplicateMatches(scope, query, items)
 	return matches, hidden, nil
 }
 
@@ -339,7 +329,7 @@ func (s *PostgresCandidateStore) ListCandidateRecommendations(scope CandidateLib
 }
 
 // SaveCandidateRecommendation 创建唯一岗位关系并追加推进事件，不更新自动运行统计。
-func (s *PostgresCandidateStore) SaveCandidateRecommendation(scope CandidateLibraryScope, id string, position Position, stage, content, key string) (CandidateRecommendation, error) {
+func (s *PostgresCandidateStore) SaveCandidateRecommendation(scope CandidateLibraryScope, id string, position Position, stage, content, key string, occurredAt ...time.Time) (CandidateRecommendation, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -348,7 +338,7 @@ func (s *PostgresCandidateStore) SaveCandidateRecommendation(scope CandidateLibr
 	}
 	defer tx.Rollback()
 	operation := "recommendation:" + id + ":" + position.ID
-	fingerprint := candidateFingerprint([]string{stage, content})
+	fingerprint := candidateRecommendationFingerprint(stage, content, occurredAt)
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, scope.TenantID+":"+operation); err != nil {
 		return CandidateRecommendation{}, err
 	}
@@ -386,8 +376,8 @@ func (s *PostgresCandidateStore) SaveCandidateRecommendation(scope CandidateLibr
 			return CandidateRecommendation{}, err
 		}
 	}
-	if !existed || previous != stage || content != "" {
-		_, err = tx.ExecContext(ctx, `INSERT INTO candidate_recommendation_events(recommendation_id,from_stage,to_stage,content,author_email,author_name) VALUES($1,$2,$3,$4,$5,$6)`, item.ID, previous, stage, content, scope.UserEmail, scope.AuthorName)
+	if !existed || previous != stage || content != "" || (len(occurredAt) > 0 && !occurredAt[0].IsZero()) {
+		_, err = tx.ExecContext(ctx, `INSERT INTO candidate_recommendation_events(recommendation_id,from_stage,to_stage,content,author_email,author_name,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, item.ID, previous, stage, content, scope.UserEmail, scope.AuthorName, candidateRecommendationTime(occurredAt, time.Now().UTC()))
 		if err != nil {
 			return CandidateRecommendation{}, err
 		}
@@ -491,7 +481,7 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 
 // candidateRecommendationsSQL 返回包含全部阶段历史的人工推荐 JSON 汇总。
 func candidateRecommendationsSQL() string {
-	return `COALESCE((SELECT jsonb_agg(jsonb_build_object('id',cr.id::text,'candidate_id',cr.candidate_id::text,'position_id',COALESCE(cr.position_id::text,cr.position_key),'position_name',cr.position_name,'stage',cr.stage,'author_email',cr.author_email,'author_name',cr.author_name,'created_at',cr.created_at,'updated_at',cr.updated_at,'events',COALESCE((SELECT jsonb_agg(to_jsonb(ev) ORDER BY ev.created_at DESC,ev.id DESC) FROM candidate_recommendation_events ev WHERE ev.recommendation_id=cr.id),'[]'::jsonb)) ORDER BY cr.updated_at DESC) FROM candidate_recommendations cr WHERE cr.candidate_id=cp.id),'[]'::jsonb)`
+	return `COALESCE((SELECT jsonb_agg(jsonb_build_object('id',cr.id::text,'candidate_id',cr.candidate_id::text,'position_id',COALESCE(cr.position_id::text,cr.position_key),'position_name',cr.position_name,'stage',cr.stage,'author_email',cr.author_email,'author_name',cr.author_name,'created_at',cr.created_at,'updated_at',cr.updated_at,'events',COALESCE((SELECT jsonb_agg(to_jsonb(ev) ORDER BY ev.occurred_at DESC,ev.created_at DESC,ev.id DESC) FROM candidate_recommendation_events ev WHERE ev.recommendation_id=cr.id),'[]'::jsonb)) ORDER BY cr.updated_at DESC) FROM candidate_recommendations cr WHERE cr.candidate_id=cp.id),'[]'::jsonb)`
 }
 
 // candidateSourcesSQL 返回候选人的多个来源，保持原来源字段向后兼容。

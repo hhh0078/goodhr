@@ -191,12 +191,9 @@ func (s *CandidateService) Duplicates(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	query := CandidateDuplicateQuery{Phone: candidateString(input, "phone"), Name: candidateString(input, "candidate_name"), PlatformID: candidateString(input, "platform_id"), PlatformCandidateID: candidateString(input, "platform_candidate_id"), Keyword: candidateString(input, "keyword"), ExcludeID: candidateString(input, "exclude_id")}
-	if query.PlatformID == "liepin_hunter" {
-		query.PlatformID = "hliepin"
-	}
-	if len(query.Name) > 200 || len(query.Keyword) > 500 || len(query.PlatformCandidateID) > 2048 {
-		writeError(w, http.StatusBadRequest, "查重内容太长了，请减少关键词")
+	query, err := readCandidateDuplicateQuery(input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	matches, hidden, err := store.FindCandidateDuplicates(scope, query)
@@ -205,10 +202,21 @@ func (s *CandidateService) Duplicates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	public := []map[string]any{}
+	groupItems := map[string][]map[string]any{}
 	for _, match := range matches {
-		public = append(public, map[string]any{"candidate": publicPositionCandidate(match.Candidate), "match_type": match.MatchType, "reasons": match.Reasons})
+		item := map[string]any{"candidate": publicPositionCandidate(match.Candidate), "match_type": match.MatchType, "reasons": match.Reasons}
+		public = append(public, item)
+		for _, key := range match.GroupKeys {
+			groupItems[key] = append(groupItems[key], item)
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "matches": public, "hidden_match": hidden})
+	groups := []map[string]any{}
+	for _, group := range [][2]string{{"strict", "综合条件相近"}, {"surname_gender_school", "学校线索相近"}, {"surname_gender_company", "公司线索相近"}} {
+		if items := groupItems[group[0]]; len(items) > 0 {
+			groups = append(groups, map[string]any{"key": group[0], "title": group[1], "summary": "线索相近，请人工确认是否同一位候选人", "matches": items})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "matches": public, "hidden_match": hidden, "criteria": candidateDuplicateCriteria(query), "groups": groups})
 }
 
 // Recommendations 读取全部人工关联并记录明确的推荐或阶段推进，不启动岗位任务。
@@ -277,7 +285,18 @@ func (s *CandidateService) Recommendations(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	item, err := store.SaveCandidateRecommendation(scope, id, position, stage, content, key)
+	if raw, exists := input["occurred_at"]; exists && raw != nil {
+		if _, ok := raw.(string); !ok {
+			writeError(w, http.StatusBadRequest, "发生时间请填写带时区的日期")
+			return
+		}
+	}
+	occurredAt, err := parseCandidateOccurredAt(candidateString(input, "occurred_at"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := store.SaveCandidateRecommendation(scope, id, position, stage, content, key, occurredAt)
 	if err != nil {
 		writeCandidateError(w, err)
 		return
@@ -292,6 +311,18 @@ func validCandidateDate(value string) bool {
 	}
 	_, err := time.Parse("2006-01-02", value)
 	return err == nil
+}
+
+// parseCandidateOccurredAt 校验人工记录实际时间，允许历史时间和时钟偏差，拒绝明显超前的时间。
+func parseCandidateOccurredAt(value string) (time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
+	if err != nil || parsed.Year() < 1900 || parsed.After(time.Now().Add(24*time.Hour)) {
+		return time.Time{}, errors.New("发生时间请使用有效日期和时区，也别填到遥远的未来")
+	}
+	return parsed, nil
 }
 
 // candidateNoteRequestIdentity 把备注请求键绑定作者，避免多个成员键碰撞。

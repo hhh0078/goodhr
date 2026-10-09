@@ -276,6 +276,18 @@ func (m *Manager) Retry(owner, token, id string, itemIDs []string) (Task, error)
 	return cloneTask(stored.Task), nil
 }
 
+// CancelActive 完整网页登录被替换时停止后台解析，已解析结果仍按原账号保留。
+func (m *Manager) CancelActive() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, cancel := range m.active {
+		cancel()
+	}
+}
+
 // Close 取消全部后台解析并等待状态落盘，关闭程序时不丢失草稿。
 func (m *Manager) Close() {
 	if m == nil {
@@ -376,7 +388,7 @@ func (m *Manager) parseItem(ctx context.Context, taskID, itemID, path, token str
 	defer m.mu.Unlock()
 	stored := m.tasks[taskID]
 	item := findItem(stored, itemID)
-	if ctx.Err() != nil && err != nil {
+	if ctx.Err() != nil {
 		item.Status, item.Error = "queued", ""
 		if stored.AIStarted[itemID] {
 			item.Status, item.Error = "failed", "AI请求已停止，可能已计费。草稿保留，请手动确认后重试"

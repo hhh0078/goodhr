@@ -4,7 +4,7 @@ export type ResumeExperience = {
   education_level?: string; project_name?: string; role_name?: string;
   start_ym?: string; end_ym?: string; content?: string;
 };
-export type ResumeNote = { id: string; content: string; author_email?: string; author_name?: string; created_at?: string };
+export type ResumeNote = { id: string; content: string; author_email?: string; author_name?: string; occurred_at?: string; created_at?: string };
 export type ResumeSource = { platform_id?: string; platform_candidate_id?: string; source_type?: string; source_url?: string; created_at?: string };
 export type Resume = {
   id: string; candidate_name: string; phone?: string; email?: string; gender?: string; birth_ym?: string; avatar_data_url?: string;
@@ -28,7 +28,7 @@ export type DuplicateMatch = { candidate: Resume; match_type?: string; reasons?:
 export type DuplicateResult = { exact: DuplicateMatch[]; possible: DuplicateMatch[]; hidden_match?: boolean };
 export type RecommendationEvent = {
   id: string; from_stage?: string; to_stage?: string; content?: string; note?: string;
-  author_email?: string; author_name?: string; created_at?: string;
+  author_email?: string; author_name?: string; occurred_at?: string; created_at?: string;
 };
 export type Recommendation = {
   id: string; candidate_id?: string; position_id: string; position_name?: string; stage: string;
@@ -56,6 +56,12 @@ export function sourceLabel(value?: string) {
 /** stageLabel 返回人工推荐阶段，未知阶段保留原值。 */
 export function stageLabel(value?: string) {
   return recommendationStages.find((item) => item.value === value)?.label || value || "待推荐";
+}
+/** recordTime 展示备注或推荐的发生时间，保存时间仍可在提示中查看，缺失或坏日期安全回退。 */
+export function recordTime(value?: string) {
+  if (!value) return "--";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "--" : date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 }
 /** salaryLabel 只展示有效薪资，缺失字段不会被转换成零。 */
 export function salaryLabel(resume: Resume | ResumeDraft) {

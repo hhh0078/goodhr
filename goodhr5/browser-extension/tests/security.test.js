@@ -12,7 +12,7 @@ function backgroundFixture(fetchReply) {
     tabs: { query: async () => [], create: async () => ({}), onRemoved: { addListener: () => {} }, onUpdated: { addListener: () => {} } },
     action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {}, setTitle: () => {} }
   };
-  const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, console, fetch: async (url, options) => { requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
+  const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, TextEncoder, console, setTimeout, clearTimeout, fetch: async (url, options) => { requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
   vm.runInContext(fs.readFileSync(path.join(src, "shared.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "avatar.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "background.js"), "utf8"), context);
   return { values, requests, context, extension, message: (message, sender) => new Promise((resolve) => { const result = listener(message, sender, resolve); if (result === false) resolve(undefined); }) };
 }
@@ -35,7 +35,7 @@ test("招聘页面只读脚本不写 DOM、不发请求、不读网站缓存、�
 
 test("内容脚本不能调用登录、查重、保存或读取凭证接口", async () => {
   const value = backgroundFixture(), sender = { id: "test-extension", frameId: 0, tab: { id: 4, url: "https://h.liepin.com/resume/showresumedetail" } };
-  for (const type of ["STATE", "PREVIEW", "LOGIN", "CREATE", "AVATAR_RETRY", "DUPLICATES", "RESTORE", "FOLLOWUPS", "LOGOUT", "REVOKE_RETRY"]) assert.equal(await value.message({ type, payload: {} }, sender), undefined);
+  for (const type of ["STATE", "PREVIEW", "LOGIN", "CREATE", "AVATAR_RETRY", "DUPLICATES", "RESTORE", "FOLLOWUPS", "LOGOUT", "REVOKE_RETRY", "DRAFT_GET", "DRAFT_SAVE", "CHECK_UPDATE", "SUMMARY_START", "SUMMARY_SAVE"]) assert.equal(await value.message({ type, payload: {} }, sender), undefined);
   assert.equal(value.requests.length, 0);
 });
 
@@ -57,10 +57,94 @@ test("未同意数据用途时禁止向云端查询个人资料", async () => {
   assert.equal(result.ok, false); assert.match(result.message, /同意/); assert.equal(value.requests.length, 0);
 });
 
+test("已同意捕获后自动查重合并相同请求，不把头像或履历全文发到查重", async () => {
+  const value = backgroundFixture(); value.values.data_use_accepted = true; const resume = await avatarScene(value);
+  const explicit = await value.message({ type: "DUPLICATES", payload: { resume } }, uiSender); assert.equal(explicit.ok, true);
+  await new Promise((resolve) => setTimeout(resolve, 550)); assert.equal(value.requests.length, 1);
+  const input = JSON.parse(value.requests[0].options.body); assert.equal(input.avatar_data_url, undefined); assert.ok(Array.isArray(input.work_experiences)); assert.ok(Array.isArray(input.educations));
+  delete value.values.session; value.requests.length = 0; await avatarScene(value); await new Promise((resolve) => setTimeout(resolve, 550)); assert.equal(value.requests.length, 0);
+});
+
+test("本地草稿24小时和30条限制，切账号不能读取旧人草稿且并发写不丢人", async () => {
+  const value = backgroundFixture(), account = JSON.stringify(["fixture", "fixture@example.test"]);
+  await Promise.all(["synthetic-a", "synthetic-b"].map((identity) => value.message({ type: "DRAFT_SAVE", payload: { identity, account_key: account, draft: { fields: { note: identity }, edited: ["note"], keys: { note: "same-note" } } } }, uiSender)));
+  assert.equal(Object.keys(value.values.ui_drafts).length, 2);
+  const loaded = await value.message({ type: "DRAFT_GET", payload: { identity: "synthetic-a", account_key: account } }, uiSender); assert.equal(loaded.data.draft.fields.note, "synthetic-a"); assert.equal(value.requests.length, 0);
+  value.values.session.user = { id: "other", email: "other@example.test" };
+  const stale = await value.message({ type: "DRAFT_GET", payload: { identity: "synthetic-a", account_key: account } }, uiSender); assert.equal(stale.ok, false);
+  const other = await value.message({ type: "DRAFT_GET", payload: { identity: "synthetic-a", account_key: JSON.stringify(["other", "other@example.test"]) } }, uiSender); assert.equal(other.data.draft, null);
+  const staleSave = await value.message({ type: "CREATE", payload: { account_key: account, resume: { candidate_name: "旧人", phone: "13800000001" }, idempotency_key: "old" } }, uiSender); assert.equal(staleSave.ok, false); assert.equal(value.requests.length, 0);
+});
+
+test("冻结摘要单份不超过1MiB，总草稿UTF8不超过3MiB且优先保留当前候选人", async () => {
+  const value = backgroundFixture(), account = JSON.stringify(["fixture", "fixture@example.test"]);
+  const source = { work_experiences: Array.from({ length: 30 }, () => ({ company_name: "合成公司", content: "测".repeat(5000) })) };
+  for (let index = 0; index < 9; index++) { const result = await value.message({ type: "DRAFT_SAVE", payload: { account_key: account, identity: `budget-${index}`, draft: { summary_source: source, summary_unknown: true } } }, uiSender); assert.equal(result.ok, true); }
+  assert.ok(new TextEncoder().encode(JSON.stringify(value.values.ui_drafts)).byteLength <= 3 * 1024 * 1024); assert.ok(Object.keys(value.values.ui_drafts).length < 9); assert.equal(value.values.ui_drafts[JSON.stringify([account, "budget-8"])].data.summary_unknown, true);
+  const huge = { work_experiences: Array.from({ length: 40 }, () => ({ content: "测".repeat(6000) })), project_experiences: Array.from({ length: 40 }, () => ({ content: "测".repeat(6000) })) };
+  const rejected = await value.message({ type: "DRAFT_SAVE", payload: { account_key: account, identity: "too-large", draft: { summary_source: huge } } }, uiSender); assert.equal(rejected.ok, false); assert.match(rejected.message, /1MiB/); assert.equal(value.values.ui_drafts[JSON.stringify([account, "too-large"])], undefined);
+});
+
+test("本地AI仅配对授权且去联系方式，任务不执行云AI；摘要单独带版本PATCH", async () => {
+  const value = backgroundFixture((url) => response(url.includes("resume-summary") ? { ok: true, data: { task: { id: "synthetic-task", status: "completed", ai_summary: "合成总结" } } } : { ok: true, candidate: { id: "synthetic" } })); value.values.data_use_accepted = true;
+  const payload = { resume: { candidate_name: "合成姓名", phone: "13800000001", email: "fake@example.test", work_experiences: [{ company_name: "合成履历公司" }] }, request_key: "same-ai" };
+  const unavailable = await value.message({ type: "SUMMARY_START", payload }, uiSender); assert.equal(unavailable.ok, false); assert.match(unavailable.message, /配对/); assert.equal(value.requests.length, 0);
+  value.values.installation_id = "fixture-installation"; value.values.pairing_token = "private-grant"; value.values.pairing_account_key = JSON.stringify(["fixture", "fixture@example.test"]);
+  const result = await value.message({ type: "SUMMARY_START", payload }, uiSender); assert.equal(result.data.task.ai_summary, "合成总结"); assert.equal(value.requests[0].url, "http://127.0.0.1:43129/api/v1/extensions/resume-summary");
+  const body = JSON.parse(value.requests[0].options.body); assert.equal(body.pairing_token, "private-grant"); assert.equal(body.candidate.phone, undefined); assert.equal(body.candidate.candidate_name, undefined); assert.equal(body.candidate.work_experiences[0].company_name, "合成履历公司");
+  await value.message({ type: "SUMMARY_SAVE", payload: { candidate_id: "synthetic", row_version: 8, ai_summary: "合成总结", idempotency_key: "summary-save" } }, uiSender);
+  assert.equal(value.requests[1].options.method, "PATCH"); assert.deepEqual(JSON.parse(value.requests[1].options.body), { ai_summary: "合成总结", row_version: 8, idempotency_key: "summary-save" });
+  value.values.session.user = { id: "new-account", email: "other@example.test" }; const stalePair = await value.message({ type: "SUMMARY_START", payload }, uiSender); assert.equal(stalePair.ok, false); assert.match(stalePair.message, /同账号/); assert.equal(value.requests.length, 2);
+});
+
+test("同账号手动登录可配对并撤销旧token，不同账号新授权被撤销且不悄悄切号", async () => {
+  for (const same of [true, false]) {
+    const user = same ? { id: "fixture", email: "fixture@example.test" } : { id: "other", email: "other@example.test" };
+    const value = backgroundFixture((url) => response(url.endsWith("/pair/status") ? { ok: true, data: { status: "approved", token: "new-pair-token", pairing_token: "new-pair-grant", user, expires_at: "2030-01-01" } } : { ok: true }));
+    value.values.pending_pair = { installation_id: "installation", pairing_id: "pair", challenge: "synthetic-challenge", expires_at: Date.now() + 30000 };
+    const result = await value.message({ type: "PAIR_CHECK" }, uiSender);
+    assert.equal(result.ok, same); assert.equal(value.values.pending_pair, undefined); assert.equal(value.values.pending_revoke, undefined);
+    const logoutCalls = value.requests.filter((item) => item.url.endsWith("/extension-logout")); assert.equal(logoutCalls.length, 1);
+    if (same) { assert.equal(value.values.session.token, "new-pair-token"); assert.equal(value.values.pairing_token, "new-pair-grant"); assert.equal(value.values.pairing_account_key, JSON.stringify(["fixture", "fixture@example.test"])); assert.equal(logoutCalls[0].options.headers.Authorization, "Bearer private-background-token"); }
+    else { assert.equal(value.values.session.token, "private-background-token"); assert.equal(value.values.pairing_token, undefined); assert.match(result.message, /本地和插件账号不同/); assert.equal(logoutCalls[0].options.headers.Authorization, "Bearer new-pair-token"); assert.equal(value.requests.some((item) => item.url.endsWith("/pair/revoke")), true); }
+  }
+});
+
+test("本地AI返回前退出丢弃旧摘要，不向新账号展示", async () => {
+  let release, started; const captured = new Promise((resolve) => { started = resolve; });
+  const value = backgroundFixture(async (url) => { if (url.endsWith("/resume-summary")) { started(); return new Promise((resolve) => { release = () => resolve(response({ ok: true, data: { task: { id: "task", status: "completed", ai_summary: "旧账号合成摘要" } } })); }); } return response({ ok: true }); });
+  value.values.data_use_accepted = true; value.values.installation_id = "installation"; value.values.pairing_token = "grant"; value.values.pairing_account_key = JSON.stringify(["fixture", "fixture@example.test"]);
+  const pending = value.message({ type: "SUMMARY_START", payload: { request_key: "ai", resume: { work_experiences: [{ company_name: "合成公司" }] } } }, uiSender); await captured; await value.message({ type: "LOGOUT" }, uiSender); release(); const result = await pending; assert.equal(result.ok, false); assert.match(result.message, /账号已经变化/); assert.equal(JSON.stringify(result).includes("旧账号合成摘要"), false);
+});
+
 test("业务请求仅向生产 HTTPS 域名，凭证在后台 Bearer 头且不走招聘页面", async () => {
   const value = backgroundFixture(); value.values.data_use_accepted = true;
   const result = await value.message({ type: "DUPLICATES", payload: { resume: { candidate_name: "测试", phone: "13812345678", platform_id: "hliepin" } } }, { id: "test-extension", url: "chrome-extension://test-extension/src/ui.html" });
   assert.equal(result.ok, true); assert.equal(value.requests.length, 1); assert.equal(value.requests[0].url, "https://goodhr.58it.cn/api/candidates/duplicates"); assert.equal(value.requests[0].options.headers.Authorization, "Bearer private-background-token"); assert.equal(value.requests[0].options.redirect, "error");
+});
+
+test("备注和推荐并发401只消费旧token一次，两个请求共用新session", async () => {
+  let refreshCount = 0;
+  const value = backgroundFixture(async (url, options) => {
+    if (url.endsWith("/extension-refresh")) { refreshCount++; await new Promise((resolve) => setTimeout(resolve, 20)); return refreshCount === 1 ? response({ token: "private-new-token", user: { id: "fixture", email: "fixture@example.test" } }) : response({ message: "old token consumed" }, 401); }
+    if (options.headers.Authorization === "Bearer private-background-token") return response({ message: "expired" }, 401);
+    return response(url.endsWith("/notes") ? { ok: true, notes: [{ content: "合成备注" }] } : { ok: true, recommendations: [{ id: "recommendation" }] });
+  }); value.values.data_use_accepted = true;
+  const result = await value.message({ type: "DETAIL", payload: { candidate_id: "synthetic" } }, uiSender);
+  assert.equal(result.ok, true); assert.equal(refreshCount, 1); assert.equal(result.data.notes.length, 1); assert.equal(result.data.recommendations.length, 1); assert.equal(result.data.notes_error, undefined); assert.equal(result.data.recommendations_error, undefined); assert.equal(value.values.session.token, "private-new-token");
+});
+
+test("并发续期途中退出或撤销同意不恢复旧会话，迟到token仅进入撤销队列", async () => {
+  for (const type of ["LOGOUT", "CONSENT"]) {
+    let release, started; const active = new Promise((resolve) => { started = resolve; }), wait = new Promise((resolve) => { release = resolve; });
+    const value = backgroundFixture(async (url, options) => {
+      if (url.endsWith("/extension-refresh")) { started(); await wait; return response({ token: "private-delayed-refresh", user: { id: "fixture", email: "fixture@example.test" } }); }
+      if (url.includes("/api/candidates/") && options.headers.Authorization === "Bearer private-background-token") return response({ message: "expired" }, 401);
+      return response({ ok: true });
+    }); value.values.data_use_accepted = true;
+    const pending = value.message({ type: "DETAIL", payload: { candidate_id: "synthetic" } }, uiSender); await active; await value.message({ type, payload: { accepted: false } }, uiSender); release(); const result = await pending;
+    assert.equal(result.ok, false); assert.notEqual(value.values.session?.token, "private-delayed-refresh"); assert.equal(value.values.pending_revoke.cloud_tokens.includes("private-delayed-refresh"), true); assert.equal(value.requests.filter((request) => request.url.endsWith("/extension-refresh")).length, 1);
+  }
 });
 
 test("后台实际 CREATE 请求等于供 Go 路由验证的完整 JSON，备注不混入主体", async () => {
@@ -113,8 +197,8 @@ test("头像失败保存其它资料并明确提醒，独立头像重试只PATCH
   const unchanged = await value.message({ type: "AVATAR_RETRY", payload: { ...retry, existing_avatar_data_url: "data:image/png;base64,AAAA" } }, uiSender); assert.equal(unchanged.data.unchanged, true); assert.equal(value.requests.length, 2);
 });
 
-test("头像读取等待期间退出或手动切号会取消CREATE及头像PATCH，不使用新账号保存旧资料", async () => {
-  for (const type of ["CREATE", "AVATAR_RETRY"]) for (const switchType of ["LOGOUT", "LOGIN"]) {
+test("头像等待期间退出、切号或撤销同意会取消CREATE及头像PATCH", async () => {
+  for (const type of ["CREATE", "AVATAR_RETRY"]) for (const switchType of ["LOGOUT", "LOGIN", "CONSENT"]) {
     const value = backgroundFixture(); value.values.data_use_accepted = true; const resume = await avatarScene(value);
     let release, started; const wait = new Promise((resolve) => { release = resolve; }), active = new Promise((resolve) => { started = resolve; });
     value.context.GoodHRAvatar.fetchAvatar = async () => { started(); await wait; return "data:image/png;base64,AAAA"; };

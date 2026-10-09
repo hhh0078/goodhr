@@ -41,10 +41,17 @@ type CandidateDuplicateMatch struct {
 	Candidate PositionCandidate
 	MatchType string
 	Reasons   []string
+	GroupKeys []string
 }
 
 // CandidateDuplicateQuery 表示精确和模糊查重条件。
-type CandidateDuplicateQuery struct{ Phone, Name, PlatformID, PlatformCandidateID, Keyword, ExcludeID string }
+type CandidateDuplicateQuery struct {
+	Phone, Name, PlatformID, PlatformCandidateID, Keyword, ExcludeID string
+	Gender, BirthYM                                                  string
+	Age                                                              int
+	WorkExperiences                                                  []CandidateWorkExperience
+	Educations                                                       []CandidateEducation
+}
 
 // CandidateRecommendationEvent 表示不可覆盖的人工推荐阶段事件。
 type CandidateRecommendationEvent struct {
@@ -55,6 +62,7 @@ type CandidateRecommendationEvent struct {
 	AuthorEmail string    `json:"author_email"`
 	AuthorName  string    `json:"author_name"`
 	CreatedAt   time.Time `json:"created_at"`
+	OccurredAt  time.Time `json:"occurred_at"`
 }
 
 // CandidateRecommendation 表示候选人与一个岗位的人工关系。
@@ -76,7 +84,7 @@ type CandidateLibraryStore interface {
 	SaveLibraryCandidate(scope CandidateLibraryScope, candidateID string, fields map[string]any, version int64, requestKey string) (PositionCandidate, error)
 	FindCandidateDuplicates(scope CandidateLibraryScope, query CandidateDuplicateQuery) ([]CandidateDuplicateMatch, bool, error)
 	ListCandidateRecommendations(scope CandidateLibraryScope, candidateID string) ([]CandidateRecommendation, error)
-	SaveCandidateRecommendation(scope CandidateLibraryScope, candidateID string, position Position, stage, content, requestKey string) (CandidateRecommendation, error)
+	SaveCandidateRecommendation(scope CandidateLibraryScope, candidateID string, position Position, stage, content, requestKey string, occurredAt ...time.Time) (CandidateRecommendation, error)
 }
 
 // candidateRequestReceipt 表示已完成操作的内容指纹和结果ID。
@@ -378,4 +386,21 @@ func sortedCandidateFieldNames(fields map[string]any) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// candidateRecommendationFingerprint 将用户明确填写的发生时间纳入幂等校验，旧省略时间请求继续兼容。
+func candidateRecommendationFingerprint(stage, content string, times []time.Time) string {
+	fields := []string{stage, content}
+	if len(times) > 0 && !times[0].IsZero() {
+		fields = append(fields, times[0].UTC().Format(time.RFC3339Nano))
+	}
+	return candidateFingerprint(fields)
+}
+
+// candidateRecommendationTime 返回明确填写的发生时间，省略时采用服务端记录时间。
+func candidateRecommendationTime(times []time.Time, now time.Time) time.Time {
+	if len(times) > 0 && !times[0].IsZero() {
+		return times[0]
+	}
+	return now
 }

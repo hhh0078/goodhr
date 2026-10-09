@@ -108,13 +108,14 @@ func (fakeExtractor) Extract(context.Context, string) (string, error) {
 
 // fakeParser 在内存记录调用数和并发，按测试要求等待取消。
 type fakeParser struct {
-	mu        sync.Mutex
-	calls     int
-	active    int
-	maxActive int
-	phone     string
-	block     bool
-	started   chan struct{}
+	mu                sync.Mutex
+	calls             int
+	active            int
+	maxActive         int
+	phone             string
+	block             bool
+	returnAfterCancel bool
+	started           chan struct{}
 }
 
 // ParseResume 返回虚构草稿或等待ctx取消，绝不请求付费AI。
@@ -132,9 +133,25 @@ func (p *fakeParser) ParseResume(ctx context.Context, _ cloud.AIConfig, _ string
 	}
 	if p.block {
 		<-ctx.Done()
-		return cloud.LibraryCandidate{}, ctx.Err()
+		if !p.returnAfterCancel {
+			return cloud.LibraryCandidate{}, ctx.Err()
+		}
 	}
 	return cloud.LibraryCandidate{StructuredCandidate: cloud.StructuredCandidate{CandidateName: "测试甲", Phone: p.phone}}, nil
+}
+
+// TestReplacedWebSessionDiscardsLateImportResult 验证替换网页登录后即使模型迟到返回成功，也不接收已取消结果。
+func TestReplacedWebSessionDiscardsLateImportResult(t *testing.T) {
+	manager, _, _, parser, _ := newTestManager(t, "13800138000")
+	parser.block, parser.returnAfterCancel, parser.started = true, true, make(chan struct{}, 1)
+	task := createTestTask(t, manager, 1)
+	<-parser.started
+	manager.CancelActive()
+	manager.Close()
+	result, err := manager.Get("owner-a", "web-token-never-persist", task.ID)
+	if err != nil || result.Items[0].Status != "failed" || result.Items[0].Candidate.CandidateName != "" || !strings.Contains(result.Items[0].Error, "可能已计费") {
+		t.Fatalf("取消后接收了迟到结果：%+v %v", result, err)
+	}
 }
 
 // newTestManager 创建隔离的测试目录和无外部依赖管理器。

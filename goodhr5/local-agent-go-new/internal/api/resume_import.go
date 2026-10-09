@@ -70,6 +70,13 @@ func (s *Server) resumeImportOwner(w http.ResponseWriter, r *http.Request) (stri
 		writeError(w, 403, "WEB_SESSION_REQUIRED", fmt.Errorf("AI导入和草稿只在GoodHR网页里使用，请从简历库继续"))
 		return "", "", false
 	}
+	s.extensionMu.Lock()
+	boundUser := s.extensionUserID
+	s.extensionMu.Unlock()
+	if boundUser != "" && boundUser != session.UserID {
+		writeError(w, 401, "LOCAL_ACCOUNT_CHANGED", fmt.Errorf("本地账号已变化，请重新连接后继续，原账号草稿还在"))
+		return "", "", false
+	}
 	return session.UserID, header[1], true
 }
 

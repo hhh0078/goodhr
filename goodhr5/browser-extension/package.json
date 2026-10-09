@@ -1,6 +1,6 @@
 {
   "name": "goodhr-resume-extension",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "文件作用：GoodHR 只读简历采集插件的版本与无依赖构建、测试入口。",
   "scripts": {

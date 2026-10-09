@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 )
 
 // SaveLibraryCandidate 在同一锁内查重并保存，重试同一请求不会创建第二份简历。
@@ -94,33 +95,11 @@ func (s *MemoryCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScope,
 func (s *MemoryCandidateStore) FindCandidateDuplicates(scope CandidateLibraryScope, query CandidateDuplicateQuery) ([]CandidateDuplicateMatch, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	matches := []CandidateDuplicateMatch{}
-	hidden := false
+	items := []PositionCandidate{}
 	for _, item := range s.profiles {
-		if item.TenantID != scope.TenantID {
-			continue
-		}
-		kind, reasons := candidateDuplicateReasons(item, query)
-		if kind == "" {
-			continue
-		}
-		if !candidateVisible(scope, item) {
-			if kind == "exact" {
-				hidden = true
-			}
-			continue
-		}
-		matches = append(matches, CandidateDuplicateMatch{s.decorateLibraryCandidateLocked(item), kind, reasons})
+		items = append(items, s.decorateLibraryCandidateLocked(item))
 	}
-	sort.Slice(matches, func(i, j int) bool {
-		if matches[i].MatchType != matches[j].MatchType {
-			return matches[i].MatchType == "exact"
-		}
-		return matches[i].Candidate.CreatedAt.After(matches[j].Candidate.CreatedAt)
-	})
-	if len(matches) > 20 {
-		matches = matches[:20]
-	}
+	matches, hidden := selectCandidateDuplicateMatches(scope, query, items)
 	return matches, hidden, nil
 }
 
@@ -136,7 +115,7 @@ func (s *MemoryCandidateStore) ListCandidateRecommendations(scope CandidateLibra
 }
 
 // SaveCandidateRecommendation 同一岗位只建立一条关系，每次明确推进追加历史。
-func (s *MemoryCandidateStore) SaveCandidateRecommendation(scope CandidateLibraryScope, id string, position Position, stage, content, key string) (CandidateRecommendation, error) {
+func (s *MemoryCandidateStore) SaveCandidateRecommendation(scope CandidateLibraryScope, id string, position Position, stage, content, key string, occurredAt ...time.Time) (CandidateRecommendation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	candidate, ok := s.profiles[id]
@@ -145,7 +124,7 @@ func (s *MemoryCandidateStore) SaveCandidateRecommendation(scope CandidateLibrar
 	}
 	operation := "recommendation:" + id + ":" + position.ID
 	requestID := candidateRequestKey(scope, operation, key)
-	fingerprint := candidateFingerprint([]string{stage, content})
+	fingerprint := candidateRecommendationFingerprint(stage, content, occurredAt)
 	relationKey := id + "|" + position.ID
 	item, exists := s.recommendations[relationKey]
 	if receipt, ok := s.requests[requestID]; requestID != "" && ok {
@@ -157,9 +136,15 @@ func (s *MemoryCandidateStore) SaveCandidateRecommendation(scope CandidateLibrar
 	if !exists {
 		item = CandidateRecommendation{ID: s.nextID("recommendation"), CandidateID: id, PositionID: position.ID, PositionName: position.Name, AuthorEmail: scope.UserEmail, AuthorName: scope.AuthorName, CreatedAt: s.now(), Events: []CandidateRecommendationEvent{}}
 	}
-	if !exists || item.Stage != stage || content != "" {
-		event := CandidateRecommendationEvent{ID: s.nextID("recommendation_event"), FromStage: item.Stage, ToStage: stage, Content: content, AuthorEmail: scope.UserEmail, AuthorName: scope.AuthorName, CreatedAt: s.now()}
+	if !exists || item.Stage != stage || content != "" || (len(occurredAt) > 0 && !occurredAt[0].IsZero()) {
+		event := CandidateRecommendationEvent{ID: s.nextID("recommendation_event"), FromStage: item.Stage, ToStage: stage, Content: content, AuthorEmail: scope.UserEmail, AuthorName: scope.AuthorName, CreatedAt: s.now(), OccurredAt: candidateRecommendationTime(occurredAt, s.now())}
 		item.Events = append([]CandidateRecommendationEvent{event}, item.Events...)
+		sort.SliceStable(item.Events, func(i, j int) bool {
+			if !item.Events[i].OccurredAt.Equal(item.Events[j].OccurredAt) {
+				return item.Events[i].OccurredAt.After(item.Events[j].OccurredAt)
+			}
+			return item.Events[i].CreatedAt.After(item.Events[j].CreatedAt)
+		})
 		item.Stage = stage
 		item.UpdatedAt = s.now()
 	}
@@ -186,14 +171,9 @@ func (s *MemoryCandidateStore) recommendationsLocked(id string) []CandidateRecom
 // decorateLibraryCandidateLocked 补齐列表备注与推荐摘要。
 func (s *MemoryCandidateStore) decorateLibraryCandidateLocked(item PositionCandidate) PositionCandidate {
 	item.Recommendations = s.recommendationsLocked(item.ID)
-	item.Notes = []CandidateNote{}
-	events := s.events[item.ID]
-	for i := len(events) - 1; i >= 0 && len(item.Notes) < 2; i-- {
-		event := events[i]
-		if event.EventType == "manual_note" {
-			email := stringFromMap(event.Metadata, "author_email")
-			item.Notes = append(item.Notes, CandidateNote{ID: event.ID, CandidateID: item.ID, Content: event.MessageText, AuthorEmail: email, AuthorName: firstNonEmpty(stringFromMap(event.Metadata, "author_name"), email), CreatedAt: event.CreatedAt})
-		}
+	item.Notes = s.candidateNotesLocked(item.ID)
+	if len(item.Notes) > 2 {
+		item.Notes = item.Notes[:2]
 	}
 	return item
 }

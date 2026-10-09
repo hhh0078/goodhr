@@ -7,9 +7,12 @@ const avatar = globalThis.GoodHRAvatar;
 const snapshots = new Map();
 let restoreAttempted = false;
 let authGeneration = 0, revokeInFlight = null, lastRevokeAttempt = 0;
+const duplicateCache = new Map(), captureTimers = new Map();
+let draftQueue = Promise.resolve();
+const refreshRequests = new Map();
 
 /** readSettings 读取插件私有登录与配对信息，不读取任何网站缓存。 */
-async function readSettings() { return extension.storage.local.get(["session", "installation_id", "pairing_token", "local_port", "pending_pair", "pending_revoke", "data_use_accepted"]); }
+async function readSettings() { return extension.storage.local.get(["session", "installation_id", "pairing_token", "pairing_account_key", "local_port", "pending_pair", "pending_revoke", "data_use_accepted"]); }
 
 /** requestJSON 请求固定白名单地址并限制超时，拒绝重定向至其他域名。 */
 async function requestJSON(url, options = {}) {
@@ -30,7 +33,7 @@ async function storeSession(result, expectedGeneration = authGeneration, pairing
     await queueCancelledSession(result.token, pairingGrant);
     throw new Error("这次登录已经被退出取消，不会自动恢复");
   }
-  await extension.storage.local.set({ session: { token: result.token, expires_at: result.expires_at, user: result.user }, ...(pairingGrant ? { pairing_token: pairingGrant.pairing_token } : {}) });
+  await extension.storage.local.set({ session: { token: result.token, expires_at: result.expires_at, user: result.user }, ...(pairingGrant ? { pairing_token: pairingGrant.pairing_token, pairing_account_key: accountKey({ session: { user: result.user } }) } : {}) });
   if (expectedGeneration !== authGeneration) {
     const settings = await readSettings();
     if (settings.session?.token === result.token) await extension.storage.local.remove("session");
@@ -94,12 +97,13 @@ async function retryRevocation(force = false) {
 /** logout 先退出本机使用态，再独立撤销两端授权，任何失败均明确返回待撤销状态。 */
 async function logout() {
   authGeneration++; restoreAttempted = true;
+  duplicateCache.clear(); for (const timer of captureTimers.values()) clearTimeout(timer); captureTimers.clear();
   if (revokeInFlight) await revokeInFlight;
   const settings = await readSettings(), pending = settings.pending_revoke || { cloud_tokens: [], created_at: Date.now() };
   if (settings.session?.token) pending.cloud_tokens = [...new Set([...(pending.cloud_tokens || []), settings.session.token])];
   if (settings.pairing_token) { pending.pairing_token = settings.pairing_token; pending.installation_id = settings.installation_id; pending.local_port = settings.local_port || 43129; }
   if (pending.pairing_token || pending.cloud_tokens?.length) await extension.storage.local.set({ pending_revoke: pending });
-  await extension.storage.local.remove(["session", "pairing_token", "pending_pair"]); snapshots.clear();
+  await extension.storage.local.remove(["session", "pairing_token", "pairing_account_key", "pending_pair"]); snapshots.clear();
   return retryRevocation(true);
 }
 
@@ -117,13 +121,26 @@ async function cloudRequest(path, body, method, retry = true, expectedGeneration
     if (error.status === 401 && retry && path !== "/api/auth/extension-refresh") {
       if (generation !== authGeneration) throw new Error("账号已经变化，本次操作已停止，请确认账号后重新保存");
       try {
-        const refreshed = await requestJSON(shared.CLOUD_BASE + "/api/auth/extension-refresh", { method: "POST", headers: { Authorization: `Bearer ${settings.session.token}` }, body: "{}" });
-        await storeSession(refreshed, generation);
+        await refreshSession(settings.session.token, generation);
       } catch { if ((await readSettings()).session?.token === settings.session.token) await extension.storage.local.remove("session"); throw new Error("登录已经过期，请重新登录，我保留了当前表单"); }
       return cloudRequest(path, body, method, false, generation);
     }
     throw error;
   }
+}
+
+/** refreshSession 同一账号代次和旧token只刷新一次，并发401复用已更新的受限会话。 */
+async function refreshSession(oldToken, generation) {
+  const settings = await readSettings();
+  if (generation !== authGeneration) throw new Error("账号已经变化，不会恢复旧账号登录");
+  if (settings.session?.token && settings.session.token !== oldToken) return;
+  const key = JSON.stringify([generation, oldToken]);
+  let pending = refreshRequests.get(key);
+  if (!pending) {
+    pending = (async () => { const result = await requestJSON(shared.CLOUD_BASE + "/api/auth/extension-refresh", { method: "POST", headers: { Authorization: `Bearer ${oldToken}` }, body: "{}" }); await storeSession(result, generation); })();
+    refreshRequests.set(key, pending);
+  }
+  try { await pending; } finally { if (refreshRequests.get(key) === pending) refreshRequests.delete(key); }
 }
 
 /** localBase 仅允许本机 127.0.0.1 的合法端口作为配对目标。 */
@@ -144,7 +161,7 @@ async function tryRestore() {
   if (settings.pending_revoke || restoreAttempted || settings.session?.token || !settings.pairing_token) return;
   const generation = authGeneration;
   restoreAttempted = true;
-  try { await storeSession(await localRequest("/api/v1/extensions/session/restore", { installation_id: await ensureInstallation(), pairing_token: settings.pairing_token }), generation); }
+  try { await storeSession(await localRequest("/api/v1/extensions/session/restore", { installation_id: await ensureInstallation(), pairing_token: settings.pairing_token }), generation, { pairing_token: settings.pairing_token, installation_id: settings.installation_id, local_port: settings.local_port || 43129 }); }
   catch { /* 本地程序未运行或账号变化时，界面仍可手动登录。 */ }
 }
 
@@ -170,9 +187,15 @@ async function checkPair() {
   const result = await localRequest("/api/v1/extensions/pair/status", { installation_id: pending.installation_id, challenge: pending.challenge, pairing_id: pending.pairing_id });
   if (result.status === "approved") {
     const settings = await readSettings();
+    const grant = result.pairing_token ? { pairing_token: result.pairing_token, installation_id: pending.installation_id, local_port: settings.local_port || 43129 } : null;
+    if (generation === authGeneration && settings.session?.user && accountKey(settings) !== accountKey({ session: { user: result.user } })) {
+      await extension.storage.local.remove("pending_pair"); await queueCancelledSession(result.token, grant); await retryRevocation(true);
+      throw new Error("本地和插件账号不同，请先退出当前账号再连接。新连接授权已停止使用，撤销失败可点重试撤销");
+    }
     const sessionGeneration = generation === authGeneration ? ++authGeneration : generation;
-    await storeSession(result, sessionGeneration, result.pairing_token ? { pairing_token: result.pairing_token, installation_id: pending.installation_id, local_port: settings.local_port || 43129 } : null);
+    await storeSession(result, sessionGeneration, grant);
     await extension.storage.local.remove("pending_pair");
+    if (settings.session?.token && settings.session.token !== result.token && sessionGeneration === authGeneration) { await queueCancelledSession(settings.session.token); await retryRevocation(true); }
     restoreAttempted = false;
   }
   return { status: result.status };
@@ -207,7 +230,69 @@ async function prepareAvatar(captureID) {
 /** publicState 返回不含 token、配对令牌、挑战值的界面状态。 */
 async function publicState() {
   await retryRevocation(); await tryRestore(); const settings = await readSettings();
-  return { logged_in: Boolean(settings.session?.token), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), resume: publicResume(await currentSnapshot()), version: extension.runtime.getManifest().version };
+  return { logged_in: Boolean(settings.session?.token), account_key: accountKey(settings), paired: Boolean(settings.pairing_token && !settings.pending_revoke), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), resume: publicResume(await currentSnapshot()), version: extension.runtime.getManifest().version };
+}
+
+/** accountKey 用公开账号标识隔离草稿和迟到界面请求，不包含任何凭证。 */
+function accountKey(settings) { return settings.session?.user ? JSON.stringify([settings.session.user.id || "", settings.session.user.email || ""]) : "preview"; }
+
+/** checkDuplicates 合并相同条件的并发查重，短期缓存不跨账号或不同候选人。 */
+async function checkDuplicates(payload) {
+  const generation = payload.expected_generation ?? authGeneration; await requireConsent(); await requireActiveSession();
+  const input = shared.duplicateInput(payload.resume, payload.keyword, payload.exclude_id), key = JSON.stringify([generation, input]);
+  const cached = duplicateCache.get(key); if (!payload.force && cached && Date.now() - cached.time < 15000) return cached.promise;
+  const promise = cloudRequest("/api/candidates/duplicates", input, "POST", true, generation);
+  duplicateCache.set(key, { time: Date.now(), promise }); if (duplicateCache.size > 40) duplicateCache.delete(duplicateCache.keys().next().value);
+  try { return await promise; } catch (error) { if (duplicateCache.get(key)?.promise === promise) duplicateCache.delete(key); throw error; }
+}
+
+/** scheduleCaptureCheck 捕获后自动查重，只在已登录且同意数据用途时发出有限身份查询。 */
+function scheduleCaptureCheck(tabID, resume) {
+  clearTimeout(captureTimers.get(tabID)); if (!resume) return;
+  const generation = authGeneration;
+  captureTimers.set(tabID, setTimeout(async () => {
+    captureTimers.delete(tabID);
+    try {
+      const settings = await readSettings(); if (!settings.session?.token || !settings.data_use_accepted || generation !== authGeneration || snapshots.get(tabID)?.capture_id !== resume.capture_id) return;
+      const result = await checkDuplicates({ resume }); if (generation !== authGeneration || snapshots.get(tabID)?.capture_id !== resume.capture_id) return;
+      const state = shared.classifyDuplicates(result, resume.phone); extension.action.setBadgeText({ tabId: tabID, text: state.state === "existing" ? "✓" : state.state === "possible" || state.state === "hidden" ? "?" : "+" }); extension.action.setTitle({ tabId: tabID, title: `GoodHR：${state.title}` });
+    } catch { /* 后台自动查询失败只保留可读取徽标；打开界面后会明确显示并允许重试。 */ }
+  }, 450));
+}
+
+/** performDraftOperation 读取24小时内的私有草稿，切账号后拒绝旧界面写入。 */
+async function performDraftOperation(payload, saving) {
+  const generation = authGeneration, settings = await readSettings(), account = accountKey(settings), identity = shared.cleanText(payload.identity, 1500);
+  if (!identity || payload.account_key !== account) throw Object.assign(new Error("账号或候选人已经变化，旧草稿不会带到当前账号"), { code: "DRAFT_SCOPE_CHANGED" });
+  const stored = await extension.storage.local.get(["ui_drafts"]), drafts = Object.fromEntries(Object.entries(stored.ui_drafts || {}).filter(([, item]) => Date.now() - item.updated_at < 86400000));
+  if (generation !== authGeneration) throw Object.assign(new Error("账号已经变化，旧草稿已停止读取"), { code: "DRAFT_SCOPE_CHANGED" });
+  const key = JSON.stringify([account, identity]);
+  if (!saving) { if (Object.keys(drafts).length !== Object.keys(stored.ui_drafts || {}).length) await extension.storage.local.set({ ui_drafts: drafts }); return { draft: drafts[key]?.data || null }; }
+  if (generation !== authGeneration) throw Object.assign(new Error("账号已经变化，旧草稿已停止保存"), { code: "DRAFT_SCOPE_CHANGED" });
+  const data = payload.draft || {}, fields = {};
+  const frozenSource = data.summary_source ? shared.stripSummaryContacts(data.summary_source) : null;
+  if (frozenSource && new TextEncoder().encode(JSON.stringify(frozenSource)).byteLength > 1024 * 1024) throw new Error("这份总结职业资料超过1MiB，本地草稿没保存，请先整理履历后再生成");
+  for (const name of ["name", "phone", "candidate-email", "city", "position", "expected-position", "duplicate-keyword", "job-filter", "job", "stage", "note", "note-time", "recommendation-note", "recommendation-time"]) fields[name] = shared.cleanText(data.fields?.[name], name.includes("note") ? 12000 : 500);
+  drafts[key] = { updated_at: Date.now(), data: { fields, edited: Array.isArray(data.edited) ? data.edited.filter((item) => Object.hasOwn(fields, item)) : [], keys: Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((item) => [item, shared.cleanText(data.keys?.[item], 100)])), ai_summary: shared.cleanText(data.ai_summary, 12000), summary_task: data.summary_task?.id ? { id: shared.cleanText(data.summary_task.id, 100), status: shared.cleanText(data.summary_task.status, 40), possibly_charged: data.summary_task.possibly_charged === true } : null, summary_unknown: data.summary_unknown === true, summary_source: frozenSource } };
+  const entries = Object.entries(drafts).sort(([left, a], [right, b]) => left === key ? -1 : right === key ? 1 : b.updated_at - a.updated_at).slice(0, 30);
+  while (entries.length > 1 && new TextEncoder().encode(JSON.stringify(Object.fromEntries(entries))).byteLength > 3 * 1024 * 1024) entries.pop();
+  await extension.storage.local.set({ ui_drafts: Object.fromEntries(entries) }); return { ok: true };
+}
+
+/** draftOperation 串行化不同弹窗的本地草稿读写，避免丢失另一个候选人的输入。 */
+function draftOperation(payload, saving) { const operation = draftQueue.then(() => performDraftOperation(payload, saving)); draftQueue = operation.catch(() => {}); return operation; }
+
+/** summaryOperation 使用配对授权请求本地AI摘要，不把网页登录凭证或招聘缓存交给AI。 */
+async function summaryOperation(payload, action) {
+  const generation = payload.expected_generation ?? authGeneration; await requireConsent(); const settings = await readSettings();
+  if (!settings.session?.token || !settings.pairing_token || settings.pending_revoke || settings.pairing_account_key !== accountKey(settings)) throw new Error("AI总结需要连接同账号的本地程序，请在上方“连接本地程序”完成一次配对，其它功能可以继续用");
+  if (generation !== authGeneration) throw new Error("账号已经变化，本次AI请求已停止");
+  const body = { installation_id: settings.installation_id, pairing_token: settings.pairing_token, request_key: shared.cleanText(payload.request_key, 100) };
+  let path = "/api/v1/extensions/resume-summary";
+  if (action === "start") { if (!body.request_key) throw new Error("这次总结缺少标识，请重新点击"); body.candidate = shared.stripSummaryContacts(payload.resume); }
+  else { if (!payload.task_id || !/^[A-Za-z0-9_-]{1,100}$/.test(payload.task_id)) throw new Error("总结记录没有找到，请重新发起"); path += `/${encodeURIComponent(payload.task_id)}${action === "poll" ? "" : "/" + action}`; }
+  const result = await requestJSON(localBase(settings) + path, { method: "POST", body: JSON.stringify(body) });
+  if (generation !== authGeneration) throw new Error("账号已经变化，旧AI结果已停止展示"); return result;
 }
 
 /** requireConsent 在任何云端业务提交前检查用户的简历数据授权。 */
@@ -215,7 +300,7 @@ async function requireConsent() { if (!(await readSettings()).data_use_accepted)
 
 /** createCandidate 在后端再校验手机号，并用幂等键防止连续点击重复添加。 */
 async function createCandidate(payload, updating = false) {
-  const generation = authGeneration;
+  const generation = payload.expected_generation ?? authGeneration;
   await requireConsent(); await requireActiveSession(); const resume = updating ? shared.nonEmptyResumePatch(payload.resume) : shared.sanitizeResume(payload.resume);
   if (generation !== authGeneration) throw new Error("账号已经变化，本次保存已停止，请确认账号后重新保存");
   if (!resume.candidate_name || !resume.phone) throw new Error("姓名和完整手机号都填一下，我才能认真入库");
@@ -236,7 +321,7 @@ async function createCandidate(payload, updating = false) {
 
 /** retryAvatar 仅更新选定候选人的头像，独立幂等重试，不重建简历或备注。 */
 async function retryAvatar(payload) {
-  const generation = authGeneration;
+  const generation = payload.expected_generation ?? authGeneration;
   await requireConsent(); await requireActiveSession();
   if (generation !== authGeneration) throw new Error("账号已经变化，本次头像保存已停止，请确认账号后重试");
   if (!payload.candidate_id || !payload.row_version || !payload.idempotency_key) throw new Error("请重新查重选择候选人，再重试头像");
@@ -248,11 +333,12 @@ async function retryAvatar(payload) {
 
 /** handleUIMessage 接收插件界面的明确操作，所有接口固定而非通用代理。 */
 async function handleUIMessage(message) {
-  const payload = message.payload || {};
+  const generation = authGeneration, payload = { ...(message.payload || {}), expected_generation: generation };
+  if (["POSITIONS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE"].includes(message.type) && payload.account_key) { const generation = authGeneration, settings = await readSettings(); if (generation !== authGeneration || payload.account_key !== accountKey(settings)) throw new Error("账号已经变化，本次操作已停止，请确认账号后继续"); }
   switch (message.type) {
     case "STATE": return publicState();
     case "PREVIEW": return { resume: publicResume(await currentSnapshot()), version: extension.runtime.getManifest().version };
-    case "CONSENT": await extension.storage.local.set({ data_use_accepted: payload.accepted === true }); return { ok: true };
+    case "CONSENT": if (!payload.accepted) { authGeneration++; duplicateCache.clear(); } await extension.storage.local.set({ data_use_accepted: payload.accepted === true }); if (payload.accepted) { const snapshot = await currentSnapshot(), tab = await activeTab(); if (tab?.id && snapshot) scheduleCaptureCheck(tab.id, snapshot); } return { ok: true };
     case "SEND_CODE": return requestJSON(shared.CLOUD_BASE + "/api/auth/extension-send-code", { method: "POST", body: JSON.stringify({ email: shared.cleanText(payload.email, 120) }) });
     case "LOGIN": {
       const generation = ++authGeneration;
@@ -265,22 +351,30 @@ async function handleUIMessage(message) {
     case "REVOKE_RETRY": return retryRevocation(true);
     case "PAIR_START": return beginPair(payload.port);
     case "PAIR_CHECK": return checkPair();
-    case "RESTORE": restoreAttempted = false; await tryRestore(); return publicState();
-    case "POSITIONS": return cloudRequest("/api/positions");
-    case "DUPLICATES": {
-      await requireConsent(); const resume = shared.sanitizeResume(payload.resume);
-      return cloudRequest("/api/candidates/duplicates", { phone: resume.phone, candidate_name: resume.candidate_name, platform_id: resume.platform_id, platform_candidate_id: resume.platform_candidate_id, keyword: shared.cleanText(payload.keyword, 200), exclude_id: payload.exclude_id || "" });
-    }
+    case "RESTORE": if ((await readSettings()).session?.token) return { ...(await publicState()), existing_session: true }; restoreAttempted = false; await tryRestore(); return publicState();
+    case "POSITIONS": return cloudRequest("/api/positions", null, "GET", true, generation);
+    case "DUPLICATES": return checkDuplicates(payload);
+    case "DRAFT_GET": return draftOperation(payload, false);
+    case "DRAFT_SAVE": return draftOperation(payload, true);
+    case "CHECK_UPDATE": { const result = await requestJSON(shared.CLOUD_BASE + "/api/system/browser-extension"); const release = result.release || {}; return { latest_version: shared.cleanText(release.version, 50), note: shared.cleanText(release.note, 1000), update_available: shared.compareVersions(release.version, extension.runtime.getManifest().version) > 0, url: shared.CLOUD_BASE + "/download#browser-extension" }; }
+    case "SUMMARY_START": return summaryOperation(payload, "start");
+    case "SUMMARY_POLL": return summaryOperation(payload, "poll");
+    case "SUMMARY_CANCEL": return summaryOperation(payload, "cancel");
+    case "SUMMARY_RETRY": return summaryOperation(payload, "retry");
+    case "SUMMARY_SAVE": { await requireConsent(); if (!payload.candidate_id || !payload.row_version || !payload.ai_summary || !payload.idempotency_key) throw new Error("请先选择已有简历，再保存总结"); return cloudRequest(`/api/candidates/${encodeURIComponent(payload.candidate_id)}`, { ai_summary: shared.cleanText(payload.ai_summary, 12000), row_version: payload.row_version, idempotency_key: shared.cleanText(payload.idempotency_key, 100) }, "PATCH", true, generation); }
     case "CREATE": return createCandidate(payload);
     case "UPDATE": return createCandidate(payload, true);
     case "AVATAR_RETRY": return retryAvatar(payload);
     case "DETAIL": {
+      await requireConsent();
       const path = `/api/candidates/${encodeURIComponent(payload.candidate_id)}`;
-      const [notes, recommendations] = await Promise.all([cloudRequest(path + "/notes"), cloudRequest(path + "/recommendations")]); return { ...notes, ...recommendations };
+      const [notes, recommendations] = await Promise.allSettled([cloudRequest(path + "/notes", null, "GET", true, generation), cloudRequest(path + "/recommendations", null, "GET", true, generation)]);
+      if (generation !== authGeneration) throw new Error("账号已经变化，旧记录已停止展示");
+      return { ...(notes.status === "fulfilled" ? notes.value : { notes: [], notes_error: notes.reason.message }), ...(recommendations.status === "fulfilled" ? recommendations.value : { recommendations: [], recommendations_error: recommendations.reason.message }) };
     }
     case "FOLLOWUPS": {
       await requireConsent(); if (!payload.candidate_id) throw new Error("先选择候选人，再保存备注或岗位");
-      return shared.saveFollowups((path, body) => cloudRequest(path, body), payload.candidate_id, { note: payload.note, position_id: payload.position_id, note_key: payload.note_key, recommendation_key: payload.recommendation_key });
+      return shared.saveFollowups((path, body) => cloudRequest(path, body, "POST", true, generation), payload.candidate_id, payload);
     }
     case "OPEN_SIDEBAR": {
       const tab = await activeTab();
@@ -306,6 +400,7 @@ function onMessage(message, sender, sendResponse) {
       const old = snapshots.get(sender.tab.id), { capture_id, ...oldResume } = old || {};
       resume.capture_id = old && JSON.stringify(oldResume) === JSON.stringify(resume) ? capture_id : shared.newKey();
       snapshots.set(sender.tab.id, resume);
+      if (resume.capture_id !== old?.capture_id) scheduleCaptureCheck(sender.tab.id, resume);
     } else snapshots.delete(sender.tab.id);
     extension.action.setBadgeText({ tabId: sender.tab.id, text: resume?.candidate_name ? "+" : "" });
     extension.action.setBadgeBackgroundColor({ tabId: sender.tab.id, color: "#8A6721" });
@@ -318,6 +413,6 @@ function onMessage(message, sender, sendResponse) {
 }
 
 extension.runtime.onMessage.addListener(onMessage);
-extension.tabs.onRemoved.addListener((tabID) => snapshots.delete(tabID));
-extension.tabs.onUpdated.addListener((tabID, change) => { if (change.url) snapshots.delete(tabID); });
+extension.tabs.onRemoved.addListener((tabID) => { snapshots.delete(tabID); clearTimeout(captureTimers.get(tabID)); captureTimers.delete(tabID); });
+extension.tabs.onUpdated.addListener((tabID, change) => { if (change.url) { snapshots.delete(tabID); clearTimeout(captureTimers.get(tabID)); captureTimers.delete(tabID); } });
 if (extension.storage.local.setAccessLevel) extension.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });

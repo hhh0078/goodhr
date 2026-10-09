@@ -8,11 +8,11 @@
   /** cleanText 将不可信文本限制长度并去除空白首尾。 */
   function cleanText(value, limit = 2000) { return String(value ?? "").trim().slice(0, limit); }
 
-  /** normalizePhone 校验完整大陆手机号，兼容 +86 和空格，拒绝掩码与混入编号。 */
+  /** normalizePhone 校验完整大陆号或明确国际号，拒绝掩码与混入业务编号。 */
   function normalizePhone(value) {
     let text = cleanText(value, 80).replace(/[\s()-]/g, "");
-    if (/^\+?86/.test(text) && text.length > 11) text = text.replace(/^\+?86/, "");
-    return /^1[3-9]\d{9}$/.test(text) ? text : "";
+    if (/^(?:\+86|0086)/.test(text)) return /^1[3-9]\d{9}$/.test(text.replace(/^(?:\+86|0086)/, "")) ? text.replace(/^(?:\+86|0086)/, "") : "";
+    return /^1[3-9]\d{9}$/.test(text) || /^\+[1-9]\d{6,14}$/.test(text) ? text : "";
   }
 
   /** platformForURL 按 HTTPS 精确域名判断采集平台，拒绝相似域名。 */
@@ -48,6 +48,36 @@
 
   /** newKey 为每次用户明确发起的保存生成独立幂等键。 */
   function newKey() { return root.crypto.randomUUID(); }
+
+  /** resumeIdentity 使用平台编号或明确姓名线索隔离草稿，人工补手机号不会切换候选人。 */
+  function resumeIdentity(resume) {
+    if (!resume?.candidate_name) return "";
+    return JSON.stringify([resume.platform_id || "", resume.platform_candidate_id || "", resume.source_url || "", resume.candidate_name, ...(resume.platform_candidate_id ? [] : [resume.birth_ym || "", resume.educations?.[0]?.school_name || ""])]);
+  }
+
+  /** duplicateInput 只向查重接口提交手机号与结构化身份依据，不上传头像或全文。 */
+  function duplicateInput(input, keyword = "", excludeID = "") {
+    const resume = sanitizeResume(input);
+    return { phone: resume.phone, candidate_name: resume.candidate_name, platform_id: resume.platform_id, platform_candidate_id: resume.platform_candidate_id, gender: resume.gender, age: resume.age, birth_ym: resume.birth_ym, work_experiences: resume.work_experiences.map(({ company_name, start_ym }) => ({ company_name, start_ym })), educations: resume.educations.map(({ school_name, start_ym }) => ({ school_name, start_ym })), keyword: cleanText(keyword, 200), exclude_id: cleanText(excludeID, 100) };
+  }
+
+  /** classifyDuplicates 仅唯一精确命中允许自动选择，相似和多条命中都留给用户确认。 */
+  function classifyDuplicates(result, phone) {
+    const matches = result?.matches || [], exact = matches.filter((item) => item.match_type === "exact" && item.candidate?.id);
+    if (result?.hidden_match) return { state: "hidden", title: "有重复资料暂时无权查看", selected: null };
+    if (matches.length === 1 && exact.length === 1) return { state: "existing", title: "已入库，可以更新或单独加备注", selected: exact[0].candidate };
+    if (matches.length) return { state: "possible", title: exact.length ? "有多条精确线索，请确认对应简历" : "可能重复，请确认是不是同一个人", selected: null };
+    return { state: phone ? "new" : "no-phone", title: phone ? "未入库，可以添加简历" : "没有找到已有资料，手机号还需要补一下", selected: null };
+  }
+
+  /** compareVersions 比较三段正式版本，开发新版本不会因线上旧配置被锁定。 */
+  function compareVersions(left, right) { if (!/^\d+\.\d+\.\d+$/.test(left || "") || !/^\d+\.\d+\.\d+$/.test(right || "")) return 0; const a = left.split(".").map(Number), b = right.split(".").map(Number); for (let index = 0; index < 3; index++) if (a[index] !== b[index]) return a[index] > b[index] ? 1 : -1; return 0; }
+
+  /** stripSummaryContacts 移除摘要请求的姓名联系方式及来源编号，保留履历内容。 */
+  function stripSummaryContacts(input) { const resume = sanitizeResume(input); for (const key of ["candidate_name", "phone", "email", "avatar_data_url", "source_url", "platform_candidate_id"]) delete resume[key]; return resume; }
+
+  /** summaryAction 根据任务与职业资料判断恢复、等待、明确重试或生成新草稿。 */
+  function summaryAction(task, unknown, original, current) { if (unknown) return "recover"; if (["queued", "running"].includes(task?.status)) return "wait"; const changed = original && JSON.stringify(stripSummaryContacts(original)) !== JSON.stringify(stripSummaryContacts(current)); if (["failed", "cancelled"].includes(task?.status)) return changed ? "changed" : "retry"; return task?.status === "completed" ? "new" : "start"; }
 
   /** sanitizeResume 只接受候选人资料白名单，拒绝运行态、Cookie 和页面未知数据。 */
   function sanitizeResume(input = {}) {
@@ -120,20 +150,23 @@
     if (note && Array.from(note).length > 1000) result.errors.push({ kind: "note", message: "备注超过1000字，原文保留了，请缩短或分次记录" });
     else if (note) {
       try {
-        await request(`/api/candidates/${encodeURIComponent(candidateID)}/notes`, { content: note, idempotency_key: draft.note_key });
+        await request(`/api/candidates/${encodeURIComponent(candidateID)}/notes`, { content: note, idempotency_key: draft.note_key, ...(draft.note_time ? { occurred_at: draft.note_time } : {}) });
         result.notes_saved = true;
       } catch (error) { result.errors.push({ kind: "note", message: error.message || "备注没有保存成功" }); }
     }
-    if (draft.position_id) {
+    const recommendation = String(draft.recommendation_note ?? "").trim();
+    if (draft.position_id && Array.from(recommendation).length > 1000) result.errors.push({ kind: "recommendation", message: "推荐备注超过1000字，原文保留了，请缩短或分次记录" });
+    else if (draft.position_id) {
       try {
-        await request(`/api/candidates/${encodeURIComponent(candidateID)}/recommendations`, { position_id: draft.position_id, stage: "draft", idempotency_key: draft.recommendation_key });
+        if (draft.stage && !STAGES[draft.stage]) throw new Error("推荐状态没选好，请重新选择");
+        await request(`/api/candidates/${encodeURIComponent(candidateID)}/recommendations`, { position_id: draft.position_id, stage: draft.stage || "draft", content: recommendation, idempotency_key: draft.recommendation_key, ...(draft.recommendation_time ? { occurred_at: draft.recommendation_time } : {}) });
         result.recommendation_saved = true;
       } catch (error) { result.errors.push({ kind: "recommendation", message: error.message || "岗位没有关联成功" }); }
     }
     return result;
   }
 
-  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, normalizePhone, platformForURL, safeSourceURL, safeAvatarSource, validStoredAvatar, newKey, sanitizeResume, nonEmptyResumePatch, describeResumeChanges, saveFollowups };
+  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, normalizePhone, platformForURL, safeSourceURL, safeAvatarSource, validStoredAvatar, newKey, resumeIdentity, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, describeResumeChanges, saveFollowups };
   root.GoodHRShared = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

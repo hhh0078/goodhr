@@ -15,7 +15,7 @@ import (
 )
 
 // candidatePostgresTestDB 创建独立测试schema，必须是回环地址且数据库名以_test结尾。
-func candidatePostgresTestDB(t *testing.T) *sql.DB {
+func candidatePostgresTestDB(t *testing.T, beforeNotes ...bool) *sql.DB {
 	t.Helper()
 	dsn := os.Getenv("GOODHR_CANDIDATE_TEST_DSN")
 	if dsn == "" {
@@ -47,7 +47,10 @@ func candidatePostgresTestDB(t *testing.T) *sql.DB {
 	if _, err = db.Exec(setup); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"0028_candidate_profile_engagement_events.sql", "0050_simplify_candidate_resume_schema.sql", "0084_candidate_library_upgrade.sql"} {
+	for _, name := range []string{"0028_candidate_profile_engagement_events.sql", "0050_simplify_candidate_resume_schema.sql", "0084_candidate_library_upgrade.sql", "0086_candidate_notes.sql"} {
+		if name == "0086_candidate_notes.sql" && len(beforeNotes) > 0 && beforeNotes[0] {
+			continue
+		}
 		raw, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", name))
 		if err != nil {
 			t.Fatal(err)

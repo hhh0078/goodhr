@@ -6,8 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, loadRecommendations, loadResume, loadResumeNotes } from "@/lib/resume-api";
 import { formatDate } from "@/lib/admin-api";
-import { avatarSource, experienceLabel, recommendationStages, resumeAge, salaryLabel, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeExperience, type ResumeNote } from "@/lib/resume-types";
+import { avatarSource, experienceLabel, recommendationStages, recordTime, resumeAge, salaryLabel, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeExperience, type ResumeNote } from "@/lib/resume-types";
 import ResumeEditor from "./ResumeEditor";
+import ResumeSummaryDialog from "./ResumeSummaryDialog";
 import styles from "./resumes.module.css";
 
 /** ResumeWorkspace 在详情地址与抽屉间复用同一候选人记录和维护入口。 */
@@ -21,6 +22,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(initialTab);
   const [note, setNote] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
@@ -45,7 +47,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
     setLoading(false);
   }
   useEffect(() => {
-    setCandidate(null); setNotes([]); setRecommendations([]); setNote(""); setActiveTab(initialTab);
+    setCandidate(null); setNotes([]); setRecommendations([]); setNote(""); setActiveTab(initialTab); setSummaryOpen(false);
     setPositionID(undefined); setStage("draft"); setRecommendationNote("");
     noteKey.current = crypto.randomUUID(); recommendationKey.current = crypto.randomUUID();
     void reload();
@@ -82,7 +84,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   if (loading && !candidate) return <Skeleton active paragraph={{ rows: 8 }} />;
   if (!candidate) return <Alert type="warning" showIcon title={error || "这份简历暂时没读出来。"} action={<Button onClick={() => void reload()}>重试</Button>} />;
   const facts = [resumeAge(candidate), candidate.gender, candidate.education_level, candidate.work_years].filter(Boolean);
-  const autoEvents = candidate.events || [];
+  const autoEvents = (candidate.events || []).filter((event) => event.event_type !== "manual_note");
   const currentOptions = [...positions];
   for (const item of recommendations) if (!currentOptions.some((option) => option.id === item.position_id)) currentOptions.push({ id: item.position_id, name: `${item.position_name || "已删除岗位"}（历史记录）` });
   return <>
@@ -112,7 +114,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
         <ExperienceSection title="教育经历" items={candidate.educations || []} />
         {candidate.certificates?.length ? <TextSection title="证书" text={candidate.certificates.map((item) => [item.certificate_name, item.issued_by, item.issued_ym].filter(Boolean).join(" · ")).join("\n")} /> : null}
         {candidate.honors?.length ? <TextSection title="荣誉" text={candidate.honors.map((item) => [item.honor_name, item.issued_by, item.issued_ym, item.description].filter(Boolean).join(" · ")).join("\n")} /> : null}
-        {candidate.ai_summary ? <TextSection title="AI 简历摘要" text={candidate.ai_summary} /> : null}
+        <section className={styles.resumeSection}><Flex gap={8} justify="space-between" align="center" wrap><Typography.Title level={5} style={{ margin: 0 }}>AI 简历摘要</Typography.Title><Button size="small" onClick={() => setSummaryOpen(true)}>生成摘要</Button></Flex>{candidate.ai_summary ? <Typography.Paragraph className={styles.preWrap} style={{ marginTop: 12 }}>{candidate.ai_summary}</Typography.Paragraph> : <Typography.Text type="secondary">还没有摘要，点一下让本地AI帮忙整理。</Typography.Text>}</section>
         {candidate.raw_text ? <Collapse items={[{ key: "raw", label: "查看完整简历正文", children: <Typography.Paragraph className={styles.preWrap}>{candidate.raw_text}</Typography.Paragraph> }]} style={{ marginTop: 16 }} /> : null}
         <section className={styles.resumeSection}><Typography.Text type="secondary">{sourceLabel(candidate.source_type)} · 入库人：{candidate.creator_name || candidate.user_email || "暂时没记上"} · {candidate.created_at ? formatDate(candidate.created_at) : "入库时间待补充"}</Typography.Text>
           {(candidate.sources || []).map((source, index) => <div key={`${source.platform_id}-${index}`}><Typography.Text type="secondary">{sourceLabel(source.platform_id || source.source_type)}{source.source_url ? " · " : ""}</Typography.Text>{source.source_url && /^https?:\/\//.test(source.source_url) ? <a href={source.source_url} target="_blank" rel="noopener noreferrer">查看原页面</a> : null}</div>)}
@@ -122,7 +124,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
         { key: "notes", label: `备注 ${notes.length || ""}`, children: <Flex vertical gap={12}>
           <Input.TextArea value={note} onChange={(event) => { setNote(event.target.value); noteKey.current = crypto.randomUUID(); }} maxLength={1000} showCount disabled={noteBusy} autoSize={{ minRows: 3, maxRows: 8 }} placeholder="比如：意向不错，周五再约一次。" />
           <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} loading={noteBusy} disabled={!note.trim()} onClick={() => void saveNote()}>加备注</Button>
-          <div className={styles.recordHistory}>{notes.length ? notes.map((item) => <div key={item.id} className={styles.record}><Typography.Paragraph className={styles.preWrap}>{item.content}</Typography.Paragraph><Typography.Text type="secondary" className={styles.meta}>{item.author_name || item.author_email || "未记录操作人"} · {item.created_at ? formatDate(item.created_at) : ""}</Typography.Text></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没备注，先记一条也行。" />}</div>
+          <div className={styles.recordHistory}>{notes.length ? notes.map((item) => <div key={item.id} className={styles.record}><Typography.Paragraph className={styles.preWrap}>{item.content}</Typography.Paragraph><Typography.Text type="secondary" className={styles.meta} title={item.created_at ? `保存于 ${recordTime(item.created_at)}` : undefined}>{item.author_name || item.author_email || "未记录操作人"} · {(item.occurred_at || item.created_at) ? recordTime(item.occurred_at || item.created_at) : ""}</Typography.Text></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没备注，先记一条也行。" />}</div>
         </Flex> },
         { key: "recommendations", label: `推荐 ${recommendations.length || ""}`, children: <Flex vertical gap={12}>
           <Select aria-label="选择推荐岗位" showSearch optionFilterProp="label" placeholder="选择岗位" value={positionID} disabled={recommendationBusy} onChange={(value) => { setPositionID(value); const item = recommendations.find((current) => current.position_id === value); setStage(item?.stage || "draft"); recommendationKey.current = crypto.randomUUID(); }} options={currentOptions.map((item) => ({ value: item.id, label: item.name }))} />
@@ -133,17 +135,18 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
           <div className={styles.recordHistory}>{recommendations.length ? recommendations.map((item) => <div key={item.id} className={styles.record}>
             <Flex gap={8} justify="space-between" align="start"><Typography.Text strong>{item.position_name || "已删除岗位"}</Typography.Text><Tag>{stageLabel(item.stage)}</Tag></Flex>
             <Button type="link" size="small" onClick={() => editRecommendation(item)}>继续跟进</Button>
-            <Collapse size="small" items={[{ key: item.id, label: `推进记录 · ${item.events?.length || 0} 条`, children: <Timeline items={(item.events || []).map((event) => ({ children: <><Typography.Text>{stageLabel(event.from_stage)} → {stageLabel(event.to_stage)}</Typography.Text>{event.content ? <Typography.Paragraph className={styles.preWrap}>{event.content}</Typography.Paragraph> : null}<div className={styles.meta}>{event.author_name || event.author_email} · {event.created_at ? formatDate(event.created_at) : ""}</div></> }))} /> }]} />
+            <Collapse size="small" items={[{ key: item.id, label: `推进记录 · ${item.events?.length || 0} 条`, children: <Timeline items={(item.events || []).map((event) => ({ children: <><Typography.Text>{stageLabel(event.from_stage)} → {stageLabel(event.to_stage)}</Typography.Text>{event.content ? <Typography.Paragraph className={styles.preWrap}>{event.content}</Typography.Paragraph> : null}<div className={styles.meta} title={event.created_at ? `保存于 ${recordTime(event.created_at)}` : undefined}>{event.author_name || event.author_email} · {(event.occurred_at || event.created_at) ? recordTime(event.occurred_at || event.created_at) : ""}</div></> }))} /> }]} />
           </div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没关联岗位，选一个就能开始记记录。" />}</div>
         </Flex> },
         { key: "automation", label: "自动任务", children: <Flex vertical gap={12}>
           {candidate.engagement_id ? <><Typography.Text>岗位：{candidate.position_name || "未记录岗位"}</Typography.Text><Typography.Text type="secondary">任务状态：{candidate.engagement_status || "未记录"}</Typography.Text></> : null}
           <AIResult title="详情分析" value={candidate.ai?.detail} /><AIResult title="招呼分析" value={candidate.ai?.greet} />
-          {autoEvents.length ? <Timeline items={autoEvents.filter((event) => event.event_type !== "manual_note").map((event) => ({ children: <><Typography.Text>{String(event.message_text || event.event_type || "任务记录")}</Typography.Text><div className={styles.meta}>{event.created_at ? formatDate(String(event.created_at)) : ""}</div></> }))} /> : <Typography.Text type="secondary">暂时没有更多自动任务记录。</Typography.Text>}
+          {autoEvents.length ? <Timeline items={autoEvents.map((event) => ({ children: <><Typography.Text>{String(event.message_text || event.event_type || "任务记录")}</Typography.Text><div className={styles.meta}>{event.created_at ? formatDate(String(event.created_at)) : ""}</div></> }))} /> : <Typography.Text type="secondary">暂时没有更多自动任务记录。</Typography.Text>}
         </Flex> },
       ]} /></aside>
     </div>
     <ResumeEditor open={editing} candidate={candidate} positions={positions} onClose={() => setEditing(false)} onSaved={(saved) => { setEditing(false); setCandidate(saved); void reload(); onChanged?.(); }} />
+    <ResumeSummaryDialog open={summaryOpen} candidate={candidate} onClose={() => setSummaryOpen(false)} onSaved={(saved) => { setSummaryOpen(false); setCandidate(saved); void reload(); onChanged?.(); }} />
   </>;
 }
 /** AIResult 显示任务分析，缺失分数保留“未分析”而非零分。 */

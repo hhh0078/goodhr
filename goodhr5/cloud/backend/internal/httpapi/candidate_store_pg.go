@@ -101,6 +101,22 @@ func (s *PostgresCandidateStore) UpsertCandidateEngagement(item CandidateEngagem
 func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	// 兼容旧内部备注调用，人工备注只进入专表，自动事件列表不会再收到同一条备注。
+	if item.EventType == "manual_note" {
+		tenantID, err := candidateTenantID(ctx, s.db, item.CandidateID)
+		if err != nil {
+			return CandidateEvent{}, err
+		}
+		email := stringFromMap(item.Metadata, "author_email")
+		if email == "" {
+			if err = s.db.QueryRowContext(ctx, `SELECT COALESCE(u.email,'') FROM candidate_profiles cp LEFT JOIN users u ON u.id=cp.created_by_user_id WHERE cp.id::text=$1`, item.CandidateID).Scan(&email); err != nil {
+				return CandidateEvent{}, err
+			}
+		}
+		note, err := s.SaveCandidateNote(CandidateLibraryScope{TenantID: tenantID, UserEmail: email, AuthorName: stringFromMap(item.Metadata, "author_name")}, CandidateNote{CandidateID: item.CandidateID, Content: item.MessageText, IdempotencyKey: stringFromMap(item.Metadata, "idempotency_key")})
+		item.ID, item.CreatedAt = note.ID, note.CreatedAt
+		return item, err
+	}
 
 	tenantID, err := candidateTenantID(ctx, s.db, item.CandidateID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -275,10 +291,10 @@ func (s *PostgresCandidateStore) ListCandidateNotes(tenantID string, candidateID
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id::text, candidate_id::text, message_text, COALESCE(metadata->>'author_email', ''), COALESCE(NULLIF(metadata->>'author_name',''),metadata->>'author_email',''), created_at
-FROM candidate_events
-WHERE tenant_id = $1 AND candidate_id::text = $2 AND event_type = 'manual_note'
-ORDER BY created_at DESC
+SELECT id::text, candidate_id::text, content, author_email, author_name, occurred_at, created_at
+FROM candidate_notes
+WHERE tenant_id = $1 AND candidate_id::text = $2
+ORDER BY occurred_at DESC, created_at DESC, id DESC
 `, tenantID, candidateID)
 	if err != nil {
 		return nil, err
@@ -287,7 +303,7 @@ ORDER BY created_at DESC
 	notes := make([]CandidateNote, 0)
 	for rows.Next() {
 		var note CandidateNote
-		if err := rows.Scan(&note.ID, &note.CandidateID, &note.Content, &note.AuthorEmail, &note.AuthorName, &note.CreatedAt); err != nil {
+		if err := rows.Scan(&note.ID, &note.CandidateID, &note.Content, &note.AuthorEmail, &note.AuthorName, &note.OccurredAt, &note.CreatedAt); err != nil {
 			return nil, err
 		}
 		notes = append(notes, note)
@@ -312,7 +328,7 @@ func (s *PostgresCandidateStore) DeleteTeamCandidates(tenantID string) (int, err
 // tenantID 为团队 ID，candidateID 为候选人主体 ID，engagementID 为空时读取该候选人全部事件。
 func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenantID string, candidateID string, engagementID string) ([]CandidateEvent, error) {
 	args := []any{tenantID, candidateID}
-	whereClause := "tenant_id = $1 AND candidate_id::text = $2"
+	whereClause := "tenant_id = $1 AND candidate_id::text = $2 AND event_type <> 'manual_note'"
 	if strings.TrimSpace(engagementID) != "" {
 		args = append(args, strings.TrimSpace(engagementID))
 		whereClause += fmt.Sprintf(" AND engagement_id::text = $%d", len(args))
@@ -410,16 +426,17 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		SELECT jsonb_agg(jsonb_build_object(
 			'id', note.id::text,
 			'candidate_id', note.candidate_id::text,
-			'content', note.message_text,
-			'author_email', COALESCE(note.metadata->>'author_email', ''),
- 'author_name',COALESCE(NULLIF(note.metadata->>'author_name',''),note.metadata->>'author_email',''),
+			'content', note.content,
+			'author_email', note.author_email,
+			'author_name', note.author_name,
+			'occurred_at', note.occurred_at,
 			'created_at', note.created_at
-		) ORDER BY note.created_at DESC) AS notes
+		) ORDER BY note.occurred_at DESC,note.created_at DESC,note.id DESC) AS notes
 		FROM (
-			SELECT id, candidate_id, message_text, metadata, created_at
-			FROM candidate_events
-			WHERE candidate_id = cp.id AND event_type = 'manual_note'
-			ORDER BY created_at DESC
+			SELECT id, candidate_id, content, author_email, author_name, occurred_at, created_at
+			FROM candidate_notes
+			WHERE candidate_id = cp.id AND tenant_id=cp.tenant_id
+			ORDER BY occurred_at DESC,created_at DESC,id DESC
 			LIMIT 2
 		) note
 	) latest_notes ON true
