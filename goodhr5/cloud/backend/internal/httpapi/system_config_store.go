@@ -48,7 +48,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 		wechatOfficialConfigKey: {
 			ConfigKey:   wechatOfficialConfigKey,
 			ConfigValue: `{"enabled":false,"account_name":"GoodHR","app_id":"","original_id":"","token":"","encoding_aes_key":"","qr_image_url":""}`,
-			Description: "公众号关注绑定配置，密钥仅服务端保存，首次关注绑定赠送5天会员",
+			Description: "公众号关注绑定配置，密钥仅服务端保存，首次关注绑定按配置赠送会员",
 			Enabled:     true,
 		},
 		"system.app_config": {
@@ -153,9 +153,10 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 						"mac": {"version": "", "url": "", "sha256": "", "note": "macOS OCR 组件待上传"}
 					}
 				},
-				"trial_days": 3
+				"trial_days": 3,
+				"wechat_follow_reward_days": 2
 			}`,
-			Description: "新手教学配置，包含本地程序下载链接、运行组件下载链接、版本号、版本说明和注册赠送会员天数",
+			Description: "新手教学配置，包含本地程序下载链接、运行组件下载链接、版本号、版本说明、注册赠送及关注赠送会员天数",
 			Enabled:     true,
 		},
 		"system.invite_config": {

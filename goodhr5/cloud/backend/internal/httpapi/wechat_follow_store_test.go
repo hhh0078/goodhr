@@ -118,7 +118,7 @@ func runWechatStoreContract(t *testing.T, newFixture func(t *testing.T) wechatSt
 			t.Fatalf("first result=%+v err=%v", first, err)
 		}
 		for i := 0; i < 3; i++ {
-			replay, replayErr := fixture.store.BindCode(context.Background(), fixture.appID, "openid-repeat", code, fixture.now.Add(time.Hour))
+			replay, replayErr := fixture.store.BindCode(context.Background(), fixture.appID, "openid-repeat", code, fixture.now.Add(time.Minute))
 			if replayErr != nil || !replay.AlreadyBound || replay.GiftGranted {
 				t.Fatalf("replay result=%+v err=%v", replay, replayErr)
 			}
@@ -136,12 +136,12 @@ func runWechatStoreContract(t *testing.T, newFixture func(t *testing.T) wechatSt
 			wantTier   string
 			wantOffset time.Duration
 		}{
-			{"active-plus", memberTypePlus, 30 * 24 * time.Hour, memberTypePlus, 35 * 24 * time.Hour},
-			{"active-max", memberTypeMax, 90 * 24 * time.Hour, memberTypeMax, 95 * 24 * time.Hour},
-			{"free-with-future-expiry", memberTypeFree, 90 * 24 * time.Hour, memberTypeMax, 5 * 24 * time.Hour},
-			{"expired-plus", memberTypePlus, -time.Hour, memberTypeMax, 5 * 24 * time.Hour},
-			{"expired-max", memberTypeMax, -time.Hour, memberTypeMax, 5 * 24 * time.Hour},
-			{"expiry-exactly-now", memberTypePlus, 0, memberTypeMax, 5 * 24 * time.Hour},
+			{"active-plus", memberTypePlus, 30 * 24 * time.Hour, memberTypePlus, 32 * 24 * time.Hour},
+			{"active-max", memberTypeMax, 90 * 24 * time.Hour, memberTypeMax, 92 * 24 * time.Hour},
+			{"free-with-future-expiry", memberTypeFree, 90 * 24 * time.Hour, memberTypeMax, 2 * 24 * time.Hour},
+			{"expired-plus", memberTypePlus, -time.Hour, memberTypeMax, 2 * 24 * time.Hour},
+			{"expired-max", memberTypeMax, -time.Hour, memberTypeMax, 2 * 24 * time.Hour},
+			{"expiry-exactly-now", memberTypePlus, 0, memberTypeMax, 2 * 24 * time.Hour},
 		}
 		for _, item := range cases {
 			email, openID := item.name+"@example.com", "openid-"+item.name
@@ -255,7 +255,7 @@ func runWechatStoreContract(t *testing.T, newFixture func(t *testing.T) wechatSt
 		if granted != 1 {
 			t.Fatalf("gift count=%d, want 1", granted)
 		}
-		assertWechatSubscription(t, fixture.read("concurrent@example.com"), memberTypePlus, fixture.now.Add(35*24*time.Hour))
+		assertWechatSubscription(t, fixture.read("concurrent@example.com"), memberTypePlus, fixture.now.Add(32*24*time.Hour))
 	})
 	t.Run("new-code-for-bound-user-and-other-wechat-conflict", func(t *testing.T) {
 		fixture := newFixture(t)
@@ -423,4 +423,199 @@ func TestWechatFollowIdentityNamespaces(t *testing.T) {
 			t.Fatalf("app=%s result=%+v err=%v", appID, result, err)
 		}
 	}
+}
+
+// runWechatCompactStoreContract 验证短码有限池回收、冲突回滚、消息时序和动态奖励的双存储一致性。
+func runWechatCompactStoreContract(t *testing.T, factory func(*testing.T) wechatStoreFixture) {
+	for _, expired := range []bool{false, true} {
+		name := "active-cross-collision-no-deadlock"
+		if expired {
+			name = "expired-cross-recycle-no-deadlock"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture := factory(t)
+			for round := 0; round < 20; round++ {
+				emailA, emailB := fmt.Sprintf("cross-a-%d@example.com", round), fmt.Sprintf("cross-b-%d@example.com", round)
+				hashA, hashB := wechatTestCodeHash(emailA), wechatTestCodeHash(emailB)
+				for _, pair := range []struct{ email, hash string }{{emailA, hashA}, {emailB, hashB}} {
+					if err := fixture.store.CreateBinding(context.Background(), pair.email, pair.hash, fixture.now.Add(wechatBindingTTL)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				now := fixture.now
+				if expired {
+					now = now.Add(wechatBindingTTL)
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				start := make(chan struct{})
+				results := make(chan error, 2)
+				for _, pair := range []struct{ email, hash string }{{emailA, hashB}, {emailB, hashA}} {
+					go func(email, hash string) {
+						<-start
+						results <- fixture.store.CreateBinding(ctx, email, hash, now.Add(wechatBindingTTL))
+					}(pair.email, pair.hash)
+				}
+				close(start)
+				for i := 0; i < 2; i++ {
+					err := <-results
+					if expired && err != nil {
+						cancel()
+						t.Fatalf("expired cross round=%d: %v", round, err)
+					}
+					if !expired && !errors.Is(err, ErrWechatBindingCodeConflict) {
+						cancel()
+						t.Fatalf("active cross round=%d: %v", round, err)
+					}
+				}
+				cancel()
+				if !expired {
+					for _, pair := range []struct{ email, hash string }{{emailA, hashA}, {emailB, hashB}} {
+						recordWechatTestFollow(t, fixture, pair.email, true, now)
+						if _, err := fixture.store.BindCode(context.Background(), fixture.appID, pair.email, pair.hash, now); err != nil {
+							t.Fatalf("original invalidated round=%d: %v", round, err)
+						}
+					}
+				}
+			}
+		})
+	}
+	t.Run("collision-keeps-original-and-reserves-completed-invalidated", func(t *testing.T) {
+		fixture := factory(t)
+		ctx := context.Background()
+		old := createWechatTestCode(t, fixture, "original@example.com", "original")
+		taken := createWechatTestCode(t, fixture, "taken@example.com", "taken")
+		if err := fixture.store.CreateBinding(ctx, "original@example.com", taken, fixture.now.Add(wechatBindingTTL)); !errors.Is(err, ErrWechatBindingCodeConflict) {
+			t.Fatalf("collision=%v", err)
+		}
+		recordWechatTestFollow(t, fixture, "original-openid", true, fixture.now)
+		if _, err := fixture.store.BindCode(ctx, fixture.appID, "original-openid", old, fixture.now); err != nil {
+			t.Fatalf("collision invalidated original: %v", err)
+		}
+		if err := fixture.store.CreateBinding(ctx, "third@example.com", old, fixture.now.Add(wechatBindingTTL)); !errors.Is(err, ErrWechatBindingCodeConflict) {
+			t.Fatalf("completed code reused early: %v", err)
+		}
+		createWechatTestCode(t, fixture, "taken@example.com", "replacement")
+		if err := fixture.store.CreateBinding(ctx, "third@example.com", taken, fixture.now.Add(wechatBindingTTL)); !errors.Is(err, ErrWechatBindingCodeConflict) {
+			t.Fatalf("invalidated code reused early: %v", err)
+		}
+	})
+	t.Run("expired-code-reuse-rejects-late-message-allows-same-second", func(t *testing.T) {
+		fixture := factory(t)
+		ctx := context.Background()
+		start := fixture.now.Add(450 * time.Millisecond)
+		fixture.seed("next@example.com", Subscription{MemberType: memberTypeFree})
+		hash := wechatTestCodeHash("reusable")
+		if err := fixture.store.CreateBinding(ctx, "first@example.com", hash, start.Add(wechatBindingTTL)); err != nil {
+			t.Fatal(err)
+		}
+		reusedAt := start.Add(wechatBindingTTL)
+		if err := fixture.store.CreateBinding(ctx, "next@example.com", hash, reusedAt.Add(wechatBindingTTL)); err != nil {
+			t.Fatalf("expired collision: %v", err)
+		}
+		recordWechatTestFollow(t, fixture, "next-openid", true, reusedAt)
+		if _, err := fixture.store.BindCode(ctx, fixture.appID, "next-openid", hash, reusedAt, WechatBindOptions{RewardDays: 7, MessageTime: reusedAt.Add(-time.Second)}); !errors.Is(err, ErrWechatBindingExpired) {
+			t.Fatalf("late message accepted: %v", err)
+		}
+		status, err := fixture.store.BindingStatus(ctx, "next@example.com")
+		if err != nil || status.Bound || status.GiftGranted {
+			t.Fatalf("late message wrote: %+v %v", status, err)
+		}
+		result, err := fixture.store.BindCode(ctx, fixture.appID, "next-openid", hash, reusedAt, WechatBindOptions{RewardDays: 7, MessageTime: reusedAt.Truncate(time.Second)})
+		if err != nil || !result.GiftGranted {
+			t.Fatalf("same second rejected: %+v %v", result, err)
+		}
+		assertWechatSubscription(t, result.Subscription, memberTypeMax, reusedAt.Add(7*24*time.Hour))
+		status, err = fixture.store.BindingStatus(ctx, "next@example.com")
+		if err != nil || status.GiftDays != 7 {
+			t.Fatalf("gift history missing: %+v %v", status, err)
+		}
+		first, err := fixture.store.BindingStatus(ctx, "first@example.com")
+		if err != nil || first.Bound || first.GiftGranted {
+			t.Fatalf("reused code bound old user: %+v %v", first, err)
+		}
+	})
+	t.Run("concurrent-code-create-single-winner", func(t *testing.T) {
+		fixture := factory(t)
+		ctx := context.Background()
+		hash := wechatTestCodeHash("shared-short-code")
+		results := make(chan error, 24)
+		var wait sync.WaitGroup
+		for i := 0; i < 24; i++ {
+			wait.Add(1)
+			go func(i int) {
+				defer wait.Done()
+				results <- fixture.store.CreateBinding(ctx, fmt.Sprintf("creator-%d@example.com", i), hash, fixture.now.Add(wechatBindingTTL))
+			}(i)
+		}
+		wait.Wait()
+		close(results)
+		winners := 0
+		for err := range results {
+			if err == nil {
+				winners++
+			} else if !errors.Is(err, ErrWechatBindingCodeConflict) {
+				t.Fatal(err)
+			}
+		}
+		if winners != 1 {
+			t.Fatalf("code winners=%d", winners)
+		}
+	})
+	t.Run("limited-mode-only-allows-own-completed-replay", func(t *testing.T) {
+		fixture := factory(t)
+		ctx := context.Background()
+		hash := createWechatTestCode(t, fixture, "limited@example.com", "limited")
+		recordWechatTestFollow(t, fixture, "limited-openid", true, fixture.now)
+		if _, err := fixture.store.BindCode(ctx, fixture.appID, "limited-openid", hash, fixture.now, WechatBindOptions{ReplayOnly: true}); !errors.Is(err, ErrWechatBindingRateLimited) {
+			t.Fatalf("limited new bind=%v", err)
+		}
+		first, err := fixture.store.BindCode(ctx, fixture.appID, "limited-openid", hash, fixture.now, WechatBindOptions{RewardDays: 7})
+		if err != nil || !first.GiftGranted {
+			t.Fatalf("first=%+v %v", first, err)
+		}
+		replay, err := fixture.store.BindCode(ctx, fixture.appID, "limited-openid", hash, fixture.now, WechatBindOptions{RewardDays: 2, ReplayOnly: true})
+		if err != nil || !replay.AlreadyBound || replay.GiftGranted || !replay.Subscription.ExpiresAt.Equal(first.Subscription.ExpiresAt) {
+			t.Fatalf("own replay=%+v %v", replay, err)
+		}
+		if _, err = fixture.store.BindCode(ctx, fixture.appID, "other-openid", hash, fixture.now, WechatBindOptions{ReplayOnly: true}); !errors.Is(err, ErrWechatBindingExpired) {
+			t.Fatalf("other replay=%v", err)
+		}
+		if _, err = fixture.store.BindCode(ctx, fixture.appID, "limited-openid", hash, fixture.now.Add(wechatBindingTTL), WechatBindOptions{ReplayOnly: true}); !errors.Is(err, ErrWechatBindingExpired) {
+			t.Fatalf("expired replay=%v", err)
+		}
+		status, err := fixture.store.BindingStatus(ctx, "limited@example.com")
+		if err != nil || status.GiftDays != 7 {
+			t.Fatalf("history changed: %+v %v", status, err)
+		}
+	})
+	t.Run("dynamic-days-preserves-paid-time-and-rejects-out-of-range", func(t *testing.T) {
+		fixture := factory(t)
+		ctx := context.Background()
+		for _, days := range []int{2, 7} {
+			email := fmt.Sprintf("days-%d@example.com", days)
+			fixture.seed(email, Subscription{MemberType: memberTypePlus, ExpiresAt: fixture.now.Add(30 * 24 * time.Hour)})
+			hash := createWechatTestCode(t, fixture, email, email)
+			openID := fmt.Sprintf("days-openid-%d", days)
+			recordWechatTestFollow(t, fixture, openID, true, fixture.now)
+			for _, invalid := range []int{-1, 366} {
+				if _, err := fixture.store.BindCode(ctx, fixture.appID, openID, hash, fixture.now, WechatBindOptions{RewardDays: invalid}); err == nil {
+					t.Fatalf("days=%d accepted", invalid)
+				}
+			}
+			result, err := fixture.store.BindCode(ctx, fixture.appID, openID, hash, fixture.now, WechatBindOptions{RewardDays: days})
+			if err != nil || !result.GiftGranted {
+				t.Fatalf("days=%d result=%+v %v", days, result, err)
+			}
+			assertWechatSubscription(t, result.Subscription, memberTypePlus, fixture.now.Add(time.Duration(30+days)*24*time.Hour))
+			status, err := fixture.store.BindingStatus(ctx, email)
+			if err != nil || status.GiftDays != days {
+				t.Fatalf("gift days=%+v %v", status, err)
+			}
+		}
+	})
+}
+
+// TestMemoryWechatCompactStoreContract 在固定时钟内存环境验证所有短码存储边界。
+func TestMemoryWechatCompactStoreContract(t *testing.T) {
+	runWechatCompactStoreContract(t, newMemoryWechatFixture)
 }

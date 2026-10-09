@@ -42,8 +42,8 @@ func (s prefixedWechatFollowStore) BindingStatus(ctx context.Context, email stri
 }
 
 // BindCode 使用同一测试范围内的摘要执行真实数据库绑定。
-func (s prefixedWechatFollowStore) BindCode(ctx context.Context, appID, openID, hash string, now time.Time) (WechatBindResult, error) {
-	return s.WechatFollowStore.BindCode(ctx, appID, openID, s.hash(hash), now)
+func (s prefixedWechatFollowStore) BindCode(ctx context.Context, appID, openID, hash string, now time.Time, options ...WechatBindOptions) (WechatBindResult, error) {
+	return s.WechatFollowStore.BindCode(ctx, appID, openID, s.hash(hash), now, options...)
 }
 
 // openWechatTestDatabase 仅允许专用本机测试库，防止集成测试意外连接或迁移生产数据库。
@@ -134,7 +134,7 @@ func TestPostgresWechatFollowPreservesJSONAndPermanentLedger(t *testing.T) {
 	if err != nil || !result.GiftGranted {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	assertWechatSubscription(t, result.Subscription, memberTypePlus, now.Add(25*24*time.Hour))
+	assertWechatSubscription(t, result.Subscription, memberTypePlus, now.Add(22*24*time.Hour))
 	var rawSubscription string
 	if err = db.QueryRow(`SELECT subscription::text FROM users WHERE email=$1`, email).Scan(&rawSubscription); err != nil {
 		t.Fatal(err)
@@ -223,4 +223,10 @@ func TestPostgresWechatFollowTransactionRollback(t *testing.T) {
 	if _, err = store.BindCode(context.Background(), appID, "wrong-openid", code, now); !errors.Is(err, ErrWechatBindingExpired) {
 		t.Fatalf("mismatch err=%v", err)
 	}
+}
+
+// TestPostgresWechatCompactStoreContract 用隔离PostgreSQL验证短码碰撞、回收时序与动态账本的真实事务。
+func TestPostgresWechatCompactStoreContract(t *testing.T) {
+	db := openWechatTestDatabase(t)
+	runWechatCompactStoreContract(t, func(t *testing.T) wechatStoreFixture { return newPostgresWechatFixture(t, db) })
 }

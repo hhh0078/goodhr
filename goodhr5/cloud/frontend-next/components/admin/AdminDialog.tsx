@@ -1,11 +1,12 @@
 /** 本文件提供基于 Ant Design Modal 的后台表单和确认弹窗。 */
 "use client";
 import { Button, Flex, Modal, Typography } from "antd";
+import { LoadingOutlined } from "@ant-design/icons";
 import type { ReactNode } from "react";
 import { useAdminOverlay } from "./AdminOverlay";
 type AdminDialogProps = {
   open: boolean;
-  title: string;
+  title: ReactNode;
   description?: string;
   children: ReactNode;
   confirmText?: string;
@@ -13,6 +14,8 @@ type AdminDialogProps = {
   loading?: boolean;
   loadingText?: string;
   confirmDisabled?: boolean;
+  /** 仅让确认按钮等待请求，允许非阻塞提醒在生成期间继续取消。 */
+  confirmLoading?: boolean;
   hideClose?: boolean;
   showCancel?: boolean;
   maxWidth?: "xs" | "sm" | "md" | "lg" | "xl";
@@ -33,6 +36,7 @@ export default function AdminDialog({
   loading = false,
   loadingText,
   confirmDisabled = false,
+  confirmLoading = false,
   hideClose = false,
   showCancel = true,
   maxWidth = "sm",
@@ -75,8 +79,12 @@ export default function AdminDialog({
             <Button
               type="primary"
               onClick={onConfirm}
-              loading={loading}
-              disabled={loading || confirmDisabled}
+              loading={
+                loading || confirmLoading
+                  ? { icon: <LoadingOutlined aria-hidden="true" /> }
+                  : false
+              }
+              disabled={loading || confirmLoading || confirmDisabled}
             >
               {loading ? loadingText || "处理中" : confirmText}
             </Button>

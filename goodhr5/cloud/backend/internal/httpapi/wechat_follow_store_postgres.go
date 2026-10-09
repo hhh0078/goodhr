@@ -38,6 +38,9 @@ func (s *PostgresWechatFollowStore) CreateBinding(ctx context.Context, email, co
 		return err
 	}
 	defer tx.Rollback()
+	if err = lockWechatBindingCode(ctx, tx, codeHash); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO users (email) VALUES ($1) ON CONFLICT (email) DO NOTHING`, email); err != nil {
 		return err
 	}
@@ -45,16 +48,26 @@ func (s *PostgresWechatFollowStore) CreateBinding(ctx context.Context, email, co
 	if err = tx.QueryRowContext(ctx, `SELECT id::text FROM users WHERE email=$1 FOR UPDATE`, email).Scan(&userID); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `
-		UPDATE wechat_follow_binding_codes SET invalidated_at=now()
-		WHERE user_email=$1 AND completed_at IS NULL AND invalidated_at IS NULL
-	`, email); err != nil {
+	createdAt := wechatBindingCreatedAt(expiresAt)
+	var savedHash string
+	if err = tx.QueryRowContext(ctx, `
+		INSERT INTO wechat_follow_binding_codes (code_hash,user_id,user_email,expires_at,created_at)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (code_hash) DO UPDATE SET user_id=EXCLUDED.user_id,user_email=EXCLUDED.user_email,
+			expires_at=EXCLUDED.expires_at,created_at=EXCLUDED.created_at,invalidated_at=NULL,
+			completed_at=NULL,completed_app_id=NULL,completed_openid_fingerprint=NULL
+		WHERE wechat_follow_binding_codes.expires_at<=EXCLUDED.created_at
+		RETURNING code_hash
+	`, codeHash, userID, email, expiresAt, createdAt).Scan(&savedHash); errors.Is(err, sql.ErrNoRows) {
+		return ErrWechatBindingCodeConflict
+	} else if err != nil {
 		return err
 	}
+	// 先占用候选码再作废其他仍有效旧码，避免活跃码碰撞与过期交叉回收锁住对方历史行。
 	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO wechat_follow_binding_codes (code_hash,user_id,user_email,expires_at)
-		VALUES ($1,$2,$3,$4)
-	`, codeHash, userID, email, expiresAt); err != nil {
+		UPDATE wechat_follow_binding_codes SET invalidated_at=$2
+		WHERE user_email=$1 AND code_hash<>$3 AND completed_at IS NULL AND invalidated_at IS NULL AND expires_at>$2
+	`, email, createdAt, codeHash); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -73,13 +86,14 @@ func (s *PostgresWechatFollowStore) BindingStatus(ctx context.Context, email str
 		SELECT
 			COALESCE(u.wechat_openid,'') <> '',
 			EXISTS (SELECT 1 FROM wechat_follow_rewards r WHERE r.user_email=$1),
+			COALESCE((SELECT r.duration_days FROM wechat_follow_rewards r WHERE r.user_email=$1),0),
 			COALESCE(f.followed,false),
 			COALESCE(u.wechat_openid,'')
 		FROM (SELECT $1::text AS email) identity
 		LEFT JOIN users u ON u.email=identity.email
 		LEFT JOIN wechat_follow_states f ON f.app_id=u.wechat_app_id
 			AND f.openid_fingerprint=encode(sha256(convert_to(u.wechat_openid,'UTF8')),'hex')
-	`, email).Scan(&status.Bound, &status.GiftGranted, &status.Followed, &status.OpenID)
+	`, email).Scan(&status.Bound, &status.GiftGranted, &status.GiftDays, &status.Followed, &status.OpenID)
 	return status, err
 }
 
@@ -131,8 +145,12 @@ func (s *PostgresWechatFollowStore) RecordFollow(ctx context.Context, appID, ope
 }
 
 // BindCode 将用户行锁、关注验证、消费绑定码和奖励入账放进同一个事务。
-func (s *PostgresWechatFollowStore) BindCode(ctx context.Context, appID, openID, codeHash string, now time.Time) (WechatBindResult, error) {
+func (s *PostgresWechatFollowStore) BindCode(ctx context.Context, appID, openID, codeHash string, now time.Time, options ...WechatBindOptions) (WechatBindResult, error) {
 	appID, openID, codeHash, err := normalizeWechatBindCodeInput(appID, openID, codeHash, now)
+	if err != nil {
+		return WechatBindResult{}, err
+	}
+	option, err := normalizeWechatBindOptions(options)
 	if err != nil {
 		return WechatBindResult{}, err
 	}
@@ -143,6 +161,9 @@ func (s *PostgresWechatFollowStore) BindCode(ctx context.Context, appID, openID,
 		return WechatBindResult{}, err
 	}
 	defer tx.Rollback()
+	if err = lockWechatBindingCode(ctx, tx, codeHash); err != nil {
+		return WechatBindResult{}, err
+	}
 	var email string
 	if err = tx.QueryRowContext(ctx, `SELECT user_email FROM wechat_follow_binding_codes WHERE code_hash=$1`, codeHash).Scan(&email); errors.Is(err, sql.ErrNoRows) {
 		return WechatBindResult{}, ErrWechatBindingExpired
@@ -167,26 +188,29 @@ func (s *PostgresWechatFollowStore) BindCode(ctx context.Context, appID, openID,
 	if err != nil {
 		return WechatBindResult{}, err
 	}
-	var expiresAt time.Time
+	var expiresAt, createdAt time.Time
 	var completedAt sql.NullTime
 	var invalidated bool
 	var completedAppID, completedFingerprint string
 	if err = tx.QueryRowContext(ctx, `
-		SELECT expires_at,completed_at,invalidated_at IS NOT NULL,
+		SELECT expires_at,created_at,completed_at,invalidated_at IS NOT NULL,
 			COALESCE(completed_app_id,''),COALESCE(completed_openid_fingerprint,'')
 		FROM wechat_follow_binding_codes WHERE code_hash=$1 FOR UPDATE
-	`, codeHash).Scan(&expiresAt, &completedAt, &invalidated, &completedAppID, &completedFingerprint); err != nil {
+	`, codeHash).Scan(&expiresAt, &createdAt, &completedAt, &invalidated, &completedAppID, &completedFingerprint); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return WechatBindResult{}, ErrWechatBindingExpired
 		}
 		return WechatBindResult{}, err
 	}
-	if invalidated || (!completedAt.Valid && !now.Before(expiresAt)) {
+	if invalidated || !now.Before(expiresAt) || wechatMessagePredatesBinding(option.MessageTime, createdAt) {
 		return WechatBindResult{}, ErrWechatBindingExpired
 	}
 	alreadyBound := boundOpenID != ""
 	if completedAt.Valid && (completedAppID != appID || completedFingerprint != fingerprint || boundAppID != appID || boundOpenID != openID) {
 		return WechatBindResult{}, ErrWechatBindingExpired
+	}
+	if option.ReplayOnly && !completedAt.Valid {
+		return WechatBindResult{}, ErrWechatBindingRateLimited
 	}
 	var followed bool
 	err = tx.QueryRowContext(ctx, `
@@ -216,14 +240,14 @@ func (s *PostgresWechatFollowStore) BindCode(ctx context.Context, appID, openID,
 		}
 		return WechatBindResult{AlreadyBound: true, Subscription: current}, nil
 	}
-	next := calculateWechatFollowGift(current, now)
+	next := calculateWechatFollowGift(current, now, option.RewardDays)
 	var grantedEmail string
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO wechat_follow_rewards (
 			user_id,user_email,app_id,openid_fingerprint,duration_days,member_type,subscription_expires_at,applied_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT DO NOTHING RETURNING user_email
-	`, userID, email, appID, fingerprint, wechatFollowRewardDays, next.MemberType, next.ExpiresAt, now).Scan(&grantedEmail)
+	`, userID, email, appID, fingerprint, option.RewardDays, next.MemberType, next.ExpiresAt, now).Scan(&grantedEmail)
 	granted := err == nil
 	if !granted && !errors.Is(err, sql.ErrNoRows) {
 		return WechatBindResult{}, err
@@ -252,6 +276,14 @@ func (s *PostgresWechatFollowStore) BindCode(ctx context.Context, appID, openID,
 		return WechatBindResult{}, err
 	}
 	return WechatBindResult{AlreadyBound: alreadyBound, GiftGranted: granted, Subscription: next}, nil
+}
+
+// lockWechatBindingCode 串行化同一码的创建、过期回收与消费，防止读取旧邮箱后绑定到新挑战。
+func lockWechatBindingCode(ctx context.Context, tx *sql.Tx, codeHash string) error {
+	sum := sha256.Sum256([]byte("wechat-binding-code\x00" + codeHash))
+	key := int64(binary.BigEndian.Uint64(sum[:8]))
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, key)
+	return err
 }
 
 // lockWechatFollowIdentity 对同一公众号用户加事务锁，统一关注事件和绑定的锁顺序，避免互相死锁。

@@ -115,7 +115,7 @@ export default function WechatOfficialConfigForm({
         type="info"
         showIcon
         title="个人订阅号用绑定码就能接上"
-        description="把服务器地址、Token 和消息模式填到公众号后台。用户关注后发送绑定码，验证成功后领取一次 5 天会员。安全消息也不需要 AppSecret。"
+        description="把服务器地址、Token 和消息模式填到公众号后台。用户关注后发送绑定码，验证成功后领取一次会员奖励。安全消息也不需要 AppSecret。"
       />
       <Form layout="vertical" style={{ maxWidth: 720 }}>
         <Form.Item label="启用公众号绑定" htmlFor="wechat-official-enabled">
@@ -249,7 +249,10 @@ export default function WechatOfficialConfigForm({
           />
         </Form.Item>
         <Form.Item label="关注奖励">
-          <Tag color="success">绑定成功赠送 5 天会员，每个账号一次</Tag>
+          <Tag color="success">每个账号仅领一次</Tag>
+          <Typography.Text type="secondary">
+            赠送天数在“本地程序与组件”的“关注赠送”中调整。
+          </Typography.Text>
         </Form.Item>
       </Form>
       {qrURL ? (

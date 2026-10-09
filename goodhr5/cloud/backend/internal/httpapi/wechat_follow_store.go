@@ -12,15 +12,18 @@ import (
 )
 
 var (
-	ErrWechatBindingExpired = errors.New("绑定码已经过期，请回网站重新生成")
-	ErrWechatFollowRequired = errors.New("我还没确认关注状态，请取消关注后重新关注，再发送绑定码")
-	ErrWechatOpenIDConflict = errors.New("这个微信或网站账号已经绑定过，请先取消关注再重新绑定")
+	ErrWechatBindingExpired      = errors.New("绑定码已经过期，请回网站重新生成")
+	ErrWechatFollowRequired      = errors.New("我还没确认关注状态，请取消关注后重新关注，再发送绑定码")
+	ErrWechatOpenIDConflict      = errors.New("这个微信或网站账号已经绑定过，请先取消关注再重新绑定")
+	ErrWechatBindingCodeConflict = errors.New("这个绑定码暂时有人使用，请重新生成")
+	ErrWechatBindingRateLimited  = errors.New("今天这会儿有点忙，请十分钟后再试")
 )
 
 // WechatBindingStatus 表示用户当前绑定状态；OpenID 仅供后端内部使用。
 type WechatBindingStatus struct {
 	Bound       bool   `json:"bound"`
 	GiftGranted bool   `json:"gift_granted"`
+	GiftDays    int    `json:"gift_days"`
 	Followed    bool   `json:"followed"`
 	OpenID      string `json:"-"`
 }
@@ -32,6 +35,13 @@ type WechatBindResult struct {
 	Subscription Subscription
 }
 
+// WechatBindOptions 指定本次动态奖励、微信消息时间与限流后的幂等重放限制。
+type WechatBindOptions struct {
+	RewardDays  int
+	MessageTime time.Time
+	ReplayOnly  bool
+}
+
 // WechatFollowStore 定义一次性绑定码、关注事件和幂等奖励的持久化边界。
 type WechatFollowStore interface {
 	// CreateBinding 保存绑定码摘要，并使同邮箱以前未完成的绑定码失效。
@@ -41,7 +51,7 @@ type WechatFollowStore interface {
 	// RecordFollow 按事件时间记录关注状态，取消关注时清理当前原始 OpenID。
 	RecordFollow(ctx context.Context, appID, openID string, followed bool, eventAt time.Time) error
 	// BindCode 原子消费绑定码、绑定当前微信，并最多赠送一次会员。
-	BindCode(ctx context.Context, appID, openID, codeHash string, now time.Time) (WechatBindResult, error)
+	BindCode(ctx context.Context, appID, openID, codeHash string, now time.Time, options ...WechatBindOptions) (WechatBindResult, error)
 }
 
 // wechatFollowState 只保存公众号用户指纹、关注状态和最后有效事件时间。
@@ -53,6 +63,7 @@ type wechatFollowState struct {
 // wechatPendingBinding 保存绑定码摘要以及完成回调的公众号和指纹，不保存回调原始 OpenID。
 type wechatPendingBinding struct {
 	email       string
+	createdAt   time.Time
 	expiresAt   time.Time
 	invalidated bool
 	completed   bool
@@ -73,7 +84,7 @@ type MemoryWechatFollowStore struct {
 	pending       map[string]wechatPendingBinding
 	follows       map[string]wechatFollowState
 	bindings      map[string]wechatCurrentBinding
-	giftEmails    map[string]struct{}
+	giftEmails    map[string]int
 	giftOpenIDs   map[string]struct{}
 }
 
@@ -87,7 +98,7 @@ func NewMemoryWechatFollowStore(subscriptions *MemorySubscriptionStore) *MemoryW
 		pending:       make(map[string]wechatPendingBinding),
 		follows:       make(map[string]wechatFollowState),
 		bindings:      make(map[string]wechatCurrentBinding),
-		giftEmails:    make(map[string]struct{}),
+		giftEmails:    make(map[string]int),
 		giftOpenIDs:   make(map[string]struct{}),
 	}
 }
@@ -106,16 +117,17 @@ func (s *MemoryWechatFollowStore) CreateBinding(ctx context.Context, email, code
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	if _, exists := s.pending[codeHash]; exists {
-		return errors.New("绑定码已经存在，请重新生成")
+	createdAt := wechatBindingCreatedAt(expiresAt)
+	if old, exists := s.pending[codeHash]; exists && old.expiresAt.After(createdAt) {
+		return ErrWechatBindingCodeConflict
 	}
 	for hash, pending := range s.pending {
-		if pending.email == email && !pending.completed {
+		if pending.email == email && !pending.completed && pending.expiresAt.After(createdAt) {
 			pending.invalidated = true
 			s.pending[hash] = pending
 		}
 	}
-	s.pending[codeHash] = wechatPendingBinding{email: email, expiresAt: expiresAt}
+	s.pending[codeHash] = wechatPendingBinding{email: email, createdAt: createdAt, expiresAt: expiresAt}
 	return nil
 }
 
@@ -130,8 +142,8 @@ func (s *MemoryWechatFollowStore) BindingStatus(ctx context.Context, email strin
 	if err := ctx.Err(); err != nil {
 		return WechatBindingStatus{}, err
 	}
-	_, granted := s.giftEmails[email]
-	status := WechatBindingStatus{GiftGranted: granted}
+	days, granted := s.giftEmails[email]
+	status := WechatBindingStatus{GiftGranted: granted, GiftDays: days}
 	if binding, exists := s.bindings[email]; exists {
 		status.Bound = true
 		status.OpenID = binding.openID
@@ -170,8 +182,12 @@ func (s *MemoryWechatFollowStore) RecordFollow(ctx context.Context, appID, openI
 }
 
 // BindCode 在同一锁内验证关注、消费码与更新会员，错误请求不会消费有效码。
-func (s *MemoryWechatFollowStore) BindCode(ctx context.Context, appID, openID, codeHash string, now time.Time) (WechatBindResult, error) {
+func (s *MemoryWechatFollowStore) BindCode(ctx context.Context, appID, openID, codeHash string, now time.Time, options ...WechatBindOptions) (WechatBindResult, error) {
 	appID, openID, codeHash, err := normalizeWechatBindCodeInput(appID, openID, codeHash, now)
+	if err != nil {
+		return WechatBindResult{}, err
+	}
+	option, err := normalizeWechatBindOptions(options)
 	if err != nil {
 		return WechatBindResult{}, err
 	}
@@ -181,13 +197,16 @@ func (s *MemoryWechatFollowStore) BindCode(ctx context.Context, appID, openID, c
 		return WechatBindResult{}, err
 	}
 	pending, exists := s.pending[codeHash]
-	if !exists || pending.invalidated || (!pending.completed && !now.Before(pending.expiresAt)) {
+	if !exists || pending.invalidated || !now.Before(pending.expiresAt) || wechatMessagePredatesBinding(option.MessageTime, pending.createdAt) {
 		return WechatBindResult{}, ErrWechatBindingExpired
 	}
 	fingerprint := wechatOpenIDFingerprint(openID)
 	currentBinding, alreadyBound := s.bindings[pending.email]
 	if pending.completed && (pending.appID != appID || pending.fingerprint != fingerprint || !alreadyBound || currentBinding.appID != appID || currentBinding.openID != openID) {
 		return WechatBindResult{}, ErrWechatBindingExpired
+	}
+	if option.ReplayOnly && !pending.completed {
+		return WechatBindResult{}, ErrWechatBindingRateLimited
 	}
 	key := wechatFollowKey(appID, openID)
 	if !s.follows[key].followed {
@@ -214,9 +233,9 @@ func (s *MemoryWechatFollowStore) BindCode(ctx context.Context, appID, openID, c
 	_, openIDGranted := s.giftOpenIDs[key]
 	granted := !emailGranted && !openIDGranted
 	if granted {
-		current = calculateWechatFollowGift(current, now)
+		current = calculateWechatFollowGift(current, now, option.RewardDays)
 		s.subscriptions.items[pending.email] = current
-		s.giftEmails[pending.email] = struct{}{}
+		s.giftEmails[pending.email] = option.RewardDays
 		s.giftOpenIDs[key] = struct{}{}
 	}
 	s.bindings[pending.email] = wechatCurrentBinding{appID: appID, openID: openID}
@@ -290,11 +309,43 @@ func wechatFollowEventIsNewer(current wechatFollowState, followed bool, eventAt 
 	return eventAt.After(current.eventAt) || (eventAt.Equal(current.eventAt) && current.followed && !followed)
 }
 
-// calculateWechatFollowGift 保留有效付费会员类型与剩余时间，其他用户从现在获得五天 Max。
-func calculateWechatFollowGift(current Subscription, now time.Time) Subscription {
+// wechatBindingCreatedAt 从固定有效期还原创建时间，消息比较时另按微信的秒精度处理。
+func wechatBindingCreatedAt(expiresAt time.Time) time.Time {
+	return expiresAt.Add(-wechatBindingTTL).UTC()
+}
+
+// wechatMessagePredatesBinding 拒绝回收短码之前发出的迟到消息，同一秒新消息可以正常绑定。
+func wechatMessagePredatesBinding(messageTime, createdAt time.Time) bool {
+	return !messageTime.IsZero() && messageTime.Unix() < createdAt.Unix()
+}
+
+// normalizeWechatBindOptions 保持旧调用默认两天，并拒绝越界或重复传入的奖励参数。
+func normalizeWechatBindOptions(options []WechatBindOptions) (WechatBindOptions, error) {
+	option := WechatBindOptions{RewardDays: defaultWechatFollowRewardDays}
+	if len(options) > 1 {
+		return option, errors.New("绑定参数重复了，请重新尝试")
+	}
+	if len(options) == 1 {
+		option = options[0]
+		if option.RewardDays == 0 {
+			option.RewardDays = defaultWechatFollowRewardDays
+		}
+	}
+	if option.RewardDays < 1 || option.RewardDays > 365 {
+		return option, errors.New("关注赠送天数需在1到365天之间")
+	}
+	return option, nil
+}
+
+// calculateWechatFollowGift 保留有效付费会员类型与剩余时间，其他用户从现在获得配置天数的 Max。
+func calculateWechatFollowGift(current Subscription, now time.Time, days ...int) Subscription {
+	rewardDays := defaultWechatFollowRewardDays
+	if len(days) > 0 {
+		rewardDays = days[0]
+	}
 	memberType := normalizeMemberType(current.MemberType)
 	if (memberType == memberTypePlus || memberType == memberTypeMax) && current.ExpiresAt.After(now) {
-		return applySubscriptionGrant(current, SubscriptionGrant{MemberType: memberType, Days: wechatFollowRewardDays}, now)
+		return applySubscriptionGrant(current, SubscriptionGrant{MemberType: memberType, Days: rewardDays}, now)
 	}
-	return applySubscriptionGrant(current, SubscriptionGrant{MemberType: memberTypeMax, Days: wechatFollowRewardDays, ReplaceFromNow: true}, now)
+	return applySubscriptionGrant(current, SubscriptionGrant{MemberType: memberTypeMax, Days: rewardDays, ReplaceFromNow: true}, now)
 }

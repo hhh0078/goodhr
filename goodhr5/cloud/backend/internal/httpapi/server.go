@@ -508,8 +508,9 @@ func (s *Server) ListAdminSystemConfigs(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to load system configs")
 		return
 	}
+	rewardDays, _ := loadWechatFollowRewardDays(s.systemConfigs)
 	for i := range configs {
-		configs[i] = redactWechatOfficialRecord(configs[i])
+		configs[i] = redactWechatOfficialRecord(configs[i], rewardDays)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -585,6 +586,12 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+	if configKey == "system.onboarding_config" {
+		if _, err := parseWechatFollowRewardDays(raw); err != nil {
+			writeError(w, http.StatusBadRequest, "关注赠送配置没保存："+err.Error())
+			return
+		}
+	}
 
 	existing.ConfigValue = raw
 	if err := s.systemConfigs.Save(existing); err != nil {
@@ -592,9 +599,10 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	rewardDays, _ := loadWechatFollowRewardDays(s.systemConfigs)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
-		"config": redactWechatOfficialRecord(existing),
+		"config": redactWechatOfficialRecord(existing, rewardDays),
 	})
 }
 

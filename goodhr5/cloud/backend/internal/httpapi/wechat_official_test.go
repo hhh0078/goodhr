@@ -221,9 +221,9 @@ func (s *wechatCallbackMutationSpy) RecordFollow(ctx context.Context, appID, ope
 }
 
 // BindCode 记录测试写入次数，再委托正常内存实现处理。
-func (s *wechatCallbackMutationSpy) BindCode(ctx context.Context, appID, openID, codeHash string, now time.Time) (WechatBindResult, error) {
+func (s *wechatCallbackMutationSpy) BindCode(ctx context.Context, appID, openID, codeHash string, now time.Time, options ...WechatBindOptions) (WechatBindResult, error) {
 	s.mutations++
-	return s.WechatFollowStore.BindCode(ctx, appID, openID, codeHash, now)
+	return s.WechatFollowStore.BindCode(ctx, appID, openID, codeHash, now, options...)
 }
 
 // TestWechatOfficialCallbackRejectsTampering 验证签名、接收方、AppID、消息时间和超长消息拒绝后不写入关注或绑定状态。
@@ -317,7 +317,7 @@ func wechatTestBindingCode(t *testing.T, server *Server, token string) string {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if response.Code != http.StatusOK || len(payload.Code) != 8 || payload.ExpiresAt != server.wechatOfficial.now().Add(wechatBindingTTL).Format(time.RFC3339) {
+	if response.Code != http.StatusOK || len(payload.Code) != 4 || payload.ExpiresAt != server.wechatOfficial.now().Add(wechatBindingTTL).Format(time.RFC3339) {
 		t.Fatalf("绑定码响应不符：status=%d，body=%s", response.Code, response.Body.String())
 	}
 	return payload.Code
@@ -340,7 +340,7 @@ func TestWechatOfficialSessionIsolation(t *testing.T) {
 		t.Fatal("重新申请后旧码仍可绑定")
 	}
 	response := wechatTestCallback(t, server, config, wechatTestMessage(config, now, "openid-a", "text", strings.ToLower(codeA)), true)
-	if !strings.Contains(wechatTestReply(t, response, config, true, "openid-a"), "5 天会员已到账") {
+	if !strings.Contains(wechatTestReply(t, response, config, true, "openid-a"), "2 天会员已到账") {
 		t.Fatal("当前账号没有成功完成首次绑定")
 	}
 	statusA, err := server.wechatOfficial.store.BindingStatus(context.Background(), "owner-a@example.com")
@@ -449,7 +449,7 @@ func TestWechatOfficialPrivateConfigRedactionAndSave(t *testing.T) {
 			if err := json.Unmarshal([]byte(record.ConfigValue), &exposed); err != nil {
 				t.Fatal(err)
 			}
-			if exposed["encoding_aes_key"] != "" || exposed["encoding_aes_key_configured"] != true || exposed["reward_days"] != float64(5) {
+			if exposed["encoding_aes_key"] != "" || exposed["encoding_aes_key_configured"] != true || exposed["reward_days"] != float64(2) {
 				t.Fatalf("配置脱敏展示不符：%+v", exposed)
 			}
 		}

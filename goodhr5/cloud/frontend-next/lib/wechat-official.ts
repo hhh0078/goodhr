@@ -6,6 +6,7 @@ export type WechatOfficialStatus = {
   original_id: string;
   qr_image_url: string;
   reward_days: number;
+  gift_days: number;
   bound: boolean;
   followed: boolean;
   gift_granted: boolean;
@@ -17,13 +18,22 @@ export function normalizeWechatStatus(value: unknown): WechatOfficialStatus {
     value && typeof value === "object"
       ? (value as Record<string, unknown>)
       : {};
+  const rewardDays = Number(source.reward_days);
+  const giftDays = Number(source.gift_days);
   return {
     enabled: source.enabled === true,
     configured: source.configured === true,
     account_name: String(source.account_name || "GoodHR"),
     original_id: String(source.original_id || ""),
     qr_image_url: String(source.qr_image_url || ""),
-    reward_days: Number(source.reward_days) || 5,
+    reward_days:
+      Number.isInteger(rewardDays) && rewardDays >= 1 && rewardDays <= 365
+        ? rewardDays
+        : 2,
+    gift_days:
+      Number.isInteger(giftDays) && giftDays >= 1 && giftDays <= 365
+        ? giftDays
+        : 0,
     bound: source.bound === true,
     followed: source.followed === true,
     gift_granted: source.gift_granted === true,

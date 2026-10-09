@@ -5,6 +5,9 @@ import { SaveOutlined, UndoOutlined } from "@ant-design/icons";
 import styles from "./page.module.css";
 import { useEffect, useMemo, useState } from "react";
 import JsonEditor from "@/components/admin/JsonEditor";
+import OnboardingRewardField, {
+  validateOnboardingReward,
+} from "@/components/admin/OnboardingRewardField";
 import WechatOfficialConfigForm, {
   officialConfigForSave,
   parseOfficialConfig,
@@ -70,9 +73,11 @@ export default function SystemConfigPage() {
   const active = configs.find((item) => configKey(item) === activeKey) || null;
   const dirty = draft !== original;
   const isWechatConfig = activeKey === "system.wechat_official_account";
+  const isOnboardingConfig = activeKey === "system.onboarding_config";
   const jsonError =
     validateJSON(draft) ||
-    (isWechatConfig ? validateOfficialConfig(draft) : "");
+    (isWechatConfig ? validateOfficialConfig(draft) : "") ||
+    (isOnboardingConfig ? validateOnboardingReward(draft) : "");
   /** selectDirect 不经确认直接切换当前配置。 */
   function selectDirect(item: any) {
     const value = prettyJSON(item.config_value ?? item.value);
@@ -110,7 +115,8 @@ export default function SystemConfigPage() {
       setOriginal(formatted);
       notify(`${configTitle(activeKey)}已保存`, "success");
       await load();
-      if (isWechatConfig) await refreshWechatOfficialStatus();
+      if (isWechatConfig || isOnboardingConfig)
+        await refreshWechatOfficialStatus();
     } catch (error) {
       notify(error instanceof Error ? error.message : "保存失败", "error");
     } finally {
@@ -316,7 +322,15 @@ export default function SystemConfigPage() {
                     notify={notify}
                   />
                 ) : (
-                  <JsonEditor value={draft} onChange={setDraft} />
+                  <>
+                    {isOnboardingConfig ? (
+                      <OnboardingRewardField
+                        value={draft}
+                        onChange={setDraft}
+                      />
+                    ) : null}
+                    <JsonEditor value={draft} onChange={setDraft} />
+                  </>
                 )}
               </>
             ) : (

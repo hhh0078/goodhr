@@ -1,17 +1,6 @@
 /** 本文件展示可取消的公众号关注与绑定码提醒，轮询本人状态并让位于所有业务弹框。 */
 "use client";
-import { CopyOutlined, ReloadOutlined } from "@ant-design/icons";
-import {
-  Alert,
-  Button,
-  Flex,
-  Image,
-  Input,
-  Space,
-  Spin,
-  Tag,
-  Typography,
-} from "antd";
+import { Alert, Flex, Image, Input, Spin, Tag, Typography } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cloudRequest } from "@/lib/admin-api";
 import {
@@ -54,6 +43,11 @@ function readDismissedFollow(email: string) {
   } catch {
     return false;
   }
+}
+
+/** formatBindingRemaining 将有效期显示为分秒，避免用户心算长串秒数。 */
+function formatBindingRemaining(seconds: number) {
+  return `${Math.floor(seconds / 60)} 分 ${String(seconds % 60).padStart(2, "0")} 秒`;
 }
 
 /** WechatFollowDialog 生成一次性绑定码，关注后的消息由云端验证，前端不直接发放会员。 */
@@ -104,6 +98,7 @@ export default function WechatFollowDialog({
   const alreadyGifted = Boolean(
     status?.gift_granted || user?.wechat_follow_gift_granted,
   );
+  const rewardDays = status?.reward_days || 2;
 
   useEffect(() => setQRFailed(false), [qrURL]);
   useEffect(() => {
@@ -178,7 +173,7 @@ export default function WechatFollowDialog({
         if (mountedRef.current)
           notify(
             fresh.gift_granted && !giftBeforeBindingRef.current
-              ? "公众号绑定好了，5 天会员已到账。继续搬砖吧。"
+              ? `公众号绑定好了，${fresh.gift_days || fresh.reward_days} 天会员已到账。继续搬砖吧。`
               : "公众号绑定好了，可以继续搬砖了。",
             "success",
           );
@@ -243,7 +238,7 @@ export default function WechatFollowDialog({
       const code = String(result.binding_code || "");
       const expiresAt = Date.parse(String(result.expires_at || ""));
       if (
-        !/^[A-Z0-9]{8}$/.test(code) ||
+        !/^(?:\d{4}|[A-Z0-9]{8})$/.test(code) ||
         !Number.isFinite(expiresAt) ||
         expiresAt <= Date.now()
       )
@@ -340,42 +335,34 @@ export default function WechatFollowDialog({
     visible,
   ]);
 
-  /** copyBindingCode 复制当前有效绑定码，不把码提交给本地程序或招聘平台。 */
-  async function copyBindingCode() {
-    if (!binding || remaining <= 0) return;
-    try {
-      await navigator.clipboard.writeText(binding.code);
-      notify("绑定码已复制，发给公众号就行", "success");
-    } catch {
-      setError("这次没复制成功，可以选中绑定码手动复制");
-    }
-  }
-
   return (
     <AdminDialog
       priority="promotion"
       open={visible}
-      title={alreadyGifted ? "关注公众号" : "关注领会员"}
-      description={
-        alreadyGifted
-          ? "这份 5 天奖励以前领过啦，关注后继续接收软件通知。"
-          : "关注并绑定公众号，领一次 5 天会员，也方便接收软件通知。"
+      title={
+        <Typography.Text
+          style={{ color: "#cf1322", fontSize: 20, fontWeight: 800 }}
+        >
+          {alreadyGifted ? "关注公众号" : `关注领取 ${rewardDays} 天会员`}
+        </Typography.Text>
       }
       cancelText="暂不关注"
+      confirmText="重新生成"
+      confirmLoading={generating}
+      confirmDisabled={!allowed || status?.bound}
+      hideClose
       maxWidth="xs"
       onClose={closeFollow}
+      onConfirm={() => void generateBinding()}
     >
-      <Flex vertical gap={16} align="stretch">
-        <Typography.Text strong style={{ textAlign: "center" }}>
-          {status?.account_name || "GoodHR"}
-        </Typography.Text>
+      <Flex vertical gap={10} align="stretch">
         {qrURL && !qrFailed ? (
           <Flex justify="center">
             <Image
               src={qrURL}
               alt="公众号关注二维码"
-              width={220}
-              height={220}
+              width={180}
+              height={180}
               preview={false}
               style={{ objectFit: "contain", maxWidth: "100%" }}
               onError={() => {
@@ -389,7 +376,7 @@ export default function WechatFollowDialog({
             type="info"
             title={
               qrFailed
-                ? "二维码图片暂时没加载，可以在微信搜索公众号名称。"
+                ? `二维码图片暂时没加载，可以在微信搜索“${status?.account_name || "GoodHR"}”。`
                 : "关注二维码还没配好，晚点再来就行"
             }
           />
@@ -400,7 +387,15 @@ export default function WechatFollowDialog({
           <Tag color="success">公众号已绑定</Tag>
         ) : (
           <Flex vertical gap={8}>
-            <Typography.Text>
+            <Typography.Text
+              style={{
+                color: "#cf1322",
+                fontSize: 19,
+                fontWeight: 800,
+                lineHeight: 1.5,
+                textAlign: "center",
+              }}
+            >
               先扫码关注，再把下面的绑定码发给公众号。
             </Typography.Text>
             {generating ? (
@@ -413,43 +408,35 @@ export default function WechatFollowDialog({
             ) : null}
             {binding ? (
               <>
-                <Space.Compact block>
-                  <Input
-                    aria-label="公众号绑定码"
-                    value={binding.code}
-                    readOnly
-                    style={{
-                      textAlign: "center",
-                      fontFamily: "monospace",
-                      fontSize: 22,
-                      letterSpacing: 3,
-                      minWidth: 0,
-                    }}
-                  />
-                  <Button
-                    icon={<CopyOutlined aria-hidden="true" />}
-                    disabled={remaining <= 0}
-                    onClick={() => void copyBindingCode()}
-                  >
-                    复制码
-                  </Button>
-                </Space.Compact>
-                <Typography.Text type={remaining > 0 ? "secondary" : "warning"}>
+                <Input
+                  aria-label="公众号绑定码"
+                  value={binding.code}
+                  readOnly
+                  variant="filled"
+                  style={{
+                    textAlign: "center",
+                    fontFamily: "monospace",
+                    fontSize: binding.code.length === 4 ? 42 : 32,
+                    fontWeight: 800,
+                    letterSpacing: binding.code.length === 4 ? 8 : 3,
+                    minWidth: 0,
+                    paddingBlock: 4,
+                  }}
+                />
+                <Typography.Text
+                  type={remaining > 0 ? "secondary" : "warning"}
+                  style={{ textAlign: "center", fontSize: 12 }}
+                >
                   {remaining > 0
-                    ? `绑定码剩余 ${remaining} 秒`
+                    ? `绑定码剩余 ${formatBindingRemaining(remaining)}`
                     : "绑定码已过期，重新生成一份就好。"}
                 </Typography.Text>
               </>
             ) : null}
-            <Button
-              icon={<ReloadOutlined aria-hidden="true" />}
-              loading={generating}
-              onClick={() => void generateBinding()}
-              style={{ alignSelf: "flex-end" }}
+            <Typography.Text
+              type="secondary"
+              style={{ fontSize: 12, textAlign: "center" }}
             >
-              {binding ? "重新生成" : "生成绑定码"}
-            </Button>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               之前已关注？取消后重新关注，再发绑定码。
             </Typography.Text>
           </Flex>

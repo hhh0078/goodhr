@@ -11,7 +11,39 @@ import (
 )
 
 const wechatOfficialConfigKey = "system.wechat_official_account"
-const wechatFollowRewardDays = 5
+const defaultWechatFollowRewardDays = 2
+
+// loadWechatFollowRewardDays 从注册赠送所在的配置组读取关注天数，缺失时默认赠送两天。
+func loadWechatFollowRewardDays(store SystemConfigStore) (int, error) {
+	if store == nil {
+		return defaultWechatFollowRewardDays, nil
+	}
+	record, err := store.Get("system.onboarding_config")
+	if errors.Is(err, ErrConfigNotFound) {
+		return defaultWechatFollowRewardDays, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return parseWechatFollowRewardDays(record.ConfigValue)
+}
+
+// parseWechatFollowRewardDays 校验关注赠送的整数范围，不修改注册试用和本地更新字段。
+func parseWechatFollowRewardDays(raw string) (int, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &fields); err != nil || fields == nil {
+		return 0, errors.New("本地程序与组件配置需要是 JSON 对象")
+	}
+	value, exists := fields["wechat_follow_reward_days"]
+	if !exists {
+		return defaultWechatFollowRewardDays, nil
+	}
+	var days int
+	if string(value) == "null" || json.Unmarshal(value, &days) != nil || days < 1 || days > 365 {
+		return 0, errors.New("关注赠送天数请填写 1 到 365 的整数")
+	}
+	return days, nil
+}
 
 // WechatOfficialConfig 保存回调与关注绑定配置，仅允许超级管理员编辑。
 type WechatOfficialConfig struct {
@@ -183,7 +215,7 @@ func canonicalWechatOfficialFields(values map[string]json.RawMessage) (map[strin
 }
 
 // redactWechatOfficialRecord 返回超管可用的配置，真实 AES 密钥始终留在服务端。
-func redactWechatOfficialRecord(record SystemConfig) SystemConfig {
+func redactWechatOfficialRecord(record SystemConfig, rewardDays ...int) SystemConfig {
 	if record.ConfigKey != wechatOfficialConfigKey {
 		return record
 	}
@@ -201,7 +233,11 @@ func redactWechatOfficialRecord(record SystemConfig) SystemConfig {
 	}
 	values["encoding_aes_key"] = ""
 	values["encoding_aes_key_configured"] = configured
-	values["reward_days"] = wechatFollowRewardDays
+	days := defaultWechatFollowRewardDays
+	if len(rewardDays) > 0 && rewardDays[0] >= 1 && rewardDays[0] <= 365 {
+		days = rewardDays[0]
+	}
+	values["reward_days"] = days
 	values["callback_url"] = "https://goodhr.58it.cn/api/wechat-official/callback"
 	raw, _ := json.Marshal(values)
 	record.ConfigValue = string(raw)
