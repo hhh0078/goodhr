@@ -7,30 +7,36 @@ import {
   Form,
   Input,
   InputNumber,
+  Select,
   Tabs,
   Typography,
 } from "antd";
 import {
   ApiOutlined,
-  ArrowUpOutlined,
   BellOutlined,
   ClockCircleOutlined,
   ExperimentOutlined,
   LockOutlined,
-  PlayCircleOutlined,
   RobotOutlined,
   SaveOutlined,
   SlidersOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
-import type { CSSProperties } from "react";
 import styles from "../heavy-ui.module.css";
-import Link from "next/link";
-import { useEffect, useId, useState } from "react";
+import pageStyles from "./page.module.css";
+import { useEffect, useId, useRef, useState } from "react";
 import { cloudRequest } from "@/lib/admin-api";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import NotificationProfileDialog from "@/components/admin/NotificationProfileDialog";
+import {
+  formatBuiltinAIPrice,
+  normalizeAIBaseURL,
+  normalizeBuiltinAIModels,
+  resolvePersonalAIModel,
+  usesBuiltinAIModels,
+  type BuiltinAIModel,
+} from "@/lib/personal-ai-config";
 const defaults = {
   base_url:
     "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
@@ -52,36 +58,79 @@ const defaults = {
   rest_duration_min: 2,
   rest_duration_max: 7,
 };
-/** normalizeAIBaseURL 补全 OpenAI 兼容的 Chat Completions 地址。 */
-function normalizeAIBaseURL(baseURL: string) {
-  const value = baseURL.trim().replace(/\/+$/, "");
-  if (!value) return "";
-  if (value.endsWith("/chat/completions")) return value;
-  if (value.endsWith("/v1")) return `${value}/chat/completions`;
-  return `${value}/v1/chat/completions`;
-}
 /** PersonalConfigPage 管理 AI 接口和模拟人工操作参数。 */
 export default function PersonalConfigPage() {
   const { notify } = useAdmin();
   const [form, setForm] = useState({ ...defaults });
   const [keySet, setKeySet] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [configError, setConfigError] = useState(false);
+  const [hostname, setHostname] = useState("");
+  const [builtinModels, setBuiltinModels] = useState<BuiltinAIModel[] | null>(null);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState(false);
+  const modelsRequestID = useRef(0);
   const [profileOpenSignal, setProfileOpenSignal] = useState(0);
-  const [activeTab, setActiveTab] = useState("builtin");
+  const [activeTab, setActiveTab] = useState("ai");
   const [passwordForm, setPasswordForm] = useState({
     old_password: "",
     new_password: "",
     confirm_password: "",
   });
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const builtinModelSelection = usesBuiltinAIModels(form.base_url, hostname);
+  const modelUnavailable =
+    builtinModelSelection &&
+    (modelsLoading || modelsError || !builtinModels?.length);
+  const model = resolvePersonalAIModel(
+    form.base_url,
+    form.model,
+    hostname,
+    builtinModels,
+  );
+  const selectedBuiltinModel = builtinModels?.find((item) => item.id === model);
+  const modelOptions = (builtinModels || []).map((item) => ({
+    value: item.id,
+    label: `${item.name} (${item.id})`,
+    searchText: `${item.name} ${item.id} ${item.description}`,
+    model: item,
+  }));
+  /** loadBuiltinModels 独立读取内置模型列表，失败时保留现有模型且不使用猜测值。 */
+  async function loadBuiltinModels() {
+    const requestID = ++modelsRequestID.current;
+    setModelsLoading(true);
+    setModelsError(false);
+    try {
+      const data = await cloudRequest("/api/ai-wallet");
+      if (requestID !== modelsRequestID.current) return;
+      const wallet = data.wallet || data;
+      if (!Array.isArray(wallet.models)) throw new Error("内置模型列表暂时没读到");
+      setBuiltinModels(normalizeBuiltinAIModels(wallet.models));
+    } catch {
+      if (requestID === modelsRequestID.current) setModelsError(true);
+    } finally {
+      if (requestID === modelsRequestID.current) setModelsLoading(false);
+    }
+  }
   /** load 读取个人 AI 配置和操作偏好。 */
   async function load() {
     setLoading(true);
+    setConfigLoaded(false);
+    setConfigError(false);
     try {
       const [aiData, preferenceData] = await Promise.all([
         cloudRequest("/api/config/user-ai"),
         cloudRequest("/api/config/user-preferences"),
       ]);
+      if (
+        !Object.hasOwn(aiData, "config") ||
+        (aiData.config !== null && typeof aiData.config !== "object") ||
+        !preferenceData.config ||
+        typeof preferenceData.config !== "object"
+      ) {
+        throw new Error("个人配置暂时没读完整，请重新读取");
+      }
       const ai = aiData.config || {};
       const preference = preferenceData.config || {};
       setKeySet(Boolean(ai.api_key_set));
@@ -92,7 +141,9 @@ export default function PersonalConfigPage() {
         model: ai.model || preference.ai_model || defaults.model,
         api_key: ai.api_key || "",
       });
+      setConfigLoaded(true);
     } catch (error) {
+      setConfigError(true);
       notify(
         error instanceof Error ? error.message : "个人配置读取失败",
         "error",
@@ -102,22 +153,55 @@ export default function PersonalConfigPage() {
     }
   }
   useEffect(() => {
+    setHostname(window.location.hostname);
     void load();
+    void loadBuiltinModels();
+    return () => {
+      modelsRequestID.current += 1;
+    };
   }, []);
+  useEffect(() => {
+    if (!configLoaded || modelsLoading || modelsError) return;
+    setForm((current) => {
+      const nextModel = resolvePersonalAIModel(
+        current.base_url,
+        current.model,
+        hostname,
+        builtinModels,
+      );
+      return nextModel === current.model ? current : { ...current, model: nextModel };
+    });
+  }, [configLoaded, modelsLoading, modelsError, builtinModels, hostname, form.base_url]);
+  /** changeAIBaseURL 切换地址时立即套用同域模型列表，外部地址保留自由输入。 */
+  function changeAIBaseURL(baseURL: string) {
+    setForm((current) => ({
+      ...current,
+      base_url: baseURL,
+      model: resolvePersonalAIModel(
+        baseURL,
+        current.model,
+        hostname,
+        modelsLoading || modelsError ? null : builtinModels,
+      ),
+    }));
+  }
   /** testAI 通过云端代理验证当前填写的 AI 接口。 */
   async function testAI() {
+    if (!configLoaded) return notify("个人配置还没读到，请先重新读取", "warning");
+    if (modelUnavailable)
+      return notify("内置模型暂时没读到，请重新读取后再试", "warning");
     if (!form.api_key.trim()) return notify("测试前请填写 AI Key", "warning");
     const baseURL = normalizeAIBaseURL(form.base_url);
-    if (!baseURL || !form.model.trim())
+    if (!baseURL || !model.trim())
       return notify("请填写 AI 地址和模型", "warning");
     setLoading(true);
     try {
-      setForm((current) => ({ ...current, base_url: baseURL }));
+      setForm((current) => ({ ...current, base_url: baseURL, model }));
       await cloudRequest("/api/config/test-ai", {
         method: "POST",
         body: {
           base_url: baseURL,
-          model: form.model.trim(),
+          model: model.trim(),
           api_key: form.api_key.trim(),
           temperature: 0,
           enabled: true,
@@ -135,8 +219,11 @@ export default function PersonalConfigPage() {
   }
   /** save 保存 AI 配置和操作偏好。 */
   async function save() {
+    if (!configLoaded) return notify("个人配置还没读到，请先重新读取", "warning");
+    if (modelUnavailable)
+      return notify("内置模型暂时没读到，请重新读取后再保存", "warning");
     const baseURL = normalizeAIBaseURL(form.base_url);
-    if (!baseURL || !form.model.trim())
+    if (!baseURL || !model.trim())
       return notify("请填写 AI 地址和模型", "warning");
     if (!keySet && !form.api_key.trim())
       return notify("请填写 AI Key", "warning");
@@ -149,22 +236,24 @@ export default function PersonalConfigPage() {
     }
     setLoading(true);
     try {
-      setForm((current) => ({ ...current, base_url: baseURL }));
-      await cloudRequest("/api/config/user-ai", {
+      setForm((current) => ({ ...current, base_url: baseURL, model }));
+      const data = await cloudRequest("/api/config/user-ai", {
         method: "PUT",
         body: {
           base_url: baseURL,
-          model: form.model.trim(),
+          model: model.trim(),
           api_key: form.api_key.trim(),
           temperature: 0,
           prompt_template: "",
           enabled: true,
         },
       });
-      const { base_url: _baseURL, model, api_key: _key, ...preference } = form;
+      const savedModel = data.config?.model || model.trim();
+      setForm((current) => ({ ...current, model: savedModel }));
+      const { base_url: _baseURL, model: _model, api_key: _key, ...preference } = form;
       await cloudRequest("/api/config/user-preferences", {
         method: "PUT",
-        body: { ...preference, ai_model: model },
+        body: { ...preference, ai_model: savedModel },
       });
       setKeySet(true);
       notify("个人配置已保存", "success");
@@ -182,13 +271,19 @@ export default function PersonalConfigPage() {
         method: "POST",
       });
       const config = data.config || {};
+      if (Array.isArray(data.models)) {
+        modelsRequestID.current += 1;
+        setBuiltinModels(normalizeBuiltinAIModels(data.models));
+        setModelsError(false);
+        setModelsLoading(false);
+      }
       setForm((current) => ({
         ...current,
         base_url: config.base_url || current.base_url,
         model: config.model || current.model,
         api_key: config.api_key || current.api_key,
       }));
-      setKeySet(Boolean(config.api_key));
+      setKeySet(Boolean(config.api_key_set || config.api_key));
       notify("已切到内置 AI，余额够的话我就能开工。", "success");
     } catch (error) {
       notify(
@@ -254,7 +349,7 @@ export default function PersonalConfigPage() {
               通知偏好
             </Button>
             <Button
-              disabled={loading}
+              disabled={loading || !configLoaded || modelUnavailable}
               onClick={() => void save()}
               type={"primary"}
               icon={<SaveOutlined aria-hidden="true" />}
@@ -271,8 +366,7 @@ export default function PersonalConfigPage() {
           onChange={(value) => setActiveTab(String(value))}
           aria-label="个人配置分类"
           items={[
-            { key: "builtin", label: "内置AI" },
-            { key: "custom", label: "自定义AI" },
+            { key: "ai", label: "AI配置" },
             { key: "timing", label: "随机时间" },
             { key: "other", label: "其他配置" },
             { key: "account", label: "账号安全" },
@@ -281,71 +375,33 @@ export default function PersonalConfigPage() {
         />
       </SectionPanel>
 
-      {activeTab === "builtin" ? (
-        <SectionPanel className={styles.s209}>
-          <SectionTitle
-            icon={<ThunderboltOutlined aria-hidden="true" />}
-            title="内置 AI"
-            description="不想研究接口也没关系，使用系统准备好的 AI 配置就能开始。"
-          />
-          <Alert
-            type={"info"}
-            showIcon
-            description={
-              <>
-                {" "}
-                内置 AI 会消耗账户中的 AI 余额，省去申请模型、填写地址和保存 Key
-                的步骤。
-              </>
-            }
-            className={styles.s210}
-          />
-          <Flex className={styles.s211}>
-            <Button
-              disabled={loading}
-              onClick={() => void useBuiltinAI()}
-              type={"primary"}
-              icon={<ThunderboltOutlined aria-hidden="true" />}
-              className={styles.s212}
-            >
-              使用内置 AI
-            </Button>
-            <Typography.Paragraph className={`${styles.text} ${styles.s213}`}>
-              {keySet
-                ? "当前已有可用的 AI 配置。"
-                : "当前还没有可用的 AI 配置，请先点击使用内置 AI。"}
-            </Typography.Paragraph>
-          </Flex>
-        </SectionPanel>
+      {configError ? (
+        <Alert
+          type="warning"
+          showIcon
+          description="个人配置暂时没读到，重新读取后再修改，我先替你保住原配置。"
+          action={<Button onClick={() => void load()} disabled={loading}>重新读取</Button>}
+          className={styles.s210}
+        />
       ) : null}
 
-      {activeTab === "custom" ? (
-        <>
-          <div className={styles.s214}>
-            <QuickLink
-              href="/videos"
-              icon={<PlayCircleOutlined aria-hidden="true" />}
-              eyebrow="新手推荐"
-              title="查看视频教程"
-              description="按视频一步步完成 AI 平台申请、接口填写、测试和保存。"
-              primary
-            />
-            <QuickLink
-              href="https://www.qianwenai.com/"
-              external
-              icon={<RobotOutlined aria-hidden="true" />}
-              eyebrow="AI 接入"
-              title="获取 AI 接口"
-              description="前往千问平台申请多模态模型和 API Key。"
-            />
-          </div>
-
+      {activeTab === "ai" ? (
           <SectionPanel className={styles.s215}>
-            <SectionTitle
-              icon={<ApiOutlined aria-hidden="true" />}
-              title="自定义 AI"
-              description="填写自己的 AI 接口，建议先测试成功，再点击页面右上角保存。"
-            />
+            <div className={pageStyles.aiHeader}>
+              <SectionTitle
+                icon={<ApiOutlined aria-hidden="true" />}
+                title="自定义 AI"
+                description="填写自己的接口，或直接使用内置 AI。建议先测试，再保存。"
+              />
+              <Button
+                disabled={loading || !configLoaded}
+                onClick={() => void useBuiltinAI()}
+                type="primary"
+                icon={<ThunderboltOutlined aria-hidden="true" />}
+              >
+                使用内置 AI
+              </Button>
+            </div>
             <Alert
               icon={<ApiOutlined aria-hidden="true" />}
               type={"info"}
@@ -353,27 +409,38 @@ export default function PersonalConfigPage() {
               description={
                 <>
                   {" "}
-                  可接入兼容 OpenAI 格式的多模态模型，例如千问、硅基流动和
-                  OpenAI。模型必须支持图片识别；DeepSeek
-                  当前不支持图片输入，请不要用于详情 AI 识别。
+                  可接入兼容 OpenAI 格式的模型；详情 AI 识别需要模型支持图片输入。
+                  内置 AI 会消耗账户中的 AI 余额，地址包含本站域名时请从列表选择模型。
                 </>
               }
               className={styles.s216}
             />
+            {modelsError || (builtinModels !== null && !builtinModels.length) ? (
+              <Alert
+                type="warning"
+                showIcon
+                description={modelsError
+                  ? "内置模型列表暂时没读到，可以重新读取；自己的外部接口仍可自由填写模型。"
+                  : "内置 AI 暂时没有可选模型，可以稍后重新读取，或填写自己的外部接口。"}
+                action={<Button disabled={modelsLoading} onClick={() => void loadBuiltinModels()}>重新读取模型</Button>}
+                className={styles.s210}
+              />
+            ) : null}
             <div className={styles.s217}>
               <Form.Item
                 layout="vertical"
                 htmlFor="personal-config-field-1"
                 label={"API 地址"}
                 extra={
-                  <> {"默认使用千问兼容 OpenAI 的 Chat Completions 地址。"} </>
+                  <>地址包含本站域名时选择内置模型；其他地址可自由填写模型。</>
                 }
                 style={{ marginBottom: 0 }}
               >
                 <Input
                   value={form.base_url}
+                  disabled={loading || !configLoaded}
                   onChange={(event) =>
-                    setForm({ ...form, base_url: event.target.value })
+                    changeAIBaseURL(event.target.value)
                   }
                   id="personal-config-field-1"
                   className={styles.s219}
@@ -383,17 +450,50 @@ export default function PersonalConfigPage() {
                 layout="vertical"
                 htmlFor="personal-config-field-2"
                 label={"模型名称"}
-                extra={<> {"例如 qwen3.7-plus"} </>}
+                extra={builtinModelSelection ? (
+                  selectedBuiltinModel ? (
+                    <div className={pageStyles.selectedModelDetail}>
+                      {selectedBuiltinModel.description ? <span>{selectedBuiltinModel.description}</span> : null}
+                      <span>输入 {formatBuiltinAIPrice(selectedBuiltinModel.input_price_per_1m_cents)} / 输出 {formatBuiltinAIPrice(selectedBuiltinModel.output_price_per_1m_cents)} · 每百万 Token</span>
+                    </div>
+                  ) : (modelsLoading ? "我正在读取内置模型列表……" : "请重新读取内置模型列表后再选择。")
+                ) : "填写接口服务商提供的模型名称，不限制模型。"}
                 style={{ marginBottom: 0 }}
               >
-                <Input
-                  value={form.model}
-                  onChange={(event) =>
-                    setForm({ ...form, model: event.target.value })
-                  }
-                  id="personal-config-field-2"
-                  className={styles.s221}
-                />
+                {builtinModelSelection ? (
+                  <Select
+                    value={modelUnavailable ? undefined : model}
+                    onChange={(value) => setForm((current) => ({ ...current, model: value }))}
+                    options={modelOptions}
+                    showSearch
+                    optionFilterProp="searchText"
+                    classNames={{ popup: { root: pageStyles.modelDropdown } }}
+                    optionRender={(option) => (
+                      <div className={pageStyles.modelOption}>
+                        <span className={pageStyles.modelName}>{option.data.model.name}</span>
+                        <span className={pageStyles.modelDetail}>{option.data.model.id}</span>
+                        {option.data.model.description ? <span className={pageStyles.modelDetail}>{option.data.model.description}</span> : null}
+                        <span className={pageStyles.modelDetail}>输入 {formatBuiltinAIPrice(option.data.model.input_price_per_1m_cents)} / 输出 {formatBuiltinAIPrice(option.data.model.output_price_per_1m_cents)} · 每百万 Token</span>
+                      </div>
+                    )}
+                    virtual={false}
+                    loading={modelsLoading}
+                    disabled={loading || !configLoaded || modelUnavailable}
+                    placeholder={modelsLoading ? "正在读取模型" : "暂无可选模型"}
+                    id="personal-config-field-2"
+                    className={styles.s221}
+                  />
+                ) : (
+                  <Input
+                    value={form.model}
+                    disabled={loading || !configLoaded}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, model: event.target.value }))
+                    }
+                    id="personal-config-field-2"
+                    className={styles.s221}
+                  />
+                )}
               </Form.Item>
               <Form.Item
                 layout="vertical"
@@ -407,6 +507,7 @@ export default function PersonalConfigPage() {
               >
                 <Input
                   value={form.api_key}
+                  disabled={loading || !configLoaded}
                   onChange={(event) =>
                     setForm({ ...form, api_key: event.target.value })
                   }
@@ -418,7 +519,7 @@ export default function PersonalConfigPage() {
             </div>
             <Flex className={styles.s224}>
               <Button
-                disabled={loading}
+                disabled={loading || !configLoaded || modelUnavailable}
                 onClick={() => void testAI()}
                 type={"primary"}
                 icon={<ExperimentOutlined aria-hidden="true" />}
@@ -434,7 +535,6 @@ export default function PersonalConfigPage() {
               </Typography.Paragraph>
             </Flex>
           </SectionPanel>
-        </>
       ) : null}
 
       {activeTab === "timing" ? (
@@ -660,104 +760,6 @@ export default function PersonalConfigPage() {
         </div>
       ) : null}
     </>
-  );
-}
-/** QuickLink 展示个人配置页的外部帮助入口。 */
-function QuickLink({
-  href,
-  icon,
-  eyebrow,
-  title,
-  description,
-  external = false,
-  primary = false,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  eyebrow: string;
-  title: string;
-  description: string;
-  external?: boolean;
-  primary?: boolean;
-}) {
-  const content = (
-    <Flex
-      className={styles.s243}
-      style={
-        {
-          "--heavy-38": primary ? "20px" : "16px",
-          "--heavy-39": primary ? "20px" : "16px",
-          "--heavy-40": primary ? "20px" : "16px",
-          "--heavy-41": primary ? "140px" : "118px",
-          "--heavy-42": primary
-            ? "var(--goodhr-primary)"
-            : "var(--goodhr-border)",
-          "--heavy-43": primary
-            ? "var(--goodhr-primary-soft)"
-            : "var(--goodhr-hover)",
-          "--heavy-44": primary ? "0 18px 44px rgba(17, 17, 17, .1)" : "none",
-          "--heavy-45": primary
-            ? "var(--goodhr-primary-soft)"
-            : "var(--goodhr-hover)",
-        } as CSSProperties
-      }
-    >
-      <div
-        className={styles.s244}
-        style={
-          {
-            "--heavy-46": primary ? "58px" : "46px",
-            "--heavy-47": primary ? "58px" : "46px",
-            "--heavy-48": primary
-              ? "var(--goodhr-primary)"
-              : "var(--goodhr-primary-soft)",
-            "--heavy-49": primary ? "#fff" : "var(--goodhr-primary)",
-            "--heavy-50": primary ? "31px" : "24px",
-          } as CSSProperties
-        }
-      >
-        {icon}
-      </div>
-      <div className={styles.s245}>
-        <Typography.Paragraph className={`${styles.text} ${styles.s246}`}>
-          {eyebrow}
-        </Typography.Paragraph>
-        <Typography.Paragraph
-          className={`${styles.text} ${styles.s247}`}
-          style={{ "--heavy-51": primary ? "22px" : "17px" } as CSSProperties}
-        >
-          {title}
-        </Typography.Paragraph>
-        <Typography.Paragraph className={`${styles.text} ${styles.s248}`}>
-          {description}
-        </Typography.Paragraph>
-      </div>
-      <ArrowUpOutlined
-        aria-hidden="true"
-        className={styles.s249}
-        style={
-          {
-            "--heavy-52": primary
-              ? "var(--goodhr-primary)"
-              : "var(--goodhr-text-secondary)",
-          } as CSSProperties
-        }
-      />
-    </Flex>
-  );
-  return external ? (
-    <Typography.Link
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className={styles.s250}
-    >
-      {content}
-    </Typography.Link>
-  ) : (
-    <Link href={href} style={{ textDecoration: "none" }}>
-      {content}
-    </Link>
   );
 }
 /** SectionTitle 展示配置区域标题和说明。 */

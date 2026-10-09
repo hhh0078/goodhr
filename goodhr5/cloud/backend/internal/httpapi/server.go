@@ -83,7 +83,7 @@ func NewServer() (*Server, error) {
 	cookieStore := config.CookieStore(db)
 	platformAccountStore := config.PlatformAccountStore(db)
 	positionStore := config.PositionStore(db)
-	aiConfigStore := config.AIConfigStore(db)
+	aiConfigStore := newModelRestrictedAIConfigStore(config.AIConfigStore(db), systemConfigStore)
 	aiWalletStore := config.AIWalletStore(db)
 	aiWalletService := NewAIWalletService(nil, aiWalletStore, aiConfigStore, systemConfigStore)
 	auth := NewAuthService(authStore, config.PasswordStore(db), mailer, exposeDebugCode, tenantStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins, config.UniversalLoginCodeOffsetMin)
@@ -103,7 +103,7 @@ func NewServer() (*Server, error) {
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
 		userFlow:            NewUserFlowService(auth, userFlowStore, positionStore),
 		agentWS:             agentWS,
-		ai:                  NewAIConfigService(auth, aiConfigStore),
+		ai:                  NewAIConfigService(auth, aiConfigStore, systemConfigStore),
 		aiWallet:            aiWalletService,
 		userPreferences:     NewUserPreferencesService(auth, userPreferencesStore),
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
