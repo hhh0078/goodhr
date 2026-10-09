@@ -1,0 +1,53 @@
+/* 本文件仅负责个人 AI 配置卡片标题操作区和模型价格列表的布局。 */
+.aiHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.aiHeader > :first-child {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.aiHeader > button {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.modelOption {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 3px 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.modelName {
+  font-weight: 600;
+}
+
+.modelDetail {
+  font-size: 12px;
+  color: var(--goodhr-text-secondary);
+}
+
+.modelDropdown.modelDropdown :global(.ant-select-item-option-selected:not(.ant-select-item-option-disabled)),
+.modelDropdown.modelDropdown :global(.ant-select-item-option-selected.ant-select-item-option-active:not(.ant-select-item-option-disabled)) {
+  background-color: var(--goodhr-primary-soft);
+  color: var(--goodhr-text);
+}
+
+.modelDropdown.modelDropdown :global(.ant-select-item-option-active:not(.ant-select-item-option-disabled)) {
+  background-color: var(--goodhr-hover);
+}
+
+.selectedModelDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}

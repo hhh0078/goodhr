@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"math"
@@ -19,6 +20,9 @@ import (
 	"sync"
 	"time"
 )
+
+// ErrBuiltinAIConfigUnavailable 表示模型配置暂时无法可靠读取，此时禁止猜测模型并保存。
+var ErrBuiltinAIConfigUnavailable = errors.New("AI 模型列表暂时没读出来，请稍后再试。")
 
 const (
 	defaultBuiltinAIBaseURL      = "https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions"
@@ -112,7 +116,11 @@ func (s *AIWalletService) Summary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed load ai balance")
 		return
 	}
-	cfg := s.loadBuiltinAIConfig()
+	cfg, err := s.loadBuiltinAIConfig()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, ErrBuiltinAIConfigUnavailable.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":                     true,
 		"balance_units":          balance,
@@ -184,6 +192,10 @@ func (s *AIWalletService) UseBuiltin(w http.ResponseWriter, r *http.Request) {
 	}
 	config, err := s.ConfigureUserBuiltinAI(session.Email)
 	if err != nil {
+		if errors.Is(err, ErrBuiltinAIConfigUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, ErrBuiltinAIConfigUnavailable.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed use builtin ai")
 		return
 	}
@@ -192,7 +204,11 @@ func (s *AIWalletService) UseBuiltin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed load ai balance")
 		return
 	}
-	cfg := s.loadBuiltinAIConfig()
+	cfg, err := s.loadBuiltinAIConfig()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, ErrBuiltinAIConfigUnavailable.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":              true,
 		"config":          publicUserAIConfig(config),
@@ -235,7 +251,11 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "failed read ai request")
 		return
 	}
-	cfg := s.loadBuiltinAIConfig()
+	cfg, err := s.loadBuiltinAIConfig()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, ErrBuiltinAIConfigUnavailable.Error())
+		return
+	}
 	if strings.TrimSpace(cfg.UpstreamBaseURL) == "" || strings.TrimSpace(cfg.UpstreamAPIKey) == "" {
 		writeError(w, http.StatusServiceUnavailable, "内置 AI 还没接上线，我先小声罢工一下。")
 		return
@@ -243,13 +263,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	modelID := aiModelFromBody(body, cfg.DefaultModel)
 	model, ok := cfg.modelByID(modelID)
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"ok":               false,
-			"error":            "这个模型暂时不在可用列表里。",
-			"model":            modelID,
-			"supported_models": cfg.modelIDs(),
-		})
-		return
+		model = cfg.Models[0]
 	}
 	body = rewriteAIModel(body, model.ID)
 	streamRequest := aiRequestWantsStream(body)
@@ -330,7 +344,10 @@ func (s *AIWalletService) ConfigureUserBuiltinAI(email string) (AIConfig, error)
 	if s == nil || s.aiConfigs == nil || s.wallet == nil {
 		return AIConfig{}, errors.New("内置 AI 服务未初始化")
 	}
-	cfg := s.loadBuiltinAIConfig()
+	cfg, err := s.loadBuiltinAIConfig()
+	if err != nil {
+		return AIConfig{}, err
+	}
 	current, err := s.aiConfigs.UserConfig(email)
 	hasConfig := err == nil
 	if err != nil && !errors.Is(err, ErrNotFound) {
@@ -383,7 +400,10 @@ func (s *AIWalletService) EnsureUserDefaultAI(email string) error {
 	} else if err != nil && !errors.Is(err, ErrNotFound) {
 		return err
 	}
-	cfg := s.loadBuiltinAIConfig()
+	cfg, err := s.loadBuiltinAIConfig()
+	if err != nil {
+		return err
+	}
 	apiKey, err := generateBuiltinAIKey()
 	if err != nil {
 		return err
@@ -415,7 +435,15 @@ func (s *AIWalletService) EnsureUserDefaultAI(email string) error {
 }
 
 // loadBuiltinAIConfig 从 system.app_config 读取内置 AI 配置。
-func (s *AIWalletService) loadBuiltinAIConfig() builtinAIConfig {
+func (s *AIWalletService) loadBuiltinAIConfig() (builtinAIConfig, error) {
+	if s == nil {
+		return loadBuiltinAIConfig(nil)
+	}
+	return loadBuiltinAIConfig(s.systemConfigs)
+}
+
+// loadBuiltinAIConfig 读取公共系统配置，并统一使用有效模型列表的第一项作为默认模型。
+func loadBuiltinAIConfig(systemConfigs SystemConfigStore) (builtinAIConfig, error) {
 	cfg := builtinAIConfig{
 		PublicBaseURL:    environmentPublicURL(defaultBuiltinAIBaseURL),
 		DefaultModel:     defaultBuiltinAIModel,
@@ -428,36 +456,65 @@ func (s *AIWalletService) loadBuiltinAIConfig() builtinAIConfig {
 			OutputPricePer1MCents: 400,
 		}},
 	}
-	if s == nil || s.systemConfigs == nil {
-		return cfg
+	if systemConfigs == nil {
+		return cfg, nil
 	}
-	item, err := s.systemConfigs.Get("system.app_config")
+	item, err := systemConfigs.Get("system.app_config")
 	if err != nil {
-		return cfg
+		if errors.Is(err, ErrConfigNotFound) {
+			return cfg, nil
+		}
+		return builtinAIConfig{}, fmt.Errorf("%w: %v", ErrBuiltinAIConfigUnavailable, err)
 	}
 	var app map[string]json.RawMessage
-	if json.Unmarshal([]byte(item.ConfigValue), &app) != nil {
-		return cfg
+	if err := json.Unmarshal([]byte(item.ConfigValue), &app); err != nil {
+		return builtinAIConfig{}, fmt.Errorf("%w: %v", ErrBuiltinAIConfigUnavailable, err)
+	}
+	if app == nil {
+		return builtinAIConfig{}, fmt.Errorf("%w: 公共配置必须是对象", ErrBuiltinAIConfigUnavailable)
 	}
 	raw, ok := app["builtin_ai"]
 	if !ok {
-		return cfg
+		return cfg, nil
 	}
-	_ = json.Unmarshal(raw, &cfg)
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return builtinAIConfig{}, fmt.Errorf("%w: 内置 AI 配置必须是对象", ErrBuiltinAIConfigUnavailable)
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return builtinAIConfig{}, fmt.Errorf("%w: %v", ErrBuiltinAIConfigUnavailable, err)
+	}
 	cfg.PublicBaseURL = environmentPublicURL(cfg.PublicBaseURL)
 	if strings.TrimSpace(cfg.PublicBaseURL) == "" {
 		cfg.PublicBaseURL = environmentPublicURL(defaultBuiltinAIBaseURL)
 	}
-	if strings.TrimSpace(cfg.DefaultModel) == "" {
+	cfg.DefaultModel = strings.TrimSpace(cfg.DefaultModel)
+	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = defaultBuiltinAIModel
 	}
 	if cfg.SignupBonusCents <= 0 {
 		cfg.SignupBonusCents = defaultSignupBonusCents
 	}
+	models := make([]builtinAIModel, 0, len(cfg.Models))
+	seen := make(map[string]bool, len(cfg.Models))
+	for _, model := range cfg.Models {
+		model.ID = strings.TrimSpace(model.ID)
+		if model.ID == "" || seen[model.ID] {
+			continue
+		}
+		seen[model.ID] = true
+		model.Name = strings.TrimSpace(model.Name)
+		if model.Name == "" {
+			model.Name = model.ID
+		}
+		model.Description = strings.TrimSpace(model.Description)
+		models = append(models, model)
+	}
+	cfg.Models = models
 	if len(cfg.Models) == 0 {
 		cfg.Models = []builtinAIModel{{ID: cfg.DefaultModel, Name: cfg.DefaultModel, InputPricePer1MCents: 100, OutputPricePer1MCents: 400}}
 	}
-	return cfg
+	cfg.DefaultModel = cfg.Models[0].ID
+	return cfg, nil
 }
 
 // modelByID 按模型 ID 读取模型计费配置。

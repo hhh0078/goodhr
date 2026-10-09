@@ -112,3 +112,32 @@ func (s *PostgresAIConfigStore) SaveUserConfig(userEmail string, config AIConfig
 	}
 	return saved, nil
 }
+
+// RepairUserModel 原子比对旧配置快照后仅更新模型；若用户已保存新参数则重新读取当前配置。
+func (s *PostgresAIConfigStore) RepairUserModel(userEmail string, previous AIConfig, model string) (AIConfig, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var saved AIConfig
+	err := s.db.QueryRowContext(ctx, `
+		UPDATE user_ai_configs AS uac
+		SET model = $2, updated_at = now()
+		FROM users AS u
+		WHERE u.id = uac.user_id AND u.email = $1
+			AND uac.updated_at = $3
+			AND uac.base_url = $4 AND uac.model = $5
+			AND uac.api_key_encrypted = $6 AND COALESCE(uac.temperature, 0) = $7
+			AND uac.prompt_template = $8 AND uac.enabled = $9
+		RETURNING uac.base_url, uac.model, uac.api_key_encrypted, COALESCE(uac.temperature, 0), uac.prompt_template, uac.enabled, uac.updated_at
+	`, userEmail, model, previous.UpdatedAt, previous.BaseURL, previous.Model, previous.APIKey,
+		previous.Temperature, previous.PromptTemplate, previous.Enabled).Scan(
+		&saved.BaseURL, &saved.Model, &saved.APIKey, &saved.Temperature,
+		&saved.PromptTemplate, &saved.Enabled, &saved.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return s.UserConfig(userEmail)
+	}
+	if err != nil {
+		return AIConfig{}, err
+	}
+	return saved, nil
+}

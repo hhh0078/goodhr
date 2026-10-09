@@ -21,9 +21,10 @@ const aiRequestTimeout = 180 * time.Second
 
 // AIConfigService 处理用户 AI 配置读取和保存请求。
 type AIConfigService struct {
-	auth       *AuthService
-	store      AIConfigStore
-	httpClient *http.Client
+	auth          *AuthService
+	store         AIConfigStore
+	systemConfigs SystemConfigStore
+	httpClient    *http.Client
 }
 
 type aiConfigRequest struct {
@@ -36,11 +37,12 @@ type aiConfigRequest struct {
 }
 
 // NewAIConfigService 创建 AI 配置 API 服务，并注入认证服务和配置存储。
-func NewAIConfigService(auth *AuthService, store AIConfigStore) *AIConfigService {
+func NewAIConfigService(auth *AuthService, store AIConfigStore, systemConfigs SystemConfigStore) *AIConfigService {
 	return &AIConfigService{
-		auth:       auth,
-		store:      store,
-		httpClient: newAIConfigTestHTTPClient(),
+		auth:          auth,
+		store:         store,
+		systemConfigs: systemConfigs,
+		httpClient:    newAIConfigTestHTTPClient(),
 	}
 }
 
@@ -58,6 +60,12 @@ func (s *AIConfigService) Test(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	normalized, err := normalizeUserAIConfig(req.toConfig(), s.systemConfigs)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, ErrBuiltinAIConfigUnavailable.Error())
+		return
+	}
+	req.Model = normalized.Model
 	if err := validateAIConfigTestRequest(req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -290,6 +298,10 @@ func (s *AIConfigService) User(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if errors.Is(err, ErrBuiltinAIConfigUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, ErrBuiltinAIConfigUnavailable.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to load user ai config")
 		return
 	}
@@ -321,6 +333,14 @@ func (s *AIConfigService) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	configToSave := req.toConfig()
 	if configToSave.APIKey == "" {
 		current, err := s.store.UserConfig(session.Email)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			if errors.Is(err, ErrBuiltinAIConfigUnavailable) {
+				writeError(w, http.StatusServiceUnavailable, ErrBuiltinAIConfigUnavailable.Error())
+			} else {
+				writeError(w, http.StatusInternalServerError, "failed to load user ai config")
+			}
+			return
+		}
 		if err == nil && current.APIKey != "" {
 			configToSave.APIKey = current.APIKey
 		}
@@ -329,6 +349,10 @@ func (s *AIConfigService) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// 调用 AIConfigStore 保存用户配置，岗位运行时会优先使用它。
 	config, err := s.store.SaveUserConfig(session.Email, configToSave)
 	if err != nil {
+		if errors.Is(err, ErrBuiltinAIConfigUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, ErrBuiltinAIConfigUnavailable.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to save user ai config")
 		return
 	}
@@ -362,6 +386,10 @@ func (s *AIConfigService) Effective(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if errors.Is(err, ErrBuiltinAIConfigUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, ErrBuiltinAIConfigUnavailable.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to load user ai config")
 		return
 	}
