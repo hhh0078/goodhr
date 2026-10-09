@@ -10,6 +10,7 @@ import {
   Select,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
@@ -230,15 +231,7 @@ export default function UsersPage() {
         今日注册 {Number(stats.today_registered_count || 0)}人，绑定程序{" "}
         {Number(stats.agent_binding_count || 0)}台
       </Typography.Text>
-      <div
-        className={styles.layout2}
-        style={{
-          display: "grid",
-          gap: 10,
-          marginBottom: 16,
-          alignItems: "center",
-        }}
-      >
+      <div className={styles.searchBar}>
         <Form.Item
           htmlFor="goodhr-users-field-1"
           layout="vertical"
@@ -281,12 +274,15 @@ export default function UsersPage() {
         </Form.Item>
         <Button
           type={"primary"}
+          className={styles.searchButton}
           icon={<SearchOutlined aria-hidden="true" />}
           onClick={() => void load(1)}
         >
           搜索
         </Button>
-        <Button onClick={resetSearch}>重置</Button>
+        <Button className={styles.searchButton} onClick={resetSearch}>
+          重置
+        </Button>
       </div>
 
       <SectionPanel style={{ padding: 0, overflow: "hidden" }}>
@@ -294,17 +290,19 @@ export default function UsersPage() {
           <>
             <div className={styles.layout13}>
               <Table<AdminUserItem>
+                className={styles.userTable}
                 rowKey="email"
                 dataSource={items}
                 loading={loading}
                 pagination={false}
                 size="small"
-                scroll={{ x: 1200 }}
+                tableLayout="fixed"
+                scroll={{ x: 1390 }}
                 columns={[
                   {
                     key: "identity",
                     title: "用户",
-                    width: 300,
+                    width: 280,
                     render: (_, item) => <UserIdentity item={item} />,
                   },
                   {
@@ -316,13 +314,13 @@ export default function UsersPage() {
                   {
                     key: "balance",
                     title: "AI余额",
-                    width: 110,
+                    width: 120,
                     render: (_, item) => <BalanceInfo item={item} />,
                   },
                   {
                     key: "time",
                     title: "时间",
-                    width: 180,
+                    width: 220,
                     render: (_, item) => <TimeInfo item={item} />,
                   },
                   {
@@ -334,13 +332,14 @@ export default function UsersPage() {
                   {
                     key: "flow",
                     title: "流程卡点",
-                    width: 180,
+                    width: 240,
                     render: (_, item) => <FlowInfo item={item} />,
                   },
                   {
                     key: "actions",
                     title: "操作",
                     width: 210,
+                    fixed: "right",
                     render: (_, item) => (
                       <UserActions
                         item={item}
@@ -571,7 +570,7 @@ function UserCard({
     >
       <Flex vertical={true} gap={0.75 * 8} style={{ minWidth: 0 }}>
         <Typography.Text
-          ellipsis={true}
+          ellipsis={{ tooltip: item.email }}
           style={{
             display: "block",
             margin: 0,
@@ -595,7 +594,7 @@ function UserCard({
         </Flex>
         {item.inviter_email ? (
           <Typography.Text
-            ellipsis={true}
+            ellipsis={{ tooltip: item.inviter_email }}
             style={{
               display: "block",
               margin: 0,
@@ -646,6 +645,7 @@ function UserCard({
         <MobileInfoBlock
           title="流程卡点"
           lines={[flowLabel]}
+          summarize
           strong={item.flow?.state === "completed"}
         />
       </div>
@@ -672,10 +672,12 @@ function MobileInfoBlock({
   title,
   lines,
   strong,
+  summarize = false,
 }: {
   title: string;
   lines: (string | undefined)[];
   strong?: boolean;
+  summarize?: boolean;
 }) {
   return (
     <div
@@ -699,25 +701,29 @@ function MobileInfoBlock({
       </Typography.Text>
       <Flex vertical={true} gap={0.25 * 8}>
         {lines.filter(Boolean).map((line, index) => (
-          <Typography.Text
-            ellipsis={true}
-            style={{
-              display: "block",
-              margin: 0,
-              fontSize: index === 0 ? 12 : 11,
-              fontWeight: index === 0 ? 720 : 400,
-              color:
-                index === 0 && strong
-                  ? "var(--goodhr-primary)"
-                  : index === 0
-                    ? "var(--goodhr-text)"
-                    : "var(--goodhr-text-secondary)",
-            }}
+          <Tooltip
             key={`${title}-${index}`}
             title={line}
+            styles={{ container: { overflowWrap: "anywhere" } }}
           >
-            {line}
-          </Typography.Text>
+            <Typography.Text
+              ellipsis={true}
+              style={{
+                display: "block",
+                margin: 0,
+                fontSize: index === 0 ? 12 : 11,
+                fontWeight: index === 0 ? 720 : 400,
+                color:
+                  index === 0 && strong
+                    ? "var(--goodhr-primary)"
+                    : index === 0
+                      ? "var(--goodhr-text)"
+                      : "var(--goodhr-text-secondary)",
+              }}
+            >
+              {summarize ? summarizeFlowLabel(line || "") : line}
+            </Typography.Text>
+          </Tooltip>
         ))}
       </Flex>
     </div>
@@ -728,7 +734,7 @@ function UserIdentity({ item }: { item: AdminUserItem }) {
   return (
     <Flex vertical={true} gap={0.75 * 8} style={{ minWidth: 0 }}>
       <Typography.Text
-        ellipsis={true}
+        ellipsis={{ tooltip: item.email }}
         style={{
           display: "block",
           margin: 0,
@@ -749,7 +755,7 @@ function UserIdentity({ item }: { item: AdminUserItem }) {
       </Flex>
       {item.inviter_email ? (
         <Typography.Text
-          ellipsis={true}
+          ellipsis={{ tooltip: item.inviter_email }}
           style={{
             display: "block",
             margin: 0,
@@ -767,7 +773,7 @@ function UserIdentity({ item }: { item: AdminUserItem }) {
 /** SubscriptionInfo 展示会员状态和到期时间。 */
 function SubscriptionInfo({ item }: { item: AdminUserItem }) {
   return (
-    <Flex vertical={true} gap={0.5 * 8}>
+    <Flex className={styles.noWrapInfo} vertical={true} gap={0.5 * 8}>
       <Tag
         color={item.subscription?.active ? "success" : undefined}
         style={{ width: "fit-content" }}
@@ -795,6 +801,7 @@ function SubscriptionInfo({ item }: { item: AdminUserItem }) {
 function BalanceInfo({ item }: { item: AdminUserItem }) {
   return (
     <Link
+      className={styles.noWrapInfo}
       style={{
         color: "inherit",
         textDecoration: "none",
@@ -828,7 +835,7 @@ function BalanceInfo({ item }: { item: AdminUserItem }) {
 /** TimeInfo 展示注册时间和最近登录时间。 */
 function TimeInfo({ item }: { item: AdminUserItem }) {
   return (
-    <Flex vertical={true} gap={0.5 * 8}>
+    <Flex className={styles.noWrapInfo} vertical={true} gap={0.5 * 8}>
       <Typography.Text
         style={{ display: "block", margin: 0, fontSize: 12, fontWeight: 720 }}
       >
@@ -898,20 +905,32 @@ function FlowInfo({ item }: { item: AdminUserItem }) {
       >
         流程卡点
       </Typography.Text>
-      <Tag
-        color={
-          item.flow?.state === "completed"
-            ? "success"
-            : item.flow?.state === "blocked"
-              ? "error"
-              : "warning"
-        }
-        style={{ width: "fit-content", maxWidth: "100%" }}
+      <Tooltip
+        title={label}
+        styles={{ container: { overflowWrap: "anywhere" } }}
       >
-        {label}
-      </Tag>
+        <Tag
+          className={styles.flowTag}
+          color={
+            item.flow?.state === "completed"
+              ? "success"
+              : item.flow?.state === "blocked"
+                ? "error"
+                : "warning"
+          }
+        >
+          {summarizeFlowLabel(label)}
+        </Tag>
+      </Tooltip>
     </Flex>
   );
+}
+/** summarizeFlowLabel 按 Unicode 字符截取流程摘要，包含省略号时总长度也不超过 40 个字符。 */
+function summarizeFlowLabel(label: string) {
+  const characters = Array.from(label);
+  return characters.length > 40
+    ? `${characters.slice(0, 37).join("")}...`
+    : label;
 }
 /** userFlowLabel 把流程快照转换成管理端可直接判断的短文案。 */
 function userFlowLabel(flow?: AdminUserItem["flow"]) {

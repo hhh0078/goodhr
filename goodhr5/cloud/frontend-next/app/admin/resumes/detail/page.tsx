@@ -1,14 +1,18 @@
 /** 本文件负责 候选人简历详情 的 Ant Design 页面。 */
 "use client";
 import type { ReactNode } from "react";
-import { Avatar, Button, Collapse, Flex, Tag, Typography } from "antd";
 import {
-  ArrowLeftOutlined,
-  DownOutlined,
-  EnvironmentOutlined,
-} from "@ant-design/icons";
+  Avatar,
+  Button,
+  Card,
+  Collapse,
+  Descriptions,
+  Flex,
+  Tag,
+  Typography,
+} from "antd";
+import { ArrowLeftOutlined, EnvironmentOutlined } from "@ant-design/icons";
 import styles from "./page.module.css";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import JsonTree from "@/components/admin/JsonTree";
@@ -79,29 +83,65 @@ export default function ResumeDetailPage() {
           </Button>
         }
       />
-      <SectionPanel style={{ padding: 0, overflow: "hidden" }}>
-        <div
-          className={styles.layout6}
-          style={{ display: "grid", minHeight: 0 }}
-        >
-          <div className={styles.layout5}>
+      <SectionPanel
+        className={styles.detailRoot}
+        style={{ padding: 0, overflow: "hidden" }}
+      >
+        <Flex className={styles.detailGrid} data-testid="resume-detail-layout">
+          <Flex
+            vertical
+            className={styles.detailContent}
+            data-testid="resume-detail-main"
+          >
             <CandidateHeader candidate={candidate} />
             <ResumeSection title="求职意向">
-              <Typography.Text style={{ display: "block", margin: 0 }}>
-                {[
-                  candidate.workRegion,
-                  candidate.expectedPosition,
-                  candidate.expectedSalary,
-                  candidate.workStatus,
-                  candidate.onlineStatus,
-                ]
-                  .filter(Boolean)
-                  .join("  |  ") || "暂无求职意向"}
-              </Typography.Text>
+              {[
+                candidate.workRegion,
+                candidate.expectedPosition,
+                candidate.expectedSalary,
+                candidate.workStatus,
+                candidate.onlineStatus,
+              ].some(Boolean) ? (
+                <Descriptions
+                  size="small"
+                  column={{ xs: 1, sm: 2, lg: 2 }}
+                  className={styles.intent}
+                  items={[
+                    {
+                      key: "region",
+                      label: "期望地区",
+                      children: candidate.workRegion,
+                    },
+                    {
+                      key: "position",
+                      label: "期望职位",
+                      children: candidate.expectedPosition,
+                    },
+                    {
+                      key: "salary",
+                      label: "期望薪资",
+                      children: candidate.expectedSalary,
+                    },
+                    {
+                      key: "status",
+                      label: "求职状态",
+                      children: candidate.workStatus,
+                    },
+                    {
+                      key: "online",
+                      label: "在线状态",
+                      children: candidate.onlineStatus,
+                    },
+                  ].filter((item) => Boolean(item.children))}
+                />
+              ) : (
+                <Typography.Text type="secondary">暂无求职意向</Typography.Text>
+              )}
             </ResumeSection>
             {candidate.personalDescription ? (
               <ResumeSection title="个人优势">
                 <Typography.Text
+                  className={styles.longText}
                   style={{
                     display: "block",
                     margin: 0,
@@ -137,6 +177,7 @@ export default function ResumeDetailPage() {
             {candidate.rawText ? (
               <ResumeSection title="原始文本">
                 <Typography.Text
+                  className={`${styles.longText} ${styles.rawText}`}
                   style={{
                     display: "block",
                     margin: 0,
@@ -150,6 +191,7 @@ export default function ResumeDetailPage() {
               </ResumeSection>
             ) : null}
             <Collapse
+              className={styles.rawData}
               style={{ marginTop: 24 }}
               items={[
                 {
@@ -159,9 +201,9 @@ export default function ResumeDetailPage() {
                 },
               ]}
             />
-          </div>
+          </Flex>
           <SidePanel candidate={candidate} />
-        </div>
+        </Flex>
       </SectionPanel>
     </>
   );
@@ -177,26 +219,18 @@ function CandidateHeader({ candidate }: { candidate: NormalizedCandidate }) {
     candidate.onlineStatus,
   ].filter(Boolean);
   return (
-    <Flex
-      className={
-        styles.layout15 + " " + styles.layout16 + " " + styles.layout15
-      }
-      gap={2.25 * 8}
-    >
-      <Avatar
-        style={{ width: 74, height: 74, fontSize: 28 }}
-        src={candidate.avatarUrl}
-      >
+    <Flex className={styles.candidateHeader}>
+      <Avatar className={styles.avatar} src={candidate.avatarUrl || undefined}>
         {candidate.name.slice(0, 1)}
       </Avatar>
-      <div style={{ minWidth: 0 }}>
+      <Flex vertical className={styles.headerText}>
         <Flex gap={1 * 8} style={{ alignItems: "center", flexWrap: "wrap" }}>
           <Typography.Title
+            className={styles.candidateName}
             level={2}
             style={{
               display: "block",
               margin: 0,
-              fontSize: 28,
               fontWeight: 820,
             }}
           >
@@ -237,7 +271,7 @@ function CandidateHeader({ candidate }: { candidate: NormalizedCandidate }) {
             {candidate.workRegion}
           </Typography.Text>
         ) : null}
-      </div>
+      </Flex>
     </Flex>
   );
 }
@@ -252,10 +286,11 @@ function SidePanel({ candidate }: { candidate: NormalizedCandidate }) {
     .filter(Boolean)
     .slice(0, 8);
   return (
-    <div
-      className={styles.layout26}
+    <Flex
+      vertical
+      className={styles.sidePanel}
+      data-testid="resume-detail-aside"
       style={{
-        padding: 24,
         borderColor: "var(--goodhr-border)",
         backgroundColor: "var(--goodhr-hover)",
       }}
@@ -370,7 +405,7 @@ function SidePanel({ candidate }: { candidate: NormalizedCandidate }) {
           </Typography.Text>
         )}
       </Flex>
-    </div>
+    </Flex>
   );
 }
 /** AIBlock 展示一个 AI 阶段的分数和原因。 */
@@ -384,14 +419,17 @@ function AIBlock({
   reason: string;
 }) {
   return (
-    <div
+    <Card
+      size="small"
+      variant="borderless"
+      className={styles.aiBlock}
+      styles={{ body: { padding: 12 } }}
       style={{
-        padding: 10,
         borderRadius: "8px",
         backgroundColor: "var(--goodhr-primary-soft)",
       }}
     >
-      <Flex style={{ justifyContent: "space-between", gap: 8 }}>
+      <Flex justify="space-between" gap={8} align="start">
         <Typography.Text
           style={{ display: "block", margin: 0, fontWeight: 760 }}
         >
@@ -403,6 +441,7 @@ function AIBlock({
             margin: 0,
             color: "var(--goodhr-primary)",
             fontWeight: 820,
+            flexShrink: 0,
           }}
         >
           {scoreText(score)}
@@ -420,7 +459,7 @@ function AIBlock({
       >
         {reason || "暂时没有返回原因"}
       </Typography.Text>
-    </div>
+    </Card>
   );
 }
 /** ResumeSection 输出一个有内容的简历区块。 */
@@ -432,20 +471,12 @@ function ResumeSection({
   children: ReactNode;
 }) {
   return (
-    <section
-      style={{
-        marginTop: 32,
-        paddingTop: 24,
-        borderTop: "1px solid",
-        borderColor: "var(--goodhr-border)",
-      }}
-    >
+    <Flex vertical className={styles.resumeSection} gap={12}>
       <Typography.Title
         level={3}
         style={{
           display: "block",
           margin: 0,
-          marginBottom: 16,
           fontSize: 19,
           fontWeight: 820,
         }}
@@ -453,7 +484,7 @@ function ResumeSection({
         {title}
       </Typography.Title>
       {children}
-    </section>
+    </Flex>
   );
 }
 /** Experience 展示一条工作、项目或教育经历。 */
@@ -473,11 +504,8 @@ function Experience({
     .filter(Boolean)
     .join("  |  ");
   return (
-    <div style={{ marginBottom: 20 }}>
-      <Flex
-        className={styles.layout37}
-        style={{ justifyContent: "space-between", gap: 8 }}
-      >
+    <Flex vertical className={styles.experience} gap={6}>
+      <Flex vertical gap={4}>
         <Typography.Text
           style={{ display: "block", margin: 0, fontWeight: 780 }}
         >
@@ -508,6 +536,6 @@ function Experience({
           {item.content}
         </Typography.Text>
       ) : null}
-    </div>
+    </Flex>
   );
 }

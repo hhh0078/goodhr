@@ -3,6 +3,7 @@
 import {
   Avatar,
   Button,
+  Card,
   Flex,
   Form,
   Input,
@@ -176,35 +177,42 @@ export default function ResumesPage() {
           </Button>
         }
       />
-      <div
-        className={styles.layout1}
-        style={{ display: "grid", gap: 10, marginBottom: 12 }}
+      <Flex
+        className={styles.filters}
+        data-testid="resume-filters"
+        wrap
+        gap={10}
+        align="end"
       >
-        <Input
-          prefix={
-            <span>
-              <SearchOutlined aria-hidden="true" />
-            </span>
-          }
-          size="small"
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void load(1);
-          }}
-          placeholder="搜索姓名、岗位、公司或关键词"
-        />
+        <Form.Item
+          htmlFor="goodhr-resumes-search"
+          layout="vertical"
+          className={`${styles.filterField} ${styles.searchField}`}
+          label="搜索"
+        >
+          <Input
+            id="goodhr-resumes-search"
+            prefix={<SearchOutlined aria-hidden="true" />}
+            className={styles.filterControl}
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void load(1);
+            }}
+            placeholder="搜索姓名、岗位、公司或关键词"
+          />
+        </Form.Item>
         <Form.Item
           htmlFor="goodhr-resumes-field-1"
           layout="vertical"
-          style={{ marginBottom: 0, minWidth: 0 }}
+          className={`${styles.filterField} ${styles.positionField}`}
           label={"岗位"}
         >
           <Select
             id="goodhr-resumes-field-1"
+            className={styles.filterControl}
             onChange={(value) => setSelectedPosition(value)}
             style={{ width: "100%" }}
-            size="small"
             value={selectedPosition}
           >
             <Select.Option value="">全部岗位</Select.Option>
@@ -215,21 +223,28 @@ export default function ResumesPage() {
             ))}
           </Select>
         </Form.Item>
-        <Button
-          type={"primary"}
-          disabled={loading}
-          onClick={() => void load(1)}
-        >
-          查询
-        </Button>
-        <Button onClick={resetFilters}>重置</Button>
-      </div>
+        <Flex className={styles.filterActions} gap={8} align="center">
+          <Button
+            className={styles.filterButton}
+            type={"primary"}
+            disabled={loading}
+            onClick={() => void load(1)}
+          >
+            查询
+          </Button>
+          <Button className={styles.filterButton} onClick={resetFilters}>
+            重置
+          </Button>
+        </Flex>
+      </Flex>
       <SectionPanel style={{ padding: 0, overflow: "hidden" }}>
         <Table<NormalizedCandidate>
           rowKey={(item) => item.id + "-" + item.engagementId}
           dataSource={candidates}
           loading={loading}
           size="small"
+          className={styles.resumeTable}
+          tableLayout="fixed"
           pagination={false}
           scroll={{ x: 1120 }}
           locale={{ emptyText: <EmptyState text="暂无简历" /> }}
@@ -245,7 +260,7 @@ export default function ResumesPage() {
               title: "经历",
               width: 320,
               render: (_, item) => (
-                <Flex vertical gap={6}>
+                <Flex vertical gap={6} className={styles.cellContent}>
                   {[...item.workExperiences, ...item.educations]
                     .slice(0, 3)
                     .map((experience, index) => (
@@ -262,7 +277,7 @@ export default function ResumesPage() {
               title: "AI分析",
               width: 250,
               render: (_, item) => (
-                <Flex vertical gap={6}>
+                <Flex vertical gap={6} className={styles.cellContent}>
                   <AIText
                     label="第一次"
                     score={item.aiFirstAnalysis.score}
@@ -294,7 +309,7 @@ export default function ResumesPage() {
           gap={12}
           justify="space-between"
           align="center"
-          style={{ padding: 16 }}
+          className={styles.pagination}
         >
           <Typography.Text type="secondary">共 {total} 份简历</Typography.Text>
           <Pagination
@@ -324,7 +339,6 @@ export default function ResumesPage() {
     </>
   );
 }
-/** ResumeRow 展示一行简历库候选人。 */
 /** CandidateSummary 展示候选人的基础信息并保留详情入口。 */
 function CandidateSummary({ item }: { item: NormalizedCandidate }) {
   const href =
@@ -343,21 +357,48 @@ function CandidateSummary({ item }: { item: NormalizedCandidate }) {
     .filter(Boolean)
     .join(" / ");
   return (
-    <Link href={href} style={{ color: "inherit", display: "block" }}>
-      <Flex align="center" gap={12}>
-        <Avatar src={item.avatarUrl}>{item.name.slice(0, 1)}</Avatar>
-        <Flex vertical style={{ minWidth: 0 }} gap={4}>
-          <Typography.Text strong>{item.name}</Typography.Text>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {facts || "暂无基础信息"}
+    <Link href={href} className={styles.candidateLink}>
+      <Flex align="start" gap={10}>
+        <Avatar src={item.avatarUrl || undefined} style={{ flexShrink: 0 }}>
+          {item.name.slice(0, 1)}
+        </Avatar>
+        <Flex vertical className={styles.candidateText} gap={4}>
+          <Typography.Text
+            strong
+            ellipsis={{ tooltip: item.name }}
+            style={{ width: "100%", minWidth: 0 }}
+          >
+            {item.name}
           </Typography.Text>
-          <Typography.Text>
+          <Typography.Paragraph
+            type="secondary"
+            className={styles.cellText}
+            ellipsis={{ rows: 2, tooltip: facts || "暂无基础信息" }}
+            style={{ margin: 0, fontSize: 12 }}
+          >
+            {facts || "暂无基础信息"}
+          </Typography.Paragraph>
+          <Typography.Text
+            ellipsis={{ tooltip: item.expectedPosition || "暂无期望职位" }}
+            style={{ width: "100%", minWidth: 0 }}
+          >
             {item.expectedPosition || "暂无期望职位"}
           </Typography.Text>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {item.creatorEmail ? "创建人：" + item.creatorEmail : ""}
-            {item.createdAt ? " · " + formatDate(item.createdAt) : ""}
-          </Typography.Text>
+          {item.creatorEmail ? (
+            <Typography.Text
+              type="secondary"
+              className={styles.cellText}
+              ellipsis={{ tooltip: "创建人：" + item.creatorEmail }}
+              style={{ fontSize: 12 }}
+            >
+              创建人：{item.creatorEmail}
+            </Typography.Text>
+          ) : null}
+          {item.createdAt ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {formatDate(item.createdAt)}
+            </Typography.Text>
+          ) : null}
         </Flex>
       </Flex>
     </Link>
@@ -377,10 +418,12 @@ function ExperienceSummary({ item }: { item: NormalizedExperience }) {
   return (
     <Typography.Text
       ellipsis={true}
+      title={[mainText, detailText].filter(Boolean).join(" / ")}
+      className={styles.cellText}
       style={{ display: "block", margin: 0, fontSize: 14 }}
     >
       {item.companyName ? (
-        <span style={{ fontWeight: 820 }}>{item.companyName}</span>
+        <Typography.Text strong>{item.companyName}</Typography.Text>
       ) : (
         mainText
       )}
@@ -399,6 +442,8 @@ function NotePreview({
   return (
     <Button
       type="text"
+      className={styles.noteButton}
+      aria-label="查看备注"
       style={{
         display: "block",
         height: "auto",
@@ -423,26 +468,24 @@ function NotePreview({
         备注
       </Typography.Text>
       {notes.length ? (
-        <Flex vertical={true} gap={0.5 * 8}>
+        <Flex vertical={true} gap={0.5 * 8} className={styles.cellContent}>
           {notes.slice(0, 2).map((note) => (
-            <Typography.Text
+            <Typography.Paragraph
+              className={styles.cellText}
+              ellipsis={{ rows: 2, tooltip: note.content }}
+              title={note.content}
               style={{
                 margin: 0,
                 color: "var(--goodhr-text-secondary)",
-                display: "-webkit-box",
                 fontSize: 12,
                 lineHeight: 1.55,
-                overflow: "hidden",
                 overflowWrap: "anywhere",
-                WebkitBoxOrient: "vertical",
-                WebkitLineClamp: 2,
                 whiteSpace: "normal",
               }}
               key={note.id || note.createdAt}
-              title={note.content}
             >
               {note.content}
-            </Typography.Text>
+            </Typography.Paragraph>
           ))}
         </Flex>
       ) : (
@@ -490,17 +533,14 @@ function NoteDialog({
       onClose={onClose}
       onConfirm={onAdd}
     >
-      <div className={styles.layout26} style={{ display: "grid", gap: 20 }}>
-        <Flex
-          vertical={true}
-          gap={1.25 * 8}
-          style={{ maxHeight: 420, overflowY: "auto", paddingRight: 4 }}
-        >
+      <Flex className={styles.notesLayout}>
+        <Flex vertical={true} gap={1.25 * 8} className={styles.noteHistory}>
           {notes.length ? (
             notes.map((note) => (
-              <div
+              <Card
+                className={styles.noteCard}
+                styles={{ body: { padding: 12 } }}
                 style={{
-                  padding: 12,
                   border: "1px solid",
                   borderColor: "var(--goodhr-border)",
                   borderRadius: "8px",
@@ -513,6 +553,7 @@ function NoteDialog({
                     display: "block",
                     margin: 0,
                     whiteSpace: "pre-wrap",
+                    overflowWrap: "anywhere",
                     lineHeight: 1.75,
                   }}
                 >
@@ -525,12 +566,13 @@ function NoteDialog({
                     marginTop: 8,
                     color: "var(--goodhr-text-secondary)",
                     fontSize: 12,
+                    overflowWrap: "anywhere",
                   }}
                 >
                   备注人：{note.authorEmail || "暂时没记上"}· 备注时间：
                   {formatDate(note.createdAt)}
                 </Typography.Text>
-              </div>
+              </Card>
             ))
           ) : (
             <EmptyState
@@ -545,13 +587,14 @@ function NoteDialog({
         <Form.Item
           htmlFor="goodhr-resumes-field-2"
           layout="vertical"
+          className={styles.noteEditor}
           style={{ marginBottom: 0, minWidth: 0 }}
           label={"新增备注"}
           extra={`${content.length}/1000`}
         >
           <Input.TextArea
             id="goodhr-resumes-field-2"
-            autoSize={{ minRows: 8 }}
+            autoSize={{ minRows: 6, maxRows: 10 }}
             maxLength={1000}
             style={{ width: "100%" }}
             value={content}
@@ -559,7 +602,7 @@ function NoteDialog({
             placeholder="比如：候选人意向不错，下午再约一次。"
           />
         </Form.Item>
-      </div>
+      </Flex>
     </AdminDialog>
   );
 }
@@ -576,27 +619,27 @@ function AIText({
   if (!reason && scoreText(score) === "无") return null;
   const text = `${label} ${scoreText(score)}${reason ? `：${reason}` : ""}`;
   return (
-    <Typography.Text
+    <Typography.Paragraph
+      className={styles.cellText}
+      ellipsis={{ rows: 2, tooltip: text }}
+      title={text}
       style={{
         margin: 0,
         color: "var(--goodhr-text-secondary)",
-        display: "-webkit-box",
         fontSize: 12,
         lineHeight: 1.6,
-        overflow: "hidden",
         overflowWrap: "anywhere",
-        WebkitBoxOrient: "vertical",
-        WebkitLineClamp: 2,
         whiteSpace: "normal",
       }}
-      title={text}
     >
-      <span style={{ color: "var(--goodhr-primary)", fontWeight: 800 }}>
+      <Typography.Text
+        style={{ color: "var(--goodhr-primary)", fontWeight: 800 }}
+      >
         {label}
         {scoreText(score)}
-      </span>
+      </Typography.Text>
       {reason ? `：${reason}` : ""}
-    </Typography.Text>
+    </Typography.Paragraph>
   );
 }
 /** normalizeNote 归一化备注接口数据。 */

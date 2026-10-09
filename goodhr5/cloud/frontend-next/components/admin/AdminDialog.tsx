@@ -59,27 +59,23 @@ export default function AdminDialog({
         },
       }}
       footer={
-        <Flex justify="space-between" gap={12} wrap>
-          <Flex gap={8} wrap>
-            {extraActions}
-          </Flex>
-          <Flex gap={8} wrap>
-            {showCancel ? (
-              <Button onClick={onClose} disabled={loading}>
-                {cancelText}
-              </Button>
-            ) : null}
-            {onConfirm ? (
-              <Button
-                type="primary"
-                onClick={onConfirm}
-                loading={loading}
-                disabled={loading || confirmDisabled}
-              >
-                {loading ? loadingText || "处理中" : confirmText}
-              </Button>
-            ) : null}
-          </Flex>
+        <Flex justify="flex-end" gap={8} wrap>
+          {extraActions}
+          {showCancel ? (
+            <Button onClick={onClose} disabled={loading}>
+              {cancelText}
+            </Button>
+          ) : null}
+          {onConfirm ? (
+            <Button
+              type="primary"
+              onClick={onConfirm}
+              loading={loading}
+              disabled={loading || confirmDisabled}
+            >
+              {loading ? loadingText || "处理中" : confirmText}
+            </Button>
+          ) : null}
         </Flex>
       }
     >

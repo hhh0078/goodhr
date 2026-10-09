@@ -1,17 +1,104 @@
-/* 本文件负责本页面的响应式布局和 Ant Design 组件补充样式。 */
-.layout1.layout1 {
-  grid-template-columns: 1fr;
+/* 本文件负责简历库查询控件对齐、列表内容边界与备注弹框的响应式布局。 */
+.filters.filters {
+  min-width: 0;
+  margin-bottom: 12px;
 }
-.layout26.layout26 {
-  grid-template-columns: 1fr;
+.filterField.filterField {
+  min-width: 0;
+  margin-bottom: 0;
+}
+.filterField :global(.ant-form-item-label) {
+  padding-bottom: 6px;
+}
+.filterField :global(.ant-form-item-control-input) {
+  min-height: 38px;
+}
+.searchField.searchField {
+  flex: 1 1 320px;
+}
+.positionField.positionField {
+  flex: 0 1 240px;
+  max-width: 280px;
+}
+.filterControl.filterControl {
+  height: 38px;
+  min-width: 0;
+}
+.filterActions.filterActions {
+  flex: 0 0 auto;
+}
+.filterButton.filterButton {
+  width: auto;
+  height: 38px;
+  flex: none;
+  padding-inline: 14px;
+  white-space: nowrap;
+}
+.resumeTable :global(.ant-table-cell) {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.cellContent.cellContent,
+.candidateText.candidateText {
+  min-width: 0;
+  max-width: 100%;
+}
+.candidateText.candidateText {
+  flex: 1;
+}
+.candidateLink {
+  display: block;
+  max-width: 100%;
+  color: inherit;
+}
+.cellText.cellText {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.noteButton.noteButton {
+  max-width: 100%;
+}
+.pagination.pagination {
+  padding: 16px;
+  min-width: 0;
+}
+.pagination :global(.ant-pagination) {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.notesLayout.notesLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+.noteHistory.noteHistory {
+  min-width: 0;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.noteCard.noteCard,
+.noteEditor.noteEditor {
+  min-width: 0;
 }
 @media (min-width: 900px) {
-  .layout26.layout26 {
-    grid-template-columns: minmax(0, 1fr) 360px;
+  .notesLayout.notesLayout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
   }
 }
-@media (min-width: 1200px) {
-  .layout1.layout1 {
-    grid-template-columns: minmax(240px, 1fr) 220px 220px 100px auto auto;
+@media (max-width: 599px) {
+  .searchField.searchField,
+  .positionField.positionField {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .filterActions.filterActions {
+    flex-basis: 100%;
+  }
+  .pagination.pagination {
+    padding: 12px;
   }
 }

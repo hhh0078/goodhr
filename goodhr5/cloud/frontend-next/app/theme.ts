@@ -91,7 +91,13 @@ export function createGoodHRTheme(
         'Inter, "SF Pro Display", "PingFang SC", "Microsoft YaHei", Arial, sans-serif',
     },
     components: {
-      Button: { fontWeight: 600, primaryShadow: "none" },
+      Button: {
+        fontWeight: 600,
+        primaryShadow: "none",
+        borderRadius: 999,
+        borderRadiusLG: 999,
+        borderRadiusSM: 999,
+      },
       Card: { borderRadiusLG: 8 },
       Modal: { borderRadiusLG: 8 },
       Menu: { itemSelectedBg: accent.soft, itemSelectedColor: accent.main },

@@ -48,6 +48,9 @@ export default function Providers({ children }: ProvidersProps) {
       locale={zhCN}
       theme={theme}
       button={{ autoInsertSpace: false }}
+      select={{
+        showSearch: { optionFilterProp: ["label", "children", "value"] },
+      }}
     >
       <MembershipThemeContext.Provider
         value={{ membershipTheme, setMembershipTheme }}

@@ -16,13 +16,9 @@ import {
 } from "antd";
 import { MailOutlined, SendOutlined, SettingOutlined } from "@ant-design/icons";
 import styles from "./page.module.css";
-import type {
-  IDomEditor,
-  IEditorConfig,
-  IToolbarConfig,
-} from "@wangeditor/editor";
+import dynamic from "next/dynamic";
+import type { IEditorConfig, IToolbarConfig } from "@wangeditor/editor";
 import "@wangeditor/editor/dist/css/style.css";
-import { Editor, Toolbar } from "@wangeditor/editor-for-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   EmptyState,
@@ -37,6 +33,8 @@ import {
   formatDate,
   getToken,
 } from "@/lib/admin-api";
+/** MailEditor 仅在浏览器加载编辑器及实例清理逻辑，避免编辑器库修改服务端全局对象。 */
+const MailEditor = dynamic(() => import("./MailEditor"), { ssr: false });
 const profileOptions = [
   ["hr", "企业HR"],
   ["headhunter", "猎头"],
@@ -101,7 +99,6 @@ export default function AdminMailPage() {
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
   const [adjustResults, setAdjustResults] = useState<BatchAdjustResult[]>([]);
-  const [editor, setEditor] = useState<IDomEditor | null>(null);
   const progress = activeBatch?.total_count
     ? Math.round(
         ((activeBatch.sent_count + activeBatch.failed_count) /
@@ -135,12 +132,6 @@ export default function AdminMailPage() {
   useEffect(() => {
     if (user?.role === "super_admin") void load();
   }, [user?.role]);
-  useEffect(
-    () => () => {
-      editor?.destroy();
-    },
-    [editor],
-  );
   useEffect(() => {
     if (!activeBatch?.id || progress >= 100) return;
     const timer = window.setInterval(
@@ -385,30 +376,12 @@ export default function AdminMailPage() {
                   />
                 </>
               ) : null}
-              <div
-                className={styles.layout4}
-                style={{
-                  border: "1px solid",
-                  borderColor: "var(--goodhr-border)",
-                  borderRadius: "8px",
-                  overflow: "hidden",
-                }}
-              >
-                <Toolbar
-                  style={{ ...{ borderBottom: "1px solid #eee" } }}
-                  editor={editor}
-                  defaultConfig={toolbarConfig}
-                  mode="default"
-                />
-                <Editor
-                  style={{ ...{ height: 320, overflowY: "hidden" } }}
-                  defaultConfig={editorConfig}
-                  value={mailHtml}
-                  onCreated={setEditor}
-                  onChange={(nextEditor) => setMailHtml(nextEditor.getHtml())}
-                  mode="default"
-                />
-              </div>
+              <MailEditor
+                html={mailHtml}
+                editorConfig={editorConfig}
+                toolbarConfig={toolbarConfig}
+                onChange={setMailHtml}
+              />
               <Button
                 type={"primary"}
                 icon={<SendOutlined aria-hidden="true" />}

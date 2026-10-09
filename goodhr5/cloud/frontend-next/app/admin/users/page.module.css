@@ -1,6 +1,30 @@
 /* 本文件负责本页面的响应式布局和 Ant Design 组件补充样式。 */
-.layout2.layout2 {
-  grid-template-columns: 1fr;
+.searchBar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px max-content max-content;
+  align-items: end;
+  gap: 10px;
+  max-width: 770px;
+  margin-bottom: 16px;
+}
+.searchButton.searchButton {
+  width: auto;
+  justify-self: start;
+  white-space: nowrap;
+}
+.userTable.userTable :global(.ant-table-thead) > tr > th {
+  white-space: nowrap;
+}
+.noWrapInfo.noWrapInfo {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.flowTag.flowTag {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline-end: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .layout13.layout13 {
   display: none;
@@ -16,9 +40,9 @@
     flex-direction: row;
   }
 }
-@media (min-width: 900px) {
-  .layout2.layout2 {
-    grid-template-columns: minmax(260px, 520px) 110px auto auto;
+@media (max-width: 599px) {
+  .searchBar {
+    grid-template-columns: minmax(0, 1fr) 90px;
   }
 }
 @media (min-width: 900px) {

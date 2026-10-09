@@ -32,6 +32,11 @@ a {
   text-decoration: none;
 }
 
+/* 常规操作按钮统一胶囊圆角，覆盖旧页面局部样式；圆形图标按钮保留原形状。 */
+body .ant-btn.ant-btn:not(.ant-btn-circle):not(.ant-btn-square) {
+  border-radius: 999px;
+}
+
 ::selection {
   color: #fff;
   background: var(--goodhr-green);

@@ -1,51 +1,120 @@
-/* 本文件负责本页面的响应式布局和 Ant Design 组件补充样式。 */
-.layout5.layout5 {
-  padding: 16px;
+/* 本文件负责简历详情的信息分栏、长文本换行与手机端内容边界。 */
+.detailRoot.detailRoot {
+  min-width: 0;
+  max-width: 100%;
 }
-.layout6.layout6 {
-  grid-template-columns: 1fr;
+.detailRoot :global(.ant-typography) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
-.layout16.layout16 {
-  flex-direction: column;
+.detailGrid.detailGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
 }
-.layout26.layout26 {
+.detailContent.detailContent {
+  min-width: 0;
+  padding: 20px;
+}
+.candidateHeader.candidateHeader {
+  min-width: 0;
+  gap: 16px;
+  align-items: flex-start;
+}
+.avatar.avatar {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  font-size: 26px;
+}
+.headerText.headerText {
+  flex: 1;
+  min-width: 0;
+}
+.candidateName.candidateName {
+  font-size: 28px;
+  overflow-wrap: anywhere;
+}
+.resumeSection.resumeSection {
+  min-width: 0;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--goodhr-border);
+}
+.intent :global(.ant-descriptions-item-label) {
+  white-space: nowrap;
+  color: var(--goodhr-text-secondary);
+}
+.intent :global(.ant-descriptions-view table) {
+  width: 100%;
+  table-layout: fixed;
+}
+.intent :global(.ant-descriptions-item-content) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.longText.longText {
+  overflow-wrap: anywhere;
+}
+.rawText.rawText {
+  max-height: 420px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--goodhr-hover);
+  font-size: 13px;
+}
+.sidePanel.sidePanel {
+  min-width: 0;
+  padding: 20px;
   border-top: 1px solid;
 }
-.layout37.layout37 {
-  flex-direction: column;
+.aiBlock.aiBlock {
+  min-width: 0;
 }
-@media (min-width: 600px) {
-  .layout15.layout15 {
-    align-items: center;
+.experience.experience {
+  min-width: 0;
+  margin-bottom: 12px;
+}
+.rawData.rawData {
+  min-width: 0;
+  max-width: 100%;
+}
+.rawData :global(.ant-collapse-body) {
+  min-width: 0;
+  overflow-x: auto;
+}
+.rawData :global(.ant-tree-node-content-wrapper) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 1200px) {
+  .detailGrid.detailGrid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
   }
-}
-@media (min-width: 600px) {
-  .layout16.layout16 {
-    flex-direction: row;
-  }
-}
-@media (min-width: 600px) {
-  .layout37.layout37 {
-    flex-direction: row;
-  }
-}
-@media (min-width: 900px) {
-  .layout5.layout5 {
+  .detailContent.detailContent {
     padding: 24px;
   }
-}
-@media (min-width: 1200px) {
-  .layout6.layout6 {
-    grid-template-columns: minmax(0, 1fr) 290px;
-  }
-}
-@media (min-width: 1200px) {
-  .layout26.layout26 {
+  .sidePanel.sidePanel {
+    border-top: 0;
     border-left: 1px solid;
   }
 }
-@media (min-width: 1200px) {
-  .layout26.layout26 {
-    border-top: 0px;
+@media (max-width: 599px) {
+  .detailContent.detailContent,
+  .sidePanel.sidePanel {
+    padding: 16px;
+  }
+  .candidateHeader.candidateHeader {
+    gap: 12px;
+  }
+  .avatar.avatar {
+    width: 48px;
+    height: 48px;
+    font-size: 22px;
+  }
+  .candidateName.candidateName {
+    font-size: 24px;
   }
 }

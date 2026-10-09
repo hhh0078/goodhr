@@ -452,6 +452,7 @@ export default function SubscriptionPage() {
           <Flex className={styles.s124}>
             <Button
               onClick={openModelDialog}
+              title={`当前模型：${modelLabel}`}
               type="default"
               size="small"
               className={styles.s125}
