@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // newWechatOfficialTestServer 复用项目初始化工具并强制使用内存依赖和固定回调时间。
@@ -205,6 +206,134 @@ func TestWechatOfficialPOSTReplies(t *testing.T) {
 				t.Fatalf("无被动回复事件没有返回 success：body=%s", response.Body.String())
 			}
 		})
+	}
+}
+
+// wechatAuthorReplyTransports 覆盖明文、兼容明文、兼容密文和安全密文，所有消息均走真实回调签名与解密路径。
+var wechatAuthorReplyTransports = []struct {
+	name      string
+	mode      string
+	encrypted bool
+}{
+	{name: "plaintext", mode: "plaintext"},
+	{name: "compat_plain", mode: "compat"},
+	{name: "compat_encrypted", mode: "compat", encrypted: true},
+	{name: "safe_encrypted", mode: "safe", encrypted: true},
+}
+
+// TestWechatOfficialFollowAuthorNoticePreservesReply 验证作者说明只追加一次，动态会员提示完整保留，回复仍是可解密的短 UTF-8 文本。
+func TestWechatOfficialFollowAuthorNoticePreservesReply(t *testing.T) {
+	const authorNotice = "\n\n本公众号仅用于重要消息通知。使用中有疑问，请联系作者，微信：17607080935。\n作者微信二维码：\nhttps://goodhr.58it.cn/assets/contact/wechat-developer.jpg\n点开图片后长按识别，添加作者微信。"
+	for _, transport := range wechatAuthorReplyTransports {
+		for _, days := range []int{2, 7} {
+			t.Run(transport.name+"_days_"+strconv.Itoa(days), func(t *testing.T) {
+				server, config := newWechatOfficialTestServer(t, transport.mode)
+				wechatCompactReviewSaveReward(t, server, `{"trial_days":17,"wechat_follow_reward_days":`+strconv.Itoa(days)+`}`)
+				message := wechatTestMessage(config, server.wechatOfficial.now(), "author-notice-openid", "event", "subscribe")
+				prefix := "感谢关注。回到 GoodHR 记下4位数字绑定码，再发到这里，首次绑定赠送 " + strconv.Itoa(days) + " 天会员。已领过的朋友也能重新绑定，后续通知我继续认真送达。"
+				// 微信可重复通知同一次关注；每次被动回复都应重新生成正文，不能叠加作者说明。
+				for delivery := 0; delivery < 2; delivery++ {
+					response := wechatTestCallback(t, server, config, message, transport.encrypted)
+					text := wechatTestReply(t, response, config, transport.encrypted, message.FromUserName)
+					if response.Header().Get("Content-Type") != "application/xml; charset=utf-8" || !strings.HasPrefix(text, prefix) || text != prefix+authorNotice {
+						t.Fatalf("关注提示被替换、删减或回复类型改变：content-type=%s，text=%q", response.Header().Get("Content-Type"), text)
+					}
+					for _, fragment := range []string{authorNotice, "17607080935", "https://goodhr.58it.cn/assets/contact/wechat-developer.jpg"} {
+						if strings.Count(text, fragment) != 1 {
+							t.Fatalf("作者说明、微信号或官网原图不是恰好一次：fragment=%q，text=%q", fragment, text)
+						}
+					}
+					if !utf8.ValidString(text) || len([]byte(text)) >= 2048 {
+						t.Fatalf("完整关注回复不是合法 UTF-8 或达到文本长度限制：bytes=%d", len([]byte(text)))
+					}
+					t.Logf("第%d次关注回复：动态%d天，UTF-8正文%d字节，原提示和作者原图均保留", delivery+1, days, len([]byte(text)))
+				}
+			})
+		}
+	}
+}
+
+// TestWechatOfficialDisabledFollowRecordsWithoutReply 验证停用时关注只返回 success，但记录仍可用于以后绑定，取消关注不新增作者回复。
+func TestWechatOfficialDisabledFollowRecordsWithoutReply(t *testing.T) {
+	for _, transport := range wechatAuthorReplyTransports {
+		t.Run(transport.name, func(t *testing.T) {
+			server, config := newWechatOfficialTestServer(t, transport.mode)
+			config.Enabled = false
+			saveWechatOfficialTestConfig(t, server, config)
+			now := server.wechatOfficial.now()
+			openID := "disabled-author-notice-openid"
+			response := wechatTestCallback(t, server, config, wechatTestMessage(config, now, openID, "event", "subscribe"), transport.encrypted)
+			if response.Body.String() != "success" || response.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
+				t.Fatalf("公众号停用时仍产生关注回复：body=%q", response.Body.String())
+			}
+			// 不再发送关注事件，直接启用后绑定；成功证明停用期间的关注记录没有丢失。
+			config.Enabled = true
+			saveWechatOfficialTestConfig(t, server, config)
+			email := "disabled-follow-author@example.com"
+			token := wechatTestSession(t, server, email)
+			code := wechatTestBindingCode(t, server, token)
+			response = wechatTestCallback(t, server, config, wechatTestMessage(config, now, openID, "text", code), transport.encrypted)
+			text := wechatTestReply(t, response, config, transport.encrypted, openID)
+			wechatTestBindingReplyWithoutAuthor(t, text, "绑定好了，2 天会员已到账。已有会员的剩余时间也帮你保留了，回 GoodHR 就能看到。")
+			status, err := server.wechatOfficial.store.BindingStatus(context.Background(), email)
+			if err != nil || !status.Bound || !status.Followed || !status.GiftGranted || status.OpenID != openID {
+				t.Fatalf("停用时没有保留真实关注记录：status=%+v，error=%v", status, err)
+			}
+			message := wechatTestMessage(config, now.Add(time.Second), openID, "event", "unsubscribe")
+			response = wechatTestCallback(t, server, config, message, transport.encrypted)
+			if response.Body.String() != "success" || response.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
+				t.Fatalf("取消关注回复改变或追加作者信息：body=%q", response.Body.String())
+			}
+			status, err = server.wechatOfficial.store.BindingStatus(context.Background(), email)
+			if err != nil || status.Bound || status.Followed || status.OpenID != "" || !status.GiftGranted {
+				t.Fatalf("取消关注没有清理绑定或误删历史奖励：status=%+v，error=%v", status, err)
+			}
+		})
+	}
+}
+
+// wechatTestBindingReplyWithoutAuthor 核对原业务提示全文，不允许把作者说明加到绑定结果、绑定失败或普通文字提示中。
+func wechatTestBindingReplyWithoutAuthor(t *testing.T, got, want string) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("原绑定提示被改动：got=%q，want=%q", got, want)
+	}
+	for _, fragment := range []string{"本公众号仅用于重要消息通知", "17607080935", "https://goodhr.58it.cn/assets/contact/wechat-developer.jpg"} {
+		if strings.Contains(got, fragment) {
+			t.Fatalf("绑定提示混入作者信息：fragment=%q，text=%q", fragment, got)
+		}
+	}
+}
+
+// TestWechatOfficialBindingRepliesExcludeAuthorNotice 验证两种动态天数下，未关注、普通文字、过期、首次成功和重复绑定均保持原回复。
+func TestWechatOfficialBindingRepliesExcludeAuthorNotice(t *testing.T) {
+	for _, transport := range wechatAuthorReplyTransports {
+		for _, days := range []int{2, 7} {
+			t.Run(transport.name+"_days_"+strconv.Itoa(days), func(t *testing.T) {
+				server, config := newWechatOfficialTestServer(t, transport.mode)
+				wechatCompactReviewSaveReward(t, server, `{"trial_days":17,"wechat_follow_reward_days":`+strconv.Itoa(days)+`}`)
+				now := server.wechatOfficial.now()
+				openID := "binding-author-notice-openid"
+				token := wechatTestSession(t, server, "binding-author-notice@example.com")
+				code := wechatTestBindingCode(t, server, token)
+				message := wechatTestMessage(config, now, openID, "text", code)
+				response := wechatTestCallback(t, server, config, message, transport.encrypted)
+				wechatTestBindingReplyWithoutAuthor(t, wechatTestReply(t, response, config, transport.encrypted, openID), "我还没收到你的关注记录。若之前已关注，请取消后重新关注，再把绑定码发一次。会员只赠送一次，不会重复扣掉已有天数。")
+				wechatTestCallback(t, server, config, wechatTestMessage(config, now, openID, "event", "subscribe"), transport.encrypted)
+				message.Content = "你好"
+				response = wechatTestCallback(t, server, config, message, transport.encrypted)
+				wechatTestBindingReplyWithoutAuthor(t, wechatTestReply(t, response, config, transport.encrypted, openID), "绑定 GoodHR：请先登录后台，打开「关注公众号」，记下4位数字绑定码发到这里。首次绑定赠送 "+strconv.Itoa(days)+" 天会员，每个账号和微信只领一次。")
+				// 八位旧码仍属于合法输入格式，但本测试未生成该码，不会与随机四位码碰撞。
+				message.Content = "ABCDEFGH"
+				response = wechatTestCallback(t, server, config, message, transport.encrypted)
+				wechatTestBindingReplyWithoutAuthor(t, wechatTestReply(t, response, config, transport.encrypted, openID), "绑定码没对上或已过期。回 GoodHR 重新生成，把新码发给我就行。")
+				message.Content = code
+				response = wechatTestCallback(t, server, config, message, transport.encrypted)
+				wechatTestBindingReplyWithoutAuthor(t, wechatTestReply(t, response, config, transport.encrypted, openID), "绑定好了，"+strconv.Itoa(days)+" 天会员已到账。已有会员的剩余时间也帮你保留了，回 GoodHR 就能看到。")
+				response = wechatTestCallback(t, server, config, message, transport.encrypted)
+				wechatTestBindingReplyWithoutAuthor(t, wechatTestReply(t, response, config, transport.encrypted, openID), "绑定好了，可以回 GoodHR 继续工作。关注奖励之前已领取过，这次不重复赠送，后续软件通知仍会在这里发布。")
+			})
+		}
 	}
 }
 
