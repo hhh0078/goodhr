@@ -1,10 +1,10 @@
 /** 本文件负责官网联系我们页面及联系方式展示。 */
-import EmailRoundedIcon from "@mui/icons-material/EmailRounded";
-import ChatRoundedIcon from "@mui/icons-material/ChatRounded";
-import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
-import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
-import PhoneRoundedIcon from "@mui/icons-material/PhoneRounded";
-import { Box, Container, Link, Stack, Typography } from "@mui/material";
+import EmailRoundedIcon from "@ant-design/icons/lib/icons/MailOutlined";
+import ChatRoundedIcon from "@ant-design/icons/lib/icons/CommentOutlined";
+import GroupsRoundedIcon from "@ant-design/icons/lib/icons/TeamOutlined";
+import LanguageRoundedIcon from "@ant-design/icons/lib/icons/GlobalOutlined";
+import PhoneRoundedIcon from "@ant-design/icons/lib/icons/PhoneOutlined";
+
 import type { Metadata } from "next";
 import Image from "next/image";
 import MarketingShell from "@/components/MarketingShell";
@@ -67,101 +67,58 @@ export default function ContactPage() {
       title="遇到问题，直接找到我们"
       description="无论是安装、本地连接、AI 配置还是订阅问题，都可以通过下面的方式联系。"
     >
-      <Box component="section" sx={{ pb: { xs: 8, md: 12 } }}>
-        <Container maxWidth="lg">
-          <Box sx={{ borderTop: "1px solid", borderColor: "divider" }}>
+      <section className="public-contact-2">
+        <div className="public-container">
+          <div className="public-contact-4">
             {contacts.map((item) => {
               const Icon = item.icon;
               return (
-                <Box
-                  key={item.label}
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: { xs: "1fr", md: "220px 1fr" },
-                    gap: 2,
-                    py: 4,
-                    borderBottom: "1px solid",
-                    borderColor: "divider",
-                  }}
-                >
-                  <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
-                    <Icon color="primary" />
-                    <Typography sx={{ fontWeight: 750 }}>{item.label}</Typography>
-                  </Stack>
-                  <Box>
-                    <Link
-                      href={item.href}
-                      underline="hover"
-                      color="text.primary"
-                      sx={{ fontSize: { xs: 24, md: 30 }, fontWeight: 760 }}
-                    >
+                <div key={item.label} className="public-contact-5">
+                  <div className="public-contact-6">
+                    <Icon className="public-contact-7" aria-hidden="true" />
+                    <p className="public-text public-contact-8">{item.label}</p>
+                  </div>
+                  <div>
+                    <a href={item.href} className="public-contact-10">
                       {item.value}
-                    </Link>
-                    <Typography sx={{ mt: 1, color: "text.secondary" }}>
-                      {item.note}
-                    </Typography>
-                  </Box>
-                </Box>
+                    </a>
+                    <p className="public-text public-contact-11">{item.note}</p>
+                  </div>
+                </div>
               );
             })}
-          </Box>
-          <Box
-            sx={{
-              mt: 5,
-              display: "grid",
-              gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
-              gap: 2.5,
-            }}
-          >
+          </div>
+          <div className="public-contact-12">
             {qrcodes.map((item) => {
               const Icon = item.icon;
               return (
-                <Box
-                  key={item.title}
-                  sx={{
-                    p: { xs: 2, md: 2.5 },
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: "8px",
-                    bgcolor: "background.paper",
-                    display: "grid",
-                    gridTemplateColumns: { xs: "1fr", sm: "160px 1fr" },
-                    gap: 2.5,
-                    alignItems: "center",
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 160,
-                      height: 160,
-                      mx: { xs: "auto", sm: 0 },
-                      borderRadius: "8px",
-                      overflow: "hidden",
-                      border: "1px solid",
-                      borderColor: "divider",
-                      position: "relative",
-                      bgcolor: "#fff",
-                    }}
-                  >
-                    <Image src={item.image} alt={item.alt} fill sizes="160px" style={{ objectFit: "cover" }} />
-                  </Box>
-                  <Box>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                      <Icon color="primary" />
-                      <Typography sx={{ fontSize: 20, fontWeight: 780 }}>
+                <div key={item.title} className="public-contact-13">
+                  <div className="public-contact-14">
+                    <Image
+                      src={item.image}
+                      alt={item.alt}
+                      fill
+                      sizes="160px"
+                      style={{ objectFit: "cover" }}
+                    />
+                  </div>
+                  <div>
+                    <div className="public-contact-17">
+                      <Icon className="public-contact-18" aria-hidden="true" />
+                      <p className="public-text public-contact-19">
                         {item.title}
-                      </Typography>
-                    </Stack>
-                    <Typography sx={{ mt: 1, color: "text.secondary", lineHeight: 1.75 }}>
+                      </p>
+                    </div>
+                    <p className="public-text public-contact-20">
                       {item.description}
-                    </Typography>
-                  </Box>
-                </Box>
+                    </p>
+                  </div>
+                </div>
               );
             })}
-          </Box>
-        </Container>
-      </Box>
+          </div>
+        </div>
+      </section>
     </MarketingShell>
   );
 }

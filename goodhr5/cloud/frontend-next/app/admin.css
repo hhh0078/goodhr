@@ -1,0 +1,200 @@
+/* 本文件负责 Ant Design 后台布局、共享选择卡和移动端弹窗适配。 */
+.goodhr-admin-layout {
+  min-height: 100dvh;
+  background: var(--goodhr-bg);
+  padding: 16px;
+}
+.goodhr-admin-sidebar {
+  position: fixed;
+  inset: 16px auto 16px 16px;
+  width: 248px;
+  background: #fff;
+  border: 1px solid var(--goodhr-border);
+  border-radius: 8px;
+  box-shadow: 0 16px 42px rgba(17, 17, 17, 0.08);
+  overflow: hidden;
+  z-index: 50;
+}
+.goodhr-admin-toolbar {
+  position: fixed;
+  top: 16px;
+  left: 280px;
+  right: 16px;
+  background: #fff;
+  padding: 14px 20px;
+  border-radius: 8px;
+  box-shadow: 0 12px 34px rgba(17, 17, 17, 0.07);
+  z-index: 50;
+}
+.goodhr-toolbar-identity {
+  flex: 1;
+  min-width: 0;
+}
+.goodhr-toolbar-identity .ant-typography {
+  max-width: 100%;
+}
+.goodhr-admin-main {
+  margin-left: 264px;
+  padding-top: 86px;
+  height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.goodhr-admin-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  box-shadow: 0 16px 42px rgba(17, 17, 17, 0.06);
+}
+.admin-page-header {
+  margin-bottom: 20px;
+}
+.goodhr-section-panel.ant-card {
+  padding: clamp(16px, 2vw, 20px);
+}
+.admin-form-action-row .ant-btn {
+  white-space: nowrap;
+}
+.goodhr-mobile-menu,
+.goodhr-mobile-sm {
+  display: none !important;
+}
+.goodhr-admin-modal .ant-modal-content {
+  max-width: 100%;
+}
+.goodhr-admin-modal .ant-form-item {
+  margin-bottom: 16px;
+}
+.goodhr-admin-modal .ant-select,
+.goodhr-admin-modal .ant-input-number {
+  max-width: 100%;
+}
+.goodhr-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--choice-columns, 2), minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.goodhr-choice-auto {
+  display: flex;
+  flex-wrap: wrap;
+}
+.goodhr-choice.ant-radio-wrapper {
+  margin: 0;
+  padding: 14px;
+  min-height: 98px;
+  border: 1px solid var(--goodhr-border);
+  border-radius: 8px;
+  background: #fff;
+  align-items: flex-start;
+}
+.goodhr-choice.ant-radio-wrapper > span:last-child {
+  flex: 1;
+  min-width: 0;
+}
+.goodhr-choice.ant-radio-wrapper:hover,
+.goodhr-choice-selected.ant-radio-wrapper {
+  border-color: var(--goodhr-primary);
+  background: var(--goodhr-primary-soft);
+}
+.goodhr-choice-icon.ant-radio-wrapper {
+  min-height: 76px;
+}
+.goodhr-choice-check {
+  margin-left: auto;
+  color: var(--goodhr-primary);
+  font-size: 20px;
+}
+.goodhr-choice-member.ant-radio-wrapper {
+  color: #f7e6b2;
+  background: #181713;
+  border-color: #8b713a;
+}
+.goodhr-choice-member.ant-radio-wrapper .ant-typography {
+  color: #f7e6b2;
+}
+.goodhr-choice-member.ant-radio-wrapper .ant-typography-secondary {
+  color: #cbbd97;
+}
+.goodhr-choice-member.goodhr-choice-selected.ant-radio-wrapper,
+.goodhr-choice-member.ant-radio-wrapper:hover {
+  background: #242017;
+  border-color: #d6ad54;
+}
+.goodhr-choice-member .goodhr-choice-check {
+  color: #d6ad54;
+}
+.goodhr-choice.ant-radio-wrapper-disabled {
+  opacity: 0.65;
+}
+.goodhr-image-preview {
+  width: 100%;
+}
+.goodhr-admin-layout .ant-table-wrapper {
+  max-width: 100%;
+}
+.goodhr-admin-layout .ant-card,
+.goodhr-admin-layout .ant-flex {
+  min-width: 0;
+}
+@media (max-width: 1199px) {
+  .goodhr-desktop-lg {
+    display: none !important;
+  }
+}
+@media (max-width: 899px) {
+  .goodhr-admin-layout {
+    padding: 0;
+  }
+  .goodhr-admin-sidebar {
+    display: none;
+  }
+  .goodhr-mobile-menu {
+    display: inline-flex !important;
+  }
+  .goodhr-admin-toolbar {
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 12px;
+    border-radius: 0;
+  }
+  .goodhr-admin-main {
+    margin-left: 0;
+    padding-top: 80px;
+    height: 100dvh;
+  }
+  .goodhr-admin-content {
+    border-radius: 8px 8px 0 0;
+  }
+  .goodhr-choice-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 599px) {
+  .goodhr-desktop-sm {
+    display: none !important;
+  }
+  .goodhr-mobile-sm {
+    display: inline-flex !important;
+  }
+  .goodhr-choice-grid {
+    grid-template-columns: 1fr;
+  }
+  .goodhr-choice-auto {
+    display: flex;
+  }
+  .goodhr-admin-modal.ant-modal {
+    top: 16px;
+    margin: 0 auto;
+    max-width: calc(100vw - 24px);
+    padding-bottom: 16px;
+  }
+  .goodhr-admin-modal .ant-modal-container {
+    padding: 16px;
+  }
+  .goodhr-admin-modal .ant-modal-body {
+    max-height: calc(100dvh - 160px) !important;
+  }
+}

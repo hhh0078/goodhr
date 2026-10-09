@@ -8,7 +8,7 @@ When implementing from a selected generated mock, treat that image as the source
 
 ## GoodHR 新版前端设计约定
 
-- 官网和后台将逐步迁移到 Next.js + MUI，旧 Vue 前端在迁移完成前继续保留。
+- 官网和后台统一使用 Next.js + Ant Design，后台所有可由组件实现的内容优先使用 Ant Design 组件；官网允许独立 HTML/CSS 排版，并保持服务端预渲染和 SEO。
 - 视觉以明亮、简洁、留白充足为主，使用绿色品牌强调，不使用深色主题和蓝紫渐变。
 - 首页参考 SeeLink 浅色排版结构，但不使用右侧产品卡片，首屏以单栏品牌信息和真实统计为主。
 - 卡片圆角不超过 8px，避免大量卡片嵌套和无意义装饰。

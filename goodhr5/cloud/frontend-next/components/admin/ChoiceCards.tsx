@@ -1,9 +1,8 @@
-/** 本文件提供后台表单中带说明的卡片单选组件。 */
+/** 本文件用 Ant Design Radio 提供后台响应式卡片单选。 */
 "use client";
-
-import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
-import { Box, ButtonBase, Typography } from "@mui/material";
-
+import { CheckCircleFilled } from "@ant-design/icons";
+import { Flex, Image, Radio, Typography } from "antd";
+import type { CSSProperties } from "react";
 export type ChoiceOption = {
   value: string | boolean;
   label: string;
@@ -13,8 +12,7 @@ export type ChoiceOption = {
   iconSrc?: string;
   iconOnly?: boolean;
 };
-
-/** ChoiceCards 将选项展示为可复用的响应式单选卡片。 */
+/** ChoiceCards 保留布尔和字符串选项，用原生单选支持键盘操作。 */
 export default function ChoiceCards({
   label,
   value,
@@ -33,168 +31,61 @@ export default function ChoiceCards({
   onChange: (value: string | boolean) => void;
 }) {
   return (
-    <Box>
-      <Typography
-        sx={{ mb: 1, color: "text.secondary", fontSize: 13, fontWeight: 700 }}
+    <div>
+      <Typography.Paragraph
+        type="secondary"
+        style={{ marginBottom: 8, fontSize: 13 }}
       >
         {label}
-      </Typography>
-      <Box
-        role="radiogroup"
+      </Typography.Paragraph>
+      <Radio.Group
         aria-label={label}
-        aria-readonly={readOnly || undefined}
-        sx={{
-          display: autoWidth ? "flex" : "grid",
-          flexWrap: autoWidth ? "wrap" : undefined,
-          gridTemplateColumns: autoWidth
-            ? undefined
-            : {
-                xs: "1fr",
-                sm: `repeat(${Math.min(columns, 2)}, minmax(0, 1fr))`,
-                lg: `repeat(${columns}, minmax(0, 1fr))`,
-              },
-          gap: 1,
-        }}
+        value={value}
+        disabled={readOnly}
+        onChange={(event) => onChange(event.target.value)}
+        className={`goodhr-choice-grid${autoWidth ? " goodhr-choice-auto" : ""}`}
+        style={{ "--choice-columns": Math.max(1, columns) } as CSSProperties}
       >
-        {options.map((option) => {
-          const selected = value === option.value;
-          const memberStyle = option.memberOnly;
-          return (
-            <ButtonBase
-              key={String(option.value)}
-              role="radio"
-              aria-label={option.label}
-              aria-checked={selected}
-              disabled={readOnly || option.disabled}
-              onClick={readOnly ? undefined : () => onChange(option.value)}
-              sx={{
-                position: "relative",
-                display: "block",
-                width: autoWidth ? "fit-content" : "100%",
-                minWidth: autoWidth ? 156 : undefined,
-                maxWidth: autoWidth ? { xs: "100%", sm: 240 } : undefined,
-                minHeight: option.iconOnly ? 76 : 98,
-                p: option.iconOnly ? 1.25 : 1.75,
-                border: "1px solid",
-                borderColor: memberStyle
-                  ? selected
-                    ? "#d6ad54"
-                    : "#8b713a"
-                  : selected
-                    ? "primary.main"
-                    : "divider",
-                borderRadius: "8px",
-                textAlign: "left",
-                color: memberStyle ? "#f7e6b2" : "text.primary",
-                bgcolor: memberStyle
-                  ? selected
-                    ? "#242017"
-                    : "#181713"
-                  : selected
-                    ? "action.selected"
-                    : "#fff",
-                boxShadow:
-                  memberStyle && selected
-                    ? "0 0 0 2px rgba(214,173,84,.18)"
-                    : "none",
-                opacity: option.disabled ? 0.48 : 1,
-                transition:
-                  "border-color .18s ease, background-color .18s ease, box-shadow .18s ease",
-                "&:hover": {
-                  borderColor: option.disabled
-                    ? "divider"
-                    : memberStyle
-                      ? "#e2bd68"
-                      : "primary.main",
-                  bgcolor: memberStyle
-                    ? "#242017"
-                    : selected
-                      ? "action.selected"
-                      : "background.paper",
-                },
-              }}
+        {options.map((option) => (
+          <Radio
+            key={String(option.value)}
+            value={option.value}
+            disabled={option.disabled}
+            className={`goodhr-choice${option.memberOnly ? " goodhr-choice-member" : ""}${value === option.value ? " goodhr-choice-selected" : ""}${option.iconOnly ? " goodhr-choice-icon" : ""}`}
+          >
+            <Flex
+              gap={8}
+              align="center"
+              justify={option.iconOnly ? "center" : undefined}
             >
-              {option.iconOnly ? (
-                <Box
-                  sx={{
-                    display: "flex",
-                    minHeight: 48,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {option.iconSrc ? (
-                    <Box
-                      component="img"
-                      src={option.iconSrc}
-                      alt={option.label}
-                      sx={{
-                        maxWidth: "100%",
-                        maxHeight: 42,
-                        objectFit: "contain",
-                      }}
-                    />
-                  ) : (
-                    <Typography sx={{ fontWeight: 780 }}>
-                      {option.label}
-                    </Typography>
-                  )}
-                  {selected ? (
-                    <CheckCircleRoundedIcon
-                      sx={{
-                        position: "absolute",
-                        right: 8,
-                        top: 8,
-                        color: "primary.main",
-                        fontSize: 20,
-                      }}
-                    />
-                  ) : null}
-                </Box>
-              ) : (
-                <>
-                  <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                    {option.iconSrc ? (
-                      <Box
-                        component="img"
-                        src={option.iconSrc}
-                        alt=""
-                        sx={{
-                          width: 30,
-                          height: 30,
-                          objectFit: "contain",
-                          flex: "0 0 auto",
-                        }}
-                      />
-                    ) : null}
-                    <Typography sx={{ flex: 1, fontWeight: 760 }}>
-                      {option.label}
-                    </Typography>
-                    {selected ? (
-                      <CheckCircleRoundedIcon
-                        sx={{
-                          color: memberStyle ? "#d6ad54" : "primary.main",
-                          fontSize: 20,
-                        }}
-                      />
-                    ) : null}
-                  </Box>
-                  <Typography
-                    sx={{
-                      mt: 0.75,
-                      color: memberStyle ? "#cbbd97" : "text.secondary",
-                      fontSize: 12.5,
-                      lineHeight: 1.55,
-                    }}
-                  >
-                    {option.description}
-                  </Typography>
-                </>
-              )}
-            </ButtonBase>
-          );
-        })}
-      </Box>
-    </Box>
+              {option.iconSrc ? (
+                <Image
+                  preview={false}
+                  src={option.iconSrc}
+                  alt={option.iconOnly ? option.label : ""}
+                  width={option.iconOnly ? undefined : 30}
+                  height={option.iconOnly ? 42 : 30}
+                  style={{ objectFit: "contain", maxWidth: "100%" }}
+                />
+              ) : null}
+              {!option.iconOnly || !option.iconSrc ? (
+                <Typography.Text strong>{option.label}</Typography.Text>
+              ) : null}
+              {value === option.value ? (
+                <CheckCircleFilled className="goodhr-choice-check" />
+              ) : null}
+            </Flex>
+            {!option.iconOnly ? (
+              <Typography.Paragraph
+                type="secondary"
+                style={{ margin: "6px 0 0", fontSize: 12.5 }}
+              >
+                {option.description}
+              </Typography.Paragraph>
+            ) : null}
+          </Radio>
+        ))}
+      </Radio.Group>
+    </div>
   );
 }

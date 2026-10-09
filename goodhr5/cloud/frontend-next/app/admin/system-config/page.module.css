@@ -1,0 +1,22 @@
+/* 本文件负责本页面的响应式布局和 Ant Design 组件补充样式。 */
+.layout9.layout9 {
+  flex-direction: column;
+}
+.layout14.layout14 {
+  grid-template-columns: 1fr;
+}
+@media (min-width: 600px) {
+  .layout8.layout8 {
+    align-items: flex-start;
+  }
+}
+@media (min-width: 600px) {
+  .layout9.layout9 {
+    flex-direction: row;
+  }
+}
+@media (min-width: 1200px) {
+  .layout14.layout14 {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+}

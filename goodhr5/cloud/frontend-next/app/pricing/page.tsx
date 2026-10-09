@@ -1,15 +1,8 @@
 /** 本文件负责官网产品定价页及版本对比内容。 */
 
-import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
-import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
-import {
-  Box,
-  Button,
-  Container,
-  Paper,
-  Stack,
-  Typography,
-} from "@mui/material";
+import CheckRoundedIcon from "@ant-design/icons/lib/icons/CheckOutlined";
+import CloseRoundedIcon from "@ant-design/icons/lib/icons/CloseOutlined";
+import Button from "antd/es/button";
 import type { Metadata } from "next";
 import MarketingShell from "@/components/MarketingShell";
 import StructuredData from "@/components/StructuredData";
@@ -62,166 +55,138 @@ export default async function PricingPage() {
         }}
       />
       <MarketingShell
-        eyebrow='永久免费 + Plus + Max'
-        title='基础招聘免费用，自动回复放进 Max'
-        description='Plus 基础包月版包含 AI 筛选和自动打招呼；Max 全能包年版再开放自动回复。'
+        eyebrow="永久免费 + Plus + Max"
+        title="基础招聘免费用，自动回复放进 Max"
+        description="Plus 基础包月版包含 AI 筛选和自动打招呼；Max 全能包年版再开放自动回复。"
       >
-        <Box component='section' sx={{ pb: { xs: 8, md: 12 } }}>
-          <Container maxWidth='lg'>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: {
-                  xs: "1fr",
-                  md: "repeat(2, 1fr)",
-                  lg: "repeat(3, 1fr)",
-                },
-                gap: 2,
-              }}
-            >
+        <section className="public-pricing-3">
+          <div className="public-container">
+            <div className="public-pricing-5">
               {plans.map((plan) => (
-                <Paper
+                <div
                   key={plan.id}
-                  variant='outlined'
-                  sx={{
-                    p: 3,
-                    borderRadius: "8px",
-                    borderColor: plan.memberType === "max" ? "primary.main" : "divider",
-                    boxShadow:
-                      plan.memberType === "max" ? "0 18px 48px rgba(21,154,98,.12)" : "none",
-                    display: "flex",
-                    flexDirection: "column",
-                  }}
+                  style={
+                    {
+                      "--public-pricing-6-0":
+                        plan.memberType === "max"
+                          ? "var(--goodhr-primary, #159a62)"
+                          : "var(--goodhr-border, #dce5e0)",
+                      "--public-pricing-6-1":
+                        plan.memberType === "max"
+                          ? "0 18px 48px rgba(21,154,98,.12)"
+                          : "none",
+                    } as import("react").CSSProperties
+                  }
+                  className="public-panel public-pricing-6"
                 >
-                  <Typography
-                    component='h2'
-                    sx={{ fontSize: 20, fontWeight: 760 }}
-                  >
-                    {plan.name}
-                  </Typography>
-                  <Stack
-                    direction='row'
-                    spacing={0.75}
-                    sx={{ mt: 2, alignItems: "baseline" }}
-                  >
-                    <Typography sx={{ fontSize: 42, fontWeight: 800 }}>
+                  <h2 className="public-text public-pricing-7">{plan.name}</h2>
+                  <div className="public-pricing-8">
+                    <p className="public-text public-pricing-9">
                       ￥{finalPrice(plan)}
-                    </Typography>
-                    <Typography color='text.secondary'>
+                    </p>
+                    <p className="public-text public-pricing-10">
                       {planUnit(plan)}
-                    </Typography>
-                  </Stack>
+                    </p>
+                  </div>
                   {plan.discountAmount > 0 ? (
-                    <Typography
-                      sx={{
-                        mt: 0.5,
-                        color: "text.secondary",
-                        textDecoration: "line-through",
-                      }}
-                    >
+                    <p className="public-text public-pricing-11">
                       原价 ￥{plan.originalPrice}
-                    </Typography>
+                    </p>
                   ) : null}
-                  <Typography
-                    sx={{
-                      mt: 1.5,
-                      minHeight: 52,
-                      color: "text.secondary",
-                      lineHeight: 1.65,
-                    }}
-                  >
+                  <p className="public-text public-pricing-12">
                     {plan.description}
-                  </Typography>
-                  <Stack spacing={1.25} sx={{ mt: 3, flex: 1 }}>
+                  </p>
+                  <div className="public-pricing-13">
                     {plan.features.map((feature) => (
-                      <Stack
-                        key={feature}
-                        direction='row'
-                        spacing={1}
-                        sx={{ alignItems: "center" }}
-                      >
-                        <CheckRoundedIcon color='primary' fontSize='small' />
-                        <Typography>{feature}</Typography>
-                      </Stack>
+                      <div key={feature} className="public-pricing-14">
+                        <CheckRoundedIcon
+                          className="public-pricing-15"
+                          aria-hidden="true"
+                        />
+                        <p className="public-text">{feature}</p>
+                      </div>
                     ))}
-                  </Stack>
+                  </div>
                   <Button
-                    component='a'
-                    href='/login'
-                    variant={plan.memberType === "max" ? "contained" : "outlined"}
-                    fullWidth
-                    sx={{ mt: 3, alignSelf: "stretch" }}
+                    href="/login"
+                    type={plan.memberType === "max" ? "primary" : "default"}
+                    block
+                    className="public-pricing-17"
                   >
                     立即使用
                   </Button>
-                </Paper>
+                </div>
               ))}
-            </Box>
-            <Box sx={{ mt: 10 }}>
-              <Typography
-                component='h2'
-                sx={{ fontSize: { xs: 30, md: 40 }, fontWeight: 760 }}
-              >
-                版本功能对比
-              </Typography>
-              <Box
-                sx={{ mt: 3, borderTop: "1px solid", borderColor: "divider" }}
-              >
-                <Box
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: "minmax(0,1fr) 100px 100px 100px",
-                    py: 1.5,
-                    borderBottom: "1px solid",
-                    borderColor: "divider",
-                    fontWeight: 760,
-                  }}
-                >
-                  <Typography>功能</Typography>
-                  <Typography sx={{ textAlign: "center" }}>免费</Typography>
-                  <Typography sx={{ textAlign: "center" }}>Plus</Typography>
-                  <Typography sx={{ textAlign: "center" }}>Max</Typography>
-                </Box>
+            </div>
+            <div className="public-pricing-18">
+              <h2 className="public-text public-pricing-19">版本功能对比</h2>
+              <div className="public-pricing-20">
+                <div className="public-pricing-21">
+                  <p className="public-text">功能</p>
+                  <p className="public-text public-pricing-23">免费</p>
+                  <p className="public-text public-pricing-24">Plus</p>
+                  <p className="public-text public-pricing-25">Max</p>
+                </div>
                 {comparisons.map(([name, free, plus, max]) => (
-                  <Box
-                    key={name}
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: "minmax(0,1fr) 100px 100px 100px",
-                      py: 2,
-                      borderBottom: "1px solid",
-                      borderColor: "divider",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Typography>{name}</Typography>
-                    <Stack sx={{ alignItems: "center" }}>
+                  <div key={name} className="public-pricing-26">
+                    <p className="public-text">{name}</p>
+                    <div
+                      className="public-pricing-28"
+                      role="img"
+                      aria-label={free ? "包含" : "不包含"}
+                    >
                       {free ? (
-                        <CheckRoundedIcon color='primary' />
+                        <CheckRoundedIcon
+                          className="public-pricing-29"
+                          aria-hidden="true"
+                        />
                       ) : (
-                        <CloseRoundedIcon color='disabled' />
+                        <CloseRoundedIcon
+                          className="public-pricing-30"
+                          aria-hidden="true"
+                        />
                       )}
-                    </Stack>
-                    <Stack sx={{ alignItems: "center" }}>
+                    </div>
+                    <div
+                      className="public-pricing-31"
+                      role="img"
+                      aria-label={plus ? "包含" : "不包含"}
+                    >
                       {plus ? (
-                        <CheckRoundedIcon color='primary' />
+                        <CheckRoundedIcon
+                          className="public-pricing-32"
+                          aria-hidden="true"
+                        />
                       ) : (
-                        <CloseRoundedIcon color='disabled' />
+                        <CloseRoundedIcon
+                          className="public-pricing-33"
+                          aria-hidden="true"
+                        />
                       )}
-                    </Stack>
-                    <Stack sx={{ alignItems: "center" }}>
+                    </div>
+                    <div
+                      className="public-pricing-34"
+                      role="img"
+                      aria-label={max ? "包含" : "不包含"}
+                    >
                       {max ? (
-                        <CheckRoundedIcon color='primary' />
+                        <CheckRoundedIcon
+                          className="public-pricing-35"
+                          aria-hidden="true"
+                        />
                       ) : (
-                        <CloseRoundedIcon color='disabled' />
+                        <CloseRoundedIcon
+                          className="public-pricing-36"
+                          aria-hidden="true"
+                        />
                       )}
-                    </Stack>
-                  </Box>
+                    </div>
+                  </div>
                 ))}
-              </Box>
-            </Box>
-          </Container>
-        </Box>
+              </div>
+            </div>
+          </div>
+        </section>
       </MarketingShell>
     </>
   );

@@ -1,21 +1,8 @@
-/** 本文件负责展示内置 AI 余额变动、调用扣费和充值调整记录。 */
+/** 本文件负责 AI 余额流水展示 的 Ant Design 页面。 */
 "use client";
-
-import ArrowDownwardRoundedIcon from "@mui/icons-material/ArrowDownwardRounded";
-import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
-import {
-  Box,
-  Chip,
-  Pagination,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Typography,
-} from "@mui/material";
+import { ArrowDownOutlined, ArrowUpOutlined } from "@ant-design/icons";
+import { Flex, Pagination, Table, Tag, Typography } from "antd";
+import styles from "./page.module.css";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -26,9 +13,7 @@ import {
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
-
 const pageSize = 20;
-
 /** AIRecordsPage 展示当前用户或超管指定用户的 AI 使用记录。 */
 export default function AIRecordsPage() {
   const { user, notify } = useAdmin();
@@ -47,7 +32,6 @@ export default function AIRecordsPage() {
     if (canViewTarget) params.set("email", requestedEmail);
     return params.toString();
   }, [canViewTarget, page, requestedEmail]);
-
   /** load 读取 AI 余额流水记录。 */
   async function load() {
     setLoading(true);
@@ -66,16 +50,13 @@ export default function AIRecordsPage() {
       setLoading(false);
     }
   }
-
   useEffect(() => {
     void load();
   }, [query]);
-
   const title = canViewTarget ? "AI 使用记录" : "我的 AI 使用记录";
   const description = canViewTarget
     ? `正在查看 ${requestedEmail} 的内置 AI 余额流水。`
     : "这里记录内置 AI 的充值、赠送、调整和调用扣费。";
-
   return (
     <>
       <PageHeader
@@ -88,41 +69,77 @@ export default function AIRecordsPage() {
       <SectionPanel>
         {records.length ? (
           <>
-            <TableContainer sx={{ display: { xs: "none", md: "block" } }}>
-              <Table size='small'>
-                <TableHead>
-                  <TableRow sx={{ bgcolor: "action.hover" }}>
-                    <TableCell>类型</TableCell>
-                    <TableCell>金额</TableCell>
-                    <TableCell>余额</TableCell>
-                    <TableCell>模型 / Token</TableCell>
-                    <TableCell>说明</TableCell>
-                    <TableCell>时间</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {records.map((record) => (
-                    <RecordRow
-                      key={record.id || `${record.created_at}-${record.reason}`}
-                      record={record}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-            <Stack spacing={1.25} sx={{ display: { xs: "flex", md: "none" } }}>
+            <div className={styles.layout2}>
+              <Table
+                rowKey={(record) =>
+                  record.id || record.created_at + record.reason
+                }
+                dataSource={records}
+                loading={loading}
+                pagination={false}
+                size="small"
+                scroll={{ x: 880 }}
+                columns={[
+                  {
+                    key: "category",
+                    title: "类型",
+                    render: (_, record) => (
+                      <CategoryChip category={record.category} />
+                    ),
+                  },
+                  {
+                    key: "amount",
+                    title: "金额",
+                    render: (_, record) => (
+                      <AmountText
+                        units={Number(record.change_units || 0)}
+                        value={record.change}
+                      />
+                    ),
+                  },
+                  {
+                    key: "balance",
+                    title: "余额",
+                    render: (_, record) =>
+                      "￥" + (record.balance_after || "0.00"),
+                  },
+                  {
+                    key: "token",
+                    title: "模型 / Token",
+                    render: (_, record) => <TokenInfo record={record} />,
+                  },
+                  {
+                    key: "reason",
+                    title: "说明",
+                    render: (_, record) => <ReasonText record={record} />,
+                  },
+                  {
+                    key: "date",
+                    title: "时间",
+                    render: (_, record) => formatDate(record.created_at),
+                  },
+                ]}
+              />
+            </div>
+            <Flex className={styles.layout3} vertical={true} gap={1.25 * 8}>
               {records.map((record) => (
                 <RecordCard
                   key={record.id || `${record.created_at}-${record.reason}`}
                   record={record}
                 />
               ))}
-            </Stack>
+            </Flex>
             <Pagination
-              page={page}
-              count={Math.max(1, Math.ceil(total / pageSize))}
-              onChange={(_, value) => setPage(value)}
-              sx={{ mt: 2, display: "flex", justifyContent: "center" }}
+              current={page}
+              total={total}
+              pageSize={pageSize}
+              onChange={(value) => setPage(value)}
+              showSizeChanger={false}
+              style={{
+                marginTop: 16,
+                display: "flex",
+                justifyContent: "center",
+              }}
             />
           </>
         ) : (
@@ -138,62 +155,52 @@ export default function AIRecordsPage() {
     </>
   );
 }
-
 /** RecordRow 展示桌面端单条 AI 记录。 */
-function RecordRow({ record }: { record: any }) {
-  return (
-    <TableRow hover>
-      <TableCell>
-        <CategoryChip category={record.category} />
-      </TableCell>
-      <TableCell>
-        <AmountText
-          units={Number(record.change_units || 0)}
-          value={record.change}
-        />
-      </TableCell>
-      <TableCell>￥{record.balance_after || "0.00"}</TableCell>
-      <TableCell>
-        <TokenInfo record={record} />
-      </TableCell>
-      <TableCell>
-        <ReasonText record={record} />
-      </TableCell>
-      <TableCell>{formatDate(record.created_at)}</TableCell>
-    </TableRow>
-  );
-}
-
 /** RecordCard 展示移动端单条 AI 记录。 */
 function RecordCard({ record }: { record: any }) {
   return (
-    <Box
-      sx={{
-        p: 1.5,
+    <div
+      style={{
+        padding: 12,
         border: "1px solid",
-        borderColor: "divider",
+        borderColor: "var(--goodhr-border)",
         borderRadius: "8px",
-        bgcolor: "action.hover",
+        backgroundColor: "var(--goodhr-hover)",
       }}
     >
-      <Stack direction='row' sx={{ justifyContent: "space-between", gap: 1 }}>
+      <Flex style={{ justifyContent: "space-between", gap: 8 }}>
         <CategoryChip category={record.category} />
         <AmountText
           units={Number(record.change_units || 0)}
           value={record.change}
         />
-      </Stack>
-      <Typography sx={{ mt: 1, color: "text.secondary", fontSize: 13 }}>
+      </Flex>
+      <Typography.Text
+        style={{
+          display: "block",
+          margin: 0,
+          marginTop: 8,
+          color: "var(--goodhr-text-secondary)",
+          fontSize: 13,
+        }}
+      >
         <ReasonText record={record} />
-      </Typography>
-      <Typography sx={{ mt: 0.75, color: "text.secondary", fontSize: 12 }}>
-        <TokenInfo record={record} /> · 余额 ￥{record.balance_after || "0.00"}{" "}
-        · {formatDate(record.created_at)}
-      </Typography>
-    </Box>
+      </Typography.Text>
+      <Typography.Text
+        style={{
+          display: "block",
+          margin: 0,
+          marginTop: 6,
+          color: "var(--goodhr-text-secondary)",
+          fontSize: 12,
+        }}
+      >
+        <TokenInfo record={record} />· 余额 ￥{record.balance_after || "0.00"} ·{" "}
+        {formatDate(record.created_at)}
+      </Typography.Text>
+    </div>
   );
 }
-
 /** CategoryChip 展示流水类别。 */
 function CategoryChip({ category }: { category: string }) {
   const labelMap: Record<string, string> = {
@@ -206,40 +213,36 @@ function CategoryChip({ category }: { category: string }) {
     category === "ai_usage"
       ? "warning"
       : category === "admin_adjust"
-        ? "info"
+        ? "processing"
         : "success";
   return (
-    <Chip
-      size='small'
-      color={color as any}
-      variant='outlined'
-      label={labelMap[category] || category || "记录"}
-    />
+    <Tag color={color as any}>{labelMap[category] || category || "记录"}</Tag>
   );
 }
-
 /** AmountText 展示余额变动金额。 */
 function AmountText({ units, value }: { units: number; value: string }) {
- const positive = units ? units > 0 : !String(value || "").trim().startsWith("-");
-  const Icon = positive ? ArrowUpwardRoundedIcon : ArrowDownwardRoundedIcon;
+  const positive = units
+    ? units > 0
+    : !String(value || "")
+        .trim()
+        .startsWith("-");
+  const Icon = positive ? ArrowUpOutlined : ArrowDownOutlined;
   return (
-    <Stack
-      direction='row'
-      spacing={0.4}
-      sx={{
+    <Flex
+      gap={0.4 * 8}
+      style={{
         alignItems: "center",
-        color: positive ? "success.main" : "warning.dark",
+        color: positive ? "#389e0d" : "#ad6800",
         fontWeight: 800,
       }}
     >
-      <Icon sx={{ fontSize: 16 }} />
-      <Typography sx={{ fontWeight: 800 }}>
+      <Icon aria-hidden="true" style={{ fontSize: 16 }} />
+      <Typography.Text style={{ display: "block", margin: 0, fontWeight: 800 }}>
         {positive ? "+" : ""}￥{value || "0.00"}
-      </Typography>
-    </Stack>
+      </Typography.Text>
+    </Flex>
   );
 }
-
 /** TokenInfo 展示模型和 token 用量。 */
 function TokenInfo({ record }: { record: any }) {
   const tokens = Number(record.total_tokens || 0);
@@ -250,7 +253,6 @@ function TokenInfo({ record }: { record: any }) {
     </>
   );
 }
-
 /** ReasonText 展示记录说明和关联订单号。 */
 function ReasonText({ record }: { record: any }) {
   return (

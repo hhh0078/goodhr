@@ -1,8 +1,8 @@
-/** 本文件负责向 Next.js 页面注入 MUI 缓存和统一主题。 */
+/** 本文件负责提供 Ant Design 中文配置、消息上下文和会员主题。 */
 "use client";
 
-import { AppRouterCacheProvider } from "@mui/material-nextjs/v16-appRouter";
-import { CssBaseline, ThemeProvider } from "@mui/material";
+import { App, ConfigProvider } from "antd";
+import zhCN from "antd/locale/zh_CN";
 import {
   createContext,
   useCallback,
@@ -11,7 +11,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createGoodHRTheme, type MembershipTheme } from "./theme";
+import {
+  createGoodHRTheme,
+  createGoodHRVariables,
+  type MembershipTheme,
+} from "./theme";
 
 type ProvidersProps = { children: ReactNode };
 
@@ -25,7 +29,7 @@ export function useMembershipTheme() {
   return useContext(MembershipThemeContext);
 }
 
-/** Providers 提供全局 MUI 主题和服务端样式缓存。 */
+/** Providers 提供全局 Ant Design 主题，浮层与正文共用会员颜色。 */
 export default function Providers({ children }: ProvidersProps) {
   const [membershipTheme, setMembershipThemeState] =
     useState<MembershipTheme>("free");
@@ -40,15 +44,17 @@ export default function Providers({ children }: ProvidersProps) {
   }, []);
 
   return (
-    <AppRouterCacheProvider options={{ key: "goodhr" }}>
+    <ConfigProvider
+      locale={zhCN}
+      theme={theme}
+      button={{ autoInsertSpace: false }}
+    >
       <MembershipThemeContext.Provider
         value={{ membershipTheme, setMembershipTheme }}
       >
-        <ThemeProvider theme={theme}>
-          <CssBaseline />
-          {children}
-        </ThemeProvider>
+        <style>{createGoodHRVariables(membershipTheme)}</style>
+        <App>{children}</App>
       </MembershipThemeContext.Provider>
-    </AppRouterCacheProvider>
+    </ConfigProvider>
   );
 }

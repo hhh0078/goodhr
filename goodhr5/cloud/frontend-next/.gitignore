@@ -3,5 +3,7 @@
 node_modules/
 .npm-cache/
 artifacts/
+test-results/
+playwright-report/
 .env.local
 *.tsbuildinfo

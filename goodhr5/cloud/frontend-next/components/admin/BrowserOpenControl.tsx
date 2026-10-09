@@ -1,7 +1,7 @@
 /** 本文件提供顶部浏览器打开入口、等待反馈和只需确认一次的浏览器图标提示。 */
 "use client";
 
-import { Box, Button, CircularProgress, IconButton, Stack, Tooltip, Typography } from "@mui/material";
+import { Button, Flex, Image, Tooltip, Typography } from "antd";
 import { useRef, useState } from "react";
 import { detectLocalAgent, openLocalPage } from "@/lib/admin-api";
 import AdminDialog from "./AdminDialog";
@@ -12,11 +12,18 @@ const NOTICE_KEY = "goodhr_browser_open_notice_ack_v1";
 type Props = {
   agentBase: string;
   onAgentDetected: (base: string) => void;
-  notify: (message: string, severity?: "success" | "error" | "warning" | "info") => void;
+  notify: (
+    message: string,
+    severity?: "success" | "error" | "warning" | "info",
+  ) => void;
 };
 
 /** BrowserOpenControl 在探测和启动阶段显示转圈，并说明从任务栏打开浏览器的方法。 */
-export default function BrowserOpenControl({ agentBase, onAgentDetected, notify }: Props) {
+export default function BrowserOpenControl({
+  agentBase,
+  onAgentDetected,
+  notify,
+}: Props) {
   const [opening, setOpening] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const inFlight = useRef(false);
@@ -28,19 +35,34 @@ export default function BrowserOpenControl({ agentBase, onAgentDetected, notify 
     inFlight.current = true;
     setOpening(true);
     try {
-      const base = agentBase || await detectLocalAgent();
+      const base = agentBase || (await detectLocalAgent());
       if (!base) {
         notify("我没叫醒本地程序，你先确认它开着，再点我一次。", "warning");
         return;
       }
       onAgentDetected(base);
-      await openLocalPage(base, { persistent: true, user_data_dir: "default", headless: false, humanize: true, url: "https://www.bing.com" });
+      await openLocalPage(base, {
+        persistent: true,
+        user_data_dir: "default",
+        headless: false,
+        humanize: true,
+        url: "https://www.bing.com",
+      });
       let seen = acknowledged.current;
-      try { seen = seen || localStorage.getItem(NOTICE_KEY) === "1"; } catch { /* 缓存不可用时仍正常打开浏览器。 */ }
+      try {
+        seen = seen || localStorage.getItem(NOTICE_KEY) === "1";
+      } catch {
+        /* 缓存不可用时仍正常打开浏览器。 */
+      }
       if (seen) notify("浏览器已经打开，可以过去操作了。", "success");
       else setNoticeOpen(true);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "浏览器没打开成功，可以再点一次试试。", "error");
+      notify(
+        error instanceof Error
+          ? error.message
+          : "浏览器没打开成功，可以再点一次试试。",
+        "error",
+      );
     } finally {
       inFlight.current = false;
       setOpening(false);
@@ -50,31 +72,63 @@ export default function BrowserOpenControl({ agentBase, onAgentDetected, notify 
   /** acknowledgeNotice 仅在点击“知道了”后记录确认，关闭弹框不会提前永久隐藏。 */
   function acknowledgeNotice() {
     acknowledged.current = true;
-    try { localStorage.setItem(NOTICE_KEY, "1"); } catch { /* 当前页面内仍记住确认，避免重复打扰。 */ }
+    try {
+      localStorage.setItem(NOTICE_KEY, "1");
+    } catch {
+      /* 当前页面内仍记住确认，避免重复打扰。 */
+    }
     setNoticeOpen(false);
   }
 
-  const icon = <Box component="img" src={BROWSER_ICON} alt="" sx={{ width: 22, height: 22, display: "block" }} />;
-  return <>
-    <Button variant="outlined" startIcon={icon} endIcon={opening ? <CircularProgress color="inherit" size={16} aria-label="浏览器正在打开" /> : undefined}
-      disabled={opening} aria-busy={opening} onClick={() => void openBrowser()}
-      sx={{ minHeight: 34, whiteSpace: "nowrap", flexShrink: 0, display: { xs: "none", sm: "inline-flex" } }}>
-      {opening ? "正在打开" : "打开浏览器"}
-    </Button>
-    <Tooltip title={opening ? "正在打开浏览器" : "打开浏览器"}>
-      <Box component="span" sx={{ display: { xs: "inline-flex", sm: "none" } }}>
-        <IconButton aria-label="打开浏览器" aria-busy={opening} disabled={opening} onClick={() => void openBrowser()} sx={{ bgcolor: "action.hover", gap: 0.75 }}>
-          {icon}{opening ? <CircularProgress color="inherit" size={16} /> : null}
-        </IconButton>
-      </Box>
-    </Tooltip>
-    <AdminDialog open={noticeOpen} title="浏览器已经打开啦" confirmText="知道了" showCancel={false} maxWidth="xs"
-      onClose={() => setNoticeOpen(false)} onConfirm={acknowledgeNotice}>
-      <Stack spacing={2} sx={{ alignItems: "center", textAlign: "center" }}>
-        <Box component="img" src={BROWSER_ICON} alt="橙红色狐狸浏览器图标" sx={{ width: 80, height: 80 }} />
-        <Typography>请点开这个图标对应的浏览器，登录招聘平台或继续操作。</Typography>
-        <Typography color="text.secondary" sx={{ fontSize: 13 }}>如果没看到窗口，请在底部任务栏或程序坞找这个图标。点“知道了”后，下次就不打扰你了。</Typography>
-      </Stack>
-    </AdminDialog>
-  </>;
+  const icon = (
+    <Image src={BROWSER_ICON} alt="" width={22} height={22} preview={false} />
+  );
+  return (
+    <>
+      <Button
+        className="goodhr-desktop-sm"
+        icon={icon}
+        loading={opening}
+        aria-busy={opening}
+        onClick={() => void openBrowser()}
+      >
+        {opening ? "正在打开" : "打开浏览器"}
+      </Button>
+      <Tooltip title={opening ? "正在打开浏览器" : "打开浏览器"}>
+        <Button
+          className="goodhr-mobile-sm"
+          aria-label="打开浏览器"
+          aria-busy={opening}
+          icon={icon}
+          loading={opening}
+          onClick={() => void openBrowser()}
+        />
+      </Tooltip>
+      <AdminDialog
+        open={noticeOpen}
+        title="浏览器已经打开啦"
+        confirmText="知道了"
+        showCancel={false}
+        maxWidth="xs"
+        onClose={() => setNoticeOpen(false)}
+        onConfirm={acknowledgeNotice}
+      >
+        <Flex vertical gap={16} align="center" style={{ textAlign: "center" }}>
+          <Image
+            src={BROWSER_ICON}
+            alt="橙红色狐狸浏览器图标"
+            width={80}
+            height={80}
+            preview={false}
+          />
+          <Typography.Paragraph>
+            请点开这个图标对应的浏览器，登录招聘平台或继续操作。
+          </Typography.Paragraph>
+          <Typography.Paragraph type="secondary">
+            如果没看到窗口，请在底部任务栏或程序坞找这个图标。点“知道了”后，下次就不打扰你了。
+          </Typography.Paragraph>
+        </Flex>
+      </AdminDialog>
+    </>
+  );
 }

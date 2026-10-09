@@ -1,0 +1,25 @@
+/* 本文件负责本页面的响应式布局和 Ant Design 组件补充样式。 */
+.layout2.layout2 {
+  font-size: 20px;
+}
+.layout5.layout5 {
+  grid-template-columns: 1fr;
+}
+.layout12.layout12 {
+  grid-template-columns: 1fr;
+}
+@media (min-width: 600px) {
+  .layout5.layout5 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 900px) {
+  .layout2.layout2 {
+    font-size: 23px;
+  }
+}
+@media (min-width: 1200px) {
+  .layout12.layout12 {
+    grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.75fr);
+  }
+}

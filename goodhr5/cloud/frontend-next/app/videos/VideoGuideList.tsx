@@ -1,8 +1,8 @@
 /** 本文件负责展示服务端传入的视频教程列表。 */
 "use client";
 
-import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
-import { Box, Typography } from "@mui/material";
+import PlayCircleOutlineRoundedIcon from "@ant-design/icons/lib/icons/PlayCircleOutlined";
+
 import { useEffect, useState } from "react";
 import type { GuideVideo } from "@/lib/public-data";
 
@@ -20,65 +20,58 @@ export default function VideoGuideList({ videos }: { videos: GuideVideo[] }) {
   }
 
   return (
-    <Box
-      sx={{
-        display: "grid",
-        gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)" },
-        gap: 4,
-      }}
-    >
+    <div className="public-videos-videoguidelist-2">
       {clientVideos.map((video) => (
-        <Box component="article" key={video.id || video.title}>
-          <Box
-            sx={{
-              overflow: "hidden",
-              aspectRatio: "16 / 9",
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: "8px",
-              bgcolor: "#17211c",
-            }}
-          >
-            <Box
-              component="iframe"
+        <article key={video.id || video.title}>
+          <div className="public-videos-videoguidelist-4">
+            <iframe
               src={video.src}
               title={video.title}
               loading="lazy"
               allowFullScreen
-              sx={{ width: "100%", height: "100%", border: 0 }}
+              className="public-videos-videoguidelist-5"
             />
-          </Box>
-          <Typography
-            component="h2"
-            sx={{ mt: 2.5, fontSize: 22, fontWeight: 760 }}
-          >
+          </div>
+          <h2 className="public-text public-videos-videoguidelist-6">
             <PlayCircleOutlineRoundedIcon
-              color="primary"
-              sx={{ mr: 1, verticalAlign: "middle" }}
+              className="public-videos-videoguidelist-7"
+              aria-hidden="true"
             />
             {video.title}
-          </Typography>
-          <Typography sx={{ mt: 1, color: "text.secondary", lineHeight: 1.8 }}>
+          </h2>
+          <p className="public-text public-videos-videoguidelist-8">
             {video.description}
-          </Typography>
-        </Box>
+          </p>
+        </article>
       ))}
-    </Box>
+    </div>
   );
 }
 
 /** loadGuideVideos 在浏览器端兜底读取云端视频教程配置。 */
 async function loadGuideVideos() {
-  const fallback = process.env.NODE_ENV === "production"
-    ? "https://goodhr.58it.cn"
-    : "http://127.0.0.1:8084";
-  const baseURL = (process.env.NEXT_PUBLIC_CLOUD_API_BASE || fallback).replace(/\/$/, "");
+  const fallback =
+    process.env.NODE_ENV === "production"
+      ? "https://goodhr.58it.cn"
+      : "http://127.0.0.1:8084";
+  const baseURL = (process.env.NEXT_PUBLIC_CLOUD_API_BASE || fallback).replace(
+    /\/$/,
+    "",
+  );
   try {
-    const response = await fetch(`${baseURL}/api/help/guide`, { cache: "no-store" });
+    const response = await fetch(`${baseURL}/api/help/guide`, {
+      cache: "no-store",
+    });
     if (!response.ok) return [];
     const data = await response.json();
-    const source = Array.isArray(data?.guide?.videos) ? data.guide.videos : Array.isArray(data?.videos) ? data.videos : [];
-    return source.map(normalizeGuideVideo).filter((item: GuideVideo) => item.enabled && item.title && item.src);
+    const source = Array.isArray(data?.guide?.videos)
+      ? data.guide.videos
+      : Array.isArray(data?.videos)
+        ? data.videos
+        : [];
+    return source
+      .map(normalizeGuideVideo)
+      .filter((item: GuideVideo) => item.enabled && item.title && item.src);
   } catch {
     return [];
   }
@@ -90,7 +83,9 @@ function normalizeGuideVideo(value: Record<string, unknown>): GuideVideo {
     id: String(value?.id || value?.title || ""),
     title: String(value?.title || ""),
     description: String(value?.description || ""),
-    src: String(value?.src || value?.url || value?.iframe_url || value?.video_url || ""),
+    src: String(
+      value?.src || value?.url || value?.iframe_url || value?.video_url || "",
+    ),
     enabled: value?.enabled !== false,
   };
 }
@@ -98,19 +93,8 @@ function normalizeGuideVideo(value: Record<string, unknown>): GuideVideo {
 /** EmptyVideoState 展示视频教程空状态。 */
 function EmptyVideoState({ text }: { text: string }) {
   return (
-    <Box
-      sx={{
-        py: 5,
-        px: 2,
-        border: "1px solid",
-        borderColor: "divider",
-        borderRadius: "8px",
-        bgcolor: "#f7faf8",
-      }}
-    >
-      <Typography sx={{ color: "text.secondary", lineHeight: 1.8 }}>
-        {text}
-      </Typography>
-    </Box>
+    <div className="public-videos-videoguidelist-9">
+      <p className="public-text public-videos-videoguidelist-10">{text}</p>
+    </div>
   );
 }

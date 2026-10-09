@@ -175,11 +175,7 @@ export default function PositionFloatingStatus({
   const background = presentation.background;
   const step = isRunning ? currentStep || presentation.step : presentation.step;
   const acceptedLabel =
-    analysis?.accepted === undefined
-      ? ""
-      : analysis.accepted
-        ? "通过"
-        : "跳过";
+    analysis?.accepted === undefined ? "" : analysis.accepted ? "通过" : "跳过";
   const statusLabel = acceptedLabel
     ? `${presentation.label} · ${acceptedLabel}`
     : presentation.label;
@@ -330,7 +326,9 @@ export default function PositionFloatingStatus({
               }}
             >
               {keywords.length ? (
-                <span style={{ opacity: 0.82 }}>需要：{keywords.join("、")}</span>
+                <span style={{ opacity: 0.82 }}>
+                  需要：{keywords.join("、")}
+                </span>
               ) : null}
               {excludeKeywords.length ? (
                 <span style={{ opacity: 0.82 }}>
@@ -338,7 +336,8 @@ export default function PositionFloatingStatus({
                 </span>
               ) : null}
               <span>
-                命中：{matchedKeywords.length ? matchedKeywords.join("、") : "暂无"}
+                命中：
+                {matchedKeywords.length ? matchedKeywords.join("、") : "暂无"}
               </span>
               {matchedExcludes.length ? (
                 <span>命中排除：{matchedExcludes.join("、")}</span>

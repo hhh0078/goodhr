@@ -3,6 +3,14 @@
   color-scheme: light;
   --goodhr-green: #159a62;
   --goodhr-ink: #17211c;
+  --goodhr-primary: #159a62;
+  --goodhr-primary-dark: #0f754a;
+  --goodhr-primary-soft: #edf7f1;
+  --goodhr-bg: #f6f9f7;
+  --goodhr-text: #17211c;
+  --goodhr-text-secondary: #637069;
+  --goodhr-border: #dce5e0;
+  --goodhr-hover: #f2f7f4;
 }
 
 * {
@@ -15,6 +23,7 @@ html {
 
 body {
   margin: 0;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
   overflow-x: hidden;
 }
 
@@ -44,21 +53,49 @@ a {
 }
 
 @keyframes workflowProgressX {
-  0%, 12% { transform: scaleX(0); }
-  72%, 88% { transform: scaleX(1); }
-  100% { transform: scaleX(0); }
+  0%,
+  12% {
+    transform: scaleX(0);
+  }
+  72%,
+  88% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(0);
+  }
 }
 
 @keyframes workflowProgressY {
-  0%, 12% { transform: scaleY(0); }
-  72%, 88% { transform: scaleY(1); }
-  100% { transform: scaleY(0); }
+  0%,
+  12% {
+    transform: scaleY(0);
+  }
+  72%,
+  88% {
+    transform: scaleY(1);
+  }
+  100% {
+    transform: scaleY(0);
+  }
 }
 
 @keyframes workflowNode {
-  0%, 16%, 100% { transform: scale(1); box-shadow: 0 0 0 1px #dce5e0; }
-  22%, 34% { transform: scale(1.12); box-shadow: 0 0 0 5px rgba(21, 154, 98, 0.14); }
-  42% { transform: scale(1); box-shadow: 0 0 0 1px #dce5e0; }
+  0%,
+  16%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 1px #dce5e0;
+  }
+  22%,
+  34% {
+    transform: scale(1.12);
+    box-shadow: 0 0 0 5px rgba(21, 154, 98, 0.14);
+  }
+  42% {
+    transform: scale(1);
+    box-shadow: 0 0 0 1px #dce5e0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

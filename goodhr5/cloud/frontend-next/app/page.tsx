@@ -1,15 +1,16 @@
 /** 本文件负责展示 GoodHR 新版官网首页。 */
-import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
-import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
-import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
-import GitHubIcon from "@mui/icons-material/GitHub";
-import InsightsRoundedIcon from "@mui/icons-material/InsightsRounded";
-import MarkChatReadRoundedIcon from "@mui/icons-material/MarkChatReadRounded";
-import PersonSearchRoundedIcon from "@mui/icons-material/PersonSearchRounded";
-import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
-import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
-import VerifiedUserRoundedIcon from "@mui/icons-material/VerifiedUserRounded";
-import { Box, Button, Container, Stack, Typography } from "@mui/material";
+import "@/components/public-site.css";
+import ArrowForwardRoundedIcon from "@ant-design/icons/lib/icons/ArrowRightOutlined";
+import CheckCircleRoundedIcon from "@ant-design/icons/lib/icons/CheckCircleOutlined";
+import DownloadRoundedIcon from "@ant-design/icons/lib/icons/DownloadOutlined";
+import GitHubIcon from "@ant-design/icons/lib/icons/GithubOutlined";
+import InsightsRoundedIcon from "@ant-design/icons/lib/icons/BarChartOutlined";
+import MarkChatReadRoundedIcon from "@ant-design/icons/lib/icons/CommentOutlined";
+import PersonSearchRoundedIcon from "@ant-design/icons/lib/icons/UserOutlined";
+import SaveAltRoundedIcon from "@ant-design/icons/lib/icons/DownloadOutlined";
+import SpeedRoundedIcon from "@ant-design/icons/lib/icons/DashboardOutlined";
+import VerifiedUserRoundedIcon from "@ant-design/icons/lib/icons/SafetyCertificateOutlined";
+import Button from "antd/es/button";
 import type { Metadata } from "next";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
@@ -108,7 +109,7 @@ const faqs = [
 /** HomePage 输出新版官网首页。 */
 export default function HomePage() {
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
+    <div className="public-marketing public-home-1">
       <StructuredData
         data={[
           {
@@ -142,410 +143,201 @@ export default function HomePage() {
         ]}
       />
       <SiteHeader />
-      <Box component='main'>
-        <Box
-          component='section'
-          sx={{ pt: { xs: 8, md: 12 }, pb: { xs: 7, md: 10 } }}
-        >
-          <Container maxWidth='lg'>
-            <Box sx={{ maxWidth: 940 }}>
-              <Stack
-                direction='row'
-                spacing={0.75}
-                sx={{
-                  mb: 3,
-                  width: "fit-content",
-                  alignItems: "center",
-                  color: "primary.main",
-                  border: "1px solid",
-                  borderColor: "primary.main",
-                  borderRadius: "6px",
-                  px: 1.25,
-                  py: 0.75,
-                  bgcolor: "rgba(255,255,255,0.72)",
-                }}
-              >
-                <CheckCircleRoundedIcon sx={{ fontSize: 17 }} />
-                <Typography sx={{ fontSize: 13, fontWeight: 800 }}>
-                  关键词筛选永久免费
-                </Typography>
-              </Stack>
-              <Typography
-                component='h1'
-                sx={{
-                  maxWidth: 900,
-                  color: "text.primary",
-                  fontSize: { xs: 46, sm: 58, md: 74 },
-                  lineHeight: { xs: 1.12, md: 1.08 },
-                  fontWeight: 780,
-                }}
-              >
+      <main>
+        <section className="public-home-5">
+          <div className="public-container">
+            <div className="public-home-7">
+              <div className="public-home-8">
+                <CheckCircleRoundedIcon
+                  className="public-home-9"
+                  aria-hidden="true"
+                />
+                <p className="public-text public-home-10">关键词筛选永久免费</p>
+              </div>
+              <h1 className="public-text public-home-11">
                 把重复招聘交给 GoodHR，
-                <Box component='span' sx={{ color: "primary.main" }}>
-                  把时间留给人
-                </Box>
-              </Typography>
-              <Typography
-                sx={{
-                  mt: 3,
-                  maxWidth: 720,
-                  color: "text.secondary",
-                  fontSize: { xs: 17, md: 20 },
-                  lineHeight: 1.8,
-                }}
-              >
+                <span className="public-home-12">把时间留给人</span>
+              </h1>
+              <p className="public-text public-home-13">
                 自动读取候选人，结合岗位模板完成筛选、分析、打招呼和后续跟进。流程持续运转，判断始终清楚可见。
-              </Typography>
+              </p>
 
-              <Typography
-                sx={{
-                  mt: 1.5,
-                  color: "primary.dark",
-                  fontSize: 15,
-                  fontWeight: 700,
-                }}
-              >
+              <p className="public-text public-home-14">
                 HR
                 和猎头的免费自动招聘助手，完全开源，代码公开。不是摸鱼神器，而是提效工具
-              </Typography>
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                spacing={1.5}
-                sx={{ mt: 4, alignItems: { sm: "center" } }}
-              >
+              </p>
+              <div className="public-home-15">
                 <Button
-                  component='a'
-                  href='/download'
-                  variant='contained'
-                  size='large'
-                  startIcon={<DownloadRoundedIcon />}
-                  sx={{ px: 3 }}
+                  href="/download"
+                  type="primary"
+                  size="large"
+                  icon={<DownloadRoundedIcon aria-hidden="true" />}
+                  className="public-home-16"
                 >
                   免费下载
                 </Button>
                 <Button
-                  component='a'
-                  href='/login'
-                  variant='outlined'
-                  color='secondary'
-                  size='large'
-                  endIcon={<ArrowForwardRoundedIcon />}
-                  sx={{ px: 3 }}
+                  href="/login"
+                  type="default"
+                  size="large"
+                  icon={<ArrowForwardRoundedIcon aria-hidden="true" />}
+                  className="public-home-18"
+                  iconPlacement="end"
                 >
                   进入控制台
                 </Button>
                 <Button
-                  component='a'
                   href={GITHUB_REPOSITORY_URL}
-                  target='_blank'
-                  rel='noopener noreferrer'
-                  variant='outlined'
-                  color='secondary'
-                  size='large'
-                  startIcon={<GitHubIcon />}
-                  sx={{ px: 3 }}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  type="default"
+                  size="large"
+                  icon={<GitHubIcon aria-hidden="true" />}
+                  className="public-home-20"
                 >
                   开源地址
                 </Button>
-              </Stack>
-            </Box>
-          </Container>
-        </Box>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <WorkflowBand />
 
-        <Box
-          component='section'
-          sx={{
-            py: { xs: 7, md: 10 },
-            bgcolor: "#f6f9f7",
-            borderTop: "1px solid",
-            borderBottom: "1px solid",
-            borderColor: "divider",
-          }}
-        >
-          <Container maxWidth='lg'>
-            <Typography
-              sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}
-            >
-              主流招聘平台持续适配
-            </Typography>
-            <Typography
-              component='h2'
-              sx={{
-                mt: 1.5,
-                maxWidth: 820,
-                fontSize: { xs: 32, md: 46 },
-                lineHeight: 1.2,
-              }}
-            >
+        <section className="public-home-23">
+          <div className="public-container">
+            <p className="public-text public-home-25">主流招聘平台持续适配</p>
+            <h2 className="public-text public-home-26">
               一个 GoodHR，承接不同招聘平台的重复工作
-            </Typography>
-            <Typography
-              sx={{
-                mt: 2,
-                maxWidth: 780,
-                color: "text.secondary",
-                lineHeight: 1.8,
-              }}
-            >
+            </h2>
+            <p className="public-text public-home-27">
               围绕不同招聘平台的候选人列表、详情页、沟通和简历场景持续扩展，统一使用岗位模板、筛选规则和本地浏览器资料。
-            </Typography>
-            <Box sx={{ mt: 4, display: "flex", flexWrap: "wrap", gap: 1 }}>
+            </p>
+            <div className="public-home-28">
               {RECRUITMENT_PLATFORMS.map((platform) => (
-                <Typography
-                  key={platform}
-                  component='span'
-                  sx={{
-                    px: 1.5,
-                    py: 1,
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: "6px",
-                    bgcolor: "#fff",
-                    fontWeight: 700,
-                  }}
-                >
+                <span key={platform} className="public-text public-home-29">
                   {platform}
-                </Typography>
+                </span>
               ))}
-            </Box>
-          </Container>
-        </Box>
+            </div>
+          </div>
+        </section>
 
-        <Box
-          component='section'
-          sx={{ py: { xs: 8, md: 12 }, bgcolor: "#fff" }}
-        >
-          <Container maxWidth='lg'>
-            <Typography
-              sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}
-            >
-              从寻找候选人到发起沟通
-            </Typography>
-            <Typography
-              component='h2'
-              sx={{
-                mt: 1.5,
-                maxWidth: 820,
-                fontSize: { xs: 34, md: 48 },
-                lineHeight: 1.18,
-              }}
-            >
+        <section className="public-home-30">
+          <div className="public-container">
+            <p className="public-text public-home-32">从寻找候选人到发起沟通</p>
+            <h2 className="public-text public-home-33">
               招聘自动化，不只是批量点击
-            </Typography>
-            <Box
-              sx={{
-                mt: 6,
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)" },
-                borderTop: "1px solid",
-                borderColor: "divider",
-              }}
-            >
+            </h2>
+            <div className="public-home-34">
               {automationScenes.map((item, index) => {
                 const Icon = item.icon;
                 return (
-                  <Box
+                  <div
                     key={item.title}
-                    sx={{
-                      py: 4,
-                      pr: { md: index % 2 === 0 ? 4 : 0 },
-                      pl: { md: index % 2 === 1 ? 4 : 0 },
-                      borderRight: {
-                        md: index % 2 === 0 ? "1px solid" : "none",
-                      },
-                      borderBottom: "1px solid",
-                      borderColor: "divider",
-                    }}
+                    style={
+                      {
+                        "--public-home-35-0":
+                          (index % 2 === 0 ? 4 : 0) * 8 + "px",
+                        "--public-home-35-1":
+                          (index % 2 === 1 ? 4 : 0) * 8 + "px",
+                        "--public-home-35-2":
+                          index % 2 === 0 ? "1px solid" : "none",
+                      } as import("react").CSSProperties
+                    }
+                    className="public-home-35"
                   >
-                    <Icon color='primary' />
-                    <Typography
-                      component='h3'
-                      sx={{ mt: 1.5, fontSize: 22, fontWeight: 760 }}
-                    >
-                      {item.title}
-                    </Typography>
-                    <Typography
-                      sx={{
-                        mt: 1.25,
-                        color: "text.secondary",
-                        lineHeight: 1.8,
-                      }}
-                    >
+                    <Icon className="public-home-36" aria-hidden="true" />
+                    <h3 className="public-text public-home-37">{item.title}</h3>
+                    <p className="public-text public-home-38">
                       {item.description}
-                    </Typography>
-                  </Box>
+                    </p>
+                  </div>
                 );
               })}
-            </Box>
-          </Container>
-        </Box>
+            </div>
+          </div>
+        </section>
 
-        <Box
-          component='section'
-          id='capabilities'
-          sx={{ py: { xs: 8, md: 12 }, bgcolor: "#ffffff" }}
-        >
-          <Container maxWidth='lg'>
-            <Typography
-              sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}
-            >
-              围绕真实招聘流程
-            </Typography>
-            <Typography
-              component='h2'
-              sx={{
-                mt: 1.5,
-                maxWidth: 760,
-                color: "text.primary",
-                fontSize: { xs: 34, md: 48 },
-                lineHeight: 1.18,
-              }}
-            >
+        <section id="capabilities" className="public-home-39">
+          <div className="public-container">
+            <p className="public-text public-home-41">围绕真实招聘流程</p>
+            <h2 className="public-text public-home-42">
               不增加复杂工作台，只减少每天重复的动作
-            </Typography>
-            <Box
-              sx={{
-                mt: 6,
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", md: "repeat(3, 1fr)" },
-                borderTop: "1px solid",
-                borderColor: "divider",
-              }}
-            >
+            </h2>
+            <div className="public-home-43">
               {benefits.map((item, index) => {
                 const Icon = item.icon;
                 return (
-                  <Box
+                  <div
                     key={item.title}
-                    sx={{
-                      py: 4,
-                      pr: { md: 4 },
-                      pl: { md: index === 0 ? 0 : 4 },
-                      borderRight: {
-                        md: index < benefits.length - 1 ? "1px solid" : "none",
-                      },
-                      borderBottom: {
-                        xs: index < benefits.length - 1 ? "1px solid" : "none",
-                        md: "none",
-                      },
-                      borderColor: "divider",
-                    }}
+                    style={
+                      {
+                        "--public-home-44-0": (index === 0 ? 0 : 4) * 8 + "px",
+                        "--public-home-44-1":
+                          index < benefits.length - 1 ? "1px solid" : "none",
+                        "--public-home-44-2":
+                          index < benefits.length - 1 ? "1px solid" : "none",
+                      } as import("react").CSSProperties
+                    }
+                    className="public-home-44"
                   >
-                    <Icon color='primary' />
-                    <Typography
-                      component='h3'
-                      sx={{ mt: 2, color: "text.primary", fontSize: 21 }}
-                    >
-                      {item.title}
-                    </Typography>
-                    <Typography
-                      sx={{ mt: 1.5, color: "text.secondary", lineHeight: 1.8 }}
-                    >
+                    <Icon className="public-home-45" aria-hidden="true" />
+                    <h3 className="public-text public-home-46">{item.title}</h3>
+                    <p className="public-text public-home-47">
                       {item.description}
-                    </Typography>
-                  </Box>
+                    </p>
+                  </div>
                 );
               })}
-            </Box>
-          </Container>
-        </Box>
+            </div>
+          </div>
+        </section>
 
-        <Box
-          component='section'
-          sx={{ py: { xs: 8, md: 10 }, bgcolor: "#fff" }}
-        >
-          <Container maxWidth='lg'>
-            <Typography
-              sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}
-            >
-              常见问题
-            </Typography>
-            <Typography
-              component='h2'
-              sx={{ mt: 1.5, fontSize: { xs: 32, md: 44 } }}
-            >
+        <section className="public-home-48">
+          <div className="public-container">
+            <p className="public-text public-home-50">常见问题</p>
+            <h2 className="public-text public-home-51">
               HR 和猎头最关心的问题
-            </Typography>
-            <Box sx={{ mt: 4, borderTop: "1px solid", borderColor: "divider" }}>
+            </h2>
+            <div className="public-home-52">
               {faqs.map((item) => (
-                <Box
-                  key={item.question}
-                  component='article'
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: {
-                      xs: "1fr",
-                      md: "minmax(240px,.7fr) minmax(0,1.3fr)",
-                    },
-                    gap: 2,
-                    py: 3,
-                    borderBottom: "1px solid",
-                    borderColor: "divider",
-                  }}
-                >
-                  <Typography
-                    component='h3'
-                    sx={{ fontSize: 18, fontWeight: 760 }}
-                  >
+                <article key={item.question} className="public-home-53">
+                  <h3 className="public-text public-home-54">
                     {item.question}
-                  </Typography>
-                  <Typography sx={{ color: "text.secondary", lineHeight: 1.8 }}>
-                    {item.answer}
-                  </Typography>
-                </Box>
+                  </h3>
+                  <p className="public-text public-home-55">{item.answer}</p>
+                </article>
               ))}
-            </Box>
-          </Container>
-        </Box>
+            </div>
+          </div>
+        </section>
 
-        <Box
-          component='section'
-          sx={{
-            py: { xs: 8, md: 10 },
-            bgcolor: "#edf5f0",
-            borderTop: "1px solid",
-            borderColor: "divider",
-          }}
-        >
-          <Container maxWidth='lg'>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={3}
-              sx={{
-                alignItems: { md: "center" },
-                justifyContent: "space-between",
-              }}
-            >
-              <Box>
-                <Typography
-                  component='h2'
-                  sx={{ color: "text.primary", fontSize: { xs: 32, md: 42 } }}
-                >
+        <section className="public-home-56">
+          <div className="public-container">
+            <div className="public-home-58">
+              <div>
+                <h2 className="public-text public-home-60">
                   从今天开始，少做一点重复工作
-                </Typography>
-                <Typography
-                  sx={{ mt: 1.5, color: "text.secondary", fontSize: 17 }}
-                >
+                </h2>
+                <p className="public-text public-home-61">
                   关键词筛选和基础岗位运行可以长期免费使用。
-                </Typography>
-              </Box>
+                </p>
+              </div>
               <Button
-                component='a'
-                href='/download'
-                variant='contained'
-                size='large'
-                startIcon={<DownloadRoundedIcon />}
-                sx={{ flexShrink: 0, px: 3 }}
+                href="/download"
+                type="primary"
+                size="large"
+                icon={<DownloadRoundedIcon aria-hidden="true" />}
+                className="public-home-62"
               >
                 下载 GoodHR
               </Button>
-            </Stack>
-          </Container>
-        </Box>
-      </Box>
+            </div>
+          </div>
+        </section>
+      </main>
       <SiteFooter />
-    </Box>
+    </div>
   );
 }

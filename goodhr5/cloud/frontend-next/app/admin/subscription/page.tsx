@@ -1,35 +1,34 @@
 /** 本文件负责新版后台会员、AI 余额、激活码、支付记录和 AI 使用记录展示。 */
 "use client";
-
-import ArrowDownwardRoundedIcon from "@mui/icons-material/ArrowDownwardRounded";
-import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
-import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
-import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
-import WorkspacePremiumRoundedIcon from "@mui/icons-material/WorkspacePremiumRounded";
 import {
-  Box,
   Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  MenuItem,
-  Pagination,
-  Stack,
-  Tab,
+  Card,
+  Flex,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Select,
   Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Tabs,
-  TextField,
+  Tag,
   Typography,
-} from "@mui/material";
+} from "antd";
+import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
+  CheckOutlined,
+  CrownOutlined,
+  PayCircleOutlined,
+} from "@ant-design/icons";
+import type { CSSProperties } from "react";
+import styles from "../heavy-ui.module.css";
 import { useEffect, useMemo, useState } from "react";
-import { cloudRequest, formatDate, requirePaymentLocalAgent } from "@/lib/admin-api";
+import {
+  cloudRequest,
+  formatDate,
+  requirePaymentLocalAgent,
+} from "@/lib/admin-api";
 import {
   EmptyState,
   PageHeader,
@@ -47,15 +46,16 @@ import {
   type SubscriptionPlan,
   type SubscriptionUpgradeQuote,
 } from "@/lib/subscription";
-
 const aiRecordPageSize = 10;
-
 type PendingPayment =
-  | { type: "membership"; planID: string }
-  | { type: "ai_balance" };
-
+  | {
+      type: "membership";
+      planID: string;
+    }
+  | {
+      type: "ai_balance";
+    };
 type RefundType = "membership" | "ai_balance";
-
 type RefundQuote = Record<
   RefundType,
   {
@@ -65,7 +65,6 @@ type RefundQuote = Record<
     message?: string;
   }
 >;
-
 /** SubscriptionPage 展示会员状态、AI 余额和账务记录。 */
 export default function SubscriptionPage() {
   const { agentBase, notify, subscription, refreshSession } = useAdmin();
@@ -97,9 +96,9 @@ export default function SubscriptionPage() {
   const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(
     null,
   );
-  const [wechatPayment, setWechatPayment] =
-    useState<WechatPaymentState | null>(null);
-
+  const [wechatPayment, setWechatPayment] = useState<WechatPaymentState | null>(
+    null,
+  );
   const modelLabel = currentAIModel || wallet.default_model || "未配置";
   const aiPageCount = Math.max(1, Math.ceil(aiTotal / aiRecordPageSize));
   const pendingPlan = useMemo(
@@ -112,7 +111,6 @@ export default function SubscriptionPage() {
   const pendingQuote = pendingPlan
     ? estimateSubscriptionQuote(subscription, plans, pendingPlan)
     : null;
-
   /** loadSummary 读取会员套餐、支付记录和 AI 余额摘要。 */
   async function loadSummary() {
     setLoading(true);
@@ -142,7 +140,6 @@ export default function SubscriptionPage() {
       setLoading(false);
     }
   }
-
   /** loadAIRecords 分页读取 AI 使用记录。 */
   async function loadAIRecords() {
     setAILoading(true);
@@ -167,20 +164,16 @@ export default function SubscriptionPage() {
       setAILoading(false);
     }
   }
-
   useEffect(() => {
     void loadSummary();
   }, []);
-
   useEffect(() => {
     void loadAIRecords();
   }, [aiPage]);
-
   /** refreshAll 刷新订阅页全部信息。 */
   async function refreshAll() {
     await Promise.all([loadSummary(), loadAIRecords(), refreshSession()]);
   }
-
   /** redeem 兑换会员激活码。 */
   async function redeem() {
     const value = code.trim();
@@ -200,7 +193,6 @@ export default function SubscriptionPage() {
       );
     }
   }
-
   /** pay 创建会员套餐支付订单。 */
   async function pay(planID: string) {
     if (!planID) return;
@@ -230,7 +222,6 @@ export default function SubscriptionPage() {
       setPayingPlanID("");
     }
   }
-
   /** requestPlanPayment 在创建会员订单前打开费用区别和退款政策确认框。 */
   async function requestPlanPayment(planID: string) {
     if (!planID) return;
@@ -244,7 +235,6 @@ export default function SubscriptionPage() {
     }
     setPendingPayment({ type: "membership", planID });
   }
-
   /** rechargeAI 创建 AI 余额充值订单。 */
   async function rechargeAI() {
     const amount = Number(rechargeAmount || 0);
@@ -274,7 +264,6 @@ export default function SubscriptionPage() {
       setRecharging(false);
     }
   }
-
   /** requestAIRecharge 校验充值金额并在创建 AI 余额订单前打开确认框。 */
   async function requestAIRecharge() {
     const amount = Number(rechargeAmount || 0);
@@ -291,7 +280,6 @@ export default function SubscriptionPage() {
     setRechargeDialogOpen(false);
     setPendingPayment({ type: "ai_balance" });
   }
-
   /** confirmPendingPayment 在用户明确理解费用区别后执行原支付流程。 */
   async function confirmPendingPayment() {
     const payment = pendingPayment;
@@ -303,7 +291,6 @@ export default function SubscriptionPage() {
     }
     setPendingPayment(null);
   }
-
   /** openModelDialog 打开 AI 模型选择弹框。 */
   function openModelDialog() {
     const models = Array.isArray(wallet.models) ? wallet.models : [];
@@ -312,7 +299,6 @@ export default function SubscriptionPage() {
     );
     setModelDialogOpen(true);
   }
-
   /** saveAIModel 保存当前 AI 模型。 */
   async function saveAIModel() {
     const model = selectedModel.trim();
@@ -349,7 +335,6 @@ export default function SubscriptionPage() {
       setSavingModel(false);
     }
   }
-
   /** openRefundDialog 打开退款弹框并从服务器读取实时可退额度。 */
   async function openRefundDialog() {
     setRefundDialogOpen(true);
@@ -372,20 +357,21 @@ export default function SubscriptionPage() {
       setRefundLoading(false);
     }
   }
-
   /** changeRefundType 切换退款类型并自动填入该类型最高可退金额。 */
   function changeRefundType(value: RefundType) {
     setRefundType(value);
     setRefundAmount(refundQuote?.[value]?.max_amount || "");
   }
-
   /** submitRefund 确认后交给服务器重新校验并自动原路退款。 */
   async function submitRefund() {
     const amount = Number(refundAmount || 0);
     const maximum =
       Number(refundQuote?.[refundType]?.max_amount_cents || 0) / 100;
     if (!Number.isFinite(amount) || amount <= 0 || amount > maximum) {
-      notify(`退款金额需在 0.01 元到 ${maximum.toFixed(2)} 元之间。`, "warning");
+      notify(
+        `退款金额需在 0.01 元到 ${maximum.toFixed(2)} 元之间。`,
+        "warning",
+      );
       return;
     }
     setRefunding(true);
@@ -399,181 +385,138 @@ export default function SubscriptionPage() {
       await refreshAll();
     } catch (error) {
       notify(
-        error instanceof Error ? error.message : "退款没处理成功，我们再来一次。",
+        error instanceof Error
+          ? error.message
+          : "退款没处理成功，我们再来一次。",
         "error",
       );
     } finally {
       setRefunding(false);
     }
   }
-
   return (
     <>
       <PageHeader
-        title='订阅会员'
-        description='会员费就像您包月租了一个小汽车，AI余额 就是您小汽车油箱的余额。'
+        title="订阅会员"
+        description="会员费就像您包月租了一个小汽车，AI余额 就是您小汽车油箱的余额。"
         actions={
           <Button
-            variant='text'
-            color='inherit'
-            sx={{ color: "text.secondary", minWidth: 0, px: 1 }}
             onClick={() => void openRefundDialog()}
+            type={"text"}
+            className={styles.s118}
           >
             退款
           </Button>
         }
       />
 
-      <Box
-        sx={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 2,
-          mb: 3,
-          alignItems: "stretch",
-          "& > *": { minWidth: 0 },
-        }}
-      >
+      <div className={styles.s119}>
         <InfoCard
-          icon={<WorkspacePremiumRoundedIcon />}
-          title='当前会员'
+          icon={<CrownOutlined aria-hidden="true" />}
+          title="当前会员"
           value={subscription.member_name || "免费版"}
           tone={subscription.active ? "dark" : "plain"}
           compact
-          sx={{
-            flex: { xs: "1 1 100%", md: "0 0 auto" },
-            width: { xs: "100%", md: "auto" },
-          }}
+          className={styles.s120}
         >
-          <Stack
-            spacing={1}
-            sx={{
-              alignItems: { xs: "flex-start", sm: "flex-end" },
-              textAlign: { xs: "left", sm: "right" },
-            }}
-          >
-            <Chip
-              size='small'
-              label={
-                subscription.active
-                  ? `${subscription.remaining_days} 天 · 自动回复${subscription.allow_auto_reply ? "可用" : "不可用"}`
-                  : "未开通或已到期"
+          <Flex className={styles.s121}>
+            <Tag
+              color={subscription.active ? "var(--goodhr-primary)" : "default"}
+            >
+              {subscription.active
+                ? `${subscription.remaining_days} 天 · 自动回复${subscription.allow_auto_reply ? "可用" : "不可用"}`
+                : "未开通或已到期"}
+            </Tag>
+            <Typography.Paragraph
+              ellipsis
+              className={`${styles.text} ${styles.s122}`}
+              style={
+                {
+                  "--heavy-21": subscription.active
+                    ? "rgba(255,255,255,.72)"
+                    : "var(--goodhr-text-secondary)",
+                } as CSSProperties
               }
-              color={subscription.active ? "primary" : "default"}
-            />
-            <Typography
-              noWrap
-              sx={{
-                color: subscription.active
-                  ? "rgba(255,255,255,.72)"
-                  : "text.secondary",
-                fontSize: 13,
-              }}
             >
               到期：{formatDate(subscription.expires_at) || "--"}
-            </Typography>
-          </Stack>
+            </Typography.Paragraph>
+          </Flex>
         </InfoCard>
-
         <InfoCard
-          icon={<PaidRoundedIcon />}
-          title='AI 余额'
+          icon={<PayCircleOutlined aria-hidden="true" />}
+          title="AI 余额"
           value={`￥${wallet.balance || "0.0000"}`}
           compact
-          sx={{
-            flex: { xs: "1 1 100%", md: "0 0 auto" },
-            width: { xs: "100%", md: "auto" },
-            minWidth: { md: 470 },
-          }}
+          className={styles.s123}
         >
-          <Stack
-            spacing={1}
-            sx={{ alignItems: { xs: "flex-start", sm: "flex-end" } }}
-          >
-            <Chip
-              size='small'
-              label={`当前模型：${modelLabel}`}
+          <Flex className={styles.s124}>
+            <Button
               onClick={openModelDialog}
-              sx={{
-                width: "fit-content",
-                bgcolor: "action.selected",
-                color: "primary.dark",
-                fontWeight: 700,
-              }}
-            />
-            <Stack direction='row' spacing={1} sx={{ flexWrap: "nowrap" }}>
+              type="default"
+              size="small"
+              className={styles.s125}
+            >{`当前模型：${modelLabel}`}</Button>
+            <Flex className={styles.s126}>
               <Button
-                size='small'
-                variant='contained'
+                size="small"
+                loading={recharging}
                 disabled={recharging}
                 onClick={() => setRechargeDialogOpen(true)}
+                type={"primary"}
               >
                 {recharging ? "下单中" : "充值"}
               </Button>
               <Button
-                size='small'
-                variant='outlined'
+                size="small"
                 onClick={() => setRecordTab("ai")}
+                type={"default"}
               >
                 看记录
               </Button>
-            </Stack>
-          </Stack>
+            </Flex>
+          </Flex>
         </InfoCard>
-
-        <SectionPanel
-          sx={{
-            display: "flex",
-            flex: "1 1 260px",
-            alignItems: "center",
-            bgcolor: "action.hover",
-          }}
-        >
-          <Stack
-            direction='row'
-            spacing={1.25}
-            sx={{ alignItems: "center", minWidth: 0, width: "100%" }}
-          >
-            <TextField
-              size='small'
-              label='会员激活码'
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              fullWidth
-              sx={{ minWidth: 0, flex: "1 1 auto" }}
-            />
+        <SectionPanel className={styles.s127}>
+          <Flex className={styles.s128}>
+            <Form.Item
+              layout="vertical"
+              htmlFor="subscription-field-1"
+              label={"会员激活码"}
+              className={styles.s129}
+              style={{ marginBottom: 0 }}
+            >
+              <Input
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                size="small"
+                id="subscription-field-1"
+                className={styles.s130}
+              />
+            </Form.Item>
             <Button
-              variant='contained'
               disabled={!code.trim()}
               onClick={() => void redeem()}
-              sx={{ minWidth: 76, flexShrink: 0 }}
+              type={"primary"}
+              className={styles.s131}
             >
               激活
             </Button>
-          </Stack>
+          </Flex>
         </SectionPanel>
-      </Box>
+      </div>
 
-      <Box sx={{ mb: 2.25 }}>
-        <Typography component='h2' sx={{ fontSize: 22, fontWeight: 780 }}>
+      <div className={styles.s132}>
+        <Typography.Title
+          level={2}
+          className={`${styles.title} ${styles.s133}`}
+        >
           选择会员套餐
-        </Typography>
-        <Typography sx={{ mt: 0.5, color: "text.secondary" }}>
+        </Typography.Title>
+        <Typography.Paragraph className={`${styles.text} ${styles.s134}`}>
           未到期时购买会从当前到期时间继续增加天数。
-        </Typography>
-      </Box>
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: {
-            xs: "minmax(0, 1fr)",
-            sm: "repeat(2, minmax(0, 1fr))",
-            lg: "repeat(3, minmax(0, 1fr))",
-          },
-          gap: 2,
-          alignItems: "stretch",
-        }}
-      >
+        </Typography.Paragraph>
+      </div>
+      <div className={styles.s135}>
         {plans.map((plan, index) => (
           <PlanCard
             key={plan.id || index}
@@ -584,25 +527,27 @@ export default function SubscriptionPage() {
             onPay={() => requestPlanPayment(plan.id)}
           />
         ))}
-      </Box>
+      </div>
 
-      <SectionPanel sx={{ mt: 2 }}>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          sx={{
-            justifyContent: "space-between",
-            gap: 1,
-            alignItems: { sm: "center" },
-          }}
-        >
-          <Typography component='h2' sx={{ fontSize: 19, fontWeight: 760 }}>
+      <SectionPanel className={styles.s136}>
+        <Flex className={styles.s137}>
+          <Typography.Title
+            level={2}
+            className={`${styles.title} ${styles.s138}`}
+          >
             账务记录
-          </Typography>
-          <Tabs value={recordTab} onChange={(_, value) => setRecordTab(value)}>
-            <Tab value='payments' label='支付记录' />
-            <Tab value='ai' label='AI 使用记录' />
-          </Tabs>
-        </Stack>
+          </Typography.Title>
+          <Tabs
+            activeKey={recordTab}
+            onChange={(value) =>
+              setRecordTab(value === "ai" ? "ai" : "payments")
+            }
+            items={[
+              { key: "payments", label: "支付记录" },
+              { key: "ai", label: "AI 使用记录" },
+            ]}
+          />
+        </Flex>
         {recordTab === "payments" ? (
           <PaymentRecords orders={orders} loading={loading} />
         ) : (
@@ -616,81 +561,120 @@ export default function SubscriptionPage() {
         )}
       </SectionPanel>
 
-      <Dialog
+      <Modal
         open={modelDialogOpen}
-        onClose={() => setModelDialogOpen(false)}
-        fullWidth
-        maxWidth='xs'
+        onCancel={() => {
+          if (!savingModel) setModelDialogOpen(false);
+        }}
+        closable={!savingModel}
+        mask={{ closable: !savingModel }}
+        keyboard={!savingModel}
+        width={440}
+        destroyOnHidden
+        title={<> 选择当前模型 </>}
+        footer={
+          <Flex justify="flex-end" gap={8} wrap>
+            <Button
+              disabled={savingModel}
+              onClick={() => setModelDialogOpen(false)}
+              type={"text"}
+            >
+              先不改
+            </Button>
+            <Button
+              loading={savingModel}
+              disabled={savingModel}
+              onClick={() => void saveAIModel()}
+              type={"primary"}
+            >
+              {savingModel ? "保存中" : "保存模型"}
+            </Button>
+          </Flex>
+        }
       >
-        <DialogTitle>选择当前模型</DialogTitle>
-        <DialogContent>
-          <TextField
-            select
-            fullWidth
-            label='当前模型'
+        <Form.Item
+          layout="vertical"
+          htmlFor="subscription-field-2"
+          label={"当前模型"}
+          className={styles.s139}
+          style={{ marginBottom: 0 }}
+        >
+          <Select
             value={selectedModel}
-            onChange={(event) => setSelectedModel(event.target.value)}
-            sx={{ mt: 1 }}
-          >
-            {(Array.isArray(wallet.models) ? wallet.models : []).map(
-              (model: any) => (
-                <MenuItem key={model.id} value={model.id}>
-                  <Box>
-                    <Typography sx={{ fontWeight: 800 }}>
-                      {model.name || model.id}
-                    </Typography>
-                    <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
-                      {model.id}
-                    </Typography>
-                  </Box>
-                </MenuItem>
-              ),
+            onChange={(value) => setSelectedModel(String(value ?? ""))}
+            id="subscription-field-2"
+            className={styles.s140}
+            options={(Array.isArray(wallet.models) ? wallet.models : []).map(
+              (model: any) => ({
+                value: String(model.id),
+                label: model.name
+                  ? model.name + " · " + model.id
+                  : String(model.id),
+              }),
             )}
-          </TextField>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setModelDialogOpen(false)}>先不改</Button>
-          <Button
-            variant='contained'
             disabled={savingModel}
-            onClick={() => void saveAIModel()}
-          >
-            {savingModel ? "保存中" : "保存模型"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog
-        open={rechargeDialogOpen}
-        onClose={() => setRechargeDialogOpen(false)}
-        fullWidth
-        maxWidth='xs'
-      >
-        <DialogTitle>充值 AI 余额</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            label='充值金额（元）'
-            value={rechargeAmount}
-            onChange={(event) => setRechargeAmount(event.target.value)}
-            slotProps={{ htmlInput: { inputMode: "decimal" } }}
-            sx={{ mt: 1 }}
+            optionFilterProp="label"
+            showSearch
           />
-          <Typography sx={{ mt: 1.25, color: "text.secondary", fontSize: 13 }}>
-            默认 5 元，够先跑一阵。填完我就去创建支付订单。
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRechargeDialogOpen(false)}>先不充</Button>
-          <Button
-            variant='contained'
+        </Form.Item>
+      </Modal>
+
+      <Modal
+        open={rechargeDialogOpen}
+        onCancel={() => {
+          if (!recharging) setRechargeDialogOpen(false);
+        }}
+        closable={!recharging}
+        mask={{ closable: !recharging }}
+        keyboard={!recharging}
+        width={440}
+        destroyOnHidden
+        title={<> 充值 AI 余额 </>}
+        footer={
+          <Flex justify="flex-end" gap={8} wrap>
+            <Button
+              disabled={recharging}
+              onClick={() => setRechargeDialogOpen(false)}
+              type={"text"}
+            >
+              先不充
+            </Button>
+            <Button
+              loading={recharging}
+              disabled={recharging}
+              onClick={requestAIRecharge}
+              type={"primary"}
+            >
+              {recharging ? "下单中" : "去支付"}
+            </Button>
+          </Flex>
+        }
+      >
+        <Form.Item
+          layout="vertical"
+          htmlFor="subscription-field-3"
+          label={"充值金额（元）"}
+          className={styles.s143}
+          style={{ marginBottom: 0 }}
+        >
+          <InputNumber
+            id="subscription-field-3"
+            value={rechargeAmount ? Number(rechargeAmount) : null}
+            onChange={(value) =>
+              setRechargeAmount(value === null ? "" : String(value))
+            }
+            min={0.01}
+            precision={2}
+            step={1}
+            prefix="￥"
             disabled={recharging}
-            onClick={requestAIRecharge}
-          >
-            {recharging ? "下单中" : "去支付"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+        <Typography.Paragraph className={`${styles.text} ${styles.s145}`}>
+          默认 10 元，够先跑一阵。填完我就去创建支付订单。
+        </Typography.Paragraph>
+      </Modal>
 
       <PaymentUnderstandingDialog
         open={pendingPayment !== null}
@@ -705,62 +689,88 @@ export default function SubscriptionPage() {
         onClose={() => setPendingPayment(null)}
         onConfirm={() => void confirmPendingPayment()}
       />
-      <Dialog
+      <Modal
         open={refundDialogOpen}
-        onClose={refunding ? undefined : () => setRefundDialogOpen(false)}
-        fullWidth
-        maxWidth='xs'
+        onCancel={refunding ? undefined : () => setRefundDialogOpen(false)}
+        width={440}
+        destroyOnHidden
+        closable={!refunding}
+        mask={{ closable: !refunding }}
+        keyboard={!refunding}
+        title={<> 申请退款 </>}
+        footer={
+          <Flex justify="flex-end" gap={8} wrap>
+            <Button
+              disabled={refunding}
+              onClick={() => setRefundDialogOpen(false)}
+              type={"text"}
+            >
+              先不退
+            </Button>
+            <Button
+              disabled={
+                refundLoading ||
+                refunding ||
+                !refundQuote?.[refundType]?.available
+              }
+              onClick={() => void submitRefund()}
+              type={"primary"}
+            >
+              {refunding ? "退款处理中" : "确认退款"}
+            </Button>
+          </Flex>
+        }
       >
-        <DialogTitle>申请退款</DialogTitle>
-        <DialogContent>
-          <TextField
-            select
-            fullWidth
-            label='退款类型'
+        <Form.Item
+          layout="vertical"
+          htmlFor="subscription-field-4"
+          label={"退款类型"}
+          className={styles.s146}
+          style={{ marginBottom: 0 }}
+        >
+          <Select
             value={refundType}
-            disabled={refundLoading || refunding}
-            onChange={(event) =>
-              changeRefundType(event.target.value as RefundType)
+            onChange={(value) =>
+              changeRefundType(String(value ?? "") as RefundType)
             }
-            sx={{ mt: 1 }}
-          >
-            <MenuItem value='membership'>会员退款</MenuItem>
-            <MenuItem value='ai_balance'>AI 余额退款</MenuItem>
-          </TextField>
-          <TextField
-            fullWidth
-            label='退款金额（元）'
-            value={refundAmount}
             disabled={refundLoading || refunding}
-            onChange={(event) => setRefundAmount(event.target.value)}
-            slotProps={{ htmlInput: { inputMode: "decimal" } }}
-            sx={{ mt: 2 }}
+            id="subscription-field-4"
+            className={styles.s147}
+            options={[
+              { value: "membership", label: "会员退款" },
+              { value: "ai_balance", label: "AI 余额退款" },
+            ]}
           />
-          <Typography sx={{ mt: 1.25, color: "text.secondary", fontSize: 13 }}>
-            {refundLoading
-              ? "我正在核对成功支付订单和剩余权益。"
-              : refundQuote?.[refundType]?.available
-                ? `当前最多可退 ￥${refundQuote[refundType].max_amount}。确认后会自动原路退回，并同步扣减对应权益。`
-                : refundQuote?.[refundType]?.message || "当前没有可退金额。"}
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button disabled={refunding} onClick={() => setRefundDialogOpen(false)}>
-            先不退
-          </Button>
-          <Button
-            variant='contained'
-            disabled={
-              refundLoading ||
-              refunding ||
-              !refundQuote?.[refundType]?.available
+        </Form.Item>
+        <Form.Item
+          layout="vertical"
+          htmlFor="subscription-field-5"
+          label={"退款金额（元）"}
+          className={styles.s148}
+          style={{ marginBottom: 0 }}
+        >
+          <InputNumber
+            id="subscription-field-5"
+            value={refundAmount ? Number(refundAmount) : null}
+            onChange={(value) =>
+              setRefundAmount(value === null ? "" : String(value))
             }
-            onClick={() => void submitRefund()}
-          >
-            {refunding ? "退款处理中" : "确认退款"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+            min={0.01}
+            max={Number(refundQuote?.[refundType]?.max_amount || 0)}
+            precision={2}
+            prefix="￥"
+            disabled={refundLoading || refunding}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+        <Typography.Paragraph className={`${styles.text} ${styles.s150}`}>
+          {refundLoading
+            ? "我正在核对成功支付订单和剩余权益。"
+            : refundQuote?.[refundType]?.available
+              ? `当前最多可退 ￥${refundQuote[refundType].max_amount}。确认后会自动原路退回，并同步扣减对应权益。`
+              : refundQuote?.[refundType]?.message || "当前没有可退金额。"}
+        </Typography.Paragraph>
+      </Modal>
       <WechatPayDialog
         payment={wechatPayment}
         onClose={() => setWechatPayment(null)}
@@ -773,7 +783,6 @@ export default function SubscriptionPage() {
     </>
   );
 }
-
 /** PaymentUnderstandingDialog 在创建订单前说明会员费、AI 余额和现有退款政策。 */
 function PaymentUnderstandingDialog({
   open,
@@ -793,90 +802,103 @@ function PaymentUnderstandingDialog({
   onConfirm: () => void;
 }) {
   return (
-    <Dialog
+    <Modal
       open={open}
-      onClose={loading ? undefined : onClose}
-      fullWidth
-      maxWidth='sm'
+      onCancel={loading ? undefined : onClose}
+      width={640}
+      destroyOnHidden
+      closable={!loading}
+      mask={{ closable: !loading }}
+      keyboard={!loading}
+      title={<> 支付前请确认 </>}
+      footer={
+        <Flex justify="flex-end" gap={8} wrap>
+          <Button disabled={loading} onClick={onClose} type={"text"}>
+            我再想想
+          </Button>
+          <Button disabled={loading} onClick={onConfirm} type={"primary"}>
+            {loading ? "正在创建订单" : "我已理解，继续支付"}
+          </Button>
+        </Flex>
+      }
     >
-      <DialogTitle>支付前请确认</DialogTitle>
-      <DialogContent>
-        <Typography sx={{ color: "text.secondary", lineHeight: 1.75 }}>
-          {paymentType === "membership"
-            ? "你即将购买会员套餐。继续前，请确认已经理解下面的费用区别和退款政策。"
-            : "你即将充值 AI 余额。继续前，请确认已经理解下面的费用区别和退款政策。"}
-        </Typography>
-        <Stack spacing={1.25} sx={{ mt: 2 }}>
-          {paymentType === "membership" && plan && quote ? (
-            <Box
-              sx={{
-                p: 1.75,
-                borderRadius: 2,
-                bgcolor: "action.selected",
-                border: "1px solid",
-                borderColor: "primary.light",
-              }}
-            >
-              <Typography sx={{ fontWeight: 800 }}>{plan.name}</Typography>
-              <Typography sx={{ mt: 0.5, color: "text.secondary" }}>
-                {quote.sourceMemberType === "max"
-                  ? `支付成功后会立即切换为 Plus，原 Max 剩余时间不折算，Plus 从付款时间重新计算 ${plan.duration_days} 天。`
-                  : quote.upgrade
+      <Typography.Paragraph className={`${styles.text} ${styles.s151}`}>
+        {paymentType === "membership"
+          ? "你即将购买会员套餐。继续前，请确认已经理解下面的费用区别和退款政策。"
+          : "你即将充值 AI 余额。继续前，请确认已经理解下面的费用区别和退款政策。"}
+      </Typography.Paragraph>
+      <Flex className={styles.s152}>
+        {paymentType === "membership" && plan && quote ? (
+          <Card
+            styles={{
+              body: {
+                padding: 0,
+                height: "100%",
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+              },
+            }}
+            className={styles.s153}
+          >
+            <Typography.Paragraph className={`${styles.text} ${styles.s154}`}>
+              {plan.name}
+            </Typography.Paragraph>
+            <Typography.Paragraph className={`${styles.text} ${styles.s155}`}>
+              {quote.sourceMemberType === "max"
+                ? `支付成功后会立即切换为 Plus，原 Max 剩余时间不折算，Plus 从付款时间重新计算 ${plan.duration_days} 天。`
+                : quote.upgrade
                   ? `Plus 剩余时间抵扣 ￥${(quote.creditCents / 100).toFixed(2)}，预计实付 ￥${(quote.amountCents / 100).toFixed(2)}。最终金额以后端下单时的剩余时间为准。`
                   : `本次预计实付 ￥${(quote.amountCents / 100).toFixed(2)}。`}
-              </Typography>
-            </Box>
-          ) : null}
-          <Box
-            sx={{ p: 1.75, borderRadius: 2, bgcolor: "action.hover" }}
-          >
-            <Typography sx={{ fontWeight: 800 }}>会员费</Typography>
-            <Typography sx={{ mt: 0.5, color: "text.secondary", lineHeight: 1.7 }}>
-              {paymentType === "membership" && quote?.replacement
-                ? "本次属于套餐切换。支付成功后，新套餐从付款时间重新计算，原套餐剩余时间不顺延。"
-                : "购买的是会员使用期限，用于解锁会员功能。会员未到期时再次购买同一套餐，新天数会从当前到期时间继续增加。"}
-            </Typography>
-          </Box>
-          <Box
-            sx={{ p: 1.75, borderRadius: 2, bgcolor: "#f7f7f4" }}
-          >
-            <Typography sx={{ fontWeight: 800 }}>AI 余额</Typography>
-            <Typography sx={{ mt: 0.5, color: "text.secondary", lineHeight: 1.7 }}>
-              仅用于 GoodHR 内置 AI 调用，并按实际使用扣减；自己配置 AI Key 时不扣这里的余额。会员费不包含 AI 余额，AI 余额也不能替代会员订阅。
-            </Typography>
-          </Box>
-          <Box
-            sx={{
-              p: 1.75,
-              borderRadius: 2,
-              bgcolor: "#fff8ed",
-              border: "1px solid #f0d8ac",
-            }}
-          >
-            <Typography sx={{ fontWeight: 800, color: "#714700" }}>
-              现有退款政策
-            </Typography>
-            <Typography sx={{ mt: 0.5, color: "#714700", lineHeight: 1.7 }}>
-              会员退款按该笔订单实付金额和购买天数折算，只退还尚未使用的部分；AI 余额最多退还当前剩余且有成功充值订单支撑的金额。
-            </Typography>
-            <Typography sx={{ mt: 0.75, color: "#714700", lineHeight: 1.7 }}>
-              需要开发票请联系作者处理。发票开出后，该笔订单不支持退费。
-            </Typography>
-          </Box>
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2.5 }}>
-        <Button disabled={loading} onClick={onClose}>
-          我再想想
-        </Button>
-        <Button variant='contained' disabled={loading} onClick={onConfirm}>
-          {loading ? "正在创建订单" : "我已理解，继续支付"}
-        </Button>
-      </DialogActions>
-    </Dialog>
+            </Typography.Paragraph>
+          </Card>
+        ) : null}
+        <div className={styles.s156}>
+          <Typography.Paragraph className={`${styles.text} ${styles.s157}`}>
+            会员费
+          </Typography.Paragraph>
+          <Typography.Paragraph className={`${styles.text} ${styles.s158}`}>
+            {paymentType === "membership" && quote?.replacement
+              ? "本次属于套餐切换。支付成功后，新套餐从付款时间重新计算，原套餐剩余时间不顺延。"
+              : "购买的是会员使用期限，用于解锁会员功能。会员未到期时再次购买同一套餐，新天数会从当前到期时间继续增加。"}
+          </Typography.Paragraph>
+        </div>
+        <div className={styles.s159}>
+          <Typography.Paragraph className={`${styles.text} ${styles.s160}`}>
+            AI 余额
+          </Typography.Paragraph>
+          <Typography.Paragraph className={`${styles.text} ${styles.s161}`}>
+            仅用于 GoodHR 内置 AI 调用，并按实际使用扣减；自己配置 AI Key
+            时不扣这里的余额。会员费不包含 AI 余额，AI 余额也不能替代会员订阅。
+          </Typography.Paragraph>
+        </div>
+        <Card
+          styles={{
+            body: {
+              padding: 0,
+              height: "100%",
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+            },
+          }}
+          className={styles.s162}
+        >
+          <Typography.Paragraph className={`${styles.text} ${styles.s163}`}>
+            现有退款政策
+          </Typography.Paragraph>
+          <Typography.Paragraph className={`${styles.text} ${styles.s164}`}>
+            会员退款按该笔订单实付金额和购买天数折算，只退还尚未使用的部分；AI
+            余额最多退还当前剩余且有成功充值订单支撑的金额。
+          </Typography.Paragraph>
+          <Typography.Paragraph className={`${styles.text} ${styles.s165}`}>
+            需要开发票请联系作者处理。发票开出后，该笔订单不支持退费。
+          </Typography.Paragraph>
+        </Card>
+      </Flex>
+    </Modal>
   );
 }
-
 /** InfoCard 展示订阅页顶部三列摘要。 */
 function InfoCard({
   icon,
@@ -884,7 +906,8 @@ function InfoCard({
   value,
   tone = "plain",
   compact = false,
-  sx = {},
+  className,
+  style,
   children,
 }: {
   icon: React.ReactNode;
@@ -892,81 +915,67 @@ function InfoCard({
   value: string;
   tone?: "plain" | "dark";
   compact?: boolean;
-  sx?: Record<string, unknown>;
+  className?: string;
+  style?: CSSProperties;
   children?: React.ReactNode;
 }) {
   const dark = tone === "dark";
   return (
     <SectionPanel
-      sx={{
-        bgcolor: dark ? "secondary.main" : "action.hover",
-        color: dark ? "#ffffff" : "text.primary",
-        borderColor: dark ? "primary.main" : "divider",
-        ...sx,
-      }}
+      className={[styles.s166, className].filter(Boolean).join(" ")}
+      style={
+        {
+          ...style,
+          ...({
+            "--heavy-22": dark ? "#202a24" : "var(--goodhr-hover)",
+            "--heavy-23": dark ? "#ffffff" : "var(--goodhr-text)",
+            "--heavy-24": dark
+              ? "var(--goodhr-primary)"
+              : "var(--goodhr-border)",
+          } as CSSProperties),
+        } as CSSProperties
+      }
     >
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={1.5}
-        sx={{
-          height: "100%",
-          alignItems: { xs: "flex-start", sm: "center" },
-          justifyContent: "space-between",
-        }}
-      >
-        <Stack
-          direction='row'
-          spacing={1.5}
-          sx={{ alignItems: "center", minWidth: 0, flexShrink: 0 }}
-        >
-          <Box
-            sx={{
-              width: 44,
-              height: 44,
-              borderRadius: "8px",
-              display: "grid",
-              placeItems: "center",
-              flexShrink: 0,
-              bgcolor: dark ? "primary.light" : "action.selected",
-              color: "primary.dark",
-            }}
+      <Flex className={styles.s167}>
+        <Flex className={styles.s168}>
+          <div
+            className={styles.s169}
+            style={
+              {
+                "--heavy-25": dark
+                  ? "var(--goodhr-primary-soft)"
+                  : "var(--goodhr-primary-soft)",
+              } as CSSProperties
+            }
           >
             {icon}
-          </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography
-              noWrap
-              sx={{ fontSize: 13, opacity: dark ? 0.72 : 0.68 }}
+          </div>
+          <div className={styles.s170}>
+            <Typography.Paragraph
+              ellipsis
+              className={`${styles.text} ${styles.s171}`}
+              style={{ "--heavy-26": dark ? "0.72" : "0.68" } as CSSProperties}
             >
               {title}
-            </Typography>
+            </Typography.Paragraph>
             {value ? (
-              <Typography
-                noWrap
-                sx={{ mt: 0.5, fontSize: compact ? 22 : 24, fontWeight: 820 }}
+              <Typography.Paragraph
+                ellipsis
+                className={`${styles.text} ${styles.s172}`}
+                style={
+                  { "--heavy-27": compact ? "22px" : "24px" } as CSSProperties
+                }
               >
                 {value}
-              </Typography>
+              </Typography.Paragraph>
             ) : null}
-          </Box>
-        </Stack>
-        {children ? (
-          <Box
-            sx={{
-              minWidth: 0,
-              width: { xs: "100%", sm: undefined },
-              flex: "0 1 auto",
-              maxWidth: { xs: "100%", sm: "52%" },
-            }}
-          >
-            {children}
-          </Box>
-        ) : null}
-      </Stack>
+          </div>
+        </Flex>
+        {children ? <div className={styles.s173}>{children}</div> : null}
+      </Flex>
     </SectionPanel>
   );
 }
-
 /** PaymentRecords 展示会员和余额支付订单。 */
 function PaymentRecords({
   orders,
@@ -975,49 +984,65 @@ function PaymentRecords({
   orders: any[];
   loading: boolean;
 }) {
-  return orders.length ? (
-    <Stack sx={{ mt: 1.5 }}>
-      {orders.map((order) => (
-        <Stack
-          key={order.order_no}
-          direction={{ xs: "column", md: "row" }}
-          spacing={1.5}
-          sx={{
-            py: 1.5,
-            borderBottom: "1px solid",
-            borderColor: "divider",
-            alignItems: { md: "center" },
-          }}
-        >
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 700 }}>
-              {order.plan_name || order.order_type || "支付订单"}
-            </Typography>
-            <Typography noWrap sx={{ color: "text.secondary", fontSize: 12 }}>
-              {order.order_no}
-            </Typography>
-          </Box>
-          <Typography sx={{ minWidth: 80, fontWeight: 700 }}>
-            ￥{(Number(order.amount_cents || 0) / 100).toFixed(2)}
-          </Typography>
-          <Chip
-            size='small'
-            color={order.status === "paid" ? "success" : "default"}
-            label={statusText(order.status)}
-          />
-          <Typography
-            sx={{ color: "text.secondary", fontSize: 13, minWidth: 168 }}
-          >
-            {formatDate(order.created_at)}
-          </Typography>
-        </Stack>
-      ))}
-    </Stack>
-  ) : (
-    <EmptyState text={loading ? "正在读取支付记录" : "暂无支付记录"} />
+  return (
+    <Table
+      rowKey={(order) => String(order.order_no || order.id || order.created_at)}
+      loading={loading}
+      dataSource={orders}
+      size="small"
+      pagination={{
+        pageSize: 10,
+        hideOnSinglePage: true,
+        showSizeChanger: false,
+      }}
+      scroll={{ x: 640 }}
+      locale={{ emptyText: <EmptyState text="暂无支付记录" /> }}
+      columns={[
+        {
+          title: "支付订单",
+          key: "order",
+          render: (_, order) => (
+            <Flex vertical gap={2}>
+              <Typography.Text strong>
+                {order.plan_name || order.order_type || "支付订单"}
+              </Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {order.order_no}
+              </Typography.Text>
+            </Flex>
+          ),
+        },
+        {
+          title: "金额",
+          key: "amount",
+          width: 100,
+          render: (_, order) => (
+            <Typography.Text strong>
+              ￥{(Number(order.amount_cents || 0) / 100).toFixed(2)}
+            </Typography.Text>
+          ),
+        },
+        {
+          title: "状态",
+          dataIndex: "status",
+          width: 100,
+          render: (status) => (
+            <Tag color={status === "paid" ? "success" : "default"}>
+              {statusText(status)}
+            </Tag>
+          ),
+        },
+        {
+          title: "时间",
+          dataIndex: "created_at",
+          width: 180,
+          render: (value) => formatDate(value),
+        },
+      ]}
+      style={{ marginTop: 12 }}
+    />
   );
 }
-
 /** AIRecordList 展示 AI 余额流水并分页。 */
 function AIRecordList({
   records,
@@ -1032,112 +1057,72 @@ function AIRecordList({
   loading: boolean;
   onPageChange: (value: number) => void;
 }) {
-  const pageCount = Math.max(1, Math.ceil(total / aiRecordPageSize));
-  return records.length ? (
-    <>
-      <TableContainer sx={{ mt: 1.5, display: { xs: "none", md: "block" } }}>
-        <Table size='small'>
-          <TableHead>
-            <TableRow sx={{ bgcolor: "action.hover" }}>
-              <TableCell>类型</TableCell>
-              <TableCell>金额</TableCell>
-              <TableCell>余额</TableCell>
-              <TableCell>模型 / Token</TableCell>
-              <TableCell>说明</TableCell>
-              <TableCell>时间</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {records.map((record) => (
-              <AIRecordRow
-                key={record.id || `${record.created_at}-${record.reason}`}
-                record={record}
-              />
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-      <Stack
-        spacing={1.25}
-        sx={{ mt: 1.5, display: { xs: "flex", md: "none" } }}
-      >
-        {records.map((record) => (
-          <AIRecordCard
-            key={record.id || `${record.created_at}-${record.reason}`}
-            record={record}
-          />
-        ))}
-      </Stack>
-      <Pagination
-        page={page}
-        count={pageCount}
-        onChange={(_, value) => onPageChange(value)}
-        sx={{ mt: 2, display: "flex", justifyContent: "center" }}
-      />
-    </>
-  ) : (
-    <EmptyState
-      text={
-        loading
-          ? "正在读取 AI 使用记录"
-          : "这里暂时空空的，等你开始使用内置 AI 后我再认真记账。"
+  return (
+    <Table
+      rowKey={(record) =>
+        String(record.id || record.created_at + "-" + record.reason)
       }
-    />
-  );
-}
-
-/** AIRecordRow 展示桌面端单条 AI 记录。 */
-function AIRecordRow({ record }: { record: any }) {
-  return (
-    <TableRow hover>
-      <TableCell>
-        <CategoryChip category={record.category} />
-      </TableCell>
-      <TableCell>
-        <AmountText
-          units={Number(record.change_units || 0)}
-          value={record.change}
-        />
-      </TableCell>
-      <TableCell>￥{record.balance_after || "0.00"}</TableCell>
-      <TableCell>
-        <TokenInfo record={record} />
-      </TableCell>
-      <TableCell>
-        <ReasonText record={record} />
-      </TableCell>
-      <TableCell>{formatDate(record.created_at)}</TableCell>
-    </TableRow>
-  );
-}
-
-/** AIRecordCard 展示移动端单条 AI 记录。 */
-function AIRecordCard({ record }: { record: any }) {
-  return (
-    <Box
-      sx={{
-        p: 1.5,
-        border: "1px solid",
-        borderColor: "divider",
-        borderRadius: "8px",
-        bgcolor: "action.hover",
+      loading={loading}
+      dataSource={records}
+      size="small"
+      scroll={{ x: 820 }}
+      pagination={{
+        current: page,
+        pageSize: aiRecordPageSize,
+        total,
+        onChange: onPageChange,
+        hideOnSinglePage: true,
+        showSizeChanger: false,
       }}
-    >
-      <Stack direction='row' sx={{ justifyContent: "space-between", gap: 1 }}>
-        <CategoryChip category={record.category} />
-        <AmountText
-          units={Number(record.change_units || 0)}
-          value={record.change}
-        />
-      </Stack>
-      <Typography sx={{ mt: 1, color: "text.secondary", fontSize: 13 }}>
-        <ReasonText record={record} />
-      </Typography>
-      <Typography sx={{ mt: 0.75, color: "text.secondary", fontSize: 12 }}>
-        <TokenInfo record={record} /> · 余额 ￥{record.balance_after || "0.00"}{" "}
-        · {formatDate(record.created_at)}
-      </Typography>
-    </Box>
+      locale={{
+        emptyText: (
+          <EmptyState text="这里暂时空空的，等你开始使用内置 AI 后我再认真记账。" />
+        ),
+      }}
+      columns={[
+        {
+          title: "类型",
+          dataIndex: "category",
+          width: 95,
+          render: (value) => <CategoryChip category={value} />,
+        },
+        {
+          title: "金额",
+          key: "amount",
+          width: 130,
+          render: (_, record) => (
+            <AmountText
+              units={Number(record.change_units || 0)}
+              value={record.change}
+            />
+          ),
+        },
+        {
+          title: "余额",
+          dataIndex: "balance_after",
+          width: 120,
+          render: (value) => "￥" + (value || "0.00"),
+        },
+        {
+          title: "模型 / Token",
+          key: "model",
+          width: 170,
+          render: (_, record) => <TokenInfo record={record} />,
+        },
+        {
+          title: "说明",
+          key: "reason",
+          render: (_, record) => <ReasonText record={record} />,
+        },
+        {
+          title: "时间",
+          dataIndex: "created_at",
+          width: 180,
+          render: (value) => formatDate(value),
+        },
+      ]}
+      style={{ marginTop: 12 }}
+    />
   );
 }
 
@@ -1154,18 +1139,10 @@ function CategoryChip({ category }: { category: string }) {
     category === "ai_usage"
       ? "warning"
       : category === "admin_adjust"
-        ? "info"
+        ? "processing"
         : "success";
-  return (
-    <Chip
-      size='small'
-      color={color as any}
-      variant='outlined'
-      label={labelMap[category] || category || "记录"}
-    />
-  );
+  return <Tag color={color}>{labelMap[category] || category || "记录"}</Tag>;
 }
-
 /** AmountText 展示余额变动金额。 */
 function AmountText({ units, value }: { units: number; value: string }) {
   const positive = units
@@ -1173,25 +1150,21 @@ function AmountText({ units, value }: { units: number; value: string }) {
     : !String(value || "")
         .trim()
         .startsWith("-");
-  const Icon = positive ? ArrowUpwardRoundedIcon : ArrowDownwardRoundedIcon;
+  const Icon = positive ? ArrowUpOutlined : ArrowDownOutlined;
   return (
-    <Stack
-      direction='row'
-      spacing={0.4}
-      sx={{
-        alignItems: "center",
-        color: positive ? "success.main" : "warning.dark",
-        fontWeight: 800,
-      }}
+    <Flex
+      className={styles.s189}
+      style={
+        { "--heavy-28": positive ? "#389e0d" : "#ad6800" } as CSSProperties
+      }
     >
-      <Icon sx={{ fontSize: 16 }} />
-      <Typography sx={{ fontWeight: 800 }}>
+      <Icon aria-hidden="true" className={styles.s190} />
+      <Typography.Paragraph className={`${styles.text} ${styles.s191}`}>
         {positive ? "+" : ""}￥{value || "0.00"}
-      </Typography>
-    </Stack>
+      </Typography.Paragraph>
+    </Flex>
   );
 }
-
 /** TokenInfo 展示模型和 token 用量。 */
 function TokenInfo({ record }: { record: any }) {
   const tokens = Number(record.total_tokens || 0);
@@ -1202,7 +1175,6 @@ function TokenInfo({ record }: { record: any }) {
     </>
   );
 }
-
 /** ReasonText 展示记录说明和关联订单号。 */
 function ReasonText({ record }: { record: any }) {
   return (
@@ -1212,7 +1184,6 @@ function ReasonText({ record }: { record: any }) {
     </>
   );
 }
-
 /** PlanCard 展示一个随套餐网格宽度自适应的会员套餐卡片。 */
 function PlanCard({
   plan,
@@ -1230,115 +1201,99 @@ function PlanCard({
   const price = quote.amountCents / 100;
   const originalPrice = Number(plan.original_price || 0);
   return (
-    <Box
-      component='article'
-      sx={{
-        position: "relative",
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 390,
-        p: 2.5,
-        border: "1px solid",
-        borderColor: featured ? "#b69957" : "divider",
-        borderRadius: "8px",
-        bgcolor: featured ? "#fffdf7" : "action.hover",
-        boxShadow: featured ? "0 12px 28px rgba(76, 61, 28, .09)" : "none",
+    <Card
+      styles={{
+        body: {
+          padding: 0,
+          height: "100%",
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+        },
       }}
+      className={styles.s192}
+      style={
+        {
+          "--heavy-29": featured ? "#b69957" : "var(--goodhr-border)",
+          "--heavy-30": featured ? "#fffdf7" : "var(--goodhr-hover)",
+          "--heavy-31": featured ? "0 12px 28px rgba(76, 61, 28, .09)" : "none",
+        } as CSSProperties
+      }
     >
-      {featured ? (
-        <Chip
-          size='small'
-          label='推荐'
-          sx={{
-            position: "absolute",
-            top: 14,
-            right: 14,
-            bgcolor: "#202a24",
-            color: "#f5dfaa",
-            fontWeight: 700,
-          }}
-        />
-      ) : null}
-      <Typography
-        component='h3'
-        sx={{ pr: featured ? 7 : 0, fontSize: 20, fontWeight: 780 }}
+      {featured ? <Tag className={styles.s193}>{"推荐"}</Tag> : null}
+      <Typography.Title
+        level={3}
+        className={`${styles.title} ${styles.s194}`}
+        style={{ "--heavy-32": featured ? "56px" : "0px" } as CSSProperties}
       >
         {plan.name || "会员套餐"}
-      </Typography>
-      <Stack direction='row' spacing={1} sx={{ mt: 2, alignItems: "baseline" }}>
-        <Typography
-          sx={{
-            fontSize: 36,
-            lineHeight: 1,
-            fontWeight: 850,
-            color: featured ? "#80621f" : "text.primary",
-          }}
+      </Typography.Title>
+      <Flex className={styles.s195}>
+        <Typography.Paragraph
+          className={`${styles.text} ${styles.s196}`}
+          style={
+            {
+              "--heavy-33": featured ? "#80621f" : "var(--goodhr-text)",
+            } as CSSProperties
+          }
         >
           ￥{price}
-        </Typography>
+        </Typography.Paragraph>
         {originalPrice > price ? (
-          <Typography
-            sx={{ color: "text.disabled", textDecoration: "line-through" }}
-          >
+          <Typography.Paragraph className={`${styles.text} ${styles.s197}`}>
             ￥{originalPrice}
-          </Typography>
+          </Typography.Paragraph>
         ) : null}
-      </Stack>
-      <Typography
-        sx={{
-          mt: 1.5,
-          color: "text.secondary",
-          lineHeight: 1.65,
-          minHeight: 52,
-        }}
-      >
+      </Flex>
+      <Typography.Paragraph className={`${styles.text} ${styles.s198}`}>
         {plan.description || "解锁更多智能招聘功能。"}
-      </Typography>
+      </Typography.Paragraph>
       {quote.upgrade ? (
-        <Typography sx={{ mt: 1, color: "#80621f", fontSize: 13, fontWeight: 700 }}>
+        <Typography.Paragraph className={`${styles.text} ${styles.s199}`}>
           已按 Plus 剩余时间抵扣 ￥{(quote.creditCents / 100).toFixed(2)}
-        </Typography>
+        </Typography.Paragraph>
       ) : null}
       {quote.sourceMemberType === "max" ? (
-        <Typography sx={{ mt: 1, color: "#80621f", fontSize: 13, fontWeight: 700 }}>
+        <Typography.Paragraph className={`${styles.text} ${styles.s200}`}>
           立即切换 Plus，原 Max 剩余时间不折算
-        </Typography>
+        </Typography.Paragraph>
       ) : null}
-      <Stack spacing={1.1} sx={{ mt: 2.25, flex: 1 }}>
+      <Flex className={styles.s201}>
         {(Array.isArray(plan.features) ? plan.features : []).map(
           (feature: string) => (
-            <Stack
-              key={feature}
-              direction='row'
-              spacing={1}
-              sx={{ alignItems: "flex-start" }}
-            >
-              <CheckRoundedIcon
-                sx={{
-                  mt: 0.15,
-                  color: featured ? "#9c7b32" : "primary.main",
-                  fontSize: 19,
-                }}
+            <Flex key={feature} className={styles.s202}>
+              <CheckOutlined
+                aria-hidden="true"
+                className={styles.s203}
+                style={
+                  {
+                    "--heavy-34": featured
+                      ? "#9c7b32"
+                      : "var(--goodhr-primary)",
+                  } as CSSProperties
+                }
               />
-              <Typography sx={{ fontSize: 14, lineHeight: 1.55 }}>
+              <Typography.Paragraph className={`${styles.text} ${styles.s204}`}>
                 {feature}
-              </Typography>
-            </Stack>
+              </Typography.Paragraph>
+            </Flex>
           ),
         )}
-      </Stack>
+      </Flex>
       {originalPrice > 0 ? (
         <Button
-          fullWidth
-          variant={featured ? "contained" : "outlined"}
           disabled={paying}
-          sx={{
-            mt: 2.5,
-            bgcolor: featured ? "#202a24" : undefined,
-            color: featured ? "#f8e6b8" : undefined,
-            "&:hover": { bgcolor: featured ? "#2b382f" : undefined },
-          }}
           onClick={onPay}
+          type={featured ? "primary" : "default"}
+          block
+          className={styles.s205}
+          style={
+            {
+              "--heavy-35": featured ? "#202a24" : undefined,
+              "--heavy-36": featured ? "#f8e6b8" : undefined,
+              "--heavy-37": featured ? "#2b382f" : undefined,
+            } as CSSProperties
+          }
         >
           {paying
             ? "正在创建订单"
@@ -1349,21 +1304,11 @@ function PlanCard({
                 : "立即订阅"}
         </Button>
       ) : (
-        <Chip
-          label='永久免费'
-          sx={{
-            mt: 2.5,
-            alignSelf: "flex-start",
-            bgcolor: "action.selected",
-            color: "primary.dark",
-            fontWeight: 700,
-          }}
-        />
+        <Tag className={styles.s206}>{"永久免费"}</Tag>
       )}
-    </Box>
+    </Card>
   );
 }
-
 /** statusText 将支付状态转换成中文。 */
 function statusText(status: string) {
   return status === "paid"

@@ -1,0 +1,17 @@
+/* 本文件负责本页面的响应式布局和 Ant Design 组件补充样式。 */
+.layout2.layout2 {
+  display: none;
+}
+.layout3.layout3 {
+  display: flex;
+}
+@media (min-width: 900px) {
+  .layout2.layout2 {
+    display: block;
+  }
+}
+@media (min-width: 900px) {
+  .layout3.layout3 {
+    display: none;
+  }
+}

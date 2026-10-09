@@ -1,28 +1,59 @@
-/** 本文件递归展示 JSON 对象、数组和基础值，供后台配置预览复用。 */
+/** 本文件使用 Ant Design Tree 展示 JSON 对象、数组和基础值。 */
 "use client";
-
-import { Box, Typography } from "@mui/material";
-
-/** JsonTree 以可折叠树形结构展示 JSON 数据。 */
-export default function JsonTree({ value, label = "", depth = 0 }: { value: unknown; label?: string; depth?: number }) {
-  if (value !== null && typeof value === "object") {
-    const entries = Array.isArray(value) ? value.map((item, index) => [String(index), item] as const) : Object.entries(value as Record<string, unknown>);
-    return <Box component="details" open={depth < 2} sx={{ ml: depth ? 1.5 : 0, "& > summary": { cursor: "pointer", py: 0.25 } }}><Box component="summary"><Typography component="span" sx={{ color: "primary.dark", fontFamily: "monospace", fontSize: 13 }}>{label ? `${label}: ` : ""}{Array.isArray(value) ? `[${entries.length} 项]` : `{${entries.length} 个字段}`}</Typography></Box><Box sx={{ ml: 1.25, pl: 1.5, borderLeft: "1px solid", borderColor: "divider" }}>{entries.map(([key, item]) => <JsonTree key={key} label={key} value={item} depth={depth + 1} />)}</Box></Box>;
-  }
-  return <Typography sx={{ ml: depth ? 3 : 0, py: 0.2, fontFamily: "monospace", fontSize: 13, color: leafColor(value), overflowWrap: "anywhere" }}><Box component="span" sx={{ color: "primary.dark" }}>{label ? `${label}: ` : ""}</Box>{formatLeaf(value)}</Typography>;
+import { Tree, Typography } from "antd";
+import type { DataNode } from "antd/es/tree";
+/** buildJsonNode 把 JSON 递归转换为可折叠节点，使用路径防止重名键冲突。 */
+function buildJsonNode(value: unknown, label: string, path: string): DataNode {
+  const object = value !== null && typeof value === "object";
+  const entries = object
+    ? Object.entries(value as Record<string, unknown>)
+    : [];
+  const text = object
+    ? Array.isArray(value)
+      ? `[${entries.length} 项]`
+      : `{${entries.length} 个字段}`
+    : (JSON.stringify(value) ?? String(value));
+  return {
+    key: path,
+    title: (
+      <Typography.Text
+        style={{
+          fontFamily: "monospace",
+          fontSize: 13,
+          overflowWrap: "anywhere",
+          whiteSpace: "normal",
+        }}
+      >
+        {label ? `${label}: ` : ""}
+        {text}
+      </Typography.Text>
+    ),
+    children: object
+      ? entries.map(([key, item]) => buildJsonNode(item, key, `${path}/${key}`))
+      : undefined,
+    isLeaf: !object,
+  };
 }
-
-/** formatLeaf 将 JSON 基础值转换为可读文本。 */
-function formatLeaf(value: unknown) {
-  if (value === null) return "null";
-  if (typeof value === "string") return `"${value}"`;
-  return String(value);
-}
-
-/** leafColor 返回不同 JSON 数据类型的展示颜色。 */
-function leafColor(value: unknown) {
-  if (value === null) return "#c83f49";
-  if (typeof value === "number") return "#9a5b10";
-  if (typeof value === "boolean") return "#7553a6";
-  return "text.secondary";
+/** JsonTree 渲染能够展开和收起的 JSON 结构预览。 */
+export default function JsonTree({
+  value,
+  label = "",
+}: {
+  value: unknown;
+  label?: string;
+  depth?: number;
+}) {
+  const root = buildJsonNode(value, label, "root");
+  return (
+    <Tree
+      showLine
+      selectable={false}
+      defaultExpandedKeys={[
+        "root",
+        ...(root.children || []).map((node) => node.key),
+      ]}
+      treeData={[root]}
+      style={{ background: "transparent" }}
+    />
+  );
 }

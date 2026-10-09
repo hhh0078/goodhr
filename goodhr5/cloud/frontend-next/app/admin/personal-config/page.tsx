@@ -1,35 +1,36 @@
 /** 本文件负责新版后台个人 AI 接口、操作节奏和模拟休息配置。 */
 "use client";
-
-import ApiRoundedIcon from "@mui/icons-material/ApiRounded";
-import ArrowOutwardRoundedIcon from "@mui/icons-material/ArrowOutwardRounded";
-import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
-import LockRoundedIcon from "@mui/icons-material/LockRounded";
-import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
-import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
-import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
-import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
-import ScienceRoundedIcon from "@mui/icons-material/ScienceRounded";
-import TimerOutlinedIcon from "@mui/icons-material/TimerOutlined";
-import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import {
   Alert,
-  Box,
   Button,
-  InputAdornment,
-  Stack,
-  Tab,
+  Flex,
+  Form,
+  Input,
+  InputNumber,
   Tabs,
-  TextField,
   Typography,
-} from "@mui/material";
+} from "antd";
+import {
+  ApiOutlined,
+  ArrowUpOutlined,
+  BellOutlined,
+  ClockCircleOutlined,
+  ExperimentOutlined,
+  LockOutlined,
+  PlayCircleOutlined,
+  RobotOutlined,
+  SaveOutlined,
+  SlidersOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
+import type { CSSProperties } from "react";
+import styles from "../heavy-ui.module.css";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { cloudRequest } from "@/lib/admin-api";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import NotificationProfileDialog from "@/components/admin/NotificationProfileDialog";
-
 const defaults = {
   base_url:
     "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
@@ -51,7 +52,6 @@ const defaults = {
   rest_duration_min: 2,
   rest_duration_max: 7,
 };
-
 /** normalizeAIBaseURL 补全 OpenAI 兼容的 Chat Completions 地址。 */
 function normalizeAIBaseURL(baseURL: string) {
   const value = baseURL.trim().replace(/\/+$/, "");
@@ -60,7 +60,6 @@ function normalizeAIBaseURL(baseURL: string) {
   if (value.endsWith("/v1")) return `${value}/chat/completions`;
   return `${value}/v1/chat/completions`;
 }
-
 /** PersonalConfigPage 管理 AI 接口和模拟人工操作参数。 */
 export default function PersonalConfigPage() {
   const { notify } = useAdmin();
@@ -75,7 +74,6 @@ export default function PersonalConfigPage() {
     confirm_password: "",
   });
   const [passwordSaving, setPasswordSaving] = useState(false);
-
   /** load 读取个人 AI 配置和操作偏好。 */
   async function load() {
     setLoading(true);
@@ -103,11 +101,9 @@ export default function PersonalConfigPage() {
       setLoading(false);
     }
   }
-
   useEffect(() => {
     void load();
   }, []);
-
   /** testAI 通过云端代理验证当前填写的 AI 接口。 */
   async function testAI() {
     if (!form.api_key.trim()) return notify("测试前请填写 AI Key", "warning");
@@ -137,7 +133,6 @@ export default function PersonalConfigPage() {
       setLoading(false);
     }
   }
-
   /** save 保存 AI 配置和操作偏好。 */
   async function save() {
     const baseURL = normalizeAIBaseURL(form.base_url);
@@ -179,7 +174,6 @@ export default function PersonalConfigPage() {
       setLoading(false);
     }
   }
-
   /** useBuiltinAI 切换为系统内置 AI，并把分配好的配置填入表单。 */
   async function useBuiltinAI() {
     setLoading(true);
@@ -207,12 +201,10 @@ export default function PersonalConfigPage() {
       setLoading(false);
     }
   }
-
   /** setNumber 更新一个数字配置字段。 */
   function setNumber(key: keyof typeof defaults, value: string) {
     setForm((current) => ({ ...current, [key]: Number(value || 0) }));
   }
-
   /** changePassword 校验当前密码后更换登录密码。 */
   async function changePassword() {
     if (!passwordForm.old_password)
@@ -231,7 +223,11 @@ export default function PersonalConfigPage() {
           new_password: passwordForm.new_password,
         },
       });
-      setPasswordForm({ old_password: "", new_password: "", confirm_password: "" });
+      setPasswordForm({
+        old_password: "",
+        new_password: "",
+        confirm_password: "",
+      });
       notify("密码已经换好了，下次登录用新的", "success");
     } catch (error) {
       notify(
@@ -242,27 +238,26 @@ export default function PersonalConfigPage() {
       setPasswordSaving(false);
     }
   }
-
   return (
     <>
       <NotificationProfileDialog openSignal={profileOpenSignal} />
       <PageHeader
-        title='个人配置'
-        description='设置 AI 接口和岗位运行操作节奏，保存后会用于本地岗位运行。'
+        title="个人配置"
+        description="设置 AI 接口和岗位运行操作节奏，保存后会用于本地岗位运行。"
         actions={
           <>
             <Button
-              variant='outlined'
-              startIcon={<NotificationsActiveRoundedIcon />}
               onClick={() => setProfileOpenSignal((value) => value + 1)}
+              type={"default"}
+              icon={<BellOutlined aria-hidden="true" />}
             >
               通知偏好
             </Button>
             <Button
-              variant='contained'
-              startIcon={<SaveRoundedIcon />}
               disabled={loading}
               onClick={() => void save()}
+              type={"primary"}
+              icon={<SaveOutlined aria-hidden="true" />}
             >
               {loading ? "处理中" : "保存配置"}
             </Button>
@@ -270,381 +265,403 @@ export default function PersonalConfigPage() {
         }
       />
 
-      <SectionPanel sx={{ mb: 2, py: 0.5 }}>
+      <SectionPanel className={styles.s207}>
         <Tabs
-          value={activeTab}
-          onChange={(_event, value) => setActiveTab(String(value))}
-          aria-label='个人配置分类'
-          variant='scrollable'
-          scrollButtons='auto'
-          sx={{ minHeight: 48 }}
-        >
-          <Tab value='builtin' label='内置AI' />
-          <Tab value='custom' label='自定义AI' />
-          <Tab value='timing' label='随机时间' />
-          <Tab value='other' label='其他配置' />
-          <Tab value='account' label='账号安全' />
-        </Tabs>
+          activeKey={activeTab}
+          onChange={(value) => setActiveTab(String(value))}
+          aria-label="个人配置分类"
+          items={[
+            { key: "builtin", label: "内置AI" },
+            { key: "custom", label: "自定义AI" },
+            { key: "timing", label: "随机时间" },
+            { key: "other", label: "其他配置" },
+            { key: "account", label: "账号安全" },
+          ]}
+          className={styles.s208}
+        />
       </SectionPanel>
 
       {activeTab === "builtin" ? (
-        <SectionPanel
-          sx={{
-            mb: 2,
-            borderColor: "primary.light",
-            bgcolor: "action.selected",
-          }}
-        >
+        <SectionPanel className={styles.s209}>
           <SectionTitle
-            icon={<AutoAwesomeRoundedIcon />}
-            title='内置 AI'
-            description='不想研究接口也没关系，使用系统准备好的 AI 配置就能开始。'
+            icon={<ThunderboltOutlined aria-hidden="true" />}
+            title="内置 AI"
+            description="不想研究接口也没关系，使用系统准备好的 AI 配置就能开始。"
           />
-          <Alert severity='info' sx={{ mt: 2, mb: 2 }}>
-            内置 AI 会消耗账户中的 AI 余额，省去申请模型、填写地址和保存 Key 的步骤。
-          </Alert>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1.5}
-            sx={{ alignItems: { sm: "center" } }}
-          >
+          <Alert
+            type={"info"}
+            showIcon
+            description={
+              <>
+                {" "}
+                内置 AI 会消耗账户中的 AI 余额，省去申请模型、填写地址和保存 Key
+                的步骤。
+              </>
+            }
+            className={styles.s210}
+          />
+          <Flex className={styles.s211}>
             <Button
-              variant='contained'
-              startIcon={<AutoAwesomeRoundedIcon />}
               disabled={loading}
               onClick={() => void useBuiltinAI()}
-              sx={{ width: { xs: "100%", sm: "auto" } }}
+              type={"primary"}
+              icon={<ThunderboltOutlined aria-hidden="true" />}
+              className={styles.s212}
             >
               使用内置 AI
             </Button>
-            <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-              {keySet ? "当前已有可用的 AI 配置。" : "当前还没有可用的 AI 配置，请先点击使用内置 AI。"}
-            </Typography>
-          </Stack>
+            <Typography.Paragraph className={`${styles.text} ${styles.s213}`}>
+              {keySet
+                ? "当前已有可用的 AI 配置。"
+                : "当前还没有可用的 AI 配置，请先点击使用内置 AI。"}
+            </Typography.Paragraph>
+          </Flex>
         </SectionPanel>
       ) : null}
 
       {activeTab === "custom" ? (
         <>
+          <div className={styles.s214}>
+            <QuickLink
+              href="/videos"
+              icon={<PlayCircleOutlined aria-hidden="true" />}
+              eyebrow="新手推荐"
+              title="查看视频教程"
+              description="按视频一步步完成 AI 平台申请、接口填写、测试和保存。"
+              primary
+            />
+            <QuickLink
+              href="https://www.qianwenai.com/"
+              external
+              icon={<RobotOutlined aria-hidden="true" />}
+              eyebrow="AI 接入"
+              title="获取 AI 接口"
+              description="前往千问平台申请多模态模型和 API Key。"
+            />
+          </div>
 
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", lg: "1.15fr .85fr" },
-          gap: 2,
-          mb: 2,
-        }}
-      >
-        <QuickLink
-          href='/videos'
-          icon={<PlayCircleOutlineRoundedIcon />}
-          eyebrow='新手推荐'
-          title='查看视频教程'
-          description='按视频一步步完成 AI 平台申请、接口填写、测试和保存。'
-          primary
-        />
-        <QuickLink
-          href='https://www.qianwenai.com/'
-          external
-          icon={<PsychologyAltRoundedIcon />}
-          eyebrow='AI 接入'
-          title='获取 AI 接口'
-          description='前往千问平台申请多模态模型和 API Key。'
-        />
-      </Box>
-
-      <SectionPanel
-        sx={{
-          mb: 2,
-          borderColor: "primary.light",
-          bgcolor: "action.selected",
-          boxShadow: "0 16px 44px rgba(17, 17, 17, .08)",
-        }}
-      >
-        <SectionTitle
-          icon={<ApiRoundedIcon />}
-          title='自定义 AI'
-          description='填写自己的 AI 接口，建议先测试成功，再点击页面右上角保存。'
-        />
-        <Alert
-          severity='info'
-          icon={<ApiRoundedIcon />}
-          sx={{
-            mt: 2,
-            mb: 2,
-            border: "1px solid",
-            borderColor: "primary.light",
-            bgcolor: "action.hover",
-            color: "text.primary",
-            "& .MuiAlert-icon": { color: "primary.main" },
-          }}
-        >
-          可接入兼容 OpenAI 格式的多模态模型，例如千问、硅基流动和
-          OpenAI。模型必须支持图片识别；DeepSeek
-          当前不支持图片输入，请不要用于详情 AI 识别。
-        </Alert>
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: {
-              xs: "1fr",
-              lg: "minmax(0, 1.55fr) minmax(220px, .65fr)",
-            },
-            gap: 2,
-          }}
-        >
-          <TextField
-            label='API 地址'
-            value={form.base_url}
-            onChange={(event) =>
-              setForm({ ...form, base_url: event.target.value })
-            }
-            helperText='默认使用千问兼容 OpenAI 的 Chat Completions 地址。'
-          />
-          <TextField
-            label='模型名称'
-            value={form.model}
-            onChange={(event) =>
-              setForm({ ...form, model: event.target.value })
-            }
-            helperText='例如 qwen3.7-plus'
-          />
-          <TextField
-            label='API Key'
-            value={form.api_key}
-            onChange={(event) =>
-              setForm({ ...form, api_key: event.target.value })
-            }
-            placeholder='请输入 API Key'
-            helperText='这里会明文显示当前保存的 Key，方便复制和修改。'
-            sx={{ gridColumn: { lg: "1 / -1" }, maxWidth: 760 }}
-          />
-        </Box>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1.25}
-          sx={{ mt: 2.25, alignItems: { sm: "center" } }}
-        >
-          <Button
-            variant='contained'
-            startIcon={<ScienceRoundedIcon />}
-            disabled={loading}
-            onClick={() => void testAI()}
-            sx={{ borderRadius: "999px", px: 2.4 }}
-          >
-            先测试 AI
-          </Button>
-
-          <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-            {keySet ? "当前已有保存过的 AI Key。" : "当前还没有保存 AI Key。"}测试成功后，请点击页面右上角保存配置。
-          </Typography>
-        </Stack>
-      </SectionPanel>
-
+          <SectionPanel className={styles.s215}>
+            <SectionTitle
+              icon={<ApiOutlined aria-hidden="true" />}
+              title="自定义 AI"
+              description="填写自己的 AI 接口，建议先测试成功，再点击页面右上角保存。"
+            />
+            <Alert
+              icon={<ApiOutlined aria-hidden="true" />}
+              type={"info"}
+              showIcon
+              description={
+                <>
+                  {" "}
+                  可接入兼容 OpenAI 格式的多模态模型，例如千问、硅基流动和
+                  OpenAI。模型必须支持图片识别；DeepSeek
+                  当前不支持图片输入，请不要用于详情 AI 识别。
+                </>
+              }
+              className={styles.s216}
+            />
+            <div className={styles.s217}>
+              <Form.Item
+                layout="vertical"
+                htmlFor="personal-config-field-1"
+                label={"API 地址"}
+                extra={
+                  <> {"默认使用千问兼容 OpenAI 的 Chat Completions 地址。"} </>
+                }
+                style={{ marginBottom: 0 }}
+              >
+                <Input
+                  value={form.base_url}
+                  onChange={(event) =>
+                    setForm({ ...form, base_url: event.target.value })
+                  }
+                  id="personal-config-field-1"
+                  className={styles.s219}
+                />
+              </Form.Item>
+              <Form.Item
+                layout="vertical"
+                htmlFor="personal-config-field-2"
+                label={"模型名称"}
+                extra={<> {"例如 qwen3.7-plus"} </>}
+                style={{ marginBottom: 0 }}
+              >
+                <Input
+                  value={form.model}
+                  onChange={(event) =>
+                    setForm({ ...form, model: event.target.value })
+                  }
+                  id="personal-config-field-2"
+                  className={styles.s221}
+                />
+              </Form.Item>
+              <Form.Item
+                layout="vertical"
+                htmlFor="personal-config-field-3"
+                label={"API Key"}
+                extra={
+                  <> {"这里会明文显示当前保存的 Key，方便复制和修改。"} </>
+                }
+                className={styles.s222}
+                style={{ marginBottom: 0 }}
+              >
+                <Input
+                  value={form.api_key}
+                  onChange={(event) =>
+                    setForm({ ...form, api_key: event.target.value })
+                  }
+                  placeholder="请输入 API Key"
+                  id="personal-config-field-3"
+                  className={styles.s223}
+                />
+              </Form.Item>
+            </div>
+            <Flex className={styles.s224}>
+              <Button
+                disabled={loading}
+                onClick={() => void testAI()}
+                type={"primary"}
+                icon={<ExperimentOutlined aria-hidden="true" />}
+                className={styles.s225}
+              >
+                先测试 AI
+              </Button>
+              <Typography.Paragraph className={`${styles.text} ${styles.s226}`}>
+                {keySet
+                  ? "当前已有保存过的 AI Key。"
+                  : "当前还没有保存 AI Key。"}
+                测试成功后，请点击页面右上角保存配置。
+              </Typography.Paragraph>
+            </Flex>
+          </SectionPanel>
         </>
       ) : null}
 
       {activeTab === "timing" ? (
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", xl: "repeat(2, minmax(0, 1fr))" },
-          gap: 2,
-        }}
-      >
-        <SectionPanel>
-          <SectionTitle
-            icon={<TimerOutlinedIcon />}
-            title='操作节奏'
-            description='在范围内随机等待，让岗位运行操作保持自然。'
-          />
-          <Stack spacing={2.25} sx={{ mt: 2.5 }}>
-            <CompactNumber
-              label='点击频率'
-              help='控制候选人操作的执行比例。'
-              unit='%'
-              value={form.click_frequency}
-              onChange={(value) => setNumber("click_frequency", value)}
+        <div className={styles.s227}>
+          <SectionPanel>
+            <SectionTitle
+              icon={<ClockCircleOutlined aria-hidden="true" />}
+              title="操作节奏"
+              description="在范围内随机等待，让岗位运行操作保持自然。"
             />
-            <CompactNumber
-              label='详情查看概率'
-              help='仅影响未设置关键词和排除词的任务；需要匹配关键词时会读取详情，避免漏筛。'
-              unit='%'
-              value={form.detail_open_probability}
-              onChange={(value) => setNumber("detail_open_probability", value)}
+            <Flex className={styles.s228}>
+              <CompactNumber
+                label="点击频率"
+                help="控制候选人操作的执行比例。"
+                unit="%"
+                value={form.click_frequency}
+                onChange={(value) => setNumber("click_frequency", value)}
+              />
+              <CompactNumber
+                label="详情查看概率"
+                help="仅影响未设置关键词和排除词的任务；需要匹配关键词时会读取详情，避免漏筛。"
+                unit="%"
+                value={form.detail_open_probability}
+                onChange={(value) =>
+                  setNumber("detail_open_probability", value)
+                }
+              />
+              <NumberRange
+                label="打开详情前延时"
+                help="点击候选人详情前随机等待。"
+                unit="秒"
+                min={form.detail_open_delay_min}
+                max={form.detail_open_delay_max}
+                onMin={(value) => setNumber("detail_open_delay_min", value)}
+                onMax={(value) => setNumber("detail_open_delay_max", value)}
+              />
+              <NumberRange
+                label="关闭详情前延时"
+                help="详情提取完成后、关闭页面前随机等待。"
+                unit="秒"
+                min={form.detail_close_delay_min}
+                max={form.detail_close_delay_max}
+                onMin={(value) => setNumber("detail_close_delay_min", value)}
+                onMax={(value) => setNumber("detail_close_delay_max", value)}
+              />
+              <NumberRange
+                label="打招呼前延时"
+                help="候选人通过筛选后、打招呼前随机等待。"
+                unit="秒"
+                min={form.greet_before_delay_min}
+                max={form.greet_before_delay_max}
+                onMin={(value) => setNumber("greet_before_delay_min", value)}
+                onMax={(value) => setNumber("greet_before_delay_max", value)}
+              />
+            </Flex>
+          </SectionPanel>
+          <SectionPanel>
+            <SectionTitle
+              icon={<RobotOutlined aria-hidden="true" />}
+              title="模拟休息"
+              description="岗位运行会按配置间歇休息，避免长时间连续操作。"
             />
-            <NumberRange
-              label='打开详情前延时'
-              help='点击候选人详情前随机等待。'
-              unit='秒'
-              min={form.detail_open_delay_min}
-              max={form.detail_open_delay_max}
-              onMin={(value) => setNumber("detail_open_delay_min", value)}
-              onMax={(value) => setNumber("detail_open_delay_max", value)}
-            />
-            <NumberRange
-              label='关闭详情前延时'
-              help='详情提取完成后、关闭页面前随机等待。'
-              unit='秒'
-              min={form.detail_close_delay_min}
-              max={form.detail_close_delay_max}
-              onMin={(value) => setNumber("detail_close_delay_min", value)}
-              onMax={(value) => setNumber("detail_close_delay_max", value)}
-            />
-            <NumberRange
-              label='打招呼前延时'
-              help='候选人通过筛选后、打招呼前随机等待。'
-              unit='秒'
-              min={form.greet_before_delay_min}
-              max={form.greet_before_delay_max}
-              onMin={(value) => setNumber("greet_before_delay_min", value)}
-              onMax={(value) => setNumber("greet_before_delay_max", value)}
-            />
-          </Stack>
-        </SectionPanel>
-
-        <SectionPanel>
-          <SectionTitle
-            icon={<PsychologyAltRoundedIcon />}
-            title='模拟休息'
-            description='岗位运行会按配置间歇休息，避免长时间连续操作。'
-          />
-          <Stack spacing={2.25} sx={{ mt: 2.5 }}>
-            <NumberRange
-              label='处理多少人后休息'
-              help='例如设置 40 到 70，系统会随机选择人数。'
-              unit='人'
-              min={form.rest_after_candidates_min}
-              max={form.rest_after_candidates_max}
-              onMin={(value) => setNumber("rest_after_candidates_min", value)}
-              onMax={(value) => setNumber("rest_after_candidates_max", value)}
-            />
-            <NumberRange
-              label='单次岗位运行休息次数'
-              help='达到本次随机次数后不再休息。'
-              unit='次'
-              min={form.rest_times_min}
-              max={form.rest_times_max}
-              onMin={(value) => setNumber("rest_times_min", value)}
-              onMax={(value) => setNumber("rest_times_max", value)}
-            />
-            <NumberRange
-              label='每次休息时长'
-              help='每次休息会在此范围内随机，并写入岗位运行日志。'
-              unit='分钟'
-              min={form.rest_duration_min}
-              max={form.rest_duration_max}
-              onMin={(value) => setNumber("rest_duration_min", value)}
-              onMax={(value) => setNumber("rest_duration_max", value)}
-            />
-          </Stack>
-        </SectionPanel>
-      </Box>
+            <Flex className={styles.s229}>
+              <NumberRange
+                label="处理多少人后休息"
+                help="例如设置 40 到 70，系统会随机选择人数。"
+                unit="人"
+                min={form.rest_after_candidates_min}
+                max={form.rest_after_candidates_max}
+                onMin={(value) => setNumber("rest_after_candidates_min", value)}
+                onMax={(value) => setNumber("rest_after_candidates_max", value)}
+              />
+              <NumberRange
+                label="单次岗位运行休息次数"
+                help="达到本次随机次数后不再休息。"
+                unit="次"
+                min={form.rest_times_min}
+                max={form.rest_times_max}
+                onMin={(value) => setNumber("rest_times_min", value)}
+                onMax={(value) => setNumber("rest_times_max", value)}
+              />
+              <NumberRange
+                label="每次休息时长"
+                help="每次休息会在此范围内随机，并写入岗位运行日志。"
+                unit="分钟"
+                min={form.rest_duration_min}
+                max={form.rest_duration_max}
+                onMin={(value) => setNumber("rest_duration_min", value)}
+                onMax={(value) => setNumber("rest_duration_max", value)}
+              />
+            </Flex>
+          </SectionPanel>
+        </div>
       ) : null}
 
       {activeTab === "other" ? (
-        <SectionPanel sx={{ mb: 2 }}>
+        <SectionPanel className={styles.s230}>
           <SectionTitle
-            icon={<TuneRoundedIcon />}
-            title='候选人读取'
-            description='控制本地程序同时读取多少张候选人卡片。'
+            icon={<SlidersOutlined aria-hidden="true" />}
+            title="候选人读取"
+            description="控制本地程序同时读取多少张候选人卡片。"
           />
-          <Alert severity='info' sx={{ mt: 2, mb: 2.5 }}>
-            默认 100，最多 100，最少 5。如果你的电脑配置较低，可以把它调小一点，我会分批读完，不会少处理候选人。
-          </Alert>
-          <Stack spacing={2.25} sx={{ maxWidth: 720 }}>
+          <Alert
+            type={"info"}
+            showIcon
+            description={
+              <>
+                {" "}
+                默认 100，最多 100，最少
+                5。如果你的电脑配置较低，可以把它调小一点，我会分批读完，不会少处理候选人。
+              </>
+            }
+            className={styles.s231}
+          />
+          <Flex className={styles.s232}>
             <CompactNumber
-              label='同时读取候选人卡片数'
-              help='遇到姓名读取超时，可以先试试 10 或 20。数值越小越稳，读取时间也会稍长一点。'
-              unit='张'
+              label="同时读取候选人卡片数"
+              help="遇到姓名读取超时，可以先试试 10 或 20。数值越小越稳，读取时间也会稍长一点。"
+              unit="张"
               value={form.candidate_read_concurrency}
               min={5}
               max={100}
-              onChange={(value) => setNumber("candidate_read_concurrency", value)}
+              onChange={(value) =>
+                setNumber("candidate_read_concurrency", value)
+              }
             />
-          </Stack>
+          </Flex>
         </SectionPanel>
       ) : null}
 
       {activeTab === "account" ? (
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: { xs: "1fr", lg: "1.15fr .85fr" },
-            gap: 2,
-            mb: 2,
-          }}
-        >
+        <div className={styles.s233}>
           <SectionPanel>
             <SectionTitle
-              icon={<LockRoundedIcon />}
-              title='修改登录密码'
-              description='需要输入当前密码，确认是本人之后才换。'
+              icon={<LockOutlined aria-hidden="true" />}
+              title="修改登录密码"
+              description="需要输入当前密码，确认是本人之后才换。"
             />
-            <Stack spacing={2} sx={{ mt: 2.5, maxWidth: 420 }}>
-              <TextField
-                label='当前密码'
-                type='password'
-                size='small'
-                value={passwordForm.old_password}
-                onChange={(event) =>
-                  setPasswordForm((current) => ({
-                    ...current,
-                    old_password: event.target.value,
-                  }))
-                }
-              />
-              <TextField
-                label='新密码'
-                type='password'
-                size='small'
-                helperText='至少 2 个字符，别和当前密码一样。'
-                value={passwordForm.new_password}
-                onChange={(event) =>
-                  setPasswordForm((current) => ({
-                    ...current,
-                    new_password: event.target.value,
-                  }))
-                }
-              />
-              <TextField
-                label='再输入一次新密码'
-                type='password'
-                size='small'
-                value={passwordForm.confirm_password}
-                onChange={(event) =>
-                  setPasswordForm((current) => ({
-                    ...current,
-                    confirm_password: event.target.value,
-                  }))
-                }
-              />
+            <Flex className={styles.s234}>
+              <Form.Item
+                layout="vertical"
+                htmlFor="personal-config-field-4"
+                label={"当前密码"}
+                style={{ marginBottom: 0 }}
+              >
+                <Input.Password
+                  value={passwordForm.old_password}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({
+                      ...current,
+                      old_password: event.target.value,
+                    }))
+                  }
+                  size="small"
+                  id="personal-config-field-4"
+                  className={styles.s236}
+                />
+              </Form.Item>
+              <Form.Item
+                layout="vertical"
+                htmlFor="personal-config-field-5"
+                label={"新密码"}
+                extra={<> {"至少 2 个字符，别和当前密码一样。"} </>}
+                style={{ marginBottom: 0 }}
+              >
+                <Input.Password
+                  value={passwordForm.new_password}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({
+                      ...current,
+                      new_password: event.target.value,
+                    }))
+                  }
+                  size="small"
+                  id="personal-config-field-5"
+                  className={styles.s238}
+                />
+              </Form.Item>
+              <Form.Item
+                layout="vertical"
+                htmlFor="personal-config-field-6"
+                label={"再输入一次新密码"}
+                style={{ marginBottom: 0 }}
+              >
+                <Input.Password
+                  value={passwordForm.confirm_password}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({
+                      ...current,
+                      confirm_password: event.target.value,
+                    }))
+                  }
+                  size="small"
+                  id="personal-config-field-6"
+                  className={styles.s240}
+                />
+              </Form.Item>
               <Button
-                variant='contained'
                 disabled={passwordSaving}
                 onClick={() => void changePassword()}
-                sx={{ alignSelf: "flex-start" }}
+                type={"primary"}
+                className={styles.s241}
               >
                 {passwordSaving ? "处理中" : "确认修改"}
               </Button>
-            </Stack>
+            </Flex>
           </SectionPanel>
           <SectionPanel>
             <SectionTitle
-              icon={<LockRoundedIcon />}
-              title='密码忘了怎么办'
-              description='在登录页点「忘记密码」，用邮箱验证码就能重设，不用找人。'
+              icon={<LockOutlined aria-hidden="true" />}
+              title="密码忘了怎么办"
+              description="在登录页点「忘记密码」，用邮箱验证码就能重设，不用找人。"
             />
-            <Alert severity='info' sx={{ mt: 2 }}>
-              重置验证码会发到你注册用的邮箱，5 分钟内有效，只能用一次。
-            </Alert>
+            <Alert
+              type={"info"}
+              showIcon
+              description={
+                <> 重置验证码会发到你注册用的邮箱，5 分钟内有效，只能用一次。</>
+              }
+              className={styles.s242}
+            />
           </SectionPanel>
-        </Box>
+        </div>
       ) : null}
     </>
   );
 }
-
 /** QuickLink 展示个人配置页的外部帮助入口。 */
 function QuickLink({
   href,
@@ -664,101 +681,85 @@ function QuickLink({
   primary?: boolean;
 }) {
   const content = (
-    <Stack
-      direction='row'
-      spacing={1.75}
-      sx={{
-        p: { xs: 2, md: primary ? 2.5 : 2 },
-        minHeight: primary ? 140 : 118,
-        height: "100%",
-        alignItems: "center",
-        border: "1px solid",
-        borderColor: primary ? "primary.main" : "divider",
-        borderRadius: "8px",
-        bgcolor: primary ? "action.selected" : "action.hover",
-        color: "text.primary",
-        boxShadow: primary ? "0 18px 44px rgba(17, 17, 17, .1)" : "none",
-        transition: "150ms ease",
-        "&:hover": {
-          borderColor: "primary.main",
-          bgcolor: primary ? "primary.light" : "action.hover",
-          transform: "translateY(-1px)",
-        },
-      }}
+    <Flex
+      className={styles.s243}
+      style={
+        {
+          "--heavy-38": primary ? "20px" : "16px",
+          "--heavy-39": primary ? "20px" : "16px",
+          "--heavy-40": primary ? "20px" : "16px",
+          "--heavy-41": primary ? "140px" : "118px",
+          "--heavy-42": primary
+            ? "var(--goodhr-primary)"
+            : "var(--goodhr-border)",
+          "--heavy-43": primary
+            ? "var(--goodhr-primary-soft)"
+            : "var(--goodhr-hover)",
+          "--heavy-44": primary ? "0 18px 44px rgba(17, 17, 17, .1)" : "none",
+          "--heavy-45": primary
+            ? "var(--goodhr-primary-soft)"
+            : "var(--goodhr-hover)",
+        } as CSSProperties
+      }
     >
-      <Box
-        sx={{
-          width: primary ? 58 : 46,
-          height: primary ? 58 : 46,
-          borderRadius: "999px",
-          display: "grid",
-          placeItems: "center",
-          bgcolor: primary ? "primary.main" : "action.selected",
-          color: primary ? "primary.contrastText" : "primary.main",
-          flexShrink: 0,
-          "& .MuiSvgIcon-root": { fontSize: primary ? 31 : 24 },
-        }}
+      <div
+        className={styles.s244}
+        style={
+          {
+            "--heavy-46": primary ? "58px" : "46px",
+            "--heavy-47": primary ? "58px" : "46px",
+            "--heavy-48": primary
+              ? "var(--goodhr-primary)"
+              : "var(--goodhr-primary-soft)",
+            "--heavy-49": primary ? "#fff" : "var(--goodhr-primary)",
+            "--heavy-50": primary ? "31px" : "24px",
+          } as CSSProperties
+        }
       >
         {icon}
-      </Box>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography
-          sx={{
-            mb: 0.45,
-            width: "fit-content",
-            px: 1,
-            py: 0.35,
-            borderRadius: "999px",
-            bgcolor: "action.selected",
-            color: "primary.dark",
-            fontSize: 12,
-            fontWeight: 760,
-          }}
-        >
+      </div>
+      <div className={styles.s245}>
+        <Typography.Paragraph className={`${styles.text} ${styles.s246}`}>
           {eyebrow}
-        </Typography>
-        <Typography
-          sx={{ fontSize: primary ? 22 : 17, fontWeight: 820, lineHeight: 1.2 }}
+        </Typography.Paragraph>
+        <Typography.Paragraph
+          className={`${styles.text} ${styles.s247}`}
+          style={{ "--heavy-51": primary ? "22px" : "17px" } as CSSProperties}
         >
           {title}
-        </Typography>
-        <Typography
-          sx={{
-            mt: 0.75,
-            color: "text.secondary",
-            fontSize: 13.5,
-            lineHeight: 1.65,
-          }}
-        >
+        </Typography.Paragraph>
+        <Typography.Paragraph className={`${styles.text} ${styles.s248}`}>
           {description}
-        </Typography>
-      </Box>
-      <ArrowOutwardRoundedIcon
-        sx={{
-          color: primary ? "primary.main" : "text.secondary",
-          fontSize: 22,
-          flexShrink: 0,
-        }}
+        </Typography.Paragraph>
+      </div>
+      <ArrowUpOutlined
+        aria-hidden="true"
+        className={styles.s249}
+        style={
+          {
+            "--heavy-52": primary
+              ? "var(--goodhr-primary)"
+              : "var(--goodhr-text-secondary)",
+          } as CSSProperties
+        }
       />
-    </Stack>
+    </Flex>
   );
   return external ? (
-    <Box
-      component='a'
+    <Typography.Link
       href={href}
-      target='_blank'
-      rel='noreferrer'
-      sx={{ textDecoration: "none" }}
+      target="_blank"
+      rel="noreferrer"
+      className={styles.s250}
     >
       {content}
-    </Box>
+    </Typography.Link>
   ) : (
     <Link href={href} style={{ textDecoration: "none" }}>
       {content}
     </Link>
   );
 }
-
 /** SectionTitle 展示配置区域标题和说明。 */
 function SectionTitle({
   icon,
@@ -770,22 +771,22 @@ function SectionTitle({
   description: string;
 }) {
   return (
-    <Stack direction='row' spacing={1.25} sx={{ alignItems: "center" }}>
-      <Box sx={{ color: "primary.main", display: "grid", placeItems: "center" }}>
-        {icon}
-      </Box>
-      <Box>
-        <Typography component='h2' sx={{ fontSize: 19, fontWeight: 760 }}>
+    <Flex className={styles.s251}>
+      <div className={styles.s252}>{icon}</div>
+      <div>
+        <Typography.Title
+          level={2}
+          className={`${styles.title} ${styles.s253}`}
+        >
           {title}
-        </Typography>
-        <Typography sx={{ mt: 0.25, color: "text.secondary", fontSize: 13 }}>
+        </Typography.Title>
+        <Typography.Paragraph className={`${styles.text} ${styles.s254}`}>
           {description}
-        </Typography>
-      </Box>
-    </Stack>
+        </Typography.Paragraph>
+      </div>
+    </Flex>
   );
 }
-
 /** CompactNumber 展示一个带单位的紧凑数字配置。 */
 function CompactNumber({
   label,
@@ -804,39 +805,39 @@ function CompactNumber({
   max?: number;
   onChange: (value: string) => void;
 }) {
+  const fieldID = useId();
   return (
-    <Box
-      sx={{
-        display: "grid",
-        gridTemplateColumns: { xs: "1fr", sm: "minmax(160px, 1fr) 150px" },
-        gap: 1.5,
-        alignItems: "center",
-      }}
-    >
-      <Box>
-        <Typography sx={{ fontWeight: 700 }}>{label}</Typography>
-        <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+    <div className={styles.s255}>
+      <div>
+        <Typography.Paragraph className={`${styles.text} ${styles.s256}`}>
+          {label}
+        </Typography.Paragraph>
+        <Typography.Paragraph className={`${styles.text} ${styles.s257}`}>
           {help}
-        </Typography>
-      </Box>
-      <TextField
-        size='small'
-        type='number'
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        slotProps={{
-          htmlInput: { min, max, step: 1 },
-          input: {
-            endAdornment: (
-              <InputAdornment position='end'>{unit}</InputAdornment>
-            ),
-          },
-        }}
-      />
-    </Box>
+        </Typography.Paragraph>
+      </div>
+      <Form.Item
+        layout="vertical"
+        htmlFor={fieldID}
+        style={{ marginBottom: 0 }}
+      >
+        <InputNumber
+          aria-label={label}
+          precision={0}
+          value={value}
+          onChange={(value) => onChange(String(value ?? ""))}
+          size="small"
+          id={fieldID}
+          suffix={unit}
+          min={min ?? 0}
+          max={max ?? (unit === "%" ? 100 : undefined)}
+          step={1}
+          className={styles.s259}
+        />
+      </Form.Item>
+    </div>
   );
 }
-
 /** NumberRange 展示一组带说明的最小值和最大值输入。 */
 function NumberRange({
   label,
@@ -855,47 +856,55 @@ function NumberRange({
   onMin: (value: string) => void;
   onMax: (value: string) => void;
 }) {
+  const fieldID = useId();
   return (
-    <Box
-      sx={{
-        display: "grid",
-        gridTemplateColumns: { xs: "1fr", sm: "minmax(160px, 1fr) 250px" },
-        gap: 1.5,
-        alignItems: "center",
-      }}
-    >
-      <Box>
-        <Typography sx={{ fontWeight: 700 }}>{label}</Typography>
-        <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+    <div className={styles.s260}>
+      <div>
+        <Typography.Paragraph className={`${styles.text} ${styles.s261}`}>
+          {label}
+        </Typography.Paragraph>
+        <Typography.Paragraph className={`${styles.text} ${styles.s262}`}>
           {help}
-        </Typography>
-      </Box>
-      <Stack direction='row' spacing={1} sx={{ alignItems: "center" }}>
-        <TextField
-          size='small'
-          aria-label={`${label}最小值`}
-          type='number'
-          value={min}
-          onChange={(event) => onMin(event.target.value)}
-          sx={{ minWidth: 0 }}
-        />
-        <Typography color='text.secondary'>至</Typography>
-        <TextField
-          size='small'
-          aria-label={`${label}最大值`}
-          type='number'
-          value={max}
-          onChange={(event) => onMax(event.target.value)}
-          sx={{ minWidth: 0 }}
-          slotProps={{
-            input: {
-              endAdornment: (
-                <InputAdornment position='end'>{unit}</InputAdornment>
-              ),
-            },
-          }}
-        />
-      </Stack>
-    </Box>
+        </Typography.Paragraph>
+      </div>
+      <Flex className={styles.s263}>
+        <Form.Item
+          layout="vertical"
+          htmlFor={`${fieldID}-min`}
+          className={styles.s264}
+          style={{ marginBottom: 0 }}
+        >
+          <InputNumber
+            min={0}
+            value={min}
+            onChange={(value) => onMin(String(value ?? ""))}
+            size="small"
+            aria-label={`${label}最小值`}
+            id={`${fieldID}-min`}
+            className={styles.s265}
+          />
+        </Form.Item>
+        <Typography.Paragraph className={`${styles.text} ${styles.s266}`}>
+          至
+        </Typography.Paragraph>
+        <Form.Item
+          layout="vertical"
+          htmlFor={`${fieldID}-max`}
+          className={styles.s267}
+          style={{ marginBottom: 0 }}
+        >
+          <InputNumber
+            min={0}
+            value={max}
+            onChange={(value) => onMax(String(value ?? ""))}
+            size="small"
+            aria-label={`${label}最大值`}
+            id={`${fieldID}-max`}
+            suffix={unit}
+            className={styles.s268}
+          />
+        </Form.Item>
+      </Flex>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 /** 本文件负责在新版后台中统一展示招聘平台本地图标。 */
 "use client";
 
-import { Box } from "@mui/material";
+import { Avatar } from "antd";
 
 export const PLATFORM_ICON_SRC: Record<string, string> = {
   boss: "/assets/platforms/boss.png",
@@ -16,11 +16,11 @@ export function platformLabel(platformID: string) {
     ? "Boss直聘"
     : platformID === "hliepin"
       ? "猎聘猎头端"
-    : platformID === "zhaopin"
-      ? "智联招聘"
-      : platformID === "liepin"
-        ? "猎聘企业端"
-        : platformID || "未知平台";
+      : platformID === "zhaopin"
+        ? "智联招聘"
+        : platformID === "liepin"
+          ? "猎聘企业端"
+          : platformID || "未知平台";
 }
 
 /** platformIconSrc 返回招聘平台本地图标路径。 */
@@ -39,26 +39,25 @@ export default function PlatformLogo({
   const src = platformIconSrc(platformID);
   const label = platformLabel(platformID);
   return (
-    <Box
+    <Avatar
       aria-label={label}
-      component={src ? "img" : "span"}
+      shape="square"
+      size={size}
       src={src || undefined}
-      sx={{
-        width: size,
-        height: size,
+      style={{
         borderRadius: "8px",
         objectFit: "contain",
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        bgcolor: src ? "transparent" : "action.hover",
-        color: "text.secondary",
+        background: src ? "transparent" : "var(--goodhr-hover)",
+        color: "var(--goodhr-text-secondary)",
         fontSize: Math.max(12, Math.round(size * 0.42)),
         fontWeight: 800,
         flex: "0 0 auto",
       }}
     >
       {src ? null : label.slice(0, 1)}
-    </Box>
+    </Avatar>
   );
 }

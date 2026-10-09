@@ -1,0 +1,15 @@
+/* 本文件负责本页面的响应式布局和 Ant Design 组件补充样式。 */
+.layout4.layout4 {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+@media (min-width: 900px) {
+  .layout4.layout4 {
+    padding-left: 16px;
+  }
+}
+@media (min-width: 900px) {
+  .layout4.layout4 {
+    padding-right: 16px;
+  }
+}

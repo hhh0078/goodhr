@@ -1,7 +1,7 @@
-/** 本文件负责定义 GoodHR 新版前端的 MUI 明亮主题。 */
+/** 本文件负责定义 GoodHR 的 Ant Design 会员主题和通用颜色变量。 */
 "use client";
 
-import { createTheme } from "@mui/material/styles";
+import type { ThemeConfig } from "antd";
 
 export type MembershipTheme = "free" | "plus" | "max";
 
@@ -59,69 +59,52 @@ export function resolveMembershipTheme(
   memberType: unknown,
 ): MembershipTheme {
   if (!active) return "free";
-  const normalized = String(memberType || "").trim().toLowerCase();
+  const normalized = String(memberType || "")
+    .trim()
+    .toLowerCase();
   return normalized === "plus" || normalized === "max" ? normalized : "free";
 }
 
 /** createGoodHRTheme 根据会员等级生成统一浅色主题。 */
-export function createGoodHRTheme(membershipTheme: MembershipTheme = "free") {
+export function createGoodHRTheme(
+  membershipTheme: MembershipTheme = "free",
+): ThemeConfig {
   const accent = membershipPalettes[membershipTheme] || membershipPalettes.free;
-  return createTheme({
-    palette: {
-      mode: "light",
-      primary: {
-        main: accent.main,
-        dark: accent.dark,
-        light: accent.soft,
-        contrastText: "#ffffff",
-      },
-      secondary: { main: accent.secondary },
-      background: { default: accent.background, paper: "#ffffff" },
-      text: { primary: accent.textPrimary, secondary: accent.textSecondary },
-      divider: accent.divider,
-      action: { hover: accent.hover, selected: accent.soft },
-      success: {
-        main: "#238653",
-        dark: "#17633d",
-        light: "#eaf5ee",
-        contrastText: "#ffffff",
-      },
-      warning: { main: "#c47a1a" },
-      error: { main: "#c83f49" },
-    },
-    shape: { borderRadius: 8 },
-    typography: {
+  return {
+    token: {
+      colorPrimary: accent.main,
+      colorInfo: accent.main,
+      colorSuccess: "#238653",
+      colorWarning: "#c47a1a",
+      colorError: "#c83f49",
+      colorBgLayout: accent.background,
+      colorBgContainer: "#ffffff",
+      colorText: accent.textPrimary,
+      colorTextSecondary: accent.textSecondary,
+      colorBorder: accent.divider,
+      colorBorderSecondary: accent.divider,
+      borderRadius: 8,
+      controlHeight: 38,
+      controlHeightLG: 44,
+      controlHeightSM: 30,
       fontFamily:
         'Inter, "SF Pro Display", "PingFang SC", "Microsoft YaHei", Arial, sans-serif',
-      button: { textTransform: "none", fontWeight: 700, letterSpacing: 0 },
-      h1: { fontWeight: 760, letterSpacing: 0 },
-      h2: { fontWeight: 720, letterSpacing: 0 },
-      h3: { fontWeight: 700, letterSpacing: 0 },
     },
     components: {
-      MuiButton: {
-        styleOverrides: {
-          root: {
-            minHeight: 44,
-            borderRadius: 999,
-            boxShadow: "none",
-            paddingInline: 20,
-          },
-        },
-      },
-      MuiPaper: {
-        styleOverrides: { root: { backgroundImage: "none" } },
-      },
-      MuiTextField: {
-        defaultProps: { variant: "outlined" },
-      },
-      MuiOutlinedInput: {
-        styleOverrides: {
-          root: { minHeight: 56, borderRadius: 18 },
-        },
-      },
+      Button: { fontWeight: 600, primaryShadow: "none" },
+      Card: { borderRadiusLG: 8 },
+      Modal: { borderRadiusLG: 8 },
+      Menu: { itemSelectedBg: accent.soft, itemSelectedColor: accent.main },
     },
-  });
+  };
+}
+
+/** createGoodHRVariables 生成覆盖浮层和正文的全局主题变量。 */
+export function createGoodHRVariables(
+  membershipTheme: MembershipTheme = "free",
+) {
+  const accent = membershipPalettes[membershipTheme] || membershipPalettes.free;
+  return `:root{--goodhr-primary:${accent.main};--goodhr-primary-dark:${accent.dark};--goodhr-primary-soft:${accent.soft};--goodhr-bg:${accent.background};--goodhr-background:${accent.background};--goodhr-text:${accent.textPrimary};--goodhr-text-secondary:${accent.textSecondary};--goodhr-muted:${accent.textSecondary};--goodhr-border:${accent.divider};--goodhr-divider:${accent.divider};--goodhr-hover:${accent.hover};}`;
 }
 
 export default createGoodHRTheme();

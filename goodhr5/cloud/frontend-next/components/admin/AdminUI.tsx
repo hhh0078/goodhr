@@ -1,29 +1,115 @@
-/** 本文件提供新版后台页面复用的标题、空状态和信息块。 */
-
-import { Box, Button, Stack, Typography } from "@mui/material";
-import type { ReactNode } from "react";
-
-/** PageHeader 展示后台页面标题和右侧操作。 */
-export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
-  return <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 2.5, alignItems: { sm: "center" }, justifyContent: "space-between" }}><Box sx={{ minWidth: 0 }}><Typography component="h1" sx={{ fontSize: { xs: 26, md: 30 }, fontWeight: 780 }}>{title}</Typography>{description ? <Typography sx={{ mt: 0.5, color: "text.secondary" }}>{description}</Typography> : null}</Box>{actions ? <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", rowGap: 1 }}>{actions}</Stack> : null}</Stack>;
+/** 本文件提供 Ant Design 后台复用的标题、内容卡片、空状态和操作行。 */
+"use client";
+import { Button, Card, Empty, Flex, Typography } from "antd";
+import type { CSSProperties, ReactNode } from "react";
+/** PageHeader 展示后台页面标题和可换行的操作按钮。 */
+export function PageHeader({
+  title,
+  description,
+  actions,
+}: {
+  title: string;
+  description?: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <Flex
+      className="admin-page-header"
+      justify="space-between"
+      gap={16}
+      wrap
+      align="center"
+    >
+      <div style={{ minWidth: 0 }}>
+        <Typography.Title level={2} style={{ margin: 0 }}>
+          {title}
+        </Typography.Title>
+        {description ? (
+          <Typography.Paragraph type="secondary" style={{ margin: "4px 0 0" }}>
+            {description}
+          </Typography.Paragraph>
+        ) : null}
+      </div>
+      {actions ? (
+        <Flex gap={8} wrap>
+          {actions}
+        </Flex>
+      ) : null}
+    </Flex>
+  );
 }
-
-/** SectionPanel 输出后台标准内容区域。 */
-export function SectionPanel({ children, sx = {} }: { children: ReactNode; sx?: Record<string, unknown> }) {
-  return <Box component="section" sx={{ p: { xs: 2, md: 2.5 }, borderRadius: "8px", border: "1px solid", borderColor: "divider", bgcolor: "action.hover", ...sx }}>{children}</Box>;
+/** SectionPanel 用标准卡片展示后台内容，接受 CSS 样式调整布局。 */
+export function SectionPanel({
+  children,
+  style,
+  className,
+}: {
+  children: ReactNode;
+  style?: CSSProperties;
+  className?: string;
+}) {
+  return (
+    <Card
+      className={`goodhr-section-panel ${className || ""}`}
+      style={style}
+      styles={{ body: { display: "contents" } }}
+    >
+      {children}
+    </Card>
+  );
 }
-
-/** EmptyState 展示暂无数据提示。 */
-export function EmptyState({ text = "暂无数据", action }: { text?: string; action?: ReactNode }) {
-  return <Stack spacing={1.5} sx={{ py: 7, alignItems: "center", color: "text.secondary" }}><Typography>{text}</Typography>{action}</Stack>;
+/** EmptyState 展示空数据说明和下一步操作。 */
+export function EmptyState({
+  text = "暂无数据",
+  action,
+}: {
+  text?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <Empty
+      image={Empty.PRESENTED_IMAGE_SIMPLE}
+      description={text}
+      style={{ paddingBlock: 32 }}
+    >
+      {action}
+    </Empty>
+  );
 }
-
-/** RefreshButton 输出统一刷新按钮。 */
-export function RefreshButton({ loading, onClick }: { loading?: boolean; onClick: () => void }) {
-  return <Button variant="outlined" disabled={loading} onClick={onClick}>{loading ? "刷新中" : "刷新"}</Button>;
+/** RefreshButton 输出统一的刷新按钮并防止重复触发。 */
+export function RefreshButton({
+  loading,
+  onClick,
+}: {
+  loading?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button loading={loading} onClick={onClick}>
+      {loading ? "刷新中" : "刷新"}
+    </Button>
+  );
 }
-
-/** FormActionRow 输出不会挤压按钮的输入框与操作按钮横向布局。 */
-export function FormActionRow({ field, action, maxWidth = 620 }: { field: ReactNode; action: ReactNode; maxWidth?: number | string }) {
-  return <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "minmax(220px, 1fr) auto" }, gap: 1.25, alignItems: "start", width: "100%", maxWidth, "& .MuiButton-root": { whiteSpace: "nowrap", minWidth: "max-content" } }}>{field}{action}</Box>;
+/** FormActionRow 保证输入框与操作按钮在窄屏下仍可使用。 */
+export function FormActionRow({
+  field,
+  action,
+  maxWidth = 620,
+}: {
+  field: ReactNode;
+  action: ReactNode;
+  maxWidth?: number | string;
+}) {
+  return (
+    <Flex
+      className="admin-form-action-row"
+      gap={10}
+      align="start"
+      wrap
+      style={{ width: "100%", maxWidth }}
+    >
+      <div style={{ flex: "1 1 220px", minWidth: 0 }}>{field}</div>
+      <div style={{ flexShrink: 0 }}>{action}</div>
+    </Flex>
+  );
 }

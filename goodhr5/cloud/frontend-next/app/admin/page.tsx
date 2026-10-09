@@ -1,28 +1,30 @@
 /** 本文件负责新版后台控制台概览、醒目新手引导和本地状态。 */
 "use client";
-
-import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
-import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
-import CreditCardRoundedIcon from "@mui/icons-material/CreditCardRounded";
-import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
-import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
-import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
-import WorkRoundedIcon from "@mui/icons-material/WorkRounded";
 import {
-  Box,
   Button,
-  Chip,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  LinearProgress,
-  MenuItem,
-  Stack,
-  TextField,
+  Card,
+  Flex,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Progress,
+  Select,
+  Tag,
   Typography,
-} from "@mui/material";
+} from "antd";
+import {
+  CheckCircleOutlined,
+  CreditCardOutlined,
+  DownloadOutlined,
+  FileTextOutlined,
+  LoadingOutlined,
+  PlayCircleOutlined,
+  ReloadOutlined,
+  SolutionOutlined,
+} from "@ant-design/icons";
+import type { CSSProperties } from "react";
+import styles from "./heavy-ui.module.css";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ElementType } from "react";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
@@ -32,9 +34,12 @@ import {
   wechatPaymentFromResponse,
   type WechatPaymentState,
 } from "@/components/payment/WechatPayDialog";
-import { cloudRequest, localRequest, requirePaymentLocalAgent } from "@/lib/admin-api";
+import {
+  cloudRequest,
+  localRequest,
+  requirePaymentLocalAgent,
+} from "@/lib/admin-api";
 import { type UserFlowState, type UserFlowStep } from "@/lib/user-flow";
-
 type GuideStep = {
   key: UserFlowStep;
   title: string;
@@ -44,7 +49,6 @@ type GuideStep = {
   action: string;
   icon: ElementType;
 };
-
 const guideSteps: GuideStep[] = [
   {
     key: "agent_detected",
@@ -57,7 +61,7 @@ const guideSteps: GuideStep[] = [
     ],
     href: "/admin/agent-download",
     action: "检查本地程序",
-    icon: DownloadRoundedIcon,
+    icon: DownloadOutlined,
   },
   {
     key: "runtime_ready",
@@ -66,7 +70,7 @@ const guideSteps: GuideStep[] = [
     tips: ["启动本地程序", "按提示安装缺少的组件", "组件可用后会自动完成"],
     href: "/admin/agent-download",
     action: "检查运行组件",
-    icon: DownloadRoundedIcon,
+    icon: DownloadOutlined,
   },
   {
     key: "position_created",
@@ -75,33 +79,55 @@ const guideSteps: GuideStep[] = [
     tips: ["进入岗位管理", "点击新建岗位", "填写岗位要求或关键词后保存"],
     href: "/admin/positions",
     action: "创建岗位",
-    icon: WorkRoundedIcon,
+    icon: SolutionOutlined,
   },
   {
     key: "platform_login_verified",
     title: "登录招聘平台",
     description: "开始岗位运行时确认招聘平台账号处于登录状态。",
     tips: ["点击开始岗位运行", "在打开的招聘平台完成登录", "回到 GoodHR 继续"],
-    href: "/admin/positions", action: "检查平台登录", icon: PlayCircleRoundedIcon,
+    href: "/admin/positions",
+    action: "检查平台登录",
+    icon: PlayCircleOutlined,
   },
   {
-    key: "position_started", title: "启动第一条岗位运行", description: "让本地程序成功接手并开始执行岗位运行。",
-    tips: ["确认启动条件", "点击开始", "看到运行中状态"], href: "/admin/positions", action: "启动岗位运行", icon: PlayCircleRoundedIcon,
+    key: "position_started",
+    title: "启动第一条岗位运行",
+    description: "让本地程序成功接手并开始执行岗位运行。",
+    tips: ["确认启动条件", "点击开始", "看到运行中状态"],
+    href: "/admin/positions",
+    action: "启动岗位运行",
+    icon: PlayCircleOutlined,
   },
   {
-    key: "first_resume_processed", title: "处理首份简历", description: "成功读取并处理第一位候选人的简历。",
-    tips: ["保持岗位运行运行", "等待匹配到候选人", "处理成功后自动完成"], href: "/admin/positions", action: "查看岗位运行", icon: ArticleRoundedIcon,
+    key: "first_resume_processed",
+    title: "处理首份简历",
+    description: "成功读取并处理第一位候选人的简历。",
+    tips: ["保持岗位运行运行", "等待匹配到候选人", "处理成功后自动完成"],
+    href: "/admin/positions",
+    action: "查看岗位运行",
+    icon: FileTextOutlined,
   },
   {
-    key: "first_greet_success", title: "首次打招呼成功", description: "向第一位合适候选人成功发出招呼。",
-    tips: ["保持平台登录", "等待筛选完成", "成功打招呼后流程跑通"], href: "/admin/positions", action: "查看进度", icon: WorkRoundedIcon,
+    key: "first_greet_success",
+    title: "首次打招呼成功",
+    description: "向第一位合适候选人成功发出招呼。",
+    tips: ["保持平台登录", "等待筛选完成", "成功打招呼后流程跑通"],
+    href: "/admin/positions",
+    action: "查看进度",
+    icon: SolutionOutlined,
   },
 ];
-
 /** DashboardPage 展示用户当前最需要关注的招聘和本地运行状态。 */
 export default function DashboardPage() {
-  const { agentBase, subscription, refreshAgent, refreshSession, notify, confirm } =
-    useAdmin();
+  const {
+    agentBase,
+    subscription,
+    refreshAgent,
+    refreshSession,
+    notify,
+    confirm,
+  } = useAdmin();
   const [positions, setPositions] = useState<any[]>([]);
   const [resumeCount, setResumeCount] = useState(0);
   const [runtime, setRuntime] = useState<any>({});
@@ -111,14 +137,20 @@ export default function DashboardPage() {
   const [rechargeAmount, setRechargeAmount] = useState("10");
   const [recharging, setRecharging] = useState(false);
   const [rechargeDialogOpen, setRechargeDialogOpen] = useState(false);
-  const [wechatPayment, setWechatPayment] =
-    useState<WechatPaymentState | null>(null);
+  const [wechatPayment, setWechatPayment] = useState<WechatPaymentState | null>(
+    null,
+  );
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
   const [savingModel, setSavingModel] = useState(false);
-  const [guideProgress, setGuideProgress] = useState<UserFlowState>({ version: 2, stage: "agent_detected", stage_name: "启动本地程序", state: "pending", steps: {} });
+  const [guideProgress, setGuideProgress] = useState<UserFlowState>({
+    version: 2,
+    stage: "agent_detected",
+    stage_name: "启动本地程序",
+    state: "pending",
+    steps: {},
+  });
   const [loading, setLoading] = useState(true);
-
   /** load 读取控制台概览和新手引导需要的云端数据。 */
   async function load() {
     setLoading(true);
@@ -134,18 +166,18 @@ export default function DashboardPage() {
         setPositions(results[0].value.positions || []);
       if (results[1].status === "fulfilled")
         setResumeCount(Number(results[1].value.total || 0));
-    if (results[2].status === "fulfilled") {
-      const config = results[2].value.config || {};
-      setAIConfig(config);
-      setCurrentAIModel(config.model || "");
-    }
+      if (results[2].status === "fulfilled") {
+        const config = results[2].value.config || {};
+        setAIConfig(config);
+        setCurrentAIModel(config.model || "");
+      }
       if (results[3].status === "fulfilled") setWallet(results[3].value || {});
-      if (results[4].status === "fulfilled") setGuideProgress(results[4].value.flow);
+      if (results[4].status === "fulfilled")
+        setGuideProgress(results[4].value.flow);
     } finally {
       setLoading(false);
     }
   }
-
   /** loadRuntime 在本地连接变化时读取运行组件状态。 */
   async function loadRuntime(baseURL = agentBase) {
     if (!baseURL) {
@@ -166,14 +198,12 @@ export default function DashboardPage() {
       setRuntime({});
     }
   }
-
   useEffect(() => {
     void load();
   }, []);
   useEffect(() => {
     void loadRuntime();
   }, [agentBase]);
-
   const summary = useMemo(
     () => ({
       today: positions.reduce(
@@ -185,9 +215,9 @@ export default function DashboardPage() {
     [positions],
   );
   const metrics = [
-    ["今日打招呼", summary.today, WorkRoundedIcon],
-    ["运行中岗位运行", summary.running, WorkRoundedIcon],
-    ["简历数量", resumeCount, ArticleRoundedIcon],
+    ["今日打招呼", summary.today, SolutionOutlined],
+    ["运行中岗位运行", summary.running, SolutionOutlined],
+    ["简历数量", resumeCount, FileTextOutlined],
   ] as const;
   /** rechargeAI 创建内置 AI 余额充值订单。 */
   async function rechargeAI() {
@@ -223,14 +253,14 @@ export default function DashboardPage() {
       setRecharging(false);
     }
   }
-
   /** openModelDialog 打开内置 AI 模型选择弹框。 */
   function openModelDialog() {
     const models = Array.isArray(wallet.models) ? wallet.models : [];
-    setSelectedModel(currentAIModel || wallet.default_model || models[0]?.id || "");
+    setSelectedModel(
+      currentAIModel || wallet.default_model || models[0]?.id || "",
+    );
     setModelDialogOpen(true);
   }
-
   /** saveAIModel 将选择的模型保存到个人 AI 配置。 */
   async function saveAIModel() {
     const model = selectedModel.trim();
@@ -257,7 +287,12 @@ export default function DashboardPage() {
       setModelDialogOpen(false);
       notify("模型已切好，接下来就让它干活。", "success");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "模型没保存成功，我们再来一次。", "error");
+      notify(
+        error instanceof Error
+          ? error.message
+          : "模型没保存成功，我们再来一次。",
+        "error",
+      );
     } finally {
       setSavingModel(false);
     }
@@ -266,20 +301,19 @@ export default function DashboardPage() {
     (item) => guideProgress.steps[item.key]?.status === "completed",
   ).length;
   const showGuide = guideProgress.state !== "completed";
-
   return (
     <>
       <PageHeader
-        title='控制台'
-        description='今天的招聘进展、本地组件和常用账号都在这里。'
+        title="控制台"
+        description="今天的招聘进展、本地组件和常用账号都在这里。"
         actions={
           <Button
-            variant='outlined'
-            startIcon={<RefreshRoundedIcon />}
             disabled={loading}
             onClick={() =>
               void Promise.all([refreshAgent(), load(), loadRuntime()])
             }
+            type={"default"}
+            icon={<ReloadOutlined aria-hidden="true" />}
           >
             刷新状态
           </Button>
@@ -290,176 +324,215 @@ export default function DashboardPage() {
         <OnboardingGuide progress={guideProgress} doneCount={doneCount} />
       ) : null}
 
-      <Box
-        sx={{
-          mt: showGuide ? 2.5 : 0,
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr 1fr", lg: "repeat(4, 1fr)" },
-          gap: 1.5,
-        }}
+      <div
+        className={styles.s269}
+        style={{ "--heavy-53": showGuide ? "20px" : "0px" } as CSSProperties}
       >
         {metrics.map(([label, value, Icon]) => (
-          <Box
+          <Card
             key={label}
-            sx={{
-              p: 2,
-              bgcolor: "action.hover",
-              borderRadius: "8px",
-              border: "1px solid",
-              borderColor: "divider",
+            styles={{
+              body: {
+                padding: 0,
+                height: "100%",
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+              },
             }}
+            className={styles.s270}
           >
-            <Stack
-              direction='row'
-              sx={{ justifyContent: "space-between", alignItems: "center" }}
-            >
-              <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+            <Flex className={styles.s271}>
+              <Typography.Paragraph className={`${styles.text} ${styles.s272}`}>
                 {label}
-              </Typography>
-              <Icon color='primary' />
-            </Stack>
-            <Typography sx={{ mt: 1.5, fontSize: 31, fontWeight: 800 }}>
-              {loading ? <CircularProgress size={22} /> : value}
-            </Typography>
-          </Box>
+              </Typography.Paragraph>
+              <Icon aria-hidden="true" className={styles.s273} />
+            </Flex>
+            <Typography.Paragraph className={`${styles.text} ${styles.s274}`}>
+              {loading ? (
+                <LoadingOutlined
+                  aria-hidden="true"
+                  spin
+                  className={styles.s275}
+                />
+              ) : (
+                value
+              )}
+            </Typography.Paragraph>
+          </Card>
         ))}
-      </Box>
-<Box sx={{ mt: 2 }}>
+      </div>
+      <div className={styles.s276}>
         <SectionPanel>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1.25}
-            sx={{
-              justifyContent: "space-between",
-              alignItems: { sm: "center" },
-            }}
-          >
-            <Box>
-              <Stack
-                direction='row'
-                spacing={1}
-                sx={{ alignItems: "center", flexWrap: "wrap" }}
-              >
-                <Typography
-                  component='h2'
-                  sx={{ fontSize: 18, fontWeight: 780 }}
+          <Flex className={styles.s277}>
+            <div>
+              <Flex className={styles.s278}>
+                <Typography.Title
+                  level={2}
+                  className={`${styles.title} ${styles.s279}`}
                 >
                   本地程序
-                </Typography>
-                <Chip
-                  size='small'
-                  color={agentBase ? "success" : "error"}
-                  label={agentBase ? "已连接" : "未连接"}
-                />
-              </Stack>
-              <Typography
-                sx={{ mt: 0.4, color: "text.secondary", fontSize: 12 }}
-              >
+                </Typography.Title>
+                <Tag color={agentBase ? "success" : "error"}>
+                  {agentBase ? "已连接" : "未连接"}
+                </Tag>
+              </Flex>
+              <Typography.Paragraph className={`${styles.text} ${styles.s280}`}>
                 {agentBase
                   ? `${agentBase} · ${runtime.version || runtime.agent_version || "版本未知"} · ${subscription.active ? `${subscription.member_name} 剩${subscription.remaining_days}天` : "免费版"}`
                   : "尚未检测到本地程序"}
-              </Typography>
-            </Box>
-            <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap" }}>
+              </Typography.Paragraph>
+            </div>
+            <Flex className={styles.s281}>
               <Button
-                component={Link}
-                href='/admin/agent-download'
-                size='small'
-                variant='contained'
+                href="/admin/agent-download"
+                size="small"
+                type={"primary"}
               >
                 组件
               </Button>
-              <Button
-                component={Link}
-                href='/admin/local-data'
-                size='small'
-                variant='outlined'
-              >
+              <Button href="/admin/local-data" size="small" type={"default"}>
                 诊断
               </Button>
-            </Stack>
-          </Stack>
-          <Box
-            sx={{
-              mt: 1.5,
-              p: 1.25,
-              borderRadius: "8px",
-              bgcolor: "#fff8ed",
-              border: "1px solid #f0d8ac",
+            </Flex>
+          </Flex>
+          <Card
+            styles={{
+              body: {
+                padding: 0,
+                height: "100%",
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+              },
             }}
+            className={styles.s282}
           >
-            <Typography
-              sx={{ color: "#7a4d00", fontSize: 13, lineHeight: 1.65 }}
-            >
+            <Typography.Paragraph className={`${styles.text} ${styles.s283}`}>
               我小声提醒一下：由于浏览器限制，在浏览器内下载的文件请到“我的电脑
               - 下载”里查看。如果没有，请在以下目录内查看：
-            </Typography>
-            <Typography
-              sx={{
-                mt: 0.5,
-                color: "#5f3b00",
-                fontSize: 12,
-                fontFamily: "monospace",
-                overflowWrap: "anywhere",
-              }}
-            >
+            </Typography.Paragraph>
+            <Typography.Paragraph className={`${styles.text} ${styles.s284}`}>
               {runtime.downloadsDir ||
                 runtime.downloads_dir ||
                 "本地程序未返回下载目录"}
-            </Typography>
-          </Box>
+            </Typography.Paragraph>
+          </Card>
         </SectionPanel>
-      </Box>
-      <Dialog open={modelDialogOpen} onClose={() => setModelDialogOpen(false)} fullWidth maxWidth='xs'>
-        <DialogTitle>选择当前模型</DialogTitle>
-        <DialogContent>
-          <TextField
-            select
-            fullWidth
-            label='当前模型'
+      </div>
+      <Modal
+        open={modelDialogOpen}
+        onCancel={() => {
+          if (!savingModel) setModelDialogOpen(false);
+        }}
+        closable={!savingModel}
+        mask={{ closable: !savingModel }}
+        keyboard={!savingModel}
+        width={440}
+        destroyOnHidden
+        title={<> 选择当前模型 </>}
+        footer={
+          <Flex justify="flex-end" gap={8} wrap>
+            <Button
+              disabled={savingModel}
+              onClick={() => setModelDialogOpen(false)}
+              type={"text"}
+            >
+              先不改
+            </Button>
+            <Button
+              loading={savingModel}
+              disabled={savingModel}
+              onClick={saveAIModel}
+              type={"primary"}
+            >
+              {savingModel ? "保存中" : "保存模型"}
+            </Button>
+          </Flex>
+        }
+      >
+        <Form.Item
+          layout="vertical"
+          htmlFor="admin-field-1"
+          label={"当前模型"}
+          className={styles.s285}
+          style={{ marginBottom: 0 }}
+        >
+          <Select
             value={selectedModel}
-            onChange={(event) => setSelectedModel(event.target.value)}
-            sx={{ mt: 1 }}
-          >
-            {(Array.isArray(wallet.models) ? wallet.models : []).map((model: any) => (
-              <MenuItem key={model.id} value={model.id}>
-                <Box>
-                  <Typography sx={{ fontWeight: 800 }}>{model.name || model.id}</Typography>
-                  <Typography sx={{ color: "text.secondary", fontSize: 12 }}>{model.id}</Typography>
-                </Box>
-              </MenuItem>
-            ))}
-          </TextField>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setModelDialogOpen(false)}>先不改</Button>
-          <Button variant='contained' disabled={savingModel} onClick={saveAIModel}>
-            {savingModel ? "保存中" : "保存模型"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <Dialog open={rechargeDialogOpen} onClose={() => setRechargeDialogOpen(false)} fullWidth maxWidth='xs'>
-        <DialogTitle>充值 AI 余额</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            label='充值金额（元）'
-            value={rechargeAmount}
-            onChange={(event) => setRechargeAmount(event.target.value)}
-            slotProps={{ htmlInput: { inputMode: "decimal" } }}
-            sx={{ mt: 1 }}
+            onChange={(value) => setSelectedModel(String(value ?? ""))}
+            id="admin-field-1"
+            className={styles.s286}
+            options={(Array.isArray(wallet.models) ? wallet.models : []).map(
+              (model: any) => ({
+                value: String(model.id),
+                label: model.name
+                  ? model.name + " · " + model.id
+                  : String(model.id),
+              }),
+            )}
+            disabled={savingModel}
+            optionFilterProp="label"
+            showSearch
           />
-          <Typography sx={{ mt: 1.25, color: "text.secondary", fontSize: 13 }}>
-            默认 5 元，够先跑一阵。填完我就去创建支付订单。
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRechargeDialogOpen(false)}>先不充</Button>
-          <Button variant='contained' disabled={recharging} onClick={rechargeAI}>
-            {recharging ? "下单中" : "去支付"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </Form.Item>
+      </Modal>
+      <Modal
+        open={rechargeDialogOpen}
+        onCancel={() => {
+          if (!recharging) setRechargeDialogOpen(false);
+        }}
+        closable={!recharging}
+        mask={{ closable: !recharging }}
+        keyboard={!recharging}
+        width={440}
+        destroyOnHidden
+        title={<> 充值 AI 余额 </>}
+        footer={
+          <Flex justify="flex-end" gap={8} wrap>
+            <Button
+              disabled={recharging}
+              onClick={() => setRechargeDialogOpen(false)}
+              type={"text"}
+            >
+              先不充
+            </Button>
+            <Button
+              loading={recharging}
+              disabled={recharging}
+              onClick={rechargeAI}
+              type={"primary"}
+            >
+              {recharging ? "下单中" : "去支付"}
+            </Button>
+          </Flex>
+        }
+      >
+        <Form.Item
+          layout="vertical"
+          htmlFor="admin-field-2"
+          label={"充值金额（元）"}
+          className={styles.s289}
+          style={{ marginBottom: 0 }}
+        >
+          <InputNumber
+            id="admin-field-2"
+            value={rechargeAmount ? Number(rechargeAmount) : null}
+            onChange={(value) =>
+              setRechargeAmount(value === null ? "" : String(value))
+            }
+            min={0.01}
+            precision={2}
+            step={1}
+            prefix="￥"
+            disabled={recharging}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+        <Typography.Paragraph className={`${styles.text} ${styles.s291}`}>
+          默认 10 元，够先跑一阵。填完我就去创建支付订单。
+        </Typography.Paragraph>
+      </Modal>
       <WechatPayDialog
         payment={wechatPayment}
         onClose={() => setWechatPayment(null)}
@@ -472,7 +545,6 @@ export default function DashboardPage() {
     </>
   );
 }
-
 /** AIWalletCard 展示内置 AI 余额和充值入口。 */
 function AIWalletCard({
   wallet,
@@ -490,88 +562,53 @@ function AIWalletCard({
   const modelLabel = currentModel || wallet.default_model || "未配置";
   return (
     <SectionPanel>
-      <Stack spacing={1.75}>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1}
-          sx={{
-            alignItems: { xs: "flex-start", sm: "center" },
-            justifyContent: "space-between",
-          }}
-        >
-          <Stack direction='row' spacing={1} sx={{ alignItems: "center" }}>
-            <CreditCardRoundedIcon color='primary' />
-            <Typography component='h2' sx={{ fontSize: 20, fontWeight: 820 }}>
+      <Flex className={styles.s292}>
+        <Flex className={styles.s293}>
+          <Flex className={styles.s294}>
+            <CreditCardOutlined aria-hidden="true" className={styles.s295} />
+            <Typography.Title
+              level={2}
+              className={`${styles.title} ${styles.s296}`}
+            >
               AI 余额
-            </Typography>
-          </Stack>
-          <Chip
-            size='small'
-            label={`当前模型：${modelLabel}`}
-            clickable
+            </Typography.Title>
+          </Flex>
+          <Button
             onClick={onOpenModelDialog}
-            sx={{
-              bgcolor: "action.selected",
-              color: "primary.dark",
-              fontSize: 13,
-              fontWeight: 700,
-              maxWidth: "100%",
-            }}
-          />
-        </Stack>
-
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1.5}
-          sx={{
-            alignItems: { xs: "flex-start", sm: "center" },
-            justifyContent: "space-between",
-          }}
-        >
-          <Typography
-            sx={{
-              fontSize: { xs: 40, md: 46 },
-              lineHeight: 1,
-              fontWeight: 850,
-              letterSpacing: 0,
-            }}
-          >
+            type="default"
+            size="small"
+            className={styles.s297}
+          >{`当前模型：${modelLabel}`}</Button>
+        </Flex>
+        <Flex className={styles.s298}>
+          <Typography.Paragraph className={`${styles.text} ${styles.s299}`}>
             ￥{wallet.balance || "0.0000"}
-          </Typography>
-          <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap", rowGap: 1 }}>
+          </Typography.Paragraph>
+          <Flex className={styles.s300}>
             <Button
-              variant='contained'
               disabled={loading}
               onClick={onOpenRechargeDialog}
-              sx={{ px: 2.5, fontWeight: 800 }}
+              type={"primary"}
+              className={styles.s301}
             >
               {loading ? "下单中" : "充值"}
             </Button>
             <Button
-              component={Link}
-              href='/admin/ai-records'
-              variant='outlined'
-              sx={{ px: 2.5, fontWeight: 800 }}
+              href="/admin/ai-records"
+              type={"default"}
+              className={styles.s302}
             >
               使用记录
             </Button>
-          </Stack>
-        </Stack>
-
-        <Typography
-          sx={{
-            color: "text.secondary",
-            fontSize: 13,
-            lineHeight: 1.7,
-          }}
-        >
+          </Flex>
+        </Flex>
+        <Typography.Paragraph className={`${styles.text} ${styles.s303}`}>
           默认已接入 GoodHR 内置 AI，也可以去个人配置里换成自己的 Key。
-        </Typography>
-      </Stack>
+        </Typography.Paragraph>
+      </Flex>
     </SectionPanel>
   );
 }
-
 /** OnboardingGuide 展示云端真实业务事件计算的新手引导。 */
 function OnboardingGuide({
   progress,
@@ -581,74 +618,56 @@ function OnboardingGuide({
   doneCount: number;
 }) {
   const activeKey =
-    guideSteps.find((item) => progress.steps[item.key]?.status !== "completed")?.key || "";
+    guideSteps.find((item) => progress.steps[item.key]?.status !== "completed")
+      ?.key || "";
   return (
-    <Box
-      component='section'
-      sx={{
-        p: { xs: 2, md: 2.5 },
-        border: "1px solid",
-        borderColor: "primary.light",
-        borderRadius: "8px",
-        bgcolor: "action.selected",
-        boxShadow: "0 12px 28px rgba(17, 17, 17, .08)",
+    <Card
+      styles={{
+        body: {
+          padding: 0,
+          height: "100%",
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+        },
       }}
+      className={styles.s304}
     >
-      <Stack
-        direction={{ xs: "column", md: "row" }}
-        spacing={2}
-        sx={{ justifyContent: "space-between", alignItems: { md: "center" } }}
-      >
-        <Box>
-          <Stack direction='row' spacing={1} sx={{ alignItems: "center" }}>
-            <Chip
-              size='small'
-              label='新手必看'
-              color='primary'
-              sx={{ fontWeight: 760 }}
-            />
-            <Typography
-              component='h2'
-              sx={{ fontSize: { xs: 21, md: 24 }, fontWeight: 800 }}
+      <Flex className={styles.s305}>
+        <div>
+          <Flex className={styles.s306}>
+            <Tag color={"var(--goodhr-primary)"} className={styles.s307}>
+              {"新手必看"}
+            </Tag>
+            <Typography.Title
+              level={2}
+              className={`${styles.title} ${styles.s308}`}
             >
               跑通第一条招聘岗位运行
-            </Typography>
-          </Stack>
-          <Typography sx={{ mt: 0.75, color: "text.secondary" }}>
+            </Typography.Title>
+          </Flex>
+          <Typography.Paragraph className={`${styles.text} ${styles.s309}`}>
             每完成一步都会自动记录；全部完成后，这个教程会自动隐藏。
-          </Typography>
-        </Box>
-        <Box sx={{ minWidth: { md: 210 } }}>
-          <Stack
-            direction='row'
-            sx={{ mb: 0.75, justifyContent: "space-between" }}
-          >
-            <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+          </Typography.Paragraph>
+        </div>
+        <div className={styles.s310}>
+          <Flex className={styles.s311}>
+            <Typography.Paragraph className={`${styles.text} ${styles.s312}`}>
               上手进度
-            </Typography>
-            <Typography sx={{ color: "primary.main", fontWeight: 800 }}>
+            </Typography.Paragraph>
+            <Typography.Paragraph className={`${styles.text} ${styles.s313}`}>
               {doneCount}/{guideSteps.length}
-            </Typography>
-          </Stack>
-          <LinearProgress
-            variant='determinate'
-            value={(doneCount / guideSteps.length) * 100}
-            sx={{ height: 9, borderRadius: "8px", bgcolor: "primary.light" }}
+            </Typography.Paragraph>
+          </Flex>
+          <Progress
+            percent={(doneCount / guideSteps.length) * 100}
+            showInfo={false}
+            strokeWidth={9}
+            className={styles.s314}
           />
-        </Box>
-      </Stack>
-      <Box
-        sx={{
-          mt: 2.5,
-          display: "grid",
-          gridTemplateColumns: {
-            xs: "1fr",
-            sm: "repeat(2, minmax(0, 1fr))",
-            xl: "repeat(3, minmax(0, 1fr))",
-          },
-          gap: 1.5,
-        }}
-      >
+        </div>
+      </Flex>
+      <div className={styles.s315}>
         {guideSteps.map((step, index) => (
           <GuideCard
             key={step.key}
@@ -658,11 +677,10 @@ function OnboardingGuide({
             active={activeKey === step.key}
           />
         ))}
-      </Box>
-    </Box>
+      </div>
+    </Card>
   );
 }
-
 /** GuideCard 展示一个新手步骤、完成状态和操作入口。 */
 function GuideCard({
   step,
@@ -677,102 +695,69 @@ function GuideCard({
 }) {
   const Icon = step.icon;
   return (
-    <Box
-      component='article'
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 235,
-        p: 2,
-        border: "1px solid",
-        borderColor: active ? "primary.main" : "divider",
-        borderRadius: "8px",
-        bgcolor: done ? "rgba(255,255,255,.58)" : "#fff",
-        boxShadow: active ? "0 10px 24px rgba(17, 17, 17, .11)" : "none",
-        opacity: done ? 0.76 : 1,
+    <Card
+      styles={{
+        body: {
+          padding: 0,
+          height: "100%",
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+        },
       }}
+      className={styles.s316}
+      style={
+        {
+          "--heavy-54": active
+            ? "var(--goodhr-primary)"
+            : "var(--goodhr-border)",
+          "--heavy-55": done ? "rgba(255,255,255,.58)" : "#fff",
+          "--heavy-56": active ? "0 10px 24px rgba(17, 17, 17, .11)" : "none",
+          "--heavy-57": done ? "0.76" : "1",
+        } as CSSProperties
+      }
     >
-      <Stack
-        direction='row'
-        sx={{ justifyContent: "space-between", alignItems: "center" }}
-      >
-        <Stack direction='row' spacing={1} sx={{ alignItems: "center" }}>
-          <Box
-            sx={{
-              width: 36,
-              height: 36,
-              display: "grid",
-              placeItems: "center",
-              borderRadius: "8px",
-              bgcolor: "action.selected",
-              color: "primary.main",
-            }}
-          >
-            <Icon fontSize='small' />
-          </Box>
-          <Typography sx={{ color: "text.secondary", fontSize: 12, fontWeight: 760 }}>
-            第 {index} 步
-          </Typography>
-        </Stack>
+      <Flex className={styles.s317}>
+        <Flex className={styles.s318}>
+          <div className={styles.s319}>
+            <Icon aria-hidden="true" className={styles.s320} />
+          </div>
+          <Typography.Paragraph className={`${styles.text} ${styles.s321}`}>
+            第 {index}步
+          </Typography.Paragraph>
+        </Flex>
         {done ? (
-          <Chip
-            size='small'
-            icon={<CheckCircleRoundedIcon />}
-            label='已完成'
-            color='success'
-            variant='outlined'
-          />
+          <Tag
+            icon={<CheckCircleOutlined aria-hidden="true" />}
+            color={"success"}
+          >
+            {"已完成"}
+          </Tag>
         ) : active ? (
-          <Chip
-            size='small'
-            label='当前需要'
-            sx={{ bgcolor: "#fff1d6", color: "#8a5b00", fontWeight: 700 }}
-          />
+          <Tag className={styles.s322}>{"当前需要"}</Tag>
         ) : null}
-      </Stack>
-      <Typography
-        component='h3'
-        sx={{ mt: 1.5, fontSize: 17, fontWeight: 790 }}
-      >
+      </Flex>
+      <Typography.Title level={3} className={`${styles.title} ${styles.s323}`}>
         {step.title}
-      </Typography>
-      <Typography
-        sx={{
-          mt: 0.6,
-          color: "text.secondary",
-          fontSize: 13,
-          lineHeight: 1.55,
-        }}
-      >
+      </Typography.Title>
+      <Typography.Paragraph className={`${styles.text} ${styles.s324}`}>
         {step.description}
-      </Typography>
-      <Stack
-        component='ol'
-        spacing={0.4}
-        sx={{
-          mt: 1.25,
-          mb: 1.5,
-          pl: 2.25,
-          color: "text.secondary",
-          fontSize: 12,
-          lineHeight: 1.5,
-        }}
-      >
+      </Typography.Paragraph>
+      <ol className={styles.s325}>
         {step.tips.map((tip) => (
           <li key={tip}>{tip}</li>
         ))}
-      </Stack>
+      </ol>
       {!done ? (
         <Button
-          component={Link}
           href={step.href}
-          variant={active ? "contained" : "outlined"}
-          size='small'
-          sx={{ mt: "auto", alignSelf: "flex-start" }}
+          size="small"
+          type={active ? "primary" : "default"}
+          className={styles.s326}
         >
           {step.action}
         </Button>
       ) : null}
-    </Box>
+    </Card>
   );
 }

@@ -1,26 +1,14 @@
 /** 本文件负责登录页的邮箱、登录方式偏好、密码或验证码登录及首次协议确认。 */
 "use client";
 
-import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
-import LockOutlineRoundedIcon from "@mui/icons-material/LockOutlineRounded";
-import MailOutlineRoundedIcon from "@mui/icons-material/MailOutlineRounded";
-import VerifiedRoundedIcon from "@mui/icons-material/VerifiedRounded";
 import {
-  Alert,
-  Box,
-  Button,
-  Checkbox,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  InputAdornment,
-  Stack,
-  TextField,
-  Typography,
-} from "@mui/material";
+  ArrowRightOutlined,
+  LockOutlined,
+  MailOutlined,
+  SafetyCertificateOutlined,
+} from "@ant-design/icons";
+import { Alert, Button, Checkbox, Form, Input, Modal } from "antd";
+import "@/components/public-site.css";
 import { useEffect, useMemo, useState, type UIEvent } from "react";
 import {
   apiRequest,
@@ -119,7 +107,10 @@ export default function LoginForm() {
   const [resetMessage, setResetMessage] = useState("");
 
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
-  const agreementReady = acceptedEmail === normalizedEmail || agreementChecked;
+  const agreementAcceptedForEmail = Boolean(
+    normalizedEmail && acceptedEmail === normalizedEmail,
+  );
+  const agreementReady = agreementAcceptedForEmail || agreementChecked;
 
   useEffect(() => {
     captureLocalAgentPortFromURL();
@@ -188,10 +179,14 @@ export default function LoginForm() {
         method: "POST",
         body: JSON.stringify({ email: normalizedEmail }),
       });
-	  setIsNewAccount(Boolean(data.is_new_account));
-	  if (data.debug_code) setCode(String(data.debug_code));
+      setIsNewAccount(Boolean(data.is_new_account));
+      if (data.debug_code) setCode(String(data.debug_code));
       setCooldown(60);
-      setMessage(data.debug_code ? "本地开发验证码已自动填好" : "验证码已发送，请查看邮箱");
+      setMessage(
+        data.debug_code
+          ? "本地开发验证码已自动填好"
+          : "验证码已发送，请查看邮箱",
+      );
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -237,6 +232,7 @@ export default function LoginForm() {
 
   /** submitReset 用验证码重设密码，成功后回到密码登录。 */
   async function submitReset() {
+    if (resetBusy) return;
     setResetMessage("");
     if (resetCode.trim().length !== 4)
       return setResetMessage("请输入 4 位验证码");
@@ -299,32 +295,50 @@ export default function LoginForm() {
 
   /** login 根据当前方式提交验证码或密码登录。 */
   async function login() {
+    if (loading) return;
     setError("");
     setMessage("");
     if (!normalizedEmail) return setError("请先填写邮箱");
     if (loginMode === "password" && !password) return setError("请输入密码");
-    if (loginMode === "code" && code.trim().length !== 4) return setError("请输入 4 位验证码");
-    if (loginMode === "code" && isNewAccount === null) return setError("请先发送验证码");
-    if (loginMode === "code" && isNewAccount && [...password].length < 2) return setError("首次注册需要设置至少 2 个字符的密码");
-    if (loginMode === "code" && isNewAccount && password !== passwordConfirmation) return setError("两次密码不一样，我先不敢注册");
+    if (loginMode === "code" && code.trim().length !== 4)
+      return setError("请输入 4 位验证码");
+    if (loginMode === "code" && isNewAccount === null)
+      return setError("请先发送验证码");
+    if (loginMode === "code" && isNewAccount && [...password].length < 2)
+      return setError("首次注册需要设置至少 2 个字符的密码");
+    if (
+      loginMode === "code" &&
+      isNewAccount &&
+      password !== passwordConfirmation
+    )
+      return setError("两次密码不一样，我先不敢注册");
     setLoading(true);
     try {
       if (!(await ensureAgreementAccepted())) return;
       const inviterID = localStorage.getItem(INVITE_CACHE_KEY) || "";
-      const data = await apiRequest(loginMode === "password" ? "/api/auth/password-login" : "/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify(loginMode === "password" ? {
-          email: normalizedEmail,
-          password,
-          agreement_accepted: agreementChecked,
-        } : {
-          email: normalizedEmail,
-          code: code.trim(),
-          password: isNewAccount ? password : "",
-          inviter_id: inviterID,
-          agreement_accepted: agreementChecked,
-        }),
-      });
+      const data = await apiRequest(
+        loginMode === "password"
+          ? "/api/auth/password-login"
+          : "/api/auth/login",
+        {
+          method: "POST",
+          body: JSON.stringify(
+            loginMode === "password"
+              ? {
+                  email: normalizedEmail,
+                  password,
+                  agreement_accepted: agreementChecked,
+                }
+              : {
+                  email: normalizedEmail,
+                  code: code.trim(),
+                  password: isNewAccount ? password : "",
+                  inviter_id: inviterID,
+                  agreement_accepted: agreementChecked,
+                },
+          ),
+        },
+      );
       finishLogin(data);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -350,103 +364,120 @@ export default function LoginForm() {
   }
 
   return (
-    <Box
-      component="form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void login();
-      }}
-      noValidate
-    >
-      <Stack spacing={2.25}>
-        <Stack direction="row" spacing={1}>
-          <Button fullWidth variant={loginMode === "code" ? "contained" : "outlined"} onClick={() => setLoginMode("code")} disabled={loading}>验证码登录</Button>
-          <Button fullWidth variant={loginMode === "password" ? "contained" : "outlined"} onClick={() => setLoginMode("password")} disabled={loading}>密码登录</Button>
-        </Stack>
-        <TextField
-          label="邮箱"
-          placeholder="请输入邮箱(12242993@qq.com 为示例)"
-          type="email"
-          autoComplete="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          disabled={loading}
-          fullWidth
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <MailOutlineRoundedIcon color="action" />
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
-        {loginMode === "code" ? <TextField
-          label="验证码"
-          inputMode="numeric"
-          placeholder="请输入4位验证码"
-          autoComplete="one-time-code"
-          value={code}
-          onChange={(event) =>
-            setCode(event.target.value.replace(/\D/g, "").slice(0, 4))
-          }
-          disabled={loading}
-          fullWidth
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <VerifiedRoundedIcon color="action" />
-                </InputAdornment>
-              ),
-              endAdornment: (
-                <InputAdornment position="end">
-                  <Button
-                    onClick={() => void sendCode()}
-                    disabled={loading || cooldown > 0 || !email.trim()}
-                    size="small"
-                  >
-                    {cooldown > 0 ? `${cooldown}s 后重试` : "发送验证码"}
-                  </Button>
-                </InputAdornment>
-              ),
-            },
-          }}
-        /> : null}
-        {loginMode === "password" || isNewAccount ? <TextField
-          label={isNewAccount && loginMode === "code" ? "设置登录密码" : "密码"}
-          type="password"
-          autoComplete={isNewAccount ? "new-password" : "current-password"}
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          disabled={loading}
-          helperText={isNewAccount && loginMode === "code" ? "首次注册必须设置至少 2 个字符的密码" : undefined}
-          fullWidth
-          slotProps={{ input: { startAdornment: <InputAdornment position="start"><LockOutlineRoundedIcon color="action" /></InputAdornment> } }}
-        /> : null}
-        {loginMode === "code" && isNewAccount ? <TextField
-          label="再输入一次密码"
-          type="password"
-          autoComplete="new-password"
-          value={passwordConfirmation}
-          onChange={(event) => setPasswordConfirmation(event.target.value)}
-          disabled={loading}
-          fullWidth
-        /> : null}
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1}
-          sx={{ alignItems: { sm: "center" }, justifyContent: "space-between" }}
-        >
-          <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+    <>
+      <Form
+        layout="vertical"
+        requiredMark={false}
+        onFinish={() => void login()}
+        className="public-login-form"
+      >
+        <div className="public-login-tabs">
+          <Button
+            block
+            type={loginMode === "code" ? "primary" : "default"}
+            onClick={() => setLoginMode("code")}
+            disabled={loading}
+          >
+            验证码登录
+          </Button>
+          <Button
+            block
+            type={loginMode === "password" ? "primary" : "default"}
+            onClick={() => setLoginMode("password")}
+            disabled={loading}
+          >
+            密码登录
+          </Button>
+        </div>
+        <Form.Item label="邮箱" htmlFor="login-email">
+          <Input
+            id="login-email"
+            placeholder="请输入邮箱(12242993@qq.com 为示例)"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            disabled={loading}
+            prefix={<MailOutlined aria-hidden="true" />}
+          />
+        </Form.Item>
+        {loginMode === "code" ? (
+          <Form.Item label="验证码" htmlFor="login-code">
+            <Input
+              id="login-code"
+              inputMode="numeric"
+              placeholder="请输入4位验证码"
+              autoComplete="one-time-code"
+              value={code}
+              onChange={(event) =>
+                setCode(event.target.value.replace(/\D/g, "").slice(0, 4))
+              }
+              disabled={loading}
+              prefix={<SafetyCertificateOutlined aria-hidden="true" />}
+              suffix={
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() => void sendCode()}
+                  disabled={loading || cooldown > 0 || !email.trim()}
+                >
+                  {cooldown > 0 ? cooldown + "s 后重试" : "发送验证码"}
+                </Button>
+              }
+            />
+          </Form.Item>
+        ) : null}
+        {loginMode === "password" || isNewAccount ? (
+          <Form.Item
+            label={
+              isNewAccount && loginMode === "code" ? "设置登录密码" : "密码"
+            }
+            htmlFor="login-password"
+            extra={
+              isNewAccount && loginMode === "code"
+                ? "首次注册必须设置至少 2 个字符的密码"
+                : undefined
+            }
+          >
+            <Input.Password
+              id="login-password"
+              autoComplete={isNewAccount ? "new-password" : "current-password"}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              disabled={loading}
+              prefix={<LockOutlined aria-hidden="true" />}
+            />
+          </Form.Item>
+        ) : null}
+        {loginMode === "code" && isNewAccount ? (
+          <Form.Item
+            label="再输入一次密码"
+            htmlFor="login-password-confirmation"
+          >
+            <Input.Password
+              id="login-password-confirmation"
+              autoComplete="new-password"
+              value={passwordConfirmation}
+              onChange={(event) => setPasswordConfirmation(event.target.value)}
+              disabled={loading}
+            />
+          </Form.Item>
+        ) : null}
+        <div className="public-login-inline">
+          <p className="public-login-hint">
             同一账号支持多处登录，不会再互相挤下线。
-          </Typography>
-          <Stack direction="row" spacing={0.5}>
-            <Button size="small" onClick={openReset} disabled={loading}>
+          </p>
+          <div className="public-login-actions">
+            <Button
+              type="text"
+              size="small"
+              onClick={openReset}
+              disabled={loading}
+            >
               忘记密码
             </Button>
             <Button
+              type="text"
               size="small"
               onClick={() => {
                 setAgreementOpen(true);
@@ -455,85 +486,122 @@ export default function LoginForm() {
             >
               阅读协议
             </Button>
-          </Stack>
-        </Stack>
-        {error ? <Alert severity="error">{error}</Alert> : null}
-        {message ? <Alert severity="success">{message}</Alert> : null}
+          </div>
+        </div>
+        {error ? (
+          <Alert
+            type="error"
+            title={error}
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        ) : null}
+        {message ? (
+          <Alert
+            type="success"
+            title={message}
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        ) : null}
         <Button
-          type="submit"
-          variant="contained"
+          htmlType="submit"
+          type="primary"
           size="large"
-          disabled={loading || !email.trim() || (loginMode === "code" ? code.length !== 4 : !password)}
-          endIcon={
-            loading ? (
-              <CircularProgress size={18} color="inherit" />
-            ) : (
-              <ArrowForwardRoundedIcon />
-            )
+          block
+          loading={loading}
+          disabled={
+            loading ||
+            !email.trim() ||
+            (loginMode === "code" ? code.length !== 4 : !password)
           }
+          icon={<ArrowRightOutlined aria-hidden="true" />}
+          iconPlacement="end"
         >
-          {loading ? "正在处理" : loginMode === "password" ? "密码登录" : isNewAccount ? "注册并进入控制台" : "登录并进入控制台"}
+          {loading
+            ? "正在处理"
+            : loginMode === "password"
+              ? "密码登录"
+              : isNewAccount
+                ? "注册并进入控制台"
+                : "登录并进入控制台"}
         </Button>
-      </Stack>
-      <Typography sx={{ mt: 2.5, color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>
+      </Form>
+      <p className="public-login-note">
         新邮箱注册需要验证码和密码。老账号没有密码也别慌，先用验证码登录，我会带你补上。
-      </Typography>
-      <Dialog
+      </p>
+      <Modal
         open={agreementOpen}
-        onClose={() => setAgreementOpen(false)}
-        fullWidth
-        maxWidth="md"
+        onCancel={() => setAgreementOpen(false)}
+        title="GoodHR 使用协议与隐私说明"
+        width={900}
+        footer={
+          <div className="public-agreement-footer">
+            <Checkbox
+              checked={agreementReady}
+              disabled={!agreementScrolled && !agreementAcceptedForEmail}
+              onChange={(event) => setAgreementChecked(event.target.checked)}
+            >
+              {agreementScrolled || agreementAcceptedForEmail
+                ? "我已阅读并同意"
+                : "请先滚动到最下面，我再让你勾"}
+            </Checkbox>
+            <div className="public-login-actions">
+              <Button onClick={() => setAgreementOpen(false)}>先不登录</Button>
+              <Button
+                type="primary"
+                disabled={!agreementReady}
+                onClick={acceptAgreement}
+              >
+                同意并继续
+              </Button>
+            </div>
+          </div>
+        }
       >
-        <DialogTitle>GoodHR 使用协议与隐私说明</DialogTitle>
-        <DialogContent
-          dividers
+        <div
+          className="public-agreement-content"
           onScroll={handleAgreementScroll}
-          sx={{ maxHeight: { xs: "62vh", md: "68vh" } }}
+          tabIndex={0}
+          aria-label="使用协议内容"
         >
           <AgreementMarkdown markdown={AGREEMENT_MARKDOWN} />
-        </DialogContent>
-        <DialogActions
-          sx={{
-            px: 3,
-            py: 2,
-            alignItems: { xs: "stretch", sm: "center" },
-            flexDirection: { xs: "column", sm: "row" },
-          }}
-        >
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={agreementReady}
-                disabled={!agreementScrolled && acceptedEmail !== normalizedEmail}
-                onChange={(event) => setAgreementChecked(event.target.checked)}
-              />
-            }
-            label={
-              agreementScrolled || acceptedEmail === normalizedEmail
-                ? "我已阅读并同意"
-                : "请先滚动到最下面，我再让你勾"
-            }
-            sx={{ mr: "auto" }}
-          />
-          <Button onClick={() => setAgreementOpen(false)}>先不登录</Button>
-          <Button
-            variant="contained"
-            disabled={!agreementReady}
-            onClick={acceptAgreement}
-          >
-            同意并继续
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <Dialog open={resetOpen} onClose={() => setResetOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>忘记密码</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <Typography sx={{ color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>
-              别慌，用 {normalizedEmail || "你的邮箱"} 收一个验证码，就能设一个新密码。
-            </Typography>
-            <TextField
-              label="验证码"
+        </div>
+      </Modal>
+      <Modal
+        open={resetOpen}
+        onCancel={() => {
+          if (!resetBusy) setResetOpen(false);
+        }}
+        title="忘记密码"
+        width={440}
+        mask={{ closable: !resetBusy }}
+        keyboard={!resetBusy}
+        closable={!resetBusy}
+        footer={
+          <div className="public-login-actions">
+            <Button onClick={() => setResetOpen(false)} disabled={resetBusy}>
+              先不换了
+            </Button>
+            <Button
+              type="primary"
+              onClick={() => void submitReset()}
+              loading={resetBusy}
+              disabled={resetBusy}
+            >
+              重设密码
+            </Button>
+          </div>
+        }
+      >
+        <p className="public-login-note">
+          别慌，用 {normalizedEmail || "你的邮箱"}{" "}
+          收一个验证码，就能设一个新密码。
+        </p>
+        <Form layout="vertical" requiredMark={false}>
+          <Form.Item label="验证码" htmlFor="reset-password-code">
+            <Input
+              id="reset-password-code"
               inputMode="numeric"
               placeholder="请输入4位验证码"
               autoComplete="one-time-code"
@@ -542,54 +610,51 @@ export default function LoginForm() {
                 setResetCode(event.target.value.replace(/\D/g, "").slice(0, 4))
               }
               disabled={resetBusy}
-              fullWidth
-              slotProps={{
-                input: {
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <Button
-                        size="small"
-                        onClick={() => void sendResetCode()}
-                        disabled={resetBusy || resetCooldown > 0 || !email.trim()}
-                      >
-                        {resetCooldown > 0 ? `${resetCooldown}s 后重试` : "发送验证码"}
-                      </Button>
-                    </InputAdornment>
-                  ),
-                },
-              }}
+              suffix={
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() => void sendResetCode()}
+                  disabled={resetBusy || resetCooldown > 0 || !email.trim()}
+                >
+                  {resetCooldown > 0
+                    ? resetCooldown + "s 后重试"
+                    : "发送验证码"}
+                </Button>
+              }
             />
-            <TextField
-              label="新密码"
-              type="password"
+          </Form.Item>
+          <Form.Item
+            label="新密码"
+            htmlFor="reset-new-password"
+            extra="至少 2 个字符。"
+          >
+            <Input.Password
+              id="reset-new-password"
               autoComplete="new-password"
-              helperText="至少 2 个字符。"
               value={resetPassword}
               onChange={(event) => setResetPassword(event.target.value)}
               disabled={resetBusy}
-              fullWidth
             />
-            <TextField
-              label="再输入一次新密码"
-              type="password"
+          </Form.Item>
+          <Form.Item label="再输入一次新密码" htmlFor="reset-confirm-password">
+            <Input.Password
+              id="reset-confirm-password"
               autoComplete="new-password"
               value={resetConfirmation}
               onChange={(event) => setResetConfirmation(event.target.value)}
               disabled={resetBusy}
-              fullWidth
+              onPressEnter={(event) => {
+                event.preventDefault();
+                void submitReset();
+              }}
             />
-            {resetMessage ? <Alert severity="info">{resetMessage}</Alert> : null}
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={() => setResetOpen(false)} disabled={resetBusy}>
-            先不换了
-          </Button>
-          <Button variant="contained" onClick={() => void submitReset()} disabled={resetBusy}>
-            {resetBusy ? "处理中" : "重设密码"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+          </Form.Item>
+          {resetMessage ? (
+            <Alert type="info" title={resetMessage} showIcon />
+          ) : null}
+        </Form>
+      </Modal>
       <PasswordSetupDialog
         open={passwordSetupRequired}
         email={normalizedEmail}
@@ -597,53 +662,62 @@ export default function LoginForm() {
           const token = localStorage.getItem(TOKEN_KEY) || "";
           await apiRequest("/api/auth/password/setup", {
             method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { Authorization: "Bearer " + token },
             body: JSON.stringify({ password: nextPassword }),
           });
           setPasswordSetupRequired(false);
           window.location.assign(resolveNextPath());
         }}
       />
-    </Box>
+    </>
   );
 }
 
 /** AgreementMarkdown 将协议 Markdown 转换为轻量展示内容。 */
 function AgreementMarkdown({ markdown }: { markdown: string }) {
   return (
-    <Stack spacing={1.4}>
+    <div className="public-agreement-markdown">
       {markdown.split("\n").map((line, index) => {
         const text = line.trim();
-        if (!text) return <Box key={index} sx={{ height: 4 }} />;
+        if (!text) return <div key={index} style={{ height: 4 }} />;
         if (text.startsWith("## ")) {
           return (
-            <Typography key={index} component="h2" sx={{ fontSize: 22, fontWeight: 820 }}>
+            <h2
+              key={index}
+              style={{ margin: 0, fontSize: 22, fontWeight: 820 }}
+            >
               {stripMarkdown(text.replace(/^##\s+/, ""))}
-            </Typography>
+            </h2>
           );
         }
         if (text.startsWith("### ")) {
           return (
-            <Typography key={index} component="h3" sx={{ mt: 1.4, fontSize: 17, fontWeight: 800 }}>
+            <h3
+              key={index}
+              style={{ margin: "12px 0 0", fontSize: 17, fontWeight: 800 }}
+            >
               {stripMarkdown(text.replace(/^###\s+/, ""))}
-            </Typography>
+            </h3>
           );
         }
         const strong = text.match(/^\*\*(.*)\*\*$/);
         return (
-          <Typography
+          <p
             key={index}
-            sx={{
-              color: strong ? "text.primary" : "text.secondary",
+            style={{
+              margin: 0,
+              color: strong
+                ? "var(--goodhr-text, #17211c)"
+                : "var(--goodhr-text-secondary, #637069)",
               fontWeight: strong ? 760 : 400,
               lineHeight: 1.75,
             }}
           >
             {stripMarkdown(strong?.[1] || text)}
-          </Typography>
+          </p>
         );
       })}
-    </Stack>
+    </div>
   );
 }
 

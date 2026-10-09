@@ -1,9 +1,8 @@
 /** 本文件负责官网顶部导航和移动端菜单的客户端交互。 */
 "use client";
 
-import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
-import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
-import { Box, Button, Container, Drawer, IconButton, Paper, Stack } from "@mui/material";
+import { MenuOutlined } from "@ant-design/icons";
+import { Button, Drawer } from "antd";
 import Link from "next/link";
 import { useState } from "react";
 import type { PublicStatsData } from "@/lib/public-data";
@@ -20,7 +19,11 @@ const navItems = [
 ];
 
 /** SiteHeaderClient 输出带交互的桌面导航和移动端菜单。 */
-export default function SiteHeaderClient({ stats }: { stats: PublicStatsData }) {
+export default function SiteHeaderClient({
+  stats,
+}: {
+  stats: PublicStatsData;
+}) {
   const [open, setOpen] = useState(false);
 
   /** closeMenu 关闭移动端导航。 */
@@ -29,31 +32,60 @@ export default function SiteHeaderClient({ stats }: { stats: PublicStatsData }) 
   }
 
   return (
-    <Box component="header" sx={{ position: "relative", zIndex: 10, pt: { xs: 1.5, md: 2.5 } }}>
-      <Container maxWidth="lg">
-        <Paper variant="outlined" sx={{ minHeight: 72, px: { xs: 1.25, sm: 2, md: 2.5 }, display: "flex", borderRadius: "999px", alignItems: "center", justifyContent: "space-between", borderColor: "divider", boxShadow: "0 16px 48px rgba(31, 55, 43, 0.08)" }}>
+    <header className="public-site-header">
+      <div className="public-container">
+        <div className="public-site-navigation">
           <BrandMark />
-          <Stack direction="row" spacing={0.25} sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}>
-            {navItems.map((item) => <Button key={item.href} component={Link} href={item.href} color="secondary" sx={{ minWidth: 0, px: 1.25, "&:hover": { bgcolor: "#edf5f0" } }}>{item.label}</Button>)}
-          </Stack>
-          <Stack direction="row" spacing={1.25} sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}>
+          <nav className="public-site-desktop-links" aria-label="官网导航">
+            {navItems.map((item) => (
+              <Link key={item.href} href={item.href}>
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+          <div className="public-site-desktop-actions">
             <PublicStats stats={stats} compact />
-            <Button component={Link} href="/login" variant="contained">进入控制台</Button>
-          </Stack>
-          <Box sx={{ display: { xs: "block", md: "none" }, ml: "auto", mr: 0.5 }}><PublicStats stats={stats} compact mobile /></Box>
-          <IconButton aria-label="打开导航菜单" onClick={() => setOpen(true)} sx={{ display: { md: "none" } }}><MenuRoundedIcon /></IconButton>
-        </Paper>
-      </Container>
-      <Drawer anchor="right" open={open} onClose={closeMenu}>
-        <Box sx={{ width: 288, p: 2.5 }}>
-          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 3 }}><BrandMark /><IconButton aria-label="关闭导航菜单" onClick={closeMenu}><CloseRoundedIcon /></IconButton></Box>
-          <Stack spacing={1}>
-            <Box sx={{ px: 1, pb: 1.5 }}><PublicStats stats={stats} compact /></Box>
-            {navItems.map((item) => <Button key={item.href} component={Link} href={item.href} onClick={closeMenu} color="secondary" fullWidth sx={{ justifyContent: "flex-start" }}>{item.label}</Button>)}
-            <Button component={Link} href="/login" onClick={closeMenu} variant="contained" fullWidth>进入控制台</Button>
-          </Stack>
-        </Box>
+            <Button href="/login" type="primary">
+              进入控制台
+            </Button>
+          </div>
+          <div className="public-site-mobile-stats">
+            <PublicStats stats={stats} compact mobile />
+          </div>
+          <Button
+            className="public-site-mobile-menu"
+            aria-label="打开导航菜单"
+            type="text"
+            icon={<MenuOutlined aria-hidden="true" />}
+            onClick={() => setOpen(true)}
+          />
+        </div>
+      </div>
+      <Drawer
+        placement="right"
+        open={open}
+        onClose={closeMenu}
+        title={<BrandMark />}
+        size={288}
+        closeIcon={<span aria-label="关闭导航菜单">×</span>}
+      >
+        <div className="public-site-drawer-content">
+          <PublicStats stats={stats} compact />
+          <nav
+            aria-label="移动端官网导航"
+            className="public-site-drawer-content"
+          >
+            {navItems.map((item) => (
+              <Link key={item.href} href={item.href} onClick={closeMenu}>
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+          <Button href="/login" onClick={closeMenu} type="primary" block>
+            进入控制台
+          </Button>
+        </div>
       </Drawer>
-    </Box>
+    </header>
   );
 }

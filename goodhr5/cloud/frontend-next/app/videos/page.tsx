@@ -1,6 +1,5 @@
 /** 本文件负责官网视频教程页外壳、SEO 信息和视频配置入口。 */
 
-import { Box, Container } from "@mui/material";
 import type { Metadata } from "next";
 import MarketingShell from "@/components/MarketingShell";
 import StructuredData from "@/components/StructuredData";
@@ -40,11 +39,11 @@ export default async function VideosPage() {
         title="从安装到开始第一条招聘岗位运行"
         description="按照步骤完成本地程序、招聘平台账号、岗位模板、AI筛选和自动打招呼岗位运行配置。"
       >
-        <Box component="section" sx={{ pb: { xs: 8, md: 12 } }}>
-          <Container maxWidth="lg">
+        <section className="public-videos-3">
+          <div className="public-container">
             <VideoGuideList videos={videos} />
-          </Container>
-        </Box>
+          </div>
+        </section>
       </MarketingShell>
     </>
   );

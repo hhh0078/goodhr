@@ -1,11 +1,13 @@
-/** 本文件负责新版后台邀请活动、邀请链接、奖励数据和邀请记录展示。 */
+/** 本文件负责 邀请奖励与记录 的 Ant Design 页面。 */
 "use client";
-
-import CardGiftcardRoundedIcon from "@mui/icons-material/CardGiftcardRounded";
-import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
-import GroupAddRoundedIcon from "@mui/icons-material/GroupAddRounded";
-import PaymentsRoundedIcon from "@mui/icons-material/PaymentsRounded";
-import { Box, Button, Chip, Stack, TextField, Typography } from "@mui/material";
+import { Button, Flex, Input, Table, Tag, Typography } from "antd";
+import {
+  CopyOutlined,
+  GiftOutlined,
+  UsergroupAddOutlined,
+  WalletOutlined,
+} from "@ant-design/icons";
+import styles from "./page.module.css";
 import { useEffect, useMemo, useState } from "react";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
 import {
@@ -16,10 +18,8 @@ import {
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
-
 const defaultDescription =
   "邀请好友注册成功后，邀请人可获得注册奖励；好友充值会员后，还可按购买月份获得额外会员天数。临时邮箱无法完成注册。";
-
 /** InvitationsPage 展示当前用户的邀请活动、专属链接和奖励记录。 */
 export default function InvitationsPage() {
   const { notify } = useAdmin();
@@ -33,7 +33,6 @@ export default function InvitationsPage() {
     if (data.invite_id) url.searchParams.set("invite", data.invite_id);
     return url.toString();
   }, [data.invite_id]);
-
   /** load 读取邀请活动配置和被邀请用户列表。 */
   async function load() {
     setLoading(true);
@@ -48,11 +47,9 @@ export default function InvitationsPage() {
       setLoading(false);
     }
   }
-
   useEffect(() => {
     void load();
   }, []);
-
   /** copyLink 将当前用户的专属邀请链接复制到剪贴板。 */
   async function copyLink() {
     try {
@@ -62,210 +59,221 @@ export default function InvitationsPage() {
       notify("复制失败，请手动复制", "error");
     }
   }
-
   return (
     <>
       <PageHeader
-        title='邀请奖励'
-        description='把 GoodHR 分享给朋友，注册和订阅都能为你增加会员时间。'
+        title="邀请奖励"
+        description="把 GoodHR 分享给朋友，注册和订阅都能为你增加会员时间。"
         actions={
           <RefreshButton loading={loading} onClick={() => void load()} />
         }
       />
 
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: {
-            xs: "1fr",
-            lg: "minmax(0, 1.45fr) minmax(320px, .75fr)",
-          },
-          gap: 2,
-          mb: 2,
-        }}
+      <div
+        className={styles.layout12}
+        style={{ display: "grid", gap: 16, marginBottom: 16 }}
       >
         <SectionPanel
-          sx={{
+          style={{
             position: "relative",
             overflow: "hidden",
-            bgcolor: "action.selected",
-            borderColor: "primary.light",
+            backgroundColor: "var(--goodhr-primary-soft)",
+            borderColor: "var(--goodhr-primary-soft)",
           }}
         >
-          <Stack direction='row' spacing={1.5} sx={{ alignItems: "center" }}>
-            <Box
-              sx={{
+          <Flex gap={1.5 * 8} style={{ alignItems: "center" }}>
+            <div
+              style={{
                 width: 44,
                 height: 44,
                 borderRadius: "8px",
                 display: "grid",
                 placeItems: "center",
-                bgcolor: "primary.main",
-                color: "primary.contrastText",
+                backgroundColor: "var(--goodhr-primary)",
+                color: "#fff",
                 flexShrink: 0,
               }}
             >
-              <CardGiftcardRoundedIcon />
-            </Box>
-            <Box>
-              <Typography
-                component='h2'
-                sx={{ fontSize: { xs: 20, md: 23 }, fontWeight: 790 }}
+              <GiftOutlined aria-hidden="true" />
+            </div>
+            <div>
+              <Typography.Title
+                className={styles.layout2}
+                level={2}
+                style={{ display: "block", margin: 0, fontWeight: 790 }}
               >
                 {config.activity_title || "邀请好友奖励会员天数"}
-              </Typography>
-              <Typography
-                sx={{ mt: 0.5, color: "text.secondary", lineHeight: 1.75 }}
+              </Typography.Title>
+              <Typography.Text
+                style={{
+                  display: "block",
+                  margin: 0,
+                  marginTop: 4,
+                  color: "var(--goodhr-text-secondary)",
+                  lineHeight: 1.75,
+                }}
               >
                 {config.activity_description || defaultDescription}
-              </Typography>
-            </Box>
-          </Stack>
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: {
-                xs: "1fr",
-                sm: "repeat(2, minmax(0, 1fr))",
-              },
-              gap: 1.5,
-              mt: 3,
-            }}
+              </Typography.Text>
+            </div>
+          </Flex>
+          <div
+            className={styles.layout5}
+            style={{ display: "grid", gap: 12, marginTop: 24 }}
           >
             <RewardCard
-              icon={<GroupAddRoundedIcon />}
+              icon={<UsergroupAddOutlined aria-hidden="true" />}
               value={`${Number(config.register_reward_days || 0)} 天`}
-              label='好友注册成功奖励'
+              label="好友注册成功奖励"
             />
             <RewardCard
-              icon={<PaymentsRoundedIcon />}
+              icon={<WalletOutlined aria-hidden="true" />}
               value={`${Number(config.paid_month_reward_days || 0)} 天/月`}
-              label='好友订阅会员奖励'
+              label="好友订阅会员奖励"
             />
-          </Box>
+          </div>
         </SectionPanel>
-
         <SectionPanel>
-          <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+          <Typography.Text
+            style={{
+              display: "block",
+              margin: 0,
+              color: "var(--goodhr-text-secondary)",
+              fontSize: 13,
+            }}
+          >
             邀请成果
-          </Typography>
-          <Stack direction='row' spacing={4} sx={{ mt: 1.5 }}>
-            <Box>
-              <Typography sx={{ fontSize: 30, fontWeight: 800 }}>
+          </Typography.Text>
+          <Flex gap={4 * 8} style={{ marginTop: 12 }}>
+            <div>
+              <Typography.Text
+                style={{
+                  display: "block",
+                  margin: 0,
+                  fontSize: 30,
+                  fontWeight: 800,
+                }}
+              >
                 {invitees.length}
-              </Typography>
-              <Typography color='text.secondary'>已邀请人数</Typography>
-            </Box>
-            <Box>
-              <Typography
-                sx={{ fontSize: 30, fontWeight: 800, color: "primary.main" }}
+              </Typography.Text>
+              <Typography.Text
+                style={{
+                  display: "block",
+                  margin: 0,
+                  color: "var(--goodhr-text-secondary)",
+                }}
+              >
+                已邀请人数
+              </Typography.Text>
+            </div>
+            <div>
+              <Typography.Text
+                style={{
+                  display: "block",
+                  margin: 0,
+                  fontSize: 30,
+                  fontWeight: 800,
+                  color: "var(--goodhr-primary)",
+                }}
               >
                 {Number(data.reward_days || data.total_reward_days || 0)}
-              </Typography>
-              <Typography color='text.secondary'>累计奖励天数</Typography>
-            </Box>
-          </Stack>
-          <Typography sx={{ mt: 3, mb: 1, fontWeight: 720 }}>
+              </Typography.Text>
+              <Typography.Text
+                style={{
+                  display: "block",
+                  margin: 0,
+                  color: "var(--goodhr-text-secondary)",
+                }}
+              >
+                累计奖励天数
+              </Typography.Text>
+            </div>
+          </Flex>
+          <Typography.Text
+            style={{
+              display: "block",
+              margin: 0,
+              marginTop: 24,
+              marginBottom: 8,
+              fontWeight: 720,
+            }}
+          >
             我的专属邀请链接
-          </Typography>
+          </Typography.Text>
           <FormActionRow
             field={
-              <TextField
-                size='small'
+              <Input
+                readOnly={true}
+                style={{ width: "100%" }}
+                size="small"
                 value={inviteURL}
-                fullWidth
-                slotProps={{ input: { readOnly: true } }}
               />
             }
             action={
               <Button
-                variant='contained'
-                startIcon={<ContentCopyRoundedIcon />}
+                type={"primary"}
+                icon={<CopyOutlined aria-hidden="true" />}
                 onClick={() => void copyLink()}
               >
                 复制链接
               </Button>
             }
-            maxWidth='100%'
+            maxWidth="100%"
           />
         </SectionPanel>
-      </Box>
+      </div>
 
       <SectionPanel>
-        <Stack
-          direction='row'
-          sx={{
-            alignItems: "center",
-            justifyContent: "space-between",
-            mb: invitees.length ? 0.5 : 0,
-          }}
+        <Flex
+          justify="space-between"
+          align="center"
+          gap={12}
+          style={{ marginBottom: 16 }}
         >
-          <Box>
-            <Typography component='h2' sx={{ fontSize: 19, fontWeight: 760 }}>
+          <div>
+            <Typography.Title level={5} style={{ margin: 0 }}>
               邀请记录
-            </Typography>
-            <Typography sx={{ mt: 0.4, color: "text.secondary", fontSize: 13 }}>
+            </Typography.Title>
+            <Typography.Text type="secondary">
               好友完成注册后，奖励状态会自动更新。
-            </Typography>
-          </Box>
-          <Chip
-            size='small'
-            label={`共 ${invitees.length} 人`}
-            color='primary'
-            variant='outlined'
-          />
-        </Stack>
-        {invitees.length ? (
-          <Stack>
-            {invitees.map((item: any) => (
-              <Stack
-                key={item.id || item.email}
-                direction={{ xs: "column", sm: "row" }}
-                spacing={2}
-                sx={{
-                  py: 2,
-                  borderBottom: "1px solid",
-                  borderColor: "divider",
-                  alignItems: { sm: "center" },
-                  justifyContent: "space-between",
-                }}
-              >
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography noWrap sx={{ fontWeight: 700 }}>
-                    {item.email || "未显示邮箱"}
-                  </Typography>
-                  <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
-                    注册时间：{formatDate(item.created_at)}
-                  </Typography>
-                </Box>
-                <Chip
-                  size='small'
-                  color={
-                    item.invite_registered_rewarded_at ? "success" : "warning"
-                  }
-                  label={
-                    item.invite_registered_rewarded_at
-                      ? "已发注册奖励"
-                      : "等待奖励"
-                  }
-                />
-              </Stack>
-            ))}
-          </Stack>
-        ) : (
-          <EmptyState
-            text={
-              loading
-                ? "正在读取邀请记录"
-                : "暂无邀请记录，复制链接邀请第一位好友吧"
-            }
-          />
-        )}
+            </Typography.Text>
+          </div>
+          <Tag color="var(--goodhr-primary)">共 {invitees.length} 人</Tag>
+        </Flex>
+        <Table<any>
+          rowKey={(item) => item.id || item.email}
+          dataSource={invitees}
+          loading={loading}
+          size="small"
+          pagination={{ pageSize: 10 }}
+          scroll={{ x: 580 }}
+          locale={{
+            emptyText: (
+              <EmptyState text="暂无邀请记录，复制链接邀请第一位好友吧" />
+            ),
+          }}
+          columns={[
+            {
+              title: "好友邮箱",
+              dataIndex: "email",
+              render: (email) => email || "未显示邮箱",
+            },
+            { title: "注册时间", dataIndex: "created_at", render: formatDate },
+            {
+              title: "奖励状态",
+              dataIndex: "invite_registered_rewarded_at",
+              render: (rewarded) => (
+                <Tag color={rewarded ? "success" : "warning"}>
+                  {rewarded ? "已发注册奖励" : "等待奖励"}
+                </Tag>
+              ),
+            },
+          ]}
+        />
       </SectionPanel>
     </>
   );
 }
-
 /** RewardCard 展示一种邀请奖励及其说明。 */
 function RewardCard({
   icon,
@@ -277,27 +285,43 @@ function RewardCard({
   label: string;
 }) {
   return (
-    <Stack
-      direction='row'
-      spacing={1.5}
-      sx={{
-        p: 1.75,
+    <Flex
+      gap={1.5 * 8}
+      style={{
+        padding: 14,
         border: "1px solid",
-        borderColor: "divider",
+        borderColor: "var(--goodhr-border)",
         borderRadius: "8px",
-        bgcolor: "rgba(255,255,255,.74)",
+        backgroundColor: "rgba(255,255,255,.74)",
         alignItems: "center",
       }}
     >
-      <Box sx={{ color: "primary.main", display: "grid", placeItems: "center" }}>
+      <div
+        style={{
+          color: "var(--goodhr-primary)",
+          display: "grid",
+          placeItems: "center",
+        }}
+      >
         {icon}
-      </Box>
-      <Box>
-        <Typography sx={{ fontSize: 21, fontWeight: 800 }}>{value}</Typography>
-        <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+      </div>
+      <div>
+        <Typography.Text
+          style={{ display: "block", margin: 0, fontSize: 21, fontWeight: 800 }}
+        >
+          {value}
+        </Typography.Text>
+        <Typography.Text
+          style={{
+            display: "block",
+            margin: 0,
+            color: "var(--goodhr-text-secondary)",
+            fontSize: 12,
+          }}
+        >
           {label}
-        </Typography>
-      </Box>
-    </Stack>
+        </Typography.Text>
+      </div>
+    </Flex>
   );
 }

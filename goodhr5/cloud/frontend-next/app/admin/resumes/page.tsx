@@ -1,19 +1,18 @@
-/** 本文件负责新版后台简历库的搜索、分页、详情跳转、备注和清空。 */
+/** 本文件负责 简历库与候选人备注 的 Ant Design 页面。 */
 "use client";
-
-import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
-import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
   Avatar,
-  Box,
   Button,
-  InputAdornment,
-  MenuItem,
+  Flex,
+  Form,
+  Input,
   Pagination,
-  Stack,
-  TextField,
+  Select,
+  Table,
   Typography,
-} from "@mui/material";
+} from "antd";
+import { ClearOutlined, SearchOutlined } from "@ant-design/icons";
+import styles from "./page.module.css";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -33,7 +32,6 @@ import {
   type NormalizedExperience,
   type NormalizedNote,
 } from "@/lib/candidate-normalize";
-
 /** ResumesPage 展示云端保存的候选人简历列表。 */
 export default function ResumesPage() {
   const params = useSearchParams();
@@ -41,7 +39,9 @@ export default function ResumesPage() {
   const [items, setItems] = useState<any[]>([]);
   const [keyword, setKeyword] = useState("");
   const [positions, setPositions] = useState<any[]>([]);
-  const [selectedPosition, setSelectedPosition] = useState(params.get("position_id") || "");
+  const [selectedPosition, setSelectedPosition] = useState(
+    params.get("position_id") || "",
+  );
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -53,17 +53,20 @@ export default function ResumesPage() {
   const [noteLoading, setNoteLoading] = useState(false);
   const positionID = params.get("position_id") || "";
   const candidates = useMemo(() => items.map(normalizeCandidate), [items]);
-
   /** load 读取简历分页列表。 */
-  async function load(nextPage = page) {
+  async function load(
+    nextPage = page,
+    nextKeyword = keyword,
+    nextPosition = selectedPosition,
+  ) {
     setLoading(true);
     try {
       const query = new URLSearchParams({
         page: String(nextPage),
         page_size: String(pageSize),
       });
-      if (selectedPosition) query.set("position_id", selectedPosition);
-      if (keyword.trim()) query.set("q", keyword.trim());
+      if (nextPosition) query.set("position_id", nextPosition);
+      if (nextKeyword.trim()) query.set("q", nextKeyword.trim());
       const data = await cloudRequest(`/api/candidates?${query}`);
       setItems(data.candidates || data.items || []);
       setTotal(Number(data.total || 0));
@@ -74,7 +77,6 @@ export default function ResumesPage() {
       setLoading(false);
     }
   }
-
   /** loadFilters 读取岗位运行和岗位筛选项。 */
   async function loadFilters() {
     const [positionData] = await Promise.allSettled([
@@ -83,21 +85,18 @@ export default function ResumesPage() {
     if (positionData.status === "fulfilled")
       setPositions(positionData.value.positions || []);
   }
-
   useEffect(() => {
     void loadFilters();
   }, []);
   useEffect(() => {
     void load(1);
   }, [selectedPosition, pageSize]);
-
   /** resetFilters 清空简历筛选条件。 */
   function resetFilters() {
     setKeyword("");
     setSelectedPosition("");
-    void load(1);
+    void load(1, "", "");
   }
-
   /** clearAll 清空当前团队简历库。 */
   async function clearAll() {
     try {
@@ -115,7 +114,6 @@ export default function ResumesPage() {
       notify(error instanceof Error ? error.message : "清空失败", "error");
     }
   }
-
   /** openNotes 打开候选人备注弹框并读取完整备注。 */
   async function openNotes(candidate: NormalizedCandidate) {
     setNoteCandidate(candidate);
@@ -133,7 +131,6 @@ export default function ResumesPage() {
       setNoteLoading(false);
     }
   }
-
   /** addNote 新增候选人备注。 */
   async function addNote() {
     if (!noteCandidate || !noteContent.trim()) return;
@@ -160,11 +157,10 @@ export default function ResumesPage() {
       setNoteLoading(false);
     }
   }
-
   return (
     <>
       <PageHeader
-        title='简历库'
+        title="简历库"
         description={
           selectedPosition
             ? "当前显示指定岗位运行产生的简历。"
@@ -172,121 +168,149 @@ export default function ResumesPage() {
         }
         actions={
           <Button
-            color='error'
-            startIcon={<DeleteSweepRoundedIcon />}
+            danger={true}
+            icon={<ClearOutlined aria-hidden="true" />}
             onClick={() => void clearAll()}
           >
             清空简历库
           </Button>
         }
       />
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: {
-            xs: "1fr",
-            lg: "minmax(240px,1fr) 220px 220px 100px auto auto",
-          },
-          gap: 1.25,
-          mb: 1.5,
-        }}
+      <div
+        className={styles.layout1}
+        style={{ display: "grid", gap: 10, marginBottom: 12 }}
       >
-        <TextField
-          size='small'
+        <Input
+          prefix={
+            <span>
+              <SearchOutlined aria-hidden="true" />
+            </span>
+          }
+          size="small"
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") void load(1);
           }}
-          placeholder='搜索姓名、岗位、公司或关键词'
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position='start'>
-                  <SearchRoundedIcon />
-                </InputAdornment>
-              ),
-            },
-          }}
+          placeholder="搜索姓名、岗位、公司或关键词"
         />
-        <TextField
-          select
-          size='small'
-          label='岗位'
-          value={selectedPosition}
-          onChange={(event) => setSelectedPosition(event.target.value)}
+        <Form.Item
+          htmlFor="goodhr-resumes-field-1"
+          layout="vertical"
+          style={{ marginBottom: 0, minWidth: 0 }}
+          label={"岗位"}
         >
-          <MenuItem value=''>全部岗位</MenuItem>
-          {positions.map((item) => (
-            <MenuItem key={item.id} value={item.id}>
-              {item.name}
-            </MenuItem>
-          ))}
-        </TextField>
-
+          <Select
+            id="goodhr-resumes-field-1"
+            onChange={(value) => setSelectedPosition(value)}
+            style={{ width: "100%" }}
+            size="small"
+            value={selectedPosition}
+          >
+            <Select.Option value="">全部岗位</Select.Option>
+            {positions.map((item) => (
+              <Select.Option key={item.id} value={item.id}>
+                {item.name}
+              </Select.Option>
+            ))}
+          </Select>
+        </Form.Item>
         <Button
-          variant='contained'
+          type={"primary"}
           disabled={loading}
           onClick={() => void load(1)}
         >
           查询
         </Button>
-        <Button color='secondary' onClick={resetFilters}>
-          重置
-        </Button>
-      </Box>
-      <SectionPanel sx={{ p: 0, overflow: "hidden" }}>
-        {candidates.length ? (
-          <>
-            <Box
-              sx={{
-                display: { xs: "none", md: "grid" },
-                gridTemplateColumns: "1.1fr 1.35fr .85fr .9fr",
-                px: 2,
-                py: 1.5,
-                bgcolor: "action.hover",
-                borderBottom: "1px solid",
-                borderColor: "divider",
-                "& p": { fontWeight: 800 },
-              }}
-            >
-              <Typography>候选人</Typography>
-              <Typography>经历</Typography>
-              <Typography>AI分析</Typography>
-              <Typography>备注</Typography>
-            </Box>
-            <Stack>
-              {candidates.map((item) => (
-                <ResumeRow
-                  key={`${item.id}-${item.engagementId}`}
-                  item={item}
-                  onOpenNotes={openNotes}
+        <Button onClick={resetFilters}>重置</Button>
+      </div>
+      <SectionPanel style={{ padding: 0, overflow: "hidden" }}>
+        <Table<NormalizedCandidate>
+          rowKey={(item) => item.id + "-" + item.engagementId}
+          dataSource={candidates}
+          loading={loading}
+          size="small"
+          pagination={false}
+          scroll={{ x: 1120 }}
+          locale={{ emptyText: <EmptyState text="暂无简历" /> }}
+          columns={[
+            {
+              key: "candidate",
+              title: "候选人",
+              width: 280,
+              render: (_, item) => <CandidateSummary item={item} />,
+            },
+            {
+              key: "experience",
+              title: "经历",
+              width: 320,
+              render: (_, item) => (
+                <Flex vertical gap={6}>
+                  {[...item.workExperiences, ...item.educations]
+                    .slice(0, 3)
+                    .map((experience, index) => (
+                      <ExperienceSummary key={index} item={experience} />
+                    ))}
+                  {!item.workExperiences.length && !item.educations.length && (
+                    <Typography.Text type="secondary">暂无经历</Typography.Text>
+                  )}
+                </Flex>
+              ),
+            },
+            {
+              key: "ai",
+              title: "AI分析",
+              width: 250,
+              render: (_, item) => (
+                <Flex vertical gap={6}>
+                  <AIText
+                    label="第一次"
+                    score={item.aiFirstAnalysis.score}
+                    reason={item.aiFirstAnalysis.reason}
+                  />
+                  <AIText
+                    label="第二次"
+                    score={item.aiSecondAnalysis.score}
+                    reason={item.aiSecondAnalysis.reason}
+                  />
+                </Flex>
+              ),
+            },
+            {
+              key: "notes",
+              title: "备注",
+              width: 250,
+              render: (_, item) => (
+                <NotePreview
+                  notes={item.notes}
+                  onClick={() => void openNotes(item)}
                 />
-              ))}
-            </Stack>
-          </>
-        ) : (
-          <EmptyState text={loading ? "正在读取简历" : "暂无简历"} />
-        )}
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={2}
-          sx={{
-            p: 2,
-            justifyContent: "space-between",
-            alignItems: "center",
-            borderTop: "1px solid",
-            borderColor: "divider",
-          }}
+              ),
+            },
+          ]}
+        />
+        <Flex
+          wrap
+          gap={12}
+          justify="space-between"
+          align="center"
+          style={{ padding: 16 }}
         >
-          <Typography color='text.secondary'>共 {total} 份简历</Typography>
+          <Typography.Text type="secondary">共 {total} 份简历</Typography.Text>
           <Pagination
-            page={page}
-            count={Math.max(1, Math.ceil(total / pageSize))}
-            onChange={(_, value) => void load(value)}
-            color='primary'
+            current={page}
+            total={total}
+            pageSize={pageSize}
+            showSizeChanger
+            pageSizeOptions={[10, 20, 50, 100]}
+            onChange={(next, size) => {
+              if (size !== pageSize) {
+                setPageSize(size);
+                setPage(1);
+              } else void load(next);
+            }}
           />
-        </Stack>
+        </Flex>
       </SectionPanel>
       <NoteDialog
         candidate={noteCandidate}
@@ -300,116 +324,45 @@ export default function ResumesPage() {
     </>
   );
 }
-
 /** ResumeRow 展示一行简历库候选人。 */
-function ResumeRow({
-  item,
-  onOpenNotes,
-}: {
-  item: NormalizedCandidate;
-  onOpenNotes: (item: NormalizedCandidate) => void;
-}) {
-  const href = `/admin/resumes/detail?candidate_id=${encodeURIComponent(item.id)}${item.engagementId ? `&engagement_id=${encodeURIComponent(item.engagementId)}` : ""}`;
+/** CandidateSummary 展示候选人的基础信息并保留详情入口。 */
+function CandidateSummary({ item }: { item: NormalizedCandidate }) {
+  const href =
+    "/admin/resumes/detail?candidate_id=" +
+    encodeURIComponent(item.id) +
+    (item.engagementId
+      ? "&engagement_id=" + encodeURIComponent(item.engagementId)
+      : "");
   const facts = [
     item.workRegion,
-    item.age ? `${item.age}岁` : "",
+    item.age ? item.age + "岁" : "",
     item.gender,
     item.workYears,
     item.educationLevel,
   ]
     .filter(Boolean)
     .join(" / ");
-  const ownerLine = [
-    item.creatorEmail ? `创建人：${item.creatorEmail}` : "",
-    item.createdAt ? `创建时间：${formatDate(item.createdAt)}` : "",
-  ]
-    .filter(Boolean)
-    .join("  ");
-  const experiences = [...item.workExperiences, ...item.educations].slice(0, 3);
   return (
-    <Box
-      sx={{
-        display: "grid",
-        gridTemplateColumns: { xs: "1fr", md: "1.1fr 1.35fr .85fr .9fr" },
-        gap: { xs: 1.25, md: 2 },
-        alignItems: "center",
-        width: "100%",
-        px: 2,
-        py: 2,
-        borderBottom: "1px solid",
-        borderColor: "divider",
-      }}
-    >
-      <Button
-        component={Link}
-        href={href}
-        color='secondary'
-        sx={{
-          justifyContent: "flex-start",
-          p: 0,
-          textAlign: "left",
-          minWidth: 0,
-        }}
-      >
-        <Stack
-          direction='row'
-          spacing={1.5}
-          sx={{ minWidth: 0, alignItems: "center" }}
-        >
-          <Avatar src={item.avatarUrl}>{item.name.slice(0, 1)}</Avatar>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography noWrap sx={{ fontWeight: 820 }}>
-              {item.name}
-            </Typography>
-            <Typography
-              noWrap
-              sx={{ mt: 0.4, color: "text.secondary", fontSize: 13 }}
-            >
-              {facts || "暂无基础信息"}
-            </Typography>
-            <Typography noWrap sx={{ mt: 0.6 }}>
-              {item.expectedPosition || "暂无期望职位"}
-            </Typography>
-            {ownerLine ? (
-              <Typography
-                noWrap
-                sx={{ mt: 0.5, color: "text.secondary", fontSize: 12 }}
-              >
-                {ownerLine}
-              </Typography>
-            ) : null}
-          </Box>
-        </Stack>
-      </Button>
-      <Stack spacing={0.6} sx={{ minWidth: 0 }}>
-        {experiences.length ? (
-          experiences.map((experience, index) => (
-            <ExperienceSummary
-              key={`${experience.companyName || experience.schoolName || experience.projectName || index}-${index}`}
-              item={experience}
-            />
-          ))
-        ) : (
-          <Typography color='text.secondary'>暂无经历</Typography>
-        )}
-      </Stack>
-      <Stack spacing={0.8} sx={{ minWidth: 0 }}>
-        <AIText
-          label='第一次'
-          score={item.aiFirstAnalysis.score}
-          reason={item.aiFirstAnalysis.reason}
-        />
-        <AIText
-          label='第二次'
-          score={item.aiSecondAnalysis.score}
-          reason={item.aiSecondAnalysis.reason}
-        />
-      </Stack>
-      <NotePreview notes={item.notes} onClick={() => onOpenNotes(item)} />
-    </Box>
+    <Link href={href} style={{ color: "inherit", display: "block" }}>
+      <Flex align="center" gap={12}>
+        <Avatar src={item.avatarUrl}>{item.name.slice(0, 1)}</Avatar>
+        <Flex vertical style={{ minWidth: 0 }} gap={4}>
+          <Typography.Text strong>{item.name}</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {facts || "暂无基础信息"}
+          </Typography.Text>
+          <Typography.Text>
+            {item.expectedPosition || "暂无期望职位"}
+          </Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {item.creatorEmail ? "创建人：" + item.creatorEmail : ""}
+            {item.createdAt ? " · " + formatDate(item.createdAt) : ""}
+          </Typography.Text>
+        </Flex>
+      </Flex>
+    </Link>
   );
 }
-
 /** ExperienceSummary 展示简历库列表中的经历摘要。 */
 function ExperienceSummary({ item }: { item: NormalizedExperience }) {
   const mainText =
@@ -420,23 +373,21 @@ function ExperienceSummary({ item }: { item: NormalizedExperience }) {
   ]
     .filter(Boolean)
     .join(" / ");
-
   if (!mainText && !detailText) return null;
-
   return (
-    <Typography noWrap sx={{ fontSize: 14 }}>
+    <Typography.Text
+      ellipsis={true}
+      style={{ display: "block", margin: 0, fontSize: 14 }}
+    >
       {item.companyName ? (
-        <Box component='span' sx={{ fontWeight: 820 }}>
-          {item.companyName}
-        </Box>
+        <span style={{ fontWeight: 820 }}>{item.companyName}</span>
       ) : (
         mainText
       )}
       {detailText ? `${mainText ? " / " : ""}${detailText}` : ""}
-    </Typography>
+    </Typography.Text>
   );
 }
-
 /** NotePreview 展示候选人最新两条备注入口。 */
 function NotePreview({
   notes,
@@ -447,29 +398,37 @@ function NotePreview({
 }) {
   return (
     <Button
-      color='secondary'
-      onClick={onClick}
-      sx={{
+      type="text"
+      style={{
         display: "block",
+        height: "auto",
+        width: "100%",
+        whiteSpace: "normal",
         minWidth: 0,
-        p: 0,
+        padding: 0,
         textAlign: "left",
-        bgcolor: "transparent",
       }}
+      onClick={onClick}
     >
-      <Typography
-        sx={{ mb: 0.6, color: "primary.main", fontSize: 12, fontWeight: 820 }}
+      <Typography.Text
+        style={{
+          display: "block",
+          margin: 0,
+          marginBottom: 4.8,
+          color: "var(--goodhr-primary)",
+          fontSize: 12,
+          fontWeight: 820,
+        }}
       >
         备注
-      </Typography>
+      </Typography.Text>
       {notes.length ? (
-        <Stack spacing={0.5}>
+        <Flex vertical={true} gap={0.5 * 8}>
           {notes.slice(0, 2).map((note) => (
-            <Typography
-              key={note.id || note.createdAt}
-              title={note.content}
-              sx={{
-                color: "text.secondary",
+            <Typography.Text
+              style={{
+                margin: 0,
+                color: "var(--goodhr-text-secondary)",
                 display: "-webkit-box",
                 fontSize: 12,
                 lineHeight: 1.55,
@@ -479,20 +438,28 @@ function NotePreview({
                 WebkitLineClamp: 2,
                 whiteSpace: "normal",
               }}
+              key={note.id || note.createdAt}
+              title={note.content}
             >
               {note.content}
-            </Typography>
+            </Typography.Text>
           ))}
-        </Stack>
+        </Flex>
       ) : (
-        <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+        <Typography.Text
+          style={{
+            display: "block",
+            margin: 0,
+            color: "var(--goodhr-text-secondary)",
+            fontSize: 12,
+          }}
+        >
           这里暂时没备注
-        </Typography>
+        </Typography.Text>
       )}
     </Button>
   );
 }
-
 /** NoteDialog 展示候选人备注记录和新增表单。 */
 function NoteDialog({
   candidate,
@@ -514,48 +481,56 @@ function NoteDialog({
   return (
     <AdminDialog
       open={Boolean(candidate)}
-      title='备注记录'
+      title="备注记录"
       description={candidate ? `候选人：${candidate.name}` : ""}
-      maxWidth='lg'
-      confirmText='新增备注'
+      maxWidth="lg"
+      confirmText="新增备注"
       confirmDisabled={!content.trim()}
       loading={loading}
       onClose={onClose}
       onConfirm={onAdd}
     >
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) 360px" },
-          gap: 2.5,
-        }}
-      >
-        <Stack
-          spacing={1.25}
-          sx={{ maxHeight: 420, overflowY: "auto", pr: 0.5 }}
+      <div className={styles.layout26} style={{ display: "grid", gap: 20 }}>
+        <Flex
+          vertical={true}
+          gap={1.25 * 8}
+          style={{ maxHeight: 420, overflowY: "auto", paddingRight: 4 }}
         >
           {notes.length ? (
             notes.map((note) => (
-              <Box
-                key={note.id || note.createdAt}
-                sx={{
-                  p: 1.5,
+              <div
+                style={{
+                  padding: 12,
                   border: "1px solid",
-                  borderColor: "divider",
+                  borderColor: "var(--goodhr-border)",
                   borderRadius: "8px",
-                  bgcolor: "action.hover",
+                  backgroundColor: "var(--goodhr-hover)",
                 }}
+                key={note.id || note.createdAt}
               >
-                <Typography sx={{ whiteSpace: "pre-wrap", lineHeight: 1.75 }}>
-                  {note.content}
-                </Typography>
-                <Typography
-                  sx={{ mt: 1, color: "text.secondary", fontSize: 12 }}
+                <Typography.Text
+                  style={{
+                    display: "block",
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    lineHeight: 1.75,
+                  }}
                 >
-                  备注人：{note.authorEmail || "暂时没记上"} · 备注时间：
+                  {note.content}
+                </Typography.Text>
+                <Typography.Text
+                  style={{
+                    display: "block",
+                    margin: 0,
+                    marginTop: 8,
+                    color: "var(--goodhr-text-secondary)",
+                    fontSize: 12,
+                  }}
+                >
+                  备注人：{note.authorEmail || "暂时没记上"}· 备注时间：
                   {formatDate(note.createdAt)}
-                </Typography>
-              </Box>
+                </Typography.Text>
+              </div>
             ))
           ) : (
             <EmptyState
@@ -566,23 +541,28 @@ function NoteDialog({
               }
             />
           )}
-        </Stack>
-        <TextField
-          label='新增备注'
-          value={content}
-          onChange={(event) => onContent(event.target.value)}
-          placeholder='比如：候选人意向不错，下午再约一次。'
-          multiline
-          minRows={8}
-          slotProps={{ htmlInput: { maxLength: 1000 } }}
-          helperText={`${content.length}/1000`}
-          fullWidth
-        />
-      </Box>
+        </Flex>
+        <Form.Item
+          htmlFor="goodhr-resumes-field-2"
+          layout="vertical"
+          style={{ marginBottom: 0, minWidth: 0 }}
+          label={"新增备注"}
+          extra={`${content.length}/1000`}
+        >
+          <Input.TextArea
+            id="goodhr-resumes-field-2"
+            autoSize={{ minRows: 8 }}
+            maxLength={1000}
+            style={{ width: "100%" }}
+            value={content}
+            onChange={(event) => onContent(event.target.value)}
+            placeholder="比如：候选人意向不错，下午再约一次。"
+          />
+        </Form.Item>
+      </div>
     </AdminDialog>
   );
 }
-
 /** AIText 展示一次 AI 判断结果。 */
 function AIText({
   label,
@@ -596,10 +576,10 @@ function AIText({
   if (!reason && scoreText(score) === "无") return null;
   const text = `${label} ${scoreText(score)}${reason ? `：${reason}` : ""}`;
   return (
-    <Typography
-      title={text}
-      sx={{
-        color: "text.secondary",
+    <Typography.Text
+      style={{
+        margin: 0,
+        color: "var(--goodhr-text-secondary)",
         display: "-webkit-box",
         fontSize: 12,
         lineHeight: 1.6,
@@ -609,15 +589,16 @@ function AIText({
         WebkitLineClamp: 2,
         whiteSpace: "normal",
       }}
+      title={text}
     >
-      <Box component='span' sx={{ color: "primary.main", fontWeight: 800 }}>
-        {label} {scoreText(score)}
-      </Box>
+      <span style={{ color: "var(--goodhr-primary)", fontWeight: 800 }}>
+        {label}
+        {scoreText(score)}
+      </span>
       {reason ? `：${reason}` : ""}
-    </Typography>
+    </Typography.Text>
   );
 }
-
 /** normalizeNote 归一化备注接口数据。 */
 function normalizeNote(input: any): NormalizedNote {
   return {
