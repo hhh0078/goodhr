@@ -797,7 +797,11 @@ test("公众号状态慢响应不阻塞控制台，退出登录后迟到响应�
           ).length,
       )
       .toBeGreaterThan(0);
-    await page.getByRole("button", { name: "退出登录", exact: true }).click();
+    // 开发模式左下角提示层会盖住按钮中心，点击按钮右侧真实区域，仍保持正常可见性和事件检查。
+    await page
+      .locator(".goodhr-admin-sidebar")
+      .getByRole("button", { name: "退出登录", exact: true })
+      .click({ position: { x: 160, y: 16 } });
     await expect(page).toHaveURL(/\/login/);
     release();
     await page.waitForTimeout(500);
