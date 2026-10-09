@@ -209,7 +209,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [agentDetected, setAgentDetected] = useState(false);
   const agentBaseRef = useRef("");
   const initialPath = useRef(pathname);
-  const agentChecking = useRef(false);
+  const agentChecking = useRef<Promise<void> | null>(null);
   const [notice, setNotice] = useState({
     open: false,
     message: "",
@@ -237,64 +237,83 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       !localAgentInstallNoticeClosed,
   );
 
-  /** refreshAgent 重新探测本地程序。 */
-  const refreshAgent = useCallback(async () => {
-    if (agentChecking.current) return;
-    agentChecking.current = true;
-    try {
-      const nextBase = await detectLocalAgent(agentBaseRef.current);
-      if (!nextBase) {
-        agentBaseRef.current = "";
-        setAgentBase("");
+  /** refreshAgent 合并正在进行的探测，让更新完成等调用等待实际绑定和状态同步。 */
+  const refreshAgent = useCallback(() => {
+    if (agentChecking.current) return agentChecking.current;
+    const request = (async () => {
+      try {
+        const nextBase = await detectLocalAgent(agentBaseRef.current);
+        if (!nextBase) {
+          agentBaseRef.current = "";
+          setAgentBase("");
+          setAgentVersion("");
+          return;
+        }
+        agentBaseRef.current = nextBase;
+        setAgentBase(nextBase);
         setAgentVersion("");
-        return;
-      }
-      agentBaseRef.current = nextBase;
-      setAgentBase(nextBase);
-      setAgentVersion("");
-      await bindDetectedLocalAgent(nextBase);
-      void reportUserFlow({
-        step: "agent_detected",
-        source: "frontend_agent_probe",
-      });
-      const [runtimeResult, healthResult] = await Promise.allSettled([
-        localRequest(nextBase, "/api/v1/runtime/status"),
-        localRequest(nextBase, "/health"),
-      ]);
-      if (healthResult.status === "fulfilled") {
-        const health = healthResult.value;
-        setAgentVersion(String(health?.version || health?.agent_version || ""));
-      }
-      if (runtimeResult.status === "fulfilled") {
-        const runtime = runtimeResult.value;
-        const missing = requiredRuntimeComponents(runtime).filter(
-          (item) => !item.installed,
-        );
-        void reportUserFlow(
-          missing.length
-            ? {
-                step: "runtime_ready",
-                status: "blocked",
-                reason_code: "runtime_missing",
-                message: `缺少运行组件：${missing.map((item) => item.name).join("、")}`,
-                source: "frontend_agent_probe",
-              }
-            : { step: "runtime_ready", source: "frontend_agent_probe" },
-        );
-      } else {
+        await bindDetectedLocalAgent(nextBase);
         void reportUserFlow({
-          step: "runtime_ready",
-          status: "blocked",
-          reason_code: "runtime_status_unavailable",
-          message: "运行组件状态读取失败",
+          step: "agent_detected",
           source: "frontend_agent_probe",
         });
+        const [runtimeResult, healthResult] = await Promise.allSettled([
+          localRequest(nextBase, "/api/v1/runtime/status"),
+          localRequest(nextBase, "/health"),
+        ]);
+        const health =
+          healthResult.status === "fulfilled" ? healthResult.value : {};
+        const runtime =
+          runtimeResult.status === "fulfilled" ? runtimeResult.value : {};
+        const detectedVersion = String(
+          health?.version ||
+            health?.agent_version ||
+            runtime?.version ||
+            runtime?.agent_version ||
+            runtime?.runtime?.version ||
+            "",
+        );
+        if (!detectedVersion)
+          throw new Error("本地程序版本暂时没读到，请稍后重试");
+        setAgentVersion(detectedVersion);
+        if (runtimeResult.status === "fulfilled") {
+          const missing = requiredRuntimeComponents(runtime).filter(
+            (item) => !item.installed,
+          );
+          void reportUserFlow(
+            missing.length
+              ? {
+                  step: "runtime_ready",
+                  status: "blocked",
+                  reason_code: "runtime_missing",
+                  message: `缺少运行组件：${missing.map((item) => item.name).join("、")}`,
+                  source: "frontend_agent_probe",
+                }
+              : { step: "runtime_ready", source: "frontend_agent_probe" },
+          );
+        } else {
+          void reportUserFlow({
+            step: "runtime_ready",
+            status: "blocked",
+            reason_code: "runtime_status_unavailable",
+            message: "运行组件状态读取失败",
+            source: "frontend_agent_probe",
+          });
+        }
+      } finally {
+        setAgentDetected(true);
+        agentChecking.current = null;
       }
-    } finally {
-      setAgentDetected(true);
-      agentChecking.current = false;
-    }
+    })();
+    agentChecking.current = request;
+    return request;
   }, []);
+
+  /** refreshAgentAfterUpdate 确认安装后的本地连接、绑定和版本均已恢复，避免断线瞬间提前解除更新锁。 */
+  const refreshAgentAfterUpdate = useCallback(async () => {
+    await refreshAgent();
+    if (!agentBaseRef.current) throw new Error("本地程序还没重新连上，请稍等");
+  }, [refreshAgent]);
 
   /** notify 显示统一右上角轻提示。 */
   const notify = useCallback(
@@ -449,12 +468,15 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       };
     }
     Promise.all([refreshSession(), refreshAgent()])
-      .catch(() => {
+      .catch((error) => {
         if (!localStorage.getItem(TOKEN_KEY)) {
           router.replace("/login");
           return;
         }
-        notify("后台初始化失败，请检查网络后刷新页面", "error");
+        notify(
+          error instanceof Error ? error.message : "后台初始化失败，请稍后重试",
+          "error",
+        );
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -629,7 +651,16 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             <Button
               className="goodhr-desktop-sm"
               icon={<SensorsRoundedIcon aria-hidden="true" />}
-              onClick={() => void refreshAgent()}
+              onClick={() =>
+                void refreshAgent().catch((error) =>
+                  notify(
+                    error instanceof Error
+                      ? error.message
+                      : "本地程序没连上，请稍后重试",
+                    "error",
+                  ),
+                )
+              }
               style={{ color: agentBase ? "#238653" : "#c83f49" }}
             >
               {agentBase
@@ -752,7 +783,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           appConfig={appConfig}
           onboardingConfig={onboardingConfig}
           agentBase={agentBase}
-          refreshAgent={refreshAgent}
+          refreshAgent={refreshAgentAfterUpdate}
         />
         <AdminDialog
           open={confirmState.open}

@@ -3,7 +3,7 @@
 
 import { NotificationOutlined } from "@ant-design/icons";
 import { Alert, Card, Flex, Progress, Tag, Typography } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { localRequest } from "@/lib/admin-api";
 import {
   isMandatoryLocalAgentUpdate,
@@ -15,6 +15,13 @@ import AdminDialog from "./AdminDialog";
 const dismissedAnnouncementKey = "goodhr5_dismissed_announcements";
 const dismissedOptionalUpdateKey = "goodhr5_dismissed_optional_agent_update";
 const activeUpdateStages = ["queued", "download", "install"];
+const updatePollIntervalMS = 1200;
+
+type LoadedUpdateState = { version: string; progress?: any };
+type UpdateStateRequest = {
+  baseURL: string;
+  promise: Promise<LoadedUpdateState & { revision: number }>;
+};
 
 type AdminSystemDialogsProps = {
   appConfig: any;
@@ -41,6 +48,10 @@ export default function AdminSystemDialogs({
   const [updateError, setUpdateError] = useState("");
   const [updateStarting, setUpdateStarting] = useState(false);
   const [dismissedOptionalUpdate, setDismissedOptionalUpdate] = useState("");
+  const mountedRef = useRef(true);
+  const updateStartRef = useRef(false);
+  const updateRevisionRef = useRef(0);
+  const updateStateRequestRef = useRef<UpdateStateRequest | null>(null);
   const release = useMemo(
     () => latestLocalAgentRelease(onboardingConfig),
     [onboardingConfig],
@@ -73,25 +84,101 @@ export default function AdminSystemDialogs({
           dismissedOptionalUpdate !== optionalUpdateIdentity)));
 
   useEffect(() => {
+    mountedRef.current = true;
     setDismissedAnnouncements(readDismissedAnnouncements());
     setDismissedOptionalUpdate(readDismissedOptionalUpdate());
     setAnnouncementReady(true);
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  /** readUpdateState 合并同一轮状态读取，切换端口时也等待旧请求结束，避免慢请求叠加。 */
+  const readUpdateState = useCallback(async (baseURL: string) => {
+    while (updateStateRequestRef.current) {
+      const pending = updateStateRequestRef.current;
+      const result = await pending.promise;
+      if (pending.baseURL === baseURL) return result;
+    }
+    const revision = updateRevisionRef.current;
+    const request: UpdateStateRequest = {
+      baseURL,
+      promise: loadUpdateState(baseURL).then((state) => ({
+        ...state,
+        revision,
+      })),
+    };
+    updateStateRequestRef.current = request;
+    try {
+      return await request.promise;
+    } finally {
+      if (updateStateRequestRef.current === request)
+        updateStateRequestRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
-    if (!agentBase) return;
-    void loadUpdateState(agentBase, setCurrentVersion, setUpdateProgress);
-  }, [agentBase, release.version]);
-
-  useEffect(() => {
-    if (!agentBase || !updateRunning) return;
-    const timer = window.setInterval(() => {
-      void loadUpdateState(agentBase, setCurrentVersion, setUpdateProgress)
-        .then(() => refreshAgent())
-        .catch(() => undefined);
-    }, 1200);
-    return () => window.clearInterval(timer);
-  }, [agentBase, refreshAgent, updateRunning]);
+    if (!agentBase && !updateRunning) return;
+    let active = true;
+    let timer: number | undefined;
+    /** pollUpdateState 串行读取进度；安装断线后继续探测，旧页面和提交前的状态不得回写。 */
+    async function pollUpdateState() {
+      let retry = updateRunning;
+      try {
+        if (updateStartRef.current) return;
+        if (!agentBase) {
+          await refreshAgent();
+          return;
+        }
+        const state = await readUpdateState(agentBase);
+        if (
+          !active ||
+          !mountedRef.current ||
+          state.revision !== updateRevisionRef.current
+        )
+          return;
+        const unavailable = !state.version && state.progress === undefined;
+        const updateFinished =
+          updateRunning &&
+          state.progress !== undefined &&
+          !state.progress.running &&
+          !activeUpdateStages.includes(String(state.progress.stage || ""));
+        retry ||= unavailable;
+        if (updateFinished && state.progress.stage !== "failed") {
+          // 成功更新须等账号绑定和顶栏版本同步完成，再解除旧的运行锁；临时失败由下一轮重试。
+          await refreshAgent();
+          if (
+            !active ||
+            !mountedRef.current ||
+            state.revision !== updateRevisionRef.current
+          )
+            return;
+        }
+        if (state.version) setCurrentVersion(state.version);
+        if (state.progress !== undefined) setUpdateProgress(state.progress);
+        if (unavailable) await refreshAgent();
+      } catch {
+        // 更新中的暂时断线不解除弹框锁定，下一轮继续重连。
+      } finally {
+        if (active && mountedRef.current && retry)
+          timer = window.setTimeout(
+            () => void pollUpdateState(),
+            updatePollIntervalMS,
+          );
+      }
+    }
+    void pollUpdateState();
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [
+    agentBase,
+    readUpdateState,
+    refreshAgent,
+    release.version,
+    updateRunning,
+  ]);
 
   const visibleAnnouncements = useMemo(() => {
     if (!announcementReady || !appConfig?.announcements_enabled) return [];
@@ -146,6 +233,7 @@ export default function AdminSystemDialogs({
 
   /** startUpdate 请求本地程序下载并启动最新安装包。 */
   async function startUpdate() {
+    if (updateStartRef.current || updateRunning || !mountedRef.current) return;
     if (!agentBase) {
       setUpdateError("本地程序未连接，无法开始更新");
       return;
@@ -154,6 +242,8 @@ export default function AdminSystemDialogs({
       setUpdateError("当前系统没有配置本地程序更新包下载地址");
       return;
     }
+    updateStartRef.current = true;
+    updateRevisionRef.current += 1;
     setUpdateError("");
     setUpdateStarting(true);
     try {
@@ -170,13 +260,15 @@ export default function AdminSystemDialogs({
           },
         },
       );
-      setUpdateProgress(progress || {});
+      if (mountedRef.current) setUpdateProgress(progress || {});
     } catch (error) {
-      setUpdateError(
-        error instanceof Error ? error.message : "启动本地程序更新失败",
-      );
+      if (mountedRef.current)
+        setUpdateError(
+          error instanceof Error ? error.message : "启动本地程序更新失败",
+        );
     } finally {
-      setUpdateStarting(false);
+      updateStartRef.current = false;
+      if (mountedRef.current) setUpdateStarting(false);
     }
   }
 
@@ -343,32 +435,28 @@ function VersionBox({
   );
 }
 
-/** loadUpdateState 读取本地版本和应用更新进度。 */
-async function loadUpdateState(
-  agentBase: string,
-  setVersion: (value: string) => void,
-  setProgress: (value: any) => void,
-) {
+/** loadUpdateState 只返回本地版本和进度快照，短超时后由串行轮询继续重试。 */
+async function loadUpdateState(agentBase: string): Promise<LoadedUpdateState> {
   const [runtimeResult, progressResult] = await Promise.allSettled([
-    localRequest(agentBase, "/api/v1/runtime/status"),
-    localRequest(agentBase, "/api/v1/app-update/status"),
+    localRequest(agentBase, "/api/v1/runtime/status", { timeoutMS: 5000 }),
+    localRequest(agentBase, "/api/v1/app-update/status", { timeoutMS: 5000 }),
   ]);
+  let version = "";
   if (runtimeResult.status === "fulfilled") {
     const runtime = runtimeResult.value || {};
-    setVersion(
-      String(
-        runtime.version ||
-          runtime.agent_version ||
-          runtime.runtime?.version ||
-          "",
-      ),
+    version = String(
+      runtime.version ||
+        runtime.agent_version ||
+        runtime.runtime?.version ||
+        "",
     );
   }
   if (progressResult.status === "fulfilled") {
     const progress = progressResult.value || {};
-    if (progress.current_version) setVersion(String(progress.current_version));
-    setProgress(progress);
+    if (progress.current_version) version = String(progress.current_version);
+    return { version, progress };
   }
+  return { version };
 }
 
 /** readDismissedAnnouncements 读取旧版兼容的一次性公告已读记录。 */

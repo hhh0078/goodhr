@@ -7,6 +7,9 @@ RUN npm ci
 
 FROM node:22-alpine AS builder
 WORKDIR /app
+# 允许部署时限制构建堆内存和 Next.js 构建核数，参数不进入生产运行阶段。
+ARG NODE_OPTIONS
+ARG CIRCLE_NODE_TOTAL
 ARG NEXT_PUBLIC_CLOUD_API_BASE=https://goodhr.58it.cn
 ARG NEXT_PUBLIC_SITE_URL=https://goodhr.58it.cn
 ARG NEXT_PUBLIC_LEGACY_ADMIN_URL=/admin/

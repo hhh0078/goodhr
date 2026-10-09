@@ -179,7 +179,7 @@ export default function SubscriptionPage() {
     const value = code.trim();
     if (!value) return;
     try {
-      await cloudRequest("/api/subscription/redeem", {
+      await cloudRequest("/api/activation-codes/redeem", {
         method: "POST",
         body: { code: value },
       });

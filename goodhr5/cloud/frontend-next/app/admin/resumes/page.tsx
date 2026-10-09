@@ -472,7 +472,13 @@ function NotePreview({
           {notes.slice(0, 2).map((note) => (
             <Typography.Paragraph
               className={styles.cellText}
-              ellipsis={{ rows: 2, tooltip: note.content }}
+              ellipsis={{
+                rows: 2,
+                tooltip: {
+                  title: note.content,
+                  styles: { root: { pointerEvents: "none" } },
+                },
+              }}
               title={note.content}
               style={{
                 margin: 0,

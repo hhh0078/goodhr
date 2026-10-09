@@ -1,0 +1,9 @@
+/* 本文件负责本页面的响应式布局和 Ant Design 组件补充样式。 */
+.layout19.layout19 {
+  flex-direction: column;
+}
+@media (min-width: 900px) {
+  .layout19.layout19 {
+    flex-direction: row;
+  }
+}

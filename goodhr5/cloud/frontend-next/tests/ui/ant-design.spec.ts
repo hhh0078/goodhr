@@ -1,4 +1,4 @@
-/** 本文件回归验证会员主题、表单取消、嵌套图片预览和不可关闭的系统弹窗。 */
+/** 本文件回归验证会员主题、激活与本地绑定、表单取消、嵌套图片预览和不可关闭的系统弹窗。 */
 import { test, expect, type Page } from "@playwright/test";
 
 const {
@@ -200,6 +200,68 @@ async function mockSession(page: Page, options: MockOptions = {}) {
   );
   return calls;
 }
+
+test("会员激活使用后端已有兑换接口，提交前去除首尾空格", async ({ page }) => {
+  const calls = await mockSession(page);
+  const bodies: unknown[] = [];
+  await page.route("**/api/activation-codes/redeem", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    bodies.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true }),
+    });
+  });
+  await page.goto("/admin/subscription");
+  const input = page.getByLabel("会员激活码", { exact: true });
+  await input.fill("  TEST-ONLY-CODE  ");
+  await page.getByRole("button", { name: "激活", exact: true }).click();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies).toEqual([{ code: "TEST-ONLY-CODE" }]);
+  expect(calls.some((call) => call.path === "/api/subscription/redeem")).toBe(
+    false,
+  );
+  await expect(input).toHaveValue("");
+  await expect(
+    page.getByText("激活成功，会员时间已到账。", { exact: true }),
+  ).toBeVisible();
+});
+
+test("本地绑定被拒绝时显示原因，手动重试不会产生未处理错误", async ({
+  page,
+}) => {
+  await mockSession(page);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  let bindCalls = 0;
+  await page.route("**/api/v1/session/bind", async (route) => {
+    bindCalls += 1;
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: false,
+        code: "AGENT_ALREADY_BOUND",
+        message: "模拟本地绑定冲突，请检查当前账号",
+      }),
+    });
+  });
+  await page.goto("/admin/accounts");
+  await expect(
+    page.getByText("模拟本地绑定冲突，请检查当前账号", { exact: true }).first(),
+  ).toBeVisible();
+  const previousCalls = bindCalls;
+  await page
+    .locator(".goodhr-admin-toolbar")
+    .getByRole("button", { name: /端口 43129/ })
+    .click();
+  await expect.poll(() => bindCalls).toBeGreaterThan(previousCalls);
+  await expect(
+    page.getByText("模拟本地绑定冲突，请检查当前账号", { exact: true }).first(),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
 
 for (const [member, accent] of [
   ["free", "#159a62"],

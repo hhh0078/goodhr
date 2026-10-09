@@ -6,6 +6,9 @@ goodhrpy/.venv/
 **/.venv/
 **/cookies/
 **/logs/**
+# 后台日志页面属于前端源码，不能按运行日志忽略。
+!/goodhr5/cloud/frontend-next/app/admin/logs/
+!/goodhr5/cloud/frontend-next/app/admin/logs/**
 goodhr5/cloud/backend/logs/backend.log
 goodhr5/local-agent/logs/agent.log
 goodhr5/local-agent/vendor/cloakbrowser/
