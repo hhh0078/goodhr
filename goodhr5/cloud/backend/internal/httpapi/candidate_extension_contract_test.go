@@ -49,6 +49,9 @@ func TestPluginCandidateRequestContract(t *testing.T) {
 	if json.Unmarshal(raw, &input) != nil {
 		t.Fatal("插件请求样本格式不正确")
 	}
+	if candidateString(input, "avatar_data_url") == "" {
+		t.Fatal("插件联调样本缺少实际整理的合成头像")
+	}
 	server := mustNewServer(t)
 	routes := server.Routes()
 	webToken := loginForTest(t, routes, "plugin-contract@example.com")
@@ -69,6 +72,14 @@ func TestPluginCandidateRequestContract(t *testing.T) {
 	id := candidate["id"].(string)
 	if candidate["expected_region"] != "期望测试城市" || candidate["current_region"] != "合同测试城市" || len(candidate["tags"].([]any)) != 2 || candidate["expected_salary_min"] != 20.0 {
 		t.Fatalf("插件字段未正确保存: %v", candidate)
+	}
+	avatar := candidateString(candidate, "avatar_data_url")
+	if !strings.HasPrefix(avatar, "data:image/png;base64,") {
+		t.Fatal("插件实际整理的头像未被云端保存")
+	}
+	status, detail := candidateTestRequest(t, routes, pluginToken, http.MethodGet, "/api/candidates/"+id, nil)
+	if status != 200 || candidateString(detail["candidate"].(map[string]any), "avatar_data_url") != avatar {
+		t.Fatal("保存后的头像未通过受保护的简历详情返回")
 	}
 	status, again := candidateTestRequest(t, routes, pluginToken, http.MethodPost, "/api/candidates", input)
 	if status != 200 || again["candidate"].(map[string]any)["id"] != id {

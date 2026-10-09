@@ -1,12 +1,12 @@
 /** 文件作用说明：提供手动维护和 AI 草稿共用的简历表单，执行手机号校验、查重及字段差异确认。 */
 "use client";
-import { Alert, Button, Checkbox, Collapse, Flex, Form, Input, InputNumber, Select, Space, Table, Typography } from "antd";
+import { Alert, Avatar, Button, Checkbox, Collapse, Flex, Form, Input, InputNumber, Select, Space, Table, Typography } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
 import AdminDialog from "../AdminDialog";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, checkResumeDuplicates, loadResume, saveResume } from "@/lib/resume-api";
-import { nonEmptyChanges, normalizePhone, validPhone, type DuplicateResult, type PositionOption, type Resume, type ResumeDraft } from "@/lib/resume-types";
+import { avatarSource, nonEmptyChanges, normalizePhone, validPhone, type DuplicateResult, type PositionOption, type Resume, type ResumeDraft } from "@/lib/resume-types";
 import styles from "./resumes.module.css";
 
 export type ResumeDraftSubmission = { candidate: ResumeDraft; candidate_id?: string; note: string; position_ids: string[] };
@@ -17,7 +17,7 @@ type Props = {
   persistedID?: string;
 };
 const fieldLabels: Record<string, string> = {
-  candidate_name: "姓名", phone: "手机号", email: "邮箱", gender: "性别", birth_ym: "出生年月",
+  candidate_name: "姓名", phone: "手机号", email: "邮箱", gender: "性别", birth_ym: "出生年月", avatar_data_url: "头像",
   current_region: "当前地区", expected_region: "期望地区", work_years: "工作年限", education_level: "学历",
   work_status: "求职状态", expected_position: "期望职位", expected_salary_min: "最低月薪（K）",
   expected_salary_max: "最高月薪（K）", expected_salary_text: "期望薪资原文", current_salary_text: "当前薪资原文", personal_description: "个人优势", raw_text: "简历正文", tags: "标签",
@@ -151,6 +151,7 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
         {error ? <Alert type="warning" title={error} showIcon /> : null}
         {persistedID ? <Alert type="info" title="简历主体已保存，继续确认只会补齐尚未完成的记录。" showIcon /> : null}
         {target && !candidate ? <Alert type="info" title={`将比较更新已有简历：${target.candidate_name} · ${target.phone || "未留手机号"}`} showIcon /> : null}
+        {avatarSource(candidate?.avatar_data_url || draft?.avatar_data_url) ? <Flex gap={10} align="center"><Avatar size={52} src={avatarSource(candidate?.avatar_data_url || draft?.avatar_data_url)} alt="当前简历头像">{(candidate?.candidate_name || draft?.candidate_name)?.slice(0, 1) || "人"}</Avatar><Typography.Text type="secondary">头像随简历采集保存。</Typography.Text></Flex> : null}
         <Form form={form} layout="vertical" className={styles.editorForm} disabled={busy || Boolean(savedCandidate.current) || Boolean(persistedID)} onValuesChange={(changed) => { if (changed.phone != null || changed.candidate_name != null) { duplicateGeneration.current += 1; setChecking(false); setDuplicates(null); setAllowPossible(false); } }}>
           <div className={styles.fieldGrid}>
             <Form.Item name="candidate_name" label="姓名" rules={[{ required: true, whitespace: true, message: "姓名补一下，我好认真记账。" }]}><Input maxLength={80} /></Form.Item>
@@ -193,8 +194,8 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
       <Alert type="info" showIcon title={target ? clearCandidates.length ? "有值的改动会更新；留空的字段只有勾选确认才会清空。" : "只更新下面有值的字段；没识别到的信息会保留已有内容。" : "保存后可继续补充备注和岗位推荐。"} style={{ marginBottom: 12 }} />
       <Table size="small" pagination={false} rowKey="field" dataSource={Object.entries(changes).filter(([field]) => field !== "source_type").map(([field, value]) => ({ field, value }))} columns={[
         { title: "字段", width: 120, render: (_, row) => fieldLabels[row.field] || row.field },
-        ...(target ? [{ title: "已有内容", render: (_: unknown, row: { field: string; value: unknown }) => displayValue(target[row.field as keyof Resume]) }] : []),
-        { title: target ? "更新为" : "保存内容", render: (_, row) => displayValue(row.value) },
+        ...(target ? [{ title: "已有内容", render: (_: unknown, row: { field: string; value: unknown }) => previewFieldValue(row.field, target[row.field as keyof Resume], "已有头像") }] : []),
+        { title: target ? "更新为" : "保存内容", render: (_, row) => previewFieldValue(row.field, row.value, "拟保存头像") },
       ]} />
       {clearCandidates.length ? <>
         <Typography.Paragraph style={{ margin: "14px 0 8px" }}>这些内容刚被留空了。不勾选就继续保留已有内容。</Typography.Paragraph>
@@ -208,6 +209,14 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
       {submission?.position_ids.length ? <Typography.Text>关联 {submission.position_ids.length} 个岗位，阶段为“待推荐”。</Typography.Text> : null}
     </AdminDialog>
   </>;
+}
+/** previewFieldValue 用小头像呈现头像差异，避免在候选人维护界面显示base64编码。 */
+function previewFieldValue(field: string, value: unknown, imageDescription: string) {
+  if (field === "avatar_data_url") {
+    const source = avatarSource(typeof value === "string" ? value : undefined);
+    return source ? <Avatar size={40} src={source} alt={imageDescription}>人</Avatar> : "未提供头像";
+  }
+  return displayValue(value);
 }
 /** isBlankMaintenanceValue 判断人工维护字段是否留空，零薪资属于有效值，空数组属于清空。 */
 function isBlankMaintenanceValue(value: unknown) {

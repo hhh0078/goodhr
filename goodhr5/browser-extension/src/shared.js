@@ -30,6 +30,22 @@
     const url = new URL(value); return `${url.origin}${url.pathname}`;
   }
 
+  /** safeAvatarSource 仅保留候选人头像的有限 HTTPS 图片域或小型内嵌图片，不读取隐藏状态。 */
+  function safeAvatarSource(value, pageURL) {
+    const platform = platformForURL(pageURL); if (!platform || typeof value !== "string" || !value.trim()) return "";
+    if (/^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(value)) return value.length <= 1400000 ? value : "";
+    if (value.length > 4096) return "";
+    try {
+      const url = new URL(value, pageURL), page = new URL(pageURL), hostname = url.hostname.toLowerCase();
+      const liepinCDN = ["liepin", "hliepin"].includes(platform) && (hostname === "lietou-static.com" || hostname.endsWith(".lietou-static.com"));
+      if (url.protocol !== "https:" || url.port || url.username || url.password || !(hostname === page.hostname || liepinCDN || (platform === "zhaopin" && hostname === "mypics.zhaopin.cn"))) return "";
+      return url.href;
+    } catch { return ""; }
+  }
+
+  /** validStoredAvatar 判断已规范化的内嵌头像，不允许 UI 加载任何外部图片地址。 */
+  function validStoredAvatar(value) { if (typeof value !== "string" || value.length > 131072) return false; const match = value.match(/^data:image\/(?:png|jpeg);base64,([A-Za-z0-9+/]*={0,2})$/); return Boolean(match?.[1] && match[1].length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(match[1])); }
+
   /** newKey 为每次用户明确发起的保存生成独立幂等键。 */
   function newKey() { return root.crypto.randomUUID(); }
 
@@ -41,6 +57,7 @@
     result.age = Number.isInteger(input.age) && input.age > 0 && input.age <= 120 ? input.age : null;
     result.source_url = safeSourceURL(input.source_url);
     result.source_type = "browser_extension";
+    if (validStoredAvatar(input.avatar_data_url)) result.avatar_data_url = input.avatar_data_url;
     result.birth_ym = /^(?:19|20)\d{2}-(?:0[1-9]|1[0-2])$/.test(result.birth_ym) ? result.birth_ym : "";
     result.current_region = cleanText(input.current_region || input.work_region, 500);
     result.expected_region = cleanText(input.expected_region || input.expected_city, 500);
@@ -81,6 +98,7 @@
 
   /** readableFieldValue 用短中文值概括字段变化，不把程序字段名交给用户。 */
   function readableFieldValue(value) {
+    if (validStoredAvatar(value)) return "已保存头像";
     if (Array.isArray(value)) {
       const names = value.slice(0, 3).map((item) => typeof item === "string" ? item : [item.company_name || item.school_name || item.project_name || item.certificate_name || item.honor_name, item.position_name || item.major_name || item.role_name].filter(Boolean).join(" / "));
       return `${value.length}项${names.filter(Boolean).length ? `（${cleanText(names.filter(Boolean).join("；"), 90)}${value.length > 3 ? "…" : ""}）` : ""}`;
@@ -92,15 +110,17 @@
   /** describeResumeChanges 比较非空字段，返回确认更新前可阅读的具体差异。 */
   function describeResumeChanges(existing = {}, input = {}) {
     const labels = { candidate_name: "姓名", phone: "手机号", email: "邮箱", birth_ym: "出生年月", gender: "性别", age: "年龄", work_region: "所在城市", current_region: "当前地区", expected_region: "期望地区", work_years: "工作年限", education_level: "学历", current_position: "当前职位", expected_position: "期望职位", current_salary_text: "当前薪资", expected_salary_text: "期望薪资", expected_salary_min: "期望最低薪资(K)", expected_salary_max: "期望最高薪资(K)", personal_description: "个人简介", work_status: "求职状态", online_status: "活跃情况", basic_info: "基本资料", source_type: "资料来源", platform_id: "招聘平台", platform_candidate_id: "平台简历编号", source_url: "来源页面", tags: "技能标签", work_experiences: "工作经历", educations: "教育经历", project_experiences: "项目经历", certificates: "证书", honors: "荣誉" };
-    return Object.entries(nonEmptyResumePatch(input)).filter(([key, value]) => JSON.stringify(comparableValue(existing[key])) !== JSON.stringify(comparableValue(value))).map(([key, value]) => `${labels[key] || "其他资料"}：${readableFieldValue(existing[key])} → ${readableFieldValue(value)}`);
+    return Object.entries(nonEmptyResumePatch(input)).filter(([key, value]) => JSON.stringify(comparableValue(existing[key])) !== JSON.stringify(comparableValue(value))).map(([key, value]) => `${key === "avatar_data_url" ? "头像" : labels[key] || "其他资料"}：${readableFieldValue(existing[key])} → ${readableFieldValue(value)}`);
   }
 
   /** saveFollowups 分别保存备注和岗位关联，保留失败项的幂等键供安全重试。 */
   async function saveFollowups(request, candidateID, draft) {
     const result = { notes_saved: !cleanText(draft.note), recommendation_saved: !draft.position_id, errors: [] };
-    if (cleanText(draft.note)) {
+    const note = String(draft.note ?? "").trim();
+    if (note && Array.from(note).length > 1000) result.errors.push({ kind: "note", message: "备注超过1000字，原文保留了，请缩短或分次记录" });
+    else if (note) {
       try {
-        await request(`/api/candidates/${encodeURIComponent(candidateID)}/notes`, { content: cleanText(draft.note, 6000), idempotency_key: draft.note_key });
+        await request(`/api/candidates/${encodeURIComponent(candidateID)}/notes`, { content: note, idempotency_key: draft.note_key });
         result.notes_saved = true;
       } catch (error) { result.errors.push({ kind: "note", message: error.message || "备注没有保存成功" }); }
     }
@@ -113,7 +133,7 @@
     return result;
   }
 
-  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, normalizePhone, platformForURL, safeSourceURL, newKey, sanitizeResume, nonEmptyResumePatch, describeResumeChanges, saveFollowups };
+  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, normalizePhone, platformForURL, safeSourceURL, safeAvatarSource, validStoredAvatar, newKey, sanitizeResume, nonEmptyResumePatch, describeResumeChanges, saveFollowups };
   root.GoodHRShared = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

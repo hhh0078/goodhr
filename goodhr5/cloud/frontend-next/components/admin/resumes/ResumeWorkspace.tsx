@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, loadRecommendations, loadResume, loadResumeNotes } from "@/lib/resume-api";
 import { formatDate } from "@/lib/admin-api";
-import { experienceLabel, recommendationStages, resumeAge, salaryLabel, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeExperience, type ResumeNote } from "@/lib/resume-types";
+import { avatarSource, experienceLabel, recommendationStages, resumeAge, salaryLabel, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeExperience, type ResumeNote } from "@/lib/resume-types";
 import ResumeEditor from "./ResumeEditor";
 import styles from "./resumes.module.css";
 
@@ -90,7 +90,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
     <div className={styles.workspace} data-testid="resume-detail-layout">
       <div className={styles.resumeBody} data-testid="resume-detail-main">
         <Flex gap={12} align="start" className={styles.candidateHeader}>
-          <Avatar size={52}>{candidate.candidate_name?.slice(0, 1) || "人"}</Avatar>
+          <Avatar size={52} src={avatarSource(candidate.avatar_data_url)} alt={`${candidate.candidate_name || "候选人"}头像`}>{candidate.candidate_name?.slice(0, 1) || "人"}</Avatar>
           <Flex vertical gap={4} style={{ minWidth: 0, flex: 1 }}>
             <Typography.Title level={3} style={{ margin: 0 }}>{candidate.candidate_name || "未命名候选人"}</Typography.Title>
             <Typography.Text type="secondary">{facts.join(" · ") || "基础信息待补充"}</Typography.Text>

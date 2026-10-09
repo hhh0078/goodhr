@@ -61,7 +61,7 @@ func TestBrowserExtensionReleasePostgresMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var release BrowserExtensionRelease
-	if json.Unmarshal([]byte(cfg.ConfigValue), &release) != nil || release.Version != "1.0.0" || len(release.SHA256Chrome) != 64 || len(release.SHA256Firefox) != 64 || release.FirefoxSigned {
+	if json.Unmarshal([]byte(cfg.ConfigValue), &release) != nil || release.Version != "1.0.1" || len(release.SHA256Chrome) != 64 || len(release.SHA256Firefox) != 64 || release.FirefoxSigned {
 		t.Fatal("迁移中的开发包信息不完整")
 	}
 	cfg.ConfigValue = `{"version":"custom-admin-release"}`

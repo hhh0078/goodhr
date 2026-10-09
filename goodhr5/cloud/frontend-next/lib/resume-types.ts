@@ -7,7 +7,7 @@ export type ResumeExperience = {
 export type ResumeNote = { id: string; content: string; author_email?: string; author_name?: string; created_at?: string };
 export type ResumeSource = { platform_id?: string; platform_candidate_id?: string; source_type?: string; source_url?: string; created_at?: string };
 export type Resume = {
-  id: string; candidate_name: string; phone?: string; email?: string; gender?: string; birth_ym?: string;
+  id: string; candidate_name: string; phone?: string; email?: string; gender?: string; birth_ym?: string; avatar_data_url?: string;
   age?: number | null; current_region?: string; expected_region?: string; work_region?: string;
   work_years?: string; work_years_number?: number | null; education_level?: string; work_status?: string;
   expected_position?: string; expected_salary_min?: number | null; expected_salary_max?: number | null;
@@ -44,6 +44,10 @@ export const sourceOptions = [
   { value: "manual", label: "手动添加" }, { value: "ai_import", label: "AI 解析" },
   { value: "browser_extension", label: "浏览器插件" }, { value: "automatic", label: "自动任务" },
 ];
+/** avatarSource 仅展示云端规范化的内嵌PNG/JPEG头像，拒绝远程地址和超出合同大小的内容。 */
+export function avatarSource(value?: string) {
+  return typeof value === "string" && value.length <= 128 * 1024 && /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : undefined;
+}
 /** sourceLabel 将简历来源或平台标识转成简短中文文案。 */
 export function sourceLabel(value?: string) {
   return sourceOptions.find((item) => item.value === value)?.label ||

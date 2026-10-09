@@ -9,7 +9,7 @@ import (
 )
 
 const browserExtensionConfigKey = "system.browser_extension"
-const defaultBrowserExtensionConfig = `{"version":"1.0.0","note":"首版简历采集插件，Chrome 与 Firefox 共用版本号。当前为开发安装包。","url_chrome":"/downloads/goodhr-extension-chrome-1.0.0.zip","url_firefox":"/downloads/goodhr-extension-firefox-1.0.0.zip","sha256_chrome":"f0a52c490adb63d2d4a086e32be8caee21fbd0e5c73cff92600f74efabae70de","sha256_firefox":"f159f4b61176d5c909031d0bc0ba7f4b20b7bc40eab1ea739765a168f755ec46","firefox_signed":false}`
+const defaultBrowserExtensionConfig = `{"version":"1.0.1","note":"补齐可见头像保存与完整简历入口；Chrome 与 Firefox 共用版本号。当前为开发安装包。","url_chrome":"/downloads/goodhr-extension-chrome-1.0.1.zip","url_firefox":"/downloads/goodhr-extension-firefox-1.0.1.zip","sha256_chrome":"855118f185cfa5e8aa3f45a1de4e663fb50deef496da31134709ebe6684fefb8","sha256_firefox":"a1d1eb60f68264c029f5821884e0d2ec36b0d2221a824f55c5fc148bc9d497f5","firefox_signed":false}`
 
 // BrowserExtensionRelease 定义唯一插件版本和两个浏览器安装包。
 type BrowserExtensionRelease struct {

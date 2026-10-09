@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 
 const previewOrigin = new URL(process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190").origin;
 const screenshotDirectory = resolve("artifacts/resume-library");
+// 合成16px纯色PNG只用于界面验证，不含任何真实候选人的照片。
+const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 type Call = { path: string; method: string; body: any; query: URLSearchParams };
 type State = { calls: Call[]; notes: any[]; recommendations: any[]; candidates: any[]; failFirstNote: boolean; failConfirmAt?: number; task: any; errors: string[] };
 const existing = { id: "resume-existing", candidate_name: "原有候选人", phone: "13800138000", row_version: 3, source_type: "automatic", education_level: "本科", expected_salary_min: null, expected_salary_max: null, work_experiences: [{ company_name: "原有公司", position_name: "产品经理", start_ym: "2021-01", content: "已有工作经历保留" }], user_email: "test@example.invalid", created_at: "2026-10-10T10:00:00+08:00", ai: { detail: { score: null, reason: "" } } };
@@ -129,6 +131,38 @@ test("精确重复先比较更新，空经历不会覆盖原简历", async ({ pa
   expect(state.errors).toEqual([]);
 });
 
+test("内嵌头像在列表和详情实际加载，坏图和空图回退到姓名首字", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.candidates[0].avatar_data_url = syntheticAvatar;
+  state.candidates.push({ ...existing, id: "resume-broken-avatar", candidate_name: "坏图候选人", phone: "13700137000", avatar_data_url: "data:image/png;base64,YmFk" }, { ...existing, id: "resume-no-avatar", candidate_name: "空图候选人", phone: "13900139000" });
+  await page.goto("/admin/resumes");
+  const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: "原有候选人", exact: true }) });
+  const listAvatar = row.getByRole("img", { name: "原有候选人头像", exact: true });
+  await expect(listAvatar).toBeVisible(); await expect(listAvatar).toHaveAttribute("src", syntheticAvatar);
+  await expect.poll(() => listAvatar.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(16);
+  await expect(row.locator(".ant-avatar-string")).toHaveCount(0);
+  mkdirSync(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: resolve(screenshotDirectory, "avatar-list.png"), fullPage: true, animations: "disabled" });
+  await page.getByRole("button", { name: "原有候选人", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
+  const detailAvatar = drawer.getByRole("img", { name: "原有候选人头像", exact: true });
+  await expect(detailAvatar).toBeVisible();
+  await expect.poll(() => detailAvatar.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(16);
+  await expect(drawer.locator(".ant-avatar-string")).toHaveCount(0);
+  await page.screenshot({ path: resolve(screenshotDirectory, "avatar-detail.png"), fullPage: true, animations: "disabled" });
+  await drawer.getByRole("button", { name: "关闭", exact: true }).click();
+  for (const name of ["坏图候选人", "空图候选人"]) {
+    const fallbackRow = page.getByRole("row").filter({ has: page.getByRole("button", { name, exact: true }) });
+    await expect(fallbackRow.locator(".ant-avatar-string")).toHaveText(name.slice(0, 1));
+    await expect(fallbackRow.getByRole("img", { name: `${name}头像`, exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name, exact: true }).click();
+    const fallbackDrawer = page.getByRole("dialog", { name, exact: true });
+    await expect(fallbackDrawer.locator(".ant-avatar-string")).toHaveText(name.slice(0, 1));
+    await fallbackDrawer.getByRole("button", { name: "关闭", exact: true }).click();
+  }
+  expect(state.errors).toEqual([]);
+});
+
 test("手动删除末经历和清空邮箱默认保留，勾选后仅清空明确选择的字段", async ({ page }) => {
   const state = await mockResumeSession(page);
   state.candidates[0].email = "preserved@example.invalid"; state.candidates[0].current_region = "上海";
@@ -232,7 +266,7 @@ test("重新打开恢复本地草稿，缺手机号只能补齐后逐份确认",
 test("AI草稿比较更新只提交预览中的有效改动，空邮箱和空经历保留已有内容", async ({ page }) => {
   const state = await mockResumeSession(page);
   state.candidates[0].email = "preserved@example.invalid";
-  state.task.items[0] = { id: "import-item", file_name: "比较更新.txt", status: "ready", candidate: { candidate_name: "解析候选人", phone: existing.phone, email: "", work_experiences: [], expected_salary_min: null, source_type: "ai_import" } };
+  state.task.items[0] = { id: "import-item", file_name: "比较更新.txt", status: "ready", candidate: { candidate_name: "解析候选人", phone: existing.phone, email: "", work_experiences: [], expected_salary_min: null, source_type: "ai_import", avatar_data_url: syntheticAvatar } };
   await page.goto("/admin/resumes");
   await page.evaluate(() => localStorage.setItem("goodhr5_resume_import:resume-user", "import-test"));
   await page.getByRole("button", { name: "添加", exact: true }).click();
@@ -249,13 +283,16 @@ test("AI草稿比较更新只提交预览中的有效改动，空邮箱和空经
   await expect(preview.getByText("邮箱", { exact: true })).toHaveCount(0);
   await expect(preview.getByText("工作经历", { exact: true })).toHaveCount(0);
   await expect(preview.getByRole("checkbox", { name: /^确认清空/ })).toHaveCount(0);
+  await expect(preview.getByText("头像", { exact: true })).toBeVisible();
+  await expect(preview.getByRole("img", { name: "拟保存头像", exact: true })).toBeVisible();
+  await expect(preview).not.toContainText("data:image/png;base64");
   await preview.getByRole("button", { name: "确认保存" }).click();
   await expect(importer.getByText("已入库", { exact: true }).first()).toBeVisible();
   const confirms = state.calls.filter((call) => call.path.endsWith("/confirm"));
   expect(confirms).toHaveLength(1);
   const submitted = confirms[0].body.items[0];
   expect(submitted.candidate_id).toBe(existing.id);
-  expect(submitted.candidate).toEqual({ candidate_name: "解析候选人", phone: existing.phone, row_version: 3 });
+  expect(submitted.candidate).toEqual({ candidate_name: "解析候选人", phone: existing.phone, row_version: 3, avatar_data_url: syntheticAvatar });
   expect(submitted.candidate).not.toHaveProperty("email");
   expect(submitted.candidate).not.toHaveProperty("work_experiences");
   expect(state.candidates).toHaveLength(1);

@@ -2,7 +2,7 @@
 <!-- 文件作用：工具栏弹窗和浏览器原生侧栏共用的简历采集、登录及记录界面；不嵌入招聘页面。 -->
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>GoodHR 简历助手</title><link rel="stylesheet" href="ui.css"></head>
 <body>
-  <header><div><strong>GoodHR 简历助手</strong><small id="version">v1.0.0</small></div><button id="sidebar" class="quiet" type="button">放到侧栏</button></header>
+  <header><div><strong>GoodHR 简历助手</strong><small id="version">v1.0.1</small></div><button id="sidebar" class="quiet" type="button">放到侧栏</button></header>
   <main>
     <p id="status" role="status" aria-live="polite">我先看看当前简历……</p>
     <section class="consent"><label><input id="consent" type="checkbox">同意把我确认的简历资料保存到 GoodHR</label><p>只读取当前可见简历；不会替你点击、购买手机号或滚动页面。详情：<a href="privacy.html" target="_blank" rel="noreferrer">插件数据说明</a></p></section>
@@ -23,6 +23,7 @@
       <div id="account-row" class="account"><span id="account"></span><button id="logout" class="quiet">退出</button></div>
       <div class="inline"><h1>当前简历预览</h1><button id="reload" class="quiet">重新读取</button></div>
       <p id="source" class="muted"></p>
+      <div class="avatar-status"><img id="candidate-avatar" alt="GoodHR 已保存的候选人头像" width="48" height="48" hidden><p id="avatar-status" class="muted"></p><button id="retry-avatar" type="button" hidden>重试保存头像</button></div>
       <form id="candidate-form">
         <div class="grid"><label>姓名 <span>*</span><input id="name" maxlength="80" required></label><label>手机号 <span>*</span><input id="phone" inputmode="tel" maxlength="32" placeholder="未识别到时请补填" required></label></div>
         <div class="grid"><label>邮箱<input id="candidate-email" type="email" maxlength="120"></label><label>城市<input id="city" maxlength="80"></label></div>
@@ -31,10 +32,10 @@
         <div class="inline search"><input id="duplicate-keyword" placeholder="姓名、学校、公司等相似线索" maxlength="200" aria-label="相似查询关键字"><button id="check" type="button">查重</button></div>
         <div id="duplicates" aria-live="polite"></div>
         <label>岗位（可不选）<input id="job-filter" placeholder="搜索岗位名称" maxlength="120"><select id="job"><option value="">先放进简历库</option></select></label>
-        <label>本次备注（可不填）<textarea id="note" rows="3" maxlength="6000" placeholder="沟通情况、看法、下一步都可以写"></textarea></label>
+        <label>本次备注（可不填，最多1000字）<textarea id="note" rows="3" maxlength="1000" placeholder="沟通情况、看法、下一步都可以写"></textarea></label>
         <div class="actions"><button id="save" class="primary" type="submit">添加简历</button><button id="save-related" type="button" hidden>保存备注 / 关联岗位</button><button id="update" class="quiet" type="button" hidden>确认更新已有资料</button></div>
       </form>
-      <section id="records" hidden><h2>备注和推荐记录</h2><div id="notes"></div><div id="recommendations"></div></section>
+      <section id="records" hidden><div class="inline"><h2>备注和推荐记录</h2><a id="candidate-link" target="_blank" rel="noreferrer" hidden>到 GoodHR 看完整简历</a></div><div id="notes"></div><div id="recommendations"></div></section>
     </section>
   </main><footer>页面上没有小悬浮框，工具栏 + 号会小声提醒你。</footer>
   <script src="shared.js"></script><script src="ui.js"></script>

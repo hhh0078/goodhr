@@ -47,14 +47,14 @@ function manifest(browser) {
     manifest_version: 3, name: "GoodHR 简历助手", version,
     description: "只读采集当前可见候选人，确认后添加到 GoodHR 简历库；不点击、滚动或修改招聘页面。",
     permissions: ["storage"],
-    host_permissions: ["https://goodhr.58it.cn/*", "http://127.0.0.1/*", "https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"],
+    host_permissions: ["https://goodhr.58it.cn/*", "http://127.0.0.1/*", "https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://*.lietou-static.com/*", "https://mypics.zhaopin.cn/*"],
     icons: { "32": "icons/32.png", "64": "icons/64.png", "128": "icons/128.png" },
     action: { default_title: "GoodHR 简历助手", default_popup: "src/ui.html", default_icon: { "32": "icons/32.png" } },
     content_scripts: [{ matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"], js: ["src/shared.js", "src/extraction.js", "src/content.js"], run_at: "document_idle", all_frames: false }],
     content_security_policy: { extension_pages: "script-src 'self'; object-src 'none';" }
   };
   if (browser === "chrome") return { ...common, minimum_chrome_version: "116", permissions: [...common.permissions, "sidePanel"], background: { service_worker: "src/background.js" }, side_panel: { default_path: "src/ui.html" } };
-  return { ...common, background: { scripts: ["src/shared.js", "src/background.js"] }, sidebar_action: { default_title: "GoodHR 简历助手", default_panel: "src/ui.html", default_icon: "icons/32.png" }, browser_specific_settings: { gecko: { id: "resume-assistant@goodhr.58it.cn", strict_min_version: "140.0", data_collection_permissions: { required: ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent", "personalCommunications"] } } } };
+  return { ...common, background: { scripts: ["src/shared.js", "src/avatar.js", "src/background.js"] }, sidebar_action: { default_title: "GoodHR 简历助手", default_panel: "src/ui.html", default_icon: "icons/32.png" }, browser_specific_settings: { gecko: { id: "resume-assistant@goodhr.58it.cn", strict_min_version: "140.0", data_collection_permissions: { required: ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent", "personalCommunications"] } } } };
 }
 
 /** build 清理已确认的插件 dist 目录并输出开发包与校验摘要。 */
@@ -77,4 +77,4 @@ function build() {
 }
 
 if (require.main === module) build();
-module.exports = { manifest, zipBuffer, crc32, build };
+module.exports = { manifest, zipBuffer, crc32, iconPNG, build };

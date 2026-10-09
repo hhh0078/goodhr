@@ -1,8 +1,9 @@
 /* 文件作用：持有受限凭证、管理本地配对与云端简历请求；凭证永不交给招聘页面或插件 UI。 */
 "use strict";
-if (typeof importScripts === "function") importScripts("shared.js");
+if (typeof importScripts === "function") importScripts("shared.js", "avatar.js");
 const extension = globalThis.browser || globalThis.chrome;
 const shared = globalThis.GoodHRShared;
+const avatar = globalThis.GoodHRAvatar;
 const snapshots = new Map();
 let restoreAttempted = false;
 let authGeneration = 0, revokeInFlight = null, lastRevokeAttempt = 0;
@@ -103,19 +104,23 @@ async function logout() {
 }
 
 /** cloudRequest 请求插件受限接口，过期时最多刷新一次，不自动重放业务失败。 */
-async function cloudRequest(path, body, method, retry = true) {
-  const generation = authGeneration;
+async function cloudRequest(path, body, method, retry = true, expectedGeneration = authGeneration) {
+  const generation = expectedGeneration;
   const settings = await readSettings();
+  if (generation !== authGeneration) throw new Error("账号已经变化，本次操作已停止，请确认账号后重新保存");
   if (!settings.session?.token) throw new Error("我先小声提醒一下，请先登录 GoodHR");
   try {
-    return await requestJSON(shared.CLOUD_BASE + path, { method: method || (body ? "POST" : "GET"), headers: { Authorization: `Bearer ${settings.session.token}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const result = await requestJSON(shared.CLOUD_BASE + path, { method: method || (body ? "POST" : "GET"), headers: { Authorization: `Bearer ${settings.session.token}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    if (generation !== authGeneration) throw new Error("账号已经变化，旧账号的结果已停止展示，请重新确认保存结果");
+    return result;
   } catch (error) {
     if (error.status === 401 && retry && path !== "/api/auth/extension-refresh") {
+      if (generation !== authGeneration) throw new Error("账号已经变化，本次操作已停止，请确认账号后重新保存");
       try {
         const refreshed = await requestJSON(shared.CLOUD_BASE + "/api/auth/extension-refresh", { method: "POST", headers: { Authorization: `Bearer ${settings.session.token}` }, body: "{}" });
         await storeSession(refreshed, generation);
       } catch { if ((await readSettings()).session?.token === settings.session.token) await extension.storage.local.remove("session"); throw new Error("登录已经过期，请重新登录，我保留了当前表单"); }
-      return cloudRequest(path, body, method, false);
+      return cloudRequest(path, body, method, false, generation);
     }
     throw error;
   }
@@ -165,7 +170,8 @@ async function checkPair() {
   const result = await localRequest("/api/v1/extensions/pair/status", { installation_id: pending.installation_id, challenge: pending.challenge, pairing_id: pending.pairing_id });
   if (result.status === "approved") {
     const settings = await readSettings();
-    await storeSession(result, generation, result.pairing_token ? { pairing_token: result.pairing_token, installation_id: pending.installation_id, local_port: settings.local_port || 43129 } : null);
+    const sessionGeneration = generation === authGeneration ? ++authGeneration : generation;
+    await storeSession(result, sessionGeneration, result.pairing_token ? { pairing_token: result.pairing_token, installation_id: pending.installation_id, local_port: settings.local_port || 43129 } : null);
     await extension.storage.local.remove("pending_pair");
     restoreAttempted = false;
   }
@@ -182,10 +188,26 @@ async function currentSnapshot() {
   return snapshots.get(tab.id) || null;
 }
 
+/** publicResume 仅公开头像已识别状态，不把招聘图片外链和临时参数交给 UI。 */
+function publicResume(snapshot) { if (!snapshot) return null; const { avatar_source_url, ...resume } = snapshot; return { ...resume, avatar_detected: Boolean(avatar_source_url) }; }
+
+/** requireActiveSession 在图片外部读取前检查插件账号，未登录预览不能触发图片请求。 */
+async function requireActiveSession() { if (!(await readSettings()).session?.token) throw new Error("请先登录 GoodHR，再保存简历和头像"); }
+
+/** prepareAvatar 绑定本次候选人快照，保存点击后才读取头像，切换详情时不串图。 */
+async function prepareAvatar(captureID) {
+  if (!captureID) return { data_url: "", warning: "" };
+  const snapshot = await currentSnapshot();
+  if (!snapshot || snapshot.capture_id !== captureID) return { data_url: "", warning: "候选人页面已经变化，头像未保存，请重新读取后重试" };
+  if (!snapshot.avatar_source_url) return { data_url: "", warning: "" };
+  try { return { data_url: await avatar.fetchAvatar(snapshot.avatar_source_url, snapshot.source_url), warning: "" }; }
+  catch (error) { return { data_url: "", warning: `${error.message || "头像暂时没保存好"}。简历资料仍可保存，原有头像会保留` }; }
+}
+
 /** publicState 返回不含 token、配对令牌、挑战值的界面状态。 */
 async function publicState() {
   await retryRevocation(); await tryRestore(); const settings = await readSettings();
-  return { logged_in: Boolean(settings.session?.token), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), resume: await currentSnapshot(), version: extension.runtime.getManifest().version };
+  return { logged_in: Boolean(settings.session?.token), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), resume: publicResume(await currentSnapshot()), version: extension.runtime.getManifest().version };
 }
 
 /** requireConsent 在任何云端业务提交前检查用户的简历数据授权。 */
@@ -193,16 +215,35 @@ async function requireConsent() { if (!(await readSettings()).data_use_accepted)
 
 /** createCandidate 在后端再校验手机号，并用幂等键防止连续点击重复添加。 */
 async function createCandidate(payload, updating = false) {
-  await requireConsent(); const resume = updating ? shared.nonEmptyResumePatch(payload.resume) : shared.sanitizeResume(payload.resume);
+  const generation = authGeneration;
+  await requireConsent(); await requireActiveSession(); const resume = updating ? shared.nonEmptyResumePatch(payload.resume) : shared.sanitizeResume(payload.resume);
+  if (generation !== authGeneration) throw new Error("账号已经变化，本次保存已停止，请确认账号后重新保存");
   if (!resume.candidate_name || !resume.phone) throw new Error("姓名和完整手机号都填一下，我才能认真入库");
   const input = { ...resume, idempotency_key: shared.cleanText(payload.idempotency_key, 100) };
   if (!input.idempotency_key) throw new Error("这次保存缺少标识，请重新点击添加");
+  const image = await prepareAvatar(payload.capture_id); if (image.data_url && (!updating || image.data_url !== payload.existing_avatar_data_url)) input.avatar_data_url = image.data_url;
+  if (generation !== authGeneration) throw new Error("账号已经变化，本次保存已停止，请确认账号后重新保存");
+  let result;
   if (updating) {
     if (!payload.candidate_id || !payload.row_version) throw new Error("请重新查重后再更新，避免覆盖别人刚改的资料");
     input.row_version = payload.row_version;
-    return cloudRequest(`/api/candidates/${encodeURIComponent(payload.candidate_id)}`, input, "PATCH");
+    result = await cloudRequest(`/api/candidates/${encodeURIComponent(payload.candidate_id)}`, input, "PATCH", true, generation);
+  } else {
+    result = await cloudRequest("/api/candidates", input, "POST", true, generation);
   }
-  return cloudRequest("/api/candidates", input);
+  return { ...result, avatar_warning: image.warning };
+}
+
+/** retryAvatar 仅更新选定候选人的头像，独立幂等重试，不重建简历或备注。 */
+async function retryAvatar(payload) {
+  const generation = authGeneration;
+  await requireConsent(); await requireActiveSession();
+  if (generation !== authGeneration) throw new Error("账号已经变化，本次头像保存已停止，请确认账号后重试");
+  if (!payload.candidate_id || !payload.row_version || !payload.idempotency_key) throw new Error("请重新查重选择候选人，再重试头像");
+  const image = await prepareAvatar(payload.capture_id); if (!image.data_url) throw new Error(image.warning || "未识别到当前头像，可先保存简历，稍后重新读取后重试头像");
+  if (generation !== authGeneration) throw new Error("账号已经变化，本次头像保存已停止，请确认账号后重试");
+  if (image.data_url === payload.existing_avatar_data_url) return { unchanged: true };
+  return cloudRequest(`/api/candidates/${encodeURIComponent(payload.candidate_id)}`, { avatar_data_url: image.data_url, row_version: payload.row_version, idempotency_key: shared.cleanText(payload.idempotency_key, 100) }, "PATCH", true, generation);
 }
 
 /** handleUIMessage 接收插件界面的明确操作，所有接口固定而非通用代理。 */
@@ -210,11 +251,11 @@ async function handleUIMessage(message) {
   const payload = message.payload || {};
   switch (message.type) {
     case "STATE": return publicState();
-    case "PREVIEW": return { resume: await currentSnapshot(), version: extension.runtime.getManifest().version };
+    case "PREVIEW": return { resume: publicResume(await currentSnapshot()), version: extension.runtime.getManifest().version };
     case "CONSENT": await extension.storage.local.set({ data_use_accepted: payload.accepted === true }); return { ok: true };
     case "SEND_CODE": return requestJSON(shared.CLOUD_BASE + "/api/auth/extension-send-code", { method: "POST", body: JSON.stringify({ email: shared.cleanText(payload.email, 120) }) });
     case "LOGIN": {
-      const generation = authGeneration;
+      const generation = ++authGeneration;
       const input = { email: shared.cleanText(payload.email, 120), agreement_accepted: payload.agreement_accepted === true };
       if (payload.code) input.code = shared.cleanText(payload.code, 20); else input.password = String(payload.password || "");
       await storeSession(await requestJSON(shared.CLOUD_BASE + "/api/auth/extension-login", { method: "POST", body: JSON.stringify(input) }), generation);
@@ -232,6 +273,7 @@ async function handleUIMessage(message) {
     }
     case "CREATE": return createCandidate(payload);
     case "UPDATE": return createCandidate(payload, true);
+    case "AVATAR_RETRY": return retryAvatar(payload);
     case "DETAIL": {
       const path = `/api/candidates/${encodeURIComponent(payload.candidate_id)}`;
       const [notes, recommendations] = await Promise.all([cloudRequest(path + "/notes"), cloudRequest(path + "/recommendations")]); return { ...notes, ...recommendations };
@@ -258,7 +300,13 @@ function onMessage(message, sender, sendResponse) {
     if (message.type !== "CANDIDATE_SNAPSHOT" || sender.frameId !== 0 || !shared.platformForURL(sender.tab.url)) return false;
     const resume = message.resume ? shared.sanitizeResume(message.resume) : null;
     if (resume?.platform_id && resume.platform_id !== shared.platformForURL(sender.tab.url)) return false;
-    if (resume?.candidate_name) snapshots.set(sender.tab.id, resume); else snapshots.delete(sender.tab.id);
+    if (resume?.candidate_name) {
+      const imageSource = shared.safeAvatarSource(message.resume.avatar_source_url, sender.tab.url);
+      if (imageSource) resume.avatar_source_url = imageSource;
+      const old = snapshots.get(sender.tab.id), { capture_id, ...oldResume } = old || {};
+      resume.capture_id = old && JSON.stringify(oldResume) === JSON.stringify(resume) ? capture_id : shared.newKey();
+      snapshots.set(sender.tab.id, resume);
+    } else snapshots.delete(sender.tab.id);
     extension.action.setBadgeText({ tabId: sender.tab.id, text: resume?.candidate_name ? "+" : "" });
     extension.action.setBadgeBackgroundColor({ tabId: sender.tab.id, color: "#8A6721" });
     extension.action.setTitle({ tabId: sender.tab.id, title: resume?.candidate_name ? "当前有简历，可添加到 GoodHR" : "GoodHR 简历助手" });

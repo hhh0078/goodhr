@@ -4,6 +4,7 @@ const extension = globalThis.browser || globalThis.chrome;
 const $ = (id) => document.getElementById(id);
 let mode = "password", currentResume = null, lastFingerprint = "", selectedCandidate = null, matches = [], positions = [], loggedIn = false, busy = false, pairPending = false, hiddenDuplicate = false;
 let saveKey = GoodHRShared.newKey(), noteKey = GoodHRShared.newKey(), recommendationKey = GoodHRShared.newKey();
+let avatarWarning = "", avatarKey = GoodHRShared.newKey();
 
 /** send 向后台发出明确操作，界面永远不接触凭证。 */
 async function send(type, payload = {}) { const result = await extension.runtime.sendMessage({ type, payload }); if (!result?.ok) { const unavailableLogin = ["LOGIN", "SEND_CODE"].includes(type) && result?.status === 404; const error = new Error(unavailableLogin ? "当前服务还没更新插件登录，请先用只读预览，稍后更新后登录" : result?.message || "没有处理成功，请再试一次"); error.status = result?.status; error.code = result?.code; throw error; } return result.data; }
@@ -29,7 +30,7 @@ function formResume() { return GoodHRShared.sanitizeResume({ ...currentResume, c
 function refreshActions() {
   const unavailable = busy || !loggedIn || !$("consent").checked;
   $("save").hidden = Boolean(selectedCandidate); $("save-related").hidden = !selectedCandidate; $("update").hidden = !selectedCandidate || !selectedCandidate.row_version;
-  for (const id of ["check", "save-related", "update", "job", "job-filter", "note"]) $(id).disabled = unavailable;
+  for (const id of ["check", "save-related", "update", "retry-avatar", "job", "job-filter", "note"]) $(id).disabled = unavailable;
   $("save").disabled = unavailable || !currentResume || hiddenDuplicate;
 }
 
@@ -54,10 +55,19 @@ function renderPreview(resume) {
   }
 }
 
+/** renderAvatar 仅显示 GoodHR 已保存的内嵌图，源头像预览不请求第三方图片。 */
+function renderAvatar(candidate = selectedCandidate) {
+  const saved = GoodHRShared.validStoredAvatar(candidate?.avatar_data_url), image = $("candidate-avatar");
+  image.hidden = !saved; if (saved) image.src = candidate.avatar_data_url; else image.removeAttribute("src");
+  $("avatar-status").textContent = avatarWarning || (saved ? "头像已保存到 GoodHR" : currentResume?.avatar_detected ? "已识别到当前头像，保存时一并读取" : "当前没有识别到头像，可先保存简历，稍后重新读取后重试头像");
+  $("retry-avatar").hidden = !avatarWarning || !selectedCandidate?.id || !currentResume?.avatar_detected;
+}
+
 /** fillResume 在候选人变化时清除上一个人的备注、岗位和选择，避免错记。 */
 function fillResume(resume) {
   currentResume = resume; selectedCandidate = null; matches = []; hiddenDuplicate = false;
   saveKey = GoodHRShared.newKey(); noteKey = GoodHRShared.newKey(); recommendationKey = GoodHRShared.newKey();
+  avatarWarning = ""; avatarKey = GoodHRShared.newKey(); renderAvatar(null); $("candidate-link").hidden = true;
   for (const [id, field] of Object.entries({ name: "candidate_name", phone: "phone", "candidate-email": "email", city: "work_region", position: "current_position", "expected-position": "expected_position" })) $(id).value = resume?.[field] || "";
   $("note").value = ""; $("job").value = ""; $("duplicates").replaceChildren(); $("records").hidden = true;
   renderPreview(resume);
@@ -115,10 +125,11 @@ function renderMatches() {
     const candidate = match.candidate;
     const label = document.createElement("label"); label.className = "match" + (selectedCandidate?.id === candidate.id ? " selected" : "");
     const radio = document.createElement("input"); radio.type = "radio"; radio.name = "match"; radio.checked = selectedCandidate?.id === candidate.id;
-    radio.addEventListener("change", () => runAction(async () => { selectedCandidate = candidate; renderMatches(); refreshActions(); await loadRecords(); showStatus("已选择已有简历，备注和岗位可单独保存"); }));
+    radio.addEventListener("change", () => runAction(async () => { selectedCandidate = candidate; avatarWarning = ""; renderAvatar(); renderMatches(); refreshActions(); await loadRecords(); showStatus("已选择已有简历，备注和岗位可单独保存"); }));
     const title = document.createElement("strong"); title.textContent = `${candidate.candidate_name || candidate.name || "未填写姓名"} · ${candidate.phone || "手机号待补充"}`;
     const reason = document.createElement("span"); reason.textContent = `${match.match_type === "exact" ? "精确线索" : "可能重复，需要你确认"}：${(match.reasons || []).join("、")}`;
-    label.append(radio, title, document.createElement("br"), reason); $("duplicates").append(label);
+    const link = document.createElement("a"); link.textContent = "查看完整简历"; link.href = `${GoodHRShared.CLOUD_BASE}/admin/resumes/detail?candidate_id=${encodeURIComponent(candidate.id)}`; link.target = "_blank"; link.rel = "noreferrer";
+    label.append(radio, title, document.createElement("br"), reason, document.createElement("br"), link); $("duplicates").append(label);
   }
   if (matches.some((match) => match.match_type === "exact")) { const notice = document.createElement("p"); notice.className = "muted"; notice.textContent = "手机号相同需要使用已有简历；资料更新前请点“确认更新”。"; $("duplicates").append(notice); }
 }
@@ -127,6 +138,7 @@ function renderMatches() {
 async function loadRecords() {
   if (!selectedCandidate?.id) return;
   const result = await send("DETAIL", { candidate_id: selectedCandidate.id });
+  $("candidate-link").href = `${GoodHRShared.CLOUD_BASE}/admin/resumes/detail?candidate_id=${encodeURIComponent(selectedCandidate.id)}`; $("candidate-link").hidden = false;
   $("notes").replaceChildren(); $("recommendations").replaceChildren(); $("records").hidden = false;
   const notes = result.notes || result.items || [];
   if (!notes.length) { const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "暂无备注，第一次记账就交给你了。"; $("notes").append(empty); }
@@ -159,14 +171,25 @@ async function saveCandidate(updating = false) {
   if (!resume.candidate_name || !resume.phone) throw new Error("请补齐姓名和完整的 11 位手机号");
   if (updating) {
     const changes = GoodHRShared.describeResumeChanges(selectedCandidate, resume);
+    if (currentResume?.avatar_detected) changes.push("头像：尝试同步当前头像，读取失败会保留已有头像");
     if (!changes.length) { showStatus("资料没有变化，已有内容都保留了"); return; }
     const summary = changes.join("\n");
     if (!confirm(`将更新以下资料：\n${summary}\n\n未读到和未填写的字段会保留已有内容。确认更新吗？`)) return;
   }
-  const result = await send(updating ? "UPDATE" : "CREATE", { resume, idempotency_key: saveKey, candidate_id: selectedCandidate?.id, row_version: selectedCandidate?.row_version });
+  const result = await send(updating ? "UPDATE" : "CREATE", { resume, capture_id: currentResume?.capture_id, existing_avatar_data_url: selectedCandidate?.avatar_data_url, idempotency_key: saveKey, candidate_id: selectedCandidate?.id, row_version: selectedCandidate?.row_version });
   selectedCandidate = result.candidate || result;
   if (!selectedCandidate?.id) throw new Error("没有拿到简历编号，请先查重确认保存结果，别急着重复添加");
+  avatarWarning = result.avatar_warning || ""; avatarKey = GoodHRShared.newKey(); renderAvatar();
   refreshActions(); saveKey = GoodHRShared.newKey(); await saveFollowups();
+  if (avatarWarning) showStatus(`${$("status").textContent}；${avatarWarning}`, true);
+}
+
+/** retryAvatar 独立重试头像，成功后刷新版本并保持备注及岗位输入。 */
+async function retryAvatar() {
+  requireAccount();
+  const result = await send("AVATAR_RETRY", { candidate_id: selectedCandidate?.id, row_version: selectedCandidate?.row_version, capture_id: currentResume?.capture_id, existing_avatar_data_url: selectedCandidate?.avatar_data_url, idempotency_key: avatarKey });
+  if (!result.unchanged) { selectedCandidate = result.candidate || result; if (!selectedCandidate?.id) throw new Error("头像结果暂未确认，请重新查重后再试"); }
+  avatarWarning = ""; avatarKey = GoodHRShared.newKey(); renderAvatar(); showStatus(result.unchanged ? "头像和已保存的一样，原图保留了" : "头像已保存，备注和岗位输入都保留了");
 }
 
 /** pollPair 每两秒查询待确认授权，授权成功后只显示账号而不显示 token。 */
@@ -191,6 +214,7 @@ $("job-filter").addEventListener("input", renderPositions);
 $("candidate-form").addEventListener("submit", (event) => { event.preventDefault(); runAction(() => saveCandidate()); });
 $("update").addEventListener("click", () => runAction(() => saveCandidate(true)));
 $("save-related").addEventListener("click", () => runAction(saveFollowups));
+$("retry-avatar").addEventListener("click", () => runAction(retryAvatar));
 $("sidebar").addEventListener("click", () => { if (extension.sidebarAction?.open) extension.sidebarAction.open().catch((error) => showStatus(error.message, true)); else runAction(() => send("OPEN_SIDEBAR")); });
 loadState(true).catch((error) => showStatus(error.message, true));
 setInterval(() => { pollPair(); if (!busy) loadState().catch(() => {}); }, 2500);

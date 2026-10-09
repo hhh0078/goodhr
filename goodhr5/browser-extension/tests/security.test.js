@@ -7,19 +7,26 @@ const src = path.join(__dirname, "..", "src");
 function backgroundFixture(fetchReply) {
   const values = { session: { token: "private-background-token", user: { email: "fixture@example.test", id: "fixture" }, expires_at: "2030-01-01" } }, requests = []; let listener;
   const extension = {
-    runtime: { id: "test-extension", getURL: (value) => "chrome-extension://test-extension/" + value, getManifest: () => ({ version: "1.0.0" }), onMessage: { addListener: (handler) => { listener = handler; } } },
+    runtime: { id: "test-extension", getURL: (value) => "chrome-extension://test-extension/" + value, getManifest: () => ({ version: require("../package.json").version }), onMessage: { addListener: (handler) => { listener = handler; } } },
     storage: { local: { get: async (keys) => Object.fromEntries(keys.filter((key) => key in values).map((key) => [key, values[key]])), set: async (input) => Object.assign(values, input), remove: async (keys) => { for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key]; }, setAccessLevel: async () => {} } },
     tabs: { query: async () => [], create: async () => ({}), onRemoved: { addListener: () => {} }, onUpdated: { addListener: () => {} } },
     action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {}, setTitle: () => {} }
   };
   const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, console, fetch: async (url, options) => { requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
-  vm.runInContext(fs.readFileSync(path.join(src, "shared.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "background.js"), "utf8"), context);
+  vm.runInContext(fs.readFileSync(path.join(src, "shared.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "avatar.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "background.js"), "utf8"), context);
   return { values, requests, context, extension, message: (message, sender) => new Promise((resolve) => { const result = listener(message, sender, resolve); if (result === false) resolve(undefined); }) };
 }
 
 /** response 构造明确状态码的 JSON 响应，避免真实外部请求。 */
 function response(body = { ok: true }, status = 200) { return { ok: status >= 200 && status < 300, status, json: async () => body }; }
 const uiSender = { id: "test-extension", url: "chrome-extension://test-extension/src/ui.html" };
+
+/** avatarScene 构造当前头像快照及稳定采集标识，图片处理由后台测试替身负责。 */
+async function avatarScene(value) {
+  const tab = { id: 23, url: "https://h.liepin.com/resume/showresumedetail" }, resume = { candidate_name: "合成头像候选人", phone: "13800000001", platform_id: "hliepin", source_url: tab.url, avatar_source_url: "https://image0.lietou-static.com/fixture.png?signature=synthetic-value" };
+  value.extension.tabs.query = async () => [tab]; value.extension.tabs.sendMessage = async () => value.message({ type: "CANDIDATE_SNAPSHOT", resume }, { id: "test-extension", frameId: 0, tab });
+  const state = await value.message({ type: "PREVIEW" }, uiSender); return state.data.resume;
+}
 
 test("招聘页面只读脚本不写 DOM、不发请求、不读网站缓存、不模拟操作", () => {
   const code = ["content.js", "extraction.js"].map((name) => fs.readFileSync(path.join(src, name), "utf8")).join("\n");
@@ -28,7 +35,7 @@ test("招聘页面只读脚本不写 DOM、不发请求、不读网站缓存、�
 
 test("内容脚本不能调用登录、查重、保存或读取凭证接口", async () => {
   const value = backgroundFixture(), sender = { id: "test-extension", frameId: 0, tab: { id: 4, url: "https://h.liepin.com/resume/showresumedetail" } };
-  for (const type of ["STATE", "PREVIEW", "LOGIN", "CREATE", "DUPLICATES", "RESTORE", "FOLLOWUPS", "LOGOUT", "REVOKE_RETRY"]) assert.equal(await value.message({ type, payload: {} }, sender), undefined);
+  for (const type of ["STATE", "PREVIEW", "LOGIN", "CREATE", "AVATAR_RETRY", "DUPLICATES", "RESTORE", "FOLLOWUPS", "LOGOUT", "REVOKE_RETRY"]) assert.equal(await value.message({ type, payload: {} }, sender), undefined);
   assert.equal(value.requests.length, 0);
 });
 
@@ -83,6 +90,49 @@ test("未登录本地 PREVIEW读取当前简历不发云请求，也不恢复账
   assert.equal(value.requests.length, 0); assert.equal(value.values.session, undefined); assert.equal(JSON.stringify(result).includes("private-"), false);
   const save = await value.message({ type: "CREATE", payload: { resume: result.data.resume, idempotency_key: "not-logged-in" } }, uiSender);
   assert.equal(save.ok, false); assert.equal(value.requests.length, 0);
+});
+
+test("头像预览不公开图片源或请求外部图片，保存成功发送dataURL而不是外链", async () => {
+  const value = backgroundFixture(); value.values.data_use_accepted = true; const resume = await avatarScene(value);
+  assert.equal(resume.avatar_detected, true); assert.equal(JSON.stringify(resume).includes("lietou-static"), false); assert.equal(value.requests.length, 0);
+  let readCount = 0; value.context.GoodHRAvatar.fetchAvatar = async () => { readCount++; return "data:image/png;base64,AAAA"; };
+  const result = await value.message({ type: "CREATE", payload: { resume, capture_id: resume.capture_id, idempotency_key: "avatar-main-create" } }, uiSender);
+  assert.equal(result.ok, true); assert.equal(readCount, 1); const payload = JSON.parse(value.requests[0].options.body);
+  assert.equal(payload.avatar_data_url, "data:image/png;base64,AAAA"); assert.equal(payload.avatar_source_url, undefined); assert.equal(payload.capture_id, undefined);
+});
+
+test("头像失败保存其它资料并明确提醒，独立头像重试只PATCH头像且保留幂等键", async () => {
+  const value = backgroundFixture(); value.values.data_use_accepted = true; const resume = await avatarScene(value);
+  let failing = true; value.context.GoodHRAvatar.fetchAvatar = async () => { if (failing) throw new Error("合成图片读取失败"); return "data:image/png;base64,AAAA"; };
+  const created = await value.message({ type: "CREATE", payload: { resume, capture_id: resume.capture_id, idempotency_key: "avatar-create" } }, uiSender);
+  assert.equal(created.ok, true); assert.match(created.data.avatar_warning, /原有头像会保留/); assert.equal(JSON.parse(value.requests[0].options.body).avatar_data_url, undefined);
+  const retry = { candidate_id: "candidate-avatar", row_version: 1, capture_id: resume.capture_id, idempotency_key: "same-avatar-key" };
+  const failed = await value.message({ type: "AVATAR_RETRY", payload: retry }, uiSender); assert.equal(failed.ok, false); assert.equal(value.requests.length, 1);
+  failing = false; const succeeded = await value.message({ type: "AVATAR_RETRY", payload: retry }, uiSender); assert.equal(succeeded.ok, true);
+  assert.equal(value.requests[1].options.method, "PATCH"); assert.deepEqual(JSON.parse(value.requests[1].options.body), { avatar_data_url: "data:image/png;base64,AAAA", row_version: 1, idempotency_key: "same-avatar-key" });
+  const unchanged = await value.message({ type: "AVATAR_RETRY", payload: { ...retry, existing_avatar_data_url: "data:image/png;base64,AAAA" } }, uiSender); assert.equal(unchanged.data.unchanged, true); assert.equal(value.requests.length, 2);
+});
+
+test("头像读取等待期间退出或手动切号会取消CREATE及头像PATCH，不使用新账号保存旧资料", async () => {
+  for (const type of ["CREATE", "AVATAR_RETRY"]) for (const switchType of ["LOGOUT", "LOGIN"]) {
+    const value = backgroundFixture(); value.values.data_use_accepted = true; const resume = await avatarScene(value);
+    let release, started; const wait = new Promise((resolve) => { release = resolve; }), active = new Promise((resolve) => { started = resolve; });
+    value.context.GoodHRAvatar.fetchAvatar = async () => { started(); await wait; return "data:image/png;base64,AAAA"; };
+    const pending = value.message({ type, payload: { resume, candidate_id: "fixture-avatar", row_version: 1, capture_id: resume.capture_id, idempotency_key: "delayed-avatar" } }, uiSender);
+    await active;
+    await value.message({ type: switchType, payload: { email: "new-account@example.test", password: "synthetic", agreement_accepted: true } }, uiSender); release();
+    const result = await pending; assert.equal(result.ok, false); assert.match(result.message, /账号已经变化/);
+    assert.equal(value.requests.some((request) => request.url.includes("/api/candidates")), false);
+  }
+});
+
+test("原账号请求发出后退出，迟到成功结果不能返回给新账号界面", async () => {
+  let release, started; const wait = new Promise((resolve) => { release = resolve; }), active = new Promise((resolve) => { started = resolve; });
+  const value = backgroundFixture(async (url) => { if (url.endsWith("/api/candidates")) { started(); await wait; return response({ ok: true, candidate: { id: "private-old-account-result" } }); } return response(); });
+  value.values.data_use_accepted = true;
+  const pending = value.message({ type: "CREATE", payload: { resume: { candidate_name: "合成候选人", phone: "13800000001" }, idempotency_key: "original-account-request" } }, uiSender);
+  await active; await value.message({ type: "LOGOUT" }, uiSender); release();
+  const result = await pending; assert.equal(result.ok, false); assert.match(result.message, /旧账号的结果已停止展示/); assert.equal(JSON.stringify(result).includes("private-old-account-result"), false);
 });
 
 test("配对 port 只接受范围内整数且不能变成任意主机地址", () => {

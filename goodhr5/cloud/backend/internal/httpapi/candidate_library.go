@@ -84,7 +84,7 @@ type candidateRequestReceipt struct{ Fingerprint, ResultID string }
 
 var candidateTextColumns = []string{"candidate_name", "birth_ym", "phone", "email", "work_region", "work_years", "basic_info", "education_level", "expected_position", "online_status", "personal_description", "work_status", "raw_text"}
 var candidateArrayColumns = []string{"work_experiences", "educations", "certificates", "honors", "project_experiences", "colleague_communications"}
-var candidateExtraFields = []string{"gender", "age", "current_region", "expected_region", "current_position", "expected_salary_text", "current_salary_text", "tags", "library_status", "ai_summary", "source_type"}
+var candidateExtraFields = []string{"gender", "age", "current_region", "expected_region", "current_position", "expected_salary_text", "current_salary_text", "tags", "library_status", "ai_summary", "source_type", "avatar_data_url"}
 
 // normalizeCandidatePhone 整理号码，拒绝掩码、虚构长度和无法确认的号码。
 func normalizeCandidatePhone(value string) string {
@@ -111,6 +111,17 @@ func candidateMutationFields(input map[string]any, creating bool) (map[string]an
 	for _, key := range append(append([]string{}, candidateTextColumns...), candidateExtraFields...) {
 		value, present := input[key]
 		if !present {
+			continue
+		}
+		if key == "avatar_data_url" {
+			avatar, err := normalizeCandidateAvatar(value)
+			if err != nil {
+				return nil, err
+			}
+			// 当前不提供删除头像入口，空值不写入字段集合，更新时保留原头像。
+			if avatar != "" {
+				result[key] = avatar
+			}
 			continue
 		}
 		if key == "tags" {

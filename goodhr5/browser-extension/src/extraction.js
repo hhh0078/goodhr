@@ -8,6 +8,7 @@
       name: [".nest-resume-personal-name", "[class*='personalName--']", "[class*='name--']"],
       facts: [".nest-resume-personal-info", "[class*='personalInfo--']", ".personal-detail-age", ".personal-detail-edulevel", ".personal-detail-location"],
       phone: ["a[href^='tel:']", "[class*='phone--']", ".phone", ".contact-phone", ".connect-box dd"],
+      avatar: [".nest-resume-personal-avatar img", "img.nest-resume-personal-avatar", ".nest-resume-personal-photo img", ".nest-resume-personal img.c-special-face"],
       work: [".rd-work-item-cont", ".work-experience-item", "[class*='workExperienceItem--']"],
       education: [".rd-edu-info-item", ".education-item", "[class*='educationItem--']"],
       expected: [".expected-position", ".personal-expect-content", "[class*='intention--']"],
@@ -18,6 +19,7 @@
       marker: "#resume-detail-basic-info",
       name: ["#resume-detail-basic-info .name"], facts: ["#resume-detail-basic-info .sep-info"],
       phone: ["#resume-detail-basic-info .connect-box dd"],
+      avatar: ["#resume-detail-basic-info img.c-special-face"],
       work: ["#resume-detail-work-info .rd-work-item-cont"], education: ["#resume-detail-edu-info .rd-edu-info-item"],
       project: ["#resume-detail-project-info .rd-project-item-cont"],
       expected: ["#resume-detail-job-exp-info .tabs .title"],
@@ -27,6 +29,7 @@
       roots: [".con-container .resume"],
       name: [".baseinfo-container .name"], facts: [".baseinfo-container .center-top-item", ".baseinfo-container .detail-item"],
       phone: [".eh_take_phone_popper .eh_im_take_phone_wrap .action"],
+      avatar: [".baseinfo-container .el-avatar img"],
       work: [".work-container-item"], education: [".school-container-item", ".edu-container-item"],
       project: [".project-container-item"],
       expected: [".intention-container-item .item-info-position"], description: [".advantage-container", ".IM-base-module .IM-info-desc"]
@@ -35,6 +38,7 @@
       roots: [".new-resume-detail--inner", ".resume-detail"],
       name: [".resume-basic-new__name"], facts: [".resume-basic-new__meta-item"],
       phone: [".resume-basic-new__contacts--phone"],
+      avatar: [".resume-basic-new__portrait img"],
       work: [".new-work-experiences__item"], education: [".new-education-experiences__item"],
       project: [".new-project-experiences__item"],
       expected: [".new-resume-purposes__item-type"], description: [".resume-section-self-evaluation"]
@@ -148,6 +152,17 @@
     return salary ? { position: shared.cleanText(text.slice(0, salary.index).replace(/[·|：:\s]+$/, ""), 500), salary: salary[0] } : { position: text, salary: "" };
   }
 
+  /** readAvatarSource 只读当前候选人区域唯一可见头像的图片地址，不请求图片或读取缓存。 */
+  function readAvatarSource(scope, adapter, href) {
+    for (const selector of adapter.avatar || []) {
+      const images = visibleNodes(scope, selector);
+      if (images.length > 1) return "";
+      const image = images[0], source = image?.currentSrc || image?.getAttribute?.("src") || "";
+      const safe = shared.safeAvatarSource(source, href); if (safe) return safe;
+    }
+    return "";
+  }
+
   /** extractCurrentCandidate 采集一个当前可见候选人，白名单外和未打开详情返回空值。 */
   function extractCurrentCandidate(doc, href) {
     const platform = shared.platformForURL(href), adapter = ADAPTERS[platform];
@@ -166,7 +181,7 @@
     const age = Number((facts.match(/(?:^|\D)(\d{1,2})\s*岁/) || [])[1]) || null;
     const email = firstText(scope, [".resume-basic-new__email", ".email"]).match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i)?.[0] || visibleNodes(scope, ".connect-box dd").map((item) => readNode(item)).join(" ").match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i)?.[0] || "";
     const expected = parseExpectedText(firstText(scope, adapter.expected));
-    return shared.sanitizeResume({
+    const result = shared.sanitizeResume({
       candidate_name: name, phone: extractPhone(scope, adapter.phone) || (platform === "51job" ? extractPhone(doc, adapter.phone) : ""), email, age,
       gender: readGender(scope, facts),
       birth_ym: (facts.match(/(\d{4})[年./-](\d{1,2})月?/) || []).slice(1, 3).map((part) => part.padStart(2, "0")).join("-"),
@@ -186,8 +201,11 @@
       platform_id: platform, source_url: href,
       platform_candidate_id: shared.cleanText(url.searchParams.get("resIdEncode") || url.searchParams.get("res_id_encode") || url.searchParams.get("resumeId") || url.searchParams.get("resume_id") || "", 120)
     });
+    const avatarSource = readAvatarSource(scope, adapter, href);
+    if (avatarSource) result.avatar_source_url = avatarSource;
+    return result;
   }
 
-  const api = { ADAPTERS, isVisible, readNode, parsePeriod, readWorkYears, parseExpectedText, extractPhone, extractCurrentCandidate };
+  const api = { ADAPTERS, isVisible, readNode, parsePeriod, readWorkYears, parseExpectedText, extractPhone, readAvatarSource, extractCurrentCandidate };
   root.GoodHRExtraction = api; if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

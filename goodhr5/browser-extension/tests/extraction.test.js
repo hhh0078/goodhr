@@ -8,6 +8,9 @@ function node(text = "", selectors = {}, hidden = false) {
   return Object.freeze({ innerText: text, hidden, querySelectorAll: (selector) => selectors[selector] || [], contains: (other) => Object.values(selectors).flat().some((child) => child === other || child.contains?.(other)), closest: () => hidden ? {} : null, getClientRects: () => hidden ? [] : [{}] });
 }
 
+/** imageNode 构造只读可见图片替身，只提供已显示节点的src，不伪造个人头像。 */
+function imageNode(source, hidden = false) { return Object.freeze({ ...node("", {}, hidden), currentSrc: source, getAttribute: (name) => name === "src" ? source : "" }); }
+
 /** fixture 为指定平台构造只包含当前详情的测试页面。 */
 function fixture(platform, phone = "13812345678", hiddenPhone = false) {
   const adapter = extraction.ADAPTERS[platform];
@@ -92,4 +95,15 @@ test("企业独立详情仅唯一明确姓名时允许body，chat不读整页且
   assert.equal(extraction.extractCurrentCandidate(doc, "https://lpt.liepin.com/chat/im#preview"), null);
   assert.equal(extraction.extractCurrentCandidate(node("", { body: [body], ".nest-resume-personal-name": [...names, node("另一个合成候选人")] }), "https://lpt.liepin.com/resume/detail"), null);
   assert.equal(extraction.readWorkYears("7年经验"), "7"); assert.equal(extraction.readWorkYears("2020年至今 任职记录"), "");
+});
+
+test("四平台头像仅来自当前详情明确可见头像节点，隐藏、两个头像和未授权CDN不采集", () => {
+  const urls = { liepin: "https://lpt.liepin.com/resume/detail", hliepin: "https://h.liepin.com/resume/showresumedetail", zhaopin: "https://rd6.zhaopin.com/app", "51job": "https://ehire.51job.com/feature/im" };
+  for (const [platform, url] of Object.entries(urls)) {
+    const scene = fixture(platform), selector = extraction.ADAPTERS[platform].avatar[0], source = new URL("/synthetic-avatar.png", url).href;
+    scene.map[selector] = [imageNode(source)]; const result = extraction.extractCurrentCandidate(scene.doc, url); assert.equal(result.avatar_source_url, source);
+    scene.map[selector] = [imageNode(source, true)]; assert.equal(extraction.extractCurrentCandidate(scene.doc, url).avatar_source_url, undefined);
+    scene.map[selector] = [imageNode(source), imageNode(source)]; assert.equal(extraction.extractCurrentCandidate(scene.doc, url).avatar_source_url, undefined);
+    scene.map[selector] = [imageNode("https://evil.test/logo.png")]; assert.equal(extraction.extractCurrentCandidate(scene.doc, url).avatar_source_url, undefined);
+  }
 });
