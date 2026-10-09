@@ -22,6 +22,9 @@ const wechatBindingTTL = 10 * time.Minute
 const wechatCallbackLimit = 1 << 20
 const wechatBindingGenerationRetries = 64
 
+// wechatFollowAuthorNotice 在原关注回复后补充作者联系方式，使用官网原图链接，避免替换会员提示或依赖未认证账号无权调用的主动消息接口。
+const wechatFollowAuthorNotice = "\n\n本公众号仅用于重要消息通知。使用中有疑问，请联系作者，微信：17607080935。\n作者微信二维码：\nhttps://goodhr.58it.cn/assets/contact/wechat-developer.jpg\n点开图片后长按识别，添加作者微信。"
+
 var wechatAcceptedBindingCode = regexp.MustCompile(`^(?:[1-9][0-9]{3}|[23456789A-HJ-NP-Z]{8})$`)
 
 // WechatOfficialService 验证微信身份并把公众号绑定到当前登录账号。
@@ -355,7 +358,7 @@ func (s *WechatOfficialService) handleMessage(ctx context.Context, config Wechat
 				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("感谢关注。回到 GoodHR 记下4位数字绑定码，再发到这里，首次绑定赠送 %d 天会员。已领过的朋友也能重新绑定，后续通知我继续认真送达。", days), nil
+				return fmt.Sprintf("感谢关注。回到 GoodHR 记下4位数字绑定码，再发到这里，首次绑定赠送 %d 天会员。已领过的朋友也能重新绑定，后续通知我继续认真送达。", days) + wechatFollowAuthorNotice, nil
 			}
 		}
 		return "", nil
