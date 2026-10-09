@@ -244,8 +244,9 @@ func (s *PostgresWechatFollowStore) BindCode(ctx context.Context, appID, openID,
 	var grantedEmail string
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO wechat_follow_rewards (
-			user_id,user_email,app_id,openid_fingerprint,duration_days,member_type,subscription_expires_at,applied_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			user_id,user_email,app_id,openid_fingerprint,duration_days,member_type,subscription_expires_at,applied_at,
+			mail_status,mail_next_attempt_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$8)
 		ON CONFLICT DO NOTHING RETURNING user_email
 	`, userID, email, appID, fingerprint, option.RewardDays, next.MemberType, next.ExpiresAt, now).Scan(&grantedEmail)
 	granted := err == nil

@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -98,6 +99,9 @@ func NewServer() (*Server, error) {
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(systemConfigStore))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	adminEmails.StartRecoveryScheduler()
+	if db != nil {
+		NewWechatRewardNoticeService(NewPostgresWechatRewardNoticeStore(db), mailer, systemConfigStore).Start(context.Background())
+	}
 	return &Server{
 		auth:                auth,
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),

@@ -1,20 +1,76 @@
+// 本文件提供现有邮件模板发送及带真实截止时间的SMTP传输，并区分已接收、未接收和确认丢失。
 package httpapi
 
 import (
 	"bytes"
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"mime"
+	"net"
 	"net/smtp"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 )
+
+// smtpSendTimeout 限制一封邮件从建连、TLS握手到SMTP收尾的总等待时间。
+const smtpSendTimeout = 30 * time.Second
+
+// mailDeliveryUncertainError 表示DATA结束后没有收到明确确认，服务器可能已经接收邮件。
+type mailDeliveryUncertainError struct {
+	cause error
+}
+
+// Error 返回不确定发送结果的说明，供通知任务保留失败阶段。
+func (e *mailDeliveryUncertainError) Error() string {
+	return "邮件服务器是否已接收暂时无法确认：" + e.cause.Error()
+}
+
+// Unwrap 保留底层网络错误，允许调用方继续检查超时或连接中断。
+func (e *mailDeliveryUncertainError) Unwrap() error {
+	return e.cause
+}
+
+// IsMailDeliveryUncertain 判断是否缺少DATA最终确认，此类结果不能直接自动重发。
+func IsMailDeliveryUncertain(err error) bool {
+	var uncertain *mailDeliveryUncertainError
+	return errors.As(err, &uncertain)
+}
+
+// IsMailDeliveryTemporary 判断明确未接收的临时失败，永久拒绝、未知错误和不确定结果不重试。
+func IsMailDeliveryTemporary(err error) bool {
+	if err == nil || IsMailDeliveryUncertain(err) {
+		return false
+	}
+	var response *textproto.Error
+	if errors.As(err, &response) {
+		return response.Code >= 400 && response.Code < 500
+	}
+	var operation *net.OpError
+	if errors.As(err, &operation) {
+		return operation.Op == "dial" || operation.Op == "read" || operation.Op == "write"
+	}
+	var network net.Error
+	if errors.As(err, &network) && network.Timeout() {
+		return true
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.ErrShortWrite)
+}
+
+// smtpDeliveryOptions 指定传输方式和总截止时间，测试可使用本地证书及较短等待时间。
+type smtpDeliveryOptions struct {
+	timeout     time.Duration
+	implicitTLS bool
+	tlsConfig   *tls.Config
+}
 
 type Mailer interface {
 	SendLoginCode(email string, code string) error
@@ -308,7 +364,7 @@ func (m SMTPMailer) SendCustomHTML(email string, subject string, htmlBody string
 	if m.Port == 465 {
 		return m.sendTLS(addr, auth, from, email, message)
 	}
-	return smtp.SendMail(addr, auth, from, []string{email}, []byte(message))
+	return m.sendSMTP(addr, auth, from, email, message, smtpDeliveryOptions{timeout: smtpSendTimeout})
 }
 
 // sendMessage 发送一封同时包含纯文本和 HTML 的邮件。
@@ -325,7 +381,7 @@ func (m SMTPMailer) sendMessage(email string, subject string, templateName strin
 	if m.Port == 465 {
 		return m.sendTLS(addr, auth, from, email, message)
 	}
-	return smtp.SendMail(addr, auth, from, []string{email}, []byte(message))
+	return m.sendSMTP(addr, auth, from, email, message, smtpDeliveryOptions{timeout: smtpSendTimeout})
 }
 
 // renderHTML 渲染邮件 HTML 模板，失败时返回空字符串并让邮件使用纯文本兜底。
@@ -426,14 +482,35 @@ func encodeMailBody(body string) string {
 
 // sendTLS 通过 SMTPS 发送邮件。
 func (m SMTPMailer) sendTLS(addr string, auth smtp.Auth, from string, to string, message string) error {
-	conn, err := tls.Dial("tcp", addr, &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		ServerName: m.Host,
-	})
+	return m.sendSMTP(addr, auth, from, to, message, smtpDeliveryOptions{timeout: smtpSendTimeout, implicitTLS: true})
+}
+
+// sendSMTP 用同一真实连接截止处理建连、TLS与SMTP，DATA确认成功后关闭失败也视为已接收。
+func (m SMTPMailer) sendSMTP(addr string, auth smtp.Auth, from string, to string, message string, options smtpDeliveryOptions) error {
+	if options.timeout <= 0 {
+		return fmt.Errorf("邮件发送截止时间需要大于零")
+	}
+	deadline := time.Now().Add(options.timeout)
+	dialer := net.Dialer{Deadline: deadline}
+	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	if err = conn.SetDeadline(deadline); err != nil {
+		return err
+	}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: m.Host}
+	if options.tlsConfig != nil {
+		tlsConfig = options.tlsConfig.Clone()
+	}
+	if options.implicitTLS {
+		secureConn := tls.Client(conn, tlsConfig)
+		if err = secureConn.Handshake(); err != nil {
+			return err
+		}
+		conn = secureConn
+	}
 
 	client, err := smtp.NewClient(conn, m.Host)
 	if err != nil {
@@ -441,8 +518,17 @@ func (m SMTPMailer) sendTLS(addr string, auth smtp.Auth, from string, to string,
 	}
 	defer client.Close()
 
-	if err := client.Auth(auth); err != nil {
-		return err
+	if !options.implicitTLS {
+		if offered, _ := client.Extension("STARTTLS"); offered {
+			if err = client.StartTLS(tlsConfig); err != nil {
+				return err
+			}
+		}
+	}
+	if auth != nil {
+		if err = client.Auth(auth); err != nil {
+			return err
+		}
 	}
 	if err := client.Mail(from); err != nil {
 		return err
@@ -456,13 +542,19 @@ func (m SMTPMailer) sendTLS(addr string, auth smtp.Auth, from string, to string,
 		return err
 	}
 	if _, err := writer.Write([]byte(message)); err != nil {
-		_ = writer.Close()
+		// 正文没写完时直接关闭连接，不能补发结束符让服务器接收不完整邮件。
 		return err
 	}
 	if err := writer.Close(); err != nil {
-		return err
+		var response *textproto.Error
+		if errors.As(err, &response) && response.Code >= 400 && response.Code < 600 {
+			return err
+		}
+		return &mailDeliveryUncertainError{cause: err}
 	}
-	return client.Quit()
+	// DATA最终250已经确认接收，QUIT失败只影响收尾，不能触发队列再次发送。
+	_ = client.Quit()
+	return nil
 }
 
 // wrapCustomMailHTML 包装移动端友好的自定义邮件 HTML。
