@@ -13,6 +13,7 @@ import {
   Input,
   InputNumber,
   Switch,
+  Tooltip,
   Typography,
 } from "antd";
 import {
@@ -22,6 +23,7 @@ import {
   DownOutlined,
   EditOutlined,
   ExportOutlined,
+  FileTextOutlined,
   LoadingOutlined,
   PlayCircleOutlined,
   PlusOutlined,
@@ -1002,29 +1004,51 @@ export default function PositionsPage() {
                           开始
                         </Button>
                       )}
-                      <Button
-                        onClick={() => void togglePositionLogs(item)}
-                        type={"text"}
+                      <Flex
+                        className={styles.positionCardUtilityActions}
+                        role="group"
+                        aria-label="岗位操作"
                       >
-                        {expandedLogPositionID === item.id
-                          ? "收起日志"
-                          : "日志"}
-                      </Button>
-                      <Button
-                        onClick={() => void openEdit(item)}
-                        type={"text"}
-                        icon={<EditOutlined aria-hidden="true" />}
-                      >
-                        编辑
-                      </Button>
-                      <Button
-                        onClick={() => void remove(item)}
-                        type={"text"}
-                        danger
-                        icon={<DeleteOutlined aria-hidden="true" />}
-                      >
-                        删除
-                      </Button>
+                        <Tooltip
+                          title={
+                            expandedLogPositionID === item.id
+                              ? "收起日志"
+                              : "日志"
+                          }
+                        >
+                          <Button
+                            className={styles.positionCardActionIcon}
+                            onClick={() => void togglePositionLogs(item)}
+                            type="text"
+                            aria-label={
+                              expandedLogPositionID === item.id
+                                ? "收起日志"
+                                : "日志"
+                            }
+                            aria-expanded={expandedLogPositionID === item.id}
+                            icon={<FileTextOutlined aria-hidden="true" />}
+                          />
+                        </Tooltip>
+                        <Tooltip title="编辑">
+                          <Button
+                            className={styles.positionCardActionIcon}
+                            onClick={() => void openEdit(item)}
+                            type="text"
+                            aria-label="编辑"
+                            icon={<EditOutlined aria-hidden="true" />}
+                          />
+                        </Tooltip>
+                        <Tooltip title="删除">
+                          <Button
+                            className={styles.positionCardActionIcon}
+                            onClick={() => void remove(item)}
+                            type="text"
+                            aria-label="删除"
+                            danger
+                            icon={<DeleteOutlined aria-hidden="true" />}
+                          />
+                        </Tooltip>
+                      </Flex>
                     </Flex>
                   ) : (
                     <Typography.Paragraph

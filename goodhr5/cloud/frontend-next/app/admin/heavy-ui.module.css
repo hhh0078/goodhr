@@ -90,6 +90,23 @@
   flex-direction: row;
   gap: 8px;
 }
+/* 岗位卡片的辅助操作只展示图标，三个 28px 点击区加 4px 间距共占 92px。 */
+.positionCardUtilityActions.positionCardUtilityActions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+}
+/* 显式覆盖 Ant Design 图标按钮的默认宽度和内边距，保留键盘焦点轮廓。 */
+.positionCardActionIcon.positionCardActionIcon:global(.ant-btn) {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent !important;
+}
 .s9.s9 {
   color: var(--goodhr-text-secondary);
   font-size: 13px;

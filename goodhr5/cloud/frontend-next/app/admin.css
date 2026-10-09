@@ -1,5 +1,6 @@
 /* 本文件负责 Ant Design 后台布局、共享选择卡和移动端弹窗适配。 */
 .goodhr-admin-layout {
+  --goodhr-sidebar-width: 200px;
   min-height: 100dvh;
   background: var(--goodhr-bg);
   padding: 16px;
@@ -7,7 +8,7 @@
 .goodhr-admin-sidebar {
   position: fixed;
   inset: 16px auto 16px 16px;
-  width: 248px;
+  width: var(--goodhr-sidebar-width);
   background: #fff;
   border: 1px solid var(--goodhr-border);
   border-radius: 8px;
@@ -18,7 +19,7 @@
 .goodhr-admin-toolbar {
   position: fixed;
   top: 16px;
-  left: 280px;
+  left: calc(var(--goodhr-sidebar-width) + 32px);
   right: 16px;
   background: #fff;
   padding: 14px 20px;
@@ -34,7 +35,7 @@
   max-width: 100%;
 }
 .goodhr-admin-main {
-  margin-left: 264px;
+  margin-left: calc(var(--goodhr-sidebar-width) + 16px);
   padding-top: 86px;
   height: calc(100dvh - 32px);
   display: flex;
