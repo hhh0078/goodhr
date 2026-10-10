@@ -22,15 +22,21 @@
 .experience:last-child { margin-bottom: 0; }
 .recommendationStages.recommendationStages { display: flex; flex-wrap: wrap; gap: 6px 10px; }
 .recommendationStages :global(.ant-radio-wrapper) { margin-inline-end: 0; font-size: 12px; white-space: nowrap; }
-.recommendationCard { min-width: 0; padding: 10px; margin-bottom: 8px; border: 1px solid var(--goodhr-border); border-radius: 8px; color: var(--goodhr-text); background: #fff; cursor: pointer; }
+.recommendationHeading { min-width: 0; margin-bottom: 8px; }
+.recommendationHeading :global(.ant-btn) { flex: none; white-space: nowrap; }
+.recommendationContent { min-width: 0; }
+.recommendationContent[hidden] { display: none; }
+.recommendationPicker { display: flex; flex-wrap: nowrap; align-items: start; gap: 6px; width: 100%; max-width: 100%; min-width: 0; padding: 4px; overflow-x: auto; overflow-y: hidden; }
+.recommendationCard { flex: 0 0 auto; min-width: 0; max-width: 220px; padding: 5px 10px; border: 1px solid var(--goodhr-border); border-radius: 8px; color: var(--goodhr-text); background: #fff; cursor: pointer; }
+.recommendationCard :global(.ant-typography) { display: block; font-size: 12px; white-space: nowrap; }
 .recommendationCard:hover:not([aria-disabled="true"]) { border-color: var(--goodhr-primary); }
 .recommendationCard:focus-visible { outline: 2px solid var(--goodhr-primary); outline-offset: 2px; }
 .recommendationCard[aria-disabled="true"] { cursor: progress; }
-.recommendationCardSelected { border-color: var(--goodhr-primary); box-shadow: 0 0 0 1px var(--goodhr-primary); }
-.recommendationCard :global(.ant-tag) { flex-shrink: 0; margin-inline-end: 0; }
-.recommendationHistory { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--goodhr-border); min-width: 0; }
-.recommendationEvent { padding: 6px 0; border-bottom: 1px solid var(--goodhr-border); min-width: 0; }
-.recommendationEvent:last-child { border-bottom: 0; padding-bottom: 0; }
+.recommendationCardSelected { border-color: var(--goodhr-primary); box-shadow: 0 0 0 1px var(--goodhr-primary); background: var(--goodhr-primary-soft); }
+.recommendationHistory { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.recommendationEvent { min-width: 0; padding: 8px 10px; border: 1px solid var(--goodhr-border); border-radius: 8px; }
+.recommendationEvent :global(.ant-tag) { margin-inline-end: 0; }
+.recommendationEvent .preWrap { margin-top: 6px; margin-bottom: 0; }
 .importTable :global(.ant-table-cell) { overflow-wrap: anywhere; }
 @media (max-width: 1000px) { .workspace { grid-template-columns: minmax(0, 1fr); } .resumeBody { padding: 0; } .recordAside { border-left: 0; border-top: 1px solid var(--goodhr-border); padding: 12px 0 0; margin-top: 12px; } }
 @media (max-width: 599px) { .fieldGrid { grid-template-columns: minmax(0, 1fr); } .candidateHeader { flex-wrap: wrap; } }

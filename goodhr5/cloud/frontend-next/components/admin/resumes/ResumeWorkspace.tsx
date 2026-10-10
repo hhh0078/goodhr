@@ -2,7 +2,7 @@
 "use client";
 import { Alert, Avatar, Button, Collapse, Descriptions, Empty, Flex, Input, Radio, Select, Skeleton, Space, Tag, Timeline, Typography } from "antd";
 import { EditOutlined, PlusOutlined } from "@ant-design/icons";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, loadRecommendations, loadResume, loadResumeNotes } from "@/lib/resume-api";
 import { formatDate } from "@/lib/admin-api";
@@ -15,7 +15,11 @@ import styles from "./resumes.module.css";
 export default function ResumeWorkspace({ candidateID, engagementID = "", positions, initialTab = "notes", onChanged }: {
   candidateID: string; engagementID?: string; positions: PositionOption[]; initialTab?: string; onChanged?: () => void;
 }) {
-  const { notify } = useAdmin();
+  const { notify, user } = useAdmin();
+  const accountIdentity = String(user?.id || user?.email || "").trim();
+  const recommendationPreferenceKey = accountIdentity ? `goodhr5_resume_recommendations_visible:${accountIdentity}` : "";
+  const recommendationEntryKey = JSON.stringify([accountIdentity, candidateID, engagementID]);
+  const recommendationContentID = useId();
   const [candidate, setCandidate] = useState<Resume | null>(null);
   const [notes, setNotes] = useState<ResumeNote[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
@@ -29,6 +33,8 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   const [stage, setStage] = useState("draft");
   const [recommendationNote, setRecommendationNote] = useState("");
   const [recommendationBusy, setRecommendationBusy] = useState(false);
+  const [recommendationPreference, setRecommendationPreference] = useState({ account: "", visible: true });
+  const [recommendationEntryScope, setRecommendationEntryScope] = useState<string | null>(null);
   const noteKey = useRef("");
   const recommendationKey = useRef("");
   const generation = useRef(0);
@@ -40,6 +46,18 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   const notesSection = useRef<HTMLElement>(null);
   const recommendationsSection = useRef<HTMLElement>(null);
   const automationSection = useRef<HTMLElement>(null);
+  const recommendationsVisible = (recommendationPreference.account === accountIdentity ? recommendationPreference.visible : true) || recommendationEntryScope === recommendationEntryKey;
+  // 初始化只读偏好，写入仅由明确切换按钮触发，避免首次渲染用默认值覆盖已保存的隐藏设置。
+  useEffect(() => {
+    let visible = true;
+    try { if (recommendationPreferenceKey) visible = localStorage.getItem(recommendationPreferenceKey) !== "0"; }
+    catch { /* 当前浏览器不允许读取缓存时，默认展示且不影响简历操作。 */ }
+    setRecommendationPreference({ account: accountIdentity, visible });
+  }, [accountIdentity, recommendationPreferenceKey]);
+  // 推荐入口只在本次候选人浏览中临时展开，普通入口及主动隐藏继续尊重已存偏好。
+  useEffect(() => {
+    setRecommendationEntryScope(initialTab === "recommendations" ? recommendationEntryKey : null);
+  }, [recommendationEntryKey, initialTab]);
   /** reload 分别读取简历、备注和推荐，某项失败时保留其它已读结果。 */
   async function reload() {
     const current = ++generation.current;
@@ -61,11 +79,11 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
     noteKey.current = crypto.randomUUID(); recommendationKey.current = crypto.randomUUID();
     void reload();
     return () => { generation.current += 1; candidateScope.current += 1; };
-  }, [candidateID, engagementID]);
+  }, [candidateID, engagementID, accountIdentity]);
   useEffect(() => {
     pendingSection.current = initialTab === "notes" && lastEntrySection.current === initialTab ? "" : initialTab;
     lastEntrySection.current = initialTab;
-  }, [candidateID, engagementID, initialTab]);
+  }, [candidateID, engagementID, initialTab, accountIdentity]);
   // 仅响应候选人或入口变化；保存后的读取不重新滚动，也不影响默认打开时阅读姓名和正文。
   useEffect(() => {
     if (loading || candidate?.id !== candidateID || !pendingSection.current) return;
@@ -116,6 +134,14 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   function editRecommendation(item: Recommendation) {
     selectRecommendationPosition(item.position_id);
   }
+  /** toggleRecommendations 仅记住当前账号主动选择的显示状态，不清理草稿或触发业务保存。 */
+  function toggleRecommendations() {
+    const visible = !recommendationsVisible;
+    setRecommendationEntryScope(null);
+    setRecommendationPreference({ account: accountIdentity, visible });
+    try { if (recommendationPreferenceKey) localStorage.setItem(recommendationPreferenceKey, visible ? "1" : "0"); }
+    catch { notify("这次显示设置没记住，当前窗口照常使用。", "info"); }
+  }
   if (loading && !candidate) return <Skeleton active paragraph={{ rows: 8 }} />;
   if (!candidate) return <Alert type="warning" showIcon title={error || "这份简历暂时没读出来。"} action={<Button onClick={() => void reload()}>重试</Button>} />;
   const facts = [resumeAge(candidate), genderLabel(candidate.gender), candidate.education_level, workYearsLabel(candidate)].filter(Boolean);
@@ -123,6 +149,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   const currentOptions = [...positions];
   for (const item of recommendations) if (!currentOptions.some((option) => option.id === item.position_id)) currentOptions.push({ id: item.position_id, name: `${item.position_name || "已删除岗位"}（历史记录）` });
   const selectedRecommendation = recommendations.find((item) => item.position_id === positionID);
+  const historyRecommendation = selectedRecommendation || (!positionID ? recommendations[0] : undefined);
   const recommendationChanged = Boolean(positionID && (!selectedRecommendation || selectedRecommendation.stage !== stage || recommendationNote.trim()));
   return <>
     {error ? <Alert type="warning" title={error} action={<Button size="small" onClick={() => void reload()}>重试读取</Button>} style={{ marginBottom: 12 }} /> : null}
@@ -168,14 +195,20 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
           </Flex>
         </section>
         <section ref={recommendationsSection} className={styles.recordSection} data-testid="resume-recommendations-section" aria-label="推荐">
-          <Typography.Title level={5}>推荐{recommendations.length ? ` · ${recommendations.length}` : ""}</Typography.Title>
+          <Flex gap={8} align="center" justify="space-between" className={styles.recommendationHeading}>
+            <Typography.Title level={5} style={{ margin: 0 }}>推荐</Typography.Title>
+            <Button size="small" type="text" onClick={toggleRecommendations} aria-expanded={recommendationsVisible} aria-controls={recommendationContentID}>{recommendationsVisible ? "隐藏推荐" : "显示推荐"}</Button>
+          </Flex>
+          <div id={recommendationContentID} data-testid="resume-recommendation-content" hidden={!recommendationsVisible} className={styles.recommendationContent}>
           <Flex vertical gap={8}>
           <Select aria-label="选择推荐岗位" showSearch optionFilterProp="label" placeholder="选择岗位" value={positionID} disabled={recommendationBusy} onChange={selectRecommendationPosition} options={currentOptions.map((item) => ({ value: item.id, label: item.name }))} />
           <Radio.Group aria-label="推荐阶段" value={stage} disabled={recommendationBusy} className={styles.recommendationStages} onChange={(event) => { if (recommendationSaving.current) return; setStage(event.target.value); recommendationKey.current = crypto.randomUUID(); }} options={recommendationStages} />
           <Input.TextArea aria-label="新增岗位跟进备注" value={recommendationNote} disabled={recommendationBusy} maxLength={1000} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(event) => { if (recommendationSaving.current) return; setRecommendationNote(event.target.value); recommendationKey.current = crypto.randomUUID(); }} placeholder="只记这个岗位的推荐、面试和跟进情况。" />
           <Flex justify="flex-end"><Button size="small" type="primary" loading={recommendationBusy} disabled={!recommendationChanged} onClick={() => void saveRecommendation()}>{stage === "draft" ? "保存关联" : stage === "recommended" ? "记录推荐" : "记录跟进"}</Button></Flex>
-          <div className={styles.recordHistory}>{recommendations.length ? recommendations.map((item) => <RecommendationCard key={item.id} item={item} selected={positionID === item.position_id} busy={recommendationBusy} onSelect={() => editRecommendation(item)} />) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没关联岗位，选一个就能开始记记录。" />}</div>
+          {recommendations.length ? <div className={styles.recommendationPicker} data-testid="resume-recommendation-picker" role="group" aria-label="已关联岗位">{recommendations.map((item) => <RecommendationCard key={item.id} item={item} selected={historyRecommendation?.position_id === item.position_id} busy={recommendationBusy} onSelect={() => editRecommendation(item)} />)}</div> : null}
+          <div className={styles.recommendationHistory} data-testid="resume-recommendation-history">{historyRecommendation ? <RecommendationHistory item={historyRecommendation} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={positionID ? "这个岗位还没记录，保存后我再认真记账。" : "还没关联岗位，选一个就能开始记记录。"} />}</div>
           </Flex>
+          </div>
         </section>
         <section ref={automationSection} className={styles.recordSection} data-testid="resume-auto-tasks-section" aria-label="自动任务">
           <Typography.Title level={5}>自动任务</Typography.Title>
@@ -191,11 +224,8 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
     <ResumeSummaryDialog open={summaryOpen} candidate={candidate} onClose={() => setSummaryOpen(false)} onSaved={(saved) => { setSummaryOpen(false); setCandidate(saved); void reload(); onChanged?.(); }} />
   </>;
 }
-/** RecommendationCard 常驻展示一条岗位关系及全部历史，选择仅填表，不复制旧备注或触发保存。 */
+/** RecommendationCard 在横向岗位条中切换当前历史，选择仅填表，不复制旧备注或触发保存。 */
 function RecommendationCard({ item, selected, busy, onSelect }: { item: Recommendation; selected: boolean; busy: boolean; onSelect: () => void }) {
-  const events = item.events || [];
-  const legacyNote = item.note?.trim();
-  const showLegacyNote = legacyNote && !events.some((event) => (event.content || event.note || "").trim() === legacyNote);
   /** selectByKeyboard 让回车和空格与点击使用同一选择规则，保存中忽略键盘操作。 */
   function selectByKeyboard(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -203,17 +233,27 @@ function RecommendationCard({ item, selected, busy, onSelect }: { item: Recommen
     if (!busy) onSelect();
   }
   return <div role="button" aria-label={`选择推荐记录 ${item.position_name || "已删除岗位"}`} aria-pressed={selected} aria-disabled={busy} tabIndex={busy ? -1 : 0} className={`${styles.recommendationCard}${selected ? ` ${styles.recommendationCardSelected}` : ""}`} onClick={() => { if (!busy) onSelect(); }} onKeyDown={selectByKeyboard}>
-    <Flex gap={8} justify="space-between" align="start"><Typography.Text strong>{item.position_name || "已删除岗位"}</Typography.Text><Tag>{stageLabel(item.stage)}</Tag></Flex>
-    <Typography.Text type="secondary" className={styles.meta}>{item.author_name || item.author_email || "未记录操作人"} · {(item.created_at || item.recommended_at) ? recordTime(item.created_at || item.recommended_at) : "时间待补充"}</Typography.Text>
-    {showLegacyNote ? <Typography.Paragraph className={styles.preWrap}>{legacyNote}</Typography.Paragraph> : null}
-    <div className={styles.recommendationHistory}><Typography.Text type="secondary" className={styles.meta}>推进记录 · {events.length} 条</Typography.Text>
-      {events.length ? events.map((event) => <div key={event.id} className={styles.recommendationEvent}>
-        <Typography.Text>{event.from_stage ? `${stageLabel(event.from_stage)} → ` : "首次记录 → "}{stageLabel(event.to_stage || item.stage)}</Typography.Text>
-        {(event.content || event.note) ? <Typography.Paragraph className={styles.preWrap}>{event.content || event.note}</Typography.Paragraph> : null}
-        <div className={styles.meta} title={event.created_at ? `保存于 ${recordTime(event.created_at)}` : undefined}>{event.author_name || event.author_email || "未记录操作人"} · {(event.occurred_at || event.created_at) ? recordTime(event.occurred_at || event.created_at) : "时间待补充"}</div>
-      </div>) : <Typography.Text type="secondary" className={styles.meta}>暂时没有推进记录。</Typography.Text>}
-    </div>
+    <Typography.Text ellipsis={{ tooltip: item.position_name || "已删除岗位" }}>{item.position_name || "已删除岗位"}</Typography.Text>
   </div>;
+}
+/** RecommendationHistory 直接展示当前岗位的完整历史，每条只出现一次阶段、作者时间与备注。 */
+function RecommendationHistory({ item }: { item: Recommendation }) {
+  const events = item.events || [];
+  const legacyNote = item.note?.trim();
+  const showLegacyNote = legacyNote && !events.some((event) => (event.content || event.note || "").trim() === legacyNote);
+  return <>
+    {events.map((event) => <article key={event.id} className={styles.recommendationEvent}>
+      <Flex gap={6} align="start" justify="space-between" wrap>
+        <Tag>{event.from_stage && event.from_stage !== (event.to_stage || item.stage) ? `${stageLabel(event.from_stage)} → ${stageLabel(event.to_stage || item.stage)}` : stageLabel(event.to_stage || item.stage)}</Tag>
+        <Typography.Text type="secondary" className={styles.meta} title={event.created_at ? `保存于 ${recordTime(event.created_at)}` : undefined}>{event.author_name || event.author_email || "未记录操作人"} · {(event.occurred_at || event.created_at) ? recordTime(event.occurred_at || event.created_at) : "时间待补充"}</Typography.Text>
+      </Flex>
+      {(event.content || event.note) ? <Typography.Paragraph className={styles.preWrap}>{event.content || event.note}</Typography.Paragraph> : null}
+    </article>)}
+    {showLegacyNote || !events.length ? <article className={styles.recommendationEvent}>
+      <Flex gap={6} align="start" justify="space-between" wrap><Tag>{stageLabel(item.stage)}</Tag><Typography.Text type="secondary" className={styles.meta}>{item.author_name || item.author_email || "未记录操作人"} · {(item.created_at || item.recommended_at) ? recordTime(item.created_at || item.recommended_at) : "时间待补充"}</Typography.Text></Flex>
+      {legacyNote ? <Typography.Paragraph className={styles.preWrap}>{legacyNote}</Typography.Paragraph> : null}
+    </article> : null}
+  </>;
 }
 /** AIResult 显示任务分析，缺失分数保留“未分析”而非零分。 */
 function AIResult({ title, value }: { title: string; value?: { score?: number | null; reason?: string } }) {
