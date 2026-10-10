@@ -228,11 +228,14 @@ func (s *PostgresCandidateStore) ListPositionCandidates(tenantID string, query P
 		return PositionCandidateListResult{}, err
 	}
 	offset := (page - 1) * pageSize
+	if query.Offset != nil && *query.Offset >= 0 {
+		offset = *query.Offset
+	}
 	listArgs := append(args, pageSize, offset)
 	rows, err := s.db.QueryContext(
 		ctx,
 		candidateSelectSQL("WHERE "+where, candidateEngagementScope(query))+`
-		ORDER BY COALESCE(latest_engagement.created_at, cp.created_at) DESC
+		ORDER BY COALESCE(latest_engagement.created_at, cp.created_at) DESC, cp.id ASC
 		LIMIT $`+fmt.Sprint(len(args)+1)+`
 		OFFSET $`+fmt.Sprint(len(args)+2),
 		listArgs...,

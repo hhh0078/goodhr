@@ -177,6 +177,8 @@ type PositionCandidateQuery struct {
 	UserEmail                                                                                         string
 	Page                                                                                              int
 	PageSize                                                                                          int
+	// Offset 仅供服务端虚拟示例调整真实记录起点，不从HTTP查询参数读取。
+	Offset *int
 }
 
 // PositionCandidateListResult 表示候选人分页查询结果。
@@ -382,9 +384,18 @@ func (s *MemoryCandidateStore) ListPositionCandidates(tenantID string, query Pos
 		item = s.decorateLibraryCandidateLocked(item)
 		items = append(items, item)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
+	sort.Slice(items, func(i, j int) bool {
+		// 同时入库的记录按ID保持稳定顺序，翻页不能重复或遗漏。
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
 	total := len(items)
 	start := (page - 1) * pageSize
+	if query.Offset != nil && *query.Offset >= 0 {
+		start = *query.Offset
+	}
 	if start >= total {
 		items = []PositionCandidate{}
 	} else {
@@ -463,6 +474,9 @@ func normalizeCandidatePage(page int, pageSize int) (int, int) {
 	}
 	if pageSize > 100 {
 		pageSize = 100
+	}
+	if page > int(^uint(0)>>1)/pageSize {
+		page = int(^uint(0)>>1) / pageSize
 	}
 	return page, pageSize
 }

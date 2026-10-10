@@ -43,6 +43,9 @@ func (m *Manager) Confirm(ctx context.Context, owner, token, id string, items []
 	}
 	seen := map[string]bool{}
 	for _, input := range items {
+		if strings.EqualFold(strings.TrimSpace(input.CandidateID), cloud.BuiltinCandidateID) {
+			return Task{}, fmt.Errorf("内置示例简历只能查看，不能合并入库")
+		}
 		if seen[input.ID] {
 			return Task{}, ErrInvalid
 		}
@@ -92,6 +95,16 @@ func (m *Manager) confirmOne(ctx context.Context, owner, token, id string, input
 		if len(input.Candidate) > 2<<20 || json.Unmarshal(input.Candidate, &candidate) != nil || json.Unmarshal(input.Candidate, &fields) != nil || fields == nil {
 			m.mu.Unlock()
 			return fmt.Errorf("简历草稿没读出来，请重新核对")
+		}
+		if cloud.IsReadonlyCandidate(candidate) || fields["is_builtin"] != nil || fields["readonly"] != nil || fields["builtin_notice"] != nil {
+			m.mu.Unlock()
+			return fmt.Errorf("内置示例简历只能查看，不能复制入库")
+		}
+		var sourceCandidateID string
+		_ = json.Unmarshal(fields["candidate_id"], &sourceCandidateID)
+		if strings.EqualFold(strings.TrimSpace(sourceCandidateID), cloud.BuiltinCandidateID) {
+			m.mu.Unlock()
+			return fmt.Errorf("内置示例简历不能作为导入或合并目标")
 		}
 		phone := NormalizePhone(candidate.Phone)
 		if strings.TrimSpace(candidate.CandidateName) == "" || phone == "" {
@@ -217,6 +230,9 @@ func (m *Manager) MarkSaved(ctx context.Context, owner, token, id string, items 
 		return Task{}, ErrInvalid
 	}
 	for _, input := range items {
+		if strings.EqualFold(strings.TrimSpace(input.CandidateID), cloud.BuiltinCandidateID) {
+			return Task{}, fmt.Errorf("内置示例简历不能标记为真实入库结果")
+		}
 		m.mu.Lock()
 		stored, err := m.findLocked(owner, id)
 		if err != nil {

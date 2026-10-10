@@ -84,7 +84,7 @@ async function mockResumeSession(page: Page): Promise<State> {
     else if (url.pathname === "/api/candidates/duplicates") data = { ok: true, hidden_match: false, matches: body?.phone === existing.phone && body?.exclude_id !== existing.id ? [{ candidate: existing, match_type: "exact", reasons: ["手机号相同"] }] : [] };
     else if (url.pathname === "/api/candidates") {
       if (method === "POST") { const candidate = { ...body, id: "resume-new", row_version: 1 }; state.candidates.push(candidate); data = { ok: true, candidate }; }
-      else data = { candidates: state.candidates.map((candidate) => ({ ...candidate, notes: state.notes, recommendations: state.recommendations, recommendation_count: state.recommendations.length })), total: state.candidates.length, page: Number(url.searchParams.get("page")) || 1 };
+      else data = { candidates: state.candidates.map((candidate) => ({ ...candidate, notes: state.notes, recommendations: state.recommendations, recommendation_count: state.recommendations.length })), total: state.candidates.length, real_total: state.candidates.filter((candidate) => !candidate.is_builtin && candidate.id !== "00000000-0000-4000-8000-000000000001").length, builtin_total: state.candidates.filter((candidate) => candidate.is_builtin || candidate.id === "00000000-0000-4000-8000-000000000001").length, page: Number(url.searchParams.get("page")) || 1 };
     } else if (url.pathname.endsWith("/notes")) {
       if (method === "POST") {
         if (state.failFirstNote) { state.failFirstNote = false; return route.fulfill({ status: 503, headers, json: { error: { message: "模拟备注暂时没保存成功" } } }); }
@@ -180,6 +180,39 @@ test("本地程序离线时关闭安装提示后仍可搜索、手动添加、�
   await expect(installNotice).not.toBeVisible();
   mkdirSync(screenshotDirectory, { recursive: true });
   await page.screenshot({ path: resolve(screenshotDirectory, "offline-cloud-actions.png"), fullPage: true, animations: "disabled" });
+  expect(state.errors).toEqual([]);
+});
+
+test("内置示例登录后可读，预留身份缺标记仍不能编辑、摘要或添加记录", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  const builtinID = "00000000-0000-4000-8000-000000000001";
+  // 联系方式使用用户明确授权的共享示例，其余职业资料均为合成虚构信息。
+  state.candidates = [{ id: builtinID, candidate_name: "瓜瓜", phone: "17607080935", email: "1224299352@qq.com", source_type: "builtin", is_builtin: true, readonly: true, current_region: "四川成都", expected_region: "四川成都", expected_position: "软件开发", educations: [{ school_name: "示例计算机学院（虚构）", major_name: "软件工程（示例）" }], work_experiences: [{ company_name: "示例软件工作室（虚构）", position_name: "软件开发工程师（示例）", content: "合成工作内容" }] }];
+  state.notes = [{ id: "builtin-note", content: "这份简历是管理员内置的只读示例，不可修改或删除。您的简历库需要登录后才能访问，真实简历仍按账号和团队权限隔离。", author_name: "管理员内置" }];
+  await page.goto("/admin/resumes");
+  await expect(page.getByText("共 0 份简历 · 另有 1 份内置示例", { exact: true })).toBeVisible();
+  const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: "瓜瓜", exact: true }) });
+  await expect(row.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "瓜瓜更多操作" })).toHaveCount(0);
+  await row.getByRole("button", { name: "查看", exact: true }).click();
+  const workspace = page.getByTestId("resume-detail-layout");
+  await expect(page.getByTestId("resume-builtin-notice")).toBeVisible();
+  await expect(workspace.getByRole("button", { name: /编辑/ })).toBeDisabled();
+  await expect(workspace.getByRole("button", { name: "生成摘要", exact: true })).toBeDisabled();
+  await expect(page.getByTestId("resume-notes-section").getByRole("button", { name: "加备注", exact: true })).toBeDisabled();
+  await expect(page.getByRole("combobox", { name: "选择推荐岗位" })).toBeDisabled();
+  await expect(page.getByRole("radio", { name: "已推荐", exact: true })).toBeDisabled();
+  await expect(page.getByRole("textbox", { name: "新增岗位跟进备注" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "保存关联", exact: true })).toBeDisabled();
+  await expect(page.getByTestId("resume-notes-section").getByText(state.notes[0].content, { exact: true })).toBeVisible();
+  await expect(page.getByTestId("resume-auto-tasks-section")).toBeVisible();
+  await expect(workspace.getByText("示例软件工作室（虚构） · 软件开发工程师（示例）", { exact: true })).toBeVisible();
+  // 即使旧缓存漏了只读标记，预留ID也不能进入修改或收费流程；独立详情地址保留阅读。
+  delete state.candidates[0].is_builtin; delete state.candidates[0].readonly;
+  await page.goto(`/admin/resumes/detail?candidate_id=${builtinID}`);
+  await expect(page.getByTestId("resume-builtin-notice")).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成摘要", exact: true })).toBeDisabled();
+  expect(state.calls.filter((call) => call.method !== "GET" && (call.path.startsWith("/api/candidates") || call.path.includes("resume-summary") || call.path.includes("resume-import")))).toHaveLength(0);
   expect(state.errors).toEqual([]);
 });
 

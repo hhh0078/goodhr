@@ -21,6 +21,32 @@ type summaryRouteAI struct {
 	release chan struct{}
 }
 
+// TestSummaryRoutesRejectBuiltinBeforeAI 验证网页和已配对插件传示例身份时，真实接口不会启动或持久化收费任务。
+func TestSummaryRoutesRejectBuiltinBeforeAI(t *testing.T) {
+	var expired atomic.Bool
+	ai := &summaryRouteAI{}
+	s := newSummaryRouteServer(t, ai, &expired)
+	installation, secret := strings.Repeat("b", 32), strings.Repeat("k", 64)
+	bindSummaryInstallation(t, s, installation, secret, "account-a")
+	for _, identity := range []map[string]any{{"id": cloud.BuiltinCandidateID}, {"candidate_id": cloud.BuiltinCandidateID}, {"id": "regular-id", "candidate_id": cloud.BuiltinCandidateID}, {"is_builtin": true}, {"readonly": true}, {"source_type": "builtin"}} {
+		identity["raw_text"] = "合成职业资料"
+		body := map[string]any{"request_key": "builtin-summary-never-start", "candidate": identity, "installation_id": installation, "pairing_token": secret}
+		for _, route := range []struct{ path, token string }{{"/api/v1/resume-summary/tasks", "web-private"}, {"/api/v1/extensions/resume-summary", ""}} {
+			response := summaryRouteRequest(s, http.MethodPost, route.path, route.token, body)
+			if response.Code != 400 || !strings.Contains(response.Body.String(), "SUMMARY_INVALID") || !strings.Contains(response.Body.String(), "示例") {
+				t.Fatalf("builtin summary HTTP%d %s", response.Code, response.Body.String())
+			}
+		}
+	}
+	if ai.calls.Load() != 0 {
+		t.Fatal("builtin caused AI calls")
+	}
+	index, err := s.store.GetSetting(context.Background(), "resume_summary_tasks_v1")
+	if err != nil || index != "" {
+		t.Fatal("builtin persisted an AI task")
+	}
+}
+
 // SummarizeResume 使用测试替身返回职业摘要，取消时停止等待。
 func (a *summaryRouteAI) SummarizeResume(ctx context.Context, _ cloud.AIConfig, candidate cloud.LibraryCandidate) (string, error) {
 	a.calls.Add(1)

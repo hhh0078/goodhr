@@ -1,6 +1,7 @@
-/* 文件作用：在插件自身弹窗和侧栏完成自动查重、隔离草稿、独立备注推荐和本地AI总结，不操作招聘页面。 */
+/* 文件作用：在扩展域弹窗、侧栏和隔离悬浮面板完成查重、草稿与独立记录；不操作招聘业务页面。 */
 "use strict";
 const extension = globalThis.browser || globalThis.chrome, $ = (id) => document.getElementById(id), shared = GoodHRShared;
+if (new URLSearchParams(location.search).get("surface") === "floating") document.body.classList.add("floating");
 const resumeFields = { name: "candidate_name", phone: "phone", "candidate-email": "email", city: "work_region", position: "current_position", "expected-position": "expected_position" };
 const draftFields = [...Object.keys(resumeFields), "duplicate-keyword", "job-filter", "job", "stage", "note", "note-time", "recommendation-note", "recommendation-time"];
 let mode = "password", currentResume = null, selectedCandidate = null, matches = [], groups = [], positions = [], loggedIn = false, busy = false, pairPending = false, hiddenDuplicate = false;

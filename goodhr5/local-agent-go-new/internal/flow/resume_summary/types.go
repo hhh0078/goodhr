@@ -53,6 +53,11 @@ type SettingsStore interface {
 // SourceCandidate 接收职业事实字段，忽略头像、来源授权、旧摘要和不同旧版本的年龄表示。
 type SourceCandidate struct {
 	cloud.StructuredCandidate
+	ID                 string   `json:"id"`
+	CandidateID        string   `json:"candidate_id"`
+	IsBuiltin          bool     `json:"is_builtin"`
+	Readonly           bool     `json:"readonly"`
+	SourceType         string   `json:"source_type"`
 	BasicInfo          string   `json:"basic_info"`
 	CurrentRegion      string   `json:"current_region"`
 	ExpectedRegion     string   `json:"expected_region"`
@@ -64,5 +69,9 @@ type SourceCandidate struct {
 
 // Candidate 把边界已经校验的源字段转换为本地统一职业资料。
 func (s SourceCandidate) Candidate() cloud.LibraryCandidate {
-	return cloud.LibraryCandidate{StructuredCandidate: s.StructuredCandidate, BasicInfo: s.BasicInfo, CurrentRegion: s.CurrentRegion, ExpectedRegion: s.ExpectedRegion, CurrentPosition: s.CurrentPosition, ExpectedSalaryText: s.ExpectedSalaryText, CurrentSalaryText: s.CurrentSalaryText, Tags: s.Tags}
+	id := s.ID
+	if id == "" || s.CandidateID == cloud.BuiltinCandidateID {
+		id = s.CandidateID
+	}
+	return cloud.LibraryCandidate{StructuredCandidate: s.StructuredCandidate, ID: id, IsBuiltin: s.IsBuiltin, Readonly: s.Readonly, SourceType: s.SourceType, BasicInfo: s.BasicInfo, CurrentRegion: s.CurrentRegion, ExpectedRegion: s.ExpectedRegion, CurrentPosition: s.CurrentPosition, ExpectedSalaryText: s.ExpectedSalaryText, CurrentSalaryText: s.CurrentSalaryText, Tags: s.Tags}
 }

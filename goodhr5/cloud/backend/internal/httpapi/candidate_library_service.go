@@ -13,6 +13,9 @@ import (
 // Route 分发候选人子资源，确保新增查重、备注和推荐路径不被详情接口误处理。
 func (s *CandidateService) Route(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/candidates/")
+	if s.handleBuiltinCandidate(w, r, path) {
+		return
+	}
 	if path == "duplicates" {
 		s.Duplicates(w, r)
 		return
@@ -116,6 +119,10 @@ func (s *CandidateService) Save(w http.ResponseWriter, r *http.Request) {
 	input, err := readCandidateJSON(w, r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if hasBuiltinCandidateMutation(input) {
+		writeError(w, http.StatusForbidden, "内置示例的身份不能用于创建或修改真实简历")
 		return
 	}
 	id := ""

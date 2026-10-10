@@ -1,4 +1,4 @@
-/* 文件作用：使用 Node.js 内置库生成同版本 Chrome/Firefox 开发目录、ZIP 与未签名临时 XPI。 */
+/* 文件作用：用内置库生成 Chrome/Firefox 开发包，支持 Chrome 单独发布和隔离的固定本地测试构建。 */
 "use strict";
 const fs = require("node:fs"), path = require("node:path"), zlib = require("node:zlib"), crypto = require("node:crypto");
 const ROOT = path.resolve(__dirname, "..");
@@ -46,12 +46,13 @@ function zipBuffer(files) {
 function manifest(browser, local = false) {
   const common = {
     manifest_version: 3, name: "GoodHR 简历助手", version,
-    description: "只读采集当前可见候选人，确认后添加到 GoodHR 简历库；不点击、滚动或修改招聘页面。",
+    description: "从当前可见候选人读取资料，在隔离悬浮助手中确认后入库；不点击、解锁或滚动招聘页面。",
     permissions: ["storage"],
     host_permissions: ["https://goodhr.58it.cn/*", "http://127.0.0.1/*", "https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://*.lietou-static.com/*", "https://mypics.zhaopin.cn/*"],
     icons: { "32": "icons/32.png", "64": "icons/64.png", "128": "icons/128.png" },
     action: { default_title: "GoodHR 简历助手", default_popup: "src/ui.html", default_icon: { "32": "icons/32.png" } },
-    content_scripts: [{ matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"], js: ["src/shared.js", "src/extraction.js", "src/content.js"], run_at: "document_idle", all_frames: false }],
+    content_scripts: [{ matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"], js: ["src/shared.js", "src/extraction.js", "src/floating.js", "src/content.js"], run_at: "document_idle", all_frames: false }],
+    web_accessible_resources: [{ resources: ["src/ui.html", "src/ui.css", "src/ui.js", "src/shared.js", "src/privacy.html"], matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"] }],
     content_security_policy: { extension_pages: "script-src 'self'; object-src 'none';" }
   };
   if (local) {
@@ -91,23 +92,25 @@ function prepareLocalOutput(directory) {
   write("privacy.html", privacy);
 }
 
-/** parseBuildOptions 只允许无参数正式构建或固定本地模式，不接受自定义地址与环境覆盖。 */
+/** parseBuildOptions 只允许标准、Chrome单独和固定本地模式，不接受自定义地址或环境覆盖。 */
 function parseBuildOptions(argv) {
   if (!argv.length) return { local: false };
   if (argv.length === 1 && argv[0] === "--local") return { local: true };
-  throw new Error("仅支持 npm run build 或 npm run build:local；本地 API 与网页地址固定，不接受自定义 URL");
+  if (argv.length === 1 && argv[0] === "--chrome") return { local: false, chromeOnly: true };
+  throw new Error("仅支持 npm run build、build:chrome 或 build:local；本地 API 与网页地址固定，不接受自定义 URL");
 }
 
 /** build 清理已确认的插件 dist 或 dist-local 目录，分别输出正式开发包与本地测试包。 */
 function build(options = {}) {
-  if (Object.keys(options).some((key) => key !== "local") || (options.local !== undefined && typeof options.local !== "boolean")) throw new Error("构建参数仅支持布尔值 local");
-  const local = options.local === true, outputName = local ? "dist-local" : "dist", OUT = path.join(ROOT, outputName);
+  if (Object.keys(options).some((key) => !["local", "chromeOnly", "test"].includes(key)) || Object.values(options).some((value) => typeof value !== "boolean")) throw new Error("构建参数仅支持布尔值 local/chromeOnly/test");
+  if (options.test && !options.local) throw new Error("隔离测试输出仅用于固定本地模式");
+  const local = options.local === true, outputName = options.test ? path.join("artifacts", "build-local-test") : local ? "dist-local" : "dist", OUT = path.join(ROOT, outputName);
   if (path.resolve(OUT) !== path.join(ROOT, outputName) || !OUT.startsWith(ROOT + path.sep)) throw new Error("构建目录超出插件范围，停止清理");
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("版本号必须是三段数字");
-  fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
+  if (!options.chromeOnly) fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
   const packages = [];
-  for (const browser of ["chrome", "firefox"]) {
-    const directory = path.join(OUT, browser); fs.mkdirSync(directory, { recursive: true }); fs.cpSync(path.join(ROOT, "src"), path.join(directory, "src"), { recursive: true });
+  for (const browser of options.chromeOnly ? ["chrome"] : ["chrome", "firefox"]) {
+    const directory = path.join(OUT, browser); if (options.chromeOnly) fs.rmSync(directory, { recursive: true, force: true }); fs.mkdirSync(directory, { recursive: true }); fs.cpSync(path.join(ROOT, "src"), path.join(directory, "src"), { recursive: true });
     if (local) prepareLocalOutput(directory);
     fs.mkdirSync(path.join(directory, "icons")); for (const size of [32,64,128]) fs.writeFileSync(path.join(directory, "icons", `${size}.png`), iconPNG(size));
     fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest(browser, local), null, 2) + "\n");

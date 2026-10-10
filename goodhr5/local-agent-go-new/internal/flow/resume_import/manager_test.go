@@ -15,6 +15,35 @@ import (
 	"time"
 )
 
+// TestImportRejectsBuiltinIdentity 验证示例不能借批量确认或标记已存绕过只读边界。
+func TestImportRejectsBuiltinIdentity(t *testing.T) {
+	manager, _, client, _, _ := newTestManager(t, "13800138000")
+	task := waitProcessed(t, manager, createTestTask(t, manager, 1).ID)
+	item := task.Items[0]
+	for _, extra := range []map[string]any{{"id": cloud.BuiltinCandidateID}, {"candidate_id": cloud.BuiltinCandidateID}, {"is_builtin": true}, {"is_builtin": false}, {"readonly": true}, {"source_type": "builtin"}} {
+		extra["candidate_name"], extra["phone"] = "示例合成资料", "13800138000"
+		fields, _ := json.Marshal(extra)
+		_, err := manager.Confirm(context.Background(), "owner-a", "token", task.ID, []ConfirmItem{{ID: item.ID, Candidate: fields, Note: "不得保存", PositionIDs: []string{"position-1"}}})
+		if err == nil || !strings.Contains(err.Error(), "示例") {
+			t.Fatalf("builtin fields accepted: %v", err)
+		}
+	}
+	fields, _ := json.Marshal(item.Candidate)
+	_, err := manager.Confirm(context.Background(), "owner-a", "token", task.ID, []ConfirmItem{{ID: item.ID, Candidate: fields, CandidateID: cloud.BuiltinCandidateID}})
+	if err == nil {
+		t.Fatal("builtin merge accepted")
+	}
+	_, err = manager.MarkSaved(context.Background(), "owner-a", "token", task.ID, []SavedItem{{ID: item.ID, CandidateID: cloud.BuiltinCandidateID}})
+	if err == nil {
+		t.Fatal("builtin mark-saved accepted")
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if client.creates != 0 || client.notes != 0 || client.positions != 0 {
+		t.Fatal("builtin request had cloud write effects")
+	}
+}
+
 // memorySettings 使用锁保护本地持久替身，允许重启管理器复用同一数据。
 type memorySettings struct {
 	mu     sync.Mutex

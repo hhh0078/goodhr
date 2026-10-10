@@ -142,3 +142,4 @@ Firefox 打开 `about:debugging#/runtime/this-firefox`，临时载入 Firefox �
 - 正式 Firefox 签名及正式分发；Chrome 商店分发同样独立处理。后台收到正式包后更新下载地址、SHA256 和 `firefox_signed`。
 
 AI 导入每批最多 20 项（粘贴文本算一项），每份 10MiB、总 60MiB，PDF 最多 20 页。旧 DOC、加密 PDF 需先转换或解密。本地 OCR 未准备好时明确提示，普通文本 PDF 不依赖 OCR。
+<!-- 最新说明：前期“未部署/无网页悬浮框/双浏览器一起验收”是历史阶段记录。用户已授权本轮生产更新与插件自身悬浮界面，当前范围和发布证据以 resume-library-production-20261010.md 为准。 -->

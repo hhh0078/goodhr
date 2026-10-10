@@ -33,6 +33,58 @@ test("招聘页面只读脚本不写 DOM、不发请求、不读网站缓存、�
   for (const forbidden of [/\.click\s*\(/, /\.focus\s*\(/, /\.scroll(?:To|By|IntoView)\s*\(/, /dispatchEvent\s*\(/, /createElement\s*\(/, /appendChild\s*\(/, /insertAdjacentHTML\s*\(/, /(?:innerHTML|textContent|outerHTML)\s*=/, /(?:fetch|XMLHttpRequest|WebSocket)\s*\(/, /localStorage|sessionStorage|document\.cookie/, /storage\.(?:local|sync)/, /\beval\s*\(/, /new\s+Function\s*\(/]) assert.equal(forbidden.test(code), false, String(forbidden));
 });
 
+test("悬浮入口只使用固定扩展iframe，既不接网页消息，也不访问网站缓存或主世界", () => {
+  const code = fs.readFileSync(path.join(src, "floating.js"), "utf8");
+  assert.match(code, /attachShadow\(\{ mode: "closed" \}\)/);
+  assert.match(code, /getURL\("src\/ui\.html\?surface=floating"\)/);
+  for (const forbidden of [/addEventListener\(["']message/, /postMessage\s*\(/, /(?:fetch|XMLHttpRequest|WebSocket)\s*\(/, /localStorage|sessionStorage|document\.cookie/, /storage\.(?:local|sync)/, /\.focus\s*\(/, /\.scroll(?:To|By|IntoView)\s*\(/, /dispatchEvent\s*\(/, /innerHTML\s*=/]) assert.equal(forbidden.test(code), false, String(forbidden));
+});
+
+test("固定UI路径和网页iframe来源校验，拒绝相似路径、网页伪造与站外嵌入", async () => {
+  const value = backgroundFixture();
+  for (const url of ["chrome-extension://test-extension/src/ui.html.evil", "chrome-extension://test-extension/src/privacy.html", "https://h.liepin.com/chrome-extension://test-extension/src/ui.html", "chrome-extension://other/src/ui.html", "chrome-extension://test-extension/src/ui.html?surface=evil"]) {
+    assert.equal(await value.message({ type: "STATE" }, { ...uiSender, url }), undefined);
+  }
+  const iframe = { ...uiSender, url: uiSender.url + "?surface=floating", frameId: 3, tab: { id: 3, url: "https://evil.example/" } };
+  assert.equal(await value.message({ type: "STATE" }, iframe), undefined); assert.equal(value.requests.length, 0);
+});
+
+test("悬浮UI读取和头像绑定自身tab，活动tab变化不串人，旧快照不能新增", async () => {
+  const value = backgroundFixture(); value.values.data_use_accepted = true;
+  const tabA = { id: 23, url: "https://h.liepin.com/resume/showresumedetail" }, tabB = { id: 24, url: "https://rd6.zhaopin.com/app" };
+  let resumeA = { candidate_name: "合成悬浮甲", phone: "13800000101", platform_id: "hliepin", source_url: tabA.url, avatar_source_url: "https://image0.lietou-static.com/fixture.png" };
+  const resumeB = { candidate_name: "合成活动乙", phone: "13800000102", platform_id: "zhaopin", source_url: tabB.url };
+  value.extension.tabs.query = async () => [tabB]; value.extension.tabs.get = async (id) => id === tabA.id ? tabA : tabB;
+  value.extension.tabs.sendMessage = async (id) => value.message({ type: "CANDIDATE_SNAPSHOT", resume: id === tabA.id ? resumeA : resumeB }, { id: "test-extension", frameId: 0, tab: id === tabA.id ? tabA : tabB });
+  const sender = { ...uiSender, url: uiSender.url + "?surface=floating", frameId: 1, tab: tabA };
+  const read = await value.message({ type: "PREVIEW", payload: { tab_id: tabB.id } }, sender);
+  assert.equal(read.data.resume.candidate_name, "合成悬浮甲");
+  const popup = await value.message({ type: "PREVIEW" }, uiSender); assert.equal(popup.data.resume.candidate_name, "合成活动乙");
+  let imagePage; value.context.GoodHRAvatar.fetchAvatar = async (_source, pageURL) => { imagePage = pageURL; return "data:image/png;base64,YQ=="; };
+  const created = await value.message({ type: "CREATE", payload: { resume: read.data.resume, capture_id: read.data.resume.capture_id, idempotency_key: "floating-synthetic-create" } }, sender);
+  assert.equal(created.ok, true); assert.equal(imagePage, tabA.url);
+  resumeA = { ...resumeA, candidate_name: "合成悬浮新候选人", phone: "13800000103" };
+  const stale = await value.message({ type: "CREATE", payload: { resume: read.data.resume, capture_id: read.data.resume.capture_id, idempotency_key: "floating-stale" } }, sender);
+  assert.equal(stale.ok, false); assert.equal(stale.code, "CAPTURE_SCOPE_CHANGED");
+  assert.equal(value.requests.filter(({ url }) => url.endsWith("/api/candidates")).length, 1);
+  value.values.data_use_accepted = false;
+});
+
+test("悬浮面板头像读取期间切人会终止CREATE，既有简历不被新头像串写", async () => {
+  const value = backgroundFixture(); value.values.data_use_accepted = true;
+  const tab = { id: 51, url: "https://h.liepin.com/resume/showresumedetail" }; let candidate = { candidate_name: "合成旧候选人", phone: "13800000121", platform_id: "hliepin", source_url: tab.url, avatar_source_url: "https://image0.lietou-static.com/fixture.png" }, release, started;
+  const startedPromise = new Promise((resolve) => { started = resolve; });
+  value.extension.tabs.sendMessage = async () => value.message({ type: "CANDIDATE_SNAPSHOT", resume: candidate }, { id: "test-extension", frameId: 0, tab });
+  value.context.GoodHRAvatar.fetchAvatar = async () => { started(); return new Promise((resolve) => { release = resolve; }); };
+  const sender = { ...uiSender, url: uiSender.url + "?surface=floating", frameId: 2, tab };
+  const snapshot = (await value.message({ type: "PREVIEW" }, sender)).data.resume;
+  const saving = value.message({ type: "CREATE", payload: { resume: snapshot, capture_id: snapshot.capture_id, idempotency_key: "change-during-image" } }, sender);
+  await startedPromise; candidate = { ...candidate, candidate_name: "合成新候选人", phone: "13800000122" }; release("data:image/png;base64,YQ==");
+  const result = await saving; assert.equal(result.ok, false); assert.equal(result.code, "CAPTURE_SCOPE_CHANGED");
+  assert.equal(value.requests.some(({ url }) => url.endsWith("/api/candidates")), false);
+  value.values.data_use_accepted = false;
+});
+
 test("内容脚本不能调用登录、查重、保存或读取凭证接口", async () => {
   const value = backgroundFixture(), sender = { id: "test-extension", frameId: 0, tab: { id: 4, url: "https://h.liepin.com/resume/showresumedetail" } };
   for (const type of ["STATE", "PREVIEW", "LOGIN", "CREATE", "AVATAR_RETRY", "DUPLICATES", "RESTORE", "FOLLOWUPS", "LOGOUT", "REVOKE_RETRY", "DRAFT_GET", "DRAFT_SAVE", "CHECK_UPDATE", "SUMMARY_START", "SUMMARY_SAVE"]) assert.equal(await value.message({ type, payload: {} }, sender), undefined);
@@ -95,6 +147,18 @@ test("本地AI仅配对授权且去联系方式，任务不执行云AI；摘要�
   await value.message({ type: "SUMMARY_SAVE", payload: { candidate_id: "synthetic", row_version: 8, ai_summary: "合成总结", idempotency_key: "summary-save" } }, uiSender);
   assert.equal(value.requests[1].options.method, "PATCH"); assert.deepEqual(JSON.parse(value.requests[1].options.body), { ai_summary: "合成总结", row_version: 8, idempotency_key: "summary-save" });
   value.values.session.user = { id: "new-account", email: "other@example.test" }; const stalePair = await value.message({ type: "SUMMARY_START", payload }, uiSender); assert.equal(stalePair.ok, false); assert.match(stalePair.message, /同账号/); assert.equal(value.requests.length, 2);
+});
+
+test("AI整理前拒绝预留ID和内置只读标记，不调用本地任务且不按真实同名同号拒绝", async () => {
+  const value = backgroundFixture((url) => response({ ok: true, data: { task: { id: "synthetic-writable-task", status: "queued" } } }));
+  Object.assign(value.values, { data_use_accepted: true, installation_id: "fixture-install", pairing_token: "private-grant", pairing_account_key: JSON.stringify(["fixture", "fixture@example.test"]) });
+  const resume = { candidate_name: "合成同名候选人", phone: "13800000181", work_experiences: [{ company_name: "合成公司" }] }, builtinID = "00000000-0000-4000-8000-000000000001";
+  for (const marker of [{ id: builtinID }, { candidate_id: builtinID }, { platform_candidate_id: builtinID }, { is_builtin: true }, { is_builtin: false }, { readonly: true }, { readonly: false }, { builtin_notice: "合成只读" }, { source_type: "builtin" }]) {
+    const result = await value.message({ type: "SUMMARY_START", payload: { resume: { ...resume, ...marker }, request_key: "blocked-built-in" } }, uiSender);
+    assert.equal(result.ok, false); assert.match(result.message, /内置示例/); assert.equal(value.requests.length, 0);
+  }
+  const allowed = await value.message({ type: "SUMMARY_START", payload: { resume, request_key: "same-contacts-real-candidate" } }, uiSender);
+  assert.equal(allowed.ok, true); assert.equal(value.requests.length, 1); assert.equal(allowed.data.task.id, "synthetic-writable-task");
 });
 
 test("同账号手动登录可配对并撤销旧token，不同账号新授权被撤销且不悄悄切号", async () => {

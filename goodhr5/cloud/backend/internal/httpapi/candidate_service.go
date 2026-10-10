@@ -78,17 +78,19 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 	if !isAdmin {
 		query.UserEmail = session.Email
 	}
-	result, err := s.store.ListPositionCandidates(tenant.ID, query)
+	items, result, builtinTotal, err := s.listWithBuiltin(tenant.ID, query)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list candidates")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":         true,
-		"candidates": publicPositionCandidates(result.Items),
-		"total":      result.Total,
-		"page":       result.Page,
-		"page_size":  result.PageSize,
+		"ok":            true,
+		"candidates":    items,
+		"total":         result.Total + builtinTotal,
+		"real_total":    result.Total,
+		"builtin_total": builtinTotal,
+		"page":          result.Page,
+		"page_size":     result.PageSize,
 	})
 }
 

@@ -16,6 +16,60 @@ import (
 	"time"
 )
 
+// TestBuiltinCandidateShareHTTP 验证分享路由独立拒绝示例身份，即使存在错误的资料或历史分享映射也不能匿名公开。
+func TestBuiltinCandidateShareHTTP(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "builtin-share-test@example.com")
+	status, created := candidateTestRequest(t, routes, token, http.MethodPost, "/api/candidates", map[string]any{"candidate_name": "合成分享边界资料", "phone": "13800138000"})
+	if status != http.StatusOK {
+		t.Fatalf("create status=%d", status)
+	}
+	realID := created["candidate"].(map[string]any)["id"].(string)
+	store := server.candidates.store.(*MemoryCandidateStore)
+	store.mu.Lock()
+	item := store.profiles[realID]
+	item.ID = builtinCandidateID
+	store.profiles[builtinCandidateID] = item
+	store.mu.Unlock()
+	path := "/api/candidates/" + builtinCandidateID + "/share"
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		status, _ = candidateTestRequest(t, routes, "", method, path, nil)
+		if status != http.StatusUnauthorized {
+			t.Fatalf("anonymous %s status=%d", method, status)
+		}
+		status, _ = candidateTestRequest(t, routes, token, method, path, nil)
+		if status != http.StatusForbidden {
+			t.Fatalf("builtin %s status=%d", method, status)
+		}
+	}
+	secret := strings.Repeat("b", 64)
+	digest := sha256.Sum256([]byte(secret))
+	shareStore := server.candidateShares.store.(*MemoryCandidateShareStore)
+	shareStore.mu.Lock()
+	if len(shareStore.items) != 0 {
+		t.Fatal("builtin share was written")
+	}
+	shareStore.mu.Unlock()
+	if err := shareStore.SaveCandidateShare(CandidateShare{TokenHash: hex.EncodeToString(digest[:]), TenantID: item.TenantID, CandidateID: builtinCandidateID, UserEmail: item.UserEmail, CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	status, public := candidateTestRequest(t, routes, "", http.MethodGet, "/api/public/resume-shares/"+secret, nil)
+	if status != http.StatusNotFound || public["candidate"] != nil {
+		t.Fatalf("builtin leaked through stored share status=%d result=%v", status, public)
+	}
+	for _, endpoint := range []string{"", "/notes", "/recommendations"} {
+		status, _ = candidateTestRequest(t, routes, "", http.MethodGet, "/api/candidates/"+builtinCandidateID+endpoint, nil)
+		if status != http.StatusUnauthorized {
+			t.Fatalf("anonymous builtin %s status=%d", endpoint, status)
+		}
+	}
+	status, detail := candidateTestRequest(t, routes, token, http.MethodGet, "/api/candidates/"+builtinCandidateID, nil)
+	if status != http.StatusOK || detail["candidate"].(map[string]any)["candidate_name"] != "瓜瓜" {
+		t.Fatalf("authenticated builtin status=%d result=%v", status, detail)
+	}
+}
+
 // TestCandidateShareHTTP 验证分享只能由有权查看简历的网页用户创建，公开内容不包含工作记录。
 func TestCandidateShareHTTP(t *testing.T) {
 	server := mustNewServer(t)

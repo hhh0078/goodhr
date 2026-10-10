@@ -7,6 +7,7 @@ export type ResumeExperience = {
 export type ResumeNote = { id: string; content: string; author_email?: string; author_name?: string; occurred_at?: string; created_at?: string };
 export type ResumeSource = { platform_id?: string; platform_candidate_id?: string; source_type?: string; source_url?: string; created_at?: string };
 export type Resume = {
+  is_builtin?: boolean; readonly?: boolean; builtin_notice?: string;
   id: string; candidate_name: string; phone?: string; email?: string; gender?: string; birth_ym?: string; avatar_data_url?: string;
   age?: number | null; current_region?: string; expected_region?: string; work_region?: string;
   work_years?: string; work_years_number?: number | null; education_level?: string; work_status?: string;
@@ -45,7 +46,13 @@ export const sourceOptions = [
   { value: "browser_extension:boss", label: "Boss插件" }, { value: "browser_extension:liepin", label: "猎聘插件" },
   { value: "browser_extension:zhaopin", label: "智联插件" }, { value: "browser_extension:51job", label: "无忧插件" },
   { value: "browser_extension", label: "全部插件" }, { value: "automatic", label: "自动任务" },
+  { value: "builtin", label: "内置示例" },
 ];
+export const builtinResumeID = "00000000-0000-4000-8000-000000000001";
+/** isReadOnlyResume 同时核对预留身份和服务端标记，防止缺失只读标记时显示维护入口。 */
+export function isReadOnlyResume(resume?: Resume | ResumeDraft | string | null): boolean {
+  return typeof resume === "string" ? resume === builtinResumeID : Boolean(resume && (resume.id === builtinResumeID || resume.is_builtin || resume.readonly));
+}
 /** avatarSource 仅展示云端规范化的内嵌PNG/JPEG头像，拒绝远程地址和超出合同大小的内容。 */
 export function avatarSource(value?: string) {
   return typeof value === "string" && value.length <= 128 * 1024 && /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : undefined;
@@ -120,7 +127,7 @@ export function resumeAge(resume: Resume) {
 export function nonEmptyChanges(draft: ResumeDraft, previous?: Resume | null, clearFields: string[] = []) {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(draft)) {
-    if (["id", "row_version", "creator_name", "notes", "sources", "recommendations", "created_at", "updated_at", "user_email", "user_name", "ai", "events", "platform_id", "platform_candidate_id", "engagement_id", "engagement_status", "recommendation_count", "position_name"].includes(key)) continue;
+    if (["id", "is_builtin", "readonly", "builtin_notice", "row_version", "creator_name", "notes", "sources", "recommendations", "created_at", "updated_at", "user_email", "user_name", "ai", "events", "platform_id", "platform_candidate_id", "engagement_id", "engagement_status", "recommendation_count", "position_name"].includes(key)) continue;
     if (clearFields.includes(key)) continue;
     if (value == null || (typeof value === "string" && !value.trim()) || (Array.isArray(value) && value.length === 0)) continue;
     if (!previous || JSON.stringify(value) !== JSON.stringify(previous[key as keyof Resume])) result[key] = value;

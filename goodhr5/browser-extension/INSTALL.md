@@ -1,21 +1,18 @@
 <!-- 文件作用：介绍 GoodHR 简历插件的开发包安装、只读采集、登录和失败重试方式。 -->
-# GoodHR 简历助手 1.0.2
+# GoodHR 简历助手 1.0.3
 
-本包是开发测试包。Chrome ZIP 可解压加载；Firefox ZIP / `unsigned.xpi` 只能临时加载，**没有商店审核或 Mozilla 签名**，不能当作正式安装包。
+本轮交付 Chrome ZIP，可解压加载；尚未发布 Chrome 商店，不能自动安装。Firefox 本轮暂缓分发，源码仍保留兼容实现。
 
 ## Chrome 安装
 
-1. 解压 `goodhr-resume-chrome-1.0.2.zip`。
+1. 解压 `goodhr-resume-chrome-1.0.3.zip`。
 2. 打开 `chrome://extensions`，打开“开发者模式”。
 3. 点“加载已解压的扩展程序”，选择含 `manifest.json` 的解压目录。
 4. 将 GoodHR 图标固定在浏览器工具栏。需要 Chrome 116 或更高版本。
 
-## Firefox 临时安装
+## Firefox 暂缓分发
 
-1. 解压 `goodhr-resume-firefox-1.0.2.zip`。
-2. 打开 `about:debugging#/runtime/this-firefox`。
-3. 点“临时载入附加组件”，选择解压目录的 `manifest.json`，或直接选择 `goodhr-resume-firefox-1.0.2-unsigned.xpi`。
-4. Firefox 重启后临时插件会移除，重新加载即可。需要 Firefox 140 或更高版本。
+旧版 1.0.2 ZIP / `unsigned.xpi` 仅作为历史开发资源保留，没有 Mozilla 签名，只能通过 `about:debugging#/runtime/this-firefox` 临时加载，重启后移除。当前新版下载入口仅提供 Chrome，Firefox 等单独验收后再分发。
 
 正式 Firefox 安装需单独完成 Mozilla 签名。Chrome 正式公开分发需独立的商店流程。本版本不自动安装到 Agent / Camoufox，也不改变原来的招聘自动化。
 
@@ -23,8 +20,8 @@
 
 1. 点击 GoodHR 图标，未登录也可查看当前已读取的姓名、手机号和中文经历预览。“重新读取”仅在本地采集，不请求云端；要查重和保存时，再同意将确认后的候选人资料保存到 GoodHR。
 2. 用 GoodHR 邮箱密码或验证码登录。密码不会保存在插件。也可选择“本地程序已经登录？”：输入本地端口（默认 43129）并连接，在打开的 GoodHR 控制台确认一次。后续同一安装可以自动恢复已配对账号。
-3. 打开猎聘企业端 `lpt.liepin.com`（含聊天页 `/chat/im#preview` 的弹框和独立页 `/resume/detail`）、猎聘猎头端 `h.liepin.com`、智联 `rd6.zhaopin.com`、前程无忧 `ehire.51job.com` 的候选人详情。可见详情被识别后，工具栏出现 `+`；点击图标或“放到侧栏”继续操作。
-4. 招聘页面没有悬浮框。插件只读可见 DOM，不改页面、不自动点击、不滚动、不解锁联系方式、不购买手机号、不读招聘 Cookie、不拦截网络。
+3. 打开猎聘企业端 `lpt.liepin.com`（含聊天页 `/chat/im#preview` 的弹框和独立页 `/resume/detail`）、猎聘猎头端 `h.liepin.com`、智联 `rd6.zhaopin.com`、前程无忧 `ehire.51job.com` 的候选人详情。可见详情被识别后，右下角出现“添加到 GoodHR”；点“打开助手”可登录、补号、查重和入库。标题可拖动，面板可收起；拖动仅调整插件自己的位置，限制在窗口内。工具栏 `+` 和“放到侧栏”仍可使用。
+4. 悬浮区采用独立 Shadow DOM，里面是扩展自身界面，与工具栏、侧栏复用同一登录和草稿。只创建/更新插件自己的容器，不修改招聘页原有内容或样式，不自动点击、不滚动、不解锁联系方式、不购买手机号、不读招聘 Cookie、不拦截网络。如果站点策略阻止嵌入，点工具栏图标或侧栏继续。
 5. 请检查姓名和手机。未识别到手机号、掩码或不完整号码都需补齐。支持完整中国大陆11位号（`+86` / `0086`规范化）及明确带`+国家区号`的7至15位国际号。输入始终保留；旧的无号记录可以先备注或推荐，添加/更新资料前需完整号码。
 6. 登录并同意数据用途后自动查重。补号、改姓名或线索会防抖重查；也可点“查重”重试。精确结果和综合年龄、最早学校/公司线索显示实际依据与分组。仅唯一精确结果自动选中；多条或相似结果需自己确认，不自动合并覆盖。查重失败明确提示，保存前需重试。
 7. 新人点击“添加简历”；已有候选人可独立“加备注”或“保存推荐记录”。更新只改主体，不顺带提交备注/推荐；先显示变化，再明确确认并校验版本。未读到的字段、空值和空经历保留原内容；主动清空请到主简历库编辑。
@@ -43,7 +40,7 @@
 
 选择岗位默认只是“已关联”，需要你明确选择其它状态后保存，才记录推荐推进。
 
-登录后从公开配置`GET /api/system/browser-extension`检查版本，只有新版高于当前版本才显示官方下载入口。插件内Alt+Enter可添加当前已确认新人；快捷键只在插件自身界面生效，不给招聘页面添加按钮或监听器。
+登录后从公开配置`GET /api/system/browser-extension`检查版本，只有新版高于当前版本才显示官方下载入口。插件内Alt+Enter可添加当前已确认新人；快捷键只在插件自身界面（含扩展域悬浮面板）生效，不监听招聘业务页面的键盘。
 
 ## 采集字段
 
@@ -59,10 +56,12 @@
 
 ## 本地构建与测试
 
-无需安装依赖：在 `goodhr5/browser-extension` 运行 `npm test`、`npm run build`。构建输出在 `dist/chrome`、`dist/firefox` 和三个开发压缩包；版本只取 `package.json`，与本地 Agent 版本相互独立。`dist/checksums.json` 记录 SHA256。
+无需安装依赖：在 `goodhr5/browser-extension` 运行 `npm test`、`npm run build:chrome`。本轮输出在 `dist/chrome` 和 `goodhr-resume-chrome-1.0.3.zip`；版本只取 `package.json`，与本地 Agent 版本相互独立。`dist/checksums.json` 记录 SHA256。默认 `npm run build` 仍保留双浏览器开发构建能力，不代表 Firefox 已发布。本地构建测试使用独立忽略目录，不改已有 `dist-local` 测试包。
 
 `node scripts/export-create-fixture.js` 会从合成输入通过实际插件整理器导出 `tests/fixtures/plugin-candidate-create.json`，供云端 Go 路由测试直接验证。标签为文字数组，地区使用 `current_region` / `expected_region`；明确数值薪资单位为 K，页面原文字单独保存。该文件和企业端嵌套预览 fixture 均不包含真实个人资料。
 
 已有仓库前端 Playwright 和本机 Chrome 时，可运行 `npm run test:ui` 做插件本地界面假接口验证。该验证不访问招聘网站、不登录真实账号，截图写到忽略目录 `artifacts`。缺浏览器时不自动下载，请使用已经安装的 Chrome。
+
+`npm run test:extension` 在独立Chrome临时配置中，通过官方扩展调试协议加载测试构建，以合成招聘页面验证扩展iframe实际消息来源和未登录预览。仅允许这次合成页面与扩展静态资源，其它网络阻断；不使用现有浏览器配置或登录，结束清理临时目录。请先运行`npm test`准备隔离测试构建。本轮Chrome154实测sender.tab指向对应详情页、frameId为子框架；浮层无需网页postMessage或额外页面授权秘密。
 
 官方说明：[Chrome 侧栏](https://developer.chrome.com/docs/extensions/reference/api/sidePanel)、[Firefox 后台清单](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/background)、[Firefox 数据授权](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/)、[Mozilla 签名分发](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/)。

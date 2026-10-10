@@ -42,6 +42,11 @@ func (s *CandidateShareService) PrivateShare(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusNotFound, "这份简历暂时没找到")
 		return
 	}
+	// 分享路由先于简历详情分发，必须独立拒绝预留示例身份，不能依赖示例未写入数据库。
+	if id == builtinCandidateID {
+		writeError(w, http.StatusForbidden, "这份是内置示例简历，仅供登录后查看，不能公开分享")
+		return
+	}
 	if _, err := s.candidates.store.GetPositionCandidate(scope.TenantID, id, "", scope.UserEmail, scope.IsAdmin); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, "这份简历暂时没找到")
@@ -100,6 +105,11 @@ func (s *CandidateShareService) PublicShare(w http.ResponseWriter, r *http.Reque
 		} else {
 			writeError(w, http.StatusInternalServerError, "分享暂时没读出来，请稍后再试")
 		}
+		return
+	}
+	// 即使存在历史或错误的分享映射，匿名入口也不得公开内置示例资料。
+	if share.CandidateID == builtinCandidateID {
+		writeError(w, http.StatusNotFound, "这份分享已取消，或简历已删除")
 		return
 	}
 	item, err := s.candidates.store.GetPositionCandidate(share.TenantID, share.CandidateID, "", share.UserEmail, true)
