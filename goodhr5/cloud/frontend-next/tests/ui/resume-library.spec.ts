@@ -8,13 +8,13 @@ const screenshotDirectory = resolve("artifacts/resume-library");
 // 合成16px纯色PNG只用于界面验证，不含任何真实候选人的照片。
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 type Call = { path: string; method: string; body: any; query: URLSearchParams };
-type State = { calls: Call[]; notes: any[]; recommendations: any[]; candidates: any[]; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[] };
+type State = { calls: Call[]; notes: any[]; recommendations: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string }>; candidates: any[]; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[] };
 const existing = { id: "resume-existing", candidate_name: "原有候选人", phone: "13800138000", row_version: 3, source_type: "automatic", education_level: "本科", expected_salary_min: null, expected_salary_max: null, work_experiences: [{ company_name: "原有公司", position_name: "产品经理", start_ym: "2021-01", content: "已有工作经历保留" }], user_email: "test@example.invalid", created_at: "2026-10-10T10:00:00+08:00", ai: { detail: { score: null, reason: "" } } };
 test.use({ storageState: { cookies: [], origins: [{ origin: previewOrigin, localStorage: [{ name: "goodhr5_access_token", value: "resume-test-only" }] }] } });
 
 /** mockResumeSession 拦截全部业务请求，模拟持久化草稿与失败重试，不访问招聘平台。 */
 async function mockResumeSession(page: Page): Promise<State> {
-  const state: State = { calls: [], notes: [], recommendations: [], candidates: [{ ...existing }], failFirstNote: false, errors: [], task: { id: "import-test", status: "completed", total: 1, processed: 1, items: [{ id: "import-item", file_name: "候选人.txt", status: "needs_phone", candidate: { candidate_name: "待补号候选人", source_type: "ai_import", phone: "" } }] } };
+  const state: State = { calls: [], notes: [], recommendations: [], positions: [{ id: "position-one", name: "产品经理" }], candidates: [{ ...existing }], failFirstNote: false, errors: [], task: { id: "import-test", status: "completed", total: 1, processed: 1, items: [{ id: "import-item", file_name: "候选人.txt", status: "needs_phone", candidate: { candidate_name: "待补号候选人", source_type: "ai_import", phone: "" } }] } };
   page.on("pageerror", (error) => state.errors.push(error.message));
   await page.context().route("**/*", async (route) => {
     const request = route.request(); const url = new URL(request.url()); const method = request.method();
@@ -66,7 +66,7 @@ async function mockResumeSession(page: Page): Promise<State> {
     else if (url.pathname === "/api/user-flow") data = { flow: { version: 2, state: "completed", stage: "completed", steps: {} } };
     else if (url.pathname.includes("/invitations")) data = { invitations: [] };
     else if (url.pathname === "/api/ai-wallet") data = { wallet: { balance: "100", models: [], default_model: "test" } };
-    else if (url.pathname === "/api/positions") data = { positions: [{ id: "position-one", name: "产品经理" }, { id: "position-two", name: "招聘顾问" }], total: 2 };
+    else if (url.pathname === "/api/positions") data = { positions: state.positions, total: state.positions.length };
     else if (url.pathname === "/api/candidates/duplicates") data = { ok: true, hidden_match: false, matches: body?.phone === existing.phone && body?.exclude_id !== existing.id ? [{ candidate: existing, match_type: "exact", reasons: ["手机号相同"] }] : [] };
     else if (url.pathname === "/api/candidates") {
       if (method === "POST") { const candidate = { ...body, id: "resume-new", row_version: 1 }; state.candidates.push(candidate); data = { ok: true, candidate }; }
@@ -78,8 +78,12 @@ async function mockResumeSession(page: Page): Promise<State> {
       } else data = { notes: state.notes };
     } else if (url.pathname.endsWith("/recommendations")) {
       if (method === "POST") {
-        const recommendation = { id: `rec-${body.position_id}`, position_id: body.position_id, position_name: "产品经理", stage: body.stage, events: [{ id: "event-one", to_stage: body.stage, content: body.content, author_name: "测试HR", occurred_at: "2026-10-08T14:20:00+08:00", created_at: "2026-10-10T10:02:00+08:00" }] };
-        state.recommendations = [recommendation]; data = { recommendation };
+        // 暂停回包用来验证忙时不能切换岗位；同一岗位只追加历史，其他岗位关系保持原样。
+        await state.recommendationSaveGate;
+        const previous = state.recommendations.find((item) => item.position_id === body.position_id);
+        const event = { id: `event-${state.calls.filter((call) => call.path.endsWith("/recommendations") && call.method === "POST").length}`, from_stage: previous?.stage || "draft", to_stage: body.stage, content: body.content, author_name: "测试HR", occurred_at: "2026-10-08T14:20:00+08:00", created_at: "2026-10-10T10:02:00+08:00" };
+        const recommendation = { ...previous, id: previous?.id || `rec-${body.position_id}`, position_id: body.position_id, position_name: previous?.position_name || (body.position_id === "position-two" ? "招聘顾问" : "产品经理"), stage: body.stage, events: [...(previous?.events || []), event] };
+        state.recommendations = previous ? state.recommendations.map((item) => item.id === previous.id ? recommendation : item) : [...state.recommendations, recommendation]; data = { recommendation };
       } else data = { recommendations: state.recommendations };
     } else if (url.pathname.startsWith("/api/candidates/")) {
       const id = url.pathname.split("/").pop(); const candidate = state.candidates.find((item) => item.id === id);
@@ -130,9 +134,10 @@ test("本地程序离线时关闭安装提示后仍可搜索、手动添加、�
   await drawer.getByRole("button", { name: "加备注", exact: true }).click();
   await expect(drawer.getByText("离线也能记的通用备注", { exact: true })).toBeVisible();
   await page.mouse.move(10, 950); await dismissNotices(page);
-  await drawer.getByRole("tab", { name: /^推荐/ }).click();
-  await drawer.getByLabel("选择推荐岗位").click(); await page.getByText("产品经理", { exact: true }).last().click();
-  await drawer.getByLabel("推荐阶段").click(); await page.getByText("已推荐", { exact: true }).last().click();
+  const recommendations = drawer.getByTestId("resume-recommendations-section");
+  await expect(recommendations).toBeVisible();
+  await recommendations.getByLabel("选择推荐岗位").click(); await page.getByText("产品经理", { exact: true }).last().click();
+  await recommendations.getByRole("radio", { name: "已推荐", exact: true }).check();
   await drawer.getByPlaceholder("只记这个岗位的推荐、面试和跟进情况。").fill("离线岗位跟进");
   await drawer.getByRole("button", { name: "记录推荐", exact: true }).click();
   await expect(drawer.getByText("推进记录 · 1 条", { exact: true })).toBeVisible();
@@ -454,29 +459,136 @@ test("查询写回URL，详情抽屉独立保存备注和人工推荐，窄屏�
   await expect(drawer.getByText("未填写", { exact: true }).first()).toBeVisible();
   await expect(drawer.getByText("0–0K", { exact: true })).toHaveCount(0);
   await expect(drawer.getByText("面议（按年包沟通）", { exact: true })).toBeVisible();
-  await drawer.getByPlaceholder("比如：意向不错，周五再约一次。").fill("通用备注仅在备注接口保存");
-  await drawer.getByRole("button", { name: "加备注", exact: true }).click();
-  await expect(drawer.getByText("通用备注仅在备注接口保存", { exact: true })).toBeVisible();
-  await expect(drawer.getByText(/测试HR · 2026\/10\/09/)).toBeVisible();
-  await drawer.getByRole("tab", { name: /^推荐/ }).click();
-  await drawer.getByLabel("选择推荐岗位").click(); await page.getByText("产品经理", { exact: true }).last().click();
-  await drawer.getByLabel("推荐阶段").click(); await page.getByText("已推荐", { exact: true }).last().click();
-  await drawer.getByPlaceholder("只记这个岗位的推荐、面试和跟进情况。").fill("岗位专属备注");
-  await drawer.getByRole("button", { name: "记录推荐", exact: true }).click();
-  await expect(drawer.getByText("推进记录 · 1 条", { exact: true })).toBeVisible();
-  await drawer.getByText("推进记录 · 1 条", { exact: true }).click();
-  await expect(drawer.getByText(/测试HR · 2026\/10\/08/)).toBeVisible();
+  const notes = drawer.getByTestId("resume-notes-section");
+  const recommendations = drawer.getByTestId("resume-recommendations-section");
+  const automaticTasks = drawer.getByTestId("resume-auto-tasks-section");
+  for (const section of [notes, recommendations, automaticTasks]) await expect(section).toBeVisible();
+  await expect(drawer.getByRole("tab")).toHaveCount(0);
+  await notes.getByPlaceholder("比如：意向不错，周五再约一次。").fill("通用备注仅在备注接口保存");
+  await notes.getByRole("button", { name: "加备注", exact: true }).click();
+  await expect(notes.getByText("通用备注仅在备注接口保存", { exact: true })).toBeVisible();
+  await expect(notes.getByText(/测试HR · 2026\/10\/09/)).toBeVisible();
+  await recommendations.getByLabel("选择推荐岗位").click(); await page.getByText("产品经理", { exact: true }).last().click();
+  await recommendations.getByRole("radio", { name: "已推荐", exact: true }).check();
+  await recommendations.getByPlaceholder("只记这个岗位的推荐、面试和跟进情况。").fill("岗位专属备注");
+  await recommendations.getByRole("button", { name: "记录推荐", exact: true }).click();
+  await expect(recommendations.getByText("推进记录 · 1 条", { exact: true })).toBeVisible();
+  await expect(recommendations.getByText(/测试HR · 2026\/10\/08/)).toBeVisible();
+  await expect(recommendations.getByText("岗位专属备注", { exact: true })).toBeVisible();
+  await expect(recommendations.getByText("通用备注仅在备注接口保存", { exact: true })).toHaveCount(0);
+  await expect(notes.getByText("岗位专属备注", { exact: true })).toHaveCount(0);
   await dismissNotices(page);
   await page.screenshot({ path: resolve(screenshotDirectory, "detail-desktop.png"), fullPage: true, animations: "disabled" });
   expect(state.recommendations[0].stage).toBe("recommended"); expect(state.recommendations[0].events[0].content).toBe("岗位专属备注");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(drawer.getByRole("heading", { name: "原有候选人", exact: true })).toBeInViewport();
+  const candidateHeading = drawer.getByRole("heading", { name: "原有候选人", exact: true });
+  await candidateHeading.scrollIntoViewIfNeeded();
+  await expect(candidateHeading).toBeInViewport();
   const overflow = await page.locator("body").boundingBox(); expect(overflow?.width).toBeLessThanOrEqual(390);
   const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(documentWidth).toBeLessThanOrEqual(390);
   await page.screenshot({ path: resolve(screenshotDirectory, "detail-mobile.png"), fullPage: true, animations: "disabled" });
-  await drawer.getByRole("tab", { name: "自动任务", exact: true }).click();
-  await expect(drawer.getByRole("tabpanel", { name: "自动任务" }).getByText("通用备注仅在备注接口保存", { exact: true })).toHaveCount(0);
+  await expect(automaticTasks.getByText("通用备注仅在备注接口保存", { exact: true })).toHaveCount(0);
+  expect(state.errors).toEqual([]);
+});
+
+test("多岗位卡片带入阶段，保存时禁切，推进历史常驻且通用备注独立", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.positions = [{ id: "position-one", name: "产品经理" }, { id: "position-two", name: "招聘顾问" }];
+  const commonNote = "合成通用备注：只用于候选人沟通";
+  state.notes = [{ id: "note-independent", content: commonNote, author_name: "测试HR", occurred_at: "2026-10-09T09:15:00+08:00" }];
+  state.candidates[0].events = [
+    { event_type: "manual_note", message_text: commonNote, created_at: "2026-10-10T10:00:00+08:00" },
+    { event_type: "resume_read", message_text: "合成自动任务：已读取详情", created_at: "2026-10-10T10:05:00+08:00" },
+  ];
+  state.recommendations = [
+    { id: "rec-position-one", position_id: "position-one", position_name: "产品经理", stage: "draft", events: [{ id: "seed-event-one", from_stage: "draft", to_stage: "draft", content: "产品经理原有岗位历史", author_name: "测试HR", occurred_at: "2026-10-08T09:00:00+08:00" }] },
+    { id: "rec-position-two", position_id: "position-two", position_name: "招聘顾问", stage: "contacting", events: [{ id: "seed-event-two", from_stage: "recommended", to_stage: "contacting", content: "招聘顾问原有岗位历史", author_name: "测试HR", occurred_at: "2026-10-08T11:00:00+08:00" }] },
+  ];
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  await page.goto("/admin/resumes");
+  await page.getByRole("button", { name: "原有候选人", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
+  const notes = drawer.getByTestId("resume-notes-section");
+  const recommendations = drawer.getByTestId("resume-recommendations-section");
+  const automaticTasks = drawer.getByTestId("resume-auto-tasks-section");
+  for (const section of [notes, recommendations, automaticTasks]) await expect(section).toBeVisible();
+  await expect(drawer.getByRole("tab")).toHaveCount(0);
+  await expect(recommendations.getByRole("button", { name: "继续跟进", exact: true })).toHaveCount(0);
+  for (const content of ["产品经理原有岗位历史", "招聘顾问原有岗位历史"]) {
+    await expect(recommendations.getByText(content, { exact: true })).toHaveCount(1);
+    await expect(recommendations.getByText(content, { exact: true })).toBeVisible();
+  }
+  const firstCard = recommendations.getByRole("button", { name: "选择推荐记录 产品经理", exact: true });
+  const secondCard = recommendations.getByRole("button", { name: "选择推荐记录 招聘顾问", exact: true });
+  const followUp = recommendations.getByPlaceholder("只记这个岗位的推荐、面试和跟进情况。");
+  await secondCard.click();
+  await expect(secondCard).toHaveAttribute("aria-pressed", "true");
+  await expect(firstCard).toHaveAttribute("aria-pressed", "false");
+  await expect(recommendations.getByRole("combobox", { name: "选择推荐岗位", exact: true }).locator("..")).toHaveText("招聘顾问");
+  await expect(recommendations.getByRole("radio", { name: "沟通中", exact: true })).toBeChecked();
+  await expect(followUp).toHaveValue("");
+  await recommendations.getByRole("radio", { name: "面试中", exact: true }).check();
+  await followUp.fill("招聘顾问新跟进：已约面试");
+  // 重复点当前卡片不能重置尚未提交的阶段、备注或发起保存。
+  await secondCard.click();
+  await expect(recommendations.getByRole("radio", { name: "面试中", exact: true })).toBeChecked();
+  await expect(followUp).toHaveValue("招聘顾问新跟进：已约面试");
+  expect(state.calls.filter((call) => call.path.endsWith("/recommendations") && call.method === "POST")).toHaveLength(0);
+  let releaseSave!: () => void;
+  state.recommendationSaveGate = new Promise<void>((resolveSave) => { releaseSave = resolveSave; });
+  try {
+    await recommendations.getByRole("button", { name: "记录跟进", exact: true }).click();
+    await expect.poll(() => state.calls.filter((call) => call.path.endsWith("/recommendations") && call.method === "POST").length).toBe(1);
+    await expect(firstCard).toHaveAttribute("aria-disabled", "true");
+    await expect(secondCard).toHaveAttribute("aria-disabled", "true");
+    await expect(recommendations.getByRole("radio", { name: "已推荐", exact: true })).toBeDisabled();
+    await expect(followUp).toBeDisabled();
+    // 卡片是自定义键盘控件，分别验证鼠标与 Enter 在忙时都不会切换。
+    await firstCard.click({ force: true });
+    await firstCard.press("Enter");
+    await expect(secondCard).toHaveAttribute("aria-pressed", "true");
+    await expect(firstCard).toHaveAttribute("aria-pressed", "false");
+    await expect(recommendations.getByRole("combobox", { name: "选择推荐岗位", exact: true }).locator("..")).toHaveText("招聘顾问");
+    await expect(recommendations.getByRole("radio", { name: "面试中", exact: true })).toBeChecked();
+    await expect(followUp).toHaveValue("招聘顾问新跟进：已约面试");
+    expect(state.recommendations[1].events).toHaveLength(1);
+  } finally {
+    releaseSave(); state.recommendationSaveGate = undefined;
+  }
+  await expect(firstCard).toHaveAttribute("aria-disabled", "false");
+  await expect(recommendations.getByText("招聘顾问新跟进：已约面试", { exact: true })).toBeVisible();
+  await expect(followUp).toHaveValue("");
+  expect(state.recommendations[0].stage).toBe("draft");
+  expect(state.recommendations[0].events).toHaveLength(1);
+  expect(state.recommendations[1].stage).toBe("interview");
+  expect(state.recommendations[1].events).toHaveLength(2);
+  await firstCard.click();
+  await expect(firstCard).toHaveAttribute("aria-pressed", "true");
+  await expect(recommendations.getByRole("combobox", { name: "选择推荐岗位", exact: true }).locator("..")).toHaveText("产品经理");
+  await expect(recommendations.getByRole("radio", { name: "待推荐", exact: true })).toBeChecked();
+  await recommendations.getByRole("radio", { name: "已推荐", exact: true }).check();
+  await followUp.fill("产品经理新跟进：确认推荐");
+  await recommendations.getByRole("button", { name: "记录推荐", exact: true }).click();
+  await expect(recommendations.getByText("产品经理新跟进：确认推荐", { exact: true })).toBeVisible();
+  await expect(recommendations.getByText("推进记录 · 2 条", { exact: true })).toHaveCount(2);
+  for (const content of ["产品经理原有岗位历史", "招聘顾问原有岗位历史", "招聘顾问新跟进：已约面试", "产品经理新跟进：确认推荐"]) {
+    await expect(recommendations.getByText(content, { exact: true })).toHaveCount(1);
+    await expect(recommendations.getByText(content, { exact: true })).toBeVisible();
+  }
+  await expect(notes.getByText(commonNote, { exact: true })).toHaveCount(1);
+  await expect(recommendations.getByText(commonNote, { exact: true })).toHaveCount(0);
+  await expect(automaticTasks.getByText(commonNote, { exact: true })).toHaveCount(0);
+  await expect(automaticTasks.getByText("合成自动任务：已读取详情", { exact: true })).toBeVisible();
+  const saved = state.calls.filter((call) => call.path.endsWith("/recommendations") && call.method === "POST");
+  expect(saved.map((call) => [call.body.position_id, call.body.stage, call.body.content])).toEqual([
+    ["position-two", "interview", "招聘顾问新跟进：已约面试"],
+    ["position-one", "recommended", "产品经理新跟进：确认推荐"],
+  ]);
+  expect(state.recommendations).toHaveLength(2);
+  expect(state.recommendations[1].stage).toBe("interview");
+  expect(state.recommendations[1].events).toHaveLength(2);
+  expect(state.calls.filter((call) => call.path.endsWith("/notes") && call.method === "POST")).toHaveLength(0);
   expect(state.errors).toEqual([]);
 });
 

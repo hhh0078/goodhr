@@ -33,7 +33,7 @@ export type RecommendationEvent = {
 export type Recommendation = {
   id: string; candidate_id?: string; position_id: string; position_name?: string; stage: string;
   note?: string; recommended_at?: string; created_at?: string; updated_at?: string;
-  author_email?: string; events?: RecommendationEvent[];
+  author_email?: string; author_name?: string; events?: RecommendationEvent[];
 };
 export const recommendationStages = [
   { value: "draft", label: "待推荐" }, { value: "recommended", label: "已推荐" },
