@@ -2,7 +2,7 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), vm = require("node:vm"), crypto = require("node:crypto");
 const { build, manifest, parseBuildOptions } = require("../scripts/build.js");
-const ROOT = path.resolve(__dirname, ".."), OUT = path.join(ROOT, "dist-local");
+const ROOT = path.resolve(__dirname, ".."), OUT = path.join(ROOT, "artifacts", "build-local-test");
 
 /** hashes 记录目录内文件校验值，校验本地构建不会触碰正式源文件和已有正式包。 */
 function hashes(directory, prefix = "") {
@@ -13,9 +13,9 @@ function hashes(directory, prefix = "") {
   }));
 }
 
-const sourceBefore = hashes(path.join(ROOT, "src")), productionBefore = hashes(path.join(ROOT, "dist"));
+const sourceBefore = hashes(path.join(ROOT, "src")), productionBefore = hashes(path.join(ROOT, "dist")), existingLocalBefore = hashes(path.join(ROOT, "dist-local"));
 const installBefore = fs.readFileSync(path.join(ROOT, "INSTALL.md"));
-test.before(() => { build({ local: true }); });
+test.before(() => { build({ local: true, test: true }); });
 
 /** localFixture 运行已构建的本地后台，所有网络由内存替身处理，不能访问真实候选人或服务器。 */
 function localFixture(approveOrigin = "http://127.0.0.1:5173") {
@@ -44,8 +44,10 @@ function localFixture(approveOrigin = "http://127.0.0.1:5173") {
 test("本地构建保留正式源码、协议和正式包全部字节，拒绝自定义地址参数", () => {
   assert.deepEqual(hashes(path.join(ROOT, "src")), sourceBefore);
   assert.deepEqual(hashes(path.join(ROOT, "dist")), productionBefore);
+  assert.deepEqual(hashes(path.join(ROOT, "dist-local")), existingLocalBefore);
   assert.deepEqual(fs.readFileSync(path.join(ROOT, "INSTALL.md")), installBefore);
   assert.deepEqual(parseBuildOptions([]), { local: false }); assert.deepEqual(parseBuildOptions(["--local"]), { local: true });
+  assert.deepEqual(parseBuildOptions(["--chrome"]), { local: false, chromeOnly: true });
   for (const argv of [["--local", "--url=http://example.test"], ["--api-url", "http://example.test"], ["--local=https://example.test"]]) assert.throws(() => parseBuildOptions(argv), /固定/);
   assert.throws(() => build({ local: "true" }), /布尔/); assert.throws(() => build({ local: true, api: "http://example.test" }), /布尔/);
 });

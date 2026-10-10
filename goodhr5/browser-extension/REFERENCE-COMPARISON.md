@@ -1,9 +1,9 @@
-<!-- 文件作用：记录HiMatch参考插件逐功能源码核对结果、GoodHR实现边界及1.0.2验收范围。 -->
-# HiMatch插件功能核对与GoodHR 1.0.2
+<!-- 文件作用：记录HiMatch参考插件逐功能源码核对结果、GoodHR实现边界及1.0.3验收范围。 -->
+# HiMatch插件功能核对与GoodHR 1.0.3
 
 参考目录：`D:\work\headhunter-system-goodhr-reference\browser-extension`，himatch分支，清单版本0.5.2。已完整读取background、content、popup、全部liepin/zhaopin/51job适配器及manifest。该目录没有独立options页面。以下“参考有”指源代码确实存在，不代表运行过真实账号。
 
-| 功能 | 参考源码证据（相对browser-extension） | GoodHR 1.0.2处理 |
+| 功能 | 参考源码证据（相对browser-extension） | GoodHR 1.0.3处理 |
 | --- | --- | --- |
 | 候选人识别后自动查重 | content/content.js:801 boot、932 pollPageState | 登录且同意后自动查询；捕获450ms防抖，UI补号/姓名变化重查 |
 | 有手机号精确查询 | background/background.js:214 handleCandidateDuplicate | 手机号或平台ID精确匹配；只唯一exact自动选 |
@@ -28,7 +28,8 @@
 | 平台结构化经历字段 | platforms/liepin.js、zhaopin.js、51job.js完整extractResume | 纯读选择器核对并规范snake_case/年月；多期望职位城市、智联技能等级与明确证书 |
 | 猎聘证书/荣誉、51job证书/荣誉 | 参考没有对应extract函数 | 留空、不猜选择器；主简历库可维护 |
 | 猎聘企业lpt与嵌套预览 | 参考manifest仅h.liepin.com | GoodHR另用当前主仓库nest读取依据，覆盖chat预览和独立resume/detail |
-| 只读安全 | 智联revealUnlockedPhone写dataset并button.click；猎聘phone兜底body | 不复制自动解锁、整页电话猜测、隐藏节点、iframe和页面操作 |
+| 只读安全 | 智联revealUnlockedPhone写dataset并button.click；猎聘phone兜底body | 不复制自动解锁、整页电话猜测、隐藏节点或第三方iframe读取；仅允许自己的隔离UI容器 |
+| 猎聘猎头手机号行内匹配 | platforms/liepin.js:133—153 contactRows/normalizePhone/extractPhone | 当前候选人 .connect-box dd 内识别号码旁复制等文字、可见电话链接；排除邮箱、编号、掩码、隐藏和多号，不复制body兜底 |
 | 登录状态及角色 | popup/popup.js:3/66，background:165 | 插件受限会话，后台持凭证；邮箱密码/验证码及本地配对，不交给content/UI token |
 | 优先本地后云端登录 | background/background.js:165 | GoodHR固定云认证；已登录本地通过明确配对授权恢复 |
 | 退出 | 参考只删除浏览器token | 云会话/本地grant分别撤销，失败私有保留待撤销密钥并明确重试 |
@@ -38,7 +39,7 @@
 | AI保存 | content/content.js:741更新整个candidate | 总结先存草稿，明确单独PATCH ai_summary+row_version；不隐式改其它资料 |
 | AI切人隔离 | content/content.js:232 resumeKey | 摘要任务与草稿按人和账号隔离；generation拒绝旧账号结果 |
 | 关闭后的草稿 | 参考只保留content内存中的note draft | 本地24小时内有效、最多30份/3MiB；冻结职业资料≤1MiB，并发串行写入，存储失败明确提示 |
-| 浮层/位置/拖拽 | content/content.js:153—223/531 | 因页面只读要求不复制，采用popup/浏览器原生侧栏 |
+| 浮层/位置/拖拽 | content/content.js:153—223/531 | 新授权下创建正常命名的closed Shadow宿主，点击加载扩展域iframe，自己的标题栏拖动/收起且限窗口边界；不改招聘业务DOM，不做随机标识检测规避；刷新后位置回到右下角 |
 | Alt+Enter | content/content.js:996调用招聘页浮层按钮click | 仅插件自身UI快捷键；不在招聘页安装键盘监听 |
 | Chrome/Firefox | 参考Chrome MV3 service_worker | 共用1.0.2，Chrome service_worker+side_panel，Firefox background scripts+sidebar_action |
 | options配置 | 参考无独立options文件 | 本地端口与配对在自身UI；业务域名固定白名单，无任意代理 |
@@ -55,4 +56,6 @@
 
 Node测试包含四平台可见范围、合成嵌套/独立DOM、字段合同、空值更新保护、头像有限域及尺寸、鉴权/撤销/异步竞态、结构化查重、独立备注推荐时间、草稿与本地摘要。Chrome测试在本地合成DOM和插件自身UI运行，所有外部网络阻断；覆盖自动相似/唯一精确选择、45岗位、独立重试、无号旧记录、关闭/切人/切号草稿、迟到查询、摘要和头像转换。
 
-尚未宣称真实招聘账号的全部页面通过；企业头像选择器及前程无忧额外CDN仍待真实页面核实。参考项目没有猎聘/51job证书荣誉读取，未凭猜测新增。Firefox ZIP/XPI为未签名开发包，仅临时加载，正式分发仍需Mozilla签名。本轮没有复制参考网页浮层、招聘页操作、云端AI或不受限登录凭证。
+1.0.3新增号码旁复制文案、联系方式邮箱/年份/编号/掩码与多号拒绝，closedShadow样式隔离、懒加载、拖动边界、收起保留输入、网页消息无效；后台验证iframe自身tab与当前capture_id，头像读取期间切人不写库。内置示例标记与预留ID在AI职业资料整理之前拒绝，不按姓名/手机号误伤真实资料。Chrome154独立临时配置实际加载扩展后，合成猎聘详情iframe的sender.tab与frameId证据确认有效；不依赖activeTab读取嵌入来源，也不引入额外网页nonce。
+
+尚未宣称真实招聘账号的全部页面通过；企业头像选择器及前程无忧额外CDN仍待真实页面核实。参考项目没有猎聘/51job证书荣誉读取，未凭猜测新增。本轮仅交付Chrome 1.0.3开发包，尚未发布Chrome商店；Firefox1.0.2历史ZIP/XPI未签名，仅临时加载，新版分发暂缓。招聘页CSP可能阻止嵌入扩展iframe，此时工具栏/原生侧栏仍可用。悬浮实现复用现有完整界面，不照搬网页凭证、业务DOM修改、云端AI或自动解锁。
