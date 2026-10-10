@@ -18,6 +18,7 @@ import (
 type AdminUser struct {
 	ID                  string              `json:"id"`
 	Email               string              `json:"email"`
+	HasOpenID           bool                `json:"has_openid"`
 	Role                string              `json:"role"`
 	Status              string              `json:"status"`
 	InviterEmail        string              `json:"inviter_email"`
@@ -170,6 +171,14 @@ func (s *AdminUserService) list(w http.ResponseWriter, r *http.Request) {
 	for _, user := range result.Users {
 		if s.auth.IsSuperAdmin(user.Email) {
 			user.Role = "super_admin"
+		}
+		if _, memoryStore := s.users.(*MemoryAdminUserStore); memoryStore && s.auth.wechatFollowStore != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+			status, statusErr := s.auth.wechatFollowStore.BindingStatus(ctx, user.Email)
+			cancel()
+			if statusErr == nil {
+				user.HasOpenID = status.Bound
+			}
 		}
 		if s.agents != nil {
 			if binding, err := s.agents.CurrentBinding(user.Email); err == nil {
@@ -510,6 +519,7 @@ func publicAdminUser(user AdminUser) map[string]any {
 	return map[string]any{
 		"id":                   user.ID,
 		"email":                user.Email,
+		"has_openid":           user.HasOpenID,
 		"role":                 user.Role,
 		"status":               user.Status,
 		"inviter_email":        user.InviterEmail,
@@ -670,6 +680,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 		SELECT
 			u.id::text,
 			u.email,
+			COALESCE(u.wechat_openid,'') <> '',
 			COALESCE(u.role, 'user'),
 			COALESCE(u.status, 'active'),
 			COALESCE(u.ai_balance_units, 0),
@@ -697,7 +708,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 		var rawNotificationProfile []byte
 		var rawFlow []byte
 		var lastLoginAt sql.NullTime
-		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.Status, &user.AIBalanceUnits, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail, &rawFlow); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.HasOpenID, &user.Role, &user.Status, &user.AIBalanceUnits, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail, &rawFlow); err != nil {
 			return AdminUserListResult{}, err
 		}
 		subscription, err := parseSubscription(rawSubscription)

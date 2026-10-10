@@ -113,13 +113,29 @@ func (s *PositionExecutionService) Stop(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if position.Status != "stopped" {
-		_ = s.store.UpdatePositionStatus(position.ID, "stopped")
+		if err := s.store.UpdatePositionStatus(position.ID, "stopped"); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update position status")
+			return
+		}
 		_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
 		if err := s.sendPositionStatusNotice(position, "stopped", "", 0, 0); err != nil {
 			stdlog.Printf("[岗位邮件] 发送岗位停止提醒失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "stopped"})
+	writeJSON(w, http.StatusOK, struct {
+		OK       bool   `json:"ok"`
+		Status   string `json:"status"`
+		Position struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"position"`
+	}{
+		OK: true, Status: "stopped",
+		Position: struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		}{ID: position.ID, Status: "stopped"},
+	})
 }
 
 // SyncStatus 接收本地程序同步的岗位运行状态。

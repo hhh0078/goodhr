@@ -39,6 +39,7 @@ type AdminUserItem = {
   email: string;
   role: string;
   status: string;
+  has_openid?: boolean;
   inviter_email?: string;
   created_at?: string;
   last_login_at?: string;
@@ -586,6 +587,9 @@ function UserCard({
         <Flex gap={0.75 * 8} style={{ flexWrap: "wrap", rowGap: 6 }}>
           <SmallTag label={roleText(item.role)} />
           <SmallTag label={statusText(item.status)} />
+          <Tag color={item.has_openid ? "success" : undefined}>
+            OpenID {item.has_openid ? "有" : "无"}
+          </Tag>
           {profileTags(item.notification_profile)
             .slice(0, 4)
             .map((tag) => (
@@ -749,6 +753,9 @@ function UserIdentity({ item }: { item: AdminUserItem }) {
       <Flex gap={0.75 * 8} style={{ flexWrap: "wrap", rowGap: 6 }}>
         <SmallTag label={roleText(item.role)} />
         <SmallTag label={statusText(item.status)} />
+        <Tag color={item.has_openid ? "success" : undefined}>
+          OpenID {item.has_openid ? "有" : "无"}
+        </Tag>
         {profileTags(item.notification_profile).map((tag) => (
           <SmallTag key={tag} label={tag} />
         ))}

@@ -202,6 +202,69 @@ func (c *Client) RequestPositionStart(ctx context.Context, token string, positio
 	return c.do(ctx, http.MethodPost, path, token, request, nil)
 }
 
+// RequestPositionStop 请求云端停止指定岗位，并核对岗位编号和已保存的停止状态。
+// token 为本次停止请求的登录凭证，positionID 为待停止的岗位编号；本方法不修改任务统计。
+func (c *Client) RequestPositionStop(ctx context.Context, token string, positionID string) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位编号不能为空")
+	}
+	type confirmation struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	var response struct {
+		OK       *bool         `json:"ok"`
+		Position *confirmation `json:"position"`
+		Status   string        `json:"status"`
+		Data     struct {
+			OK       *bool         `json:"ok"`
+			Position *confirmation `json:"position"`
+			Status   string        `json:"status"`
+		} `json:"data"`
+	}
+	path := "/api/positions/" + url.PathEscape(positionID) + "/stop"
+	if err := c.do(ctx, http.MethodPost, path, token, struct{}{}, &response); err != nil {
+		return err
+	}
+	notConfirmed := &APIError{
+		StatusCode: http.StatusBadGateway, Code: "CLOUD_STOP_NOT_CONFIRMED",
+		Message: "云端还没确认这个岗位已经停下，请稍后再试",
+	}
+	confirmedPosition, confirmedStatus, confirmedOK := false, false, false
+	for _, position := range []*confirmation{response.Position, response.Data.Position} {
+		if position == nil {
+			continue
+		}
+		if position.ID != positionID || !strings.EqualFold(strings.TrimSpace(position.Status), "stopped") {
+			return notConfirmed
+		}
+		confirmedPosition = true
+	}
+	for _, status := range []string{response.Status, response.Data.Status} {
+		if strings.TrimSpace(status) == "" {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(status), "stopped") {
+			return notConfirmed
+		}
+		confirmedStatus = true
+	}
+	for _, ok := range []*bool{response.OK, response.Data.OK} {
+		if ok != nil {
+			if !*ok {
+				return notConfirmed
+			}
+			confirmedOK = true
+		}
+	}
+	// 旧版接口不返回岗位对象，只有明确的 ok=true 和 stopped 才能作为兼容确认。
+	if !confirmedPosition && !(confirmedOK && confirmedStatus) {
+		return notConfirmed
+	}
+	return nil
+}
+
 // SyncSummary 把不含候选人详情的任务统计同步给云端。
 func (c *Client) SyncSummary(ctx context.Context, token string, summary TaskSummary) error {
 	_, err := c.syncSummary(ctx, token, summary)

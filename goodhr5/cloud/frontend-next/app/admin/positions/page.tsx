@@ -58,6 +58,7 @@ import PositionFloatingStatus, {
   type PositionFloatingStatusValue,
 } from "@/components/admin/PositionFloatingStatus";
 import {
+  APIRequestError,
   cloudRequest,
   formatDate,
   getToken,
@@ -632,15 +633,33 @@ export default function PositionsPage() {
     setExpandedLogPositionID("");
     setBusyPositionID(item.id);
     try {
-      await localRequest(
-        agentBase,
-        `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`,
-        {
-          method: "POST",
-          body: { token: getToken() },
-          timeoutMS: 220000,
-        },
-      );
+      try {
+        await localRequest(
+          agentBase,
+          `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`,
+          {
+            method: "POST",
+            body: { token: getToken() },
+            timeoutMS: 220000,
+          },
+        );
+      } catch (error) {
+        // 旧版本地程序没有这个岗位的任务记录时，由云端核对归属并收尾，避免升级前仍停不下来。
+        if (
+          !(error instanceof APIRequestError) ||
+          error.status !== 404 ||
+          error.code !== "TASK_NOT_FOUND"
+        ) {
+          throw error;
+        }
+        const stopped = await cloudRequest(
+          `/api/positions/${encodeURIComponent(item.id)}/stop`,
+          { method: "POST", body: {} },
+        );
+        if (stopped?.status !== "stopped") {
+          throw new Error("还没确认这个岗位已经停下，请稍后再试");
+        }
+      }
       setFloatingPositionTask((current) =>
         current && current.id === item.id
           ? { ...current, status: "stopped", followTask: false }

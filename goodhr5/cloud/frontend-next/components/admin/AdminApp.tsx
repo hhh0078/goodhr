@@ -73,6 +73,11 @@ import AdminSystemDialogs from "./AdminSystemDialogs";
 import ChoiceCards from "./ChoiceCards";
 import ClickableImagePreview from "./ClickableImagePreview";
 import RequiredRuntimeInstaller from "./RequiredRuntimeInstaller";
+import { AdminOverlayProvider, AdminOverlayActivity } from "./AdminOverlay";
+import {
+  normalizeWechatStatus,
+  type WechatOfficialStatus,
+} from "@/lib/wechat-official";
 
 type AdminContextValue = {
   user: any;
@@ -82,6 +87,9 @@ type AdminContextValue = {
   agentBase: string;
   refreshAgent: () => Promise<void>;
   refreshSession: () => Promise<void>;
+  wechatOfficialStatus: WechatOfficialStatus | null;
+  refreshWechatOfficialStatus: () => Promise<void>;
+  openWechatOfficial: () => void;
   notify: (
     message: string,
     severity?: "success" | "error" | "warning" | "info",
@@ -204,6 +212,10 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [aiWallet, setAIWallet] = useState<any>({});
   const [appConfig, setAppConfig] = useState<any>({});
   const [onboardingConfig, setOnboardingConfig] = useState<any>({});
+  const [wechatOfficialStatus, setWechatOfficialStatus] =
+    useState<WechatOfficialStatus | null>(null);
+  const [wechatOpenSignal, setWechatOpenSignal] = useState(0);
+  const wechatStatusRequestRef = useRef<AbortController | null>(null);
   const [agentBase, setAgentBase] = useState("");
   const [agentVersion, setAgentVersion] = useState("");
   const [agentDetected, setAgentDetected] = useState(false);
@@ -403,8 +415,56 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     }
   }
 
+  /** refreshWechatOfficialStatus 读取本人公众号状态，失败时不凭空提示关注或奖励。 */
+  const refreshWechatOfficialStatus = useCallback(async () => {
+    const token = localStorage.getItem(TOKEN_KEY) || "";
+    wechatStatusRequestRef.current?.abort();
+    const controller = new AbortController();
+    wechatStatusRequestRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 5000);
+    try {
+      const status = await cloudRequest("/api/wechat-official/status", {
+        signal: controller.signal,
+      });
+      if (
+        controller.signal.aborted ||
+        wechatStatusRequestRef.current !== controller ||
+        token !== localStorage.getItem(TOKEN_KEY)
+      )
+        return;
+      setWechatOfficialStatus(normalizeWechatStatus(status));
+    } catch (error) {
+      if (
+        wechatStatusRequestRef.current !== controller ||
+        token !== localStorage.getItem(TOKEN_KEY)
+      )
+        return;
+      setWechatOfficialStatus(null);
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+      if (wechatStatusRequestRef.current === controller)
+        wechatStatusRequestRef.current = null;
+    }
+  }, []);
+  useEffect(
+    () => () => {
+      wechatStatusRequestRef.current?.abort();
+      wechatStatusRequestRef.current = null;
+    },
+    [],
+  );
+
+  /** openWechatOfficial 主动打开关注入口，取消自动提醒后仍可重新领取或绑定。 */
+  const openWechatOfficial = useCallback(
+    () => setWechatOpenSignal((value) => value + 1),
+    [],
+  );
+
   /** refreshSession 刷新用户、会员和系统公共配置。 */
   const refreshSession = useCallback(async () => {
+    // 关注状态独立查询，慢接口不拖住账号和岗位；失败时保持无提醒状态。
+    void refreshWechatOfficialStatus().catch(() => undefined);
     const results = await Promise.allSettled([
       cloudRequest("/api/auth/me"),
       cloudRequest("/api/subscription/status"),
@@ -455,7 +515,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     if (results[3].status === "fulfilled") {
       setOnboardingConfig(results[3].value.config || {});
     }
-  }, [setMembershipTheme]);
+  }, [refreshWechatOfficialStatus, setMembershipTheme]);
 
   useEffect(() => {
     let active = true;
@@ -495,6 +555,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       agentBase,
       refreshAgent,
       refreshSession,
+      wechatOfficialStatus,
+      refreshWechatOfficialStatus,
+      openWechatOfficial,
       notify,
       confirm,
     }),
@@ -506,6 +569,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       agentBase,
       refreshAgent,
       refreshSession,
+      wechatOfficialStatus,
+      refreshWechatOfficialStatus,
+      openWechatOfficial,
       notify,
       confirm,
     ],
@@ -516,6 +582,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
 
   /** logout 清除登录状态并返回登录页。 */
   function logout() {
+    wechatStatusRequestRef.current?.abort();
+    wechatStatusRequestRef.current = null;
+    setWechatOfficialStatus(null);
     localStorage.removeItem(TOKEN_KEY);
     setMembershipTheme("free");
     router.replace("/login");
@@ -580,268 +649,285 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     );
   return (
     <AdminContext.Provider value={contextValue}>
-      <Layout data-admin-root className="goodhr-admin-layout">
-        <aside className="goodhr-admin-sidebar">{drawer}</aside>
-        <Drawer
-          title="GoodHR 菜单"
-          placement="left"
-          open={mobileOpen}
-          onClose={() => setMobileOpen(false)}
-          size={drawerWidth}
-          styles={{ body: { padding: 0 } }}
-        >
-          {drawer}
-        </Drawer>
-        <header className="goodhr-admin-toolbar">
-          <Flex gap={10} align="center" style={{ minWidth: 0 }}>
-            <Button
-              className="goodhr-mobile-menu"
-              type="text"
-              icon={<MenuRoundedIcon aria-hidden="true" />}
-              aria-label="打开菜单"
-              onClick={() => setMobileOpen(true)}
-            />
-            <div className="goodhr-toolbar-identity">
-              <Typography.Text strong ellipsis>
-                {user?.email || "GoodHR 控制台"}
-              </Typography.Text>
-              <Typography.Text
-                type="secondary"
-                ellipsis
-                style={{ display: "block", fontSize: 12 }}
-              >
-                {user?.role_label ||
-                  (user?.role === "super_admin" ? "超级管理员" : "用户")}
-              </Typography.Text>
-            </div>
-            <BrowserOpenControl
-              agentBase={agentBase}
-              notify={notify}
-              onAgentDetected={(base) => {
-                agentBaseRef.current = base;
-                setAgentBase(base);
-              }}
-            />
-            <Button
-              className="goodhr-desktop-sm"
-              href="/videos"
-              type="primary"
-              icon={<PlayCircleRoundedIcon aria-hidden="true" />}
-            >
-              视频教程
-            </Button>
-            <Tooltip title="视频教程">
-              <Button
-                className="goodhr-mobile-sm"
-                href="/videos"
-                type="text"
-                icon={<PlayCircleRoundedIcon aria-hidden="true" />}
-                aria-label="视频教程"
-              />
-            </Tooltip>
-            <Button
-              className="goodhr-desktop-lg"
-              icon={<CalendarMonthRoundedIcon aria-hidden="true" />}
-              onClick={() => router.push("/admin/subscription")}
-            >
-              {subscription.active
-                ? `${subscription.member_name} · 剩${subscription.remaining_days}天 · AI余额 ${formatAIBalance(aiWallet)}`
-                : `${subscription.expires_at ? `已过期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}`}
-            </Button>
-            <Button
-              className="goodhr-desktop-sm"
-              icon={<SensorsRoundedIcon aria-hidden="true" />}
-              onClick={() =>
-                void refreshAgent().catch((error) =>
-                  notify(
-                    error instanceof Error
-                      ? error.message
-                      : "本地程序没连上，请稍后重试",
-                    "error",
-                  ),
-                )
-              }
-              style={{ color: agentBase ? "#238653" : "#c83f49" }}
-            >
-              {agentBase
-                ? agentBase.replace(
-                    "http://127.0.0.1:",
-                    `${agentVersion || "--"} · 端口 `,
-                  )
-                : "本地程序未连接"}
-            </Button>
-            <Tooltip title="当前会员主题">
-              <Button
-                type="text"
-                icon={<PaletteRoundedIcon aria-hidden="true" />}
-                aria-label="当前会员主题"
-                onClick={() => setThemeOpen(true)}
-              />
-            </Tooltip>
-          </Flex>
-        </header>
-        <Layout.Content className="goodhr-admin-main">
-          <AdminBanners appConfig={appConfig} />
-          <Card
-            className="goodhr-admin-content"
-            styles={{ body: { padding: "clamp(16px, 2vw, 24px)" } }}
+      <AdminOverlayProvider>
+        <Layout data-admin-root className="goodhr-admin-layout">
+          <AdminOverlayActivity open={mobileOpen} />
+          <aside className="goodhr-admin-sidebar">{drawer}</aside>
+          <Drawer
+            title="GoodHR 菜单"
+            placement="left"
+            open={mobileOpen}
+            onClose={() => setMobileOpen(false)}
+            size={drawerWidth}
+            styles={{ body: { padding: 0 } }}
           >
-            {children}
-          </Card>
-        </Layout.Content>
-        <AdminDialog
-          open={trialWelcomeOpen && teamInvitations.length === 0}
-          title={`${subscription.member_name || "Max 全能体验版"}已到账`}
-          confirmText="我知道了"
-          showCancel={false}
-          onClose={() => void ackTrialWelcome()}
-          onConfirm={() => void ackTrialWelcome()}
-        >
-          <Typography.Paragraph type="secondary">
-            赠送的 {subscription.remaining_days || 3} 天{" "}
-            {subscription.member_name || "Max 全能版"} 已到账。支持：
-            {subscription.features.length
-              ? subscription.features.join("、")
-              : "AI 筛选、自动打招呼和自动回复"}
-            。
-          </Typography.Paragraph>
-          <Typography.Text type="secondary">
-            到期时间：{formatDate(subscription.expires_at) || "--"}
-            。到期后可以续费，也可以继续使用免费版。
-          </Typography.Text>
-        </AdminDialog>
-        <AdminDialog
-          open={teamInvitations.length > 0}
-          title="有人想拉你进团队"
-          description="这次得你亲自点头，我不敢擅自替你答应。"
-          confirmText="同意加入"
-          showCancel={false}
-          hideClose
-          loading={teamInvitationLoading}
-          loadingText="正在搬家"
-          onClose={() => undefined}
-          onConfirm={() => void acceptTeamInvitation()}
-          extraActions={
-            <Button
-              disabled={teamInvitationLoading}
-              onClick={() => void rejectTeamInvitation()}
+            {drawer}
+          </Drawer>
+          <header className="goodhr-admin-toolbar">
+            <Flex gap={10} align="center" style={{ minWidth: 0 }}>
+              <Button
+                className="goodhr-mobile-menu"
+                type="text"
+                icon={<MenuRoundedIcon aria-hidden="true" />}
+                aria-label="打开菜单"
+                onClick={() => setMobileOpen(true)}
+              />
+              <div className="goodhr-toolbar-identity">
+                <Typography.Text strong ellipsis>
+                  {user?.email || "GoodHR 控制台"}
+                </Typography.Text>
+                <Typography.Text
+                  type="secondary"
+                  ellipsis
+                  style={{ display: "block", fontSize: 12 }}
+                >
+                  {user?.role_label ||
+                    (user?.role === "super_admin" ? "超级管理员" : "用户")}
+                </Typography.Text>
+              </div>
+              <BrowserOpenControl
+                agentBase={agentBase}
+                notify={notify}
+                onAgentDetected={(base) => {
+                  agentBaseRef.current = base;
+                  setAgentBase(base);
+                }}
+              />
+              <Button
+                className="goodhr-desktop-sm"
+                href="/videos"
+                type="primary"
+                icon={<PlayCircleRoundedIcon aria-hidden="true" />}
+              >
+                视频教程
+              </Button>
+              <Tooltip title="视频教程">
+                <Button
+                  className="goodhr-mobile-sm"
+                  href="/videos"
+                  type="text"
+                  icon={<PlayCircleRoundedIcon aria-hidden="true" />}
+                  aria-label="视频教程"
+                />
+              </Tooltip>
+              <Button
+                className="goodhr-desktop-lg"
+                icon={<CalendarMonthRoundedIcon aria-hidden="true" />}
+                onClick={() => router.push("/admin/subscription")}
+              >
+                {subscription.active
+                  ? `${subscription.member_name} · 剩${subscription.remaining_days}天 · AI余额 ${formatAIBalance(aiWallet)}`
+                  : `${subscription.expires_at ? `已过期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}`}
+              </Button>
+              <Button
+                className="goodhr-desktop-sm"
+                icon={<SensorsRoundedIcon aria-hidden="true" />}
+                onClick={() =>
+                  void refreshAgent().catch((error) =>
+                    notify(
+                      error instanceof Error
+                        ? error.message
+                        : "本地程序没连上，请稍后重试",
+                      "error",
+                    ),
+                  )
+                }
+                style={{ color: agentBase ? "#238653" : "#c83f49" }}
+              >
+                {agentBase
+                  ? agentBase.replace(
+                      "http://127.0.0.1:",
+                      `${agentVersion || "--"} · 端口 `,
+                    )
+                  : "本地程序未连接"}
+              </Button>
+              <Tooltip title="当前会员主题">
+                <Button
+                  type="text"
+                  icon={<PaletteRoundedIcon aria-hidden="true" />}
+                  aria-label="当前会员主题"
+                  onClick={() => setThemeOpen(true)}
+                />
+              </Tooltip>
+            </Flex>
+          </header>
+          <Layout.Content className="goodhr-admin-main">
+            <AdminBanners appConfig={appConfig} />
+            <Card
+              className="goodhr-admin-content"
+              styles={{ body: { padding: "clamp(16px, 2vw, 24px)" } }}
             >
-              拒绝邀请
-            </Button>
-          }
-        >
-          <Card size="small" style={{ marginBottom: 12 }}>
-            <Typography.Paragraph strong>
-              {teamInvitations[0]?.tenant_name ||
-                `${teamInvitations[0]?.tenant_owner || "对方"} 的团队`}
+              {children}
+            </Card>
+          </Layout.Content>
+          <AdminDialog
+            open={trialWelcomeOpen && teamInvitations.length === 0}
+            title={`${subscription.member_name || "Max 全能体验版"}已到账`}
+            confirmText="我知道了"
+            showCancel={false}
+            onClose={() => void ackTrialWelcome()}
+            onConfirm={() => void ackTrialWelcome()}
+          >
+            <Typography.Paragraph type="secondary">
+              赠送的 {subscription.remaining_days || 3} 天{" "}
+              {subscription.member_name || "Max 全能版"} 已到账。支持：
+              {subscription.features.length
+                ? subscription.features.join("、")
+                : "AI 筛选、自动打招呼和自动回复"}
+              。
             </Typography.Paragraph>
             <Typography.Text type="secondary">
-              邀请人：{teamInvitations[0]?.invited_by_email || "团队管理员"} ·
-              加入后身份：
-              {teamInvitations[0]?.role === "admin" ? "团队管理员" : "普通成员"}
+              到期时间：{formatDate(subscription.expires_at) || "--"}
+              。到期后可以续费，也可以继续使用免费版。
             </Typography.Text>
-          </Card>
-          <Alert
-            type="warning"
-            showIcon
-            title="同意后，你现在的岗位、简历和平台账号会一起搬进这个团队，简历也会进入团队统一管理范围。如果你当前还有岗位在运行，我会先拦一下，请停掉后再加入。"
+          </AdminDialog>
+          <AdminDialog
+            open={teamInvitations.length > 0}
+            title="有人想拉你进团队"
+            description="这次得你亲自点头，我不敢擅自替你答应。"
+            confirmText="同意加入"
+            showCancel={false}
+            hideClose
+            loading={teamInvitationLoading}
+            loadingText="正在搬家"
+            onClose={() => undefined}
+            onConfirm={() => void acceptTeamInvitation()}
+            extraActions={
+              <Button
+                disabled={teamInvitationLoading}
+                onClick={() => void rejectTeamInvitation()}
+              >
+                拒绝邀请
+              </Button>
+            }
+          >
+            <Card size="small" style={{ marginBottom: 12 }}>
+              <Typography.Paragraph strong>
+                {teamInvitations[0]?.tenant_name ||
+                  `${teamInvitations[0]?.tenant_owner || "对方"} 的团队`}
+              </Typography.Paragraph>
+              <Typography.Text type="secondary">
+                邀请人：{teamInvitations[0]?.invited_by_email || "团队管理员"} ·
+                加入后身份：
+                {teamInvitations[0]?.role === "admin"
+                  ? "团队管理员"
+                  : "普通成员"}
+              </Typography.Text>
+            </Card>
+            <Alert
+              type="warning"
+              showIcon
+              title="同意后，你现在的岗位、简历和平台账号会一起搬进这个团队，简历也会进入团队统一管理范围。如果你当前还有岗位在运行，我会先拦一下，请停掉后再加入。"
+            />
+          </AdminDialog>
+          <AdminDialog
+            open={localAgentInstallNoticeOpen}
+            title="请先安装本地程序"
+            confirmText="去安装"
+            showCancel={false}
+            onClose={() => setLocalAgentInstallNoticeClosed(true)}
+            onConfirm={() => router.push("/download")}
+          >
+            <Typography.Paragraph type="secondary">
+              如果您是首次使用，请先安装本地程序。如果您已经安装，请尝试双击桌面上的图标。
+            </Typography.Paragraph>
+            <Alert
+              type="warning"
+              title="本地程序开着，还是连不上？"
+              description={
+                <>
+                  <Typography.Paragraph>
+                    也可能是浏览器没有允许“设备上的应用”。点击地址栏左侧的网站设置按钮，打开“设备上的应用”开关后再试。
+                  </Typography.Paragraph>
+                  <ClickableImagePreview
+                    src={LOCAL_AGENT_PERMISSION_IMAGE_SRC}
+                    alt="Chrome 设备上的应用权限开关位置"
+                  />
+                </>
+              }
+            />
+          </AdminDialog>
+          <RequiredRuntimeInstaller
+            agentBase={agentBase}
+            onboardingConfig={onboardingConfig}
+            notify={notify}
           />
-        </AdminDialog>
-        <AdminDialog
-          open={localAgentInstallNoticeOpen}
-          title="请先安装本地程序"
-          confirmText="去安装"
-          showCancel={false}
-          onClose={() => setLocalAgentInstallNoticeClosed(true)}
-          onConfirm={() => router.push("/download")}
-        >
-          <Typography.Paragraph type="secondary">
-            如果您是首次使用，请先安装本地程序。如果您已经安装，请尝试双击桌面上的图标。
-          </Typography.Paragraph>
-          <Alert
-            type="warning"
-            title="本地程序开着，还是连不上？"
-            description={
-              <>
-                <Typography.Paragraph>
-                  也可能是浏览器没有允许“设备上的应用”。点击地址栏左侧的网站设置按钮，打开“设备上的应用”开关后再试。
-                </Typography.Paragraph>
-                <ClickableImagePreview
-                  src={LOCAL_AGENT_PERMISSION_IMAGE_SRC}
-                  alt="Chrome 设备上的应用权限开关位置"
-                />
-              </>
+          <AdminSystemDialogs
+            appConfig={appConfig}
+            onboardingConfig={onboardingConfig}
+            agentBase={agentBase}
+            refreshAgent={refreshAgentAfterUpdate}
+            user={user}
+            wechatStatus={wechatOfficialStatus}
+            wechatOpenSignal={wechatOpenSignal}
+            onWechatStatus={setWechatOfficialStatus}
+            refreshSession={refreshSession}
+            notify={notify}
+            promotionBlocked={
+              passwordSetupRequired ||
+              trialWelcomeOpen ||
+              teamInvitations.length > 0 ||
+              localAgentInstallNoticeOpen
             }
           />
-        </AdminDialog>
-        <RequiredRuntimeInstaller
-          agentBase={agentBase}
-          onboardingConfig={onboardingConfig}
-          notify={notify}
-        />
-        <AdminSystemDialogs
-          appConfig={appConfig}
-          onboardingConfig={onboardingConfig}
-          agentBase={agentBase}
-          refreshAgent={refreshAgentAfterUpdate}
-        />
-        <AdminDialog
-          open={confirmState.open}
-          title={confirmState.title}
-          confirmText="确认"
-          onClose={() => closeConfirm(false)}
-          onConfirm={() => closeConfirm(true)}
-        >
-          <Typography.Paragraph type="secondary">
-            {confirmState.message}
-          </Typography.Paragraph>
-        </AdminDialog>
-        <AdminDialog
-          open={themeOpen}
-          title="当前会员主题"
-          description="主题会按当前有效会员自动匹配，这里只负责展示，暂时不能手动修改。"
-          confirmText="知道了"
-          onClose={() => setThemeOpen(false)}
-          onConfirm={() => setThemeOpen(false)}
-        >
-          <ChoiceCards
-            label="会员主题"
-            value={membershipTheme}
-            columns={3}
-            readOnly
-            onChange={() => undefined}
-            options={[
-              {
-                value: "free",
-                label: "免费版 · 松绿色",
-                description: "默认主题，安静清晰，久看也不累。",
-              },
-              {
-                value: "plus",
-                label: "Plus · 深墨黑",
-                description: "克制稳重，用黑色标记重点内容。",
-              },
-              {
-                value: "max",
-                label: "Max · 黑金色",
-                description: "低调黑金，只在重点位置使用金色。",
-              },
-            ]}
+          <AdminDialog
+            open={confirmState.open}
+            title={confirmState.title}
+            confirmText="确认"
+            onClose={() => closeConfirm(false)}
+            onConfirm={() => closeConfirm(true)}
+          >
+            <Typography.Paragraph type="secondary">
+              {confirmState.message}
+            </Typography.Paragraph>
+          </AdminDialog>
+          <AdminDialog
+            open={themeOpen}
+            title="当前会员主题"
+            description="主题会按当前有效会员自动匹配，这里只负责展示，暂时不能手动修改。"
+            confirmText="知道了"
+            onClose={() => setThemeOpen(false)}
+            onConfirm={() => setThemeOpen(false)}
+          >
+            <ChoiceCards
+              label="会员主题"
+              value={membershipTheme}
+              columns={3}
+              readOnly
+              onChange={() => undefined}
+              options={[
+                {
+                  value: "free",
+                  label: "免费版 · 松绿色",
+                  description: "默认主题，安静清晰，久看也不累。",
+                },
+                {
+                  value: "plus",
+                  label: "Plus · 深墨黑",
+                  description: "克制稳重，用黑色标记重点内容。",
+                },
+                {
+                  value: "max",
+                  label: "Max · 黑金色",
+                  description: "低调黑金，只在重点位置使用金色。",
+                },
+              ]}
+            />
+          </AdminDialog>
+          <PasswordSetupDialog
+            open={passwordSetupRequired}
+            email={user?.email}
+            onSubmit={async (password) => {
+              await cloudRequest("/api/auth/password/setup", {
+                method: "POST",
+                body: { password },
+              });
+              setPasswordSetupRequired(false);
+              notify("密码设置好了，这次记住它就行。", "success");
+            }}
           />
-        </AdminDialog>
-        <PasswordSetupDialog
-          open={passwordSetupRequired}
-          email={user?.email}
-          onSubmit={async (password) => {
-            await cloudRequest("/api/auth/password/setup", {
-              method: "POST",
-              body: { password },
-            });
-            setPasswordSetupRequired(false);
-            notify("密码设置好了，这次记住它就行。", "success");
-          }}
-        />
-      </Layout>
+        </Layout>
+      </AdminOverlayProvider>
     </AdminContext.Provider>
   );
 }

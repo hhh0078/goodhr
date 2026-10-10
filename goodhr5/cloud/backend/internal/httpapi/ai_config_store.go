@@ -21,6 +21,8 @@ type AIConfig struct {
 type AIConfigStore interface {
 	UserConfig(userEmail string) (AIConfig, error)
 	SaveUserConfig(userEmail string, config AIConfig) (AIConfig, error)
+	// RepairUserModel 仅在配置仍与读取快照一致时修复模型，发生并发修改时返回当前配置。
+	RepairUserModel(userEmail string, previous AIConfig, model string) (AIConfig, error)
 }
 
 // MemoryAIConfigStore 提供开发期使用的内存 AI 配置存储。
@@ -61,4 +63,23 @@ func (s *MemoryAIConfigStore) SaveUserConfig(userEmail string, config AIConfig) 
 	config.UpdatedAt = s.now()
 	s.users[userEmail] = config
 	return config, nil
+}
+
+// RepairUserModel 在持锁比对旧快照后仅更新模型，避免读取修复覆盖用户同时保存的新参数。
+func (s *MemoryAIConfigStore) RepairUserModel(userEmail string, previous AIConfig, model string) (AIConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.users[userEmail]
+	if !ok {
+		return AIConfig{}, ErrNotFound
+	}
+	if current.BaseURL != previous.BaseURL || current.Model != previous.Model || current.APIKey != previous.APIKey ||
+		current.Temperature != previous.Temperature || current.PromptTemplate != previous.PromptTemplate ||
+		current.Enabled != previous.Enabled || !current.UpdatedAt.Equal(previous.UpdatedAt) {
+		return current, nil
+	}
+	current.Model = model
+	current.UpdatedAt = s.now()
+	s.users[userEmail] = current
+	return current, nil
 }

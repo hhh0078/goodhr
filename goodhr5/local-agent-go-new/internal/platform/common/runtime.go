@@ -308,7 +308,7 @@ func selectorExists(ctx context.Context, browser model.Browser, cfg model.Config
 		selector.TimeoutMS = timeoutMS
 	}
 	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector: selector, MaxItems: 1, ExpectedMissing: true,
+		Selector: selector, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true,
 	})
 	if IsElementMissing(err) {
 		return false, nil
@@ -480,7 +480,7 @@ func CandidateActionExists(ctx context.Context, browser model.Browser, cfg model
 		return false, err
 	}
 	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector: selector, MaxItems: 1, ExpectedMissing: true,
+		Selector: selector, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true,
 	})
 	if IsElementMissing(err) {
 		return false, nil

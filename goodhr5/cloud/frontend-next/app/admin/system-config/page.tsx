@@ -5,6 +5,14 @@ import { SaveOutlined, UndoOutlined } from "@ant-design/icons";
 import styles from "./page.module.css";
 import { useEffect, useMemo, useState } from "react";
 import JsonEditor from "@/components/admin/JsonEditor";
+import OnboardingRewardField, {
+  validateOnboardingReward,
+} from "@/components/admin/OnboardingRewardField";
+import WechatOfficialConfigForm, {
+  officialConfigForSave,
+  parseOfficialConfig,
+  validateOfficialConfig,
+} from "@/components/admin/WechatOfficialConfigForm";
 import {
   EmptyState,
   PageHeader,
@@ -20,10 +28,11 @@ const categories = [
   "订阅支付",
   "本地组件",
   "邀请帮助",
+  "其他配置",
 ] as const;
 /** SystemConfigPage 管理系统配置并按用途分类。 */
 export default function SystemConfigPage() {
-  const { user, notify, confirm } = useAdmin();
+  const { user, notify, confirm, refreshWechatOfficialStatus } = useAdmin();
   const [configs, setConfigs] = useState<any[]>([]);
   const [category, setCategory] = useState<(typeof categories)[number]>("全部");
   const [activeKey, setActiveKey] = useState("");
@@ -63,7 +72,12 @@ export default function SystemConfigPage() {
   );
   const active = configs.find((item) => configKey(item) === activeKey) || null;
   const dirty = draft !== original;
-  const jsonError = validateJSON(draft);
+  const isWechatConfig = activeKey === "system.wechat_official_account";
+  const isOnboardingConfig = activeKey === "system.onboarding_config";
+  const jsonError =
+    validateJSON(draft) ||
+    (isWechatConfig ? validateOfficialConfig(draft) : "") ||
+    (isOnboardingConfig ? validateOnboardingReward(draft) : "");
   /** selectDirect 不经确认直接切换当前配置。 */
   function selectDirect(item: any) {
     const value = prettyJSON(item.config_value ?? item.value);
@@ -90,7 +104,9 @@ export default function SystemConfigPage() {
       return notify(jsonError || "请选择系统配置", "warning");
     setLoading(true);
     try {
-      const formatted = prettyJSON(draft);
+      const formatted = isWechatConfig
+        ? officialConfigForSave(draft)
+        : prettyJSON(draft);
       await cloudRequest(
         `/api/admin/system/configs/${encodeURIComponent(activeKey)}`,
         { method: "PUT", body: { config_value: formatted } },
@@ -99,6 +115,8 @@ export default function SystemConfigPage() {
       setOriginal(formatted);
       notify(`${configTitle(activeKey)}已保存`, "success");
       await load();
+      if (isWechatConfig || isOnboardingConfig)
+        await refreshWechatOfficialStatus();
     } catch (error) {
       notify(error instanceof Error ? error.message : "保存失败", "error");
     } finally {
@@ -226,9 +244,23 @@ export default function SystemConfigPage() {
                   </div>
                   <Flex gap={1 * 8}>
                     <Tag
-                      color={active.enabled === false ? undefined : "success"}
+                      color={
+                        (
+                          isWechatConfig
+                            ? parseOfficialConfig(draft).enabled !== true
+                            : active.enabled === false
+                        )
+                          ? undefined
+                          : "success"
+                      }
                     >
-                      {active.enabled === false ? "已停用" : "已启用"}
+                      {(
+                        isWechatConfig
+                          ? parseOfficialConfig(draft).enabled !== true
+                          : active.enabled === false
+                      )
+                        ? "已停用"
+                        : "已启用"}
                     </Tag>
                     {dirty ? (
                       <Tag color={"warning"}>{"有未保存修改"}</Tag>
@@ -283,7 +315,23 @@ export default function SystemConfigPage() {
                     style={{ marginBottom: 16 }}
                   />
                 ) : null}
-                <JsonEditor value={draft} onChange={setDraft} />
+                {isWechatConfig ? (
+                  <WechatOfficialConfigForm
+                    value={draft}
+                    onChange={setDraft}
+                    notify={notify}
+                  />
+                ) : (
+                  <>
+                    {isOnboardingConfig ? (
+                      <OnboardingRewardField
+                        value={draft}
+                        onChange={setDraft}
+                      />
+                    ) : null}
+                    <JsonEditor value={draft} onChange={setDraft} />
+                  </>
+                )}
               </>
             ) : (
               <EmptyState text="请选择一项配置" />
@@ -304,6 +352,7 @@ function configKey(item: any) {
 }
 /** configCategory 根据配置键返回业务分类。 */
 function configCategory(key: string): (typeof categories)[number] {
+  if (key === "system.wechat_official_account") return "其他配置";
   if (key.startsWith("ai.") || key.includes("prompt")) return "AI 配置";
   if (key.includes("subscription") || key.includes("payment"))
     return "订阅支付";
@@ -332,6 +381,7 @@ function configTitle(key: string) {
         "system.email_recovery": "自动挽回邮件",
         "system.guide": "帮助中心",
         "system.payment_wechat": "微信支付配置",
+        "system.wechat_official_account": "公众号配置",
       } as Record<string, string>
     )[key] || key
   );

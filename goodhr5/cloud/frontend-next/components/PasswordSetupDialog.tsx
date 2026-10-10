@@ -1,8 +1,9 @@
 /** 本文件负责强制历史账号设置登录密码，设置完成前不允许关闭弹框。 */
 "use client";
+import { AdminOverlayModal as Modal } from "@/components/admin/AdminOverlay";
 
 import { LockOutlined } from "@ant-design/icons";
-import { Alert, Button, Form, Input, Modal, Typography } from "antd";
+import { Alert, Button, Form, Input, Typography } from "antd";
 import { useState } from "react";
 
 type PasswordSetupDialogProps = {

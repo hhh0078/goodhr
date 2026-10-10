@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -33,6 +34,7 @@ type AuthService struct {
 	systemConfigs               SystemConfigStore
 	userActivity                UserActivityStore
 	aiWallet                    *AIWalletService
+	wechatFollowStore           WechatFollowStore
 	superAdmins                 map[string]struct{}
 	universalLoginCodeOffsetMin int
 }
@@ -714,13 +716,27 @@ func (s *AuthService) publicUser(email string) map[string]any {
 			inviteID = id
 		}
 	}
+	wechatStatus := WechatBindingStatus{}
+	if s.wechatFollowStore != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		status, err := s.wechatFollowStore.BindingStatus(ctx, email)
+		cancel()
+		if err != nil {
+			// 普通登录继续可用，专用公众号状态接口负责提示读取失败，不能误报已经绑定。
+			log.Printf("读取公众号绑定状态失败 email=%s err=%v", email, err)
+		} else {
+			wechatStatus = status
+		}
+	}
 	return map[string]any{
-		"id":             inviteID,
-		"invite_id":      inviteID,
-		"email":          email,
-		"role":           s.userRole(email),
-		"role_label":     s.userRoleLabel(email),
-		"is_super_admin": s.IsSuperAdmin(email),
+		"id":                         inviteID,
+		"invite_id":                  inviteID,
+		"email":                      email,
+		"role":                       s.userRole(email),
+		"role_label":                 s.userRoleLabel(email),
+		"is_super_admin":             s.IsSuperAdmin(email),
+		"has_openid":                 wechatStatus.Bound,
+		"wechat_follow_gift_granted": wechatStatus.GiftGranted,
 	}
 }
 

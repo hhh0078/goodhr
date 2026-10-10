@@ -1,4 +1,4 @@
-// Package cloud 验证个人运行配置和云端登录状态错误的强类型解析。
+// Package cloud 验证云端接口的请求、状态确认和错误解析。
 package cloud
 
 import (
@@ -193,6 +193,101 @@ func TestRequestPositionStartReadsStructuredError(t *testing.T) {
 	}
 	if apiErr.Code != "POSITION_TASK_CONFLICT" || apiErr.Message != "已有岗位正在运行" {
 		t.Fatalf("unexpected api error: %+v", apiErr)
+	}
+}
+
+// TestRequestPositionStopAcceptsConfirmedResponses 验证停止请求兼容新旧响应，且只调用专用停止接口。
+func TestRequestPositionStopAcceptsConfirmedResponses(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "legacy", body: `{"ok":true,"status":"stopped"}`},
+		{name: "nested legacy", body: `{"data":{"ok":true,"status":"stopped"}}`},
+		{name: "position", body: `{"ok":true,"status":"stopped","position":{"id":"position-1","status":"stopped"}}`},
+		{name: "nested position", body: `{"ok":true,"data":{"status":"stopped","position":{"id":"position-1","status":"stopped"}}}`},
+		{name: "position only", body: `{"position":{"id":"position-1","status":"stopped"}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.Method != http.MethodPost || r.URL.Path != "/api/positions/position-1/stop" {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+				if r.Header.Get("Authorization") != "Bearer browser-token" {
+					t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+				}
+				var payload struct{}
+				decoder := json.NewDecoder(r.Body)
+				decoder.DisallowUnknownFields()
+				if err := decoder.Decode(&payload); err != nil {
+					t.Errorf("stop request must not contain task counts: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer server.Close()
+			if err := New(server.URL).RequestPositionStop(context.Background(), "browser-token", " position-1 "); err != nil {
+				t.Fatalf("confirmed stop failed: %v", err)
+			}
+			if requests != 1 {
+				t.Fatalf("stop should make one request without syncing counts, got %d", requests)
+			}
+		})
+	}
+}
+
+// TestRequestPositionStopRejectsUnconfirmedResponses 验证空响应、错岗位和矛盾状态不会被误判为停止成功。
+func TestRequestPositionStopRejectsUnconfirmedResponses(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "empty", body: ""},
+		{name: "empty object", body: `{}`},
+		{name: "missing status", body: `{"ok":true}`},
+		{name: "missing ok", body: `{"status":"stopped"}`},
+		{name: "false ok", body: `{"ok":false,"status":"stopped"}`},
+		{name: "running", body: `{"ok":true,"status":"running"}`},
+		{name: "wrong position", body: `{"ok":true,"status":"stopped","position":{"id":"position-2","status":"stopped"}}`},
+		{name: "missing position id", body: `{"ok":true,"status":"stopped","position":{"status":"stopped"}}`},
+		{name: "missing position status", body: `{"ok":true,"status":"stopped","position":{"id":"position-1"}}`},
+		{name: "conflicting status", body: `{"ok":true,"status":"running","position":{"id":"position-1","status":"stopped"}}`},
+		{name: "false position confirmation", body: `{"ok":false,"position":{"id":"position-1","status":"stopped"}}`},
+		{name: "nested wrong position", body: `{"data":{"ok":true,"status":"stopped","position":{"id":"position-2","status":"stopped"}}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer server.Close()
+			err := New(server.URL).RequestPositionStop(context.Background(), "token", "position-1")
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadGateway || apiErr.Code != "CLOUD_STOP_NOT_CONFIRMED" {
+				t.Fatalf("unconfirmed response should return stable 502, got %v", err)
+			}
+		})
+	}
+}
+
+// TestRequestPositionStopPreservesCloudErrors 验证登录、归属及写入失败保留原有状态和错误码。
+func TestRequestPositionStopPreservesCloudErrors(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusInternalServerError} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"error":{"code":"STOP_DENIED","message":"这个岗位暂时没停下来"}}`))
+			}))
+			defer server.Close()
+			err := New(server.URL).RequestPositionStop(context.Background(), "token", "position-1")
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != status || apiErr.Code != "STOP_DENIED" {
+				t.Fatalf("cloud error should be preserved, got %v", err)
+			}
+		})
 	}
 }
 

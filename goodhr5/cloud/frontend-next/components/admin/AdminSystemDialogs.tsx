@@ -11,6 +11,8 @@ import {
   latestLocalAgentRelease,
 } from "@/lib/position-start-guard";
 import AdminDialog from "./AdminDialog";
+import WechatFollowDialog from "./WechatFollowDialog";
+import type { WechatOfficialStatus } from "@/lib/wechat-official";
 
 const dismissedAnnouncementKey = "goodhr5_dismissed_announcements";
 const dismissedOptionalUpdateKey = "goodhr5_dismissed_optional_agent_update";
@@ -28,6 +30,16 @@ type AdminSystemDialogsProps = {
   onboardingConfig: any;
   agentBase: string;
   refreshAgent: () => Promise<void>;
+  user: any;
+  wechatStatus: WechatOfficialStatus | null;
+  wechatOpenSignal: number;
+  onWechatStatus: (status: WechatOfficialStatus) => void;
+  refreshSession: () => Promise<void>;
+  notify: (
+    message: string,
+    severity?: "success" | "error" | "warning" | "info",
+  ) => void;
+  promotionBlocked: boolean;
 };
 
 /** AdminSystemDialogs 管理公告已读状态和本地程序更新流程。 */
@@ -36,6 +48,13 @@ export default function AdminSystemDialogs({
   onboardingConfig,
   agentBase,
   refreshAgent,
+  user,
+  wechatStatus,
+  wechatOpenSignal,
+  onWechatStatus,
+  refreshSession,
+  notify,
+  promotionBlocked,
 }: AdminSystemDialogsProps) {
   const [announcementReady, setAnnouncementReady] = useState(false);
   const [dismissedAnnouncements, setDismissedAnnouncements] = useState<
@@ -44,6 +63,7 @@ export default function AdminSystemDialogs({
   const [sessionDismissedAnnouncements, setSessionDismissedAnnouncements] =
     useState<string[]>([]);
   const [currentVersion, setCurrentVersion] = useState("");
+  const [updateStateReady, setUpdateStateReady] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<any>({});
   const [updateError, setUpdateError] = useState("");
   const [updateStarting, setUpdateStarting] = useState(false);
@@ -118,7 +138,11 @@ export default function AdminSystemDialogs({
   }, []);
 
   useEffect(() => {
-    if (!agentBase && !updateRunning) return;
+    if (!agentBase && !updateRunning) {
+      setUpdateStateReady(true);
+      return;
+    }
+    setUpdateStateReady(false);
     let active = true;
     let timer: number | undefined;
     /** pollUpdateState 串行读取进度；安装断线后继续探测，旧页面和提交前的状态不得回写。 */
@@ -156,6 +180,7 @@ export default function AdminSystemDialogs({
         }
         if (state.version) setCurrentVersion(state.version);
         if (state.progress !== undefined) setUpdateProgress(state.progress);
+        if (!unavailable) setUpdateStateReady(true);
         if (unavailable) await refreshAgent();
       } catch {
         // 更新中的暂时断线不解除弹框锁定，下一轮继续重连。
@@ -395,6 +420,21 @@ export default function AdminSystemDialogs({
           ) : null}
         </Flex>
       </AdminDialog>
+      <WechatFollowDialog
+        user={user}
+        status={wechatStatus}
+        openSignal={wechatOpenSignal}
+        onStatus={onWechatStatus}
+        refreshSession={refreshSession}
+        notify={notify}
+        autoAllowed={
+          announcementReady &&
+          updateStateReady &&
+          !updateOpen &&
+          visibleAnnouncements.length === 0 &&
+          !promotionBlocked
+        }
+      />
     </>
   );
 }
