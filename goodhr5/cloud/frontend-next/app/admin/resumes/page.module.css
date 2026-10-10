@@ -23,6 +23,9 @@
 /* 备注用按钮承载点击，但正文和作者时间采用小字，避免继承按钮的加粗和字号。 */
 .noteButton.noteButton { width: 100%; height: auto; padding: 0; display: block; text-align: left; white-space: normal; font-size: 12px; font-weight: 400; }
 .noteButton.noteButton :global(.ant-typography) { font-size: 12px; font-weight: 400; line-height: 1.45; }
+/* 最新备注保持正文外观，悬停和按下不显示按钮底色；键盘焦点轮廓保留。 */
+.noteButton.noteButton:not(:disabled):not(:global(.ant-btn-disabled)):hover,
+.noteButton.noteButton:not(:disabled):not(:global(.ant-btn-disabled)):active { background: transparent; box-shadow: none; color: inherit; }
 .pagination { padding: 10px 12px; }
 .pagination :global(.ant-pagination) { display: flex; flex-wrap: wrap; row-gap: 8px; }
 @media (max-width: 1200px) { .toolbar { flex-wrap: wrap; } .toolbarActions { margin-left: auto; } .moreFilters { grid-template-columns: repeat(3, minmax(120px, 1fr)); } }

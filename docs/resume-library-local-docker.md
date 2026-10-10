@@ -85,7 +85,7 @@ $env:GOODHR_WORKER_PORT = '39891'
 运行镜像：
 
 - 后端 `sha256:eecdc6e970cdf467bda472783aff933f8974d708cb5bb26e4ff1e2afc1b85c31`
-- 前端 `sha256:103298eff490d8c6d9fac5b138378571aa76681177567902c4eb0f613eab1916`（已包含紧凑排版和最新备注字号修正）
+- 前端 `sha256:c740155b96f53847f8cb2b24be6be0ccf71fb7c90489892d3e15966f7c4ab0ab`（已包含紧凑排版、最新备注字号和悬停样式修正）
 
 ## 简历库排版调整
 
@@ -96,5 +96,7 @@ $env:GOODHR_WORKER_PORT = '39891'
 此次 TypeScript、Docker 生产构建及已有头像/查询/备注/推荐/窄屏两项 UI 回归通过；已刷新真实 Docker 页面，实测表头13px、按钮32px，第一列包含原求职意向字段。截图在前端 `artifacts/resume-compact-runtime.jpg`。
 
 后续反馈“最新备注仍太大”：实际读取发现按钮承载的正文和作者时间均为13px、600字重。已单独覆盖该列及内部Typography为12px、400字重、17.4px行高，保留两行摘要和完整内容提示。生产构建通过并更新前端容器；刷新实际页面确认两者都已生效，截图为 `artifacts/resume-note-small-runtime.jpg`。
+
+后续反馈“鼠标放上去备注有阴影”：实际悬停时是按钮的灰色底色，已仅覆盖最新备注的悬停和按下样式为透明、无阴影，保留键盘焦点。Docker生产构建通过并更新前端；真实页面确认悬停状态下背景为透明、阴影为none、字号12px且普通字重；点击仍打开两条独立备注。截图为 `artifacts/resume-note-no-hover-runtime.jpg`。
 
 真实招聘页面、插件实际安装、Firefox 正式签名、AI 实际服务商和生产部署的验收范围仍见 [完整验收记录](resume-library-upgrade-acceptance.md)。
