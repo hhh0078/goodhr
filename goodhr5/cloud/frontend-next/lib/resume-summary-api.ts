@@ -2,6 +2,7 @@
 "use client";
 import { getToken } from "./admin-api";
 import type { Resume } from "./resume-types";
+import { isReadOnlyResume } from "./resume-types";
 
 export type ResumeSummaryTask = { id: string; status: "queued" | "running" | "completed" | "failed" | "cancelled"; ai_summary: string; model: string; error: string; possibly_charged: boolean };
 /** ResumeSummaryRequestError 保留本地稳定错误码，只在明确未启动任务时允许调整源资料。 */
@@ -12,6 +13,7 @@ export class ResumeSummaryRequestError extends Error {
 }
 /** summarySource 明确列出职业源字段，头像、联系方式、旧AI摘要和自动任务记录不会发往模型。 */
 export function summarySource(candidate: Resume) {
+  if (isReadOnlyResume(candidate)) throw new Error("内置示例只能查看，不调用AI生成摘要。");
   const fields = ["work_region", "work_years", "education_level", "expected_position", "expected_salary_min", "expected_salary_max", "work_status", "personal_description", "raw_text", "work_experiences", "educations", "project_experiences", "certificates", "honors", "basic_info", "current_region", "expected_region", "current_position", "expected_salary_text", "current_salary_text", "tags"];
   return Object.fromEntries(fields.map((field) => [field, candidate[field as keyof Resume]]).filter(([, value]) => value != null));
 }

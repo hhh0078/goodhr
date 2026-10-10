@@ -7,6 +7,7 @@ import { useAdmin } from "../AdminApp";
 import { saveResume } from "@/lib/resume-api";
 import { requestResumeSummary, ResumeSummaryRequestError, summarySource, type ResumeSummaryTask } from "@/lib/resume-summary-api";
 import type { Resume } from "@/lib/resume-types";
+import { isReadOnlyResume } from "@/lib/resume-types";
 
 type SummaryCache = { id?: string; key: string; version?: number; editedSummary?: string; saveKey?: string; source?: ReturnType<typeof summarySource>; pending?: boolean };
 /** ResumeSummaryDialog 生成和云端保存分两步，关闭窗口只收起草稿，不偷偷重复调用模型。 */
@@ -24,6 +25,7 @@ export default function ResumeSummaryDialog({ open, candidate, onClose, onSaved 
   const saveKey = useRef("");
   const cacheKey = `goodhr5_resume_summary:${user?.id || user?.email || "anonymous"}:${candidate.id}`;
   const running = task?.status === "queued" || task?.status === "running";
+  const readOnly = isReadOnlyResume(candidate);
   const stale = version !== candidate.row_version;
   /** persistCache 将草稿可靠写入浏览器；实际存储失败时交给调用方处理，不能继续发收费请求。 */
   function persistCache() {
@@ -58,7 +60,7 @@ export default function ResumeSummaryDialog({ open, candidate, onClose, onSaved 
     } catch (cause) { if (current === generation.current) setError(cause instanceof Error ? cause.message : "摘要状态没读出来，请重试读取。"); }
   }
   useEffect(() => {
-    if (!open) return;
+    if (!open || readOnly) return;
     const current = ++generation.current;
     setTask(null); setSummary(""); setError(""); setBusy(false);
     let stored: SummaryCache | null = null;
@@ -70,9 +72,10 @@ export default function ResumeSummaryDialog({ open, candidate, onClose, onSaved 
     if (typeof cache.current.editedSummary === "string") setSummary(cache.current.editedSummary);
     if (agentBase && cache.current.id) void readTask(cache.current.id, current);
     return () => { generation.current += 1; if (timer.current) clearTimeout(timer.current); };
-  }, [open, agentBase, cacheKey]);
+  }, [open, agentBase, cacheKey, readOnly]);
   /** generate 在发请求前冻结职业资料；未知回包必须用同编号和旧资料恢复，不能随新版本重复计费。 */
   async function generate(fresh = false) {
+    if (readOnly) return;
     setBusy(true); setError(""); const current = generation.current;
     const recovering = Boolean(cache.current.pending);
     let requestSent = false;
@@ -104,6 +107,7 @@ export default function ResumeSummaryDialog({ open, candidate, onClose, onSaved 
   }
   /** operateTask 停止或明确重试现有任务，计费不明的失败绝不自动重试。 */
   async function operateTask(action: "cancel" | "retry") {
+    if (readOnly) return;
     if (!task) return;
     if (action === "retry" && stale) { setError("简历资料已更新，请按当前资料重新生成摘要。"); return; }
     setBusy(true); setError(""); const current = generation.current;
@@ -118,6 +122,7 @@ export default function ResumeSummaryDialog({ open, candidate, onClose, onSaved 
   }
   /** saveSummary 只更新人工确认的摘要和原版本，不发送其它简历字段、备注或推荐。 */
   async function saveSummary() {
+    if (readOnly) return;
     if (!summary.trim() || stale || version == null || task?.status !== "completed") return;
     setBusy(true); setError(""); const current = generation.current;
     try {
@@ -127,6 +132,7 @@ export default function ResumeSummaryDialog({ open, candidate, onClose, onSaved 
     } catch (cause) { if (current === generation.current) setError(cause instanceof Error ? cause.message : "摘要没保存，请先核对当前简历版本再重试。"); }
     finally { if (current === generation.current) setBusy(false); }
   }
+  if (readOnly) return <AdminDialog open={open} title="AI 简历摘要" maxWidth="sm" onClose={onClose} cancelText="关闭"><Alert type="info" title="这份是管理员内置的只读示例，不调用AI，也不保存摘要。" /></AdminDialog>;
   return <AdminDialog open={open} title="AI 简历摘要" description="调用当前账号设置的模型，可能产生AI费用。先核对摘要，再点保存。" maxWidth="sm" onClose={onClose} cancelText="收起（草稿保留）" loading={busy} onConfirm={() => void saveSummary()} confirmText="保存摘要" confirmDisabled={!summary.trim() || stale || version == null || task?.status !== "completed"}>
     <Flex vertical gap={12}>
       {!agentBase ? <Alert type="warning" title="本地程序还没连接，打开后再继续。" action={<Button onClick={() => void refreshAgent()}>重新连接</Button>} /> : null}

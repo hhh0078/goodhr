@@ -13,6 +13,8 @@ import (
 // LibraryCandidate 表示批量解析草稿与人工维护使用的平铺简历字段。
 type LibraryCandidate struct {
 	StructuredCandidate
+	IsBuiltin           bool     `json:"is_builtin,omitempty"`
+	Readonly            bool     `json:"readonly,omitempty"`
 	ID                  string   `json:"id,omitempty"`
 	RowVersion          int64    `json:"row_version,omitempty"`
 	BasicInfo           string   `json:"basic_info,omitempty"`
@@ -30,6 +32,13 @@ type LibraryCandidate struct {
 	PlatformID          string   `json:"platform_id,omitempty"`
 	PlatformCandidateID string   `json:"platform_candidate_id,omitempty"`
 	SourceURL           string   `json:"source_url,omitempty"`
+}
+
+const BuiltinCandidateID = "00000000-0000-4000-8000-000000000001"
+
+// IsReadonlyCandidate 识别云端预留示例身份和只读标记，不依据姓名或联系方式误伤真实简历。
+func IsReadonlyCandidate(candidate LibraryCandidate) bool {
+	return strings.EqualFold(strings.TrimSpace(candidate.ID), BuiltinCandidateID) || candidate.IsBuiltin || candidate.Readonly || candidate.SourceType == "builtin" || strings.EqualFold(strings.TrimSpace(candidate.PlatformCandidateID), BuiltinCandidateID)
 }
 
 // CandidateSaveResult 返回云端确认的候选人编号和版本，供入库重试使用。

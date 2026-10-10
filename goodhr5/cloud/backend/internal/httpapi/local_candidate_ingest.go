@@ -55,6 +55,10 @@ func (s *PositionExecutionService) SaveLocalCandidate(w http.ResponseWriter, r *
 		writeError(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	if hasBuiltinCandidateMutation(payload) {
+		writeError(w, http.StatusForbidden, "内置示例简历只能查看，不能回传入库或关联真实岗位")
+		return
+	}
 	candidateName := localCandidateDisplayName(payload)
 	s.writeCandidateIngestLog(position.ID, position.UserEmail, "info", "云端收到候选人入库请求："+candidateName)
 	now := time.Now().UTC()

@@ -1,6 +1,6 @@
 # 最高优先级：招聘页面零脚本注入
 
-<!-- 用户已确认的例外：仅 goodhr5/browser-extension 的手动简历采集插件允许注入只读 content script，读取当前可见候选人 DOM。禁止插件修改招聘页面 DOM/样式/焦点/滚动、自动点击或读取隐藏平台状态。插件界面放工具栏弹窗/侧栏。现有 Go/Worker/Camoufox 自动化链路仍严格执行下面的零注入规则。 -->
+<!-- 用户已确认的例外：仅 goodhr5/browser-extension 的手动简历采集插件允许使用 content script 读取当前可见候选人 DOM，并添加自身隔离的悬浮界面（Shadow DOM / 扩展域 iframe）。只允许修改或移除插件自身容器，不得修改招聘网站业务 DOM、样式、焦点、滚动、自动点击或读取隐藏平台状态；不注入主世界，不进行规避检测的标识伪装。工具栏弹窗/侧栏保留为备用入口。现有 Go/Worker/Camoufox 自动化链路仍严格执行下面的零注入规则。 -->
 
 - 严禁使用 `page.evaluate()`、`locator.evaluate()`、`evaluateHandle()`、`$eval()`、`$$eval()`、`addScriptTag()`、`addInitScript()` 或 `dispatchEvent()` 读取或控制招聘页面。
 - 严禁向招聘页面注入 JavaScript，或修改页面 DOM、样式、滚动位置、焦点和运行状态。
