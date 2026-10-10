@@ -269,6 +269,9 @@ func (m *Manager) run(ctx context.Context, id, token string, check AuthCheck) {
 
 // summaryCandidate 保留已提供的职业事实，移除联系方式、头像、旧摘要和来源授权，避免发出无关敏感字段。
 func summaryCandidate(candidate cloud.LibraryCandidate) (cloud.LibraryCandidate, error) {
+	if cloud.IsReadonlyCandidate(candidate) {
+		return candidate, fmt.Errorf("内置示例简历只能查看，不调用AI生成摘要")
+	}
 	candidate.ID, candidate.RowVersion, candidate.Phone, candidate.Email = "", 0, "", ""
 	candidate.AISummary, candidate.SourceType, candidate.PlatformID, candidate.PlatformCandidateID, candidate.SourceURL = "", "", "", "", ""
 	candidate.CandidateName, candidate.BirthYM, candidate.Gender, candidate.Age = "", "", "", nil

@@ -2,6 +2,7 @@
 "use client";
 import { cloudRequest } from "./admin-api";
 import type { DuplicateMatch, DuplicateResult, PositionOption, Recommendation, Resume, ResumeDraft, ResumeNote } from "./resume-types";
+import { isReadOnlyResume } from "./resume-types";
 
 /** loadResume 读取候选人详情，可保留旧自动任务详情参数。 */
 export async function loadResume(id: string, engagementID = ""): Promise<Resume> {
@@ -35,6 +36,7 @@ export async function checkResumeDuplicates(draft: ResumeDraft, excludeID = ""):
 }
 /** saveResume 在独立候选人接口创建或维护，并为重试保留幂等键。 */
 export async function saveResume(id: string, fields: Record<string, unknown>, idempotencyKey: string, version?: number, clearFields: string[] = []): Promise<Resume> {
+  if (isReadOnlyResume(id) || fields.is_builtin || fields.readonly) throw new Error("内置示例只能查看，不能修改或复制入库。");
   // 显式清空按云端合同保持字段类型，经历和标签使用空数组，薪资数字使用null。
   const arrayFields = ["tags", "work_experiences", "educations", "project_experiences", "certificates", "honors", "colleague_communications"];
   const cleared = Object.fromEntries(clearFields.map((field) => [field, arrayFields.includes(field) ? [] : ["expected_salary_min", "expected_salary_max"].includes(field) ? null : ""]));
@@ -50,6 +52,7 @@ export async function loadResumeNotes(id: string): Promise<ResumeNote[]> {
 }
 /** addResumeNote 独立追加备注，幂等键避免重试产生重复记录。 */
 export async function addResumeNote(id: string, content: string, idempotencyKey: string): Promise<ResumeNote> {
+  if (isReadOnlyResume(id)) throw new Error("内置示例只能查看，不能添加备注。");
   const data = await cloudRequest(`/api/candidates/${encodeURIComponent(id)}/notes`, { method: "POST", body: { content, idempotency_key: idempotencyKey } });
   return data.note;
 }
@@ -60,6 +63,7 @@ export async function loadRecommendations(id: string): Promise<Recommendation[]>
 }
 /** addRecommendation 关联岗位或明确记录推荐动作，不启动自动招聘任务。 */
 export async function addRecommendation(id: string, positionID: string, stage: string, note: string, idempotencyKey: string): Promise<Recommendation> {
+  if (isReadOnlyResume(id)) throw new Error("内置示例只能查看，不能关联或推荐到真实岗位。");
   const data = await cloudRequest(`/api/candidates/${encodeURIComponent(id)}/recommendations`, { method: "POST", body: { position_id: positionID, stage, content: note, idempotency_key: idempotencyKey } });
   return data.recommendation || data;
 }

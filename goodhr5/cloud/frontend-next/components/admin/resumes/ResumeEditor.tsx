@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import AdminDialog from "../AdminDialog";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, checkResumeDuplicates, loadResume, saveResume } from "@/lib/resume-api";
-import { avatarSource, nonEmptyChanges, normalizePhone, validPhone, type DuplicateResult, type PositionOption, type Resume, type ResumeDraft } from "@/lib/resume-types";
+import { avatarSource, isReadOnlyResume, nonEmptyChanges, normalizePhone, validPhone, type DuplicateResult, type PositionOption, type Resume, type ResumeDraft } from "@/lib/resume-types";
 import styles from "./resumes.module.css";
 
 export type ResumeDraftSubmission = { candidate: ResumeDraft; candidate_id?: string; note: string; position_ids: string[] };
@@ -39,6 +39,7 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
   const [clearFields, setClearFields] = useState<string[]>([]);
   const [allowPossible, setAllowPossible] = useState(false);
   const [error, setError] = useState("");
+  const readOnly = isReadOnlyResume(candidate) || isReadOnlyResume(draft) || isReadOnlyResume(target) || isReadOnlyResume(persistedID);
   const saveKey = useRef("");
   const savedCandidate = useRef<Resume | null>(null);
   const noteDone = useRef(false);
@@ -67,6 +68,7 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
   }
   /** checkDuplicates 仅传送身份线索并显示匹配原因，不自动合并候选人。 */
   async function checkDuplicates() {
+    if (readOnly) return;
     const current = ++duplicateGeneration.current;
     setChecking(true); setError("");
     try {
@@ -80,6 +82,7 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
   }
   /** chooseExisting 读取已有简历并切换为比较更新，已有有效字段仍由后端保护。 */
   async function chooseExisting(id: string) {
+    if (isReadOnlyResume(id)) { setError("这份是内置示例，只能阅读，不能合并更新。"); return; }
     duplicateGeneration.current += 1; setChecking(false);
     setBusy(true); setError("");
     try { setTarget(await loadResume(id)); setDuplicates(null); setAllowPossible(false); }
@@ -88,6 +91,7 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
   }
   /** previewSubmission 在保存前检查重复并展示实际将修改的字段。 */
   async function previewSubmission() {
+    if (readOnly) { setError("这份是内置示例，只能阅读，不能修改或复制入库。"); return; }
     setError("");
     try {
       const next = await collectDraft();
@@ -105,7 +109,7 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
   }
   /** persistSubmission 分步保存简历、备注和岗位关联，每步成功结果均保留供安全重试。 */
   async function persistSubmission() {
-    if (!submission) return;
+    if (readOnly || !submission) return;
     setBusy(true); setError("");
     try {
       let result = savedCandidate.current;
@@ -146,13 +150,14 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
   return <>
     <AdminDialog open={open} title={target ? `维护简历 · ${target.candidate_name}` : onConfirmDraft ? "确认解析草稿" : "手动添加简历"} maxWidth="md"
       description="姓名和手机号填好就能入库，其它信息可以慢慢补。选择岗位只建立关联。"
-      onClose={onClose} onConfirm={() => void (savedCandidate.current ? persistSubmission() : previewSubmission())} loading={busy} confirmText={savedCandidate.current ? "重试剩余记录" : "检查并保存"}>
+      onClose={onClose} onConfirm={() => void (savedCandidate.current ? persistSubmission() : previewSubmission())} loading={busy} confirmDisabled={readOnly} confirmText={savedCandidate.current ? "重试剩余记录" : "检查并保存"}>
       <Flex vertical gap={14}>
+        {readOnly ? <Alert type="info" title="这份是管理员内置的只读示例，不能修改、合并或复制入库。" showIcon /> : null}
         {error ? <Alert type="warning" title={error} showIcon /> : null}
         {persistedID ? <Alert type="info" title="简历主体已保存，继续确认只会补齐尚未完成的记录。" showIcon /> : null}
         {target && !candidate ? <Alert type="info" title={`将比较更新已有简历：${target.candidate_name} · ${target.phone || "未留手机号"}`} showIcon /> : null}
         {avatarSource(candidate?.avatar_data_url || draft?.avatar_data_url) ? <Flex gap={10} align="center"><Avatar size={52} src={avatarSource(candidate?.avatar_data_url || draft?.avatar_data_url)} alt="当前简历头像">{(candidate?.candidate_name || draft?.candidate_name)?.slice(0, 1) || "人"}</Avatar><Typography.Text type="secondary">头像随简历采集保存。</Typography.Text></Flex> : null}
-        <Form form={form} layout="vertical" className={styles.editorForm} disabled={busy || Boolean(savedCandidate.current) || Boolean(persistedID)} onValuesChange={(changed) => { if (changed.phone != null || changed.candidate_name != null) { duplicateGeneration.current += 1; setChecking(false); setDuplicates(null); setAllowPossible(false); } }}>
+        <Form form={form} layout="vertical" className={styles.editorForm} disabled={readOnly || busy || Boolean(savedCandidate.current) || Boolean(persistedID)} onValuesChange={(changed) => { if (changed.phone != null || changed.candidate_name != null) { duplicateGeneration.current += 1; setChecking(false); setDuplicates(null); setAllowPossible(false); } }}>
           <div className={styles.fieldGrid}>
             <Form.Item name="candidate_name" label="姓名" rules={[{ required: true, whitespace: true, message: "姓名补一下，我好认真记账。" }]}><Input maxLength={80} /></Form.Item>
             <Form.Item name="phone" label="手机号" rules={[{ required: true, message: "手机号补一下，我再帮你入库。" }, { validator: (_, value) => !value || validPhone(value) ? Promise.resolve() : Promise.reject(new Error("请填写完整手机号，掩码号码暂时用不了。")) }]}><Input maxLength={24} onBlur={() => { if (form.getFieldValue("phone")) void checkDuplicates(); }} /></Form.Item>

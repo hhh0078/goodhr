@@ -15,7 +15,7 @@ import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
 import ResumeImportDialog from "@/components/admin/resumes/ResumeImportDialog";
 import { cloudRequest } from "@/lib/admin-api";
 import { loadResume, loadResumePositions } from "@/lib/resume-api";
-import { avatarSource, experienceLabel, genderLabel, recordTime, resumeAge, salaryLabel, sourceLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume } from "@/lib/resume-types";
+import { avatarSource, experienceLabel, genderLabel, isReadOnlyResume, recordTime, resumeAge, salaryLabel, sourceLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume } from "@/lib/resume-types";
 import styles from "./page.module.css";
 
 const filterKeys = ["q", "phone", "position_id", "source_type", "region", "education_level", "work_years", "work_status", "tag", "creator", "created_from", "created_to"] as const;
@@ -32,6 +32,7 @@ export default function ResumesPage() {
   const [positions, setPositions] = useState<PositionOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
+  const [realTotal, setRealTotal] = useState(0); const [builtinTotal, setBuiltinTotal] = useState(0);
   const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20);
   const [loadError, setLoadError] = useState("");
   const [chooserOpen, setChooserOpen] = useState(false); const [addMethod, setAddMethod] = useState("manual");
@@ -53,6 +54,7 @@ export default function ResumesPage() {
       const data = await cloudRequest(`/api/candidates?${request}`);
       if (current !== generation.current) return;
       setItems(data.candidates || []); setTotal(Number(data.total) || 0); setPage(nextPage); setPageSize(nextSize);
+      setBuiltinTotal(Number(data.builtin_total) || 0); setRealTotal(data.real_total == null ? Number(data.total) || 0 : Number(data.real_total) || 0);
     } catch (cause) { if (current === generation.current) setLoadError(cause instanceof Error ? cause.message : "简历没读出来，请再试一次。"); }
     finally { if (current === generation.current) setLoading(false); }
   }
@@ -75,6 +77,7 @@ export default function ResumesPage() {
   /** openEditor 先获取完整候选人，避免列表摘要覆盖已有经历。 */
   async function openEditor(item?: Resume) {
     if (!item) { setEditing(null); setEditorOpen(true); return; }
+    if (isReadOnlyResume(item)) { openDetails(item); return; }
     try { setEditing(await loadResume(item.id)); setEditorOpen(true); }
     catch (cause) { notify(cause instanceof Error ? cause.message : "这份简历没读出来，刷新后再试。", "error"); }
   }
@@ -121,9 +124,9 @@ export default function ResumesPage() {
         { title: "岗位 / 推荐", key: "recommendation", width: 160, render: (_, item) => <Flex vertical gap={3}><Button type="link" className={styles.inlineButton} onClick={() => openDetails(item, "recommendations")}>{item.recommendation_count || item.recommendations?.length || 0} 个岗位记录</Button>{item.recommendations?.[0] ? <><Typography.Text ellipsis>{item.recommendations[0].position_name || "历史岗位"}</Typography.Text><Typography.Text type="secondary" className={styles.meta}>{stageLabel(item.recommendations[0].stage)}</Typography.Text></> : item.position_name ? <Typography.Text type="secondary" className={styles.meta}>自动任务 · {item.position_name}</Typography.Text> : null}</Flex> },
         { title: "最新备注", key: "note", width: 240, render: (_, item) => { const note = item.latest_note || item.notes?.[0]; return <Button type="text" className={styles.noteButton} onClick={() => openDetails(item, "notes")}><Flex vertical gap={3}><Typography.Paragraph ellipsis={{ rows: 2, tooltip: note?.content }} className={styles.cellText}>{note?.content || "还没备注，点这里记一条"}</Typography.Paragraph>{note ? <Typography.Text type="secondary" className={styles.meta} title={note.created_at ? `保存于 ${recordTime(note.created_at)}` : undefined}>{note.author_name || note.author_email || "未记录操作人"} · {(note.occurred_at || note.created_at) ? recordTime(note.occurred_at || note.created_at) : ""}</Typography.Text> : null}</Flex></Button>; } },
         { title: "创建时间", key: "created_at", width: 190, render: (_, item) => <Flex vertical gap={3}><Typography.Text className={styles.meta}>{recordTime(item.created_at)}</Typography.Text><Space wrap size={[2, 2]}><Tag>{sourceLabel(item.source_type)}</Tag>{item.platform_id ? <Tag>{sourceLabel(item.platform_id)}</Tag> : null}{(item.sources?.length || 0) > 1 ? <Typography.Text className={styles.meta}>{item.sources!.length} 个来源</Typography.Text> : null}</Space><Typography.Text type="secondary" ellipsis={{ tooltip: item.creator_name || item.user_email }} className={styles.meta}>{item.creator_name || item.user_email || "创建人待补充"}</Typography.Text></Flex> },
-        { title: "操作", key: "actions", width: 100, fixed: "right", render: (_, item) => <Space size={2}><Button type="link" size="small" onClick={() => void openEditor(item)}>编辑</Button><Dropdown trigger={["click"]} menu={{ items: [{ key: "note", label: "加备注" }, { key: "recommend", label: "推荐到岗位" }, { key: "detail", label: "查看完整简历" }], onClick: ({ key }) => openDetails(item, key === "recommend" ? "recommendations" : "notes") }}><Button type="text" size="small" aria-label={`${item.candidate_name}更多操作`} icon={<MoreOutlined />} /></Dropdown></Space> },
+        { title: "操作", key: "actions", width: 100, fixed: "right", render: (_, item) => isReadOnlyResume(item) ? <Button type="link" size="small" onClick={() => openDetails(item)}>查看</Button> : <Space size={2}><Button type="link" size="small" onClick={() => void openEditor(item)}>编辑</Button><Dropdown trigger={["click"]} menu={{ items: [{ key: "note", label: "加备注" }, { key: "recommend", label: "推荐到岗位" }, { key: "detail", label: "查看完整简历" }], onClick: ({ key }) => openDetails(item, key === "recommend" ? "recommendations" : "notes") }}><Button type="text" size="small" aria-label={`${item.candidate_name}更多操作`} icon={<MoreOutlined />} /></Dropdown></Space> },
       ]} />
-      <Flex wrap gap={12} justify="space-between" align="center" className={styles.pagination}><Typography.Text type="secondary">共 {total} 份简历</Typography.Text><Pagination current={page} total={total} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateQuery(appliedFilters, size !== pageSize ? 1 : next, size)} /></Flex>
+      <Flex wrap gap={12} justify="space-between" align="center" className={styles.pagination}><Typography.Text type="secondary">共 {realTotal} 份简历{builtinTotal ? ` · 另有 ${builtinTotal} 份内置示例` : ""}</Typography.Text><Pagination current={page} total={total} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateQuery(appliedFilters, size !== pageSize ? 1 : next, size)} /></Flex>
     </SectionPanel>
     <AdminDialog open={chooserOpen} title="添加简历" onClose={() => setChooserOpen(false)} onConfirm={chooseAddMethod} confirmText="继续">
       <ChoiceCards label="选一种方式，我来帮你记入简历库。" value={addMethod} onChange={(value) => setAddMethod(String(value))} options={[{ value: "ai", label: "AI 批量解析", description: "多份文件一起解析，补齐手机号后确认入库。" }, { value: "manual", label: "手动添加", description: "姓名、手机号先填好，其它信息可以慢慢补。" }]} />
