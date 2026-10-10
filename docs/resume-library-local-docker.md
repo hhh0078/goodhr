@@ -85,7 +85,7 @@ $env:GOODHR_WORKER_PORT = '39891'
 运行镜像：
 
 - 后端 `sha256:eecdc6e970cdf467bda472783aff933f8974d708cb5bb26e4ff1e2afc1b85c31`
-- 前端 `sha256:9c198db47cbf4780e1170a2f21a706b4559ef16bdce2414bb48d839496efdb52`（已包含下述紧凑排版调整）
+- 前端 `sha256:103298eff490d8c6d9fac5b138378571aa76681177567902c4eb0f613eab1916`（已包含紧凑排版和最新备注字号修正）
 
 ## 简历库排版调整
 
@@ -94,5 +94,7 @@ $env:GOODHR_WORKER_PORT = '39891'
 “求职意向”不再独立占列，期望职位和“地区 · 薪资 · 求职状态”放入候选人第一列。手机号与姓名同行，标签、头像和完整资料入口保留；长文本省略并能查看完整提示。表格六列合计1290px，减少横向滚动。
 
 此次 TypeScript、Docker 生产构建及已有头像/查询/备注/推荐/窄屏两项 UI 回归通过；已刷新真实 Docker 页面，实测表头13px、按钮32px，第一列包含原求职意向字段。截图在前端 `artifacts/resume-compact-runtime.jpg`。
+
+后续反馈“最新备注仍太大”：实际读取发现按钮承载的正文和作者时间均为13px、600字重。已单独覆盖该列及内部Typography为12px、400字重、17.4px行高，保留两行摘要和完整内容提示。生产构建通过并更新前端容器；刷新实际页面确认两者都已生效，截图为 `artifacts/resume-note-small-runtime.jpg`。
 
 真实招聘页面、插件实际安装、Firefox 正式签名、AI 实际服务商和生产部署的验收范围仍见 [完整验收记录](resume-library-upgrade-acceptance.md)。

@@ -20,7 +20,9 @@
 .nameButton.nameButton { flex: 1; min-width: 0; height: auto; padding: 0; justify-content: flex-start; font-size: 13px; line-height: 20px; font-weight: 700; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
 .nameButton :global(span) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .inlineButton.inlineButton { height: auto; padding: 0; justify-content: flex-start; }
-.noteButton.noteButton { width: 100%; height: auto; padding: 0; display: block; text-align: left; white-space: normal; }
+/* 备注用按钮承载点击，但正文和作者时间采用小字，避免继承按钮的加粗和字号。 */
+.noteButton.noteButton { width: 100%; height: auto; padding: 0; display: block; text-align: left; white-space: normal; font-size: 12px; font-weight: 400; }
+.noteButton.noteButton :global(.ant-typography) { font-size: 12px; font-weight: 400; line-height: 1.45; }
 .pagination { padding: 10px 12px; }
 .pagination :global(.ant-pagination) { display: flex; flex-wrap: wrap; row-gap: 8px; }
 @media (max-width: 1200px) { .toolbar { flex-wrap: wrap; } .toolbarActions { margin-left: auto; } .moreFilters { grid-template-columns: repeat(3, minmax(120px, 1fr)); } }
