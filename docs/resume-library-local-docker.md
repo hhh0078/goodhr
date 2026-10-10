@@ -85,7 +85,7 @@ $env:GOODHR_WORKER_PORT = '39891'
 运行镜像：
 
 - 后端 `sha256:eecdc6e970cdf467bda472783aff933f8974d708cb5bb26e4ff1e2afc1b85c31`
-- 前端 `sha256:ea74c2737bb7fadc720cdeea23ecfae9f4b3de823720f3d96fbe4c18e6cbeb03`（已包含候选人属性、创建时间与来源、紧凑详情和推荐卡片修正）
+- 前端 `sha256:750e62c15d80bbfc1720b123b585b04b82a56f77d9b65c9f1631f1a86508af0e`（已包含候选人属性、创建时间与来源、紧凑详情、推荐卡片及右对齐小按钮）
 
 ## 简历库排版调整
 
@@ -108,5 +108,7 @@ $env:GOODHR_WORKER_PORT = '39891'
 已更新Docker前端并核对真实页面：创建时间列同时有日期时分、浏览器插件/猎聘来源及创建人；右侧三个区块按顺序展示，无页签，选择推荐卡片自动带入岗位及“已推荐”，改为“面试中”后可保存，检查未提交任何新记录。截图为 `artifacts/resume-created-source-runtime.jpg`、`artifacts/resume-detail-tight-runtime.jpg` 和 `artifacts/resume-recommendation-card-runtime.jpg`。
 
 本轮原15项简历库UI回归通过；新增多岗位用例首次因使用AntD旧版内部类名无法定位选中值，改用实际组合框定位后精确复测1项通过。覆盖两岗位卡片选择、同卡草稿保留、保存中鼠标/键盘禁切、分别修改状态、历史不重复及备注与自动任务隔离。实现代码未因测试定位修改而改变，无需重复构建。全部测试业务接口均为模拟，不写入真实候选人。
+
+后续反馈移除推荐区两段操作说明；“加备注”和推荐保存改为右对齐、按内容宽度的小按钮。备注按钮预留字数提示间距。生产构建通过并更新前端；现有查询/详情备注推荐/窄屏和多岗位卡片两项回归通过。真实页面确认两段说明消失，两个按钮高度26px、宽约76px/68px并靠右，字数提示不重叠。截图为 `artifacts/resume-small-actions-runtime.jpg`。
 
 真实招聘页面、插件实际安装、Firefox 正式签名、AI 实际服务商和生产部署的验收范围仍见 [完整验收记录](resume-library-upgrade-acceptance.md)。

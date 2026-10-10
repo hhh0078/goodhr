@@ -162,7 +162,8 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
           <Typography.Title level={5}>备注{notes.length ? ` · ${notes.length}` : ""}</Typography.Title>
           <Flex vertical gap={8}>
           <Input.TextArea value={note} onChange={(event) => { setNote(event.target.value); noteKey.current = crypto.randomUUID(); }} maxLength={1000} showCount disabled={noteBusy} autoSize={{ minRows: 2, maxRows: 6 }} placeholder="比如：意向不错，周五再约一次。" />
-          <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} loading={noteBusy} disabled={!note.trim()} onClick={() => void saveNote()}>加备注</Button>
+          {/* 字数计数浮在输入框下方，预留高度避免压住右侧按钮。 */}
+          <Flex justify="flex-end" style={{ marginTop: 16 }}><Button size="small" type="primary" icon={<PlusOutlined aria-hidden="true" />} loading={noteBusy} disabled={!note.trim()} onClick={() => void saveNote()}>加备注</Button></Flex>
           <div className={styles.recordHistory}>{notes.length ? notes.map((item) => <div key={item.id} className={styles.record}><Typography.Paragraph className={styles.preWrap}>{item.content}</Typography.Paragraph><Typography.Text type="secondary" className={styles.meta} title={item.created_at ? `保存于 ${recordTime(item.created_at)}` : undefined}>{item.author_name || item.author_email || "未记录操作人"} · {(item.occurred_at || item.created_at) ? recordTime(item.occurred_at || item.created_at) : ""}</Typography.Text></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没备注，先记一条也行。" />}</div>
           </Flex>
         </section>
@@ -172,9 +173,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
           <Select aria-label="选择推荐岗位" showSearch optionFilterProp="label" placeholder="选择岗位" value={positionID} disabled={recommendationBusy} onChange={selectRecommendationPosition} options={currentOptions.map((item) => ({ value: item.id, label: item.name }))} />
           <Radio.Group aria-label="推荐阶段" value={stage} disabled={recommendationBusy} className={styles.recommendationStages} onChange={(event) => { if (recommendationSaving.current) return; setStage(event.target.value); recommendationKey.current = crypto.randomUUID(); }} options={recommendationStages} />
           <Input.TextArea aria-label="新增岗位跟进备注" value={recommendationNote} disabled={recommendationBusy} maxLength={1000} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(event) => { if (recommendationSaving.current) return; setRecommendationNote(event.target.value); recommendationKey.current = crypto.randomUUID(); }} placeholder="只记这个岗位的推荐、面试和跟进情况。" />
-          <Typography.Text type="secondary" className={styles.meta}>只提交本次新增备注，旧记录保留。不填备注，也能更新阶段。</Typography.Text>
-          <Button type="primary" loading={recommendationBusy} disabled={!recommendationChanged} onClick={() => void saveRecommendation()}>{stage === "draft" ? "保存关联" : stage === "recommended" ? "记录推荐" : "记录跟进"}</Button>
-          <Typography.Text type="secondary" className={styles.meta}>选中下方岗位卡片可更新阶段；这里只记记录，不启动岗位或发送消息。</Typography.Text>
+          <Flex justify="flex-end"><Button size="small" type="primary" loading={recommendationBusy} disabled={!recommendationChanged} onClick={() => void saveRecommendation()}>{stage === "draft" ? "保存关联" : stage === "recommended" ? "记录推荐" : "记录跟进"}</Button></Flex>
           <div className={styles.recordHistory}>{recommendations.length ? recommendations.map((item) => <RecommendationCard key={item.id} item={item} selected={positionID === item.position_id} busy={recommendationBusy} onSelect={() => editRecommendation(item)} />) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没关联岗位，选一个就能开始记记录。" />}</div>
           </Flex>
         </section>
