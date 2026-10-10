@@ -184,7 +184,7 @@ test("本地程序离线时关闭安装提示后仍可搜索、手动添加、�
   expect(state.errors).toEqual([]);
 });
 
-test("内置示例登录后可读，预留身份缺标记仍不能编辑、摘要或添加记录", async ({ page }) => {
+test("内置示例登录后可读，预留身份缺标记仍不能编辑、分享、摘要或添加记录", async ({ page }) => {
   const state = await mockResumeSession(page);
   const builtinID = "00000000-0000-4000-8000-000000000001";
   // 联系方式使用用户明确授权的共享示例，其余职业资料均为合成虚构信息。
@@ -214,6 +214,8 @@ test("内置示例登录后可读，预留身份缺标记仍不能编辑、摘�
   delete state.candidates[0].is_builtin; delete state.candidates[0].readonly;
   await page.goto(`/admin/resumes/detail?candidate_id=${builtinID}`);
   await expect(page.getByTestId("resume-builtin-notice")).toBeVisible();
+  await expect(page.getByRole("button", { name: "分享", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "生成摘要", exact: true })).toBeDisabled();
   expect(state.calls.filter((call) => call.method !== "GET" && (call.path.startsWith("/api/candidates") || call.path.includes("resume-summary") || call.path.includes("resume-import")))).toHaveLength(0);
   expect(state.errors).toEqual([]);
