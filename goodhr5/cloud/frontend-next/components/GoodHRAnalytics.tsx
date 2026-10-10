@@ -3,10 +3,10 @@
 import Script from "next/script";
 import { usePathname } from "next/navigation";
 
-/** GoodHRAnalytics 在公开简历和诊断分享页屏蔽第三方统计，避免令牌或私人资料被读取。 */
+/** GoodHRAnalytics 在公开简历、面试邀请和诊断分享页屏蔽第三方统计，避免令牌或私人资料被读取。 */
 export default function GoodHRAnalytics() {
   const pathname = usePathname();
-  if (!pathname || pathname.startsWith("/resumes/share/") || pathname.startsWith("/diagnostics/")) return null;
+  if (!pathname || pathname.startsWith("/resumes/share/") || pathname.startsWith("/interview-invitation/") || pathname.startsWith("/diagnostics/")) return null;
   return <Script id="baidu-analytics" strategy="afterInteractive">{`var _hmt = _hmt || [];
 (function() {
   var hm = document.createElement("script");

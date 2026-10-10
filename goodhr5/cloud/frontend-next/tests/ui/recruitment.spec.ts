@@ -468,11 +468,20 @@ test("邮件发送结果不明确时停止重复发送", async ({ page }) => {
   expect(state.errors).toEqual([]);
 });
 
-test("候选人确认页面不读取内部资料，改期申请保留候选人的说明", async ({ page }) => {
+test("候选人确认页面保护邀请令牌，改期申请保留候选人的说明", async ({ page }) => {
 
   const state = await mockRecruitment(page);
+  const thirdPartyRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.origin !== previewOrigin && !["127.0.0.1", "localhost"].includes(url.hostname)) thirdPartyRequests.push(request.url());
+  });
   await page.goto("/interview-invitation/test-only-token");
   await expect(page.getByText("产品经理", { exact: true })).toBeVisible();
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex.*nofollow/);
+  await expect(page.locator('meta[name="googlebot"]')).toHaveAttribute("content", /noindex.*nofollow/);
+  await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
+  await expect(page.locator('#baidu-analytics, script[src*="hm.baidu.com"]')).toHaveCount(0);
   await page.getByRole("button", { name: "申请改期", exact: true }).click();
   expect(state.calls.filter((call) => call.path.startsWith("/api/public/") && call.method === "POST")).toHaveLength(0);
   await page.getByLabel("面试答复说明", { exact: true }).fill("周一下午方便，谢谢。");
@@ -480,6 +489,7 @@ test("候选人确认页面不读取内部资料，改期申请保留候选人�
   await expect(page.getByText("你的答复已送到招聘联系人。", { exact: true })).toBeVisible();
   expect(state.calls.find((call) => call.path.startsWith("/api/public/") && call.method === "POST")?.body).toEqual({ action: "reschedule", note: "周一下午方便，谢谢。" });
   expect(state.calls.some((call) => call.path === "/api/recruitment/applications")).toBe(false);
+  expect(thirdPartyRequests).toEqual([]);
   expect(state.errors).toEqual([]);
 });
 
