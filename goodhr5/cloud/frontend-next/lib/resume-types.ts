@@ -57,6 +57,10 @@ export function isReadOnlyResume(resume?: Resume | ResumeDraft | string | null):
 export function avatarSource(value?: string) {
   return typeof value === "string" && value.length <= 128 * 1024 && /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : undefined;
 }
+/** resumeAvatarSource 为预留示例简历展示管理员指定的静态头像，真实简历仍只接受安全的内嵌头像。 */
+export function resumeAvatarSource(resume?: Resume | ResumeDraft | null) {
+  return resume?.id === builtinResumeID ? "/assets/resume-guagua.jpg" : avatarSource(resume?.avatar_data_url);
+}
 /** sourceLabel 将简历来源或平台标识转成简短中文文案。 */
 export function sourceLabel(value?: string, platform?: string) {
   if (value === "browser_extension" && platform) {

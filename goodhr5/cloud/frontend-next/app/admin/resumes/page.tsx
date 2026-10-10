@@ -5,18 +5,16 @@ import { DownloadOutlined, FilterOutlined, MoreOutlined, PlusOutlined, SearchOut
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import AdminDialog from "@/components/admin/AdminDialog";
-import ChoiceCards from "@/components/admin/ChoiceCards";
 import { SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import ExtensionPairApproval from "@/components/admin/ExtensionPairApproval";
 import ResumeEditor from "@/components/admin/resumes/ResumeEditor";
 import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
-import ResumeImportDialog from "@/components/admin/resumes/ResumeImportDialog";
+import ResumeAddDialog from "@/components/admin/resumes/ResumeAddDialog";
 import ResumeLibrarySettingsDialog from "@/components/admin/resumes/ResumeLibrarySettingsDialog";
 import { cloudRequest } from "@/lib/admin-api";
 import { loadResume, loadResumePositions } from "@/lib/resume-api";
-import { avatarSource, experienceLabel, genderLabel, isReadOnlyResume, recordTime, resumeAge, salaryLabel, sourceLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume } from "@/lib/resume-types";
+import { experienceLabel, genderLabel, isReadOnlyResume, recordTime, resumeAge, resumeAvatarSource, salaryLabel, sourceLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume } from "@/lib/resume-types";
 import styles from "./page.module.css";
 
 const filterKeys = ["q", "phone", "position_id", "source_type", "region", "education_level", "work_years", "work_status", "tag", "creator", "created_from", "created_to"] as const;
@@ -36,9 +34,8 @@ export default function ResumesPage() {
   const [realTotal, setRealTotal] = useState(0); const [builtinTotal, setBuiltinTotal] = useState(0);
   const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20);
   const [loadError, setLoadError] = useState("");
-  const [chooserOpen, setChooserOpen] = useState(false); const [addMethod, setAddMethod] = useState("manual");
+  const [chooserOpen, setChooserOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false); const [editing, setEditing] = useState<Resume | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detail, setDetail] = useState<{ id: string; name: string; engagementID?: string; tab: string } | null>(null);
   const generation = useRef(0);
@@ -62,7 +59,7 @@ export default function ResumesPage() {
   }
   useEffect(() => { void loadResumePositions().then(setPositions).catch((cause) => notify(cause.message || "岗位没读出来，可稍后刷新。", "warning")); }, []);
   useEffect(() => { setFilters(readFilters(new URLSearchParams(queryText))); void load(queryText); }, [queryText]);
-  useEffect(() => { if (params.get("resume_import_id")) setImportOpen(true); }, [queryText]);
+  useEffect(() => { if (params.get("resume_import_id")) setChooserOpen(true); }, [queryText]);
   /** updateFilter 只修改输入草稿，点击查询或回车才请求搜索。 */
   function updateFilter(key: keyof Filters, value = "") { setFilters((current) => ({ ...current, [key]: value })); }
   /** navigateQuery 写回查询与分页，同时保留本地端口和插件配对等独立参数。 */
@@ -78,17 +75,14 @@ export default function ResumesPage() {
   /** openDetails 在抽屉中阅读，保留当前查询和分页。 */
   function openDetails(item: Resume, tab = "notes") { setDetail({ id: item.id, name: item.candidate_name, engagementID: item.engagement_id, tab }); }
   /** openEditor 先获取完整候选人，避免列表摘要覆盖已有经历。 */
-  async function openEditor(item?: Resume) {
-    if (!item) { setEditing(null); setEditorOpen(true); return; }
+  async function openEditor(item: Resume) {
     if (isReadOnlyResume(item)) { openDetails(item); return; }
     try { setEditing(await loadResume(item.id)); setEditorOpen(true); }
     catch (cause) { notify(cause instanceof Error ? cause.message : "这份简历没读出来，刷新后再试。", "error"); }
   }
-  /** chooseAddMethod 从两种入口继续，手动添加不要求本地程序在线。 */
-  function chooseAddMethod() { setChooserOpen(false); if (addMethod === "ai") setImportOpen(true); else void openEditor(); }
-  /** closeImport 清除消息携带的草稿入口，避免之后切换筛选时重复打开导入弹框。 */
-  function closeImport() {
-    setImportOpen(false);
+  /** closeAdd 清除消息携带的草稿入口，避免之后切换筛选时重复打开添加弹框。 */
+  function closeAdd() {
+    setChooserOpen(false);
     if (params.get("resume_import_id")) { const query = new URLSearchParams(queryText); query.delete("resume_import_id"); router.replace(`/admin/resumes?${query}`, { scroll: false }); }
   }
   const appliedFilters = readFilters(new URLSearchParams(queryText));
@@ -124,12 +118,12 @@ export default function ResumesPage() {
       <Table<Resume> size="small" rowKey={(item) => item.id + (item.engagement_id || "")} dataSource={items} loading={loading} pagination={false} tableLayout="fixed" className={styles.resumeTable} scroll={{ x: 1290 }} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里暂时空空的，先加一份简历，我来认真记账。"><Button type="primary" onClick={() => setChooserOpen(true)}>添加简历</Button></Empty> }} columns={[
         { title: "候选人", key: "candidate", width: 300, render: (_, item) => {
           const attributes = [resumeAge(item), genderLabel(item.gender), item.education_level, workYearsLabel(item), item.expected_position || "期望职位待补充", item.expected_region || item.work_region || "地区待补充", salaryLabel(item), item.work_status || "求职状态待补充", ...(item.tags || []).slice(0, 3)].filter(Boolean);
-          return <Flex gap={8} align="start"><Avatar size={32} src={avatarSource(item.avatar_data_url)} alt={`${item.candidate_name || "候选人"}头像`} style={{ flexShrink: 0 }}>{item.candidate_name?.slice(0, 1) || "人"}</Avatar><Flex vertical gap={2} className={styles.candidateSummary}>
+          return <Flex gap={8} align="center"><Avatar size={32} src={resumeAvatarSource(item)} alt={`${item.candidate_name || "候选人"}头像`} style={{ flexShrink: 0 }}>{item.candidate_name?.slice(0, 1) || "人"}</Avatar><Flex vertical gap={2} className={styles.candidateSummary}>
             <Flex gap={8} align="center" className={styles.candidateHeading}><Button type="link" className={styles.nameButton} title={item.candidate_name || "未命名候选人"} onClick={() => openDetails(item)}>{item.candidate_name || "未命名候选人"}</Button><Typography.Text ellipsis={{ tooltip: item.phone }} className={styles.phoneText}>{item.phone || "手机号待补充"}</Typography.Text></Flex>
             <div className={styles.candidateAttributes}>{attributes.map((attribute, index) => <Typography.Text key={index} className={styles.candidateAttribute}>{attribute}</Typography.Text>)}</div>
           </Flex></Flex>;
         } },
-        { title: "最近经历", key: "experience", width: 300, render: (_, item) => <Flex vertical gap={4}>{[...(item.work_experiences || []), ...(item.educations || [])].slice(0, 2).map((experience, index) => <Typography.Paragraph key={index} ellipsis={{ rows: 2, tooltip: experienceLabel(experience) }} className={styles.cellText}>{experienceLabel(experience)}</Typography.Paragraph>)}{!item.work_experiences?.length && !item.educations?.length ? <Typography.Text type="secondary">经历待补充</Typography.Text> : null}</Flex> },
+        { title: "最近经历", key: "experience", width: 300, render: (_, item) => <Flex vertical gap={4}>{[...(item.work_experiences || []), ...(item.educations || [])].slice(0, 2).map((experience, index) => <Typography.Paragraph key={index} ellipsis={{ rows: 2, tooltip: experienceLabel(experience) }} className={styles.cellText}>{experience.company_name ? <strong className={styles.experienceCompany}>{experience.company_name}</strong> : null}{experience.company_name ? experienceLabel(experience).slice(experience.company_name.length) : experienceLabel(experience)}</Typography.Paragraph>)}{!item.work_experiences?.length && !item.educations?.length ? <Typography.Text type="secondary">经历待补充</Typography.Text> : null}</Flex> },
         { title: "岗位 / 推荐", key: "recommendation", width: 160, render: (_, item) => <Flex vertical gap={3}><Button type="link" className={styles.inlineButton} onClick={() => openDetails(item, "recommendations")}>{item.recommendation_count || item.recommendations?.length || 0} 个岗位记录</Button>{item.recommendations?.[0] ? <><Typography.Text ellipsis>{item.recommendations[0].position_name || "历史岗位"}</Typography.Text><Typography.Text type="secondary" className={styles.meta}>{stageLabel(item.recommendations[0].stage)}</Typography.Text></> : item.position_name ? <Typography.Text type="secondary" className={styles.meta}>自动任务 · {item.position_name}</Typography.Text> : null}</Flex> },
         { title: "最新备注", key: "note", width: 240, render: (_, item) => { const note = item.latest_note || item.notes?.[0]; return <Button type="text" className={styles.noteButton} onClick={() => openDetails(item, "notes")}><Flex vertical gap={3}><Typography.Paragraph ellipsis={{ rows: 2, tooltip: note?.content }} className={styles.cellText}>{note?.content || "还没备注，点这里记一条"}</Typography.Paragraph>{note ? <Typography.Text type="secondary" className={styles.meta} title={note.created_at ? `保存于 ${recordTime(note.created_at)}` : undefined}>{note.author_name || note.author_email || "未记录操作人"} · {(note.occurred_at || note.created_at) ? recordTime(note.occurred_at || note.created_at) : ""}</Typography.Text> : null}</Flex></Button>; } },
         { title: "创建时间", key: "created_at", width: 190, render: (_, item) => <Flex vertical gap={3}><Typography.Text className={styles.meta}>{recordTime(item.created_at)}</Typography.Text><Space wrap size={[2, 2]}><Tag>{sourceLabel(item.source_type, item.platform_id)}</Tag>{item.platform_id ? <Tag>{sourceLabel(item.platform_id)}</Tag> : null}{(item.sources?.length || 0) > 1 ? <Typography.Text className={styles.meta}>{item.sources!.length} 个来源</Typography.Text> : null}</Space><Typography.Text type="secondary" ellipsis={{ tooltip: item.creator_name || item.user_email }} className={styles.meta}>{item.creator_name || item.user_email || "创建人待补充"}</Typography.Text></Flex> },
@@ -137,11 +131,8 @@ export default function ResumesPage() {
       ]} />
       <Flex wrap gap={12} justify="space-between" align="center" className={styles.pagination}><Typography.Text type="secondary">共 {realTotal} 份简历{builtinTotal ? ` · 另有 ${builtinTotal} 份内置示例` : ""}</Typography.Text><Pagination current={page} total={total} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateQuery(appliedFilters, size !== pageSize ? 1 : next, size)} /></Flex>
     </SectionPanel>
-    <AdminDialog open={chooserOpen} title="添加简历" onClose={() => setChooserOpen(false)} onConfirm={chooseAddMethod} confirmText="继续">
-      <ChoiceCards label="选一种方式，我来帮你记入简历库。" value={addMethod} onChange={(value) => setAddMethod(String(value))} options={[{ value: "ai", label: "AI 批量解析", description: "多份文件一起解析，补齐手机号后确认入库。" }, { value: "manual", label: "手动添加", description: "姓名、手机号先填好，其它信息可以慢慢补。" }]} />
-    </AdminDialog>
+    <ResumeAddDialog open={chooserOpen} initialTaskID={params.get("resume_import_id") || ""} positions={positions} onClose={closeAdd} onChanged={() => void load()} onSaved={(item) => { closeAdd(); void load(); openDetails(item); }} />
     <ResumeEditor open={editorOpen} candidate={editing} positions={positions} onClose={() => setEditorOpen(false)} onSaved={(item) => { setEditorOpen(false); void load(); openDetails(item); }} />
-    <ResumeImportDialog open={importOpen} initialTaskID={params.get("resume_import_id") || ""} positions={positions} onClose={closeImport} onChanged={() => void load()} />
     <ResumeLibrarySettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     <Drawer open={Boolean(detail)} onClose={() => setDetail(null)} size="large" title={detail?.name || "简历详情"} destroyOnHidden extra={detail ? <Link href={`/admin/resumes/detail?candidate_id=${encodeURIComponent(detail.id)}${detail.engagementID ? `&engagement_id=${encodeURIComponent(detail.engagementID)}` : ""}&return_to=${encodeURIComponent(`/admin/resumes?${queryText}`)}`}>单独打开</Link> : null} styles={{ wrapper: { width: "min(1280px, 96vw)" } }}>
       {detail ? <ResumeWorkspace candidateID={detail.id} engagementID={detail.engagementID} initialTab={detail.tab} positions={positions} onChanged={() => void load()} /> : null}

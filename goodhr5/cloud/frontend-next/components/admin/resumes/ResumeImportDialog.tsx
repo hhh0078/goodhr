@@ -1,8 +1,8 @@
 /** 文件作用说明：通过本地程序上传和批量解析简历，恢复导入任务并让用户逐项补号、查重与确认入库。 */
 "use client";
 import { Alert, Button, Flex, Input, Progress, Space, Table, Tag, Typography, Upload, type UploadFile } from "antd";
-import { InboxOutlined, ReloadOutlined } from "@ant-design/icons";
-import { useEffect, useRef, useState } from "react";
+import { ArrowLeftOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import AdminDialog from "../AdminDialog";
 import { useAdmin } from "../AdminApp";
 import { getToken } from "@/lib/admin-api";
@@ -14,20 +14,32 @@ import styles from "./resumes.module.css";
 type ImportItem = { id: string; file_name: string; status: string; candidate?: ResumeDraft; error?: string; candidate_id?: string };
 type ImportTask = { id: string; status: string; items: ImportItem[]; total: number; processed: number };
 const importStatus: Record<string, string> = { queued: "排队中", parsing: "解析中", ready: "待确认", needs_phone: "待补手机号", failed: "失败", saved: "已入库", partial_success: "简历已保存，备注 / 岗位待补齐" };
+type Props = {
+  open: boolean; initialTaskID?: string; positions: PositionOption[]; onClose: () => void; onChanged: () => void;
+  /** 添加标签内直接展示导入内容，保留独立导入入口的原有弹框。 */
+  embedded?: boolean;
+  active?: boolean;
+  onBusyChange?: (busy: boolean) => void;
+};
 
 /** ResumeImportDialog 仅连接本地 AI 导入，不把原文件或截图上传云端。 */
-export default function ResumeImportDialog({ open, initialTaskID = "", positions, onClose, onChanged }: { open: boolean; initialTaskID?: string; positions: PositionOption[]; onClose: () => void; onChanged: () => void }) {
+export default function ResumeImportDialog({ open, initialTaskID = "", positions, onClose, onChanged, embedded = false, active = true, onBusyChange }: Props) {
   const { agentBase, refreshAgent, notify, user } = useAdmin();
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [text, setText] = useState("");
   const [task, setTask] = useState<ImportTask | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editorBusy, setEditorBusy] = useState(false);
   const [error, setError] = useState("");
   const [editingItem, setEditingItem] = useState<ImportItem | null>(null);
   const [duplicateHints, setDuplicateHints] = useState<Record<string, string>>({});
   const generation = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const taskCache = `goodhr5_resume_import:${user?.id || user?.email || "anonymous"}`;
+  useEffect(() => {
+    onBusyChange?.(busy || editorBusy);
+    return () => onBusyChange?.(false);
+  }, [busy, editorBusy, onBusyChange]);
   /** requestTask 访问本地任务 API，并传送当前 GoodHR 会话用于账号隔离。 */
   async function requestTask(path: string, method = "GET", body?: unknown, upload?: FormData): Promise<ImportTask> {
     if (!agentBase) throw new Error("本地程序还没连接，打开后点重新连接就好。手动添加仍可用。");
@@ -39,11 +51,19 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
         headers: { Authorization: `Bearer ${getToken()}`, ...(!upload ? { "Content-Type": "application/json" } : {}) },
         body: upload || (body == null ? undefined : JSON.stringify(body)),
       });
-      const data = await response.json();
+      // 旧版本地程序返回纯文本404，先识别响应格式，避免将JSON解析异常直接展示给用户。
+      const payload = await response.text();
+      let data: any;
+      try { data = JSON.parse(payload); }
+      catch {
+        if (response.status === 404) throw new Error("当前本地程序还不支持简历批量导入，请更新到 6.2.10.3 或更新版本。手动添加和浏览器插件仍可用。");
+        throw new Error(response.ok ? "本地程序返回的导入结果没读完整，请重新读取任务。" : `本地导入暂时没响应（${response.status}），请重新连接后重试。`);
+      }
+      if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("本地程序返回的导入结果没读完整，请重新读取任务。");
       if (!response.ok || data.ok === false) throw new Error(data.error?.message || data.message || (typeof data.error === "string" ? data.error : "导入请求没成功，请重试。"));
-      const result = data.data?.task || data.task || data.data?.tasks?.find((item: ImportTask) => item.items.some((row) => row.status !== "saved"));
+      const result = data.data?.task || data.task || (Array.isArray(data.data?.tasks) ? data.data.tasks.find((item: ImportTask) => Array.isArray(item?.items) && item.items.some((row) => row.status !== "saved")) : undefined);
       if (!result && path === "" && method === "GET" && Array.isArray(data.data?.tasks)) return { id: "", status: "completed", total: 0, processed: 0, items: [] };
-      if (!result?.id) throw new Error("本地程序还不支持新版简历导入，请先更新本地程序。");
+      if (!result?.id || !Array.isArray(result.items)) throw new Error("本地程序还不支持新版简历导入，请先更新本地程序。");
       return result;
     } catch (cause) {
       if (cause instanceof Error && cause.name === "AbortError") throw new Error("本地程序响应有点慢，请重试读取任务，已完成的结果会保留。");
@@ -175,11 +195,20 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
   }
   /** newBatch 清除任务界面指针，已完成的本地任务记录仍保留。 */
   function newBatch() { generation.current += 1; if (timer.current) clearTimeout(timer.current); setTask(null); setFiles([]); setText(""); setDuplicateHints({}); localStorage.removeItem(taskCache); setError(""); }
+  const itemEditor = <ResumeEditor open={open && Boolean(editingItem)} embedded={embedded} active={active} draft={editingItem?.candidate} persistedID={task?.items.find((item) => item.id === editingItem?.id)?.candidate_id} positions={positions} onBusyChange={setEditorBusy} onClose={() => setEditingItem(null)} onConfirmDraft={confirmOne} onSaved={() => { setEditingItem(null); onChanged(); }} />;
   return <>
-    <AdminDialog open={open} title="AI 批量解析简历" maxWidth="md" onClose={onClose}>
+    <ResumeImportFrame embedded={embedded} open={open} busy={busy || editorBusy} onClose={onClose}>
+      {embedded && editingItem ? <>
+        <Flex align="center" gap={10} className={styles.importEditorHeading}>
+          <Button size="small" icon={<ArrowLeftOutlined />} disabled={editorBusy} onClick={() => setEditingItem(null)}>返回解析结果</Button>
+          <Typography.Text strong>{editingItem.file_name}</Typography.Text>
+        </Flex>
+        {itemEditor}
+      </> : null}
+      <div hidden={embedded && Boolean(editingItem)}>
       <Flex vertical gap={14}>
         <Alert showIcon type={agentBase ? "info" : "warning"} title={agentBase ? "本地程序已连接。解析会调用 AI，按现有规则计费；确认前只保存草稿。" : "先打开本地程序，再连接一下，就能用 AI 解析。手动添加照常可用。"} action={!agentBase ? <Button onClick={() => void refreshAgent()}>重新连接</Button> : undefined} />
-        {error ? <Alert showIcon type="warning" title={error} /> : null}
+        {error ? <Alert showIcon type="warning" title={error} action={/请(?:先)?更新/.test(error) ? <Button size="small" href="/download#local-agent" target="_blank" rel="noopener noreferrer">去下载更新</Button> : undefined} /> : null}
         {!task ? <>
           <Upload.Dragger multiple accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg" maxCount={20} fileList={files} beforeUpload={() => false} onChange={({ fileList }) => setFiles(fileList)} disabled={busy || !agentBase}>
             <InboxOutlined style={{ fontSize: 28, color: "var(--goodhr-primary)" }} /><Typography.Paragraph style={{ margin: "8px 0" }}>拖入简历，或点击选择文件</Typography.Paragraph><Typography.Text type="secondary">PDF、DOC/DOCX、TXT、PNG/JPEG；每批 20 份，单份 10MB、总计 60MB 以内。</Typography.Text>
@@ -202,7 +231,12 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
           </Flex>
         </>}
       </Flex>
-    </AdminDialog>
-    <ResumeEditor open={Boolean(editingItem)} draft={editingItem?.candidate} persistedID={task?.items.find((item) => item.id === editingItem?.id)?.candidate_id} positions={positions} onClose={() => setEditingItem(null)} onConfirmDraft={confirmOne} onSaved={() => { setEditingItem(null); onChanged(); }} />
+      </div>
+    </ResumeImportFrame>
+    {!embedded ? itemEditor : null}
   </>;
+}
+/** ResumeImportFrame 根据入口选择内嵌内容或独立导入弹框，正在提交时禁止关闭。 */
+function ResumeImportFrame({ embedded, open, busy, onClose, children }: { embedded: boolean; open: boolean; busy: boolean; onClose: () => void; children: ReactNode }) {
+  return embedded ? <div className={styles.embeddedImport}>{children}</div> : <AdminDialog open={open} title="AI 批量解析简历" maxWidth="md" loading={busy} onClose={onClose}>{children}</AdminDialog>;
 }

@@ -2,7 +2,7 @@
 "use client";
 import { Alert, Avatar, Button, Checkbox, Collapse, Flex, Form, Input, InputNumber, Select, Space, Table, Typography } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import AdminDialog from "../AdminDialog";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, checkResumeDuplicates, loadResume, saveResume } from "@/lib/resume-api";
@@ -15,6 +15,11 @@ type Props = {
   onClose: () => void; onSaved: (candidate: Resume) => void;
   onConfirmDraft?: (submission: ResumeDraftSubmission) => Promise<Resume>;
   persistedID?: string;
+  /** 嵌入添加弹框时复用表单与保存流程，不额外弹出一层维护窗口。 */
+  embedded?: boolean;
+  /** 标签隐藏时保留草稿，只暂停显示确认窗口。 */
+  active?: boolean;
+  onBusyChange?: (busy: boolean) => void;
 };
 const fieldLabels: Record<string, string> = {
   candidate_name: "姓名", phone: "手机号", email: "邮箱", gender: "性别", birth_ym: "出生年月", avatar_data_url: "头像",
@@ -27,7 +32,7 @@ const fieldLabels: Record<string, string> = {
 const clearableFields = ["email", "gender", "birth_ym", "education_level", "current_region", "expected_region", "work_years", "work_status", "expected_position", "tags", "expected_salary_min", "expected_salary_max", "work_experiences", "educations", "project_experiences", "certificates", "honors", "personal_description", "raw_text"] as const;
 
 /** ResumeEditor 保留已创建简历 ID，使备注或关联失败后的重试不会再次创建简历。 */
-export default function ResumeEditor({ open, candidate, draft, positions, onClose, onSaved, onConfirmDraft, persistedID = "" }: Props) {
+export default function ResumeEditor({ open, candidate, draft, positions, onClose, onSaved, onConfirmDraft, persistedID = "", embedded = false, active = true, onBusyChange }: Props) {
   const { notify } = useAdmin();
   const [form] = Form.useForm<ResumeDraft & { first_note?: string; position_ids?: string[] }>();
   const [busy, setBusy] = useState(false);
@@ -46,10 +51,14 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
   const linkedPositions = useRef(new Set<string>());
   const duplicateGeneration = useRef(0);
   useEffect(() => {
+    onBusyChange?.(busy);
+    return () => onBusyChange?.(false);
+  }, [busy, onBusyChange]);
+  useEffect(() => {
     if (!open) return;
     form.resetFields();
     form.setFieldsValue({ source_type: "manual", ...(candidate || draft || { candidate_name: "", phone: "" }) });
-    setTarget(candidate || null); setDuplicates(null); setAllowPossible(false); setSubmission(null); setClearFields([]); setError("");
+    setTarget(candidate || null); setDuplicates(null); setAllowPossible(false); setSubmission(null); setClearFields([]); setError(""); setPreviewOpen(false); setChecking(false);
     savedCandidate.current = null; noteDone.current = false; linkedPositions.current = new Set(); duplicateGeneration.current += 1;
     saveKey.current = crypto.randomUUID();
   }, [open, candidate, draft, form]);
@@ -148,7 +157,7 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
     ? clearableFields.filter((field) => !isBlankMaintenanceValue(target[field]) && isBlankMaintenanceValue(submission.candidate[field]))
     : [];
   return <>
-    <AdminDialog open={open} title={target ? `维护简历 · ${target.candidate_name}` : onConfirmDraft ? "确认解析草稿" : "手动添加简历"} maxWidth="md"
+    <ResumeEditorFrame embedded={embedded} open={open} title={target ? `维护简历 · ${target.candidate_name}` : onConfirmDraft ? "确认解析草稿" : "手动添加简历"}
       description="姓名和手机号填好就能入库，其它信息可以慢慢补。选择岗位只建立关联。"
       onClose={onClose} onConfirm={() => void (savedCandidate.current ? persistSubmission() : previewSubmission())} loading={busy} confirmDisabled={readOnly} confirmText={savedCandidate.current ? "重试剩余记录" : "检查并保存"}>
       <Flex vertical gap={14}>
@@ -194,8 +203,8 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
           {!duplicates?.exact.length ? <Checkbox checked={allowPossible} onChange={(event) => setAllowPossible(event.target.checked)}>我核对过了，是另一位候选人，继续新建。</Checkbox> : null}
         </> : duplicates ? <Typography.Text type="secondary">{duplicates.hidden_match ? "团队内可能已有简历，请管理员协助核对。" : "暂未找到相同简历。"}</Typography.Text> : null}
       </Flex>
-    </AdminDialog>
-    <AdminDialog open={previewOpen} title={target ? "确认更新内容" : "确认入库内容"} maxWidth="sm" onClose={() => setPreviewOpen(false)} onConfirm={() => void persistSubmission()} loading={busy} confirmText="确认保存">
+    </ResumeEditorFrame>
+    <AdminDialog open={open && active && previewOpen} title={target ? "确认更新内容" : "确认入库内容"} maxWidth="sm" onClose={() => setPreviewOpen(false)} onConfirm={() => void persistSubmission()} loading={busy} confirmText="确认保存">
       <Alert type="info" showIcon title={target ? clearCandidates.length ? "有值的改动会更新；留空的字段只有勾选确认才会清空。" : "只更新下面有值的字段；没识别到的信息会保留已有内容。" : "保存后可继续补充备注和岗位推荐。"} style={{ marginBottom: 12 }} />
       <Table size="small" pagination={false} rowKey="field" dataSource={Object.entries(changes).filter(([field]) => field !== "source_type").map(([field, value]) => ({ field, value }))} columns={[
         { title: "字段", width: 120, render: (_, row) => fieldLabels[row.field] || row.field },
@@ -214,6 +223,20 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
       {submission?.position_ids.length ? <Typography.Text>关联 {submission.position_ids.length} 个岗位，阶段为“待推荐”。</Typography.Text> : null}
     </AdminDialog>
   </>;
+}
+/** ResumeEditorFrame 在标签内直接展示表单和保存按钮，独立编辑时保持原维护弹框。 */
+function ResumeEditorFrame({ embedded, children, ...props }: {
+  embedded: boolean; open: boolean; title: string; description: string; children: ReactNode;
+  onClose: () => void; onConfirm: () => void; loading: boolean; confirmDisabled: boolean; confirmText: string;
+}) {
+  if (!embedded) return <AdminDialog {...props} maxWidth="md">{children}</AdminDialog>;
+  return <div className={styles.embeddedEditor}>
+    <Typography.Paragraph type="secondary" className={styles.addHint}>{props.description}</Typography.Paragraph>
+    {children}
+    <Flex justify="flex-end" className={styles.embeddedActions}>
+      <Button type="primary" loading={props.loading} disabled={props.confirmDisabled || props.loading} onClick={props.onConfirm}>{props.confirmText}</Button>
+    </Flex>
+  </div>;
 }
 /** previewFieldValue 用小头像呈现头像差异，避免在候选人维护界面显示base64编码。 */
 function previewFieldValue(field: string, value: unknown, imageDescription: string) {

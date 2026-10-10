@@ -12,6 +12,7 @@
 .dateField :global(.ant-input) { min-width: 0; }
 .resumeTable :global(.ant-table-cell) { vertical-align: top; overflow-wrap: anywhere; padding-top: 10px; padding-bottom: 10px; line-height: 1.5; }
 .cellText { min-width: 0; max-width: 100%; margin: 0 !important; overflow-wrap: anywhere; }
+.experienceCompany { font-weight: 600; }
 .meta { font-size: 12px; line-height: 1.45; min-width: 0; overflow-wrap: anywhere; }
 .candidateSummary { flex: 1; min-width: 0; }
 .candidateHeading { min-width: 0; }
@@ -19,7 +20,7 @@
 /* 候选人属性采用相同的小字，短属性整体换行，长属性在列宽内自然折行。 */
 .candidateAttributes { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
 .candidateAttribute.candidateAttribute { flex: 0 0 auto; max-width: 100%; margin: 0; font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--goodhr-text-secondary); overflow-wrap: anywhere; }
-.nameButton.nameButton { flex: 1; min-width: 0; height: auto; padding: 0; justify-content: flex-start; font-size: 13px; line-height: 20px; font-weight: 700; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
+.nameButton.nameButton { flex: 0 1 auto; min-width: 0; height: auto; padding: 0; justify-content: flex-start; font-size: 13px; line-height: 20px; font-weight: 700; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
 .nameButton :global(span) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .inlineButton.inlineButton { height: auto; padding: 0; justify-content: flex-start; }
 /* 备注用按钮承载点击，但正文和作者时间采用小字，避免继承按钮的加粗和字号。 */

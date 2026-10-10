@@ -38,5 +38,14 @@
 .recommendationEvent :global(.ant-tag) { margin-inline-end: 0; }
 .recommendationEvent .preWrap { margin-top: 6px; margin-bottom: 0; }
 .importTable :global(.ant-table-cell) { overflow-wrap: anywhere; }
+.addTabs :global(.ant-tabs-nav) { margin-bottom: 14px; }
+.addTabs :global(.ant-tabs-tab) { padding-top: 4px; padding-bottom: 10px; }
+.embeddedEditor, .embeddedImport { min-width: 0; }
+.addHint.addHint { margin: 0 0 12px; font-size: 12px; line-height: 1.5; }
+.embeddedActions { margin-top: 14px; }
+.importEditorHeading { margin-bottom: 12px; min-width: 0; }
+.importEditorHeading :global(.ant-typography) { min-width: 0; overflow-wrap: anywhere; }
+.pluginGuide { padding: 8px 0 12px; }
+.pluginGuide :global(.ant-typography) { margin-bottom: 12px; }
 @media (max-width: 1000px) { .workspace { grid-template-columns: minmax(0, 1fr); } .resumeBody { padding: 0; } .recordAside { border-left: 0; border-top: 1px solid var(--goodhr-border); padding: 12px 0 0; margin-top: 12px; } }
 @media (max-width: 599px) { .fieldGrid { grid-template-columns: minmax(0, 1fr); } .candidateHeader { flex-wrap: wrap; } }

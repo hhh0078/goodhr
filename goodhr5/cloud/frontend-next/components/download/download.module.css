@@ -1,0 +1,28 @@
+/* 本文件负责下载分类导航、下载区间距与更新记录展开按钮的局部样式。 */
+.categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.downloadSection {
+  scroll-margin-top: 96px;
+}
+
+.sectionDescription {
+  margin-bottom: 20px;
+}
+
+.updateActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+@media (max-width: 599px) {
+  .categories {
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+}

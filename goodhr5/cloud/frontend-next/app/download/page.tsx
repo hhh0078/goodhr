@@ -1,4 +1,4 @@
-/** 本文件负责官网本地程序下载页面。 */
+/** 本文件负责官网本地程序、浏览器插件的分类下载与版本更新入口。 */
 
 import AppleIcon from "@ant-design/icons/lib/icons/AppleOutlined";
 import CheckCircleRoundedIcon from "@ant-design/icons/lib/icons/CheckCircleOutlined";
@@ -8,13 +8,15 @@ import Button from "antd/es/button";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import MarketingShell from "@/components/MarketingShell";
-import { getLocalAgentUpdates, getBrowserExtensionRelease, type BrowserExtensionRelease, type LocalAgentUpdate } from "@/lib/public-data";
+import DownloadUpdateRecords from "@/components/download/DownloadUpdateRecords";
+import styles from "@/components/download/download.module.css";
+import { getLocalAgentUpdates, getBrowserExtensionRelease, type BrowserExtensionRelease } from "@/lib/public-data";
 import { createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
   title: "下载GoodHR - HR与猎头招聘自动化工具",
   description:
-    "下载 GoodHR Windows 或 macOS 本地程序，用于招聘平台自动筛选、AI筛选、自动打招呼、AI自动回复、OCR和简历下载管理。",
+    "下载 GoodHR Windows 或 macOS 本地程序与浏览器插件，用于招聘自动化、AI筛选、自动回复和候选人简历导入；查看各版本更新说明。",
   path: "/download",
   keywords: [
     "招聘软件免费下载",
@@ -24,7 +26,7 @@ export const metadata: Metadata = createPageMetadata({
   ],
 });
 
-/** DownloadPage 提供 Windows 和 macOS 本地程序下载入口。 */
+/** DownloadPage 分开展示本地程序与浏览器插件，并保留服务端渲染的近期更新记录。 */
 export default async function DownloadPage() {
   const [updates, extension] = await Promise.all([getLocalAgentUpdates(), getBrowserExtensionRelease()]);
   const windows = updates.find((item) => item.urlWin);
@@ -32,30 +34,44 @@ export default async function DownloadPage() {
 
   return (
     <MarketingShell
-      eyebrow="本地程序"
+      eyebrow="下载中心"
       title="下载并安装 GoodHR"
-      description="本地程序负责招聘平台浏览器操作、自动打招呼、截图、OCR、AI筛选流程和本地简历数据管理。安装后会自动打开控制台。"
+      description="本地程序帮你跑招聘任务，浏览器插件帮你把候选人记入简历库。按需要选择，也可以一起用。"
     >
       <section className="public-download-2">
         <div className="public-container">
-          <div className="public-download-4">
-            <DownloadCard
-              icon={<WindowRoundedIcon aria-hidden="true" />}
-              system="Windows"
-              note="支持 Windows 10 / 11，推荐 64 位系统。"
-              href={windows?.urlWin || ""}
-              available={Boolean(windows?.urlWin)}
-            />
-            <DownloadCard
-              icon={<AppleIcon aria-hidden="true" />}
-              system="macOS"
-              note="适用于 Apple 芯片和 Intel 芯片电脑。"
-              href={mac?.urlMac || ""}
-              available={Boolean(mac?.urlMac)}
-            />
-          </div>
-          <UpdateRecords updates={updates} />
+          <nav className={styles.categories} aria-label="下载分类">
+            <Button href="#local-agent" icon={<DownloadRoundedIcon aria-hidden="true" />}>
+              本地程序下载
+            </Button>
+            <Button href="#browser-extension" icon={<DownloadRoundedIcon aria-hidden="true" />}>
+              浏览器插件下载
+            </Button>
+          </nav>
+          <section id="local-agent" className={styles.downloadSection} aria-labelledby="local-agent-heading">
+            <h2 id="local-agent-heading" className="public-text public-download-11">本地程序下载</h2>
+            <p className={`public-text public-download-18 ${styles.sectionDescription}`}>
+              运行招聘任务、AI 筛选和自动回复。安装后会自动打开控制台。
+            </p>
+            <div className="public-download-4">
+              <DownloadCard
+                icon={<WindowRoundedIcon aria-hidden="true" />}
+                system="Windows"
+                note={`支持 Windows 10 / 11，推荐 64 位系统。${windows?.version ? `当前版本 ${windows.version}。` : ""}`}
+                href={windows?.urlWin || ""}
+                available={Boolean(windows?.urlWin)}
+              />
+              <DownloadCard
+                icon={<AppleIcon aria-hidden="true" />}
+                system="macOS"
+                note={`适用于 Apple 芯片和 Intel 芯片电脑。${mac?.version ? `当前版本 ${mac.version}。` : ""}`}
+                href={mac?.urlMac || ""}
+                available={Boolean(mac?.urlMac)}
+              />
+            </div>
+          </section>
           <BrowserExtensionDownloads release={extension} />
+          <DownloadUpdateRecords updates={updates} />
           <div className="public-download-10">
             <h2 className="public-text public-download-11">安装前说明</h2>
             <div className="public-download-12">
@@ -88,12 +104,11 @@ export default async function DownloadPage() {
     </MarketingShell>
   );
 }
-
 /** BrowserExtensionDownloads 展示后台配置的 Chrome/Firefox 插件包与准确的安装方式。 */
 function BrowserExtensionDownloads({release}: {release: BrowserExtensionRelease | null}) {
-  return <section id="browser-extension" className="public-download-10" style={{scrollMarginTop: 96}}>
-    <h2 className="public-text public-download-11">浏览器插件{release?.version ? ` · v${release.version}` : ""}</h2>
-    <p className="public-text public-download-18">打开猎聘企业端、猎头端、智联或前程无忧候选人详情，点击页面上的 GoodHR 悬浮入口添加简历、查重、记备注。手机号没认出来时可以手动补齐；也可从浏览器工具栏打开。</p>
+  return <section id="browser-extension" className={`public-download-10 ${styles.downloadSection}`} aria-labelledby="browser-extension-heading">
+    <h2 id="browser-extension-heading" className="public-text public-download-11">浏览器插件下载{release?.version ? ` · v${release.version}` : ""}</h2>
+    <p className={`public-text public-download-18 ${styles.sectionDescription}`}>打开猎聘企业端、猎头端、智联或前程无忧候选人详情，点击 GoodHR 悬浮入口即可添加简历、查重、记备注。手机号没认出来时可以手动补齐。</p>
     <div className="public-download-4">
       <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note="下载后解压，在扩展管理页打开开发者模式，加载已解压的扩展程序。" href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} />
       <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={!release?.url_firefox ? "本轮先开放 Chrome，Firefox 等功能稳定后再提供。" : release.firefox_signed ? "已签名安装包，下载后按 Firefox 提示安装。" : "当前为开发包：解压后通过 about:debugging 临时加载 manifest.json，重启浏览器后需重新加载。"} href={release?.url_firefox || ""} available={Boolean(release?.url_firefox)} />
@@ -122,7 +137,7 @@ function DownloadCard({
   return (
     <div className="public-panel public-download-19">
       <div className="public-download-20">{icon}</div>
-      <h2 className="public-text public-download-21">{system}</h2>
+      <h3 className="public-text public-download-21">{system}</h3>
       <p className="public-text public-download-22">{note}</p>
       {available ? (
         <Button
@@ -137,41 +152,6 @@ function DownloadCard({
         <Button disabled type="default" className="public-download-25">
           正在准备中
         </Button>
-      )}
-    </div>
-  );
-}
-
-/** UpdateRecords 展示本地程序历史更新记录。 */
-function UpdateRecords({ updates }: { updates: LocalAgentUpdate[] }) {
-  return (
-    <div className="public-download-26">
-      <h2 className="public-text public-download-27">更新记录</h2>
-      {updates.length > 0 ? (
-        <div className="public-download-28">
-          {updates.map((item, index) => (
-            <div
-              key={`${item.version}-${index}`}
-              className="public-download-29"
-            >
-              <div className="public-download-30">
-                <p className="public-text public-download-31">
-                  {item.version || "未标版本"}
-                </p>
-                {index === 0 ? (
-                  <p className="public-text public-download-32">最新安装包</p>
-                ) : null}
-              </div>
-              <p className="public-text public-download-33">
-                {item.note || "这版比较低调，暂时没有写更新说明。"}
-              </p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="public-text public-download-34">
-          这里暂时空空的，安装包还在路上。
-        </p>
       )}
     </div>
   );
