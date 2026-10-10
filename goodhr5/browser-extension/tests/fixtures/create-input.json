@@ -1,0 +1,74 @@
+{
+  "description": "文件作用：仅含合成资料的插件原始输入；用于生成 CREATE 请求并与云端真实校验合同联调。",
+  "candidate_name": "插件合同测试候选人",
+  "phone": "+86 138-0000-0001",
+  "email": "fixture@example.test",
+  "birth_ym": "1992-06",
+  "age": 34,
+  "gender": "male",
+  "work_region": "合同测试城市",
+  "current_region": "合同测试城市",
+  "expected_region": "期望测试城市",
+  "work_years": "8",
+  "education_level": "本科",
+  "current_position": "测试工程师",
+  "expected_position": "测试负责人",
+  "current_salary_text": "18K×13薪",
+  "expected_salary_text": "20-25K/月",
+  "expected_salary_min": 20,
+  "expected_salary_max": 25,
+  "personal_description": "只用于自动测试的合成简介。",
+  "work_status": "在职，考虑机会",
+  "online_status": "近期活跃",
+  "platform_id": "liepin",
+  "platform_candidate_id": "fixture-resume-id",
+  "source_url": "https://lpt.liepin.com/chat/im?temporary=must-remove#preview",
+  "tags": [
+    "合成标签",
+    "薪资单位K",
+    "合成标签"
+  ],
+  "work_experiences": [
+    {
+      "company_name": "合成测试公司",
+      "position_name": "测试工程师",
+      "content": "合成工作经历",
+      "start_ym": "2020-01",
+      "end_ym": ""
+    }
+  ],
+  "educations": [
+    {
+      "school_name": "合成测试学校",
+      "major_name": "测试专业",
+      "education_level": "本科",
+      "start_ym": "2010-09",
+      "end_ym": "2014-06"
+    }
+  ],
+  "project_experiences": [
+    {
+      "project_name": "合成测试项目",
+      "role_name": "测试负责人",
+      "content": "合成项目经历",
+      "start_ym": "2021-01",
+      "end_ym": "2022-06"
+    }
+  ],
+  "certificates": [
+    {
+      "certificate_name": "合成测试证书",
+      "issued_by": "合成测试机构",
+      "issued_ym": "2018-06"
+    }
+  ],
+  "honors": [
+    {
+      "honor_name": "合成测试荣誉",
+      "issued_by": "合成测试机构",
+      "issued_ym": "2019-06",
+      "description": "合成荣誉说明"
+    }
+  ],
+  "avatar_data_url": "data:image/png;base64,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"
+}

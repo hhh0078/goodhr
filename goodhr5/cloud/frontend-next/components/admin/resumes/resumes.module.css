@@ -1,0 +1,42 @@
+/* 文件作用说明：管理简历维护表单、详情工作区及导入结果的紧凑响应式布局。 */
+.editorForm :global(.ant-form-item) { margin-bottom: 12px; }
+.fieldGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; min-width: 0; }
+.wideField { grid-column: 1 / -1; }
+.experienceEditor { padding: 12px; border: 1px solid var(--goodhr-border); border-radius: 8px; min-width: 0; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); gap: 0; min-width: 0; }
+.resumeBody { min-width: 0; padding: 4px 16px 4px 0; }
+.recordAside { min-width: 0; padding: 0 0 0 16px; border-left: 1px solid var(--goodhr-border); }
+.resumeSection { padding-top: 10px; margin-top: 10px; border-top: 1px solid var(--goodhr-border); min-width: 0; }
+.resumeSection :global(h5.ant-typography), .recordSection :global(h5.ant-typography) { margin: 0 0 8px; }
+.resumeSection :global(.ant-descriptions.ant-descriptions-small .ant-descriptions-row > th), .resumeSection :global(.ant-descriptions.ant-descriptions-small .ant-descriptions-row > td) { padding-bottom: 4px; }
+.resumeSection :global(.ant-descriptions-item-label) { white-space: nowrap; }
+.candidateHeader { min-width: 0; }
+.preWrap.preWrap { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 6px; line-height: 1.5; }
+.workspace :global(.ant-typography) { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.recordSection { min-width: 0; scroll-margin-top: 12px; }
+.recordSection + .recordSection { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--goodhr-border); }
+.recordHistory { min-width: 0; }
+.record { padding: 8px 0; border-bottom: 1px solid var(--goodhr-border); min-width: 0; }
+.meta { font-size: 12px; line-height: 1.45; color: var(--goodhr-text-secondary); overflow-wrap: anywhere; }
+.experience { margin-bottom: 8px; min-width: 0; }
+.experience:last-child { margin-bottom: 0; }
+.recommendationStages.recommendationStages { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.recommendationStages :global(.ant-radio-wrapper) { margin-inline-end: 0; font-size: 12px; white-space: nowrap; }
+.recommendationHeading { min-width: 0; margin-bottom: 8px; }
+.recommendationHeading :global(.ant-btn) { flex: none; white-space: nowrap; }
+.recommendationContent { min-width: 0; }
+.recommendationContent[hidden] { display: none; }
+.recommendationPicker { display: flex; flex-wrap: nowrap; align-items: start; gap: 6px; width: 100%; max-width: 100%; min-width: 0; padding: 4px; overflow-x: auto; overflow-y: hidden; }
+.recommendationCard { flex: 0 0 auto; min-width: 0; max-width: 220px; padding: 5px 10px; border: 1px solid var(--goodhr-border); border-radius: 8px; color: var(--goodhr-text); background: #fff; cursor: pointer; }
+.recommendationCard :global(.ant-typography) { display: block; font-size: 12px; white-space: nowrap; }
+.recommendationCard:hover:not([aria-disabled="true"]) { border-color: var(--goodhr-primary); }
+.recommendationCard:focus-visible { outline: 2px solid var(--goodhr-primary); outline-offset: 2px; }
+.recommendationCard[aria-disabled="true"] { cursor: progress; }
+.recommendationCardSelected { border-color: var(--goodhr-primary); box-shadow: 0 0 0 1px var(--goodhr-primary); background: var(--goodhr-primary-soft); }
+.recommendationHistory { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.recommendationEvent { min-width: 0; padding: 8px 10px; border: 1px solid var(--goodhr-border); border-radius: 8px; }
+.recommendationEvent :global(.ant-tag) { margin-inline-end: 0; }
+.recommendationEvent .preWrap { margin-top: 6px; margin-bottom: 0; }
+.importTable :global(.ant-table-cell) { overflow-wrap: anywhere; }
+@media (max-width: 1000px) { .workspace { grid-template-columns: minmax(0, 1fr); } .resumeBody { padding: 0; } .recordAside { border-left: 0; border-top: 1px solid var(--goodhr-border); padding: 12px 0 0; margin-top: 12px; } }
+@media (max-width: 599px) { .fieldGrid { grid-template-columns: minmax(0, 1fr); } .candidateHeader { flex-wrap: wrap; } }

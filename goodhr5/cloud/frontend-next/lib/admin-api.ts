@@ -12,6 +12,10 @@ export const CLOUD_API_BASE = (
   process.env.NEXT_PUBLIC_CLOUD_API_BASE || DEFAULT_CLOUD_API_BASE
 ).replace(/\/$/, "");
 export const LOCAL_AGENT_PORTS = [43129];
+const CONFIGURED_LOCAL_AGENT_PORT_RAW = (process.env.NEXT_PUBLIC_LOCAL_AGENT_PORT || "").trim();
+const CONFIGURED_LOCAL_AGENT_PORT = normalizeLocalAgentPort(CONFIGURED_LOCAL_AGENT_PORT_RAW);
+const HAS_CONFIGURED_LOCAL_AGENT_PORT = Boolean(CONFIGURED_LOCAL_AGENT_PORT_RAW);
+const CONFIGURED_LOCAL_AGENT_BASE = CONFIGURED_LOCAL_AGENT_PORT ? `http://127.0.0.1:${CONFIGURED_LOCAL_AGENT_PORT}` : "";
 const LOCAL_AGENT_DETECT_CACHE_MS = 2000;
 const LOCAL_AGENT_DETECT_CACHE_KEY = "goodhr5_local_agent_detect_cache";
 const LOCAL_AGENT_PORT_QUERY_KEY = "local_port";
@@ -138,7 +142,10 @@ export async function detectLocalAgent(preferredBaseURL = "") {
   syncLocalAgentDetectCacheFromStorage(state);
   if (isLocalAgentDetectCacheValid(state, preferredBaseURL))
     return state.cache.baseURL;
-  if (state.detecting) return state.detecting;
+  if (state.detecting) {
+    const pendingBase = await state.detecting;
+    if (!HAS_CONFIGURED_LOCAL_AGENT_PORT || !pendingBase || pendingBase === CONFIGURED_LOCAL_AGENT_BASE) return pendingBase;
+  }
   state.detecting = detectLocalAgentOnce(state, preferredBaseURL).finally(
     () => {
       state.detecting = null;
@@ -166,7 +173,7 @@ export function captureLocalAgentPortFromURL(search?: string) {
       LOCAL_AGENT_PORT_QUERY_KEY,
     ),
   );
-  if (!port) return 0;
+  if (!port || (HAS_CONFIGURED_LOCAL_AGENT_PORT && port !== CONFIGURED_LOCAL_AGENT_PORT)) return 0;
   localStorage.setItem(LOCAL_AGENT_PORT_CACHE_KEY, String(port));
   clearLocalAgentDetectCache();
   return port;
@@ -190,7 +197,8 @@ async function detectLocalAgentOnce(
   const preferredPort = normalizeLocalAgentPort(
     preferredBaseURL.match(/:(\d+)$/)?.[1],
   );
-  const ports = Array.from(
+  // 测试构建配置端口后只访问该端口；无效非空配置也禁止回退，避免误连正式Agent。
+  const ports = HAS_CONFIGURED_LOCAL_AGENT_PORT ? (CONFIGURED_LOCAL_AGENT_PORT ? [CONFIGURED_LOCAL_AGENT_PORT] : []) : Array.from(
     new Set(
       [preferredPort, cachedLocalAgentPort(), ...LOCAL_AGENT_PORTS].filter(
         (port): port is number => Boolean(port),
@@ -228,6 +236,7 @@ function isLocalAgentDetectCacheValid(
   preferredBaseURL: string,
 ) {
   if (!state.cache.checkedAt) return false;
+  if (HAS_CONFIGURED_LOCAL_AGENT_PORT && state.cache.baseURL && state.cache.baseURL !== CONFIGURED_LOCAL_AGENT_BASE) return false;
   const cachedPort = normalizeLocalAgentPort(
     state.cache.baseURL.match(/:(\d+)$/)?.[1],
   );
@@ -235,7 +244,7 @@ function isLocalAgentDetectCacheValid(
   if (Date.now() - state.cache.checkedAt > LOCAL_AGENT_DETECT_CACHE_MS)
     return false;
   if (
-    preferredBaseURL &&
+    !HAS_CONFIGURED_LOCAL_AGENT_PORT && preferredBaseURL &&
     state.cache.baseURL &&
     preferredBaseURL !== state.cache.baseURL
   )
@@ -245,6 +254,7 @@ function isLocalAgentDetectCacheValid(
 
 /** cachedLocalAgentPort 返回页面最近缓存的合法本地程序端口。 */
 function cachedLocalAgentPort() {
+  if (HAS_CONFIGURED_LOCAL_AGENT_PORT) return CONFIGURED_LOCAL_AGENT_PORT;
   if (typeof window === "undefined") return 0;
   const port = normalizeLocalAgentPort(
     localStorage.getItem(LOCAL_AGENT_PORT_CACHE_KEY),

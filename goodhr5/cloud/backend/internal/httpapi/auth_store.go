@@ -14,6 +14,8 @@ type AuthStore interface {
 	SavePasswordResetCode(email string, code string, ttl time.Duration) error
 	ConsumePasswordResetCode(email string, code string) (bool, error)
 	SaveSession(token string, session Session, ttl time.Duration) error
+	// ReplaceSession 原子校验并消费旧会话；新 token 为空时仅注销，失败时不签发新会话。
+	ReplaceSession(oldToken string, newToken string, ttl time.Duration, expectedKind string) (Session, error)
 	GetSession(token string) (Session, error)
 	GetSessionUnsafe(token string) (Session, error)
 	PasswordLoginAllowed(email string) (bool, error)
@@ -22,6 +24,7 @@ type AuthStore interface {
 }
 
 type Session struct {
+	Kind      string
 	Email     string
 	CreatedAt time.Time
 	ExpiresAt time.Time
@@ -158,9 +161,41 @@ func (s *MemoryAuthStore) SaveSession(token string, session Session, ttl time.Du
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if ttl <= 0 {
+		delete(s.sessions, token)
+		return nil
+	}
 	session.ExpiresAt = s.now().Add(ttl)
 	s.sessions[token] = session
 	return nil
+}
+
+// ReplaceSession 在同一把锁内验证旧会话并轮换或注销，保证并发请求只有一个能消费旧 token。
+func (s *MemoryAuthStore) ReplaceSession(oldToken string, newToken string, ttl time.Duration, expectedKind string) (Session, error) {
+	if oldToken == "" || (newToken != "" && (newToken == oldToken || ttl <= 0)) {
+		return Session{}, errors.New("invalid session replacement")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	session, ok := s.sessions[oldToken]
+	if !ok || !now.Before(session.ExpiresAt) {
+		delete(s.sessions, oldToken)
+		return Session{}, ErrNotFound
+	}
+	if session.Kind != expectedKind {
+		return Session{}, ErrNotFound
+	}
+	if newToken != "" {
+		if existing, exists := s.sessions[newToken]; exists && now.Before(existing.ExpiresAt) {
+			return Session{}, errors.New("replacement token already exists")
+		}
+		session.CreatedAt = now
+		session.ExpiresAt = now.Add(ttl)
+		s.sessions[newToken] = session
+	}
+	delete(s.sessions, oldToken)
+	return session, nil
 }
 
 func (s *MemoryAuthStore) GetSession(token string) (Session, error) {

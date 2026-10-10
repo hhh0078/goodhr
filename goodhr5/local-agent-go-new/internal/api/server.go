@@ -22,6 +22,8 @@ import (
 	downloadflow "goodhr5/local-agent-go-new/internal/flow/download"
 	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
 	"goodhr5/local-agent-go-new/internal/flow/preflight"
+	resumeflow "goodhr5/local-agent-go-new/internal/flow/resume_import"
+	summaryflow "goodhr5/local-agent-go-new/internal/flow/resume_summary"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	cloudintegration "goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/integration/ocr"
@@ -35,36 +37,45 @@ import (
 
 // Server 组装本地 HTTP 路由和应用服务。
 type Server struct {
-	cfg             config.Config
-	runner          *lifecycle.Runner
-	runtime         *runtime.Manager
-	browser         *client.Client
-	downloads       *downloadflow.Monitor
-	store           *storage.Store
-	profiles        *profile.Manager
-	ocr             *ocr.Client
-	updater         *updater.Manager
-	cloud           *cloudintegration.Client
-	deviceID        func() (string, error)
-	incidents       *diagnostics.BrowserIncidentRecorder
-	http            *http.Server
-	downloadRootsMu sync.RWMutex
-	downloadRoots   map[string]struct{}
+	cfg                 config.Config
+	runner              *lifecycle.Runner
+	runtime             *runtime.Manager
+	browser             *client.Client
+	downloads           *downloadflow.Monitor
+	store               *storage.Store
+	profiles            *profile.Manager
+	ocr                 *ocr.Client
+	updater             *updater.Manager
+	cloud               *cloudintegration.Client
+	deviceID            func() (string, error)
+	incidents           *diagnostics.BrowserIncidentRecorder
+	http                *http.Server
+	downloadRootsMu     sync.RWMutex
+	downloadRoots       map[string]struct{}
+	extensionMu         sync.Mutex
+	extensionToken      string
+	extensionUserID     string
+	extensionGeneration uint64
+	extensionPairs      map[string]*extensionPair
+	resumeImports       *resumeflow.Manager
+	resumeSummaries     *summaryflow.Manager
 }
 
 // Dependencies 保存本地 HTTP 接口调用的应用服务。
 type Dependencies struct {
-	Runner    *lifecycle.Runner
-	Runtime   *runtime.Manager
-	Browser   *client.Client
-	Downloads *downloadflow.Monitor
-	Store     *storage.Store
-	Profiles  *profile.Manager
-	OCR       *ocr.Client
-	Updater   *updater.Manager
-	Cloud     *cloudintegration.Client
-	DeviceID  func() (string, error)
-	Incidents *diagnostics.BrowserIncidentRecorder
+	Runner          *lifecycle.Runner
+	Runtime         *runtime.Manager
+	Browser         *client.Client
+	Downloads       *downloadflow.Monitor
+	Store           *storage.Store
+	Profiles        *profile.Manager
+	OCR             *ocr.Client
+	Updater         *updater.Manager
+	Cloud           *cloudintegration.Client
+	DeviceID        func() (string, error)
+	Incidents       *diagnostics.BrowserIncidentRecorder
+	ResumeImports   *resumeflow.Manager
+	ResumeSummaries *summaryflow.Manager
 }
 
 // NewServer 创建本地 HTTP 服务。
@@ -78,9 +89,19 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 		downloadRoots: map[string]struct{}{filepath.Clean(cfg.DownloadsDir): {}},
 	}
 	server.loadPersistedDownloadRoots()
+	server.extensionPairs = make(map[string]*extensionPair)
+	server.initResumeImports(dependencies.ResumeImports)
+	server.initResumeSummaries(dependencies.ResumeSummaries)
 	mux := http.NewServeMux()
+	server.registerResumeImportRoutes(mux)
+	server.registerResumeSummaryRoutes(mux)
 	mux.HandleFunc("GET /health", server.handleHealth)
 	mux.HandleFunc("POST /api/v1/session/bind", server.handleAgentBind)
+	mux.HandleFunc("POST /api/v1/extensions/pair/start", server.handleExtensionPairStart)
+	mux.HandleFunc("POST /api/v1/extensions/pair/approve", server.handleExtensionPairApprove)
+	mux.HandleFunc("POST /api/v1/extensions/pair/status", server.handleExtensionPairStatus)
+	mux.HandleFunc("POST /api/v1/extensions/pair/revoke", server.handleExtensionPairRevoke)
+	mux.HandleFunc("POST /api/v1/extensions/session/restore", server.handleExtensionRestore)
 	mux.HandleFunc("GET /api/v1/diagnostics", server.handleDiagnostics)
 	mux.HandleFunc("POST /api/v1/tasks/start", server.handleTaskStart)
 	mux.HandleFunc("POST /api/v1/tasks/stop", server.handleTaskStop)
@@ -137,7 +158,14 @@ func (s *Server) ListenAndServe() error {
 
 // Shutdown 优雅关闭本地 HTTP 服务。
 func (s *Server) Shutdown(ctx context.Context) error {
-	return s.http.Shutdown(ctx)
+	err := s.http.Shutdown(ctx)
+	if s.resumeImports != nil {
+		s.resumeImports.Close()
+	}
+	if s.resumeSummaries != nil {
+		s.resumeSummaries.Close()
+	}
+	return err
 }
 
 // handleHealth 返回本地程序健康状态。

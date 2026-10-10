@@ -7,28 +7,40 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CandidateService 处理简历库和岗位候选人查询请求。
 type CandidateService struct {
-	auth        *AuthService
-	store       CandidateStore
-	tenantStore TenantStore
+	auth          *AuthService
+	store         CandidateStore
+	tenantStore   TenantStore
+	positionStore PositionStore
 }
 
 type candidateNoteRequest struct {
-	Content string `json:"content"`
+	Content        string `json:"content"`
+	IdempotencyKey string `json:"idempotency_key"`
+	OccurredAt     string `json:"occurred_at"`
 }
 
 // NewCandidateService 创建候选人查询服务。
 // auth 用于认证当前用户，store 用于读取候选人，tenantStore 用于限定团队范围。
-func NewCandidateService(auth *AuthService, store CandidateStore, tenantStore TenantStore) *CandidateService {
-	return &CandidateService{auth: auth, store: store, tenantStore: tenantStore}
+func NewCandidateService(auth *AuthService, store CandidateStore, tenantStore TenantStore, positions ...PositionStore) *CandidateService {
+	service := &CandidateService{auth: auth, store: store, tenantStore: tenantStore}
+	if len(positions) > 0 {
+		service.positionStore = positions[0]
+	}
+	return service
 }
 
 // Collection 处理简历库候选人列表请求。
 // 支持通过 position_id 查询某个岗位下的候选人，否则返回当前团队候选人。
 func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		s.Save(w, r)
+		return
+	}
 	if r.Method == http.MethodDelete {
 		s.ClearTeam(w, r)
 		return
@@ -51,7 +63,12 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !validCandidateDate(r.URL.Query().Get("created_from")) || !validCandidateDate(r.URL.Query().Get("created_to")) {
+		writeError(w, http.StatusBadRequest, "入库日期请使用 YYYY-MM-DD 格式")
+		return
+	}
 	query := PositionCandidateQuery{
+		Phone: strings.TrimSpace(r.URL.Query().Get("phone")), SourceType: strings.TrimSpace(r.URL.Query().Get("source_type")), Region: strings.TrimSpace(r.URL.Query().Get("region")), Education: strings.TrimSpace(r.URL.Query().Get("education_level")), WorkYears: strings.TrimSpace(r.URL.Query().Get("work_years")), WorkStatus: strings.TrimSpace(r.URL.Query().Get("work_status")), Tag: firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("tag")), strings.TrimSpace(r.URL.Query().Get("tags"))), Creator: strings.TrimSpace(r.URL.Query().Get("creator")), CreatedFrom: r.URL.Query().Get("created_from"), CreatedTo: r.URL.Query().Get("created_to"),
 		PositionID: strings.TrimSpace(r.URL.Query().Get("position_id")),
 		Keyword:    firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("keyword")), strings.TrimSpace(r.URL.Query().Get("q"))),
 		Page:       parsePositiveInt(r.URL.Query().Get("page")),
@@ -110,6 +127,10 @@ func (s *CandidateService) ClearTeam(w http.ResponseWriter, r *http.Request) {
 // Detail 处理单个候选人详情请求。
 // 路径格式为 /api/candidates/{id}，只允许查看当前团队内候选人。
 func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPatch {
+		s.Save(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -185,6 +206,7 @@ func (s *CandidateService) Notes(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "notes": publicCandidateNotes(notes)})
 	case http.MethodPost:
 		var req candidateNoteRequest
+		r.Body = http.MaxBytesReader(w, r.Body, 16384)
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid json body")
 			return
@@ -198,17 +220,24 @@ func (s *CandidateService) Notes(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "备注有点长，我先小声拦一下，控制在1000字内")
 			return
 		}
-		noteEvent, err := s.store.SaveCandidateEvent(CandidateEvent{
-			CandidateID: candidateID,
-			EventType:   "manual_note",
-			MessageText: content,
-			Metadata:    map[string]any{"author_email": session.Email},
-		})
+		key, err := candidateHTTPKey(r, map[string]any{"idempotency_key": req.IdempotencyKey})
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed save note")
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		note := CandidateNote{ID: noteEvent.ID, CandidateID: candidateID, Content: content, AuthorEmail: session.Email, CreatedAt: noteEvent.CreatedAt}
+		var occurredAt time.Time
+		if req.OccurredAt != "" {
+			occurredAt, err = parseCandidateOccurredAt(req.OccurredAt)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		note, err := s.store.SaveCandidateNote(CandidateLibraryScope{TenantID: tenant.ID, UserEmail: session.Email, AuthorName: session.Email, IsAdmin: isAdmin}, CandidateNote{CandidateID: candidateID, Content: content, OccurredAt: occurredAt, IdempotencyKey: key})
+		if err != nil {
+			writeCandidateError(w, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "note": publicCandidateNote(note)})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -250,7 +279,8 @@ func publicPositionCandidates(items []PositionCandidate) []map[string]any {
 
 // publicPositionCandidate 将候选人记录转换为前端响应结构。
 func publicPositionCandidate(item PositionCandidate) map[string]any {
-	return map[string]any{
+	response := map[string]any{
+		"row_version": item.RowVersion, "creator_name": item.CreatorName, "sources": safeSlice(item.Sources), "recommendations": safeSlice(item.Recommendations), "recommendation_count": len(item.Recommendations),
 		"id":                       item.ID,
 		"engagement_id":            item.EngagementID,
 		"engagement_status":        item.EngagementStatus,
@@ -292,6 +322,29 @@ func publicPositionCandidate(item PositionCandidate) map[string]any {
 		"created_at":        item.CreatedAt,
 		"updated_at":        item.UpdatedAt,
 	}
+	for _, key := range candidateExtraFields {
+		if value, ok := item.LibraryFields[key]; ok {
+			response[key] = value
+		} else if key == "tags" {
+			response[key] = []string{}
+		} else {
+			response[key] = ""
+		}
+	}
+	response["source_type"] = firstNonEmpty(candidateString(item.LibraryFields, "source_type"), "automatic")
+	response["latest_note"] = nil
+	if len(item.Notes) > 0 {
+		response["latest_note"] = publicCandidateNote(item.Notes[0])
+	}
+	events := []map[string]any{}
+	for _, event := range item.Events {
+		if event.EventType == "manual_note" {
+			continue
+		}
+		events = append(events, map[string]any{"id": event.ID, "event_type": event.EventType, "position_id": event.PositionID, "score": event.Score, "reason": event.Reason, "message_text": event.MessageText, "model": event.Model, "created_at": event.CreatedAt})
+	}
+	response["events"] = events
+	return response
 }
 
 // publicCandidateNotes 将备注列表转换为前端响应结构。
@@ -312,7 +365,9 @@ func publicCandidateNote(item CandidateNote) map[string]any {
 		"candidate_id": item.CandidateID,
 		"content":      item.Content,
 		"author_email": item.AuthorEmail,
+		"author_name":  firstNonEmpty(item.AuthorName, item.AuthorEmail),
 		"created_at":   item.CreatedAt,
+		"occurred_at":  item.OccurredAt,
 	}
 }
 
