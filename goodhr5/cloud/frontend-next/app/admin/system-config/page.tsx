@@ -359,6 +359,7 @@ function configCategory(key: string): (typeof categories)[number] {
   if (
     key.includes("onboarding") ||
     key.includes("runtime") ||
+    key.includes("browser_extension") ||
     key.includes("agent")
   )
     return "本地组件";
@@ -375,6 +376,7 @@ function configTitle(key: string) {
         "system.app_config": "公共系统配置",
         "system.subscription_plans": "订阅套餐",
         "system.onboarding_config": "本地程序与组件",
+        "system.browser_extension": "浏览器插件下载",
         "system.invite_config": "邀请奖励",
         "system.email_recovery": "自动挽回邮件",
         "system.guide": "帮助中心",

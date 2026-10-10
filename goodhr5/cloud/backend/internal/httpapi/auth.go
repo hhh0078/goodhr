@@ -593,6 +593,7 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 		"ok":   true,
 		"user": s.publicUser(session.Email),
 		"session": map[string]any{
+			"kind":       session.Kind,
 			"created_at": session.CreatedAt,
 			"expires_at": session.ExpiresAt,
 		},

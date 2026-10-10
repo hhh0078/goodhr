@@ -23,6 +23,7 @@ type Monitor struct {
 	Browser   *client.Client
 	Store     *storage.Store
 	Notifier  *notification.Notifier
+	Observer  func(context.Context, []contract.DownloadRecord) error
 	lastError string
 	connected bool
 	notifyMu  sync.Mutex
@@ -63,6 +64,9 @@ func (m *Monitor) Sync(ctx context.Context) error {
 		if inserted && status == "saved" {
 			go m.notifySaved(ctx, item.FilePath)
 		}
+	}
+	if m.Observer != nil {
+		return m.Observer(ctx, result.Downloads)
 	}
 	return nil
 }

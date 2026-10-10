@@ -51,6 +51,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			Description: "公众号关注绑定配置，密钥仅服务端保存，首次关注绑定按配置赠送会员",
 			Enabled:     true,
 		},
+		browserExtensionConfigKey: {ConfigKey: browserExtensionConfigKey, ConfigValue: defaultBrowserExtensionConfig, Description: "浏览器插件统一版本、Chrome/Firefox 下载地址、校验值和更新说明", Enabled: true},
 		"system.app_config": {
 			ConfigKey: "system.app_config",
 			ConfigValue: `{

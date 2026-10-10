@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -83,6 +84,9 @@ func (s *RedisAuthStore) ConsumePasswordResetCode(email string, code string) (bo
 
 func (s *RedisAuthStore) SaveSession(token string, session Session, ttl time.Duration) error {
 	ctx := context.Background()
+	if ttl <= 0 {
+		return s.client.Del(ctx, sessionKey(token)).Err()
+	}
 	session.ExpiresAt = time.Now().Add(ttl)
 	body, err := json.Marshal(session)
 	if err != nil {
@@ -92,6 +96,67 @@ func (s *RedisAuthStore) SaveSession(token string, session Session, ttl time.Dur
 		return err
 	}
 	return nil
+}
+
+// replaceSessionScript 在 Redis 内原子验证会话类型、创建替代会话并消费旧 token，支持多云端实例。
+var replaceSessionScript = redis.NewScript(`
+local current = redis.call('GET', KEYS[1])
+if not current then return {0} end
+local session = cjson.decode(current)
+if (session.Kind or '') ~= ARGV[1] then return {0} end
+if ARGV[2] == '1' then
+  if redis.call('EXISTS', KEYS[2]) ~= 0 then return {2} end
+  session.CreatedAt = ARGV[3]
+  session.ExpiresAt = ARGV[4]
+  local replacement = cjson.encode(session)
+  redis.call('SET', KEYS[2], replacement, 'PX', ARGV[5])
+  redis.call('DEL', KEYS[1])
+  return {1, replacement}
+end
+redis.call('DEL', KEYS[1])
+return {1, current}
+`)
+
+// ReplaceSession 用 Lua 一次性轮换或注销旧会话；失效、类型不符和重复消费均不能产生新 token。
+func (s *RedisAuthStore) ReplaceSession(oldToken string, newToken string, ttl time.Duration, expectedKind string) (Session, error) {
+	if oldToken == "" || (newToken != "" && (newToken == oldToken || ttl <= 0)) {
+		return Session{}, errors.New("invalid session replacement")
+	}
+	now := time.Now().UTC()
+	create := "0"
+	replacementKey := sessionKey(oldToken)
+	if newToken != "" {
+		create = "1"
+		replacementKey = sessionKey(newToken)
+	}
+	millis := ttl.Milliseconds()
+	if millis < 1 {
+		millis = 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := replaceSessionScript.Run(ctx, s.client, []string{sessionKey(oldToken), replacementKey}, expectedKind, create, now.Format(time.RFC3339Nano), now.Add(ttl).Format(time.RFC3339Nano), millis).Slice()
+	if err != nil {
+		return Session{}, err
+	}
+	if len(result) == 0 || result[0] == int64(0) {
+		return Session{}, ErrNotFound
+	}
+	if result[0] == int64(2) {
+		return Session{}, errors.New("replacement token already exists")
+	}
+	if len(result) != 2 || result[0] != int64(1) {
+		return Session{}, errors.New("invalid session replacement result")
+	}
+	body, ok := result[1].(string)
+	if !ok {
+		return Session{}, errors.New("invalid session replacement body")
+	}
+	var session Session
+	if err := json.Unmarshal([]byte(body), &session); err != nil {
+		return Session{}, err
+	}
+	return session, nil
 }
 
 func (s *RedisAuthStore) GetSession(token string) (Session, error) {

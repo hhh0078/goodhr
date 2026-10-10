@@ -8,7 +8,7 @@ import Button from "antd/es/button";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import MarketingShell from "@/components/MarketingShell";
-import { getLocalAgentUpdates, type LocalAgentUpdate } from "@/lib/public-data";
+import { getLocalAgentUpdates, getBrowserExtensionRelease, type BrowserExtensionRelease, type LocalAgentUpdate } from "@/lib/public-data";
 import { createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
@@ -26,7 +26,7 @@ export const metadata: Metadata = createPageMetadata({
 
 /** DownloadPage 提供 Windows 和 macOS 本地程序下载入口。 */
 export default async function DownloadPage() {
-  const updates = await getLocalAgentUpdates();
+  const [updates, extension] = await Promise.all([getLocalAgentUpdates(), getBrowserExtensionRelease()]);
   const windows = updates.find((item) => item.urlWin);
   const mac = updates.find((item) => item.urlMac);
 
@@ -55,6 +55,7 @@ export default async function DownloadPage() {
             />
           </div>
           <UpdateRecords updates={updates} />
+          <BrowserExtensionDownloads release={extension} />
           <div className="public-download-10">
             <h2 className="public-text public-download-11">安装前说明</h2>
             <div className="public-download-12">
@@ -88,6 +89,20 @@ export default async function DownloadPage() {
   );
 }
 
+/** BrowserExtensionDownloads 展示后台配置的 Chrome/Firefox 插件包与准确的安装方式。 */
+function BrowserExtensionDownloads({release}: {release: BrowserExtensionRelease | null}) {
+  return <section id="browser-extension" className="public-download-10" style={{scrollMarginTop: 96}}>
+    <h2 className="public-text public-download-11">浏览器插件{release?.version ? ` · v${release.version}` : ""}</h2>
+    <p className="public-text public-download-18">打开猎聘企业端、猎头端、智联或前程无忧候选人详情，在插件弹窗里添加简历、查重、记备注。手机号没认出来时可以手动补齐。</p>
+    <div className="public-download-4">
+      <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note="下载后解压，在扩展管理页打开开发者模式，加载已解压的扩展程序。" href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} />
+      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={release?.firefox_signed ? "已签名安装包，下载后按 Firefox 提示安装。" : "当前为开发包：解压后通过 about:debugging 临时加载 manifest.json，重启浏览器后需重新加载。"} href={release?.url_firefox || ""} available={Boolean(release?.url_firefox)} />
+    </div>
+    {release?.note ? <p className="public-text public-download-18">{release.note}</p> : null}
+    <p className="public-text public-download-18">两个浏览器共用版本号。插件仅读取可见候选人信息，保存前由你确认；不自动点击、解锁手机号或修改招聘页面。</p>
+  </section>;
+}
+
 /** DownloadCard 展示一个操作系统的下载入口。 */
 function DownloadCard({
   icon,
@@ -95,12 +110,14 @@ function DownloadCard({
   note,
   href,
   available,
+  buttonLabel = "下载安装程序",
 }: {
   icon: ReactNode;
   system: string;
   note: string;
   href: string;
   available: boolean;
+  buttonLabel?: string;
 }) {
   return (
     <div className="public-panel public-download-19">
@@ -114,7 +131,7 @@ function DownloadCard({
           icon={<DownloadRoundedIcon aria-hidden="true" />}
           className="public-download-23"
         >
-          下载安装程序
+          {buttonLabel}
         </Button>
       ) : (
         <Button disabled type="default" className="public-download-25">

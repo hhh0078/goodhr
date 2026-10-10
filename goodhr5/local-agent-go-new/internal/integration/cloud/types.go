@@ -8,8 +8,10 @@ import (
 
 // UserSession 表示云端登录状态。
 type UserSession struct {
-	UserID   string `json:"id"`
-	LoggedIn bool   `json:"logged_in"`
+	UserID      string `json:"id"`
+	Email       string `json:"email"`
+	SessionKind string `json:"session_kind,omitempty"`
+	LoggedIn    bool   `json:"logged_in"`
 }
 
 // AgentBindRequest 表示本地程序向云端登记当前设备时提交的信息。
@@ -204,8 +206,8 @@ type StructuredCandidate struct {
 	Email                   string                       `json:"email,omitempty"`
 	WorkRegion              string                       `json:"work_region,omitempty"`
 	WorkYears               string                       `json:"work_years,omitempty"`
-	ExpectedSalaryMin       *int                         `json:"expected_salary_min,omitempty"`
-	ExpectedSalaryMax       *int                         `json:"expected_salary_max,omitempty"`
+	ExpectedSalaryMin       *float64                     `json:"expected_salary_min,omitempty"`
+	ExpectedSalaryMax       *float64                     `json:"expected_salary_max,omitempty"`
 	EducationLevel          string                       `json:"education_level,omitempty"`
 	ExpectedPosition        string                       `json:"expected_position,omitempty"`
 	OnlineStatus            string                       `json:"online_status,omitempty"`

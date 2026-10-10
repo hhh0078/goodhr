@@ -24,140 +24,7 @@ func NewPostgresCandidateStore(db *sql.DB) *PostgresCandidateStore {
 // SaveCandidateProfile 新增或更新候选人主体。
 // item 为候选人简历字段，返回保存后的候选人主体。
 func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput) (PositionCandidate, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	userID, err := ensureUserID(ctx, s.db, item.UserEmail)
-	if err != nil {
-		return PositionCandidate{}, err
-	}
-	tenantID, err := userTenantID(ctx, s.db, userID)
-	if err != nil {
-		return PositionCandidate{}, err
-	}
-	key := candidateIdentityKey(item)
-	var saved PositionCandidate
-	err = s.db.QueryRowContext(
-		ctx,
-		`
-		INSERT INTO candidate_profiles (
-			tenant_id, created_by_user_id, source_platform_id, source_platform_candidate_id,
-			candidate_name, birth_ym, phone, email, work_region, work_years,
-			expected_salary_min, expected_salary_max, basic_info, education_level,
-			expected_position, online_status, personal_description, work_status,
-			raw_text, work_experiences, educations, certificates, honors,
-			project_experiences, colleague_communications,
-			ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, first_seen_at
-		)
-		VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-			$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,
-			$24::jsonb,$25::jsonb,$26,$27,$28,$29,$30
-		)
-		ON CONFLICT (tenant_id, source_platform_id, source_platform_candidate_id)
-		DO UPDATE SET
-			candidate_name = EXCLUDED.candidate_name,
-			birth_ym = EXCLUDED.birth_ym,
-			phone = EXCLUDED.phone,
-			email = EXCLUDED.email,
-			work_region = EXCLUDED.work_region,
-			work_years = EXCLUDED.work_years,
-			expected_salary_min = EXCLUDED.expected_salary_min,
-			expected_salary_max = EXCLUDED.expected_salary_max,
-			basic_info = EXCLUDED.basic_info,
-			education_level = EXCLUDED.education_level,
-			expected_position = EXCLUDED.expected_position,
-			online_status = EXCLUDED.online_status,
-			personal_description = EXCLUDED.personal_description,
-			work_status = EXCLUDED.work_status,
-			raw_text = EXCLUDED.raw_text,
-			work_experiences = EXCLUDED.work_experiences,
-			educations = EXCLUDED.educations,
-			certificates = EXCLUDED.certificates,
-			honors = EXCLUDED.honors,
-			project_experiences = EXCLUDED.project_experiences,
-			colleague_communications = EXCLUDED.colleague_communications,
-			ai_detail_reason = EXCLUDED.ai_detail_reason,
-			ai_detail_score = EXCLUDED.ai_detail_score,
-			ai_greet_reason = EXCLUDED.ai_greet_reason,
-			ai_greet_score = EXCLUDED.ai_greet_score,
-			first_seen_at = COALESCE(candidate_profiles.first_seen_at, EXCLUDED.first_seen_at),
-			updated_at = now()
-		RETURNING
-			id, source_platform_id, source_platform_candidate_id, candidate_name, birth_ym,
-			phone, email, work_region, work_years, expected_salary_min, expected_salary_max,
-			basic_info, education_level, expected_position, online_status, personal_description,
-			work_status, raw_text, work_experiences, educations, certificates, honors,
-			project_experiences, colleague_communications, ai_detail_reason, ai_detail_score,
-			ai_greet_reason, ai_greet_score, first_seen_at, created_at, updated_at
-		`,
-		tenantID,
-		userID,
-		item.PlatformID,
-		key,
-		item.CandidateName,
-		item.BirthYM,
-		item.Phone,
-		item.Email,
-		item.WorkRegion,
-		item.WorkYears,
-		item.ExpectedSalaryMin,
-		item.ExpectedSalaryMax,
-		item.BasicInfo,
-		item.EducationLevel,
-		item.ExpectedPosition,
-		item.OnlineStatus,
-		item.PersonalDescription,
-		item.WorkStatus,
-		item.RawText,
-		string(toJSONB(item.WorkExperiences)),
-		string(toJSONB(item.Educations)),
-		string(toJSONB(item.Certificates)),
-		string(toJSONB(item.Honors)),
-		string(toJSONB(item.ProjectExperiences)),
-		string(toJSONB(item.Communications)),
-		item.AIDetailReason,
-		item.AIDetailScore,
-		item.AIGreetReason,
-		item.AIGreetScore,
-		item.FirstSeenAt,
-	).Scan(
-		&saved.ID,
-		&saved.PlatformID,
-		&saved.PlatformCandidateID,
-		&saved.CandidateName,
-		&saved.BirthYM,
-		&saved.Phone,
-		&saved.Email,
-		&saved.WorkRegion,
-		&saved.WorkYears,
-		&saved.ExpectedSalaryMin,
-		&saved.ExpectedSalaryMax,
-		&saved.BasicInfo,
-		&saved.EducationLevel,
-		&saved.ExpectedPosition,
-		&saved.OnlineStatus,
-		&saved.PersonalDescription,
-		&saved.WorkStatus,
-		&saved.RawText,
-		jsonScanner(&saved.WorkExperiences),
-		jsonScanner(&saved.Educations),
-		jsonScanner(&saved.Certificates),
-		jsonScanner(&saved.Honors),
-		jsonScanner(&saved.ProjectExperiences),
-		jsonScanner(&saved.Communications),
-		&saved.AIDetailReason,
-		&saved.AIDetailScore,
-		&saved.AIGreetReason,
-		&saved.AIGreetScore,
-		&saved.FirstSeenAt,
-		&saved.CreatedAt,
-		&saved.UpdatedAt,
-	)
-	if err != nil {
-		return PositionCandidate{}, err
-	}
-	return saved, nil
+	return s.saveAutomaticCandidate(item)
 }
 
 // UpsertCandidateEngagement 新增或更新候选人触达上下文。
@@ -234,8 +101,27 @@ func (s *PostgresCandidateStore) UpsertCandidateEngagement(item CandidateEngagem
 func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	// 兼容旧内部备注调用，人工备注只进入专表，自动事件列表不会再收到同一条备注。
+	if item.EventType == "manual_note" {
+		tenantID, err := candidateTenantID(ctx, s.db, item.CandidateID)
+		if err != nil {
+			return CandidateEvent{}, err
+		}
+		email := stringFromMap(item.Metadata, "author_email")
+		if email == "" {
+			if err = s.db.QueryRowContext(ctx, `SELECT COALESCE(u.email,'') FROM candidate_profiles cp LEFT JOIN users u ON u.id=cp.created_by_user_id WHERE cp.id::text=$1`, item.CandidateID).Scan(&email); err != nil {
+				return CandidateEvent{}, err
+			}
+		}
+		note, err := s.SaveCandidateNote(CandidateLibraryScope{TenantID: tenantID, UserEmail: email, AuthorName: stringFromMap(item.Metadata, "author_name")}, CandidateNote{CandidateID: item.CandidateID, Content: item.MessageText, IdempotencyKey: stringFromMap(item.Metadata, "idempotency_key")})
+		item.ID, item.CreatedAt = note.ID, note.CreatedAt
+		return item, err
+	}
 
 	tenantID, err := candidateTenantID(ctx, s.db, item.CandidateID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CandidateEvent{}, ErrNotFound
+	}
 	if err != nil {
 		return CandidateEvent{}, err
 	}
@@ -246,9 +132,11 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 		INSERT INTO candidate_events (
 			tenant_id, candidate_id, engagement_id, position_id, platform_account_id,
 			platform_id, event_type, score, reason, input_text, output_text,
-			message_text, model, token_usage, metadata
+			message_text, model, token_usage, metadata,idempotency_key
 		)
-		VALUES ($1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
+		VALUES ($1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16)
+ ON CONFLICT(tenant_id,candidate_id,event_type,idempotency_key) WHERE idempotency_key<>'' DO UPDATE SET message_text=candidate_events.message_text
+ WHERE candidate_events.message_text=EXCLUDED.message_text AND candidate_events.metadata->>'author_email'=EXCLUDED.metadata->>'author_email'
 		RETURNING id, candidate_id, COALESCE(engagement_id::text,''), COALESCE(position_id::text,''), COALESCE(platform_account_id::text,''),
 			platform_id, event_type, score, reason, input_text, output_text, message_text, model, token_usage, metadata, created_at
 		`,
@@ -267,6 +155,7 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 		item.Model,
 		item.TokenUsage,
 		string(toJSONB(item.Metadata)),
+		firstNonEmpty(candidateNoteRequestIdentity(item.Metadata), ""),
 	).Scan(
 		&saved.ID,
 		&saved.CandidateID,
@@ -285,6 +174,9 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 		jsonScanner(&saved.Metadata),
 		&saved.CreatedAt,
 	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CandidateEvent{}, ErrCandidateRequest
+	}
 	if err != nil {
 		return CandidateEvent{}, err
 	}
@@ -366,7 +258,7 @@ func (s *PostgresCandidateStore) GetPositionCandidate(tenantID string, candidate
 	engagementScope := ""
 	if !isAdmin {
 		args = append(args, userEmail)
-		whereClause += fmt.Sprintf(" AND u.email = $%d", len(args))
+		whereClause += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM users creator WHERE creator.id=cp.created_by_user_id AND creator.email=$%d)", len(args))
 	}
 	if strings.TrimSpace(engagementID) != "" {
 		args = append(args, strings.TrimSpace(engagementID))
@@ -385,7 +277,7 @@ func (s *PostgresCandidateStore) GetPositionCandidate(tenantID string, candidate
 	if len(items) == 0 {
 		return PositionCandidate{}, ErrNotFound
 	}
-	events, err := s.listCandidateEvents(ctx, tenantID, candidateID, items[0].EngagementID)
+	events, err := s.listCandidateEvents(ctx, tenantID, candidateID, engagementID)
 	if err != nil {
 		return PositionCandidate{}, err
 	}
@@ -399,10 +291,10 @@ func (s *PostgresCandidateStore) ListCandidateNotes(tenantID string, candidateID
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id::text, candidate_id::text, message_text, COALESCE(metadata->>'author_email', ''), created_at
-FROM candidate_events
-WHERE tenant_id = $1 AND candidate_id::text = $2 AND event_type = 'manual_note'
-ORDER BY created_at DESC
+SELECT id::text, candidate_id::text, content, author_email, author_name, occurred_at, created_at
+FROM candidate_notes
+WHERE tenant_id = $1 AND candidate_id::text = $2
+ORDER BY occurred_at DESC, created_at DESC, id DESC
 `, tenantID, candidateID)
 	if err != nil {
 		return nil, err
@@ -411,7 +303,7 @@ ORDER BY created_at DESC
 	notes := make([]CandidateNote, 0)
 	for rows.Next() {
 		var note CandidateNote
-		if err := rows.Scan(&note.ID, &note.CandidateID, &note.Content, &note.AuthorEmail, &note.CreatedAt); err != nil {
+		if err := rows.Scan(&note.ID, &note.CandidateID, &note.Content, &note.AuthorEmail, &note.AuthorName, &note.OccurredAt, &note.CreatedAt); err != nil {
 			return nil, err
 		}
 		notes = append(notes, note)
@@ -436,7 +328,7 @@ func (s *PostgresCandidateStore) DeleteTeamCandidates(tenantID string) (int, err
 // tenantID 为团队 ID，candidateID 为候选人主体 ID，engagementID 为空时读取该候选人全部事件。
 func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenantID string, candidateID string, engagementID string) ([]CandidateEvent, error) {
 	args := []any{tenantID, candidateID}
-	whereClause := "tenant_id = $1 AND candidate_id::text = $2"
+	whereClause := "tenant_id = $1 AND candidate_id::text = $2 AND event_type <> 'manual_note'"
 	if strings.TrimSpace(engagementID) != "" {
 		args = append(args, strings.TrimSpace(engagementID))
 		whereClause += fmt.Sprintf(" AND engagement_id::text = $%d", len(args))
@@ -519,7 +411,9 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		latest_engagement.greeted_at,
 		cp.created_at,
 		cp.updated_at,
-		COALESCE(latest_notes.notes, '[]'::jsonb)
+		COALESCE(latest_notes.notes, '[]'::jsonb), cp.tenant_id::text,COALESCE(u.email,''),cp.library_fields,cp.manual_fields,cp.row_version,
+ ` + candidateSourcesSQL() + `,
+ ` + candidateRecommendationsSQL() + `
 	FROM candidate_profiles cp
 	LEFT JOIN LATERAL (
 		SELECT * FROM candidate_engagements ce2
@@ -532,15 +426,17 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		SELECT jsonb_agg(jsonb_build_object(
 			'id', note.id::text,
 			'candidate_id', note.candidate_id::text,
-			'content', note.message_text,
-			'author_email', COALESCE(note.metadata->>'author_email', ''),
+			'content', note.content,
+			'author_email', note.author_email,
+			'author_name', note.author_name,
+			'occurred_at', note.occurred_at,
 			'created_at', note.created_at
-		) ORDER BY note.created_at DESC) AS notes
+		) ORDER BY note.occurred_at DESC,note.created_at DESC,note.id DESC) AS notes
 		FROM (
-			SELECT id, candidate_id, message_text, metadata, created_at
-			FROM candidate_events
-			WHERE candidate_id = cp.id AND event_type = 'manual_note'
-			ORDER BY created_at DESC
+			SELECT id, candidate_id, content, author_email, author_name, occurred_at, created_at
+			FROM candidate_notes
+			WHERE candidate_id = cp.id AND tenant_id=cp.tenant_id
+			ORDER BY occurred_at DESC,created_at DESC,id DESC
 			LIMIT 2
 		) note
 	) latest_notes ON true
@@ -617,6 +513,7 @@ func scanCandidateRow(scanner candidateScanner) (PositionCandidate, error) {
 		&item.CreatedAt,
 		&item.UpdatedAt,
 		jsonScanner(&item.Notes),
+		&item.TenantID, &item.CreatorName, jsonScanner(&item.LibraryFields), jsonScanner(&item.ManualFields), &item.RowVersion, jsonScanner(&item.Sources), jsonScanner(&item.Recommendations),
 	)
 	return item, err
 }
@@ -628,14 +525,14 @@ func buildCandidateWhere(tenantID string, query PositionCandidateQuery) (string,
 	args := []any{tenantID}
 	if query.UserEmail != "" {
 		args = append(args, query.UserEmail)
-		clauses = append(clauses, fmt.Sprintf("u.email = $%d", len(args)))
+		clauses = append(clauses, fmt.Sprintf("EXISTS (SELECT 1 FROM users creator WHERE creator.id=cp.created_by_user_id AND creator.email=$%d)", len(args)))
 	}
 	if query.PositionID != "" {
 		args = append(args, query.PositionID)
-		clauses = append(clauses, fmt.Sprintf("EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.position_id::text = $%d)", len(args)))
+		clauses = append(clauses, fmt.Sprintf("(EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.position_id::text = $%[1]d) OR EXISTS(SELECT 1 FROM candidate_recommendations cr_filter WHERE cr_filter.candidate_id=cp.id AND cr_filter.position_key=$%[1]d))", len(args)))
 	}
 	if query.Keyword != "" {
-		args = append(args, "%"+query.Keyword+"%")
+		args = append(args, candidateLike(query.Keyword))
 		placeholder := fmt.Sprintf("$%d", len(args))
 		clauses = append(clauses, `(cp.candidate_name ILIKE `+placeholder+`
 			OR cp.phone ILIKE `+placeholder+`
@@ -645,8 +542,33 @@ func buildCandidateWhere(tenantID string, query PositionCandidateQuery) (string,
 			OR cp.education_level ILIKE `+placeholder+`
 			OR cp.expected_position ILIKE `+placeholder+`
 			OR cp.basic_info ILIKE `+placeholder+`
-			OR cp.personal_description ILIKE `+placeholder+` OR cp.raw_text ILIKE `+placeholder+`)`)
+			OR cp.personal_description ILIKE `+placeholder+` OR cp.raw_text ILIKE `+placeholder+` OR cp.work_experiences::text ILIKE `+placeholder+` OR cp.educations::text ILIKE `+placeholder+`)`)
 	}
+	addFilter := func(value, condition string) {
+		if value != "" {
+			args = append(args, candidateLike(value))
+			clauses = append(clauses, fmt.Sprintf(condition, len(args)))
+		}
+	}
+	addFilter(query.Phone, "cp.phone ILIKE $%d")
+	if query.SourceType != "" {
+		clauses = append(clauses, candidateSourceFilterSQL(query.SourceType, &args))
+	}
+	addFilter(query.Region, "(cp.work_region||' '||COALESCE(cp.library_fields->>'current_region','')||' '||COALESCE(cp.library_fields->>'expected_region','')) ILIKE $%d")
+	addFilter(query.Education, "cp.education_level ILIKE $%d")
+	addFilter(query.WorkYears, "cp.work_years ILIKE $%d")
+	addFilter(query.WorkStatus, "cp.work_status ILIKE $%d")
+	addFilter(query.Tag, "COALESCE(cp.library_fields->'tags','[]'::jsonb)::text ILIKE $%d")
+	addFilter(query.Creator, "EXISTS(SELECT 1 FROM users creator_filter WHERE creator_filter.id=cp.created_by_user_id AND creator_filter.email ILIKE $%d)")
+	if query.CreatedFrom != "" {
+		args = append(args, query.CreatedFrom)
+		clauses = append(clauses, fmt.Sprintf("cp.created_at >= $%d::date", len(args)))
+	}
+	if query.CreatedTo != "" {
+		args = append(args, query.CreatedTo)
+		clauses = append(clauses, fmt.Sprintf("cp.created_at < ($%d::date + interval '1 day')", len(args)))
+	}
+
 	return strings.Join(clauses, " AND "), args
 }
 
