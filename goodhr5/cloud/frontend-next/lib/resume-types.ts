@@ -57,6 +57,20 @@ export function sourceLabel(value?: string) {
 export function stageLabel(value?: string) {
   return recommendationStages.find((item) => item.value === value)?.label || value || "待推荐";
 }
+/** genderLabel 统一中文和英文性别显示，空值不占位，未识别的值不推测性别。 */
+export function genderLabel(value?: string) {
+  const gender = String(value || "").trim().toLowerCase();
+  if (!gender) return "";
+  if (["男", "男性", "male", "m", "man"].includes(gender)) return "男";
+  if (["女", "女性", "female", "f", "woman"].includes(gender)) return "女";
+  return "未说明";
+}
+/** workYearsLabel 给纯数字工作年限补充单位，保留应届等原文，缺失时使用有效数字字段。 */
+export function workYearsLabel(resume: Resume) {
+  const value = String(resume.work_years || "").trim();
+  if (value) return /^\d+(?:\.\d+)?$/.test(value) ? `${value}年经验` : value;
+  return resume.work_years_number != null && Number.isFinite(resume.work_years_number) && resume.work_years_number >= 0 ? `${resume.work_years_number}年经验` : "";
+}
 /** recordTime 展示备注或推荐的发生时间，保存时间仍可在提示中查看，缺失或坏日期安全回退。 */
 export function recordTime(value?: string) {
   if (!value) return "--";

@@ -1,6 +1,6 @@
 /** 文件作用说明：提供紧凑候选人简历库，支持多条件查询、手动维护、本地 AI 导入、备注及人工推荐。 */
 "use client";
-import { Avatar, Button, Drawer, Dropdown, Empty, Flex, Input, Pagination, Select, Space, Table, Tag, Typography } from "antd";
+import { Avatar, Button, Drawer, Dropdown, Empty, Flex, Input, Pagination, Select, Space, Table, Typography } from "antd";
 import { DownloadOutlined, FilterOutlined, MoreOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -13,9 +13,9 @@ import ExtensionPairApproval from "@/components/admin/ExtensionPairApproval";
 import ResumeEditor from "@/components/admin/resumes/ResumeEditor";
 import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
 import ResumeImportDialog from "@/components/admin/resumes/ResumeImportDialog";
-import { cloudRequest, formatDate } from "@/lib/admin-api";
+import { cloudRequest } from "@/lib/admin-api";
 import { loadResume, loadResumePositions } from "@/lib/resume-api";
-import { avatarSource, experienceLabel, recordTime, resumeAge, salaryLabel, sourceLabel, sourceOptions, stageLabel, type PositionOption, type Resume } from "@/lib/resume-types";
+import { avatarSource, experienceLabel, genderLabel, recordTime, resumeAge, salaryLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume } from "@/lib/resume-types";
 import styles from "./page.module.css";
 
 const filterKeys = ["q", "phone", "position_id", "source_type", "region", "education_level", "work_years", "work_status", "tag", "creator", "created_from", "created_to"] as const;
@@ -109,22 +109,18 @@ export default function ResumesPage() {
     </div> : null}
     {loadError ? <Flex gap={8} style={{ marginBottom: 10 }}><Typography.Text type="danger">{loadError}</Typography.Text><Button size="small" onClick={() => void load()}>重试</Button></Flex> : null}
     <SectionPanel style={{ padding: 0, overflow: "hidden" }}>
-      <Table<Resume> size="small" rowKey={(item) => item.id + (item.engagement_id || "")} dataSource={items} loading={loading} pagination={false} tableLayout="fixed" className={styles.resumeTable} scroll={{ x: 1290 }} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里暂时空空的，先加一份简历，我来认真记账。"><Button type="primary" onClick={() => setChooserOpen(true)}>添加简历</Button></Empty> }} columns={[
+      <Table<Resume> size="small" rowKey={(item) => item.id + (item.engagement_id || "")} dataSource={items} loading={loading} pagination={false} tableLayout="fixed" className={styles.resumeTable} scroll={{ x: 1270 }} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里暂时空空的，先加一份简历，我来认真记账。"><Button type="primary" onClick={() => setChooserOpen(true)}>添加简历</Button></Empty> }} columns={[
         { title: "候选人", key: "candidate", width: 300, render: (_, item) => {
-          const facts = [resumeAge(item), item.gender, item.education_level, item.work_years].filter(Boolean).join(" · ") || "基础信息待补充";
-          const intent = [item.expected_region || item.work_region || "地区待补充", salaryLabel(item), item.work_status || "求职状态待补充"].join(" · ");
+          const attributes = [resumeAge(item), genderLabel(item.gender), item.education_level, workYearsLabel(item), item.expected_position || "期望职位待补充", item.expected_region || item.work_region || "地区待补充", salaryLabel(item), item.work_status || "求职状态待补充", ...(item.tags || []).slice(0, 3)].filter(Boolean);
           return <Flex gap={8} align="start"><Avatar size={32} src={avatarSource(item.avatar_data_url)} alt={`${item.candidate_name || "候选人"}头像`} style={{ flexShrink: 0 }}>{item.candidate_name?.slice(0, 1) || "人"}</Avatar><Flex vertical gap={2} className={styles.candidateSummary}>
             <Flex gap={8} align="center" className={styles.candidateHeading}><Button type="link" className={styles.nameButton} title={item.candidate_name || "未命名候选人"} onClick={() => openDetails(item)}>{item.candidate_name || "未命名候选人"}</Button><Typography.Text ellipsis={{ tooltip: item.phone }} className={styles.phoneText}>{item.phone || "手机号待补充"}</Typography.Text></Flex>
-            <Typography.Text type="secondary" ellipsis={{ tooltip: facts }} className={styles.meta}>{facts}</Typography.Text>
-            <Typography.Text ellipsis={{ tooltip: item.expected_position }} className={styles.intentRole}>{item.expected_position || "期望职位待补充"}</Typography.Text>
-            <Typography.Text type="secondary" ellipsis={{ tooltip: intent }} className={styles.meta}>{intent}</Typography.Text>
-            {item.tags?.length ? <Space wrap size={[2, 2]}>{item.tags.slice(0, 3).map((tag) => <Tag key={tag}>{tag}</Tag>)}</Space> : null}
+            <div className={styles.candidateAttributes}>{attributes.map((attribute, index) => <Typography.Text key={index} className={styles.candidateAttribute}>{attribute}</Typography.Text>)}</div>
           </Flex></Flex>;
         } },
         { title: "最近经历", key: "experience", width: 300, render: (_, item) => <Flex vertical gap={4}>{[...(item.work_experiences || []), ...(item.educations || [])].slice(0, 2).map((experience, index) => <Typography.Paragraph key={index} ellipsis={{ rows: 2, tooltip: experienceLabel(experience) }} className={styles.cellText}>{experienceLabel(experience)}</Typography.Paragraph>)}{!item.work_experiences?.length && !item.educations?.length ? <Typography.Text type="secondary">经历待补充</Typography.Text> : null}</Flex> },
         { title: "岗位 / 推荐", key: "recommendation", width: 160, render: (_, item) => <Flex vertical gap={3}><Button type="link" className={styles.inlineButton} onClick={() => openDetails(item, "recommendations")}>{item.recommendation_count || item.recommendations?.length || 0} 个岗位记录</Button>{item.recommendations?.[0] ? <><Typography.Text ellipsis>{item.recommendations[0].position_name || "历史岗位"}</Typography.Text><Typography.Text type="secondary" className={styles.meta}>{stageLabel(item.recommendations[0].stage)}</Typography.Text></> : item.position_name ? <Typography.Text type="secondary" className={styles.meta}>自动任务 · {item.position_name}</Typography.Text> : null}</Flex> },
         { title: "最新备注", key: "note", width: 240, render: (_, item) => { const note = item.latest_note || item.notes?.[0]; return <Button type="text" className={styles.noteButton} onClick={() => openDetails(item, "notes")}><Flex vertical gap={3}><Typography.Paragraph ellipsis={{ rows: 2, tooltip: note?.content }} className={styles.cellText}>{note?.content || "还没备注，点这里记一条"}</Typography.Paragraph>{note ? <Typography.Text type="secondary" className={styles.meta} title={note.created_at ? `保存于 ${recordTime(note.created_at)}` : undefined}>{note.author_name || note.author_email || "未记录操作人"} · {(note.occurred_at || note.created_at) ? recordTime(note.occurred_at || note.created_at) : ""}</Typography.Text> : null}</Flex></Button>; } },
-        { title: "来源 / 入库", key: "source", width: 190, render: (_, item) => <Flex vertical gap={3}><Space wrap size={[2, 2]}><Tag>{sourceLabel(item.source_type)}</Tag>{item.platform_id ? <Tag>{sourceLabel(item.platform_id)}</Tag> : null}{(item.sources?.length || 0) > 1 ? <Typography.Text className={styles.meta}>{item.sources!.length} 个来源</Typography.Text> : null}</Space><Typography.Text type="secondary" ellipsis={{ tooltip: item.creator_name || item.user_email }} className={styles.meta}>{item.creator_name || item.user_email || "入库人待补充"}</Typography.Text><Typography.Text type="secondary" className={styles.meta}>{item.created_at ? formatDate(item.created_at) : ""}</Typography.Text></Flex> },
+        { title: "创建时间", key: "created_at", width: 170, render: (_, item) => <Typography.Text className={styles.meta}>{recordTime(item.created_at)}</Typography.Text> },
         { title: "操作", key: "actions", width: 100, fixed: "right", render: (_, item) => <Space size={2}><Button type="link" size="small" onClick={() => void openEditor(item)}>编辑</Button><Dropdown trigger={["click"]} menu={{ items: [{ key: "note", label: "加备注" }, { key: "recommend", label: "推荐到岗位" }, { key: "detail", label: "查看完整简历" }], onClick: ({ key }) => openDetails(item, key === "recommend" ? "recommendations" : "notes") }}><Button type="text" size="small" aria-label={`${item.candidate_name}更多操作`} icon={<MoreOutlined />} /></Dropdown></Space> },
       ]} />
       <Flex wrap gap={12} justify="space-between" align="center" className={styles.pagination}><Typography.Text type="secondary">共 {total} 份简历</Typography.Text><Pagination current={page} total={total} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateQuery(appliedFilters, size !== pageSize ? 1 : next, size)} /></Flex>

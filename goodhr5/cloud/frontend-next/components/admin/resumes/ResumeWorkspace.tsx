@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, loadRecommendations, loadResume, loadResumeNotes } from "@/lib/resume-api";
 import { formatDate } from "@/lib/admin-api";
-import { avatarSource, experienceLabel, recommendationStages, recordTime, resumeAge, salaryLabel, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeExperience, type ResumeNote } from "@/lib/resume-types";
+import { avatarSource, experienceLabel, genderLabel, recommendationStages, recordTime, resumeAge, salaryLabel, sourceLabel, stageLabel, workYearsLabel, type PositionOption, type Recommendation, type Resume, type ResumeExperience, type ResumeNote } from "@/lib/resume-types";
 import ResumeEditor from "./ResumeEditor";
 import ResumeSummaryDialog from "./ResumeSummaryDialog";
 import styles from "./resumes.module.css";
@@ -83,7 +83,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   }
   if (loading && !candidate) return <Skeleton active paragraph={{ rows: 8 }} />;
   if (!candidate) return <Alert type="warning" showIcon title={error || "这份简历暂时没读出来。"} action={<Button onClick={() => void reload()}>重试</Button>} />;
-  const facts = [resumeAge(candidate), candidate.gender, candidate.education_level, candidate.work_years].filter(Boolean);
+  const facts = [resumeAge(candidate), genderLabel(candidate.gender), candidate.education_level, workYearsLabel(candidate)].filter(Boolean);
   const autoEvents = (candidate.events || []).filter((event) => event.event_type !== "manual_note");
   const currentOptions = [...positions];
   for (const item of recommendations) if (!currentOptions.some((option) => option.id === item.position_id)) currentOptions.push({ id: item.position_id, name: `${item.position_name || "已删除岗位"}（历史记录）` });

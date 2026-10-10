@@ -16,7 +16,9 @@
 .candidateSummary { flex: 1; min-width: 0; }
 .candidateHeading { min-width: 0; }
 .phoneText { flex: none; max-width: 52%; font-size: 12px; white-space: nowrap; }
-.intentRole { font-size: 12px; line-height: 1.5; }
+/* 候选人属性采用相同的小字，短属性整体换行，长属性在列宽内自然折行。 */
+.candidateAttributes { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.candidateAttribute.candidateAttribute { flex: 0 0 auto; max-width: 100%; margin: 0; font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--goodhr-text-secondary); overflow-wrap: anywhere; }
 .nameButton.nameButton { flex: 1; min-width: 0; height: auto; padding: 0; justify-content: flex-start; font-size: 13px; line-height: 20px; font-weight: 700; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
 .nameButton :global(span) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .inlineButton.inlineButton { height: auto; padding: 0; justify-content: flex-start; }
