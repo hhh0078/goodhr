@@ -8,7 +8,7 @@ const screenshotDirectory = resolve("artifacts/resume-library");
 // 合成16px纯色PNG只用于界面验证，不含任何真实候选人的照片。
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 type Call = { path: string; method: string; body: any; query: URLSearchParams };
-type State = { calls: Call[]; notes: any[]; recommendations: any[]; candidates: any[]; failFirstNote: boolean; failConfirmAt?: number; task: any; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[] };
+type State = { calls: Call[]; notes: any[]; recommendations: any[]; candidates: any[]; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[] };
 const existing = { id: "resume-existing", candidate_name: "原有候选人", phone: "13800138000", row_version: 3, source_type: "automatic", education_level: "本科", expected_salary_min: null, expected_salary_max: null, work_experiences: [{ company_name: "原有公司", position_name: "产品经理", start_ym: "2021-01", content: "已有工作经历保留" }], user_email: "test@example.invalid", created_at: "2026-10-10T10:00:00+08:00", ai: { detail: { score: null, reason: "" } } };
 test.use({ storageState: { cookies: [], origins: [{ origin: previewOrigin, localStorage: [{ name: "goodhr5_access_token", value: "resume-test-only" }] }] } });
 
@@ -19,13 +19,15 @@ async function mockResumeSession(page: Page): Promise<State> {
   await page.context().route("**/*", async (route) => {
     const request = route.request(); const url = new URL(request.url()); const method = request.method();
     if (url.origin === previewOrigin && !url.pathname.startsWith("/api/")) return route.continue();
-    if (![previewOrigin, "http://127.0.0.1:8084", "http://127.0.0.1:43129", "https://goodhr.58it.cn"].includes(url.origin)) return route.abort();
+    if (![previewOrigin, "http://127.0.0.1:8084", "http://127.0.0.1:43129", "http://127.0.0.1:43139", "https://goodhr.58it.cn"].includes(url.origin)) return route.abort();
     const headers = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
     let body: any; try { body = request.postDataJSON(); } catch { /* 上传和 GET 无 JSON 正文。 */ }
     state.calls.push({ path: url.pathname, method, body, query: url.searchParams });
     let data: any = { ok: true };
-    if (url.port === "43129") {
+    if (["43129", "43139"].includes(url.port)) {
+      // 离线场景也完全拦截端口探测，绝不连接电脑上正在运行的真实本地程序。
+      if (state.agentOffline) return route.abort("connectionrefused");
       if (url.pathname === "/health") data = { ok: true, version: "6.2.10.1" };
       else if (url.pathname === "/api/v1/runtime/status") data = { version: "6.2.10.1", node_installed: true, camoufox_installed: true, system_runtime: { ready: true, required: false } };
       else if (url.pathname === "/api/v1/app-update/status") data = { stage: "idle", current_version: "6.2.10.1" };
@@ -101,6 +103,66 @@ async function openManual(page: Page) {
 async function dismissNotices(page: Page) {
   await expect(page.locator(".ant-notification-notice")).toHaveCount(0);
 }
+
+test("本地程序离线时关闭安装提示后仍可搜索、手动添加、备注和推荐，AI与浏览器保持连接检查", async ({ page }) => {
+  const state = await mockResumeSession(page); state.agentOffline = true;
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  await page.goto("/admin/resumes");
+  const installNotice = page.getByRole("dialog", { name: "请先安装本地程序", exact: true });
+  await expect(installNotice).toBeVisible();
+  await installNotice.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(installNotice).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "本地程序未连接", exact: true })).toBeVisible();
+  await page.getByLabel("简历关键词").fill("离线测试");
+  await page.getByRole("button", { name: "查询", exact: true }).click();
+  await expect(page).toHaveURL(/q=%E7%A6%BB%E7%BA%BF%E6%B5%8B%E8%AF%95/);
+  await expect.poll(() => state.calls.some((call) => call.path === "/api/candidates" && call.query.get("q") === "离线测试")).toBe(true);
+  const editor = await openManual(page);
+  await editor.getByLabel("姓名", { exact: true }).fill("离线合成候选人");
+  await editor.getByLabel("手机号", { exact: true }).fill("13900139000");
+  await editor.getByRole("button", { name: "检查并保存", exact: true }).click();
+  await page.getByRole("dialog", { name: "确认入库内容", exact: true }).getByRole("button", { name: "确认保存", exact: true }).click();
+  await expect(editor).not.toBeVisible();
+  const drawer = page.getByRole("dialog", { name: "离线合成候选人", exact: true });
+  await expect(drawer).toBeVisible();
+  await page.mouse.move(10, 950); await dismissNotices(page);
+  await drawer.getByPlaceholder("比如：意向不错，周五再约一次。").fill("离线也能记的通用备注");
+  await drawer.getByRole("button", { name: "加备注", exact: true }).click();
+  await expect(drawer.getByText("离线也能记的通用备注", { exact: true })).toBeVisible();
+  await page.mouse.move(10, 950); await dismissNotices(page);
+  await drawer.getByRole("tab", { name: /^推荐/ }).click();
+  await drawer.getByLabel("选择推荐岗位").click(); await page.getByText("产品经理", { exact: true }).last().click();
+  await drawer.getByLabel("推荐阶段").click(); await page.getByText("已推荐", { exact: true }).last().click();
+  await drawer.getByPlaceholder("只记这个岗位的推荐、面试和跟进情况。").fill("离线岗位跟进");
+  await drawer.getByRole("button", { name: "记录推荐", exact: true }).click();
+  await expect(drawer.getByText("推进记录 · 1 条", { exact: true })).toBeVisible();
+  await page.mouse.move(10, 950); await dismissNotices(page);
+  await drawer.getByRole("button", { name: "生成摘要", exact: true }).click();
+  const summary = page.getByRole("dialog", { name: "AI 简历摘要", exact: true });
+  await expect(summary.getByText("本地程序还没连接，打开后再继续。", { exact: true })).toBeVisible();
+  await expect(summary.getByRole("button", { name: "开始生成摘要", exact: true })).toBeDisabled();
+  await summary.getByRole("button", { name: /收起（草稿保留）$/ }).click();
+  await drawer.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+  const chooser = page.getByRole("dialog", { name: "添加简历", exact: true });
+  await chooser.getByText("AI 批量解析", { exact: true }).click();
+  await chooser.getByRole("button", { name: "继续", exact: true }).click();
+  const importer = page.getByRole("dialog", { name: "AI 批量解析简历", exact: true });
+  await expect(importer.getByText(/手动添加照常可用/)).toBeVisible();
+  await importer.getByPlaceholder("也可以粘贴一份简历文本。").fill("合成资料，离线时不应提交解析。");
+  await expect(importer.getByRole("button", { name: "开始解析", exact: true })).toBeDisabled();
+  await importer.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("button", { name: "打开浏览器", exact: true }).filter({ visible: true }).click();
+  await expect(page.getByText("我没叫醒本地程序，你先确认它开着，再点我一次。", { exact: true })).toBeVisible();
+  expect(state.calls.filter((call) => call.path === "/api/candidates" && call.method === "POST")).toHaveLength(1);
+  expect(state.calls.filter((call) => call.path === "/api/candidates/resume-new/notes" && call.method === "POST")).toHaveLength(1);
+  expect(state.calls.filter((call) => call.path === "/api/candidates/resume-new/recommendations" && call.method === "POST")).toHaveLength(1);
+  expect(state.calls.filter((call) => call.path.startsWith("/api/v1/") && call.method === "POST")).toHaveLength(0);
+  await expect(installNotice).not.toBeVisible();
+  mkdirSync(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: resolve(screenshotDirectory, "offline-cloud-actions.png"), fullPage: true, animations: "disabled" });
+  expect(state.errors).toEqual([]);
+});
 
 test("手机号必填，备注失败后的重试不会再创建简历", async ({ page }) => {
   const state = await mockResumeSession(page); state.failFirstNote = true;

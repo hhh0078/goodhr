@@ -1,0 +1,86 @@
+# 文件作用：为简历库功能分支启动独立的本地验收环境，数据库持久化且仅网页/API绑定本机回环地址。
+name: goodhr-resume-test
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: goodhr_resume_test
+      POSTGRES_USER: goodhr_resume_test
+      POSTGRES_PASSWORD: goodhr_resume_local_only
+    volumes:
+      - resume_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goodhr_resume_test -d goodhr_resume_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - resume_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    image: goodhr-resume-backend:local
+    build:
+      context: ./cloud/backend
+      dockerfile: Dockerfile.release
+    environment:
+      GOODHR_CLOUD_ADDR: ":8084"
+      GOODHR_PG_DSN: "postgres://goodhr_resume_test:goodhr_resume_local_only@postgres:5432/goodhr_resume_test?sslmode=disable"
+      GOODHR_REDIS_ADDR: "redis:6379"
+      GOODHR_SUPER_ADMINS: "goodhr-resume-test@qq.com"
+      GOODHR_PUBLIC_BASE_URL: "http://127.0.0.1:5173"
+      GOODHR_DISABLE_EMAIL_SCHEDULER: "true"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:8084:8084"
+    volumes:
+      - resume_uploads:/app/uploads
+      - resume_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    image: goodhr-resume-frontend:local
+    build:
+      context: ./cloud/frontend-next
+      args:
+        NEXT_PUBLIC_CLOUD_API_BASE: "http://127.0.0.1:8084"
+        NEXT_PUBLIC_SITE_URL: "http://127.0.0.1:5173"
+        NEXT_PUBLIC_LOCAL_AGENT_PORT: "43139"
+        CLOUD_API_BASE: "http://backend:8084"
+        NODE_OPTIONS: "--max-old-space-size=4096"
+        CIRCLE_NODE_TOTAL: "2"
+    environment:
+      HOSTNAME: "0.0.0.0"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:5173:3000"
+    volumes:
+      # 仅本地下载页使用测试包；正式插件资源保持原样。
+      - ./browser-extension/dist-local/goodhr-resume-chrome-local-1.0.2.zip:/app/public/downloads/goodhr-extension-chrome-local-1.0.2.zip:ro
+      - ./browser-extension/dist-local/goodhr-resume-firefox-local-1.0.2.zip:/app/public/downloads/goodhr-extension-firefox-local-1.0.2.zip:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  # 独立命名卷只属于本地简历验收环境，停止容器后仍保留测试数据。
+  resume_postgres:
+  resume_redis:
+  resume_uploads:
+  resume_logs:

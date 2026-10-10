@@ -1,7 +1,8 @@
 /* 文件作用：使用 Node.js 内置库生成同版本 Chrome/Firefox 开发目录、ZIP 与未签名临时 XPI。 */
 "use strict";
 const fs = require("node:fs"), path = require("node:path"), zlib = require("node:zlib"), crypto = require("node:crypto");
-const ROOT = path.resolve(__dirname, ".."), OUT = path.join(ROOT, "dist");
+const ROOT = path.resolve(__dirname, "..");
+const LOCAL = Object.freeze({ api: "http://127.0.0.1:8084", web: "http://127.0.0.1:5173", agentPort: 43139, name: "GoodHR 简历助手（本地测试）" });
 const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
 
 /** crc32 计算 ZIP/PNG 标准校验值，不依赖外部包。 */
@@ -42,7 +43,7 @@ function zipBuffer(files) {
 }
 
 /** manifest 为两种浏览器分别生成正确的 MV3 后台和原生侧栏清单。 */
-function manifest(browser) {
+function manifest(browser, local = false) {
   const common = {
     manifest_version: 3, name: "GoodHR 简历助手", version,
     description: "只读采集当前可见候选人，确认后添加到 GoodHR 简历库；不点击、滚动或修改招聘页面。",
@@ -53,28 +54,72 @@ function manifest(browser) {
     content_scripts: [{ matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"], js: ["src/shared.js", "src/extraction.js", "src/content.js"], run_at: "document_idle", all_frames: false }],
     content_security_policy: { extension_pages: "script-src 'self'; object-src 'none';" }
   };
+  if (local) {
+    common.name = LOCAL.name;
+    common.description = "本地测试：简历仅保存到 127.0.0.1:8084 的测试服务；只读招聘页面，不操作页面。";
+    common.host_permissions = common.host_permissions.filter((host) => host !== "https://goodhr.58it.cn/*");
+    common.action.default_title = LOCAL.name;
+  }
   if (browser === "chrome") return { ...common, minimum_chrome_version: "116", permissions: [...common.permissions, "sidePanel"], background: { service_worker: "src/background.js" }, side_panel: { default_path: "src/ui.html" } };
-  return { ...common, background: { scripts: ["src/shared.js", "src/avatar.js", "src/background.js"] }, sidebar_action: { default_title: "GoodHR 简历助手", default_panel: "src/ui.html", default_icon: "icons/32.png" }, browser_specific_settings: { gecko: { id: "resume-assistant@goodhr.58it.cn", strict_min_version: "140.0", data_collection_permissions: { required: ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent", "personalCommunications"] } } } };
+  return { ...common, background: { scripts: ["src/shared.js", "src/avatar.js", "src/background.js"] }, sidebar_action: { default_title: common.name, default_panel: "src/ui.html", default_icon: "icons/32.png" }, browser_specific_settings: { gecko: { id: local ? "resume-assistant-local@goodhr.local" : "resume-assistant@goodhr.58it.cn", strict_min_version: "140.0", data_collection_permissions: { required: ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent", "personalCommunications"] } } } };
 }
 
-/** build 清理已确认的插件 dist 目录并输出开发包与校验摘要。 */
-function build() {
-  if (path.resolve(OUT) !== path.join(ROOT, "dist") || !OUT.startsWith(ROOT + path.sep)) throw new Error("构建目录超出插件范围，停止清理");
+/** replaceRequired 替换已知构建模板，源模板变化时停止，避免静默留下生产地址。 */
+function replaceRequired(content, before, after, filename) {
+  if (!content.includes(before)) throw new Error(`${filename} 本地构建模板已变化，请先核对固定地址`);
+  return content.replaceAll(before, after);
+}
+
+/** prepareLocalOutput 仅修改复制后的本地包，生产源码、协议和正式包不会被改写。 */
+function prepareLocalOutput(directory) {
+  /** read 读取本次已复制的构建文件，不能写入正式源码目录。 */
+  const read = (name) => fs.readFileSync(path.join(directory, "src", name), "utf8");
+  /** write 将本地地址和提示写入本次测试产物。 */
+  const write = (name, content) => fs.writeFileSync(path.join(directory, "src", name), content);
+  write("shared.js", replaceRequired(read("shared.js"), 'const CLOUD_BASE = "https://goodhr.58it.cn";', `const CLOUD_BASE = ${JSON.stringify(LOCAL.api)};`, "shared.js"));
+  write("ui.js", replaceRequired(read("ui.js"), "shared.CLOUD_BASE", JSON.stringify(LOCAL.web), "ui.js"));
+  let background = replaceRequired(read("background.js"), '[shared.CLOUD_BASE, "http://127.0.0.1:5173"]', `[${JSON.stringify(LOCAL.web)}]`, "background.js");
+  background = replaceRequired(background, 'shared.CLOUD_BASE + "/download#browser-extension"', `${JSON.stringify(LOCAL.web)} + "/download#browser-extension"`, "background.js");
+  background = replaceRequired(background, "43129", String(LOCAL.agentPort), "background.js").replaceAll("GoodHR 简历助手", LOCAL.name);
+  write("background.js", background);
+  let ui = replaceRequired(read("ui.html"), "https://goodhr.58it.cn/login", LOCAL.web + "/login", "ui.html");
+  ui = replaceRequired(ui, 'value="43129"', `value="${LOCAL.agentPort}"`, "ui.html").replaceAll("GoodHR 简历助手", LOCAL.name);
+  ui = replaceRequired(ui, "  <main>", `  <main>\n    <p class="error"><strong>本地测试</strong> · 简历仅入测试库<br>API：${LOCAL.api}<br>网页：${LOCAL.web} · 本地程序：${LOCAL.agentPort}</p>`, "ui.html");
+  write("ui.html", ui);
+  let privacy = read("privacy.html").replaceAll("GoodHR 简历助手", LOCAL.name).replace("<title>GoodHR 插件数据说明</title>", "<title>GoodHR 本地测试插件数据说明</title>");
+  privacy = replaceRequired(privacy, '<p>业务和公开版本检查仅连接 <a href="https://goodhr.58it.cn" target="_blank" rel="noreferrer">goodhr.58it.cn</a>；配对和摘要任务只连接127.0.0.1。头像图片域见上方说明；没有广告追踪或第三方分析服务。未登录的重新读取不向云端发送候选人资料。</p>', `<p><strong>此包仅用于本地测试。</strong>业务与版本检查仅连接 ${LOCAL.api}；候选人详情、登录协议和下载入口仅打开 <a href="${LOCAL.web}" target="_blank" rel="noreferrer">${LOCAL.web}</a>。不会请求生产 GoodHR 服务。配对和摘要默认连接 127.0.0.1:${LOCAL.agentPort}，请使用独立测试程序；招聘页面与头像白名单保持原样。未登录重新读取不会发送候选人资料。若主动生成AI总结，职业资料仍会交给测试程序所配置的AI服务商，可能计费。</p>`, "privacy.html");
+  write("privacy.html", privacy);
+}
+
+/** parseBuildOptions 只允许无参数正式构建或固定本地模式，不接受自定义地址与环境覆盖。 */
+function parseBuildOptions(argv) {
+  if (!argv.length) return { local: false };
+  if (argv.length === 1 && argv[0] === "--local") return { local: true };
+  throw new Error("仅支持 npm run build 或 npm run build:local；本地 API 与网页地址固定，不接受自定义 URL");
+}
+
+/** build 清理已确认的插件 dist 或 dist-local 目录，分别输出正式开发包与本地测试包。 */
+function build(options = {}) {
+  if (Object.keys(options).some((key) => key !== "local") || (options.local !== undefined && typeof options.local !== "boolean")) throw new Error("构建参数仅支持布尔值 local");
+  const local = options.local === true, outputName = local ? "dist-local" : "dist", OUT = path.join(ROOT, outputName);
+  if (path.resolve(OUT) !== path.join(ROOT, outputName) || !OUT.startsWith(ROOT + path.sep)) throw new Error("构建目录超出插件范围，停止清理");
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("版本号必须是三段数字");
   fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
   const packages = [];
   for (const browser of ["chrome", "firefox"]) {
     const directory = path.join(OUT, browser); fs.mkdirSync(directory, { recursive: true }); fs.cpSync(path.join(ROOT, "src"), path.join(directory, "src"), { recursive: true });
+    if (local) prepareLocalOutput(directory);
     fs.mkdirSync(path.join(directory, "icons")); for (const size of [32,64,128]) fs.writeFileSync(path.join(directory, "icons", `${size}.png`), iconPNG(size));
-    fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest(browser), null, 2) + "\n");
-    fs.copyFileSync(path.join(ROOT, "INSTALL.md"), path.join(directory, "INSTALL.md"));
-    const archive = zipBuffer(filesUnder(directory)), name = `goodhr-resume-${browser}-${version}.zip`; fs.writeFileSync(path.join(OUT, name), archive);
+    fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest(browser, local), null, 2) + "\n");
+    fs.copyFileSync(path.join(ROOT, local ? "LOCAL-INSTALL.md" : "INSTALL.md"), path.join(directory, "INSTALL.md"));
+    const archive = zipBuffer(filesUnder(directory)), name = `goodhr-resume-${browser}-${local ? "local-" : ""}${version}.zip`; fs.writeFileSync(path.join(OUT, name), archive);
     packages.push({ browser, file: name, bytes: archive.length, sha256: crypto.createHash("sha256").update(archive).digest("hex"), signed: false });
-    if (browser === "firefox") { const xpi = `goodhr-resume-firefox-${version}-unsigned.xpi`; fs.writeFileSync(path.join(OUT, xpi), archive); packages.push({ browser, file: xpi, bytes: archive.length, sha256: crypto.createHash("sha256").update(archive).digest("hex"), signed: false, installation: "temporary-only" }); }
+    if (browser === "firefox") { const xpi = `goodhr-resume-firefox-${local ? "local-" : ""}${version}-unsigned.xpi`; fs.writeFileSync(path.join(OUT, xpi), archive); packages.push({ browser, file: xpi, bytes: archive.length, sha256: crypto.createHash("sha256").update(archive).digest("hex"), signed: false, installation: "temporary-only" }); }
   }
   fs.writeFileSync(path.join(OUT, "checksums.json"), JSON.stringify({ description: "文件作用：记录同版本开发包的体积、SHA256 和未签名状态。", version, packages }, null, 2) + "\n");
   console.log(JSON.stringify({ version, packages }, null, 2));
+  return { version, packages };
 }
 
-if (require.main === module) build();
-module.exports = { manifest, zipBuffer, crc32, iconPNG, build };
+if (require.main === module) build(parseBuildOptions(process.argv.slice(2)));
+module.exports = { manifest, zipBuffer, crc32, iconPNG, build, parseBuildOptions };

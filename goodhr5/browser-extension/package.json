@@ -5,6 +5,7 @@
   "description": "文件作用：GoodHR 只读简历采集插件的版本与无依赖构建、测试入口。",
   "scripts": {
     "build": "node scripts/build.js",
+    "build:local": "node scripts/build.js --local",
     "test": "node --test tests/*.test.js",
     "test:ui": "node scripts/smoke-ui.js"
   }
