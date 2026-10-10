@@ -195,9 +195,20 @@
   function extractPhone(scope, selectors) {
     const phones = new Set();
     for (const selector of selectors) for (const item of visibleNodes(scope, selector)) {
-      const text = readNode(item).replace(/(?:手机号|手机|电话|联系方式)[：:]?/g, "").trim();
+      const text = readNode(item).replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "").replace(/(?:手机号|手机|电话|联系方式)[：:]?/g, "").trim();
+      if (/(?:编号|简历号|验证码)\s*[:：]?\s*\d/.test(text)) continue;
       const phone = shared.normalizePhone(text);
       if (phone) phones.add(phone);
+      // 参考猎聘逐行匹配号码，兼容号码旁的“复制”等文案；不扩展到整页文字。
+      for (const match of text.matchAll(/(?<![\d+*])(?:1[3-9]\d{9}|(?:\+|00)\d[\d\s()-]{6,24}\d)(?![\d*])/g)) {
+        const matched = shared.normalizePhone(match[0]); if (matched) phones.add(matched);
+      }
+      // 只读取当前可见联系方式中的电话链接，不读取隐藏属性、缓存或网络。
+      for (const link of [item, ...visibleNodes(item, "a[href^='tel:']")]) {
+        const href = link.getAttribute?.("href") || "";
+        if (!/^tel:/i.test(href) || !isVisible(link) || /[*＊•]/.test(readNode(link))) continue;
+        const linked = shared.normalizePhone(href.slice(4)); if (linked) phones.add(linked);
+      }
     }
     return phones.size === 1 ? [...phones][0] : "";
   }

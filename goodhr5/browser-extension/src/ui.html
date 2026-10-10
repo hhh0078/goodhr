@@ -1,8 +1,8 @@
 <!doctype html>
-<!-- 文件作用：工具栏弹窗和浏览器原生侧栏共用的简历采集、登录及记录界面；不嵌入招聘页面。 -->
+<!-- 文件作用：工具栏、原生侧栏与扩展域悬浮iframe共用的简历采集、登录和记录界面。 -->
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>GoodHR 简历助手</title><link rel="stylesheet" href="ui.css"></head>
 <body>
-  <header><div><strong>GoodHR 简历助手</strong><small id="version">v1.0.2</small></div><button id="sidebar" class="quiet" type="button">放到侧栏</button></header>
+  <header><div><strong>GoodHR 简历助手</strong><small id="version">v1.0.3</small></div><button id="sidebar" class="quiet" type="button">放到侧栏</button></header>
   <main>
     <p id="status" role="status" aria-live="polite">我先看看当前简历……</p>
     <a id="update-notice" class="update-notice" target="_blank" rel="noreferrer" hidden></a>
@@ -43,6 +43,6 @@
       </form>
       <section id="records" hidden><div class="inline"><h2>备注和推荐记录</h2><a id="candidate-link" target="_blank" rel="noreferrer" hidden>到 GoodHR 看完整简历</a></div><div id="notes"></div><div id="recommendations"></div></section>
     </section>
-  </main><footer>页面上没有小悬浮框，工具栏 + 号会小声提醒你。</footer>
+  </main><footer>手机号没读到也没关系，补齐后再添加。资料确认后才入库。</footer>
   <script src="shared.js"></script><script src="ui.js"></script>
 </body></html>

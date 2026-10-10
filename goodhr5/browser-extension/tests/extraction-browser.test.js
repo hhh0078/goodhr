@@ -39,3 +39,22 @@ test("真实DOM保留分隔资料与智联多期望，排除隐藏子节点并�
     assert.equal(job.personal_description, "合成个人简介"); assert.equal(job.work_region, "深圳"); assert.equal(job.phone, "13800000104"); assert.equal(job.educations.length, 2);
   } finally { await browser.close(); }
 });
+
+test("猎聘联系方式逐行提取带复制文案的号码，拒绝掩码、隐藏、多号和整页业务编号", async () => {
+  const browser = await chromium.launch({ channel: "chrome", headless: true });
+  try {
+    const page = await browser.newPage(); await page.route(/^https?:/, (route) => route.abort());
+    /** hunterPhone 在合成猎聘详情中读取单个联系方式，不访问真实网站或保存真实候选人。 */
+    async function hunterPhone(contact) {
+      const result = await readScene(page, `<div>业务编号13800000999 工作中提及13800000998</div><div id="resume-detail"><div id="resume-detail-basic-info"><b class="name">合成电话候选人</b><div class="connect-box">${contact}</div></div><div id="resume-detail-work-info"><p>职责中的13800000997不作为联系方式</p></div></div>`, "https://h.liepin.com/resume/showresumedetail");
+      return result.phone;
+    }
+    assert.equal(await hunterPhone('<dd><span>手机号：</span><span>13800000131</span><button>复制</button></dd><dd>fixture2020@example.test</dd><dd hidden>13800000132</dd>'), "13800000131");
+    assert.equal(await hunterPhone('<dd>+86 138-0000-0131 复制号码</dd><dd>2020年工作经历</dd>'), "13800000131");
+    assert.equal(await hunterPhone('<dd><a href="tel:+8613800000131">拨打</a></dd>'), "13800000131");
+    assert.equal(await hunterPhone('<dd><a href="tel:13800000131">138****0131</a></dd>'), "");
+    assert.equal(await hunterPhone('<dd>13800000131 复制</dd><dd>13900000132</dd>'), "");
+    assert.equal(await hunterPhone('<dd>13800000131@example.test</dd><dd>1995年 2020年</dd><dd>编号13800000131</dd>'), "");
+    assert.equal(await hunterPhone('<dd style="display:none">13800000131</dd><dd>未显示手机号</dd>'), "");
+  } finally { await browser.close(); }
+});

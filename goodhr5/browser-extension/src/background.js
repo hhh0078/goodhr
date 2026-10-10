@@ -205,10 +205,18 @@ async function checkPair() {
 async function activeTab() { const tabs = await extension.tabs.query({ active: true, currentWindow: true }); return tabs[0]; }
 
 /** currentSnapshot 主动询问只读脚本，确保服务 Worker 重启后不使用旧候选人缓存。 */
-async function currentSnapshot() {
-  const tab = await activeTab(); if (!tab?.id || !shared.platformForURL(tab.url)) return null;
-  try { await extension.tabs.sendMessage(tab.id, { type: "REQUEST_CAPTURE" }); } catch { return null; }
+async function currentSnapshot(sourceTab = null) {
+  const tab = sourceTab ? (extension.tabs.get ? await extension.tabs.get(sourceTab.id).catch(() => null) : sourceTab) : await activeTab();
+  if (!tab?.id || !shared.platformForURL(tab.url)) return null;
+  try { await extension.tabs.sendMessage(tab.id, { type: "REQUEST_CAPTURE" }, { frameId: 0 }); } catch { return null; }
   return snapshots.get(tab.id) || null;
+}
+
+/** requireCurrentCapture 校验悬浮面板自己的页面快照，切人或离开招聘页时停止迟到保存。 */
+async function requireCurrentCapture(captureID, sourceTab) {
+  if (!sourceTab) return;
+  const snapshot = await currentSnapshot(sourceTab);
+  if (!captureID || !snapshot || snapshot.capture_id !== captureID) throw Object.assign(new Error("候选人页面已经变化，请重新读取，确认当前人后再保存"), { code: "CAPTURE_SCOPE_CHANGED" });
 }
 
 /** publicResume 仅公开头像已识别状态，不把招聘图片外链和临时参数交给 UI。 */
@@ -218,9 +226,9 @@ function publicResume(snapshot) { if (!snapshot) return null; const { avatar_sou
 async function requireActiveSession() { if (!(await readSettings()).session?.token) throw new Error("请先登录 GoodHR，再保存简历和头像"); }
 
 /** prepareAvatar 绑定本次候选人快照，保存点击后才读取头像，切换详情时不串图。 */
-async function prepareAvatar(captureID) {
+async function prepareAvatar(captureID, sourceTab = null) {
   if (!captureID) return { data_url: "", warning: "" };
-  const snapshot = await currentSnapshot();
+  const snapshot = await currentSnapshot(sourceTab);
   if (!snapshot || snapshot.capture_id !== captureID) return { data_url: "", warning: "候选人页面已经变化，头像未保存，请重新读取后重试" };
   if (!snapshot.avatar_source_url) return { data_url: "", warning: "" };
   try { return { data_url: await avatar.fetchAvatar(snapshot.avatar_source_url, snapshot.source_url), warning: "" }; }
@@ -228,9 +236,9 @@ async function prepareAvatar(captureID) {
 }
 
 /** publicState 返回不含 token、配对令牌、挑战值的界面状态。 */
-async function publicState() {
+async function publicState(sourceTab = null) {
   await retryRevocation(); await tryRestore(); const settings = await readSettings();
-  return { logged_in: Boolean(settings.session?.token), account_key: accountKey(settings), paired: Boolean(settings.pairing_token && !settings.pending_revoke), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), resume: publicResume(await currentSnapshot()), version: extension.runtime.getManifest().version };
+  return { logged_in: Boolean(settings.session?.token), account_key: accountKey(settings), paired: Boolean(settings.pairing_token && !settings.pending_revoke), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version };
 }
 
 /** accountKey 用公开账号标识隔离草稿和迟到界面请求，不包含任何凭证。 */
@@ -289,24 +297,33 @@ async function summaryOperation(payload, action) {
   if (generation !== authGeneration) throw new Error("账号已经变化，本次AI请求已停止");
   const body = { installation_id: settings.installation_id, pairing_token: settings.pairing_token, request_key: shared.cleanText(payload.request_key, 100) };
   let path = "/api/v1/extensions/resume-summary";
-  if (action === "start") { if (!body.request_key) throw new Error("这次总结缺少标识，请重新点击"); body.candidate = shared.stripSummaryContacts(payload.resume); }
+  if (action === "start") { requireWritableResume(payload.resume); if (!body.request_key) throw new Error("这次总结缺少标识，请重新点击"); body.candidate = shared.stripSummaryContacts(payload.resume); }
   else { if (!payload.task_id || !/^[A-Za-z0-9_-]{1,100}$/.test(payload.task_id)) throw new Error("总结记录没有找到，请重新发起"); path += `/${encodeURIComponent(payload.task_id)}${action === "poll" ? "" : "/" + action}`; }
   const result = await requestJSON(localBase(settings) + path, { method: "POST", body: JSON.stringify(body) });
   if (generation !== authGeneration) throw new Error("账号已经变化，旧AI结果已停止展示"); return result;
+}
+
+/** requireWritableResume 在资料整理丢弃标记前拒绝只读内置示例，不按姓名或手机号误伤真实人。 */
+function requireWritableResume(input = {}) {
+  if (!input || typeof input !== "object") return;
+  const builtinID = "00000000-0000-4000-8000-000000000001";
+  if (["is_builtin", "readonly", "builtin_notice"].some((key) => Object.hasOwn(input, key)) || ["id", "candidate_id", "platform_candidate_id"].some((key) => input[key] === builtinID) || input.source_type === "builtin") throw new Error("这份是内置示例，不能生成AI总结；真实候选人的资料仍可正常使用");
 }
 
 /** requireConsent 在任何云端业务提交前检查用户的简历数据授权。 */
 async function requireConsent() { if (!(await readSettings()).data_use_accepted) throw new Error("请先同意把确认后的简历资料保存到 GoodHR"); }
 
 /** createCandidate 在后端再校验手机号，并用幂等键防止连续点击重复添加。 */
-async function createCandidate(payload, updating = false) {
+async function createCandidate(payload, updating = false, sourceTab = null) {
   const generation = payload.expected_generation ?? authGeneration;
   await requireConsent(); await requireActiveSession(); const resume = updating ? shared.nonEmptyResumePatch(payload.resume) : shared.sanitizeResume(payload.resume);
   if (generation !== authGeneration) throw new Error("账号已经变化，本次保存已停止，请确认账号后重新保存");
   if (!resume.candidate_name || !resume.phone) throw new Error("姓名和完整手机号都填一下，我才能认真入库");
   const input = { ...resume, idempotency_key: shared.cleanText(payload.idempotency_key, 100) };
   if (!input.idempotency_key) throw new Error("这次保存缺少标识，请重新点击添加");
-  const image = await prepareAvatar(payload.capture_id); if (image.data_url && (!updating || image.data_url !== payload.existing_avatar_data_url)) input.avatar_data_url = image.data_url;
+  await requireCurrentCapture(payload.capture_id, sourceTab);
+  const image = await prepareAvatar(payload.capture_id, sourceTab); if (image.data_url && (!updating || image.data_url !== payload.existing_avatar_data_url)) input.avatar_data_url = image.data_url;
+  await requireCurrentCapture(payload.capture_id, sourceTab);
   if (generation !== authGeneration) throw new Error("账号已经变化，本次保存已停止，请确认账号后重新保存");
   let result;
   if (updating) {
@@ -320,38 +337,40 @@ async function createCandidate(payload, updating = false) {
 }
 
 /** retryAvatar 仅更新选定候选人的头像，独立幂等重试，不重建简历或备注。 */
-async function retryAvatar(payload) {
+async function retryAvatar(payload, sourceTab = null) {
   const generation = payload.expected_generation ?? authGeneration;
   await requireConsent(); await requireActiveSession();
   if (generation !== authGeneration) throw new Error("账号已经变化，本次头像保存已停止，请确认账号后重试");
   if (!payload.candidate_id || !payload.row_version || !payload.idempotency_key) throw new Error("请重新查重选择候选人，再重试头像");
-  const image = await prepareAvatar(payload.capture_id); if (!image.data_url) throw new Error(image.warning || "未识别到当前头像，可先保存简历，稍后重新读取后重试头像");
+  await requireCurrentCapture(payload.capture_id, sourceTab);
+  const image = await prepareAvatar(payload.capture_id, sourceTab); if (!image.data_url) throw new Error(image.warning || "未识别到当前头像，可先保存简历，稍后重新读取后重试头像");
+  await requireCurrentCapture(payload.capture_id, sourceTab);
   if (generation !== authGeneration) throw new Error("账号已经变化，本次头像保存已停止，请确认账号后重试");
   if (image.data_url === payload.existing_avatar_data_url) return { unchanged: true };
   return cloudRequest(`/api/candidates/${encodeURIComponent(payload.candidate_id)}`, { avatar_data_url: image.data_url, row_version: payload.row_version, idempotency_key: shared.cleanText(payload.idempotency_key, 100) }, "PATCH", true, generation);
 }
 
 /** handleUIMessage 接收插件界面的明确操作，所有接口固定而非通用代理。 */
-async function handleUIMessage(message) {
+async function handleUIMessage(message, sourceTab = null) {
   const generation = authGeneration, payload = { ...(message.payload || {}), expected_generation: generation };
   if (["POSITIONS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE"].includes(message.type) && payload.account_key) { const generation = authGeneration, settings = await readSettings(); if (generation !== authGeneration || payload.account_key !== accountKey(settings)) throw new Error("账号已经变化，本次操作已停止，请确认账号后继续"); }
   switch (message.type) {
-    case "STATE": return publicState();
-    case "PREVIEW": return { resume: publicResume(await currentSnapshot()), version: extension.runtime.getManifest().version };
-    case "CONSENT": if (!payload.accepted) { authGeneration++; duplicateCache.clear(); } await extension.storage.local.set({ data_use_accepted: payload.accepted === true }); if (payload.accepted) { const snapshot = await currentSnapshot(), tab = await activeTab(); if (tab?.id && snapshot) scheduleCaptureCheck(tab.id, snapshot); } return { ok: true };
+    case "STATE": return publicState(sourceTab);
+    case "PREVIEW": return { resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version };
+    case "CONSENT": if (!payload.accepted) { authGeneration++; duplicateCache.clear(); } await extension.storage.local.set({ data_use_accepted: payload.accepted === true }); if (payload.accepted) { const snapshot = await currentSnapshot(sourceTab), tab = sourceTab || await activeTab(); if (tab?.id && snapshot) scheduleCaptureCheck(tab.id, snapshot); } return { ok: true };
     case "SEND_CODE": return requestJSON(shared.CLOUD_BASE + "/api/auth/extension-send-code", { method: "POST", body: JSON.stringify({ email: shared.cleanText(payload.email, 120) }) });
     case "LOGIN": {
       const generation = ++authGeneration;
       const input = { email: shared.cleanText(payload.email, 120), agreement_accepted: payload.agreement_accepted === true };
       if (payload.code) input.code = shared.cleanText(payload.code, 20); else input.password = String(payload.password || "");
       await storeSession(await requestJSON(shared.CLOUD_BASE + "/api/auth/extension-login", { method: "POST", body: JSON.stringify(input) }), generation);
-      return publicState();
+      return publicState(sourceTab);
     }
     case "LOGOUT": return logout();
     case "REVOKE_RETRY": return retryRevocation(true);
     case "PAIR_START": return beginPair(payload.port);
     case "PAIR_CHECK": return checkPair();
-    case "RESTORE": if ((await readSettings()).session?.token) return { ...(await publicState()), existing_session: true }; restoreAttempted = false; await tryRestore(); return publicState();
+    case "RESTORE": if ((await readSettings()).session?.token) return { ...(await publicState(sourceTab)), existing_session: true }; restoreAttempted = false; await tryRestore(); return publicState(sourceTab);
     case "POSITIONS": return cloudRequest("/api/positions", null, "GET", true, generation);
     case "DUPLICATES": return checkDuplicates(payload);
     case "DRAFT_GET": return draftOperation(payload, false);
@@ -362,9 +381,9 @@ async function handleUIMessage(message) {
     case "SUMMARY_CANCEL": return summaryOperation(payload, "cancel");
     case "SUMMARY_RETRY": return summaryOperation(payload, "retry");
     case "SUMMARY_SAVE": { await requireConsent(); if (!payload.candidate_id || !payload.row_version || !payload.ai_summary || !payload.idempotency_key) throw new Error("请先选择已有简历，再保存总结"); return cloudRequest(`/api/candidates/${encodeURIComponent(payload.candidate_id)}`, { ai_summary: shared.cleanText(payload.ai_summary, 12000), row_version: payload.row_version, idempotency_key: shared.cleanText(payload.idempotency_key, 100) }, "PATCH", true, generation); }
-    case "CREATE": return createCandidate(payload);
-    case "UPDATE": return createCandidate(payload, true);
-    case "AVATAR_RETRY": return retryAvatar(payload);
+    case "CREATE": return createCandidate(payload, false, sourceTab);
+    case "UPDATE": return createCandidate(payload, true, sourceTab);
+    case "AVATAR_RETRY": return retryAvatar(payload, sourceTab);
     case "DETAIL": {
       await requireConsent();
       const path = `/api/candidates/${encodeURIComponent(payload.candidate_id)}`;
@@ -377,7 +396,7 @@ async function handleUIMessage(message) {
       return shared.saveFollowups((path, body) => cloudRequest(path, body, "POST", true, generation), payload.candidate_id, payload);
     }
     case "OPEN_SIDEBAR": {
-      const tab = await activeTab();
+      const tab = sourceTab || await activeTab();
       if (extension.sidePanel?.open && tab?.id) await extension.sidePanel.open({ tabId: tab.id });
       else if (extension.sidebarAction?.open) await extension.sidebarAction.open();
       else throw new Error("当前浏览器暂不支持侧栏，请继续用这个弹窗");
@@ -387,9 +406,22 @@ async function handleUIMessage(message) {
   }
 }
 
+/** isTrustedUI 只接收本插件的固定界面页，拒绝网页URL、前缀伪装及其它扩展资源。 */
+function isTrustedUI(sender) {
+  try { const url = new URL(sender.url), ui = new URL(extension.runtime.getURL("src/ui.html")); return url.protocol === ui.protocol && url.host === ui.host && url.pathname === ui.pathname && (!url.search || url.search === "?surface=floating"); }
+  catch { return false; }
+}
+
 /** onMessage 严格区分招聘内容脚本与插件 UI，页面脚本只能上报资料不能请求授权或 API。 */
 function onMessage(message, sender, sendResponse) {
   if (sender.id !== extension.runtime.id) return false;
+  if (isTrustedUI(sender)) {
+    // 嵌入UI的sender.tab由浏览器提供；任何payload里的tab编号都不能改变资料来源。
+    if (sender.tab && (!shared.platformForURL(sender.tab.url) || !Number.isInteger(sender.frameId) || sender.frameId < 1)) return false;
+    const sourceTab = sender.tab ? { id: sender.tab.id, url: sender.tab.url } : null;
+    handleUIMessage(message, sourceTab).then((data) => sendResponse({ ok: true, data }), (error) => sendResponse({ ok: false, message: error.message, status: error.status || 0, code: error.code || "", conflict: error.conflict || null }));
+    return true;
+  }
   if (sender.tab) {
     if (message.type !== "CANDIDATE_SNAPSHOT" || sender.frameId !== 0 || !shared.platformForURL(sender.tab.url)) return false;
     const resume = message.resume ? shared.sanitizeResume(message.resume) : null;
@@ -407,9 +439,7 @@ function onMessage(message, sender, sendResponse) {
     extension.action.setTitle({ tabId: sender.tab.id, title: resume?.candidate_name ? "当前有简历，可添加到 GoodHR" : "GoodHR 简历助手" });
     sendResponse({ ok: true }); return false;
   }
-  if (!sender.url?.startsWith(extension.runtime.getURL(""))) return false;
-  handleUIMessage(message).then((data) => sendResponse({ ok: true, data }), (error) => sendResponse({ ok: false, message: error.message, status: error.status || 0, code: error.code || "", conflict: error.conflict || null }));
-  return true;
+  return false;
 }
 
 extension.runtime.onMessage.addListener(onMessage);

@@ -1,4 +1,4 @@
-/* 文件作用：只读检测白名单招聘页面的可见详情，并通知插件后台；绝不修改页面或发起网络请求。 */
+/* 文件作用：只读检测可见详情并报告资料，显示插件自己的隔离入口，不操作招聘页面业务。 */
 (function () {
   "use strict";
   const extension = globalThis.browser || globalThis.chrome;
@@ -7,6 +7,7 @@
   /** capture 仅把变化后的可见资料交给插件后台，不提交云端。 */
   async function capture(force = false) {
     const resume = GoodHRExtraction.extractCurrentCandidate(document, location.href);
+    globalThis.GoodHRFloating?.update(resume);
     const fingerprint = JSON.stringify(resume);
     if (!force && fingerprint === lastFingerprint) return;
     lastFingerprint = fingerprint;
