@@ -135,6 +135,7 @@ func (m *Manager) confirmOne(ctx context.Context, owner, token, id string, input
 		fields["phone"], _ = json.Marshal(phone)
 		delete(fields, "id")
 		delete(fields, "idempotency_key")
+		delete(fields, "is_resume")
 		encoded, _ := json.Marshal(fields)
 		hash := sha256.Sum256(append(append([]byte{}, encoded...), []byte(input.CandidateID)...))
 		fingerprint := hex.EncodeToString(hash[:])

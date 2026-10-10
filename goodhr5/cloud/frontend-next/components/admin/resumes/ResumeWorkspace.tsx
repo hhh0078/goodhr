@@ -1,14 +1,16 @@
 /** 文件作用说明：共用简历详情工作区，展示结构化简历、通用备注、人工推荐及自动任务记录。 */
 "use client";
-import { Alert, Avatar, Button, Collapse, Descriptions, Empty, Flex, Input, Radio, Select, Skeleton, Space, Tag, Timeline, Typography } from "antd";
-import { EditOutlined, PlusOutlined } from "@ant-design/icons";
+import { Alert, Button, Collapse, Empty, Flex, Input, Radio, Select, Skeleton, Space, Tag, Timeline, Typography } from "antd";
+import { EditOutlined, PlusOutlined, ShareAltOutlined } from "@ant-design/icons";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, loadRecommendations, loadResume, loadResumeNotes } from "@/lib/resume-api";
 import { formatDate } from "@/lib/admin-api";
-import { avatarSource, experienceLabel, genderLabel, isReadOnlyResume, recommendationStages, recordTime, resumeAge, salaryLabel, sourceLabel, stageLabel, workYearsLabel, type PositionOption, type Recommendation, type Resume, type ResumeExperience, type ResumeNote } from "@/lib/resume-types";
+import { isReadOnlyResume, recommendationStages, recordTime, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeNote } from "@/lib/resume-types";
 import ResumeEditor from "./ResumeEditor";
 import ResumeSummaryDialog from "./ResumeSummaryDialog";
+import ResumeProfile from "./ResumeProfile";
+import ResumeShareDialog from "./ResumeShareDialog";
 import styles from "./resumes.module.css";
 
 /** ResumeWorkspace 在详情地址与抽屉间复用同一候选人记录和维护入口。 */
@@ -28,6 +30,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [note, setNote] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
   const [positionID, setPositionID] = useState<string>();
@@ -74,7 +77,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   }
   useEffect(() => {
     candidateScope.current += 1;
-    setCandidate(null); setNotes([]); setRecommendations([]); setNote(""); setEditing(false); setSummaryOpen(false);
+    setCandidate(null); setNotes([]); setRecommendations([]); setNote(""); setEditing(false); setSummaryOpen(false); setShareOpen(false);
     setPositionID(undefined); setStage("draft"); setRecommendationNote("");
     noteSaving.current = false; recommendationSaving.current = false; setNoteBusy(false); setRecommendationBusy(false);
     noteKey.current = crypto.randomUUID(); recommendationKey.current = crypto.randomUUID();
@@ -145,7 +148,6 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   }
   if (loading && !candidate) return <Skeleton active paragraph={{ rows: 8 }} />;
   if (!candidate) return <Alert type="warning" showIcon title={error || "这份简历暂时没读出来。"} action={<Button onClick={() => void reload()}>重试</Button>} />;
-  const facts = [resumeAge(candidate), genderLabel(candidate.gender), candidate.education_level, workYearsLabel(candidate)].filter(Boolean);
   const autoEvents = (candidate.events || []).filter((event) => event.event_type !== "manual_note");
   const currentOptions = [...positions];
   for (const item of recommendations) if (!currentOptions.some((option) => option.id === item.position_id)) currentOptions.push({ id: item.position_id, name: `${item.position_name || "已删除岗位"}（历史记录）` });
@@ -157,33 +159,11 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
     {error ? <Alert type="warning" title={error} action={<Button size="small" onClick={() => void reload()}>重试读取</Button>} style={{ marginBottom: 12 }} /> : null}
     <div className={styles.workspace} data-testid="resume-detail-layout">
       <div className={styles.resumeBody} data-testid="resume-detail-main">
-        <Flex gap={12} align="start" className={styles.candidateHeader}>
-          <Avatar size={52} src={avatarSource(candidate.avatar_data_url)} alt={`${candidate.candidate_name || "候选人"}头像`}>{candidate.candidate_name?.slice(0, 1) || "人"}</Avatar>
-          <Flex vertical gap={4} style={{ minWidth: 0, flex: 1 }}>
-            <Typography.Title level={3} style={{ margin: 0 }}>{candidate.candidate_name || "未命名候选人"}</Typography.Title>
-            <Typography.Text type="secondary">{facts.join(" · ") || "基础信息待补充"}</Typography.Text>
-            <Typography.Text copyable={candidate.phone ? { text: candidate.phone } : false}>{candidate.phone || "手机号待补充"}{candidate.email ? ` · ${candidate.email}` : ""}</Typography.Text>
-          </Flex>
-          <Button icon={<EditOutlined />} disabled={readOnly} onClick={() => { if (!readOnly) setEditing(true); }}>编辑</Button>
-        </Flex>
-        {candidate.tags?.length ? <Space wrap style={{ marginTop: 6 }}>{candidate.tags.map((item) => <Tag key={item}>{item}</Tag>)}</Space> : null}
-        <section className={styles.resumeSection}><Typography.Title level={5}>求职意向</Typography.Title><Descriptions size="small" column={{ xs: 1, sm: 2 }} items={[
-          { key: "current", label: "当前地区", children: candidate.current_region || "未填写" },
-          { key: "expected", label: "期望地区", children: candidate.expected_region || candidate.work_region || "未填写" },
-          { key: "position", label: "期望职位", children: candidate.expected_position || "未填写" },
-          { key: "salary", label: "期望月薪", children: salaryLabel(candidate) },
-          { key: "status", label: "求职状态", children: candidate.work_status || "未填写" },
-        ]} /></section>
-        {(candidate.personal_description || candidate.basic_info) ? <TextSection title="个人优势" text={candidate.personal_description || candidate.basic_info} /> : null}
-        <ExperienceSection title="工作经历" items={candidate.work_experiences || []} />
-        <ExperienceSection title="项目经历" items={candidate.project_experiences || []} />
-        <ExperienceSection title="教育经历" items={candidate.educations || []} />
-        {candidate.certificates?.length ? <TextSection title="证书" text={candidate.certificates.map((item) => [item.certificate_name, item.issued_by, item.issued_ym].filter(Boolean).join(" · ")).join("\n")} /> : null}
-        {candidate.honors?.length ? <TextSection title="荣誉" text={candidate.honors.map((item) => [item.honor_name, item.issued_by, item.issued_ym, item.description].filter(Boolean).join(" · ")).join("\n")} /> : null}
+        <ResumeProfile candidate={candidate} showTags headerActions={readOnly ? null : <Space size={4} wrap><Button icon={<ShareAltOutlined aria-hidden="true" />} onClick={() => { if (!readOnly) setShareOpen(true); }}>分享</Button><Button icon={<EditOutlined aria-hidden="true" />} onClick={() => { if (!readOnly) setEditing(true); }}>编辑</Button></Space>} />
         <section className={styles.resumeSection}><Flex gap={8} justify="space-between" align="center" wrap><Typography.Title level={5} style={{ margin: 0 }}>AI 简历摘要</Typography.Title><Button size="small" disabled={readOnly} onClick={() => { if (!readOnly) setSummaryOpen(true); }}>生成摘要</Button></Flex>{candidate.ai_summary ? <Typography.Paragraph className={styles.preWrap} style={{ marginTop: 6 }}>{candidate.ai_summary}</Typography.Paragraph> : <Typography.Text type="secondary">{readOnly ? "内置示例不调用AI生成摘要。" : "还没有摘要，点一下让本地AI帮忙整理。"}</Typography.Text>}</section>
         {candidate.raw_text ? <Collapse size="small" items={[{ key: "raw", label: "查看完整简历正文", children: <Typography.Paragraph className={styles.preWrap}>{candidate.raw_text}</Typography.Paragraph> }]} style={{ marginTop: 10 }} /> : null}
-        <section className={styles.resumeSection}><Typography.Text type="secondary">{sourceLabel(candidate.source_type)} · 入库人：{candidate.creator_name || candidate.user_email || "暂时没记上"} · {candidate.created_at ? formatDate(candidate.created_at) : "入库时间待补充"}</Typography.Text>
-          {(candidate.sources || []).map((source, index) => <div key={`${source.platform_id}-${index}`}><Typography.Text type="secondary">{sourceLabel(source.platform_id || source.source_type)}{source.source_url ? " · " : ""}</Typography.Text>{source.source_url && /^https?:\/\//.test(source.source_url) ? <a href={source.source_url} target="_blank" rel="noopener noreferrer">查看原页面</a> : null}</div>)}
+        <section className={styles.resumeSection}><Typography.Text type="secondary">{sourceLabel(candidate.source_type, candidate.platform_id)} · 入库人：{candidate.creator_name || candidate.user_email || "暂时没记上"} · {candidate.created_at ? formatDate(candidate.created_at) : "入库时间待补充"}</Typography.Text>
+          {(candidate.sources || []).map((source, index) => <div key={`${source.platform_id}-${index}`}><Typography.Text type="secondary">{source.source_type ? sourceLabel(source.source_type, source.platform_id) : sourceLabel(source.platform_id)}{source.source_url ? " · " : ""}</Typography.Text>{source.source_url && /^https?:\/\//.test(source.source_url) ? <a href={source.source_url} target="_blank" rel="noopener noreferrer">查看原页面</a> : null}</div>)}
         </section>
       </div>
       <aside className={styles.recordAside} data-testid="resume-detail-aside">
@@ -224,6 +204,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
     </div>
     <ResumeEditor open={editing} candidate={candidate} positions={positions} onClose={() => setEditing(false)} onSaved={(saved) => { setEditing(false); setCandidate(saved); void reload(); onChanged?.(); }} />
     <ResumeSummaryDialog open={summaryOpen} candidate={candidate} onClose={() => setSummaryOpen(false)} onSaved={(saved) => { setSummaryOpen(false); setCandidate(saved); void reload(); onChanged?.(); }} />
+    {!readOnly ? <ResumeShareDialog key={`${accountIdentity}:${candidateID}`} open={shareOpen} candidateID={candidateID} onClose={() => setShareOpen(false)} /> : null}
   </>;
 }
 /** RecommendationCard 在横向岗位条中切换当前历史，选择仅填表，不复制旧备注或触发保存。 */
@@ -260,13 +241,4 @@ function RecommendationHistory({ item }: { item: Recommendation }) {
 /** AIResult 显示任务分析，缺失分数保留“未分析”而非零分。 */
 function AIResult({ title, value }: { title: string; value?: { score?: number | null; reason?: string } }) {
   return <div className={styles.record}><Typography.Text strong>{title} · {value?.score == null ? "未分析" : `${value.score}分`}</Typography.Text>{value?.reason ? <Typography.Paragraph className={styles.preWrap}>{value.reason}</Typography.Paragraph> : null}</div>;
-}
-/** TextSection 展示完整简历段落并保留原文换行。 */
-function TextSection({ title, text }: { title: string; text?: string }) {
-  return <section className={styles.resumeSection}><Typography.Title level={5}>{title}</Typography.Title><Typography.Paragraph className={styles.preWrap}>{text}</Typography.Paragraph></section>;
-}
-/** ExperienceSection 展示结构化经历，保留全部条目和说明。 */
-function ExperienceSection({ title, items }: { title: string; items: ResumeExperience[] }) {
-  if (!items.length) return null;
-  return <section className={styles.resumeSection}><Typography.Title level={5}>{title}</Typography.Title>{items.map((item, index) => <div key={index} className={styles.experience}><Typography.Text strong>{experienceLabel(item) || "未填写名称"}</Typography.Text>{item.content ? <Typography.Paragraph className={styles.preWrap}>{item.content}</Typography.Paragraph> : null}</div>)}</section>;
 }

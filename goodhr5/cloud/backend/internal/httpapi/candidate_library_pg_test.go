@@ -82,6 +82,10 @@ func TestCandidatePostgresSourceFilter(t *testing.T) {
 		if _, err := db.Exec(`UPDATE candidate_profiles SET library_fields=$1::jsonb WHERE id=$2::uuid`, fields, candidate.ID); err != nil {
 			t.Fatal(err)
 		}
+		// 本测试模拟单一首次来源；同时同步采集器建档的来源行，避免把合成主来源误当成后来新增的第二来源。
+		if _, err := db.Exec(`UPDATE candidate_profile_sources SET source_type=COALESCE(NULLIF(BTRIM($1::jsonb->>'source_type'),''),'automatic') WHERE candidate_id=$2::uuid`, fields, candidate.ID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := store.SaveCandidateProfile(CandidateProfileInput{UserEmail: "source-member@example.com", PlatformID: "liepin", PlatformCandidateID: "other-member", CandidateName: "其他成员"}); err != nil {
 		t.Fatal(err)

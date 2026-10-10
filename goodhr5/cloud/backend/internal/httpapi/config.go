@@ -147,6 +147,29 @@ func (c Config) UserPreferencesStore(db *sql.DB) UserPreferencesStore {
 	return NewMemoryUserPreferencesStore()
 }
 
+// MessageStore 创建账号消息持久层，并为红点状态增加Redis及断连缓存。
+func (c Config) MessageStore(db *sql.DB) MessageStore {
+	var persistent MessageStore
+	if db != nil {
+		persistent = NewPostgresMessageStore(db)
+	} else {
+		persistent = NewMemoryMessageStore()
+	}
+	var cache MessageSummaryCache
+	if c.RedisAddr != "" {
+		cache = NewRedisMessageSummaryCache(c.RedisAddr, c.RedisPassword, c.RedisDB)
+	}
+	return NewCachedMessageStore(persistent, cache)
+}
+
+// ResumeLibrarySettingsStore 创建账号隔离的简历库设置持久层。
+func (c Config) ResumeLibrarySettingsStore(db *sql.DB) ResumeLibrarySettingsStore {
+	if db != nil {
+		return NewPostgresResumeLibrarySettingsStore(db)
+	}
+	return NewMemoryResumeLibrarySettingsStore()
+}
+
 // UserActivityStore 创建用户活跃存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用空实现。
 func (c Config) UserActivityStore(db *sql.DB) UserActivityStore {
 	if db != nil {

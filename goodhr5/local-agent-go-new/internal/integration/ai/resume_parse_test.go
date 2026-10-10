@@ -55,3 +55,17 @@ func TestParseResumeDoesNotAutomaticallyRetry(t *testing.T) {
 		t.Fatalf("自动重复请求：calls=%d err=%v", calls.Load(), err)
 	}
 }
+
+// TestParseResumeExplicitNonResume 验证同一次AI明确判定广告或合同不是简历，不强行生成候选人。
+func TestParseResumeExplicitNonResume(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"is_resume\":false}"}}]}`))
+	}))
+	defer server.Close()
+	candidate, err := New().ParseResume(context.Background(), cloud.AIConfig{BaseURL: server.URL, APIKey: "test", Model: "test"}, "这是一份虚构合同")
+	if err != nil || candidate.IsResume == nil || *candidate.IsResume || candidate.CandidateName != "" || calls.Load() != 1 {
+		t.Fatalf("非简历判断错误：%+v %v", candidate, err)
+	}
+}

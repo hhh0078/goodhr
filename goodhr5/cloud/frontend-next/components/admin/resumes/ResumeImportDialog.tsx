@@ -16,7 +16,7 @@ type ImportTask = { id: string; status: string; items: ImportItem[]; total: numb
 const importStatus: Record<string, string> = { queued: "排队中", parsing: "解析中", ready: "待确认", needs_phone: "待补手机号", failed: "失败", saved: "已入库", partial_success: "简历已保存，备注 / 岗位待补齐" };
 
 /** ResumeImportDialog 仅连接本地 AI 导入，不把原文件或截图上传云端。 */
-export default function ResumeImportDialog({ open, positions, onClose, onChanged }: { open: boolean; positions: PositionOption[]; onClose: () => void; onChanged: () => void }) {
+export default function ResumeImportDialog({ open, initialTaskID = "", positions, onClose, onChanged }: { open: boolean; initialTaskID?: string; positions: PositionOption[]; onClose: () => void; onChanged: () => void }) {
   const { agentBase, refreshAgent, notify, user } = useAdmin();
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [text, setText] = useState("");
@@ -69,10 +69,10 @@ export default function ResumeImportDialog({ open, positions, onClose, onChanged
   useEffect(() => {
     if (!open || !agentBase) return;
     const current = ++generation.current;
-    const cached = localStorage.getItem(taskCache);
+    const cached = initialTaskID || localStorage.getItem(taskCache);
     void readTask(cached || "", current);
     return () => { generation.current += 1; if (timer.current) clearTimeout(timer.current); };
-  }, [open, agentBase, taskCache]);
+  }, [open, agentBase, taskCache, initialTaskID]);
   useEffect(() => { setTask(null); setEditingItem(null); setFiles([]); setText(""); setDuplicateHints({}); setError(""); }, [taskCache]);
   /** startImport 校验文件范围后创建本地持久化解析任务。 */
   async function startImport() {
@@ -86,7 +86,7 @@ export default function ResumeImportDialog({ open, positions, onClose, onChanged
         const file = item.originFileObj;
         if (!file || file.size > 10 * 1024 * 1024) throw new Error(`${item.name} 超过 10MB 或未读取成功，请换一个文件。`);
         totalBytes += file.size;
-        if (!/\.(pdf|docx|txt|png|jpe?g)$/i.test(file.name)) throw new Error(`${file.name} 暂时不支持，先用 PDF、DOCX、TXT 或图片。`);
+        if (!/\.(pdf|doc|docx|txt|png|jpe?g)$/i.test(file.name)) throw new Error(`${file.name} 暂时不支持，先用 PDF、DOC/DOCX、TXT 或图片。`);
         form.append("files", file);
       }
       if (totalBytes > 60 * 1024 * 1024) throw new Error("这批文件超过 60MB，分成两批更稳妥。");
@@ -181,8 +181,8 @@ export default function ResumeImportDialog({ open, positions, onClose, onChanged
         <Alert showIcon type={agentBase ? "info" : "warning"} title={agentBase ? "本地程序已连接。解析会调用 AI，按现有规则计费；确认前只保存草稿。" : "先打开本地程序，再连接一下，就能用 AI 解析。手动添加照常可用。"} action={!agentBase ? <Button onClick={() => void refreshAgent()}>重新连接</Button> : undefined} />
         {error ? <Alert showIcon type="warning" title={error} /> : null}
         {!task ? <>
-          <Upload.Dragger multiple accept=".pdf,.docx,.txt,.png,.jpg,.jpeg" maxCount={20} fileList={files} beforeUpload={() => false} onChange={({ fileList }) => setFiles(fileList)} disabled={busy || !agentBase}>
-            <InboxOutlined style={{ fontSize: 28, color: "var(--goodhr-primary)" }} /><Typography.Paragraph style={{ margin: "8px 0" }}>拖入简历，或点击选择文件</Typography.Paragraph><Typography.Text type="secondary">PDF、DOCX、TXT、PNG/JPEG；每批 20 份，单份 10MB、总计 60MB 以内。</Typography.Text>
+          <Upload.Dragger multiple accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg" maxCount={20} fileList={files} beforeUpload={() => false} onChange={({ fileList }) => setFiles(fileList)} disabled={busy || !agentBase}>
+            <InboxOutlined style={{ fontSize: 28, color: "var(--goodhr-primary)" }} /><Typography.Paragraph style={{ margin: "8px 0" }}>拖入简历，或点击选择文件</Typography.Paragraph><Typography.Text type="secondary">PDF、DOC/DOCX、TXT、PNG/JPEG；每批 20 份，单份 10MB、总计 60MB 以内。</Typography.Text>
           </Upload.Dragger>
           <Input.TextArea value={text} onChange={(event) => setText(event.target.value)} disabled={busy} autoSize={{ minRows: 3, maxRows: 8 }} placeholder="也可以粘贴一份简历文本。" />
           <Flex justify="flex-end"><Button type="primary" disabled={!agentBase || (!files.length && !text.trim())} loading={busy} onClick={() => void startImport()}>开始解析</Button></Flex>

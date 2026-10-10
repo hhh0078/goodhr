@@ -1,0 +1,5 @@
+{
+  "_comment": "文件作用说明：Boss下载来源域名；仅按真实主机及其子域匹配，不能信任URL中的文字。",
+  "platform": "boss",
+  "domains": ["zhipin.com"]
+}

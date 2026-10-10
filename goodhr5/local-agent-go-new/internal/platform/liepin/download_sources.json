@@ -1,0 +1,5 @@
+{
+  "_comment": "文件作用说明：猎聘企业端和猎头端的下载来源域名，合并标注为猎聘下载。",
+  "platform": "liepin",
+  "domains": ["liepin.com"]
+}

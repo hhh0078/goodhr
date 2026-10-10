@@ -65,6 +65,7 @@ GOPROXY="${go_proxy}" go build \
   -o "${package_dir}/goodhr-local-agent" \
   ./cmd/goodhr-local-agent
 cp README.md "${package_dir}/README.md"
+cp -R licenses "${package_dir}/licenses"
 printf '{"version":"%s","environment":"%s","public_base_url":"%s"}\n' "${version}" "${build_environment}" "${public_base_url}" > "${package_dir}/build-info.json"
 
 cd "${release_root}"

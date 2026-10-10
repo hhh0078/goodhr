@@ -32,6 +32,7 @@ type LibraryCandidate struct {
 	PlatformID          string   `json:"platform_id,omitempty"`
 	PlatformCandidateID string   `json:"platform_candidate_id,omitempty"`
 	SourceURL           string   `json:"source_url,omitempty"`
+	IsResume            *bool    `json:"is_resume,omitempty"`
 }
 
 const BuiltinCandidateID = "00000000-0000-4000-8000-000000000001"

@@ -22,6 +22,7 @@ import (
 	downloadflow "goodhr5/local-agent-go-new/internal/flow/download"
 	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
 	"goodhr5/local-agent-go-new/internal/flow/preflight"
+	downloadresume "goodhr5/local-agent-go-new/internal/flow/resume_download"
 	resumeflow "goodhr5/local-agent-go-new/internal/flow/resume_import"
 	summaryflow "goodhr5/local-agent-go-new/internal/flow/resume_summary"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
@@ -59,6 +60,7 @@ type Server struct {
 	extensionPairs      map[string]*extensionPair
 	resumeImports       *resumeflow.Manager
 	resumeSummaries     *summaryflow.Manager
+	resumeDownloads     *downloadresume.Manager
 }
 
 // Dependencies 保存本地 HTTP 接口调用的应用服务。
@@ -92,9 +94,11 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	server.extensionPairs = make(map[string]*extensionPair)
 	server.initResumeImports(dependencies.ResumeImports)
 	server.initResumeSummaries(dependencies.ResumeSummaries)
+	server.initResumeDownloads()
 	mux := http.NewServeMux()
 	server.registerResumeImportRoutes(mux)
 	server.registerResumeSummaryRoutes(mux)
+	mux.HandleFunc("POST /api/v1/resume-library/settings/refresh", server.handleResumeDownloadSettingsRefresh)
 	mux.HandleFunc("GET /health", server.handleHealth)
 	mux.HandleFunc("POST /api/v1/session/bind", server.handleAgentBind)
 	mux.HandleFunc("POST /api/v1/extensions/pair/start", server.handleExtensionPairStart)
@@ -159,6 +163,9 @@ func (s *Server) ListenAndServe() error {
 // Shutdown 优雅关闭本地 HTTP 服务。
 func (s *Server) Shutdown(ctx context.Context) error {
 	err := s.http.Shutdown(ctx)
+	if s.resumeDownloads != nil {
+		s.resumeDownloads.Close()
+	}
 	if s.resumeImports != nil {
 		s.resumeImports.Close()
 	}
