@@ -4,6 +4,7 @@ package resume_import
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -33,6 +34,7 @@ type Manager struct {
 	slots     chan struct{}
 	wg        sync.WaitGroup
 	closed    bool
+	checks    map[string]func(context.Context) error
 }
 
 // New 创建导入管理器并把上次中断项恢复为排队；验证账号后才恢复调用AI。
@@ -45,6 +47,7 @@ func New(store SettingsStore, cloudClient CloudAPI, parser ResumeParser, extract
 	}
 	m := &Manager{store: store, cloud: cloudClient, parser: parser, extractor: extractor, root: root,
 		tasks: map[string]*storedTask{}, active: map[string]context.CancelFunc{}, saving: map[string]bool{}, slots: make(chan struct{}, 2)}
+	m.checks = map[string]func(context.Context) error{}
 	raw, err := store.GetSetting(context.Background(), taskIndexKey)
 	if err != nil {
 		return nil, err
@@ -90,12 +93,53 @@ func New(store SettingsStore, cloudClient CloudAPI, parser ResumeParser, extract
 
 // Create 接收用户文件流并先落盘再异步解析，不阻塞HTTP等待AI完成。
 func (m *Manager) Create(ctx context.Context, owner, token string, uploads []Upload, text string) (Task, error) {
+	return m.create(ctx, owner, token, uploads, text, "", nil)
+}
+
+// CreateDownload 使用账号和文件摘要生成稳定任务号，重启或下载重放不会重复发起AI。
+func (m *Manager) CreateDownload(ctx context.Context, owner, token string, upload Upload, fingerprint string, check func(context.Context) error) (Task, error) {
+	hash := sha256.Sum256([]byte(owner + ":" + fingerprint))
+	return m.create(ctx, owner, token, []Upload{upload}, "", hex.EncodeToString(hash[:16]), check)
+}
+
+// AuthorizeDownload 为恢复的下载任务绑定本次内存会话，凭证和校验闭包不会写入SQLite。
+func (m *Manager) AuthorizeDownload(owner, id string, check func(context.Context) error) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, err := m.findLocked(owner, id); err != nil {
+		return err
+	}
+	if m.checks == nil {
+		m.checks = map[string]func(context.Context) error{}
+	}
+	m.checks[id] = check
+	return nil
+}
+
+// create 安全复制文件并持久化任务，固定任务号用于下载导入幂等。
+func (m *Manager) create(ctx context.Context, owner, token string, uploads []Upload, text, fixedID string, check func(context.Context) error) (Task, error) {
 	if owner == "" || token == "" || len(uploads) > MaxFiles || len(uploads) == 0 && strings.TrimSpace(text) == "" {
 		return Task{}, ErrInvalid
 	}
 	id, err := randomID()
 	if err != nil {
 		return Task{}, err
+	}
+	if fixedID != "" {
+		id = fixedID
+		m.mu.Lock()
+		if existing := m.tasks[id]; existing != nil {
+			if existing.OwnerID != owner {
+				m.mu.Unlock()
+				return Task{}, ErrNotFound
+			}
+			m.checks[id] = check
+			m.startLocked(existing, token)
+			result := cloneTask(existing.Task)
+			m.mu.Unlock()
+			return result, nil
+		}
+		m.mu.Unlock()
 	}
 	dir := filepath.Join(m.root, id)
 	if err = os.MkdirAll(dir, 0700); err != nil {
@@ -118,6 +162,7 @@ func (m *Manager) Create(ctx context.Context, owner, token string, uploads []Upl
 	}
 	stored := &storedTask{Task: Task{ID: id, Status: "running", Items: []Item{}}, OwnerID: owner,
 		Paths: map[string]string{}, Confirmations: map[string]*confirmation{}, AIStarted: map[string]bool{}}
+	stored.Sources = map[string]DownloadSource{}
 	stored.CreatedAt = time.Now().UnixNano()
 	total := int64(0)
 	for _, upload := range uploads {
@@ -130,7 +175,7 @@ func (m *Manager) Create(ctx context.Context, owner, token string, uploads []Upl
 		name := safeFileName(upload.Name)
 		ext := strings.ToLower(filepath.Ext(name))
 		if !supportedExtension(ext) {
-			return Task{}, fmt.Errorf("%s暂不支持，请选择PDF、DOCX、TXT、PNG或JPEG", name)
+			return Task{}, fmt.Errorf("%s暂不支持，请选择PDF、DOC、DOCX、TXT、PNG或JPEG", name)
 		}
 		itemID, err := randomID()
 		if err != nil {
@@ -154,6 +199,9 @@ func (m *Manager) Create(ctx context.Context, owner, token string, uploads []Upl
 			return Task{}, fmt.Errorf("文件为空或超过限制：每份10MB，每批60MB")
 		}
 		stored.Paths[itemID] = path
+		if upload.Source != nil {
+			stored.Sources[itemID] = *upload.Source
+		}
 		stored.Task.Items = append(stored.Task.Items, Item{ID: itemID, FileName: name, Status: "queued"})
 	}
 	m.mu.Lock()
@@ -162,6 +210,9 @@ func (m *Manager) Create(ctx context.Context, owner, token string, uploads []Upl
 		return Task{}, fmt.Errorf("本地程序正在退出，请稍后再试")
 	}
 	m.tasks[id] = stored
+	if check != nil {
+		m.checks[id] = check
+	}
 	m.refreshLocked(stored)
 	if err := m.persistLocked(stored); err != nil {
 		delete(m.tasks, id)
@@ -307,6 +358,10 @@ func (m *Manager) startLocked(stored *storedTask, token string) {
 	if m.closed || token == "" || stored.Task.Status == "cancelled" || m.active[stored.Task.ID] != nil {
 		return
 	}
+	// 下载历史的恢复必须先绑定当前内存会话，普通草稿列表不能触发未经验证的收费。
+	if len(stored.Sources) > 0 && m.checks[stored.Task.ID] == nil {
+		return
+	}
 	hasQueued := false
 	for _, item := range stored.Task.Items {
 		hasQueued = hasQueued || item.Status == "queued"
@@ -369,10 +424,27 @@ func (m *Manager) parseItem(ctx context.Context, taskID, itemID, path, token str
 	text, err := m.extractor.Extract(ctx, path)
 	var candidate cloud.LibraryCandidate
 	var aiKey string
+	m.mu.Lock()
+	storedSource := m.tasks[taskID]
+	_, downloaded := storedSource.Sources[itemID]
+	check := m.checks[taskID]
+	m.mu.Unlock()
+	if err == nil && downloaded {
+		if check == nil {
+			err = fmt.Errorf("下载导入登录尚未恢复，请重新连接本地程序")
+		} else {
+			err = check(ctx)
+		}
+	}
 	if err == nil {
 		cfg, configErr := m.cloud.EffectiveAI(ctx, token)
 		aiKey = cfg.APIKey
 		err = configErr
+		if err == nil {
+			if downloaded {
+				err = check(ctx)
+			}
+		}
 		if err == nil {
 			m.mu.Lock()
 			stored := m.tasks[taskID]
@@ -398,8 +470,19 @@ func (m *Manager) parseItem(ctx context.Context, taskID, itemID, path, token str
 	} else {
 		candidate.Phone = NormalizePhone(candidate.Phone)
 		item.Candidate, item.Status, item.Error = candidate, "ready", ""
+		if source, downloaded := stored.Sources[itemID]; downloaded {
+			item.Candidate.SourceType, item.Candidate.PlatformID, item.Candidate.SourceURL = "ai_import", source.PlatformID, source.SourceURL
+			if candidate.IsResume == nil {
+				item.Status, item.Error = "failed", "AI未确认这是简历，请在草稿里核对后再试"
+			}
+		}
 		if candidate.Phone == "" {
-			item.Status = "needs_phone"
+			if item.Status == "ready" {
+				item.Status = "needs_phone"
+			}
+		}
+		if candidate.IsResume != nil && !*candidate.IsResume {
+			item.Status, item.Error = "not_resume", "这份文件未被识别为个人简历，已跳过入库"
 		}
 	}
 	m.refreshLocked(stored)
@@ -492,10 +575,10 @@ func safeFileName(name string) string {
 	return name
 }
 
-// supportedExtension 限制已实现的导入格式，旧DOC不假装当成DOCX解析。
+// supportedExtension 限制已实现的格式，DOC与DOCX使用各自的真实解析器。
 func supportedExtension(ext string) bool {
 	switch ext {
-	case ".pdf", ".docx", ".txt", ".png", ".jpg", ".jpeg":
+	case ".pdf", ".doc", ".docx", ".txt", ".png", ".jpg", ".jpeg":
 		return true
 	}
 	return false

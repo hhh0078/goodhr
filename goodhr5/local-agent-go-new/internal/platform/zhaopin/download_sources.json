@@ -1,0 +1,5 @@
+{
+  "_comment": "文件作用说明：智联下载来源域名，不把未知外部CDN自动判断为智联。",
+  "platform": "zhaopin",
+  "domains": ["zhaopin.com"]
+}

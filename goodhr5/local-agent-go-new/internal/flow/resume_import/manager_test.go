@@ -201,6 +201,43 @@ func waitProcessed(t *testing.T, manager *Manager, id string) Task {
 	return Task{}
 }
 
+// TestDownloadTaskStableAcrossReplayAndRestart 验证真实Manager按账号与文件摘要复用一次解析，来源不可由AI覆盖。
+func TestDownloadTaskStableAcrossReplayAndRestart(t *testing.T) {
+	manager, store, client, parser, root := newTestManager(t, "13800138000")
+	check := func(context.Context) error { return nil }
+	upload := Upload{Name: "合成下载.pdf", Reader: strings.NewReader("synthetic"), Source: &DownloadSource{PlatformID: "boss", SourceURL: "https://www.zhipin.com/resume"}}
+	task, err := manager.CreateDownload(context.Background(), "owner-a", "web-token-never-persist", upload, "stable-file-sha256", check)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := waitProcessed(t, manager, task.ID)
+	if result.Items[0].Candidate.PlatformID != "boss" || result.Items[0].Status != "failed" {
+		t.Fatalf("未经AI确认的材料被自动放行：%+v", result)
+	}
+	upload.Reader = strings.NewReader("synthetic")
+	again, err := manager.CreateDownload(context.Background(), "owner-a", "web-token-never-persist", upload, "stable-file-sha256", check)
+	if err != nil || again.ID != task.ID {
+		t.Fatalf("重放任务不稳定：%+v %v", again, err)
+	}
+	manager.Close()
+	restored, err := New(store, client, parser, fakeExtractor{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	upload.Reader = strings.NewReader("synthetic")
+	again, err = restored.CreateDownload(context.Background(), "owner-a", "web-token-never-persist", upload, "stable-file-sha256", check)
+	if err != nil || again.ID != task.ID {
+		t.Fatal("重启任务不稳定")
+	}
+	parser.mu.Lock()
+	calls := parser.calls
+	parser.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("重复AI次数=%d", calls)
+	}
+}
+
 // TestOwnerPhoneAndTokenPersistence 验证跨账号不可读、掩码不补全、凭证不进入SQLite。
 func TestOwnerPhoneAndTokenPersistence(t *testing.T) {
 	manager, store, _, _, _ := newTestManager(t, "138****0000")

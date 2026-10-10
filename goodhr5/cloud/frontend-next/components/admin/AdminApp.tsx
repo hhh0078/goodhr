@@ -48,6 +48,7 @@ import {
   type ReactNode,
 } from "react";
 import BrowserOpenControl from "./BrowserOpenControl";
+import MessageCenter from "./MessageCenter";
 import BrandMark from "@/components/BrandMark";
 import PasswordSetupDialog from "@/components/PasswordSetupDialog";
 import { useMembershipTheme } from "@/app/providers";
@@ -741,6 +742,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                     )
                   : "本地程序未连接"}
               </Button>
+              <div style={{ marginLeft: "auto" }}><MessageCenter userKey={user?.id || user?.email || ""} /></div>
               <Tooltip title="当前会员主题">
                 <Button
                   type="text"

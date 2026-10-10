@@ -1,10 +1,11 @@
 /** 本文件负责 GoodHR 新版前端的根布局和页面元信息。 */
-import Script from "next/script";
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
 import InviteCapture from "@/components/InviteCapture";
 import StructuredData from "@/components/StructuredData";
+import GoodHRAnalytics from "@/components/GoodHRAnalytics";
 import { CORE_SEO_KEYWORDS, GITHUB_REPOSITORY_URL, SITE_URL } from "@/lib/seo";
 import Providers from "./providers";
 import "./globals.css";
@@ -98,16 +99,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
             {children}
           </Providers>
         </AntdRegistry>
-        <Script
-          id="baidu-analytics"
-          strategy="afterInteractive"
-        >{`var _hmt = _hmt || [];
-(function() {
-  var hm = document.createElement("script");
-  hm.src = "https://hm.baidu.com/hm.js?089e2d5bc4ddf06b7bf5ab053d5b6fe1";
-  var s = document.getElementsByTagName("script")[0];
-  s.parentNode.insertBefore(hm, s);
-})();`}</Script>
+        <Suspense fallback={null}><GoodHRAnalytics /></Suspense>
       </body>
     </html>
   );

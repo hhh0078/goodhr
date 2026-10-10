@@ -51,6 +51,13 @@ type TextExtractor interface {
 type Upload struct {
 	Name   string
 	Reader io.Reader
+	Source *DownloadSource
+}
+
+// DownloadSource 由可信本地下载流程提供，AI不能自行填写平台身份。
+type DownloadSource struct {
+	PlatformID string `json:"platform_id"`
+	SourceURL  string `json:"source_url"`
 }
 
 // Item 表示一个可独立校验、重试和保存的解析草稿。
@@ -102,10 +109,11 @@ type confirmation struct {
 
 // storedTask 包装本地持久字段，登录Token和运行上下文永远不序列化。
 type storedTask struct {
-	Task          Task                     `json:"task"`
-	OwnerID       string                   `json:"owner_id"`
-	CreatedAt     int64                    `json:"created_at"`
-	Paths         map[string]string        `json:"paths"`
-	Confirmations map[string]*confirmation `json:"confirmations"`
-	AIStarted     map[string]bool          `json:"ai_started"`
+	Task          Task                      `json:"task"`
+	OwnerID       string                    `json:"owner_id"`
+	CreatedAt     int64                     `json:"created_at"`
+	Paths         map[string]string         `json:"paths"`
+	Confirmations map[string]*confirmation  `json:"confirmations"`
+	AIStarted     map[string]bool           `json:"ai_started"`
+	Sources       map[string]DownloadSource `json:"sources,omitempty"`
 }

@@ -551,8 +551,9 @@ func buildCandidateWhere(tenantID string, query PositionCandidateQuery) (string,
 		}
 	}
 	addFilter(query.Phone, "cp.phone ILIKE $%d")
-	// 旧自动采集没有扩展来源字段，空值与显式 automatic 使用同一个筛选值。
-	addFilter(query.SourceType, "COALESCE(NULLIF(BTRIM(cp.library_fields->>'source_type'),''),'automatic') ILIKE $%d")
+	if query.SourceType != "" {
+		clauses = append(clauses, candidateSourceFilterSQL(query.SourceType, &args))
+	}
 	addFilter(query.Region, "(cp.work_region||' '||COALESCE(cp.library_fields->>'current_region','')||' '||COALESCE(cp.library_fields->>'expected_region','')) ILIKE $%d")
 	addFilter(query.Education, "cp.education_level ILIKE $%d")
 	addFilter(query.WorkYears, "cp.work_years ILIKE $%d")

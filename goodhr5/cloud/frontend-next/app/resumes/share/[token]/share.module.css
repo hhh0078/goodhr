@@ -1,0 +1,9 @@
+/* 文件作用说明：公开简历分享页的自然色系布局，桌面并排二维码，手机单列避免横向溢出。 */
+.page { max-width: 1120px; padding: 28px 20px 48px; margin: 0 auto; min-height: 100dvh; }
+.heading { margin-bottom: 20px; }
+.content { display: grid; grid-template-columns: minmax(0, 1fr) 232px; align-items: start; gap: 20px; }
+.profile { padding: 24px; background: #fff; border: 1px solid var(--goodhr-border); border-radius: 8px; min-width: 0; }
+.profile :global(.ant-typography), .profile :global(.ant-descriptions-item-content) { min-width: 0; overflow-wrap: anywhere; }
+.qr { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 20px 16px; background: #fff; border: 1px solid var(--goodhr-border); border-radius: 8px; min-width: 0; }
+.qr :global(.ant-typography) { text-align: center; }
+@media (max-width: 760px) { .page { padding: 18px 12px 28px; } .content { grid-template-columns: minmax(0, 1fr); gap: 12px; } .profile { padding: 16px; } .qr { padding: 16px; } }

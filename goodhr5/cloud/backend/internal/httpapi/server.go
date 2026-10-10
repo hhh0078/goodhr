@@ -15,35 +15,38 @@ type updateAdminSystemConfigRequest struct {
 }
 
 type Server struct {
-	auth                *AuthService
-	agent               *AgentService
-	userFlow            *UserFlowService
-	agentWS             *AgentWSHub
-	ai                  *AIConfigService
-	aiWallet            *AIWalletService
-	userPreferences     *UserPreferencesService
-	notificationProfile *NotificationProfileService
-	platformAccounts    *PlatformAccountService
-	positions           *PositionService
-	positionExecution   *PositionExecutionService
-	positionLogs        *PositionLogService
-	browserEvents       *BrowserEventService
-	candidates          *CandidateService
-	subscriptions       *SubscriptionService
-	payments            *PaymentService
-	runtimeConfig       *RuntimeConfigService
-	invitations         *InvitationService
-	activationCodes     *ActivationCodeService
-	adminUsers          *AdminUserService
-	adminEmails         *AdminEmailService
-	publicStats         *PublicStatsService
-	teamStats           *TeamStatsService
-	dailyStats          SystemDailyStatsStore
-	help                *HelpService
-	systemConfigs       SystemConfigStore
-	tenants             *TenantService
-	cookies             *CookieService
-	wechatOfficial      *WechatOfficialService
+	auth                  *AuthService
+	agent                 *AgentService
+	userFlow              *UserFlowService
+	agentWS               *AgentWSHub
+	ai                    *AIConfigService
+	aiWallet              *AIWalletService
+	userPreferences       *UserPreferencesService
+	notificationProfile   *NotificationProfileService
+	platformAccounts      *PlatformAccountService
+	positions             *PositionService
+	positionExecution     *PositionExecutionService
+	positionLogs          *PositionLogService
+	browserEvents         *BrowserEventService
+	candidates            *CandidateService
+	candidateShares       *CandidateShareService
+	messages              *MessageService
+	resumeLibrarySettings *ResumeLibrarySettingsService
+	subscriptions         *SubscriptionService
+	payments              *PaymentService
+	runtimeConfig         *RuntimeConfigService
+	invitations           *InvitationService
+	activationCodes       *ActivationCodeService
+	adminUsers            *AdminUserService
+	adminEmails           *AdminEmailService
+	publicStats           *PublicStatsService
+	teamStats             *TeamStatsService
+	dailyStats            SystemDailyStatsStore
+	help                  *HelpService
+	systemConfigs         SystemConfigStore
+	tenants               *TenantService
+	cookies               *CookieService
+	wechatOfficial        *WechatOfficialService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
@@ -102,36 +105,42 @@ func NewServer() (*Server, error) {
 	if db != nil {
 		NewWechatRewardNoticeService(NewPostgresWechatRewardNoticeStore(db), mailer, systemConfigStore).Start(context.Background())
 	}
+	candidates := NewCandidateService(auth, candidateStore, tenantStore, positionStore)
+	messages := NewMessageService(auth, config.MessageStore(db))
+	messages.StartCleanup(context.Background())
 	return &Server{
-		auth:                auth,
-		agent:               NewAgentService(auth, agentStore, systemConfigStore),
-		userFlow:            NewUserFlowService(auth, userFlowStore, positionStore),
-		agentWS:             agentWS,
-		ai:                  NewAIConfigService(auth, aiConfigStore, systemConfigStore),
-		aiWallet:            aiWalletService,
-		userPreferences:     NewUserPreferencesService(auth, userPreferencesStore),
-		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
-		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
-		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
-		positionLogs:        positionLogs,
-		browserEvents:       NewBrowserEventService(auth, db),
-		candidates:          NewCandidateService(auth, candidateStore, tenantStore, positionStore),
-		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
-		payments:            paymentService,
-		runtimeConfig:       NewRuntimeConfigService(auth, systemConfigStore),
-		invitations:         NewInvitationService(auth, invitationStore, systemConfigStore),
-		activationCodes:     NewActivationCodeService(auth, activationCodeStore, subscriptionStore, systemConfigStore, mailer),
-		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, systemConfigStore, mailer, agentStore, aiWalletStore),
-		adminEmails:         adminEmails,
-		publicStats:         NewPublicStatsService(adminUserStore, positionStore, agentStore, dailyStatsStore),
-		teamStats:           NewTeamStatsService(auth, db, tenantStore),
-		dailyStats:          dailyStatsStore,
-		help:                NewHelpService(auth, systemConfigStore, aiConfigStore),
-		systemConfigs:       systemConfigStore,
-		tenants:             NewTenantService(auth, tenantStore, mailer),
-		cookies:             NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
-		wechatOfficial:      NewWechatOfficialService(auth, wechatFollowStore, systemConfigStore),
+		auth:                  auth,
+		agent:                 NewAgentService(auth, agentStore, systemConfigStore),
+		userFlow:              NewUserFlowService(auth, userFlowStore, positionStore),
+		agentWS:               agentWS,
+		ai:                    NewAIConfigService(auth, aiConfigStore, systemConfigStore),
+		aiWallet:              aiWalletService,
+		userPreferences:       NewUserPreferencesService(auth, userPreferencesStore),
+		notificationProfile:   NewNotificationProfileService(auth, notificationProfileStore),
+		platformAccounts:      NewPlatformAccountService(auth, platformAccountStore, tenantStore),
+		positions:             NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
+		positionExecution:     NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
+		positionLogs:          positionLogs,
+		browserEvents:         NewBrowserEventService(auth, db),
+		candidates:            candidates,
+		candidateShares:       NewCandidateShareService(candidates, NewCandidateShareStore(db)),
+		messages:              messages,
+		resumeLibrarySettings: NewResumeLibrarySettingsService(auth, config.ResumeLibrarySettingsStore(db)),
+		subscriptions:         NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
+		payments:              paymentService,
+		runtimeConfig:         NewRuntimeConfigService(auth, systemConfigStore),
+		invitations:           NewInvitationService(auth, invitationStore, systemConfigStore),
+		activationCodes:       NewActivationCodeService(auth, activationCodeStore, subscriptionStore, systemConfigStore, mailer),
+		adminUsers:            NewAdminUserService(auth, adminUserStore, subscriptionStore, systemConfigStore, mailer, agentStore, aiWalletStore),
+		adminEmails:           adminEmails,
+		publicStats:           NewPublicStatsService(adminUserStore, positionStore, agentStore, dailyStatsStore),
+		teamStats:             NewTeamStatsService(auth, db, tenantStore),
+		dailyStats:            dailyStatsStore,
+		help:                  NewHelpService(auth, systemConfigStore, aiConfigStore),
+		systemConfigs:         systemConfigStore,
+		tenants:               NewTenantService(auth, tenantStore, mailer),
+		cookies:               NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
+		wechatOfficial:        NewWechatOfficialService(auth, wechatFollowStore, systemConfigStore),
 	}, nil
 }
 
@@ -165,6 +174,9 @@ func (s *Server) Routes() http.Handler {
 	}
 	mux.HandleFunc("/api/public/stats/today", s.publicStats.Today)
 	mux.HandleFunc("/api/public/position-log-shares/", s.positionLogs.PublicShare)
+	if s.candidateShares != nil {
+		mux.HandleFunc("/api/public/resume-shares/", s.candidateShares.PublicShare)
+	}
 	// 注册本地程序连接接口，用于云端记录当前账号对应的本地 Agent。
 	mux.HandleFunc("/api/agents/bind", s.agent.Bind)
 	mux.HandleFunc("/api/agents/current", s.agent.Current)
@@ -181,6 +193,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/ai-compatible/v1/chat/completions", s.aiWallet.CompatibleChat)
 	mux.HandleFunc("/api/config/user-preferences", s.userPreferences.User)
 	mux.HandleFunc("/api/config/notification-profile", s.notificationProfile.User)
+	if s.messages != nil {
+		mux.HandleFunc("/api/messages/push", s.messages.PushCurrent)
+		mux.HandleFunc("/api/messages/summary", s.messages.Summary)
+		mux.HandleFunc("/api/messages", s.messages.Collection)
+		mux.HandleFunc("/api/messages/", s.messages.Read)
+	}
+	if s.resumeLibrarySettings != nil {
+		mux.HandleFunc("/api/resume-library/settings", s.resumeLibrarySettings.User)
+	}
 	mux.HandleFunc("/api/subscription/status", s.subscriptions.Status)
 	mux.HandleFunc("/api/subscription/plans", s.subscriptions.Plans)
 	mux.HandleFunc("/api/payment/orders", s.payments.Orders)
@@ -219,7 +240,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/fail-notice", s.positionExecution.FailNotice)
 	// 注册简历库接口，用于查看当前团队或指定岗位运行下的候选人。
 	mux.HandleFunc("/api/candidates", s.candidates.Collection)
-	mux.HandleFunc("/api/candidates/", s.candidates.Route)
+	mux.HandleFunc("/api/candidates/", s.candidateRoute)
 	// 注册平台配置接口，用于读取平台选择器和行为配置供岗位运行执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
 	mux.HandleFunc("/api/system/app-config", s.GetAppConfig)
@@ -608,6 +629,15 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 		"ok":     true,
 		"config": redactWechatOfficialRecord(existing, rewardDays),
 	})
+}
+
+// candidateRoute 优先分派经过权限验证的简历分享，其他操作继续复用简历库路由。
+func (s *Server) candidateRoute(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/share") && s.candidateShares != nil {
+		s.candidateShares.PrivateShare(w, r)
+		return
+	}
+	s.candidates.Route(w, r)
 }
 
 func (s *Server) tenantMember(w http.ResponseWriter, r *http.Request) {

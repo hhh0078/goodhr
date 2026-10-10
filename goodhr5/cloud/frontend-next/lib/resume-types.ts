@@ -42,16 +42,23 @@ export const recommendationStages = [
 ];
 export const sourceOptions = [
   { value: "manual", label: "手动添加" }, { value: "ai_import", label: "AI 解析" },
-  { value: "browser_extension", label: "浏览器插件" }, { value: "automatic", label: "自动任务" },
+  { value: "browser_extension:boss", label: "Boss插件" }, { value: "browser_extension:liepin", label: "猎聘插件" },
+  { value: "browser_extension:zhaopin", label: "智联插件" }, { value: "browser_extension:51job", label: "无忧插件" },
+  { value: "browser_extension", label: "全部插件" }, { value: "automatic", label: "自动任务" },
 ];
 /** avatarSource 仅展示云端规范化的内嵌PNG/JPEG头像，拒绝远程地址和超出合同大小的内容。 */
 export function avatarSource(value?: string) {
   return typeof value === "string" && value.length <= 128 * 1024 && /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : undefined;
 }
 /** sourceLabel 将简历来源或平台标识转成简短中文文案。 */
-export function sourceLabel(value?: string) {
+export function sourceLabel(value?: string, platform?: string) {
+  if (value === "browser_extension" && platform) {
+    const alias = ({ hliepin: "liepin", liepin_hr: "liepin", liepin_headhunter: "liepin", zhilian: "zhaopin", zhipin: "boss", wuyou: "51job" } as Record<string, string>)[platform] || platform;
+    return sourceOptions.find((item) => item.value === `browser_extension:${alias}`)?.label || "浏览器插件";
+  }
+  if (value === "browser_extension") return "浏览器插件";
   return sourceOptions.find((item) => item.value === value)?.label ||
-    ({ liepin: "猎聘", liepin_hr: "猎聘企业端", liepin_headhunter: "猎聘猎头端", zhilian: "智联", "51job": "前程无忧", boss: "BOSS直聘" } as Record<string, string>)[value || ""] || value || "自动任务";
+    ({ liepin: "猎聘", hliepin: "猎聘", liepin_hr: "猎聘企业端", liepin_headhunter: "猎聘猎头端", zhaopin: "智联", zhilian: "智联", "51job": "前程无忧", boss: "BOSS直聘" } as Record<string, string>)[value || ""] || value || "自动任务";
 }
 /** stageLabel 返回人工推荐阶段，未知阶段保留原值。 */
 export function stageLabel(value?: string) {

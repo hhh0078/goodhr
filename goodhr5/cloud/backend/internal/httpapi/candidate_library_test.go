@@ -51,7 +51,7 @@ func TestCandidateSourceFilteringLegacyAndExplicit(t *testing.T) {
 		t.Fatal("new manual endpoint accepted automatic source")
 	}
 	where, args := buildCandidateWhere("team", PositionCandidateQuery{UserEmail: "owner@example.com", SourceType: "automatic"})
-	if !strings.Contains(where, "COALESCE(NULLIF(BTRIM(cp.library_fields->>'source_type'),''),'automatic') ILIKE $3") || len(args) != 3 || args[2] != "%automatic%" {
+	if !strings.Contains(where, "COALESCE(NULLIF(LOWER(BTRIM(cp.library_fields->>'source_type')),''),'automatic')=$3") || !strings.Contains(where, "sf.tenant_id=cp.tenant_id") || len(args) != 3 || args[2] != "automatic" {
 		t.Fatalf("legacy-aware SQL predicate missing: where=%s args=%v", where, args)
 	}
 }

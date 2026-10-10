@@ -8,7 +8,7 @@ const screenshotDirectory = resolve("artifacts/resume-library");
 // 合成16px纯色PNG只用于界面验证，不含任何真实候选人的照片。
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 type Call = { path: string; method: string; body: any; query: URLSearchParams };
-type State = { calls: Call[]; notes: any[]; recommendations: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string }>; user: { id: string; email: string }; candidates: any[]; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[] };
+type State = { calls: Call[]; notes: any[]; recommendations: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string }>; user: { id: string; email: string }; candidates: any[]; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void> };
 const existing = { id: "resume-existing", candidate_name: "原有候选人", phone: "13800138000", row_version: 3, source_type: "automatic", education_level: "本科", expected_salary_min: null, expected_salary_max: null, work_experiences: [{ company_name: "原有公司", position_name: "产品经理", start_ym: "2021-01", content: "已有工作经历保留" }], user_email: "test@example.invalid", created_at: "2026-10-10T10:00:00+08:00", ai: { detail: { score: null, reason: "" } } };
 test.use({ storageState: { cookies: [], origins: [{ origin: previewOrigin, localStorage: [{ name: "goodhr5_access_token", value: "resume-test-only" }] }] } });
 
@@ -66,6 +66,20 @@ async function mockResumeSession(page: Page): Promise<State> {
     else if (url.pathname === "/api/user-flow") data = { flow: { version: 2, state: "completed", stage: "completed", steps: {} } };
     else if (url.pathname.includes("/invitations")) data = { invitations: [] };
     else if (url.pathname === "/api/ai-wallet") data = { wallet: { balance: "100", models: [], default_model: "test" } };
+    else if (url.pathname === "/api/messages/summary") {
+      data = { ok: true, unread_count: (state.messages || []).filter((item) => !item.read_at).length, version: state.messageVersion || 0 };
+      await state.holdMessageSummary;
+    }
+    else if (url.pathname === "/api/messages") data = { ok: true, messages: (state.messages || []).map(({ body, ...item }) => item), total: state.messages?.length || 0 };
+    else if (url.pathname.startsWith("/api/messages/") && url.pathname.endsWith("/read")) {
+      const message = state.messages?.find((item) => item.id === url.pathname.split("/")[3]);
+      if (message) { message.read_at = "2026-10-10T21:00:00+08:00"; state.messageVersion = (state.messageVersion || 0) + 1; }
+      data = { ok: true, message, summary: { unread_count: (state.messages || []).filter((item) => !item.read_at).length, version: state.messageVersion } };
+    }
+    else if (url.pathname === "/api/resume-library/settings") {
+      if (method === "PATCH") state.autoImportDownloads = body.auto_import_downloads;
+      data = { ok: true, settings: { auto_import_downloads: state.autoImportDownloads !== false } };
+    }
     else if (url.pathname === "/api/positions") data = { positions: state.positions, total: state.positions.length };
     else if (url.pathname === "/api/candidates/duplicates") data = { ok: true, hidden_match: false, matches: body?.phone === existing.phone && body?.exclude_id !== existing.id ? [{ candidate: existing, match_type: "exact", reasons: ["手机号相同"] }] : [] };
     else if (url.pathname === "/api/candidates") {
@@ -808,5 +822,90 @@ test("部分成功草稿重开后只补齐记录，不重建简历或重新解�
   expect(confirms).toHaveLength(1); expect(confirms[0].body).toEqual({ items: [{ id: "import-item" }] });
   expect(state.calls.some((call) => call.path.endsWith("/retry"))).toBe(false);
   expect(state.calls.some((call) => call.path === "/api/candidates" && call.method === "POST")).toBe(false);
+  expect(state.errors).toEqual([]);
+});
+
+/** 插件来源筛选必须把平台值实际传给后端，不能仅改变标签。 */
+test("四个平台插件来源分别查询并显示中文标签", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.candidates[0].source_type = "browser_extension"; state.candidates[0].platform_id = "hliepin";
+  await page.goto("/admin/resumes");
+  await expect(page.getByText("猎聘插件", { exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "来源筛选" }).click();
+  await page.getByText("Boss插件", { exact: true }).click();
+  await page.getByRole("button", { name: /查询$/ }).click();
+  await expect.poll(() => state.calls.filter((call) => call.path === "/api/candidates" && call.method === "GET").at(-1)?.query.get("source_type")).toBe("browser_extension:boss");
+  expect(state.errors).toEqual([]);
+});
+
+/** 设置持久化只修改下载开关，重新打开仍显示保存后的值。 */
+test("简历库下载导入默认开启并可保存关闭", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  await page.goto("/admin/resumes");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "简历库设置" });
+  const toggle = dialog.getByRole("switch", { name: "将下载的简历通过AI导入到GoodHR" });
+  await expect(toggle).toBeChecked(); await expect(toggle).toBeEnabled();
+  await toggle.click(); await dialog.getByRole("button", { name: "保存设置" }).click();
+  await expect(dialog).toBeHidden();
+  expect(state.calls.find((call) => call.path === "/api/resume-library/settings" && call.method === "PATCH")?.body).toEqual({ auto_import_downloads: false });
+  await page.getByRole("button", { name: "设置", exact: true }).click(); await expect(toggle).not.toBeChecked();
+  expect(state.errors).toEqual([]);
+});
+
+/** 消息只显示标题，打开面板不标记已读，展开后恢复对应本地导入草稿。 */
+test("铃铛展开消息才已读并可打开失败导入任务", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.messages = [{ id: "message-one", title: "这份下载简历还没入库", body: "手机号没有解析完整，请补充后确认。", action_url: "/admin/resumes?resume_import_id=download-task", created_at: "2026-10-10T20:00:00+08:00" }];
+  state.task.id = "download-task";
+  await page.goto("/admin/resumes");
+  const bell = page.getByRole("button", { name: "消息中心", exact: true });
+  await expect(bell).toHaveAttribute("title", "1 条未读消息"); await bell.click();
+  const panel = page.getByTestId("message-center-panel");
+  await expect(panel.getByText("这份下载简历还没入库", { exact: true })).toBeVisible();
+  await expect(panel.getByText("手机号没有解析完整，请补充后确认。", { exact: true })).toHaveCount(0);
+  expect(state.calls.filter((call) => call.path.endsWith("/read"))).toHaveLength(0);
+  await panel.getByText("这份下载简历还没入库", { exact: true }).click();
+  await expect(panel.getByText("手机号没有解析完整，请补充后确认。", { exact: true })).toBeVisible();
+  await expect(bell).toHaveAttribute("title", "消息中心");
+  await panel.getByRole("link", { name: "去处理" }).click();
+  await expect(page.getByRole("dialog", { name: "AI 批量解析简历", exact: true })).toBeVisible();
+  await expect.poll(() => state.calls.some((call) => call.path === "/api/v1/resume-import/tasks/download-task")).toBe(true);
+  expect(state.calls.filter((call) => call.path.endsWith("/read"))).toHaveLength(1);
+  await page.screenshot({ path: `${screenshotDirectory}/download-message-task.png`, fullPage: true });
+  expect(state.errors).toEqual([]);
+});
+
+/** 慢请求结束后才安排下一轮，避免每10秒叠加同一个查询。 */
+test("消息状态每十秒串行检查且关闭面板不查正文", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  let release!: () => void; state.holdMessageSummary = new Promise<void>((resolve) => { release = resolve; });
+  await page.goto("/admin/resumes");
+  await expect(page.getByRole("button", { name: "消息中心", exact: true })).toBeVisible();
+  await page.waitForTimeout(250);
+  const initialRequests = state.calls.filter((call) => call.path === "/api/messages/summary").length;
+  expect(initialRequests).toBeGreaterThan(0);
+  await page.waitForTimeout(11000);
+  expect(state.calls.filter((call) => call.path === "/api/messages/summary")).toHaveLength(initialRequests);
+  state.holdMessageSummary = undefined; release();
+  await expect.poll(() => state.calls.filter((call) => call.path === "/api/messages/summary").length, { timeout: 13000 }).toBe(initialRequests + 1);
+  expect(state.calls.filter((call) => call.path === "/api/messages" || call.path.endsWith("/read"))).toHaveLength(0);
+  expect(state.errors).toEqual([]);
+});
+
+/** 旧轮询在已读请求后回包时，不能把红点数量和版本退回旧值。 */
+test("迟到的轮询不会覆盖展开后的已读状态", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.messages = [{ id: "late-message", title: "待处理的下载", body: "请核对手机号。" }];
+  await page.goto("/admin/resumes");
+  const bell = page.getByRole("button", { name: "消息中心", exact: true });
+  await expect(bell).toHaveAttribute("title", "1 条未读消息");
+  let release!: () => void; state.holdMessageSummary = new Promise<void>((resolve) => { release = resolve; });
+  const baseline = state.calls.filter((call) => call.path === "/api/messages/summary").length;
+  await expect.poll(() => state.calls.filter((call) => call.path === "/api/messages/summary").length, { timeout: 13000 }).toBe(baseline + 1);
+  await bell.click(); await page.getByTestId("message-center-panel").getByText("待处理的下载", { exact: true }).click();
+  await expect(bell).toHaveAttribute("title", "消息中心");
+  state.holdMessageSummary = undefined; release(); await page.waitForTimeout(300);
+  await expect(bell).toHaveAttribute("title", "消息中心");
   expect(state.errors).toEqual([]);
 });

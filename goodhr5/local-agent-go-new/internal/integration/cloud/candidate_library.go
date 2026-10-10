@@ -30,6 +30,7 @@ type LibraryCandidate struct {
 	PlatformID          string   `json:"platform_id,omitempty"`
 	PlatformCandidateID string   `json:"platform_candidate_id,omitempty"`
 	SourceURL           string   `json:"source_url,omitempty"`
+	IsResume            *bool    `json:"is_resume,omitempty"`
 }
 
 // CandidateSaveResult 返回云端确认的候选人编号和版本，供入库重试使用。
