@@ -117,6 +117,8 @@ const menuGroups: MenuGroup[] = [
     items: [
       ["/admin/positions", "岗位管理", WorkRoundedIcon],
       ["/admin/resumes", "简历库", ArticleRoundedIcon],
+      ["/admin/recruitment", "企业招聘", WorkRoundedIcon],
+      ["/admin/recruitment/settings", "招聘设置", SettingsRoundedIcon],
     ],
   },
   {
@@ -602,7 +604,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   }, [notice, notification]);
 
   const selectedMenu = visibleGroups
-    .flatMap((group) => group.items)
+    .flatMap((group) => group.items).sort(([first], [second]) => second.length - first.length)
     .find(([href]) =>
       href === "/admin" ? pathname === href : pathname.startsWith(href),
     )?.[0];

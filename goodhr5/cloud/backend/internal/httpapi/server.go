@@ -29,6 +29,8 @@ type Server struct {
 	positionLogs          *PositionLogService
 	browserEvents         *BrowserEventService
 	candidates            *CandidateService
+	recruitment           *RecruitmentService
+	recruitmentMail       *RecruitmentMailService
 	candidateShares       *CandidateShareService
 	messages              *MessageService
 	resumeLibrarySettings *ResumeLibrarySettingsService
@@ -87,6 +89,12 @@ func NewServer() (*Server, error) {
 	cookieStore := config.CookieStore(db)
 	platformAccountStore := config.PlatformAccountStore(db)
 	positionStore := config.PositionStore(db)
+	var recruitmentStore RecruitmentStore = NewMemoryRecruitmentStore()
+	var recruitmentMailStore RecruitmentMailStore = NewMemoryRecruitmentMailStore()
+	if db != nil {
+		recruitmentStore = NewPostgresRecruitmentStore(db)
+		recruitmentMailStore = NewPostgresRecruitmentMailStore(db)
+	}
 	aiConfigStore := newModelRestrictedAIConfigStore(config.AIConfigStore(db), systemConfigStore)
 	aiWalletStore := config.AIWalletStore(db)
 	aiWalletService := NewAIWalletService(nil, aiWalletStore, aiConfigStore, systemConfigStore)
@@ -106,6 +114,8 @@ func NewServer() (*Server, error) {
 		NewWechatRewardNoticeService(NewPostgresWechatRewardNoticeStore(db), mailer, systemConfigStore).Start(context.Background())
 	}
 	candidates := NewCandidateService(auth, candidateStore, tenantStore, positionStore)
+	recruitment := NewRecruitmentService(auth, recruitmentStore, tenantStore, candidateStore, positionStore)
+	recruitmentMail := NewRecruitmentMailService(auth, recruitmentMailStore, tenantStore, mailer, recruitment)
 	messages := NewMessageService(auth, config.MessageStore(db))
 	messages.StartCleanup(context.Background())
 	return &Server{
@@ -123,6 +133,8 @@ func NewServer() (*Server, error) {
 		positionLogs:          positionLogs,
 		browserEvents:         NewBrowserEventService(auth, db),
 		candidates:            candidates,
+		recruitment:           recruitment,
+		recruitmentMail:       recruitmentMail,
 		candidateShares:       NewCandidateShareService(candidates, NewCandidateShareStore(db)),
 		messages:              messages,
 		resumeLibrarySettings: NewResumeLibrarySettingsService(auth, config.ResumeLibrarySettingsStore(db)),
@@ -241,6 +253,11 @@ func (s *Server) Routes() http.Handler {
 	// 注册简历库接口，用于查看当前团队或指定岗位运行下的候选人。
 	mux.HandleFunc("/api/candidates", s.candidates.Collection)
 	mux.HandleFunc("/api/candidates/", s.candidateRoute)
+	// 企业招聘流程独立于猎头推荐和本地招聘平台运行，候选人仅通过受限邀请链接回应。
+	if s.recruitment != nil && s.recruitmentMail != nil {
+		mux.HandleFunc("/api/recruitment/", s.recruitmentRoute)
+		mux.HandleFunc("/api/public/recruitment/invitations/", s.recruitment.Invitation)
+	}
 	// 注册平台配置接口，用于读取平台选择器和行为配置供岗位运行执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
 	mux.HandleFunc("/api/system/app-config", s.GetAppConfig)
@@ -260,6 +277,39 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/cookies/create", s.cookies.Create)
 	mux.HandleFunc("/api/cookies/", s.cookieRoute)
 	return cors(s.extensionSessionGuard(mux))
+}
+
+// recruitmentRoute 将企业招聘设置、流程操作和邮件接口分发给各自服务。
+func (s *Server) recruitmentRoute(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/recruitment/")
+	switch {
+	case path == "company":
+		s.recruitmentMail.Company(w, r)
+	case path == "mail-templates":
+		s.recruitmentMail.Templates(w, r)
+	case strings.HasPrefix(path, "mail-templates/"):
+		s.recruitmentMail.TemplateDetail(w, r)
+	case path == "placeholders":
+		s.recruitmentMail.Placeholders(w, r)
+	case path == "mail-preview":
+		s.recruitmentMail.Preview(w, r)
+	case path == "mail-send":
+		s.recruitmentMail.Send(w, r)
+	case path == "mail-history":
+		s.recruitmentMail.History(w, r)
+	case path == "workflows":
+		s.recruitment.Workflows(w, r)
+	case strings.HasPrefix(path, "workflows/"):
+		s.recruitment.WorkflowDetail(w, r)
+	case path == "applications":
+		s.recruitment.Applications(w, r)
+	case strings.HasPrefix(path, "applications/") && strings.HasSuffix(path, "/actions"):
+		s.recruitment.ApplicationAction(w, r)
+	case strings.HasPrefix(path, "applications/"):
+		s.recruitment.ApplicationDetail(w, r)
+	default:
+		writeError(w, http.StatusNotFound, "这个招聘入口暂时没找到")
+	}
 }
 
 // positionRoute 根据路径分发岗位详情、日志和本地程序同步请求。

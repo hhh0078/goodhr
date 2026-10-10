@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const previewOrigin = new URL(process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190").origin;
+const cloudOrigin = new URL(process.env.NEXT_PUBLIC_CLOUD_API_BASE || "http://127.0.0.1:8084").origin;
 const screenshotDirectory = resolve("artifacts/resume-library");
 // 合成16px纯色PNG只用于界面验证，不含任何真实候选人的照片。
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
@@ -19,7 +20,7 @@ async function mockResumeSession(page: Page): Promise<State> {
   await page.context().route("**/*", async (route) => {
     const request = route.request(); const url = new URL(request.url()); const method = request.method();
     if (url.origin === previewOrigin && !url.pathname.startsWith("/api/")) return route.continue();
-    if (![previewOrigin, "http://127.0.0.1:8084", "http://127.0.0.1:43129", "http://127.0.0.1:43139", "https://goodhr.58it.cn"].includes(url.origin)) return route.abort();
+    if (![previewOrigin, cloudOrigin, "http://127.0.0.1:8084", "http://127.0.0.1:43129", "http://127.0.0.1:43139", "https://goodhr.58it.cn"].includes(url.origin)) return route.abort();
     const headers = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
     let body: any; try { body = request.postDataJSON(); } catch { /* 上传和 GET 无 JSON 正文。 */ }
@@ -199,6 +200,7 @@ test("内置示例登录后可读，预留身份缺标记仍不能编辑、分�
   await expect(page.getByTestId("resume-builtin-notice")).toBeVisible();
   await expect(workspace.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
   await expect(workspace.getByRole("button", { name: "分享", exact: true })).toHaveCount(0);
+  await expect(workspace.getByText("企业招聘流程", { exact: true })).toHaveCount(0);
   await expect(workspace.getByRole("button", { name: "生成摘要", exact: true })).toBeDisabled();
   await expect(page.getByTestId("resume-notes-section").getByRole("button", { name: "加备注", exact: true })).toBeDisabled();
   await expect(page.getByRole("combobox", { name: "选择推荐岗位" })).toBeDisabled();
