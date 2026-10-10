@@ -72,7 +72,6 @@ func NewServer() (*Server, error) {
 	} else {
 		wechatFollowStore = NewMemoryWechatFollowStore(subscriptionStore.(*MemorySubscriptionStore))
 	}
-	adminUserStore := config.AdminUserStore(db, subscriptionStore)
 	invitationStore := config.InvitationStore(db)
 	activationCodeStore := config.ActivationCodeStore(db)
 	authStore, err := config.AuthStore()
@@ -106,6 +105,7 @@ func NewServer() (*Server, error) {
 	notificationProfileStore := config.NotificationProfileStore(db)
 	emailCampaignStore := config.EmailCampaignStore(db)
 	paymentStore := config.PaymentStore(db)
+	adminUserStore := config.AdminUserStore(db, subscriptionStore, aiWalletStore, paymentStore)
 	positionLogs := NewPositionLogService(auth, positionStore, config.PositionLogStore(db), tenantStore)
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(systemConfigStore))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)

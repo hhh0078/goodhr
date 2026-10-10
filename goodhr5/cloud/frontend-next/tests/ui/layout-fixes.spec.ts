@@ -84,6 +84,7 @@ type LayoutMock = {
   errors: string[];
   phase: string;
   notes: typeof candidate.notes;
+  userStats: Record<string, unknown>;
 };
 const mocks = new WeakMap<Page, LayoutMock>();
 
@@ -111,6 +112,7 @@ async function mockLayoutSession(page: Page) {
     errors: [],
     phase: "页面加载",
     notes: [...candidate.notes],
+    userStats: { today_registered_count: 1, agent_binding_count: 1 },
   };
   page.on("pageerror", (error) =>
     state.errors.push(`[${state.phase}] ${error.stack || error.message}`),
@@ -310,7 +312,7 @@ async function mockLayoutSession(page: Page) {
           ],
           total: 1,
           page: 1,
-          stats: { today_registered_count: 1, agent_binding_count: 1 },
+          stats: state.userStats,
         };
       else if (url.pathname === "/api/platform-accounts")
         data = {
@@ -698,6 +700,74 @@ for (const width of [1390, 390]) {
     await saveLayoutScreenshot(page, `resume-detail-${width}`);
   });
 }
+
+test("用户金额统计保留负数和充值金额，搜索不改变全局统计，说明可查看", async ({ page }) => {
+  const state = mocks.get(page)!;
+  state.userStats = {
+    today_registered_count: 2,
+    agent_binding_count: 797,
+    remaining_ai_balance: "-12.3400",
+    ai_recharge_amount: "2468.90",
+  };
+  await page.setViewportSize({ width: 1390, height: 1000 });
+  await page.goto("/admin/users");
+  const remaining = page.getByTestId("users-remaining-ai-balance");
+  const recharge = page.getByTestId("users-ai-recharge-amount");
+  await expect(remaining).toHaveText("剩余余额 -12.3400元");
+  await expect(recharge).toHaveText("充值金额 2468.90元");
+  await expect(remaining).toHaveCSS("white-space", "nowrap");
+  const remainingBox = await visibleBox(remaining);
+  const rechargeBox = await visibleBox(recharge);
+  expect(Math.abs(remainingBox.y - rechargeBox.y)).toBeLessThan(2);
+  await remaining.focus();
+  await expect(page.getByRole("tooltip")).toHaveText(
+    "全体用户 AI 余额合计，减去每人 0.50 元赠送额。",
+  );
+  await page.getByLabel("搜索用户", { exact: true }).fill("只查一个账号");
+  await page.getByRole("main").getByRole("button", { name: /搜索$/ }).click();
+  await expect.poll(() => state.calls.some((call) =>
+    call.path === "/api/admin/users" && new URLSearchParams(call.query).get("q") === "只查一个账号",
+  )).toBe(true);
+  await expect(remaining).toHaveText("剩余余额 -12.3400元");
+  await expect(recharge).toHaveText("充值金额 2468.90元");
+  await recharge.hover();
+  await expect(page.getByRole("tooltip")).toHaveText(
+    "只合计支付成功的 AI 余额充值订单，不含会员订单、取消或失败的订单。",
+  );
+  expect(state.calls.some((call) => call.path === "/api/admin/users" && call.method !== "GET")).toBe(false);
+  await saveLayoutScreenshot(page, "users-ai-finance-desktop");
+  state.userStats = {
+    remaining_ai_balance: "-90071992547409.9301",
+    ai_recharge_amount: "90071992547409.93",
+  };
+  await page.getByRole("main").getByRole("button", { name: /刷新$/ }).click();
+  await expect(remaining).toHaveText("剩余余额 -90071992547409.9301元");
+  await expect(recharge).toHaveText("充值金额 90071992547409.93元");
+});
+
+test("用户金额统计在手机上可换行，缺失无效金额显示未知，零金额正常显示", async ({ page }) => {
+  const state = mocks.get(page)!;
+  await page.setViewportSize({ width: 390, height: 1000 });
+  await page.goto("/admin/users");
+  const remaining = page.getByTestId("users-remaining-ai-balance");
+  const recharge = page.getByTestId("users-ai-recharge-amount");
+  await expect(remaining).toHaveText("剩余余额 --元");
+  await expect(recharge).toHaveText("充值金额 --元");
+  await expectWithinViewport(page, remaining);
+  await expectWithinViewport(page, recharge);
+  state.userStats = { remaining_ai_balance: "not-a-number", ai_recharge_amount: "0x10" };
+  await page.getByRole("main").getByRole("button", { name: /刷新$/ }).click();
+  await expect(remaining).toHaveText("剩余余额 --元");
+  await expect(recharge).toHaveText("充值金额 --元");
+  state.userStats = { remaining_ai_balance: "0.0000", ai_recharge_amount: 0 };
+  await page.getByRole("main").getByRole("button", { name: /刷新$/ }).click();
+  await expect(remaining).toHaveText("剩余余额 0.0000元");
+  await expect(recharge).toHaveText("充值金额 0.00元");
+  await expectWithinViewport(page, remaining);
+  await expectWithinViewport(page, recharge);
+  expect(state.calls.some((call) => call.path === "/api/admin/users" && call.method !== "GET")).toBe(false);
+  await saveLayoutScreenshot(page, "users-ai-finance-mobile");
+});
 
 test("1390px 用户长邮箱、余额与日期保持横排，流程摘要 Tooltip 保留全文", async ({
   page,

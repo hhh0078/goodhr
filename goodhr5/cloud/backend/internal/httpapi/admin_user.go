@@ -1,4 +1,4 @@
-// 本文件负责超级管理员查看用户列表，并手动调整用户会员天数。
+// 本文件负责超级管理员查看用户列表及全库金额统计，并手动调整用户会员天数和 AI 余额。
 package httpapi
 
 import (
@@ -47,9 +47,42 @@ type AdminUserListResult struct {
 }
 
 // AdminUserStats 表示后台用户管理统计数据。
+// 钱包单位为 0.0001 元，充值单位为分；金额字符串提供无浮点损失的前端展示值。
 type AdminUserStats struct {
-	TodayRegisteredCount int `json:"today_registered_count"`
-	AgentBindingCount    int `json:"agent_binding_count"`
+	TodayRegisteredCount     int    `json:"today_registered_count"`
+	AgentBindingCount        int    `json:"agent_binding_count"`
+	TotalUserCount           int64  `json:"total_user_count"`
+	TotalAIBalanceUnits      int64  `json:"total_ai_balance_units"`
+	SignupGiftDeductionUnits int64  `json:"signup_gift_deduction_units"`
+	RemainingAIBalanceUnits  int64  `json:"remaining_ai_balance_units"`
+	AIRechargeAmountCents    int64  `json:"ai_recharge_amount_cents"`
+	TotalAIBalance           string `json:"total_ai_balance"`
+	SignupGiftDeduction      string `json:"signup_gift_deduction"`
+	RemainingAIBalance       string `json:"remaining_ai_balance"`
+	AIRechargeAmount         string `json:"ai_recharge_amount"`
+}
+
+// adminUserSignupGiftDeductionUnits 固定按每位当前用户赠送 0.50 元扣除统计金额，不跟随新的注册赠送配置变化。
+const adminUserSignupGiftDeductionUnits int64 = 50 * aiWalletUnitsPerCent
+
+// withFinancialTotals 按每位当前用户固定赠送 0.50 元计算统计扣除额，并保留四位余额精度和负值；不修改任何钱包数据。
+func (stats AdminUserStats) withFinancialTotals() AdminUserStats {
+	stats.SignupGiftDeductionUnits = stats.TotalUserCount * adminUserSignupGiftDeductionUnits
+	stats.RemainingAIBalanceUnits = stats.TotalAIBalanceUnits - stats.SignupGiftDeductionUnits
+	stats.TotalAIBalance = aiUnitsToYuanString(stats.TotalAIBalanceUnits)
+	stats.SignupGiftDeduction = aiUnitsToYuanString(stats.SignupGiftDeductionUnits)
+	stats.RemainingAIBalance = aiUnitsToYuanString(stats.RemainingAIBalanceUnits)
+	stats.AIRechargeAmount = adminStatsCentsToYuanString(stats.AIRechargeAmountCents)
+	return stats
+}
+
+// adminStatsCentsToYuanString 使用整数计算分到元的两位小数表示，避免汇总充值金额时丢失浮点精度。
+func adminStatsCentsToYuanString(cents int64) string {
+	whole, fraction, sign := cents/100, cents%100, ""
+	if cents < 0 {
+		sign, whole, fraction = "-", -whole, -fraction
+	}
+	return fmt.Sprintf("%s%d.%02d", sign, whole, fraction)
 }
 
 // AdminUserStore 定义用户管理读取接口。
@@ -596,11 +629,13 @@ func normalizeAdminUserPageSize(pageSize int) int {
 
 type MemoryAdminUserStore struct {
 	subscriptions *MemorySubscriptionStore
+	aiWallet      AIWalletStore
+	payments      PaymentStore
 }
 
-// NewMemoryAdminUserStore 创建内存用户管理存储。
-func NewMemoryAdminUserStore(subscriptions *MemorySubscriptionStore) *MemoryAdminUserStore {
-	return &MemoryAdminUserStore{subscriptions: subscriptions}
+// NewMemoryAdminUserStore 创建内存用户管理存储，复用同一用户订阅、钱包和支付订单用于全库统计。
+func NewMemoryAdminUserStore(subscriptions *MemorySubscriptionStore, aiWallet AIWalletStore, payments PaymentStore) *MemoryAdminUserStore {
+	return &MemoryAdminUserStore{subscriptions: subscriptions, aiWallet: aiWallet, payments: payments}
 }
 
 // ListUsers 读取内存用户分页列表。
@@ -640,18 +675,39 @@ func (s *MemoryAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserLis
 // Stats 读取内存用户管理统计。
 func (s *MemoryAdminUserStore) Stats() (AdminUserStats, error) {
 	if s == nil || s.subscriptions == nil {
-		return AdminUserStats{}, nil
+		return (AdminUserStats{}).withFinancialTotals(), nil
 	}
 	today := s.subscriptions.now().Format(time.DateOnly)
 	count := 0
-	for range s.subscriptions.items {
+	var stats AdminUserStats
+	for email := range s.subscriptions.items {
 		// 内存订阅没有真实注册时间，测试环境按当前用户数计算今日注册。
 		count++
+		stats.TotalUserCount++
+		if s.aiWallet != nil {
+			balance, err := s.aiWallet.BalanceUnits(email)
+			if err != nil {
+				return AdminUserStats{}, err
+			}
+			stats.TotalAIBalanceUnits += balance
+		}
 	}
 	if today == "" {
 		count = 0
 	}
-	return AdminUserStats{TodayRegisteredCount: count}, nil
+	stats.TodayRegisteredCount = count
+	if s.payments != nil {
+		orders, err := s.payments.ListAll()
+		if err != nil {
+			return AdminUserStats{}, err
+		}
+		for _, order := range orders {
+			if order.OrderType == "ai_balance" && order.Status == "paid" {
+				stats.AIRechargeAmountCents += int64(order.AmountCents)
+			}
+		}
+	}
+	return stats.withFinancialTotals(), nil
 }
 
 // ---------- PostgreSQL 实现 ----------
@@ -745,10 +801,14 @@ func (s *PostgresAdminUserStore) Stats() (AdminUserStats, error) {
 	err := s.db.QueryRowContext(ctx, `
 		SELECT
 			COUNT(*) FILTER (WHERE u.created_at >= CURRENT_DATE)::int,
-			(SELECT COUNT(*)::int FROM local_agents la WHERE la.bind_status = 'active')
+			(SELECT COUNT(*)::int FROM local_agents la WHERE la.bind_status = 'active'),
+			COUNT(*),
+			COALESCE(SUM(u.ai_balance_units), 0)::bigint,
+			(SELECT COALESCE(SUM(po.amount_cents), 0)::bigint
+			 FROM payment_orders po WHERE po.order_type = 'ai_balance' AND po.status = 'paid')
 		FROM users u
-	`).Scan(&stats.TodayRegisteredCount, &stats.AgentBindingCount)
-	return stats, err
+	`).Scan(&stats.TodayRegisteredCount, &stats.AgentBindingCount, &stats.TotalUserCount, &stats.TotalAIBalanceUnits, &stats.AIRechargeAmountCents)
+	return stats.withFinancialTotals(), err
 }
 
 // adminUserWhere 构建用户列表搜索条件。

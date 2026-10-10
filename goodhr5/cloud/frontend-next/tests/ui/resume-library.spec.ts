@@ -9,7 +9,7 @@ const screenshotDirectory = resolve("artifacts/resume-library");
 // 合成16px纯色PNG只用于界面验证，不含任何真实候选人的照片。
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 type Call = { path: string; method: string; body: any; query: URLSearchParams };
-type State = { calls: Call[]; notes: any[]; recommendations: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string }>; user: { id: string; email: string }; candidates: any[]; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void> };
+type State = { calls: Call[]; notes: any[]; recommendations: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string }>; user: { id: string; email: string }; candidates: any[]; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; taskPlain404?: boolean; taskListEmpty?: boolean; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void> };
 const existing = { id: "resume-existing", candidate_name: "原有候选人", phone: "13800138000", row_version: 3, source_type: "automatic", education_level: "本科", expected_salary_min: null, expected_salary_max: null, work_experiences: [{ company_name: "原有公司", position_name: "产品经理", start_ym: "2021-01", content: "已有工作经历保留" }], user_email: "test@example.invalid", created_at: "2026-10-10T10:00:00+08:00", ai: { detail: { score: null, reason: "" } } };
 test.use({ storageState: { cookies: [], origins: [{ origin: previewOrigin, localStorage: [{ name: "goodhr5_access_token", value: "resume-test-only" }] }] } });
 
@@ -46,6 +46,8 @@ async function mockResumeSession(page: Page): Promise<State> {
         data = { ok: true, data: { task: state.summaryTask } };
       }
       else if (url.pathname.startsWith("/api/v1/resume-import/tasks")) {
+        if (state.taskPlain404) return route.fulfill({ status: 404, headers, contentType: "text/plain", body: "404 page not found" });
+        if (state.taskListEmpty && method === "GET" && url.pathname === "/api/v1/resume-import/tasks") return route.fulfill({ status: 200, headers, json: { ok: true, data: { tasks: [] } } });
         if (url.pathname.endsWith("/confirm")) {
           if (state.calls.filter((call) => call.path.endsWith("/confirm")).length === state.failConfirmAt) return route.fulfill({ status: 503, headers, json: { error: { message: "模拟本地确认暂时没完成" } } });
           for (const item of body.items) {
@@ -110,18 +112,116 @@ async function mockResumeSession(page: Page): Promise<State> {
   return state;
 }
 
-/** openManual 通过两方式添加弹框进入手动录入。 */
+/** openManual 在同一添加弹框中选择手动标签，不经过继续按钮或第二层录入弹框。 */
 async function openManual(page: Page) {
   await page.getByRole("button", { name: "添加", exact: true }).click();
   const chooser = page.getByRole("dialog", { name: "添加简历", exact: true });
-  await expect(chooser.getByText("AI 批量解析", { exact: true })).toBeVisible();
-  await chooser.getByRole("button", { name: "继续", exact: true }).click();
-  return page.getByRole("dialog", { name: "手动添加简历", exact: true });
+  await expect(chooser.getByRole("tab", { name: "AI 批量上传", exact: true })).toBeVisible();
+  await chooser.getByRole("tab", { name: "手动添加", exact: true }).click();
+  return chooser;
 }
 /** dismissNotices 等待短通知自动消失，避免遮住布局验收截图。 */
 async function dismissNotices(page: Page) {
   await expect(page.locator(".ant-notification-notice")).toHaveCount(0);
 }
+
+/** 添加方式直接切换且草稿分别保留，避免改版后重新出现两层选择弹框。 */
+test("添加默认AI三标签直接切换，文件文本和手工草稿各自保留，插件引导可前往下载", async ({ page }) => {
+  const state = await mockResumeSession(page); state.taskListEmpty = true;
+  await page.goto("/admin/resumes");
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "添加简历", exact: true });
+  await expect(dialog.getByRole("tab")).toHaveCount(3);
+  await expect(dialog.getByRole("tab", { name: "AI 批量上传", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(dialog.getByRole("button", { name: "继续", exact: true })).toHaveCount(0);
+  await dialog.getByPlaceholder("也可以粘贴一份简历文本。").fill("合成AI文本草稿，尚未解析。");
+  await dialog.locator('input[type="file"]').setInputFiles({ name: "保留的合成简历.txt", mimeType: "text/plain", buffer: Buffer.from("仅用于测试的合成简历") });
+  await expect(dialog.getByText("保留的合成简历.txt", { exact: true })).toBeVisible();
+  await dialog.getByRole("tab", { name: "手动添加", exact: true }).click();
+  await dialog.getByLabel("姓名", { exact: true }).fill("手工草稿候选人");
+  await dialog.getByLabel("手机号", { exact: true }).fill("13900139000");
+  await dialog.getByLabel("首条备注", { exact: true }).fill("切换标签后仍需保留的备注");
+  await dialog.getByRole("tab", { name: "浏览器插件一键导入", exact: true }).click();
+  await expect(dialog.getByText(/Chrome 已可下载，Firefox 正在准备中/)).toBeVisible();
+  await expect(dialog.getByRole("link", { name: /前往下载$/ })).toHaveAttribute("href", "/download#browser-extension");
+  await expect(dialog.getByRole("link", { name: /前往下载$/ })).toHaveAttribute("target", "_blank");
+  mkdirSync(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: resolve(screenshotDirectory, "add-plugin-guide.png"), fullPage: true, animations: "disabled" });
+  await dialog.getByRole("tab", { name: "AI 批量上传", exact: true }).click();
+  await expect(dialog.getByPlaceholder("也可以粘贴一份简历文本。")).toHaveValue("合成AI文本草稿，尚未解析。");
+  await expect(dialog.getByText("保留的合成简历.txt", { exact: true })).toBeVisible();
+  await page.screenshot({ path: resolve(screenshotDirectory, "add-ai-tabs.png"), fullPage: true, animations: "disabled" });
+  await dialog.getByRole("tab", { name: "手动添加", exact: true }).click();
+  await expect(dialog.getByLabel("姓名", { exact: true })).toHaveValue("手工草稿候选人");
+  await expect(dialog.getByLabel("手机号", { exact: true })).toHaveValue("13900139000");
+  await expect(dialog.getByLabel("首条备注", { exact: true })).toHaveValue("切换标签后仍需保留的备注");
+  await page.screenshot({ path: resolve(screenshotDirectory, "add-manual-tabs.png"), fullPage: true, animations: "disabled" });
+  expect(state.calls.filter((call) => call.method === "POST" && (call.path === "/api/candidates" || call.path.endsWith("/notes") || call.path.endsWith("/recommendations") || call.path.startsWith("/api/v1/resume-import")))).toHaveLength(0);
+  expect(state.errors).toEqual([]);
+});
+
+/** 真实旧版Agent响应为纯文本404，界面应提供更新路径并继续允许其他添加方式。 */
+test("本地导入纯文本404提示更新，手动及插件仍可用且不展示JSON解析异常", async ({ page }) => {
+  const state = await mockResumeSession(page); state.taskPlain404 = true;
+  await page.goto("/admin/resumes");
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "添加简历", exact: true });
+  await expect(dialog.getByText(/请更新到 6\.2\.10\.3 或更新版本/)).toBeVisible();
+  await expect(dialog.getByRole("link", { name: "去下载更新", exact: true })).toHaveAttribute("href", "/download#local-agent");
+  await expect(dialog).not.toContainText("Unexpected non-whitespace character");
+  await expect(dialog).not.toContainText("SyntaxError");
+  await dialog.getByRole("tab", { name: "手动添加", exact: true }).click();
+  await dialog.getByLabel("姓名", { exact: true }).fill("旧版程序下的手工候选人");
+  await dialog.getByLabel("手机号", { exact: true }).fill("13900139000");
+  await expect(dialog.getByRole("button", { name: "检查并保存", exact: true })).toBeEnabled();
+  await dialog.getByRole("tab", { name: "浏览器插件一键导入", exact: true }).click();
+  await expect(dialog.getByRole("link", { name: /前往下载$/ })).toBeVisible();
+  await dialog.getByRole("tab", { name: "手动添加", exact: true }).click();
+  await dialog.getByRole("button", { name: "检查并保存", exact: true }).click();
+  await page.getByRole("dialog", { name: "确认入库内容", exact: true }).getByRole("button", { name: "确认保存", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(state.calls.filter((call) => call.path === "/api/candidates" && call.method === "POST")).toHaveLength(1);
+  expect(state.calls.filter((call) => call.path.startsWith("/api/v1/resume-import") && call.method === "POST")).toHaveLength(0);
+  expect(state.errors).toEqual([]);
+});
+
+/** 用实际元素尺寸和字重验证候选人摘要的邻接、居中与公司重点，避免只检查class存在。 */
+test("候选人手机号紧邻姓名且头像垂直居中，公司名称比职位日期更粗", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  Object.assign(state.candidates[0], { avatar_data_url: syntheticAvatar, gender: "male", age: 34, work_years: "8", expected_position: "软件研发负责人", expected_region: "合成城市示例区域", expected_salary_text: "面议", work_status: "在职，考虑机会", tags: ["合成示例标签", "无真实履历"] });
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  await page.goto("/admin/resumes");
+  const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: "原有候选人", exact: true }) });
+  const name = row.getByRole("button", { name: "原有候选人", exact: true });
+  const phone = row.getByText(existing.phone, { exact: true });
+  const avatar = row.getByRole("img", { name: "原有候选人头像", exact: true });
+  const summary = name.locator("..").locator("..");
+  await expect(avatar).toBeVisible();
+  const [nameBox, phoneBox, avatarBox, summaryBox] = await Promise.all([name.boundingBox(), phone.boundingBox(), avatar.boundingBox(), summary.boundingBox()]);
+  if (!nameBox || !phoneBox || !avatarBox || !summaryBox) throw new Error("候选人姓名、手机号或头像的实际尺寸没有读到。");
+  expect(phoneBox.x - nameBox.x - nameBox.width).toBeGreaterThanOrEqual(6);
+  expect(phoneBox.x - nameBox.x - nameBox.width).toBeLessThanOrEqual(10);
+  expect(Math.abs(phoneBox.y + phoneBox.height / 2 - nameBox.y - nameBox.height / 2)).toBeLessThanOrEqual(2);
+  expect(summaryBox.height).toBeGreaterThan(avatarBox.height);
+  expect(Math.abs(avatarBox.y + avatarBox.height / 2 - summaryBox.y - summaryBox.height / 2)).toBeLessThanOrEqual(1);
+  const company = row.getByText("原有公司", { exact: true });
+  const companyWeight = await company.evaluate((element) => Number(getComputedStyle(element).fontWeight));
+  const bodyWeight = await company.locator("..").evaluate((element) => Number(getComputedStyle(element).fontWeight));
+  expect(companyWeight).toBeGreaterThan(bodyWeight);
+  await name.click();
+  const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
+  const detailName = drawer.getByRole("heading", { name: "原有候选人", exact: true });
+  const detailPhone = drawer.getByText(existing.phone, { exact: true });
+  const [detailNameBox, detailPhoneBox] = await Promise.all([detailName.boundingBox(), detailPhone.boundingBox()]);
+  if (!detailNameBox || !detailPhoneBox) throw new Error("详情姓名或手机号的实际尺寸没有读到。");
+  expect(detailPhoneBox.x - detailNameBox.x - detailNameBox.width).toBeGreaterThanOrEqual(8);
+  expect(detailPhoneBox.x - detailNameBox.x - detailNameBox.width).toBeLessThanOrEqual(12);
+  const detailCompany = drawer.getByText("原有公司", { exact: true });
+  expect(await detailCompany.evaluate((element) => Number(getComputedStyle(element).fontWeight))).toBeGreaterThan(await detailCompany.locator("..").evaluate((element) => Number(getComputedStyle(element).fontWeight)));
+  mkdirSync(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: resolve(screenshotDirectory, "candidate-compact-profile.png"), fullPage: true, animations: "disabled" });
+  expect(state.errors).toEqual([]);
+});
 
 test("本地程序离线时关闭安装提示后仍可搜索、手动添加、备注和推荐，AI与浏览器保持连接检查", async ({ page }) => {
   const state = await mockResumeSession(page); state.agentOffline = true;
@@ -165,9 +265,8 @@ test("本地程序离线时关闭安装提示后仍可搜索、手动添加、�
   await drawer.getByRole("button", { name: "关闭", exact: true }).click();
   await page.getByRole("button", { name: "添加", exact: true }).click();
   const chooser = page.getByRole("dialog", { name: "添加简历", exact: true });
-  await chooser.getByText("AI 批量解析", { exact: true }).click();
-  await chooser.getByRole("button", { name: "继续", exact: true }).click();
-  const importer = page.getByRole("dialog", { name: "AI 批量解析简历", exact: true });
+  await chooser.getByRole("tab", { name: "AI 批量上传", exact: true }).click();
+  const importer = chooser;
   await expect(importer.getByText(/手动添加照常可用/)).toBeVisible();
   await importer.getByPlaceholder("也可以粘贴一份简历文本。").fill("合成资料，离线时不应提交解析。");
   await expect(importer.getByRole("button", { name: "开始解析", exact: true })).toBeDisabled();
@@ -193,10 +292,18 @@ test("内置示例登录后可读，预留身份缺标记仍不能编辑、分�
   await page.goto("/admin/resumes");
   await expect(page.getByText("共 0 份简历 · 另有 1 份内置示例", { exact: true })).toBeVisible();
   const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: "瓜瓜", exact: true }) });
+  const builtinAvatar = row.getByRole("img", { name: "瓜瓜头像", exact: true });
+  await expect(builtinAvatar).toHaveAttribute("src", "/assets/resume-guagua.jpg");
+  await expect.poll(() => builtinAvatar.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 100 && image.naturalHeight > 100)).toBe(true);
+  await expect(row.locator(".ant-avatar-string")).toHaveCount(0);
+  mkdirSync(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: resolve(screenshotDirectory, "builtin-guagua-avatar.png"), fullPage: true, animations: "disabled" });
   await expect(row.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
   await expect(row.getByRole("button", { name: "瓜瓜更多操作" })).toHaveCount(0);
   await row.getByRole("button", { name: "查看", exact: true }).click();
   const workspace = page.getByTestId("resume-detail-layout");
+  await expect(workspace.getByRole("img", { name: "瓜瓜头像", exact: true })).toHaveAttribute("src", "/assets/resume-guagua.jpg");
+  await expect.poll(() => workspace.getByRole("img", { name: "瓜瓜头像", exact: true }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(100);
   await expect(page.getByTestId("resume-builtin-notice")).toBeVisible();
   await expect(workspace.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
   await expect(workspace.getByRole("button", { name: "分享", exact: true })).toHaveCount(0);
@@ -406,7 +513,8 @@ test("精确重复先比较更新，空经历不会覆盖原简历", async ({ pa
   await editor.getByRole("button", { name: "检查并保存" }).click();
   await expect(editor.getByText(/手机号已有简历/)).toBeVisible();
   await editor.getByRole("button", { name: "比较更新" }).click();
-  const updater = page.getByRole("dialog", { name: "维护简历 · 原有候选人" });
+  const updater = editor;
+  await expect(updater.getByText(/将比较更新已有简历：原有候选人/)).toBeVisible();
   await updater.getByRole("button", { name: "检查并保存" }).click();
   await page.getByRole("dialog", { name: "确认更新内容" }).getByRole("button", { name: "确认保存" }).click();
   await expect(updater).not.toBeVisible();
@@ -767,12 +875,12 @@ test("重新打开恢复本地草稿，缺手机号只能补齐后逐份确认",
   await page.evaluate(() => localStorage.setItem("goodhr5_resume_import:resume-user", "import-test"));
   await page.getByRole("button", { name: "添加", exact: true }).click();
   const chooser = page.getByRole("dialog", { name: "添加简历", exact: true });
-  await chooser.getByText("AI 批量解析", { exact: true }).click(); await chooser.getByRole("button", { name: "继续", exact: true }).click();
-  const importer = page.getByRole("dialog", { name: "AI 批量解析简历", exact: true });
+  await chooser.getByRole("tab", { name: "AI 批量上传", exact: true }).click();
+  const importer = chooser;
   await expect(importer.getByText("待补手机号", { exact: true })).toBeVisible();
   await expect(importer.getByRole("button", { name: "确认无重复的完整草稿" })).toBeDisabled();
   await importer.getByRole("button", { name: "预览 / 补充" }).click();
-  const editor = page.getByRole("dialog", { name: "确认解析草稿", exact: true });
+  const editor = importer;
   await editor.getByLabel("手机号", { exact: true }).fill("13700137000"); await editor.getByRole("button", { name: "检查并保存" }).click();
   await page.getByRole("dialog", { name: "确认入库内容" }).getByRole("button", { name: "确认保存" }).click();
   await expect(importer.getByText("已入库", { exact: true }).first()).toBeVisible();
@@ -788,13 +896,14 @@ test("AI草稿比较更新只提交预览中的有效改动，空邮箱和空经
   await page.evaluate(() => localStorage.setItem("goodhr5_resume_import:resume-user", "import-test"));
   await page.getByRole("button", { name: "添加", exact: true }).click();
   const chooser = page.getByRole("dialog", { name: "添加简历", exact: true });
-  await chooser.getByText("AI 批量解析", { exact: true }).click(); await chooser.getByRole("button", { name: "继续", exact: true }).click();
-  const importer = page.getByRole("dialog", { name: "AI 批量解析简历", exact: true });
+  await chooser.getByRole("tab", { name: "AI 批量上传", exact: true }).click();
+  const importer = chooser;
   await importer.getByRole("button", { name: "预览 / 补充" }).click();
-  const editor = page.getByRole("dialog", { name: "确认解析草稿", exact: true });
+  const editor = importer;
   await editor.getByRole("button", { name: "检查并保存" }).click();
   await editor.getByRole("button", { name: "比较更新" }).click();
-  const updater = page.getByRole("dialog", { name: "维护简历 · 原有候选人", exact: true });
+  const updater = editor;
+  await expect(updater.getByText(/将比较更新已有简历：原有候选人/)).toBeVisible();
   await updater.getByRole("button", { name: "检查并保存" }).click();
   const preview = page.getByRole("dialog", { name: "确认更新内容", exact: true });
   await expect(preview.getByText("邮箱", { exact: true })).toHaveCount(0);
@@ -827,8 +936,8 @@ test("大正文批次逐份确认，途中失败后只继续未完成草稿", as
   await page.evaluate(() => localStorage.setItem("goodhr5_resume_import:resume-user", "import-test"));
   await page.getByRole("button", { name: "添加", exact: true }).click();
   const chooser = page.getByRole("dialog", { name: "添加简历", exact: true });
-  await chooser.getByText("AI 批量解析", { exact: true }).click(); await chooser.getByRole("button", { name: "继续", exact: true }).click();
-  const importer = page.getByRole("dialog", { name: "AI 批量解析简历", exact: true });
+  await chooser.getByRole("tab", { name: "AI 批量上传", exact: true }).click();
+  const importer = chooser;
   await expect(importer.getByText("大正文1.txt", { exact: true })).toBeVisible();
   await importer.getByRole("button", { name: "确认无重复的完整草稿" }).click();
   await expect(importer.getByText(/批量确认暂停了，已入库 1 份/)).toBeVisible();
@@ -851,8 +960,8 @@ test("部分成功草稿重开后只补齐记录，不重建简历或重新解�
   await page.evaluate(() => localStorage.setItem("goodhr5_resume_import:resume-user", "import-test"));
   await page.getByRole("button", { name: "添加", exact: true }).click();
   const chooser = page.getByRole("dialog", { name: "添加简历", exact: true });
-  await chooser.getByText("AI 批量解析", { exact: true }).click(); await chooser.getByRole("button", { name: "继续", exact: true }).click();
-  const importer = page.getByRole("dialog", { name: "AI 批量解析简历", exact: true });
+  await chooser.getByRole("tab", { name: "AI 批量上传", exact: true }).click();
+  const importer = chooser;
   await expect(importer.getByText("简历已保存，备注 / 岗位待补齐", { exact: true })).toBeVisible();
   await importer.getByRole("button", { name: "继续完成记录" }).click();
   await expect(importer.getByText("已入库", { exact: true }).first()).toBeVisible();
@@ -907,7 +1016,8 @@ test("铃铛展开消息才已读并可打开失败导入任务", async ({ page 
   await expect(panel.getByText("手机号没有解析完整，请补充后确认。", { exact: true })).toBeVisible();
   await expect(bell).toHaveAttribute("title", "消息中心");
   await panel.getByRole("link", { name: "去处理" }).click();
-  await expect(page.getByRole("dialog", { name: "AI 批量解析简历", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "添加简历", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "AI 批量上传", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => state.calls.some((call) => call.path === "/api/v1/resume-import/tasks/download-task")).toBe(true);
   expect(state.calls.filter((call) => call.path.endsWith("/read"))).toHaveLength(1);
   await page.screenshot({ path: `${screenshotDirectory}/download-message-task.png`, fullPage: true });

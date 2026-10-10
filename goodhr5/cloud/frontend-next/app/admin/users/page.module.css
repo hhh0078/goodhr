@@ -1,4 +1,20 @@
 /* 本文件负责本页面的响应式布局和 Ant Design 组件补充样式。 */
+.statsLine.statsLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 12px;
+  color: var(--goodhr-text-secondary);
+  font-size: 13px;
+}
+.statsLine > span {
+  white-space: nowrap;
+}
+.statsLine strong {
+  color: var(--goodhr-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 .searchBar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 110px max-content max-content;

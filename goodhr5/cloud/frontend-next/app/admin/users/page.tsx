@@ -35,6 +35,12 @@ type NotificationProfile = {
   os?: string;
   browser?: string;
 };
+type AdminUserStats = {
+  today_registered_count?: number;
+  agent_binding_count?: number;
+  remaining_ai_balance?: string | number | null;
+  ai_recharge_amount?: string | number | null;
+};
 type AdminUserItem = {
   email: string;
   role: string;
@@ -69,7 +75,7 @@ type AdminUserItem = {
 export default function UsersPage() {
   const { user, notify, confirm } = useAdmin();
   const [items, setItems] = useState<AdminUserItem[]>([]);
-  const [stats, setStats] = useState<any>({});
+  const [stats, setStats] = useState<AdminUserStats>({});
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -220,17 +226,27 @@ export default function UsersPage() {
           <RefreshButton loading={loading} onClick={() => void load()} />
         }
       />
-      <Typography.Text
-        style={{
-          display: "block",
-          margin: 0,
-          marginBottom: 12,
-          color: "var(--goodhr-text-secondary)",
-          fontSize: 13,
-        }}
-      >
-        今日注册 {Number(stats.today_registered_count || 0)}人，绑定程序{" "}
-        {Number(stats.agent_binding_count || 0)}台
+      <Typography.Text className={styles.statsLine}>
+        <span>
+          今日注册 {Number(stats.today_registered_count || 0)}人，绑定程序{" "}
+          {Number(stats.agent_binding_count || 0)}台
+        </span>
+        <Tooltip
+          title="全体用户 AI 余额合计，减去每人 0.50 元赠送额。"
+          trigger={["hover", "focus"]}
+        >
+          <span tabIndex={0} data-testid="users-remaining-ai-balance">
+            剩余余额 <strong>{formatStatsAmount(stats.remaining_ai_balance, 4)}</strong>元
+          </span>
+        </Tooltip>
+        <Tooltip
+          title="只合计支付成功的 AI 余额充值订单，不含会员订单、取消或失败的订单。"
+          trigger={["hover", "focus"]}
+        >
+          <span tabIndex={0} data-testid="users-ai-recharge-amount">
+            充值金额 <strong>{formatStatsAmount(stats.ai_recharge_amount)}</strong>元
+          </span>
+        </Tooltip>
       </Typography.Text>
       <div className={styles.searchBar}>
         <Form.Item
@@ -542,6 +558,20 @@ export default function UsersPage() {
       </AdminDialog>
     </>
   );
+}
+/** formatStatsAmount 用整数处理十进制金额，保留大额精度和负数；旧数字响应沿用固定小数，缺少或无效金额显示未知。 */
+function formatStatsAmount(value: AdminUserStats["remaining_ai_balance"], fractionDigits = 2) {
+  if (typeof value === "number")
+    return Number.isFinite(value) ? value.toFixed(fractionDigits) : "--";
+  if (typeof value !== "string") return "--";
+  const parts = value.trim().match(/^([+-]?)(\d+)(?:\.(\d+))?$/);
+  if (!parts) return "--";
+  const fraction = parts[3] || "";
+  let units = BigInt(`${parts[2]}${fraction.slice(0, fractionDigits).padEnd(fractionDigits, "0")}`);
+  if (fraction.length > fractionDigits && fraction[fractionDigits] >= "5")
+    units += BigInt(1);
+  const digits = units.toString().padStart(fractionDigits + 1, "0");
+  return `${parts[1] === "-" ? "-" : ""}${digits.slice(0, -fractionDigits)}.${digits.slice(-fractionDigits)}`;
 }
 /** UserCard 展示移动端用户卡片。 */
 function UserCard({
