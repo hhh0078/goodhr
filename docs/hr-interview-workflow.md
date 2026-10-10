@@ -41,8 +41,8 @@
 
 ## 维护与验收
 
-云端接口统一使用 `/api/recruitment/`；受限邀请使用 `/api/public/recruitment/invitations/{token}`，前端确认页面为 `/interview-invitation/{token}`。邀请令牌数据库只保存 SHA256 哈希。
+云端接口统一使用 `/api/recruitment/`；受限邀请使用 `/api/public/recruitment/invitations/{token}`，前端确认页面为 `/interview-invitation/{token}`。邀请索引只保存令牌的 SHA256 哈希；邮件正文快照包含当时发送的确认链接，按团队及招聘权限读取。公开邀请页禁止搜索引擎索引和统计脚本，并采用 no-referrer；邀请接口禁止缓存。
 
 数据库迁移为 `0090_recruitment_workflows.sql` 和 `0091_recruitment_mail.sql`，全部表与字段有中文备注。生产使用已有 PostgreSQL 连接；本地无数据库模式用于开发，数据仅在进程内保存。
 
-验收覆盖后端完整测试、独立本机 PostgreSQL 持久化及并发测试、前端类型检查/构建、新招聘流程 UI 回归，以及原简历库 UI 回归。邮件传输使用假发信器测试，不向真实候选人发送测试邮件。本次开发不包含线上部署。
+验收覆盖后端完整测试、独立本机 PostgreSQL 持久化及并发测试、前端类型检查/构建、新招聘流程 UI 回归，以及原简历库 UI 回归。邮件传输使用假发信器测试，不向真实候选人发送测试邮件。2026-10-10 已完成正式部署，备份、迁移及线上验证见 [上线记录](hr-interview-production-20261010.md)。
