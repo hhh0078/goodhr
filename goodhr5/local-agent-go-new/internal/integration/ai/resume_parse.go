@@ -22,7 +22,7 @@ func (c *Client) ParseResume(ctx context.Context, cfg cloud.AIConfig, text strin
 		return cloud.LibraryCandidate{}, fmt.Errorf("简历文字为空或超过20万字，请分开整理")
 	}
 	messages := []chatMessage{
-		textChatMessage("system", resumeParseSystem),
+		textChatMessage("system", resumeParseSystem+"\n还必须先判断原文是否确实是个人简历，在同一个JSON对象返回is_resume布尔值。合同、广告、岗位说明、下载失败页、空模板均返回is_resume:false，不提取候选人。只有包含明确个人履历的材料才返回true。"),
 		textChatMessage("user", "请整理下面这份简历原文：\n"+text),
 	}
 	// 通用chat默认重试三次；导入结果不明时不能自动重复扣费，因此复用单次请求能力。
@@ -39,6 +39,9 @@ func (c *Client) ParseResume(ctx context.Context, cfg cloud.AIConfig, text strin
 	object := extractJSONObject(content)
 	if err := json.Unmarshal([]byte(object), &candidate); err != nil {
 		return cloud.LibraryCandidate{}, withResponseModel(newParsedResponseError(fmt.Errorf("AI没返回有效的简历草稿，请重试：%w", err), content, object, "model_content"), cfg.Model)
+	}
+	if candidate.IsResume != nil && !*candidate.IsResume {
+		return candidate, nil
 	}
 	if strings.TrimSpace(candidate.CandidateName) == "" && strings.TrimSpace(candidate.PersonalDescription) == "" && len(candidate.WorkExperiences) == 0 && len(candidate.Educations) == 0 {
 		return cloud.LibraryCandidate{}, fmt.Errorf("AI没找到可确认的简历信息，请检查原文后再试")

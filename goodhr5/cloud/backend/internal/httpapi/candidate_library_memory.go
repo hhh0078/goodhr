@@ -237,8 +237,11 @@ func candidateEmptyValue(value any) bool {
 
 // candidateMatchesFilters 在内存环境使用与数据库相同的紧凑筛选条件。
 func candidateMatchesFilters(item PositionCandidate, query PositionCandidateQuery) bool {
-	text := map[string]string{"phone": item.Phone, "source": firstNonEmpty(candidateString(item.LibraryFields, "source_type"), "automatic"), "region": item.WorkRegion + " " + candidateString(item.LibraryFields, "current_region") + " " + candidateString(item.LibraryFields, "expected_region"), "education": item.EducationLevel, "work_years": item.WorkYears, "status": item.WorkStatus, "creator": item.UserEmail}
-	filters := map[string]string{"phone": query.Phone, "source": query.SourceType, "region": query.Region, "education": query.Education, "work_years": query.WorkYears, "status": query.WorkStatus, "creator": query.Creator}
+	if !candidateMatchesSource(item, query.SourceType) {
+		return false
+	}
+	text := map[string]string{"phone": item.Phone, "region": item.WorkRegion + " " + candidateString(item.LibraryFields, "current_region") + " " + candidateString(item.LibraryFields, "expected_region"), "education": item.EducationLevel, "work_years": item.WorkYears, "status": item.WorkStatus, "creator": item.UserEmail}
+	filters := map[string]string{"phone": query.Phone, "region": query.Region, "education": query.Education, "work_years": query.WorkYears, "status": query.WorkStatus, "creator": query.Creator}
 	for key, value := range filters {
 		if value != "" && !strings.Contains(strings.ToLower(text[key]), strings.ToLower(value)) {
 			return false

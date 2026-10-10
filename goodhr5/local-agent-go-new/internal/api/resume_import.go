@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -165,6 +166,27 @@ func (s *Server) handleResumeImportRetry(w http.ResponseWriter, r *http.Request)
 		ItemIDs []string `json:"item_ids"`
 	}
 	if !decodeResumeImportBody(w, r, &request) {
+		return
+	}
+	// 用户主动重试是新的明确授权，仍需逐次校验账号，不能沿用过期自动下载闭包。
+	id := r.PathValue("task_id")
+	s.extensionMu.Lock()
+	generation := s.extensionGeneration
+	s.extensionMu.Unlock()
+	check := func(ctx context.Context) error {
+		current, err := s.cloud.ValidateSession(ctx, token)
+		if err != nil {
+			return err
+		}
+		s.extensionMu.Lock()
+		defer s.extensionMu.Unlock()
+		if current.UserID != owner || current.SessionKind == "browser_extension" || generation != s.extensionGeneration || (s.extensionUserID != "" && s.extensionUserID != owner) {
+			return fmt.Errorf("本地账号已变化，请重新连接后重试")
+		}
+		return nil
+	}
+	if err := s.resumeImports.AuthorizeDownload(owner, id, check); err != nil {
+		s.writeResumeImportTask(w, resumeflow.Task{}, err)
 		return
 	}
 	task, err := s.resumeImports.Retry(owner, token, r.PathValue("task_id"), request.ItemIDs)

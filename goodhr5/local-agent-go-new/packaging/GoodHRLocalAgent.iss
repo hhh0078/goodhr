@@ -48,6 +48,8 @@ Type: filesandordirs; Name: "{app}\worker"
 Source: "{#MyPackageDir}\goodhr-local-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyPackageDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyPackageDir}\build-info.json"; DestDir: "{app}"; Flags: ignoreversion
+; 一并安装本地 Word 解析组件的许可证与版权说明。
+Source: "{#MyPackageDir}\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#MyPackageDir}\worker\*"; DestDir: "{app}\worker"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#MyLogoFile}"; DestDir: "{app}"; DestName: "goodhr-logo.ico"; Flags: ignoreversion
 

@@ -164,6 +164,7 @@ finally {
 }
 
 Copy-Item -Force (Join-Path $ProjectDir "README.md") (Join-Path $PackageDir "README.md")
+Copy-Item -Recurse -Force (Join-Path $ProjectDir "licenses") (Join-Path $PackageDir "licenses")
 @{ version = $Version; environment = $Environment; public_base_url = $PublicBaseURL } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PackageDir "build-info.json") -Encoding UTF8
 
 Write-Step "生成 Windows ZIP 发布包"

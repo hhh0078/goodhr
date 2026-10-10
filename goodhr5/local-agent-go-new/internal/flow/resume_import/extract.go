@@ -66,12 +66,14 @@ func (e *Extractor) Extract(ctx context.Context, path string) (string, error) {
 		text, err = decodeText(data)
 	case ".docx":
 		text, err = extractDOCX(ctx, path)
+	case ".doc":
+		text, err = extractDOC(ctx, path)
 	case ".pdf":
 		text, err = e.extractPDF(ctx, path)
 	case ".png", ".jpg", ".jpeg":
 		text, err = e.extractImage(ctx, path)
 	default:
-		err = fmt.Errorf("这个格式暂不支持，请换成PDF、DOCX、TXT或图片")
+		err = fmt.Errorf("这个格式暂不支持，请换成PDF、DOC、DOCX、TXT或图片")
 	}
 	if err != nil {
 		return "", err

@@ -486,7 +486,7 @@ func candidateRecommendationsSQL() string {
 
 // candidateSourcesSQL 返回候选人的多个来源，保持原来源字段向后兼容。
 func candidateSourcesSQL() string {
-	return `COALESCE((SELECT jsonb_agg(jsonb_build_object('platform_id',cs.platform_id,'platform_candidate_id',cs.platform_candidate_id,'source_type',cs.source_type,'source_url',cs.source_url) ORDER BY cs.created_at DESC) FROM candidate_profile_sources cs WHERE cs.candidate_id=cp.id),'[]'::jsonb)`
+	return `COALESCE((SELECT jsonb_agg(jsonb_build_object('platform_id',cs.platform_id,'platform_candidate_id',cs.platform_candidate_id,'source_type',cs.source_type,'source_url',cs.source_url) ORDER BY cs.created_at DESC) FROM candidate_profile_sources cs WHERE cs.tenant_id=cp.tenant_id AND cs.candidate_id=cp.id),'[]'::jsonb)`
 }
 
 // decodeCandidateJSONArray 把数据库结构字段解码为稳定数组。

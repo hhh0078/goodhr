@@ -249,6 +249,9 @@ func (s *Server) bindExtensionSessionLocked(token, userID string) {
 		}
 	}
 	s.extensionToken, s.extensionUserID = token, userID
+	if s.resumeDownloads != nil {
+		s.resumeDownloads.Bind(userID, token)
+	}
 }
 
 // extensionRandomToken 生成不依赖时间或账号的随机授权值。
