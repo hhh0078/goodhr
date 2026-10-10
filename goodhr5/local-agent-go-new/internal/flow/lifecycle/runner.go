@@ -3,6 +3,7 @@ package lifecycle
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -54,17 +55,19 @@ type activeTask struct {
 
 // Runner 管理当前本地任务和两个独立主流程。
 type Runner struct {
-	mu       sync.Mutex
-	active   map[string]*activeTask
-	checker  *preflight.Checker
-	greeting *greeting.Flow
-	reply    *auto_reply.Flow
-	store    *storage.Store
-	profiles *profile.Manager
-	power    *power.Guard
-	cloud    *cloud.Client
-	notifier *notification.Notifier
-	logger   shared.Logger
+	mu                sync.Mutex
+	active            map[string]*activeTask
+	stoppingPositions map[string]int
+	stopVersions      map[string]uint64 // 记录岗位停止代数，阻止停止前发起的慢启动继续运行。
+	checker           *preflight.Checker
+	greeting          *greeting.Flow
+	reply             *auto_reply.Flow
+	store             *storage.Store
+	profiles          *profile.Manager
+	power             *power.Guard
+	cloud             *cloud.Client
+	notifier          *notification.Notifier
+	logger            shared.Logger
 }
 
 // New 创建任务生命周期管理器。
@@ -79,6 +82,14 @@ func New(checker *preflight.Checker, greetingFlow *greeting.Flow, replyFlow *aut
 
 // StartTask 执行启动前检查、获取运行锁、保存状态并异步分发主流程。
 func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (StartResult, error) {
+	positionID := strings.TrimSpace(request.PositionID)
+	r.mu.Lock()
+	stopping := r.stoppingPositions[positionID] > 0
+	stopVersion := r.stopVersions[positionID]
+	r.mu.Unlock()
+	if stopping {
+		return StartResult{}, positionStoppingError()
+	}
 	preflightResult, err := r.checker.RunPreflightChecks(ctx, request)
 	if err != nil {
 		r.savePreflightFailure(ctx, request, preflightResult.Prepared, err)
@@ -90,6 +101,11 @@ func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (St
 		go r.retryPendingLogUploads(prepared.Request.Token)
 	}
 	r.mu.Lock()
+	// 即使停止请求已经结束，也不能恢复停止之前仍在检查中的那次启动。
+	if r.stoppingPositions[prepared.Position.ID] > 0 || r.stopVersions[positionID] != stopVersion {
+		r.mu.Unlock()
+		return StartResult{Preflight: preflightResult.Steps}, positionStoppingError()
+	}
 	if len(r.active) > 0 {
 		r.mu.Unlock()
 		return StartResult{Preflight: preflightResult.Steps}, fmt.Errorf("本地已经有任务在运行，请先停掉再开始新的")
@@ -153,13 +169,76 @@ func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (St
 	return StartResult{Task: task, Preflight: preflightResult.Steps}, nil
 }
 
-// StopPosition 停止指定岗位当前正在运行的任务。
-func (r *Runner) StopPosition(ctx context.Context, positionID string) (storage.TaskRun, error) {
-	taskID := r.ActiveTaskIDForPosition(positionID)
-	if taskID == "" {
-		return r.store.LatestTaskForPosition(ctx, positionID)
+// StopPosition 使用本次登录凭证安全停止本地任务，并确认云端岗位已经停止。
+// 没有本地任务记录时直接核对云端停止结果，不创建记录或改写历史统计。
+func (r *Runner) StopPosition(ctx context.Context, positionID, token string) (storage.TaskRun, error) {
+	positionID, token = strings.TrimSpace(positionID), strings.TrimSpace(token)
+	if token == "" {
+		return storage.TaskRun{}, &cloud.APIError{StatusCode: 400, Code: "TOKEN_REQUIRED", Message: "登录凭证不能为空，请重新登录"}
 	}
-	return r.StopTask(ctx, taskID)
+	if positionID == "" {
+		return storage.TaskRun{}, &cloud.APIError{StatusCode: 400, Code: "POSITION_REQUIRED", Message: "岗位编号不能为空"}
+	}
+	if r.cloud == nil {
+		return storage.TaskRun{}, &cloud.APIError{StatusCode: 503, Code: "CLOUD_UNAVAILABLE", Message: "云端连接还没准备好，请稍后再试"}
+	}
+	if r.store == nil {
+		return storage.TaskRun{}, &cloud.APIError{StatusCode: 503, Code: "STORAGE_UNAVAILABLE", Message: "本地运行记录还没准备好，请稍后再试"}
+	}
+	r.mu.Lock()
+	if r.stoppingPositions == nil {
+		r.stoppingPositions = make(map[string]int)
+	}
+	if r.stopVersions == nil {
+		r.stopVersions = make(map[string]uint64)
+	}
+	r.stopVersions[positionID]++
+	r.stoppingPositions[positionID]++
+	taskID := ""
+	for id, active := range r.active {
+		if active != nil && active.state.PositionID == positionID {
+			taskID = id
+			break
+		}
+	}
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		r.stoppingPositions[positionID]--
+		if r.stoppingPositions[positionID] == 0 {
+			delete(r.stoppingPositions, positionID)
+		}
+		r.mu.Unlock()
+	}()
+	var task storage.TaskRun
+	var err error
+	if taskID != "" {
+		position, positionErr := r.cloud.Position(ctx, token, positionID)
+		if positionErr != nil {
+			return storage.TaskRun{}, positionErr
+		}
+		if position.ID != positionID {
+			return storage.TaskRun{}, &cloud.APIError{StatusCode: 502, Code: "CLOUD_POSITION_MISMATCH", Message: "云端返回的岗位没对上，请稍后再试"}
+		}
+		task, err = r.StopTask(ctx, taskID)
+	} else {
+		task, err = r.store.LatestTaskForPosition(ctx, positionID)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		task = storage.TaskRun{PositionID: positionID}
+	} else if err != nil {
+		return storage.TaskRun{}, err
+	}
+	if err := r.cloud.RequestPositionStop(ctx, token, positionID); err != nil {
+		return storage.TaskRun{}, err
+	}
+	task.Status = "stopped"
+	return task, nil
+}
+
+// positionStoppingError 提示同岗位的停止确认尚未完成，避免新任务被旧停止请求覆盖。
+func positionStoppingError() error {
+	return &cloud.APIError{StatusCode: 409, Code: "POSITION_STOPPING", Message: "这个岗位还在收尾，等它停好后再开始吧"}
 }
 
 // ActiveTaskIDForPosition 返回指定岗位当前运行中的任务编号。
@@ -322,7 +401,6 @@ func (r *Runner) finish(active *activeTask, stats shared.Stats, runErr error) {
 	state.CurrentStep = "finished"
 	state.FinishedAt = time.Now().UTC()
 	active.state = state
-	delete(r.active, state.TaskID)
 	r.mu.Unlock()
 	if err := r.store.SaveTask(context.Background(), state); err != nil {
 		r.logNotification(state.TaskID, "save_final_task", err)
@@ -343,7 +421,11 @@ func (r *Runner) finish(active *activeTask, stats shared.Stats, runErr error) {
 	}
 	r.profiles.Release(active.prepared.Request.ProfileID, state.TaskID)
 	r.power.Stop()
+	// 云端收尾结束前保留运行登记，避免旧任务状态覆盖刚确认的岗位停止。
+	r.mu.Lock()
+	delete(r.active, state.TaskID)
 	close(active.done)
+	r.mu.Unlock()
 }
 
 // monitorSleepResume 检测任务期间的时间断层，疑似电脑休眠恢复时停止当前任务。

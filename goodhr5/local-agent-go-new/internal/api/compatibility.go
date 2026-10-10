@@ -16,6 +16,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
@@ -217,13 +218,17 @@ func (s *Server) handleLocalPositionStop(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
 		return
 	}
-	task, err := s.runner.StopPosition(r.Context(), positionID)
+	task, err := s.runner.StopPosition(r.Context(), positionID, request.Token)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, sql.ErrNoRows) {
-			status = http.StatusNotFound
+		status, code := http.StatusInternalServerError, "POSITION_STOP_FAILED"
+		var apiErr *cloud.APIError
+		if errors.As(err, &apiErr) {
+			status = apiErr.StatusCode
+			if strings.TrimSpace(apiErr.Code) != "" {
+				code = apiErr.Code
+			}
 		}
-		writeError(w, status, "TASK_NOT_FOUND", err)
+		writeError(w, status, code, err)
 		return
 	}
 	writeSuccess(w, http.StatusOK, task)

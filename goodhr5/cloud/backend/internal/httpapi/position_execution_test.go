@@ -1,4 +1,4 @@
-// 本文件负责测试岗位运行完成状态同步和邮件提醒结果。
+// 本文件负责测试岗位启动、停止、完成状态同步和邮件提醒结果。
 package httpapi
 
 import (
@@ -12,6 +12,18 @@ import (
 )
 
 const positionTestMachineID = "goodhr-device-v1-position-test"
+
+// failingPositionStopStore 模拟岗位状态写入失败，同时保留原有的归属读取能力。
+type failingPositionStopStore struct {
+	PositionStore
+	updateCalls int
+}
+
+// UpdatePositionStatus 模拟数据库未能保存停止状态。
+func (s *failingPositionStopStore) UpdatePositionStatus(positionID, status string) error {
+	s.updateCalls++
+	return errors.New("database unavailable")
+}
 
 // bindPositionDeviceForTest 为岗位启动测试绑定一台稳定设备。
 func bindPositionDeviceForTest(t *testing.T, routes http.Handler, token string) {
@@ -204,6 +216,131 @@ func TestPositionStartAllowsAnyDeviceOwnedByAccount(t *testing.T) {
 	)
 	if response.Code != http.StatusOK {
 		t.Fatalf("start status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+// TestPositionStopConfirmsSavedStateWithoutChangingCounts 验证停止确认属于目标岗位，重试不改统计或重复通知。
+func TestPositionStopConfirmsSavedStateWithoutChangingCounts(t *testing.T) {
+	server := mustNewServer(t)
+	mailer := &recordingMailer{}
+	server.positionExecution.mailer = mailer
+	routes := server.Routes()
+	email := "position-stop-confirm@example.com"
+	token := loginForTest(t, routes, email)
+	positionID := createPositionForTest(t, routes, token)
+	store := server.positionExecution.store
+	if err := store.SyncPositionCounts(positionID, 11, 3, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishPositionRun(positionID, "completed", 4); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdatePositionStatus(positionID, "running"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.PositionByID("", email, positionID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/stop", `{}`)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("stop status = %d, body = %s", resp.Code, resp.Body.String())
+		}
+		var confirmation struct {
+			OK       bool   `json:"ok"`
+			Status   string `json:"status"`
+			Position struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			} `json:"position"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&confirmation); err != nil {
+			t.Fatal(err)
+		}
+		if !confirmation.OK || confirmation.Status != "stopped" || confirmation.Position.ID != positionID || confirmation.Position.Status != "stopped" {
+			t.Fatalf("stop confirmation = %+v", confirmation)
+		}
+	}
+	after, err := store.PositionByID("", email, positionID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != "stopped" || after.ScannedCount != before.ScannedCount || after.DailyGreetedCount != before.DailyGreetedCount ||
+		after.SkippedCount != before.SkippedCount || after.FailedCount != before.FailedCount {
+		t.Fatalf("stop must preserve counts: before=%+v after=%+v", before, after)
+	}
+	logs, _, err := server.positionExecution.positionLogs.logStore.ListPositionLogs("", email, positionID, false, PositionLogQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || len(mailer.positionNotices) != 1 {
+		t.Fatalf("repeated stop should not repeat side effects: logs=%d notices=%d", len(logs), len(mailer.positionNotices))
+	}
+}
+
+// TestPositionStopReturnsFailureWhenStatusWriteFails 验证数据库保存失败不会返回成功或发出停止通知。
+func TestPositionStopReturnsFailureWhenStatusWriteFails(t *testing.T) {
+	server := mustNewServer(t)
+	mailer := &recordingMailer{}
+	server.positionExecution.mailer = mailer
+	routes := server.Routes()
+	email := "position-stop-write-failed@example.com"
+	token := loginForTest(t, routes, email)
+	positionID := createPositionForTest(t, routes, token)
+	store := server.positionExecution.store
+	if err := store.UpdatePositionStatus(positionID, "running"); err != nil {
+		t.Fatal(err)
+	}
+	failingStore := &failingPositionStopStore{PositionStore: store}
+	server.positionExecution.store = failingStore
+	resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/stop", `{}`)
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("failed write status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+	after, err := store.PositionByID("", email, positionID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logs, _, err := server.positionExecution.positionLogs.logStore.ListPositionLogs("", email, positionID, false, PositionLogQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failingStore.updateCalls != 1 || after.Status != "running" || len(logs) != 0 || len(mailer.positionNotices) != 0 {
+		t.Fatalf("failed stop must not claim success: calls=%d status=%s logs=%d notices=%d", failingStore.updateCalls, after.Status, len(logs), len(mailer.positionNotices))
+	}
+}
+
+// TestPositionStopRejectsInvalidSessionAndOtherOwner 验证停止接口不会修改其他账号或失效登录的岗位。
+func TestPositionStopRejectsInvalidSessionAndOtherOwner(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "position-stop-owner@example.com"
+	token := loginForTest(t, routes, email)
+	positionID := createPositionForTest(t, routes, token)
+	otherToken := loginForTest(t, routes, "position-stop-other@example.com")
+	store := server.positionExecution.store
+	if err := store.UpdatePositionStatus(positionID, "running"); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		token  string
+		status int
+	}{
+		{token: "expired-token", status: http.StatusUnauthorized},
+		{token: otherToken, status: http.StatusNotFound},
+	} {
+		resp := postPositionExecutionForTest(t, routes, test.token, "/api/positions/"+positionID+"/stop", `{}`)
+		if resp.Code != test.status {
+			t.Fatalf("unauthorized stop status = %d, want %d, body = %s", resp.Code, test.status, resp.Body.String())
+		}
+	}
+	after, err := store.PositionByID("", email, positionID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != "running" {
+		t.Fatalf("unauthorized request changed status to %s", after.Status)
 	}
 }
 
