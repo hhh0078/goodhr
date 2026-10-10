@@ -9,6 +9,7 @@ import { formatDate } from "@/lib/admin-api";
 import { avatarSource, experienceLabel, genderLabel, isReadOnlyResume, recommendationStages, recordTime, resumeAge, salaryLabel, sourceLabel, stageLabel, workYearsLabel, type PositionOption, type Recommendation, type Resume, type ResumeExperience, type ResumeNote } from "@/lib/resume-types";
 import ResumeEditor from "./ResumeEditor";
 import ResumeSummaryDialog from "./ResumeSummaryDialog";
+import ResumeRecruitmentPanel from "../recruitment/ResumeRecruitmentPanel";
 import styles from "./resumes.module.css";
 
 /** ResumeWorkspace 在详情地址与抽屉间复用同一候选人记录和维护入口。 */
@@ -220,6 +221,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
           {autoEvents.length ? <Timeline items={autoEvents.map((event) => ({ children: <><Typography.Text>{String(event.message_text || event.event_type || "任务记录")}</Typography.Text><div className={styles.meta}>{event.created_at ? formatDate(String(event.created_at)) : ""}</div></> }))} /> : <Typography.Text type="secondary">暂时没有更多自动任务记录。</Typography.Text>}
           </Flex>
         </section>
+        {!readOnly ? <ResumeRecruitmentPanel key={candidate.id} candidate={candidate} positions={positions} positionID={positionID || historyRecommendation?.position_id || ""} /> : null}
       </aside>
     </div>
     <ResumeEditor open={editing} candidate={candidate} positions={positions} onClose={() => setEditing(false)} onSaved={(saved) => { setEditing(false); setCandidate(saved); void reload(); onChanged?.(); }} />
