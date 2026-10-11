@@ -6,6 +6,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,6 +28,7 @@ type PaymentOrder struct {
 	UpgradeFromType     string     `json:"upgrade_from_member_type"`
 	UpgradeCreditCents  int        `json:"upgrade_credit_cents"`
 	AmountCents         int        `json:"amount_cents"`
+	BonusAmountCents    int        `json:"bonus_amount_cents"`
 	PaymentProvider     string     `json:"payment_provider"`
 	TradeNo             string     `json:"trade_no"`
 	Status              string     `json:"status"`
@@ -37,19 +41,21 @@ type PaymentOrder struct {
 
 // PaymentRefund 表示一条自动退款记录。
 type PaymentRefund struct {
-	ID               string     `json:"id"`
-	RefundNo         string     `json:"refund_no"`
-	OrderNo          string     `json:"order_no"`
-	UserEmail        string     `json:"user_email"`
-	RefundType       string     `json:"refund_type"`
-	AmountCents      int        `json:"amount_cents"`
-	DeductedDays     int        `json:"deducted_days"`
-	Status           string     `json:"status"`
-	ProviderRefundID string     `json:"provider_refund_id"`
-	ResponseData     string     `json:"-"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	ID                string     `json:"id"`
+	RefundNo          string     `json:"refund_no"`
+	OrderNo           string     `json:"order_no"`
+	UserEmail         string     `json:"user_email"`
+	RefundType        string     `json:"refund_type"`
+	AmountCents       int        `json:"amount_cents"`
+	DeductedDays      int        `json:"deducted_days"`
+	RevokedBonusUnits int64      `json:"revoked_bonus_units"`
+	RightsReserved    bool       `json:"rights_reserved"`
+	Status            string     `json:"status"`
+	ProviderRefundID  string     `json:"provider_refund_id"`
+	ResponseData      string     `json:"-"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
 }
 
 // PaymentStore 定义支付记录持久化能力。
@@ -66,6 +72,10 @@ type PaymentStore interface {
 	MarkPaid(orderNo string, tradeNo string, notifyData string) (PaymentOrder, bool, error)
 	// CreateRefund 保存待提交的退款记录，用于先占用可退额度。
 	CreateRefund(refund PaymentRefund) (PaymentRefund, error)
+	// ByRefundNo 按退款单号读取完整退款记录。
+	ByRefundNo(refundNo string) (PaymentRefund, error)
+	// ListOpenRefunds 邮箱非空时读取该用户全部活跃退款用于防重复，邮箱为空时只取到期对账批次。
+	ListOpenRefunds(email string) ([]PaymentRefund, error)
 	// UpdateRefund 更新第三方退款结果。
 	UpdateRefund(refundNo string, status string, providerRefundID string, responseData string) (PaymentRefund, error)
 	// RefundedCentsByOrder 汇总订单已占用和已受理的退款金额。
@@ -88,6 +98,9 @@ func NewMemoryPaymentStore() *MemoryPaymentStore {
 func (s *MemoryPaymentStore) CreateRefund(refund PaymentRefund) (PaymentRefund, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, exists := s.refunds[refund.RefundNo]; exists {
+		return PaymentRefund{}, errors.New("退款单号已存在")
+	}
 	now := time.Now()
 	if refund.ID == "" {
 		refund.ID = refund.RefundNo
@@ -97,6 +110,40 @@ func (s *MemoryPaymentStore) CreateRefund(refund PaymentRefund) (PaymentRefund, 
 	refund.UpdatedAt = now
 	s.refunds[refund.RefundNo] = refund
 	return refund, nil
+}
+
+// ByRefundNo 读取内存中的单条退款记录。
+func (s *MemoryPaymentStore) ByRefundNo(refundNo string) (PaymentRefund, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	refund, ok := s.refunds[refundNo]
+	if !ok {
+		return PaymentRefund{}, ErrNotFound
+	}
+	return refund, nil
+}
+
+// ListOpenRefunds 查询用户时保留全部活跃退款，后台批次先筛到期再限制数量，避免未到期旧单挡住新单。
+func (s *MemoryPaymentStore) ListOpenRefunds(email string) ([]PaymentRefund, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	result := []PaymentRefund{}
+	for _, refund := range s.refunds {
+		if refund.RefundType == refundTypeAIBalance && (email == "" || refund.UserEmail == email) && openRefundStatus(refund.Status) && (email != "" || refundReconcileDue(refund, now)) {
+			result = append(result, refund)
+		}
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].UpdatedAt.Equal(result[right].UpdatedAt) {
+			return result[left].RefundNo < result[right].RefundNo
+		}
+		return result[left].UpdatedAt.Before(result[right].UpdatedAt)
+	})
+	if email == "" && len(result) > aiRefundReconcileBatchLimit {
+		result = result[:aiRefundReconcileBatchLimit]
+	}
+	return result, nil
 }
 
 // UpdateRefund 更新内存退款结果。
@@ -109,6 +156,9 @@ func (s *MemoryPaymentStore) UpdateRefund(refundNo string, status string, provid
 	}
 	now := time.Now()
 	refund.Status = status
+	if status == "failed" || status == "closed" {
+		refund.RightsReserved = false
+	}
 	refund.ProviderRefundID = providerRefundID
 	refund.ResponseData = responseData
 	refund.UpdatedAt = now
@@ -226,9 +276,9 @@ func (s *PostgresPaymentStore) Create(order PaymentOrder) (PaymentOrder, error) 
 		INSERT INTO payment_orders (
 			order_no, order_type, user_id, user_email, plan_id, plan_name, member_type, duration_days,
 			original_amount_cents, discount_amount_cents, upgrade_from_member_type, upgrade_credit_cents,
-			amount_cents, payment_provider, status, expired_at, notify_data
+			amount_cents, bonus_amount_cents, payment_provider, status, expired_at, notify_data
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, '{}'::jsonb)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, '{}'::jsonb)
 		RETURNING id, created_at, updated_at
 	`,
 		order.OrderNo,
@@ -244,6 +294,7 @@ func (s *PostgresPaymentStore) Create(order PaymentOrder) (PaymentOrder, error) 
 		order.UpgradeFromType,
 		order.UpgradeCreditCents,
 		order.AmountCents,
+		order.BonusAmountCents,
 		order.PaymentProvider,
 		order.Status,
 		order.ExpiredAt,
@@ -259,7 +310,7 @@ func (s *PostgresPaymentStore) ByOrderNo(orderNo string) (PaymentOrder, error) {
 	return scanPaymentOrder(s.db.QueryRow(`
 		SELECT id, order_no, COALESCE(order_type, 'subscription'), user_email, plan_id, plan_name, member_type, duration_days,
 			original_amount_cents, discount_amount_cents, upgrade_from_member_type, upgrade_credit_cents,
-			amount_cents, payment_provider,
+			amount_cents, bonus_amount_cents, payment_provider,
 			trade_no, status, paid_at, expired_at, notify_data::text, created_at, updated_at
 		FROM payment_orders
 		WHERE order_no=$1
@@ -271,7 +322,7 @@ func (s *PostgresPaymentStore) ListByUser(email string) ([]PaymentOrder, error) 
 	rows, err := s.db.Query(`
 		SELECT id, order_no, COALESCE(order_type, 'subscription'), user_email, plan_id, plan_name, member_type, duration_days,
 			original_amount_cents, discount_amount_cents, upgrade_from_member_type, upgrade_credit_cents,
-			amount_cents, payment_provider,
+			amount_cents, bonus_amount_cents, payment_provider,
 			trade_no, status, paid_at, expired_at, notify_data::text, created_at, updated_at
 		FROM payment_orders
 		WHERE user_email=$1
@@ -289,7 +340,7 @@ func (s *PostgresPaymentStore) ListAll() ([]PaymentOrder, error) {
 	rows, err := s.db.Query(`
 		SELECT id, order_no, COALESCE(order_type, 'subscription'), user_email, plan_id, plan_name, member_type, duration_days,
 			original_amount_cents, discount_amount_cents, upgrade_from_member_type, upgrade_credit_cents,
-			amount_cents, payment_provider,
+			amount_cents, bonus_amount_cents, payment_provider,
 			trade_no, status, paid_at, expired_at, notify_data::text, created_at, updated_at
 		FROM payment_orders
 		ORDER BY created_at DESC
@@ -337,14 +388,64 @@ func (s *PostgresPaymentStore) CreateRefund(refund PaymentRefund) (PaymentRefund
 	err = s.db.QueryRow(`
 		INSERT INTO payment_refunds (
 			refund_no, order_no, user_id, user_email, refund_type, amount_cents,
-			deducted_days, status, response_data
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'{}'::jsonb)
+			deducted_days, revoked_bonus_units, rights_reserved, status, response_data
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'{}'::jsonb)
 		RETURNING id::text, created_at, updated_at
-	`, refund.RefundNo, refund.OrderNo, userID, refund.UserEmail, refund.RefundType, refund.AmountCents, refund.DeductedDays, defaultString(refund.Status, "pending")).Scan(&refund.ID, &refund.CreatedAt, &refund.UpdatedAt)
+	`, refund.RefundNo, refund.OrderNo, userID, refund.UserEmail, refund.RefundType, refund.AmountCents, refund.DeductedDays, refund.RevokedBonusUnits, refund.RightsReserved, defaultString(refund.Status, "pending")).Scan(&refund.ID, &refund.CreatedAt, &refund.UpdatedAt)
 	if err != nil {
 		return PaymentRefund{}, err
 	}
 	return refund, nil
+}
+
+// paymentRefundColumns 统一完整退款记录的读取顺序，供钱包事务和支付存储复用。
+const paymentRefundColumns = `id::text, refund_no, order_no, user_email, refund_type, amount_cents,
+	deducted_days, revoked_bonus_units, rights_reserved, status, provider_refund_id, response_data::text,
+	created_at, updated_at, completed_at`
+
+// ByRefundNo 从 PostgreSQL 读取单条退款记录。
+func (s *PostgresPaymentStore) ByRefundNo(refundNo string) (PaymentRefund, error) {
+	return scanPaymentRefund(s.db.QueryRow(`SELECT `+paymentRefundColumns+` FROM payment_refunds WHERE refund_no=$1`, refundNo))
+}
+
+// refundReconcileDueSQL 按 Go 共用规则生成到期条件和时间参数，参数从邮箱之后开始编号。
+func refundReconcileDueSQL(now time.Time) (string, []any) {
+	var expression strings.Builder
+	expression.WriteString("updated_at <= (CASE ")
+	args := make([]any, 0, len(aiRefundReconcileRules)*2+1)
+	for _, rule := range aiRefundReconcileRules {
+		fmt.Fprintf(&expression, "WHEN created_at < $%d THEN $%d::timestamptz ", len(args)+2, len(args)+3)
+		args = append(args, now.Add(-rule.OlderThan), now.Add(-rule.Interval))
+	}
+	fmt.Fprintf(&expression, "ELSE $%d::timestamptz END)", len(args)+2)
+	args = append(args, now.Add(-aiRefundReconcileInterval))
+	return expression.String(), args
+}
+
+// ListOpenRefunds 查询用户时不截断活跃退款；后台先在 SQL 中筛到期再取最久未核实的50条。
+func (s *PostgresPaymentStore) ListOpenRefunds(email string) ([]PaymentRefund, error) {
+	dueSQL, dueArgs := refundReconcileDueSQL(time.Now())
+	query := `SELECT ` + paymentRefundColumns + ` FROM payment_refunds
+		WHERE refund_type='ai_balance' AND status IN ('pending','unknown','processing','action_required')
+		AND ($1='' OR user_email=$1) AND ($1<>'' OR ` + dueSQL + `) ORDER BY updated_at,refund_no`
+	if email == "" {
+		query += fmt.Sprintf(" LIMIT %d", aiRefundReconcileBatchLimit)
+	}
+	args := append([]any{email}, dueArgs...)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []PaymentRefund{}
+	for rows.Next() {
+		refund, err := scanPaymentRefund(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, refund)
+	}
+	return result, rows.Err()
 }
 
 // UpdateRefund 更新 PostgreSQL 退款结果。
@@ -353,11 +454,10 @@ func (s *PostgresPaymentStore) UpdateRefund(refundNo string, status string, prov
 	row := s.db.QueryRow(`
 		UPDATE payment_refunds
 		SET status=$2, provider_refund_id=$3, response_data=$4::jsonb,
+			rights_reserved=CASE WHEN $2 IN ('failed','closed') THEN false ELSE rights_reserved END,
 			updated_at=NOW(), completed_at=CASE WHEN $5 THEN NOW() ELSE completed_at END
 		WHERE refund_no=$1
-		RETURNING id::text, refund_no, order_no, user_email, refund_type, amount_cents,
-			deducted_days, status, provider_refund_id, response_data::text,
-			created_at, updated_at, completed_at
+		RETURNING `+paymentRefundColumns+`
 	`, refundNo, status, providerRefundID, safeJSONText(responseData), completed)
 	return scanPaymentRefund(row)
 }
@@ -377,7 +477,7 @@ func (s *PostgresPaymentStore) RefundedCentsByOrder(orderNo string) (int, error)
 func scanPaymentRefund(row interface{ Scan(dest ...any) error }) (PaymentRefund, error) {
 	var refund PaymentRefund
 	err := row.Scan(&refund.ID, &refund.RefundNo, &refund.OrderNo, &refund.UserEmail,
-		&refund.RefundType, &refund.AmountCents, &refund.DeductedDays, &refund.Status,
+		&refund.RefundType, &refund.AmountCents, &refund.DeductedDays, &refund.RevokedBonusUnits, &refund.RightsReserved, &refund.Status,
 		&refund.ProviderRefundID, &refund.ResponseData, &refund.CreatedAt, &refund.UpdatedAt,
 		&refund.CompletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -403,6 +503,7 @@ func scanPaymentOrder(row interface{ Scan(dest ...any) error }) (PaymentOrder, e
 		&order.UpgradeFromType,
 		&order.UpgradeCreditCents,
 		&order.AmountCents,
+		&order.BonusAmountCents,
 		&order.PaymentProvider,
 		&order.TradeNo,
 		&order.Status,

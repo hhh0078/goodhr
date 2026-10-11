@@ -207,9 +207,13 @@ func (s *PaymentService) AIBalanceOrder(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	amountCents := req.AmountCents
+	if amountCents < 0 {
+		writeError(w, http.StatusBadRequest, "充值金额得大于 0，我先小声拦一下。")
+		return
+	}
 	if amountCents <= 0 && strings.TrimSpace(req.AmountYuan) != "" {
 		amountCents, err = yuanTextToCents(req.AmountYuan)
-		if err != nil {
+		if err != nil || amountCents <= 0 {
 			writeError(w, http.StatusBadRequest, "充值金额不太对，我没敢收。")
 			return
 		}
@@ -221,6 +225,12 @@ func (s *PaymentService) AIBalanceOrder(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "充值金额建议在 1 元到 1000 元之间。")
 		return
 	}
+	promotions, err := loadAIRechargePromotions(s.systemConfigs)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "充值活动暂时没查清楚，这次我先不乱下单。")
+		return
+	}
+	bonusCents := rechargeBonusCents(promotions, amountCents)
 	provider, ok := s.providers[defaultPaymentProvider]
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "payment provider not configured")
@@ -239,6 +249,7 @@ func (s *PaymentService) AIBalanceOrder(w http.ResponseWriter, r *http.Request) 
 		OriginalAmountCents: amountCents,
 		DiscountAmountCents: 0,
 		AmountCents:         amountCents,
+		BonusAmountCents:    bonusCents,
 		PaymentProvider:     defaultPaymentProvider,
 		Status:              "pending",
 		ExpiredAt:           &expiredAt,
@@ -394,13 +405,14 @@ func (s *PaymentService) completeProviderTransaction(providerName string, result
 		if s.aiWallet == nil {
 			return fmt.Errorf("ai wallet not configured")
 		}
-		changeUnits := centsToAIUnits(paidOrder.AmountCents)
+		changeUnits := centsToAIUnits(paidOrder.AmountCents) + centsToAIUnits(paidOrder.BonusAmountCents)
 		balanceUnits, err := s.aiWallet.AdjustBalance(AIWalletRecord{
-			UserEmail:      paidOrder.UserEmail,
-			ChangeUnits:    changeUnits,
-			Category:       "recharge",
-			Reason:         "AI余额充值成功",
-			RelatedOrderNo: paidOrder.OrderNo,
+			UserEmail:        paidOrder.UserEmail,
+			ChangeUnits:      changeUnits,
+			BonusChangeUnits: centsToAIUnits(paidOrder.BonusAmountCents),
+			Category:         "recharge",
+			Reason:           "AI余额充值成功",
+			RelatedOrderNo:   paidOrder.OrderNo,
 		})
 		if err != nil {
 			return err
@@ -611,6 +623,8 @@ func publicPaymentOrder(order PaymentOrder) map[string]any {
 		"upgrade_credit_cents":     order.UpgradeCreditCents,
 		"amount_cents":             order.AmountCents,
 		"amount":                   centsToYuanString(order.AmountCents),
+		"bonus_amount_cents":       order.BonusAmountCents,
+		"bonus_amount":             centsToYuanString(order.BonusAmountCents),
 		"payment_provider":         order.PaymentProvider,
 		"trade_no":                 order.TradeNo,
 		"status":                   order.Status,
@@ -632,11 +646,33 @@ func priceToCents(value float64) int {
 
 // yuanTextToCents 将元字符串转换成分。
 func yuanTextToCents(value string) (int, error) {
-	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-	if err != nil {
-		return 0, err
+	text := strings.TrimSpace(value)
+	sign := ""
+	if strings.HasPrefix(text, "-") || strings.HasPrefix(text, "+") {
+		sign, text = text[:1], text[1:]
 	}
-	return priceToCents(parsed), nil
+	parts := strings.Split(text, ".")
+	if len(parts) > 2 || parts[0] == "" {
+		return 0, errors.New("金额格式不正确")
+	}
+	fraction := "00"
+	if len(parts) == 2 {
+		if len(parts[1]) > 2 {
+			return 0, errors.New("金额最多保留两位小数")
+		}
+		fraction = (parts[1] + "00")[:2]
+	}
+	digits := parts[0] + fraction
+	for _, digit := range digits {
+		if digit < '0' || digit > '9' {
+			return 0, errors.New("金额格式不正确")
+		}
+	}
+	cents, err := strconv.ParseInt(sign+digits, 10, 32)
+	if err != nil {
+		return 0, errors.New("金额超出可填写范围")
+	}
+	return int(cents), nil
 }
 
 // defaultString 返回非空字符串或默认值。

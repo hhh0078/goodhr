@@ -11,6 +11,7 @@ export type WechatPaymentState = {
   orderNo: string;
   title: string;
   amount: string;
+  bonusAmount?: string;
   codeURL: string;
 };
 
@@ -30,6 +31,9 @@ export function wechatPaymentFromResponse(
     title:
       String(data?.order?.plan_name || fallbackTitle).trim() || fallbackTitle,
     amount: String(data?.order?.amount || "0.00"),
+    bonusAmount: Number(data?.order?.bonus_amount_cents || 0) > 0
+      ? String(data?.order?.bonus_amount || (Number(data.order.bonus_amount_cents) / 100).toFixed(2))
+      : undefined,
   };
 }
 
@@ -127,6 +131,11 @@ export function WechatPayDialog({
             >
               ￥{payment.amount}
             </Typography.Paragraph>
+            {payment.bonusAmount ? (
+              <Typography.Text type="secondary">
+                支付成功后另赠 ￥{payment.bonusAmount}，赠送余额不可退款。
+              </Typography.Text>
+            ) : null}
           </Flex>
           <Flex gap={8} align="center">
             {status === "paid" ? (

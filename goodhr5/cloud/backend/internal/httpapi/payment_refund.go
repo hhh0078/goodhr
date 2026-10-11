@@ -112,6 +112,10 @@ func (s *PaymentService) createRefund(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "这笔订单不是微信支付，暂时不能自动原路退款。")
 		return
 	}
+	if refundType == refundTypeAIBalance {
+		s.createAIRefund(w, r, eligibility, provider, amountCents)
+		return
+	}
 	refundNo := generatePaymentRefundNo()
 	refund, err := s.orders.CreateRefund(PaymentRefund{
 		RefundNo:     refundNo,
@@ -250,8 +254,12 @@ func (s *PaymentService) findRefundEligibility(email string, refundType string, 
 					continue
 				}
 			}
-		} else if int64(available) > walletCents {
-			available = int(walletCents)
+		} else {
+			cashUnits, cashErr := s.aiWallet.RefundableUnits(email, order.OrderNo)
+			if cashErr != nil {
+				return paymentRefundEligibility{}, fmt.Errorf("充值账本还需要核对，暂时不能自动退款。")
+			}
+			available = min(available, int(aiUnitsToCents(cashUnits)), int(walletCents))
 		}
 		if available <= 0 || (requestedCents > 0 && available < requestedCents) {
 			continue

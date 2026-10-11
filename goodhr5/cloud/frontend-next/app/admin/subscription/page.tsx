@@ -15,8 +15,6 @@ import {
   Typography,
 } from "antd";
 import {
-  ArrowDownOutlined,
-  ArrowUpOutlined,
   CheckOutlined,
   CrownOutlined,
   PayCircleOutlined,
@@ -35,6 +33,9 @@ import {
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import AIRechargeDialog from "@/components/payment/AIRechargeDialog";
+import AIWalletChange from "@/components/payment/AIWalletChange";
+import { AI_RECHARGE_POLICY, AI_RECHARGE_REFUND_POLICY, MAX_AI_RECHARGE_CENTS, MIN_AI_RECHARGE_CENTS, rechargeAmountCents } from "@/lib/ai-recharge";
 import {
   WechatPayDialog,
   wechatPaymentFromResponse,
@@ -237,9 +238,9 @@ export default function SubscriptionPage() {
   }
   /** rechargeAI 创建 AI 余额充值订单。 */
   async function rechargeAI() {
-    const amount = Number(rechargeAmount || 0);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      notify("充值金额得大于 0，我先小声拦一下。", "warning");
+    const amountCents = rechargeAmountCents(rechargeAmount);
+    if (amountCents === null || amountCents < MIN_AI_RECHARGE_CENTS || amountCents > MAX_AI_RECHARGE_CENTS) {
+      notify("充值金额需在 1–1000 元之间，最多保留两位小数。", "warning");
       return;
     }
     setRecharging(true);
@@ -266,9 +267,9 @@ export default function SubscriptionPage() {
   }
   /** requestAIRecharge 校验充值金额并在创建 AI 余额订单前打开确认框。 */
   async function requestAIRecharge() {
-    const amount = Number(rechargeAmount || 0);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      notify("充值金额得大于 0，我先小声拦一下。", "warning");
+    const amountCents = rechargeAmountCents(rechargeAmount);
+    if (amountCents === null || amountCents < MIN_AI_RECHARGE_CENTS || amountCents > MAX_AI_RECHARGE_CENTS) {
+      notify("充值金额需在 1–1000 元之间，最多保留两位小数。", "warning");
       return;
     }
     try {
@@ -449,6 +450,11 @@ export default function SubscriptionPage() {
           compact
           className={styles.s123}
         >
+          {Number(wallet.bonus_balance_units || 0) > 0 ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              含赠送 ￥{wallet.bonus_balance || "0.0000"}，赠送余额最后使用。
+            </Typography.Text>
+          ) : null}
           <Flex className={styles.s124}>
             <Button
               onClick={openModelDialog}
@@ -620,62 +626,15 @@ export default function SubscriptionPage() {
         </Form.Item>
       </Modal>
 
-      <Modal
+      <AIRechargeDialog
         open={rechargeDialogOpen}
-        onCancel={() => {
-          if (!recharging) setRechargeDialogOpen(false);
-        }}
-        closable={!recharging}
-        mask={{ closable: !recharging }}
-        keyboard={!recharging}
-        width={440}
-        destroyOnHidden
-        title={<> 充值 AI 余额 </>}
-        footer={
-          <Flex justify="flex-end" gap={8} wrap>
-            <Button
-              disabled={recharging}
-              onClick={() => setRechargeDialogOpen(false)}
-              type={"text"}
-            >
-              先不充
-            </Button>
-            <Button
-              loading={recharging}
-              disabled={recharging}
-              onClick={requestAIRecharge}
-              type={"primary"}
-            >
-              {recharging ? "下单中" : "去支付"}
-            </Button>
-          </Flex>
-        }
-      >
-        <Form.Item
-          layout="vertical"
-          htmlFor="subscription-field-3"
-          label={"充值金额（元）"}
-          className={styles.s143}
-          style={{ marginBottom: 0 }}
-        >
-          <InputNumber
-            id="subscription-field-3"
-            value={rechargeAmount ? Number(rechargeAmount) : null}
-            onChange={(value) =>
-              setRechargeAmount(value === null ? "" : String(value))
-            }
-            min={0.01}
-            precision={2}
-            step={1}
-            prefix="￥"
-            disabled={recharging}
-            style={{ width: "100%" }}
-          />
-        </Form.Item>
-        <Typography.Paragraph className={`${styles.text} ${styles.s145}`}>
-          默认 10 元，够先跑一阵。填完我就去创建支付订单。
-        </Typography.Paragraph>
-      </Modal>
+        amount={rechargeAmount}
+        promotions={wallet.recharge_promotions}
+        loading={recharging}
+        onAmountChange={setRechargeAmount}
+        onClose={() => setRechargeDialogOpen(false)}
+        onConfirm={() => void requestAIRecharge()}
+      />
 
       <PaymentUnderstandingDialog
         open={pendingPayment !== null}
@@ -771,6 +730,11 @@ export default function SubscriptionPage() {
               ? `当前最多可退 ￥${refundQuote[refundType].max_amount}。确认后会自动原路退回，并同步扣减对应权益。`
               : refundQuote?.[refundType]?.message || "当前没有可退金额。"}
         </Typography.Paragraph>
+        {refundType === "ai_balance" ? (
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            赠送的余额不可退款。{AI_RECHARGE_REFUND_POLICY}
+          </Typography.Paragraph>
+        ) : null}
       </Modal>
       <WechatPayDialog
         payment={wechatPayment}
@@ -828,6 +792,11 @@ function PaymentUnderstandingDialog({
           ? "你即将购买会员套餐。继续前，请确认已经理解下面的费用区别和退款政策。"
           : "你即将充值 AI 余额。继续前，请确认已经理解下面的费用区别和退款政策。"}
       </Typography.Paragraph>
+      {paymentType === "ai_balance" ? (
+        <Typography.Paragraph type="secondary">
+          {AI_RECHARGE_POLICY}{AI_RECHARGE_REFUND_POLICY}
+        </Typography.Paragraph>
+      ) : null}
       <Flex className={styles.s152}>
         {paymentType === "membership" && plan && quote ? (
           <Card
@@ -890,7 +859,8 @@ function PaymentUnderstandingDialog({
           </Typography.Paragraph>
           <Typography.Paragraph className={`${styles.text} ${styles.s164}`}>
             会员退款按该笔订单实付金额和购买天数折算，只退还尚未使用的部分；AI
-            余额最多退还当前剩余且有成功充值订单支撑的金额。
+            余额最多退还当前剩余且有成功充值订单支撑的实付余额，赠送余额不可退款。
+            {AI_RECHARGE_REFUND_POLICY}
           </Typography.Paragraph>
           <Typography.Paragraph className={`${styles.text} ${styles.s165}`}>
             需要开发票请联系作者处理。发票开出后，该笔订单不支持退费。
@@ -1014,13 +984,20 @@ function PaymentRecords({
           ),
         },
         {
-          title: "金额",
+          title: "实付金额",
           key: "amount",
           width: 100,
           render: (_, order) => (
-            <Typography.Text strong>
-              ￥{(Number(order.amount_cents || 0) / 100).toFixed(2)}
-            </Typography.Text>
+            <Flex vertical gap={2} style={{ whiteSpace: "nowrap" }}>
+              <Typography.Text strong>
+                ￥{(Number(order.amount_cents || 0) / 100).toFixed(2)}
+              </Typography.Text>
+              {Number(order.bonus_amount_cents || 0) > 0 ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  赠送 ￥{(Number(order.bonus_amount_cents) / 100).toFixed(2)}
+                </Typography.Text>
+              ) : null}
+            </Flex>
           ),
         },
         {
@@ -1088,14 +1065,11 @@ function AIRecordList({
           render: (value) => <CategoryChip category={value} />,
         },
         {
-          title: "金额",
+          title: "余额变动",
           key: "amount",
           width: 130,
           render: (_, record) => (
-            <AmountText
-              units={Number(record.change_units || 0)}
-              value={record.change}
-            />
+            <AIWalletChange record={record} />
           ),
         },
         {
@@ -1133,6 +1107,7 @@ function CategoryChip({ category }: { category: string }) {
     ai_usage: "AI调用",
     recharge: "充值",
     refund: "退款",
+    refund_release: "退款退回",
     signup_bonus: "注册赠送",
     admin_adjust: "后台调整",
   };
@@ -1143,28 +1118,6 @@ function CategoryChip({ category }: { category: string }) {
         ? "processing"
         : "success";
   return <Tag color={color}>{labelMap[category] || category || "记录"}</Tag>;
-}
-/** AmountText 展示余额变动金额。 */
-function AmountText({ units, value }: { units: number; value: string }) {
-  const positive = units
-    ? units > 0
-    : !String(value || "")
-        .trim()
-        .startsWith("-");
-  const Icon = positive ? ArrowUpOutlined : ArrowDownOutlined;
-  return (
-    <Flex
-      className={styles.s189}
-      style={
-        { "--heavy-28": positive ? "#389e0d" : "#ad6800" } as CSSProperties
-      }
-    >
-      <Icon aria-hidden="true" className={styles.s190} />
-      <Typography.Paragraph className={`${styles.text} ${styles.s191}`}>
-        {positive ? "+" : ""}￥{value || "0.00"}
-      </Typography.Paragraph>
-    </Flex>
-  );
 }
 /** TokenInfo 展示模型和 token 用量。 */
 function TokenInfo({ record }: { record: any }) {
