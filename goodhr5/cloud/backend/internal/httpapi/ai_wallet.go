@@ -25,7 +25,7 @@ import (
 var ErrBuiltinAIConfigUnavailable = errors.New("AI 模型列表暂时没读出来，请稍后再试。")
 
 const (
-	defaultBuiltinAIBaseURL      = "https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions"
+	defaultBuiltinAIBaseURL      = "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions"
 	defaultBuiltinAIModel        = "qwen3.7-plus"
 	defaultSignupBonusCents      = 70
 	defaultAIRechargeAmountCents = 1000
