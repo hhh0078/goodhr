@@ -8,21 +8,10 @@ const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), 
 /** crc32 计算 ZIP/PNG 标准校验值，不依赖外部包。 */
 function crc32(buffer) { let crc = 0xffffffff; for (const byte of buffer) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0); } return (crc ^ 0xffffffff) >>> 0; }
 
-/** pngChunk 构建有长度和校验值的 PNG 数据块。 */
-function pngChunk(type, content) { const name = Buffer.from(type); const length = Buffer.alloc(4); length.writeUInt32BE(content.length); const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(Buffer.concat([name, content]))); return Buffer.concat([length, name, content, crc]); }
-
-/** iconPNG 生成自然金色简历卡图标，所有内容在本地生成。 */
+/** iconPNG 读取由官网绿色品牌标识生成的 PNG；构建不再另画简历图标。 */
 function iconPNG(size) {
-  const header = Buffer.alloc(13); header.writeUInt32BE(size); header.writeUInt32BE(size, 4); header[8] = 8; header[9] = 6;
-  const pixels = Buffer.alloc((size * 4 + 1) * size);
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    const offset = y * (size * 4 + 1) + 1 + x * 4;
-    const card = x > size * .22 && x < size * .77 && y > size * .15 && y < size * .86;
-    const line = card && x > size * .32 && x < size * .65 && [0.36, .52, .68].some((point) => Math.abs(y / size - point) < .035);
-    const color = line ? [138, 103, 33] : card ? [255, 255, 249] : [138, 103, 33];
-    pixels[offset] = color[0]; pixels[offset + 1] = color[1]; pixels[offset + 2] = color[2]; pixels[offset + 3] = 255;
-  }
-  return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), pngChunk("IHDR", header), pngChunk("IDAT", zlib.deflateSync(pixels)), pngChunk("IEND", Buffer.alloc(0))]);
+  if (![16,32,48,64,128].includes(size)) throw new Error("品牌图标仅提供已核对的标准尺寸");
+  return fs.readFileSync(path.join(ROOT, "assets", "icons", `${size}.png`));
 }
 
 /** filesUnder 按固定顺序枚举发布目录文件，排除目录和操作系统残留。 */
@@ -46,13 +35,13 @@ function zipBuffer(files) {
 function manifest(browser, local = false) {
   const common = {
     manifest_version: 3, name: "GoodHR 简历助手", version,
-    description: "从当前可见候选人读取资料，在隔离悬浮助手中确认后入库；不点击、解锁或滚动招聘页面。",
+    description: "识别可见简历后自动展开，补号、查重并一键添加或更新；只读招聘页面。",
     permissions: ["storage"],
     host_permissions: ["https://goodhr.58it.cn/*", "http://127.0.0.1/*", "https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://*.lietou-static.com/*", "https://mypics.zhaopin.cn/*"],
-    icons: { "32": "icons/32.png", "64": "icons/64.png", "128": "icons/128.png" },
-    action: { default_title: "GoodHR 简历助手", default_popup: "src/ui.html", default_icon: { "32": "icons/32.png" } },
+    icons: { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "64": "icons/64.png", "128": "icons/128.png" },
+    action: { default_title: "GoodHR 简历助手", default_popup: "src/ui.html", default_icon: { "16": "icons/16.png", "32": "icons/32.png" } },
     content_scripts: [{ matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"], js: ["src/shared.js", "src/extraction.js", "src/floating.js", "src/content.js"], run_at: "document_idle", all_frames: false }],
-    web_accessible_resources: [{ resources: ["src/ui.html", "src/ui.css", "src/ui.js", "src/shared.js", "src/privacy.html"], matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"] }],
+    web_accessible_resources: [{ resources: ["src/floating.html", "src/ui.css", "src/candidate-ui.js", "src/shared.js", "icons/32.png"], matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"] }],
     content_security_policy: { extension_pages: "script-src 'self'; object-src 'none';" }
   };
   if (local) {
@@ -79,14 +68,17 @@ function prepareLocalOutput(directory) {
   const write = (name, content) => fs.writeFileSync(path.join(directory, "src", name), content);
   write("shared.js", replaceRequired(read("shared.js"), 'const CLOUD_BASE = "https://goodhr.58it.cn";', `const CLOUD_BASE = ${JSON.stringify(LOCAL.api)};`, "shared.js"));
   write("ui.js", replaceRequired(read("ui.js"), "shared.CLOUD_BASE", JSON.stringify(LOCAL.web), "ui.js"));
+  write("candidate-ui.js", replaceRequired(read("candidate-ui.js"), "shared.CLOUD_BASE", JSON.stringify(LOCAL.web), "candidate-ui.js"));
   let background = replaceRequired(read("background.js"), '[shared.CLOUD_BASE, "http://127.0.0.1:5173"]', `[${JSON.stringify(LOCAL.web)}]`, "background.js");
   background = replaceRequired(background, 'shared.CLOUD_BASE + "/download#browser-extension"', `${JSON.stringify(LOCAL.web)} + "/download#browser-extension"`, "background.js");
   background = replaceRequired(background, "43129", String(LOCAL.agentPort), "background.js").replaceAll("GoodHR 简历助手", LOCAL.name);
   write("background.js", background);
   let ui = replaceRequired(read("ui.html"), "https://goodhr.58it.cn/login", LOCAL.web + "/login", "ui.html");
   ui = replaceRequired(ui, 'value="43129"', `value="${LOCAL.agentPort}"`, "ui.html").replaceAll("GoodHR 简历助手", LOCAL.name);
+  ui = ui.replaceAll("https://goodhr.58it.cn/download#browser-extension", LOCAL.web + "/download#browser-extension");
   ui = replaceRequired(ui, "  <main>", `  <main>\n    <p class="error"><strong>本地测试</strong> · 简历仅入测试库<br>API：${LOCAL.api}<br>网页：${LOCAL.web} · 本地程序：${LOCAL.agentPort}</p>`, "ui.html");
   write("ui.html", ui);
+  write("floating.html", replaceRequired(read("floating.html"), "https://goodhr.58it.cn/download#browser-extension", LOCAL.web + "/download#browser-extension", "floating.html"));
   let privacy = read("privacy.html").replaceAll("GoodHR 简历助手", LOCAL.name).replace("<title>GoodHR 插件数据说明</title>", "<title>GoodHR 本地测试插件数据说明</title>");
   privacy = replaceRequired(privacy, '<p>业务和公开版本检查仅连接 <a href="https://goodhr.58it.cn" target="_blank" rel="noreferrer">goodhr.58it.cn</a>；配对和摘要任务只连接127.0.0.1。头像图片域见上方说明；没有广告追踪或第三方分析服务。未登录的重新读取不向云端发送候选人资料。</p>', `<p><strong>此包仅用于本地测试。</strong>业务与版本检查仅连接 ${LOCAL.api}；候选人详情、登录协议和下载入口仅打开 <a href="${LOCAL.web}" target="_blank" rel="noreferrer">${LOCAL.web}</a>。不会请求生产 GoodHR 服务。配对和摘要默认连接 127.0.0.1:${LOCAL.agentPort}，请使用独立测试程序；招聘页面与头像白名单保持原样。未登录重新读取不会发送候选人资料。若主动生成AI总结，职业资料仍会交给测试程序所配置的AI服务商，可能计费。</p>`, "privacy.html");
   write("privacy.html", privacy);
@@ -112,7 +104,7 @@ function build(options = {}) {
   for (const browser of options.chromeOnly ? ["chrome"] : ["chrome", "firefox"]) {
     const directory = path.join(OUT, browser); if (options.chromeOnly) fs.rmSync(directory, { recursive: true, force: true }); fs.mkdirSync(directory, { recursive: true }); fs.cpSync(path.join(ROOT, "src"), path.join(directory, "src"), { recursive: true });
     if (local) prepareLocalOutput(directory);
-    fs.mkdirSync(path.join(directory, "icons")); for (const size of [32,64,128]) fs.writeFileSync(path.join(directory, "icons", `${size}.png`), iconPNG(size));
+    fs.mkdirSync(path.join(directory, "icons")); for (const size of [16,32,48,64,128]) fs.writeFileSync(path.join(directory, "icons", `${size}.png`), iconPNG(size));
     fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest(browser, local), null, 2) + "\n");
     fs.copyFileSync(path.join(ROOT, local ? "LOCAL-INSTALL.md" : "INSTALL.md"), path.join(directory, "INSTALL.md"));
     const archive = zipBuffer(filesUnder(directory)), name = `goodhr-resume-${browser}-${local ? "local-" : ""}${version}.zip`; fs.writeFileSync(path.join(OUT, name), archive);

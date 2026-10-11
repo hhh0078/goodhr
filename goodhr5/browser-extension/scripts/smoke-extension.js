@@ -23,12 +23,14 @@ async function runChromeExtension() {
     });
     await page.goto("https://h.liepin.com/resume/showresumedetail?resumeId=synthetic-extension-1");
     const host = page.locator("#goodhr-resume-assistant"); await host.waitFor();
-    const rect = await host.boundingBox(); await page.mouse.click(rect.x + rect.width - 48, rect.y + rect.height / 2);
-    if (!page.frames().some((frame) => frame.url().startsWith(`chrome-extension://${installed.id}/src/ui.html?surface=floating`))) await page.waitForEvent("framenavigated", { predicate: (frame) => frame.url().startsWith(`chrome-extension://${installed.id}/src/ui.html?surface=floating`) });
-    const frame = page.frames().find((item) => item.url().includes("/src/ui.html?surface=floating")); assert.ok(frame);
-    await frame.locator("#status").waitFor({ state: "visible" });
+    if (!page.frames().some((frame) => frame.url().startsWith(`chrome-extension://${installed.id}/src/floating.html`))) await page.waitForEvent("framenavigated", { predicate: (frame) => frame.url().startsWith(`chrome-extension://${installed.id}/src/floating.html`) });
+    const frame = page.frames().find((item) => item.url().includes("/src/floating.html")); assert.ok(frame);
+    await frame.locator("#duplicate-status").waitFor({ state: "visible" });
     await frame.locator("#name").waitFor({ state: "visible" });
+    // 扩展状态读取是异步的，等待合成资料填入后再验证自动展示效果。
+    await frame.waitForFunction(() => document.getElementById("name")?.value === "合成扩展候选人" && document.getElementById("phone")?.value === "13800000171");
     assert.equal(await frame.locator("#name").inputValue(), "合成扩展候选人"); assert.equal(await frame.locator("#phone").inputValue(), "13800000171");
+    assert.equal(await frame.locator("#login-form,#consent,#pair-panel").count(), 0);
     const senders = await worker.evaluate(() => fixtureSenders); assert.ok(senders.length); assert.ok(senders.every((sender) => sender.tab && sender.frameId > 0 && sender.tab.url.includes("synthetic-extension-1")));
     fs.writeFileSync(path.join(ROOT, "artifacts", "chrome-extension-senders.json"), JSON.stringify({ description: "文件作用：只记录合成扩展iframe消息来源，无真实资料或凭证。", chrome: await context.browser()?.version(), senders }, null, 2));
     console.log(JSON.stringify({ installed: true, floating_preview: true, sender_tab_present: true, sender_frame: senders[0].frameId, chrome: await context.browser()?.version() }));

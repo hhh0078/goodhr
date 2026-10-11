@@ -10,6 +10,45 @@ let authGeneration = 0, revokeInFlight = null, lastRevokeAttempt = 0;
 const duplicateCache = new Map(), captureTimers = new Map();
 let draftQueue = Promise.resolve();
 const refreshRequests = new Map();
+let updateInFlight = null, updateInitialization = null, updateCheckedAt = 0, knownUpdate = null;
+const VERSION_WRITES = new Set(["CREATE", "UPDATE", "AVATAR_RETRY", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_RETRY", "SUMMARY_SAVE"]);
+
+/** updateSummary 只把经过校验的公开版本和本站下载入口交给界面。 */
+function updateSummary(release = {}) {
+  const latest = shared.cleanText(release.version || release.latest_version, 50), available = /^\d+\.\d+\.\d+$/.test(latest) && shared.compareVersions(latest, extension.runtime.getManifest().version) > 0;
+  return { current_version: extension.runtime.getManifest().version, latest_version: latest, note: shared.cleanText(release.note, 1000), update_available: available, update_required: available, url: shared.CLOUD_BASE + "/download#browser-extension" };
+}
+
+/** checkUpdate 合并公开版本检查；网络失败保留已确认的更新要求，重启后仍然有效。 */
+async function checkUpdate(force = false) {
+  if (!knownUpdate) {
+    if (!updateInitialization) updateInitialization = (async () => {
+      try { const stored = await extension.storage.local.get(["known_extension_release"]); knownUpdate = updateSummary(stored.known_extension_release); }
+      catch { knownUpdate = updateSummary(); }
+    })().finally(() => { updateInitialization = null; });
+    await updateInitialization;
+  }
+  if (updateInFlight) return updateInFlight;
+  if (!force && updateCheckedAt && Date.now() - updateCheckedAt < 60000) return knownUpdate;
+  updateInFlight = (async () => {
+    try {
+      const result = await requestJSON(shared.CLOUD_BASE + "/api/system/browser-extension", { timeout_ms: 6000 }), release = result.release || {};
+      if (/^\d+\.\d+\.\d+$/.test(String(release.version || ""))) {
+        knownUpdate = updateSummary(release);
+        await extension.storage.local.set({ known_extension_release: { version: knownUpdate.latest_version, note: knownUpdate.note } });
+      }
+    } catch { /* 公开配置暂不可达时，不抹掉已发现的新版，不阻止本地只读预览。 */ }
+    finally { updateCheckedAt = Date.now(); }
+    return knownUpdate;
+  })().finally(() => { updateInFlight = null; });
+  return updateInFlight;
+}
+
+/** requireCurrentVersion 在后台拦截旧版写操作，界面按钮或脚本均不能绕过强制更新。 */
+async function requireCurrentVersion() {
+  const update = await checkUpdate();
+  if (update.update_required) throw Object.assign(new Error(`插件需要更新到 v${update.latest_version}，请前往官网下载新版后继续`), { code: "EXTENSION_UPDATE_REQUIRED", status: 426 });
+}
 
 /** readSettings 读取插件私有登录与配对信息，不读取任何网站缓存。 */
 async function readSettings() { return extension.storage.local.get(["session", "installation_id", "pairing_token", "pairing_account_key", "local_port", "pending_pair", "pending_revoke", "data_use_accepted"]); }
@@ -238,7 +277,7 @@ async function prepareAvatar(captureID, sourceTab = null) {
 /** publicState 返回不含 token、配对令牌、挑战值的界面状态。 */
 async function publicState(sourceTab = null) {
   await retryRevocation(); await tryRestore(); const settings = await readSettings();
-  return { logged_in: Boolean(settings.session?.token), account_key: accountKey(settings), paired: Boolean(settings.pairing_token && !settings.pending_revoke), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version };
+  return { logged_in: Boolean(settings.session?.token), account_key: accountKey(settings), paired: Boolean(settings.pairing_token && !settings.pending_revoke), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version, update: await checkUpdate() };
 }
 
 /** accountKey 用公开账号标识隔离草稿和迟到界面请求，不包含任何凭证。 */
@@ -354,6 +393,7 @@ async function retryAvatar(payload, sourceTab = null) {
 async function handleUIMessage(message, sourceTab = null) {
   const generation = authGeneration, payload = { ...(message.payload || {}), expected_generation: generation };
   if (["POSITIONS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE"].includes(message.type) && payload.account_key) { const generation = authGeneration, settings = await readSettings(); if (generation !== authGeneration || payload.account_key !== accountKey(settings)) throw new Error("账号已经变化，本次操作已停止，请确认账号后继续"); }
+  if (VERSION_WRITES.has(message.type)) { await requireConsent(); await requireActiveSession(); await requireCurrentVersion(); }
   switch (message.type) {
     case "STATE": return publicState(sourceTab);
     case "PREVIEW": return { resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version };
@@ -375,7 +415,7 @@ async function handleUIMessage(message, sourceTab = null) {
     case "DUPLICATES": return checkDuplicates(payload);
     case "DRAFT_GET": return draftOperation(payload, false);
     case "DRAFT_SAVE": return draftOperation(payload, true);
-    case "CHECK_UPDATE": { const result = await requestJSON(shared.CLOUD_BASE + "/api/system/browser-extension"); const release = result.release || {}; return { latest_version: shared.cleanText(release.version, 50), note: shared.cleanText(release.note, 1000), update_available: shared.compareVersions(release.version, extension.runtime.getManifest().version) > 0, url: shared.CLOUD_BASE + "/download#browser-extension" }; }
+    case "CHECK_UPDATE": return checkUpdate(true);
     case "SUMMARY_START": return summaryOperation(payload, "start");
     case "SUMMARY_POLL": return summaryOperation(payload, "poll");
     case "SUMMARY_CANCEL": return summaryOperation(payload, "cancel");
@@ -408,7 +448,7 @@ async function handleUIMessage(message, sourceTab = null) {
 
 /** isTrustedUI 只接收本插件的固定界面页，拒绝网页URL、前缀伪装及其它扩展资源。 */
 function isTrustedUI(sender) {
-  try { const url = new URL(sender.url), ui = new URL(extension.runtime.getURL("src/ui.html")); return url.protocol === ui.protocol && url.host === ui.host && url.pathname === ui.pathname && (!url.search || url.search === "?surface=floating"); }
+  try { const url = new URL(sender.url), ui = new URL(extension.runtime.getURL("src/ui.html")); return url.protocol === ui.protocol && url.host === ui.host && [ui.pathname, "/src/floating.html"].includes(url.pathname) && !url.search && !url.hash; }
   catch { return false; }
 }
 
@@ -416,6 +456,9 @@ function isTrustedUI(sender) {
 function onMessage(message, sender, sendResponse) {
   if (sender.id !== extension.runtime.id) return false;
   if (isTrustedUI(sender)) {
+    const floating = new URL(sender.url).pathname === "/src/floating.html";
+    if (floating && ["LOGIN", "SEND_CODE", "CONSENT", "PAIR_START", "PAIR_CHECK", "RESTORE", "LOGOUT", "REVOKE_RETRY", "OPEN_SIDEBAR"].includes(message.type)) return false;
+    if (!floating && sender.tab) return false;
     // 嵌入UI的sender.tab由浏览器提供；任何payload里的tab编号都不能改变资料来源。
     if (sender.tab && (!shared.platformForURL(sender.tab.url) || !Number.isInteger(sender.frameId) || sender.frameId < 1)) return false;
     const sourceTab = sender.tab ? { id: sender.tab.id, url: sender.tab.url } : null;
@@ -435,7 +478,7 @@ function onMessage(message, sender, sendResponse) {
       if (resume.capture_id !== old?.capture_id) scheduleCaptureCheck(sender.tab.id, resume);
     } else snapshots.delete(sender.tab.id);
     extension.action.setBadgeText({ tabId: sender.tab.id, text: resume?.candidate_name ? "+" : "" });
-    extension.action.setBadgeBackgroundColor({ tabId: sender.tab.id, color: "#8A6721" });
+    extension.action.setBadgeBackgroundColor({ tabId: sender.tab.id, color: "#0B8968" });
     extension.action.setTitle({ tabId: sender.tab.id, title: resume?.candidate_name ? "当前有简历，可添加到 GoodHR" : "GoodHR 简历助手" });
     sendResponse({ ok: true }); return false;
   }
