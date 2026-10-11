@@ -19,6 +19,7 @@ export default function ChoiceCards({
   options,
   columns = 2,
   autoWidth = false,
+  compact = false,
   readOnly = false,
   onChange,
 }: {
@@ -27,6 +28,7 @@ export default function ChoiceCards({
   options: ChoiceOption[];
   columns?: number;
   autoWidth?: boolean;
+  compact?: boolean;
   readOnly?: boolean;
   onChange: (value: string | boolean) => void;
 }) {
@@ -43,7 +45,7 @@ export default function ChoiceCards({
         value={value}
         disabled={readOnly}
         onChange={(event) => onChange(event.target.value)}
-        className={`goodhr-choice-grid${autoWidth ? " goodhr-choice-auto" : ""}`}
+        className={`goodhr-choice-grid${autoWidth ? " goodhr-choice-auto" : ""}${compact ? " goodhr-choice-compact" : ""}`}
         style={{ "--choice-columns": Math.max(1, columns) } as CSSProperties}
       >
         {options.map((option) => (
@@ -69,9 +71,9 @@ export default function ChoiceCards({
                 />
               ) : null}
               {!option.iconOnly || !option.iconSrc ? (
-                <Typography.Text strong>{option.label}</Typography.Text>
+                <Typography.Text strong style={compact ? { fontSize: 13 } : undefined}>{option.label}</Typography.Text>
               ) : null}
-              {value === option.value ? (
+              {value === option.value && !compact ? (
                 <CheckCircleFilled
                   className="goodhr-choice-check"
                   aria-hidden="true"
@@ -81,7 +83,7 @@ export default function ChoiceCards({
             {!option.iconOnly ? (
               <Typography.Paragraph
                 type="secondary"
-                style={{ margin: "6px 0 0", fontSize: 12.5 }}
+                style={{ margin: compact ? "2px 0 0" : "6px 0 0", fontSize: compact ? 12 : 12.5 }}
               >
                 {option.description}
               </Typography.Paragraph>

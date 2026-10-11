@@ -46,27 +46,6 @@ export default function AIRechargeDialog({
       onClose={onClose}
       onConfirm={onConfirm}
     >
-      {activities.length ? (
-        <div style={{ marginBottom: 16 }}>
-          <ChoiceCards
-            label="充值活动"
-            value={selected}
-            readOnly={loading}
-            options={[
-              ...activities.map((item) => ({
-                value: String(item.amount_cents),
-                label: `充值 ${rechargeYuanLabel(item.amount_cents)} 元`,
-                description: `赠送 ${rechargeYuanLabel(item.bonus_cents)} 元`,
-              })),
-              { value: "custom", label: "自定义金额", description: "达到门槛也能参加活动" },
-            ]}
-            onChange={(value) => {
-              if (value !== "custom") onAmountChange((Number(value) / 100).toFixed(2));
-              else if (selected !== "custom") onAmountChange("");
-            }}
-          />
-        </div>
-      ) : null}
       <Form.Item layout="vertical" htmlFor={amountID} label="充值金额（元）" style={{ marginBottom: 8 }}>
         <InputNumber
           id={amountID}
@@ -81,6 +60,28 @@ export default function AIRechargeDialog({
           style={{ width: "100%" }}
         />
       </Form.Item>
+      {activities.length ? (
+        <div style={{ marginBottom: 12 }}>
+          <ChoiceCards
+            label="充值活动"
+            compact
+            value={selected}
+            readOnly={loading}
+            options={[
+              ...activities.map((item) => ({
+                value: String(item.amount_cents),
+                label: `充值 ${rechargeYuanLabel(item.amount_cents)} 元`,
+                description: `赠送 ${rechargeYuanLabel(item.bonus_cents)} 元`,
+              })),
+              { value: "custom", label: "自定义金额", description: "自由填写" },
+            ]}
+            onChange={(value) => {
+              if (value !== "custom") onAmountChange((Number(value) / 100).toFixed(2));
+              else if (selected !== "custom") onAmountChange("");
+            }}
+          />
+        </div>
+      ) : null}
       {bonus > 0 && cents !== null ? (
         <Typography.Paragraph style={{ marginBottom: 8 }} data-testid="ai-recharge-estimate">
           实付 ￥{(cents / 100).toFixed(2)}，赠送 ￥{(bonus / 100).toFixed(2)}，
