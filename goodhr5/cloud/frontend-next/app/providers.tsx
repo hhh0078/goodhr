@@ -1,46 +1,91 @@
-/** 本文件负责提供 Ant Design 中文配置、消息上下文和会员主题。 */
+/** 本文件负责提供 Ant Design 中文配置、消息上下文和按账号保存的用户主题。 */
 "use client";
 
 import { App, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
+import { usePathname } from "next/navigation";
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import {
   createGoodHRTheme,
   createGoodHRVariables,
-  type MembershipTheme,
+  normalizeThemePreset,
+  themePreferenceKey,
+  type ThemePreset,
 } from "./theme";
 
 type ProvidersProps = { children: ReactNode };
 
-const MembershipThemeContext = createContext<{
-  membershipTheme: MembershipTheme;
-  setMembershipTheme: (value: MembershipTheme) => void;
-}>({ membershipTheme: "free", setMembershipTheme: () => undefined });
+const UserThemeContext = createContext<{
+  themePreset: ThemePreset;
+  setThemePreset: (value: ThemePreset) => boolean;
+  setThemeAccount: (account: string) => void;
+}>({ themePreset: "green", setThemePreset: () => false, setThemeAccount: () => undefined });
 
-/** useMembershipTheme 返回当前会员主题和应用方法。 */
-export function useMembershipTheme() {
-  return useContext(MembershipThemeContext);
+/** useUserTheme 返回用户主题、主动选择方法和账号加载方法。 */
+export function useUserTheme() {
+  return useContext(UserThemeContext);
 }
 
-/** Providers 提供全局 Ant Design 主题，浮层与正文共用会员颜色。 */
+/** Providers 提供正文与浮层一致的用户主题，公开页面始终使用默认绿色。 */
 export default function Providers({ children }: ProvidersProps) {
-  const [membershipTheme, setMembershipThemeState] =
-    useState<MembershipTheme>("free");
+  const pathname = usePathname();
+  const accountKeyRef = useRef("");
+  const [themePreset, setThemePresetState] = useState<ThemePreset>("green");
+  const activeTheme = pathname === "/admin" || pathname?.startsWith("/admin/")
+    ? themePreset
+    : "green";
   const theme = useMemo(
-    () => createGoodHRTheme(membershipTheme),
-    [membershipTheme],
+    () => createGoodHRTheme(activeTheme),
+    [activeTheme],
   );
 
-  /** setMembershipTheme 应用当前有效会员对应的后台主题。 */
-  const setMembershipTheme = useCallback((value: MembershipTheme) => {
-    setMembershipThemeState(value);
+  /** setThemeAccount 只在账号变化时读取偏好，会员刷新不会覆盖正在使用的颜色。 */
+  const setThemeAccount = useCallback((account: string) => {
+    const key = themePreferenceKey(account);
+    if (accountKeyRef.current === key) return;
+    accountKeyRef.current = key;
+    let saved: ThemePreset = "green";
+    if (key) {
+      try {
+        saved = normalizeThemePreset(window.localStorage.getItem(key));
+      } catch {
+        // 浏览器禁用存储时仍可正常使用默认绿色。
+      }
+    }
+    setThemePresetState(saved);
+  }, []);
+
+  /** setThemePreset 立即应用主动选择，并尝试为当前账号保存到浏览器。 */
+  const setThemePreset = useCallback((value: ThemePreset) => {
+    if (!accountKeyRef.current) return false;
+    const next = normalizeThemePreset(value);
+    setThemePresetState(next);
+    try {
+      window.localStorage.setItem(accountKeyRef.current, next);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    /** syncThemePreference 同步其它标签页对同账号的主题修改或清空操作。 */
+    function syncThemePreference(event: StorageEvent) {
+      if (accountKeyRef.current && (event.key === accountKeyRef.current || event.key === null)) {
+        setThemePresetState(normalizeThemePreset(event.newValue));
+      }
+    }
+    window.addEventListener("storage", syncThemePreference);
+    return () => window.removeEventListener("storage", syncThemePreference);
   }, []);
 
   return (
@@ -52,12 +97,12 @@ export default function Providers({ children }: ProvidersProps) {
         showSearch: { optionFilterProp: ["label", "children", "value"] },
       }}
     >
-      <MembershipThemeContext.Provider
-        value={{ membershipTheme, setMembershipTheme }}
+      <UserThemeContext.Provider
+        value={{ themePreset, setThemePreset, setThemeAccount }}
       >
-        <style>{createGoodHRVariables(membershipTheme)}</style>
+        <style>{createGoodHRVariables(activeTheme)}</style>
         <App>{children}</App>
-      </MembershipThemeContext.Provider>
+      </UserThemeContext.Provider>
     </ConfigProvider>
   );
 }

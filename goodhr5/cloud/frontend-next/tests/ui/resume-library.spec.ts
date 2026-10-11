@@ -208,6 +208,17 @@ test("候选人手机号紧邻姓名且头像垂直居中，公司名称比职�
   const companyWeight = await company.evaluate((element) => Number(getComputedStyle(element).fontWeight));
   const bodyWeight = await company.locator("..").evaluate((element) => Number(getComputedStyle(element).fontWeight));
   expect(companyWeight).toBeGreaterThan(bodyWeight);
+  const privacyNotice = page.getByText("请勿非法买卖简历。平台不会出售您的简历，分享权限由您掌握。", { exact: true });
+  await expect(privacyNotice).toBeVisible();
+  const [noticeBox, filtersBox] = await Promise.all([privacyNotice.boundingBox(), page.getByTestId("resume-filters").boundingBox()]);
+  if (!noticeBox || !filtersBox) throw new Error("简历保护提示或搜索栏没有显示。");
+  expect(noticeBox.y + noticeBox.height).toBeLessThanOrEqual(filtersBox.y);
+  mkdirSync(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: resolve(screenshotDirectory, "resume-protection-desktop.png"), fullPage: true, animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(privacyNotice).toBeVisible();
+  await page.screenshot({ path: resolve(screenshotDirectory, "resume-protection-mobile.png"), fullPage: true, animations: "disabled" });
+  await page.setViewportSize({ width: 1920, height: 1000 });
   await name.click();
   const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
   const detailName = drawer.getByRole("heading", { name: "原有候选人", exact: true });

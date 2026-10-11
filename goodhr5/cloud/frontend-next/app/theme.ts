@@ -1,11 +1,11 @@
-/** 本文件负责定义 GoodHR 的 Ant Design 会员主题和通用颜色变量。 */
+/** 本文件负责定义 GoodHR 可自由选择的浅色主题、账号偏好键和通用颜色变量。 */
 "use client";
 
 import type { ThemeConfig } from "antd";
 
-export type MembershipTheme = "free" | "plus" | "max";
+export type ThemePreset = "green" | "ink" | "gold";
 
-type MembershipPalette = {
+type ThemePalette = {
   main: string;
   dark: string;
   soft: string;
@@ -17,8 +17,8 @@ type MembershipPalette = {
   hover: string;
 };
 
-const membershipPalettes: Record<MembershipTheme, MembershipPalette> = {
-  free: {
+const themePalettes: Record<ThemePreset, ThemePalette> = {
+  green: {
     main: "#159a62",
     dark: "#0f754a",
     soft: "#edf7f1",
@@ -29,7 +29,7 @@ const membershipPalettes: Record<MembershipTheme, MembershipPalette> = {
     divider: "#dce5e0",
     hover: "#f2f7f4",
   },
-  plus: {
+  ink: {
     main: "#242424",
     dark: "#111111",
     soft: "#f1f1ef",
@@ -40,7 +40,7 @@ const membershipPalettes: Record<MembershipTheme, MembershipPalette> = {
     divider: "#e3e3df",
     hover: "#f4f4f1",
   },
-  max: {
+  gold: {
     main: "#8a6518",
     dark: "#674a10",
     soft: "#f8f3e6",
@@ -53,23 +53,22 @@ const membershipPalettes: Record<MembershipTheme, MembershipPalette> = {
   },
 };
 
-/** resolveMembershipTheme 根据有效会员类型返回对应后台主题。 */
-export function resolveMembershipTheme(
-  active: boolean,
-  memberType: unknown,
-): MembershipTheme {
-  if (!active) return "free";
-  const normalized = String(memberType || "")
-    .trim()
-    .toLowerCase();
-  return normalized === "plus" || normalized === "max" ? normalized : "free";
+/** normalizeThemePreset 校验用户主题，未选择或损坏的偏好统一回到松绿色。 */
+export function normalizeThemePreset(value: unknown): ThemePreset {
+  return value === "ink" || value === "gold" ? value : "green";
 }
 
-/** createGoodHRTheme 根据会员等级生成统一浅色主题。 */
+/** themePreferenceKey 生成账号独立的浏览器保存键，匿名状态不保存主题。 */
+export function themePreferenceKey(account: string): string {
+  const identity = account.trim().toLowerCase();
+  return identity ? `goodhr_admin_theme_v1:${encodeURIComponent(identity)}` : "";
+}
+
+/** createGoodHRTheme 根据用户选择生成统一浅色主题，默认使用松绿色。 */
 export function createGoodHRTheme(
-  membershipTheme: MembershipTheme = "free",
+  themePreset: ThemePreset = "green",
 ): ThemeConfig {
-  const accent = membershipPalettes[membershipTheme] || membershipPalettes.free;
+  const accent = themePalettes[normalizeThemePreset(themePreset)];
   return {
     token: {
       colorPrimary: accent.main,
@@ -107,9 +106,9 @@ export function createGoodHRTheme(
 
 /** createGoodHRVariables 生成覆盖浮层和正文的全局主题变量。 */
 export function createGoodHRVariables(
-  membershipTheme: MembershipTheme = "free",
+  themePreset: ThemePreset = "green",
 ) {
-  const accent = membershipPalettes[membershipTheme] || membershipPalettes.free;
+  const accent = themePalettes[normalizeThemePreset(themePreset)];
   return `:root{--goodhr-primary:${accent.main};--goodhr-primary-dark:${accent.dark};--goodhr-primary-soft:${accent.soft};--goodhr-bg:${accent.background};--goodhr-background:${accent.background};--goodhr-text:${accent.textPrimary};--goodhr-text-secondary:${accent.textSecondary};--goodhr-muted:${accent.textSecondary};--goodhr-border:${accent.divider};--goodhr-divider:${accent.divider};--goodhr-hover:${accent.hover};}`;
 }
 

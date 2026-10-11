@@ -1,5 +1,5 @@
-/** 本文件回归验证会员主题、激活与本地绑定、表单取消、嵌套图片预览和不可关闭的系统弹窗。 */
-import { test, expect, type Page } from "@playwright/test";
+/** 本文件回归验证账号主题选择、激活与本地绑定、表单取消、嵌套图片预览和不可关闭的系统弹窗。 */
+import { test, expect, type Locator, type Page } from "@playwright/test";
 
 const {
   runHeavyChecks,
@@ -21,12 +21,15 @@ type MockOptions = {
   signedOut?: boolean;
   diagnostic?: boolean;
   member?: string;
+  memberName?: string;
   disconnected?: boolean;
   missingRuntime?: boolean;
   update?: string;
   passwordSetup?: boolean;
   invitation?: boolean;
   delayInvitation?: boolean;
+  userId?: string;
+  email?: string;
 };
 
 const fullAIReply = `测试开头\n${"完整的 AI 实际回复\n".repeat(300)}测试原文末尾`;
@@ -41,9 +44,10 @@ async function mockSession(page: Page, options: MockOptions = {}) {
       : route.abort();
   });
   if (!options.signedOut) {
-    await page.addInitScript(() =>
-      localStorage.setItem("goodhr5_access_token", "test-only-token"),
-    );
+    await page.addInitScript(() => {
+      if (!localStorage.getItem("goodhr5_access_token"))
+        localStorage.setItem("goodhr5_access_token", "test-only-token");
+    });
   }
   await page.route(
     /^https?:\/\/(127\.0\.0\.1:(8084|43129)|goodhr\.58it\.cn)\//,
@@ -51,6 +55,8 @@ async function mockSession(page: Page, options: MockOptions = {}) {
       const request = route.request();
       const { pathname: path, port } = new URL(request.url());
       const method = request.method();
+      if (port !== "43129" && !path.startsWith("/api/"))
+        return route.fallback();
       if (method === "OPTIONS")
         return route.fulfill({
           status: 204,
@@ -115,9 +121,9 @@ async function mockSession(page: Page, options: MockOptions = {}) {
         } else if (path === "/api/auth/me")
           data = {
             user: {
-              email: "ui-test@example.invalid",
+              email: options.email ?? "ui-test@example.invalid",
               role: "super_admin",
-              id: "test-user",
+              id: options.userId ?? "test-user",
             },
             requires_password_setup: Boolean(options.passwordSetup),
           };
@@ -126,7 +132,7 @@ async function mockSession(page: Page, options: MockOptions = {}) {
             subscription: {
               active: options.member !== "free",
               member_type: options.member || "max",
-              member_name: "测试会员",
+              member_name: options.memberName || "测试会员",
               remaining_days: 20,
               allow_ai: true,
               allow_auto_reply: true,
@@ -263,28 +269,202 @@ test("本地绑定被拒绝时显示原因，手动重试不会产生未处理�
   expect(errors).toEqual([]);
 });
 
-for (const [member, accent] of [
-  ["free", "#159a62"],
-  ["plus", "#242424"],
-  ["max", "#8a6518"],
-]) {
-  test(`${member} 会员主题在正文和弹窗中一致`, async ({ page }) => {
+const themeChoices = [
+  { preset: "green", label: "松绿色（默认）", accent: "#159a62", rgb: "rgb(21, 154, 98)" },
+  { preset: "ink", label: "深墨黑", accent: "#242424", rgb: "rgb(36, 36, 36)" },
+  { preset: "gold", label: "黑金色", accent: "#8a6518", rgb: "rgb(138, 101, 24)" },
+] as const;
+type ThemeChoice = (typeof themeChoices)[number];
+
+/** themePreferenceKey 按邮箱优先且忽略大小写的约定生成账号主题存储键。 */
+function themePreferenceKey(email = "ui-test@example.invalid", userId = "test-user") {
+  return `goodhr_admin_theme_v1:${encodeURIComponent(email.trim().toLowerCase() || userId)}`;
+}
+
+/** openThemeDialog 从顶部真实按钮打开主题选项，确认选择立即生效且不提供取消按钮。 */
+async function openThemeDialog(page: Page) {
+  await page.locator(".goodhr-admin-toolbar").getByRole("button", { name: "切换主题", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "切换主题", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "取消", exact: true })).toHaveCount(0);
+  for (const choice of themeChoices)
+    await expect(dialog.getByRole("radio", { name: choice.label })).toBeEnabled();
+  return dialog;
+}
+
+/** expectThemeColors 核对全局、正文和浮层变量，并确认浮层主按钮实际使用所选颜色。 */
+async function expectThemeColors(page: Page, choice: ThemeChoice, dialog?: Locator) {
+  await expect(page.locator("body")).toHaveCSS("--goodhr-primary", choice.accent);
+  await expect(page.locator(".goodhr-admin-content")).toHaveCSS("--goodhr-primary", choice.accent);
+  if (dialog) {
+    await expect(dialog).toHaveCSS("--goodhr-primary", choice.accent);
+    await expect(dialog.getByRole("button", { name: "完成", exact: true })).toHaveCSS("background-color", choice.rgb);
+  }
+}
+
+/** chooseTheme 通过单选框真实选择主题，验证正文与浮层同步后关闭已保存的弹窗。 */
+async function chooseTheme(page: Page, choice: ThemeChoice) {
+  const dialog = await openThemeDialog(page);
+  const radio = dialog.getByRole("radio", { name: choice.label });
+  await radio.check();
+  await expect(radio).toBeChecked();
+  await expectThemeColors(page, choice, dialog);
+  await dialog.getByRole("button", { name: "完成", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+}
+
+for (const member of ["free", "plus", "max"]) {
+  test(`${member} 会员未设置主题时，正文和弹窗都默认绿色`, async ({ page }) => {
     await mockSession(page, { member });
     await page.goto("/admin/accounts");
     await expect(
       page.getByRole("heading", { name: "平台账号", exact: true }),
     ).toBeVisible();
-    await page
-      .getByRole("button", { name: "当前会员主题", exact: true })
-      .click();
-    const dialog = page.getByRole("dialog", { name: "当前会员主题" });
-    await expect(dialog).toBeVisible();
-    const color = await dialog.evaluate((element) =>
-      getComputedStyle(element).getPropertyValue("--goodhr-primary").trim(),
-    );
-    expect(color).toBe(accent);
-    await page.keyboard.press("Escape");
+    const dialog = await openThemeDialog(page);
+    await expect(dialog.getByRole("radio", { name: themeChoices[0].label })).toBeChecked();
+    await expectThemeColors(page, themeChoices[0], dialog);
+    await dialog.getByRole("button", { name: "完成", exact: true }).click();
     await expect(dialog).not.toBeVisible();
+  });
+
+  test(`${member} 会员可自由选择三个主题，正文和浮层立即同步`, async ({ page }) => {
+    await mockSession(page, { member });
+    await page.goto("/admin/accounts");
+    await expect(page.getByRole("heading", { name: "平台账号", exact: true })).toBeVisible();
+    for (const choice of [themeChoices[1], themeChoices[2], themeChoices[0]]) {
+      await chooseTheme(page, choice);
+      await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), themePreferenceKey())).toBe(choice.preset);
+    }
+  });
+}
+
+test("主题选择按账号保存，刷新后正文和弹窗继续使用选择", async ({ page }) => {
+  await mockSession(page, { member: "free" });
+  await page.goto("/admin/accounts");
+  await chooseTheme(page, themeChoices[2]);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "平台账号", exact: true })).toBeVisible();
+  const dialog = await openThemeDialog(page);
+  await expect(dialog.getByRole("radio", { name: themeChoices[2].label })).toBeChecked();
+  await expectThemeColors(page, themeChoices[2], dialog);
+  await dialog.getByRole("button", { name: "完成", exact: true }).click();
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), themePreferenceKey())).toBe("gold");
+});
+
+test("主题按邮箱隔离，公开页面和注销后恢复绿色", async ({ page }) => {
+  const options: MockOptions = { member: "max", userId: "theme-user-a", email: "Theme-A@Example.Invalid" };
+  await mockSession(page, options);
+  await page.goto("/admin/accounts");
+  await chooseTheme(page, themeChoices[1]);
+  const keyA = themePreferenceKey(options.email);
+  const keyB = themePreferenceKey("theme-b@example.invalid");
+  options.disconnected = true;
+  await page.locator(".goodhr-admin-toolbar").getByRole("button", { name: /端口 43129/ }).click();
+  const installation = page.getByRole("dialog", { name: "请先安装本地程序", exact: true });
+  await expect(installation).toBeVisible();
+  const documentRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame())
+      documentRequests.push(request.url());
+  });
+  await installation.getByRole("button", { name: "去安装", exact: true }).click();
+  await expect(page).toHaveURL(/\/download(?:\?|$)/);
+  await expect(page.locator("body")).toHaveCSS("--goodhr-primary", themeChoices[0].accent);
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), keyA)).toBe("ink");
+  expect(documentRequests).toEqual([]);
+
+  options.disconnected = false;
+  options.email = "theme-b@example.invalid";
+  options.userId = "theme-user-b";
+  await page.evaluate(() => localStorage.setItem("goodhr5_access_token", "test-only-token-b"));
+  await page.goto("/admin/accounts");
+  await expect(page.getByRole("heading", { name: "平台账号", exact: true })).toBeVisible();
+  await expectThemeColors(page, themeChoices[0]);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("goodhr5_access_token"))).toBe("test-only-token-b");
+  await chooseTheme(page, themeChoices[2]);
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), keyA)).toBe("ink");
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), keyB)).toBe("gold");
+
+  options.email = "theme-a@example.invalid";
+  options.userId = "theme-user-a-after-invitation";
+  await page.evaluate(() => localStorage.setItem("goodhr5_access_token", "test-only-token-a"));
+  await page.goto("/admin/accounts");
+  await expect(page.getByRole("heading", { name: "平台账号", exact: true })).toBeVisible();
+  await expectThemeColors(page, themeChoices[1]);
+  await page.locator(".goodhr-admin-sidebar").getByRole("button", { name: "退出登录", exact: true }).click();
+  await expect(page).toHaveURL(/\/login(?:\?|$)/);
+  await expect(page.locator("body")).toHaveCSS("--goodhr-primary", themeChoices[0].accent);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("goodhr5_access_token"))).toBeNull();
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), keyA)).toBe("ink");
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), keyB)).toBe("gold");
+});
+
+test("主题不会被会员刷新或邀请编号变化覆盖", async ({ page }) => {
+  const options: MockOptions = { member: "free", userId: "before-invitation" };
+  const calls = await mockSession(page, options);
+  await page.goto("/admin/subscription");
+  await chooseTheme(page, themeChoices[1]);
+  const previousRefreshes = calls.filter((call) => call.path === "/api/subscription/status").length;
+  options.member = "max";
+  options.memberName = "测试 Max 刷新会员";
+  options.userId = "after-invitation";
+  const refreshed = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/subscription/status");
+  await page.getByLabel("会员激活码", { exact: true }).fill("THEME-REFRESH-ONLY");
+  await page.getByRole("button", { name: "激活", exact: true }).click();
+  expect((await refreshed).status()).toBe(200);
+  await expect.poll(() => calls.filter((call) => call.path === "/api/subscription/status").length).toBeGreaterThan(previousRefreshes);
+  await expect(page.locator(".goodhr-admin-toolbar").getByText(/测试 Max 刷新会员/)).toBeVisible();
+  const dialog = await openThemeDialog(page);
+  await expect(dialog.getByRole("radio", { name: themeChoices[1].label })).toBeChecked();
+  await expectThemeColors(page, themeChoices[1], dialog);
+  await dialog.getByRole("button", { name: "完成", exact: true }).click();
+  await page.reload();
+  await expectThemeColors(page, themeChoices[1]);
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), themePreferenceKey())).toBe("ink");
+});
+
+test("非法主题偏好和旧全局主题键不会覆盖默认绿色", async ({ page }) => {
+  await mockSession(page, { member: "max" });
+  await page.addInitScript((key) => {
+    localStorage.setItem("goodhr_admin_theme_v1", "gold");
+    localStorage.setItem(key, "purple");
+  }, themePreferenceKey());
+  await page.goto("/admin/accounts");
+  const dialog = await openThemeDialog(page);
+  await expect(dialog.getByRole("radio", { name: themeChoices[0].label })).toBeChecked();
+  await expectThemeColors(page, themeChoices[0], dialog);
+});
+
+for (const operation of ["getItem", "setItem"] as const) {
+  test(`主题存储 ${operation} 被浏览器拒绝时仍可切换，刷新安全回到绿色`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await mockSession(page, { member: "plus" });
+    await page.addInitScript((method) => {
+      if (method === "getItem") {
+        const original = Storage.prototype.getItem;
+        /** rejectThemeRead 只模拟主题偏好读取失败，登录与其他缓存继续使用原方法。 */
+        Storage.prototype.getItem = function rejectThemeRead(key: string) {
+          if (key.startsWith("goodhr_admin_theme_v1"))
+            throw new DOMException("模拟主题存储不可用", "SecurityError");
+          return original.call(this, key);
+        };
+      } else {
+        const original = Storage.prototype.setItem;
+        /** rejectThemeWrite 只模拟主题偏好保存失败，登录与其他缓存继续使用原方法。 */
+        Storage.prototype.setItem = function rejectThemeWrite(key: string, value: string) {
+          if (key.startsWith("goodhr_admin_theme_v1"))
+            throw new DOMException("模拟主题存储不可用", "SecurityError");
+          return original.call(this, key, value);
+        };
+      }
+    }, operation);
+    await page.goto("/admin/accounts");
+    await expectThemeColors(page, themeChoices[0]);
+    await chooseTheme(page, themeChoices[2]);
+    await page.reload();
+    await expectThemeColors(page, themeChoices[0]);
+    expect(errors).toEqual([]);
   });
 }
 

@@ -1,4 +1,4 @@
-/** 本文件防止后台页面重新写入旧版固定绿色，确保会员主题能完整生效。 */
+/** 本文件防止后台页面重新写入旧版固定绿色，确保用户选择的主题能完整生效。 */
 
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -100,7 +100,7 @@ function collectSourceFiles(directory) {
   });
 }
 
-test("后台装饰颜色统一使用会员主题变量", () => {
+test("后台装饰颜色统一使用用户主题变量", () => {
   const violations = [];
 
   for (const filePath of sourceDirectories.flatMap(collectSourceFiles)) {
