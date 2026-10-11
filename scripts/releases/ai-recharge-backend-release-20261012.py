@@ -264,7 +264,7 @@ SELECT json_build_object(
  'bad_lots',(SELECT count(*) FROM ai_wallet_lots WHERE principal_units<0 OR bonus_units<0 OR remaining_principal_units<0 OR remaining_bonus_units<0 OR remaining_principal_units>principal_units OR remaining_bonus_units>bonus_units),
  'bad_recharge_lots',(SELECT value FROM bad_recharge),
  'unsafe_open_refunds',(SELECT count(*) FROM payment_refunds WHERE refund_type='ai_balance' AND status IN('pending','unknown','processing','action_required','success') AND NOT rights_reserved),
- 'legacy_builtin_ai_urls',(SELECT count(*) FROM user_ai_configs WHERE lower(trim(base_url))='https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions'),
+ 'legacy_builtin_ai_urls',(SELECT count(*) FROM user_ai_configs WHERE lower(trim(base_url))='https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions' AND left(api_key_encrypted,5)='ghai_'),
  'invalid_system_builtin_url',(SELECT CASE WHEN config_value->'builtin_ai'->>'public_base_url'='https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions' THEN 0 ELSE 1 END FROM system_configs WHERE config_key='system.app_config'),
  'wallet_lots',(SELECT count(*) FROM ai_wallet_lots),
  'blocked_users',(SELECT count(*) FROM users WHERE ai_wallet_refund_block_reason<>''),
