@@ -33,6 +33,7 @@ import {
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import AdminDialog from "@/components/admin/AdminDialog";
 import AIRechargeDialog from "@/components/payment/AIRechargeDialog";
 import AIWalletChange from "@/components/payment/AIWalletChange";
 import { AI_RECHARGE_POLICY, AI_RECHARGE_REFUND_POLICY, MAX_AI_RECHARGE_CENTS, MIN_AI_RECHARGE_CENTS, defaultAIRechargeAmount, rechargeAmountCents } from "@/lib/ai-recharge";
@@ -79,6 +80,8 @@ export default function SubscriptionPage() {
   const [aiPage, setAIPage] = useState(1);
   const [recordTab, setRecordTab] = useState<"payments" | "ai">("payments");
   const [code, setCode] = useState("");
+  const [activationDialogOpen, setActivationDialogOpen] = useState(false);
+  const [redeeming, setRedeeming] = useState(false);
   const [rechargeAmountDraft, setRechargeAmount] = useState<string | null>(null);
   const rechargeAmount = rechargeAmountDraft ?? defaultAIRechargeAmount(wallet.recharge_promotions);
   const [selectedModel, setSelectedModel] = useState("");
@@ -180,12 +183,14 @@ export default function SubscriptionPage() {
   async function redeem() {
     const value = code.trim();
     if (!value) return;
+    setRedeeming(true);
     try {
       await cloudRequest("/api/activation-codes/redeem", {
         method: "POST",
         body: { code: value },
       });
       setCode("");
+      setActivationDialogOpen(false);
       notify("激活成功，会员时间已到账。", "success");
       await refreshAll();
     } catch (error) {
@@ -193,6 +198,8 @@ export default function SubscriptionPage() {
         error instanceof Error ? error.message : "激活码没通过，我也有点尴尬。",
         "error",
       );
+    } finally {
+      setRedeeming(false);
     }
   }
   /** pay 创建会员套餐支付订单。 */
@@ -402,13 +409,18 @@ export default function SubscriptionPage() {
         title="订阅会员"
         description="会员费就像您包月租了一个小汽车，AI余额 就是您小汽车油箱的余额。"
         actions={
-          <Button
-            onClick={() => void openRefundDialog()}
-            type={"text"}
-            className={styles.s118}
-          >
-            退款
-          </Button>
+          <>
+            <Button onClick={() => setActivationDialogOpen(true)}>
+              使用激活码
+            </Button>
+            <Button
+              onClick={() => void openRefundDialog()}
+              type={"text"}
+              className={styles.s118}
+            >
+              退款
+            </Button>
+          </>
         }
       />
 
@@ -484,33 +496,6 @@ export default function SubscriptionPage() {
             </Flex>
           </Flex>
         </InfoCard>
-        <SectionPanel className={styles.s127}>
-          <Flex className={styles.s128}>
-            <Form.Item
-              layout="vertical"
-              htmlFor="subscription-field-1"
-              label={"会员激活码"}
-              className={styles.s129}
-              style={{ marginBottom: 0 }}
-            >
-              <Input
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                size="small"
-                id="subscription-field-1"
-                className={styles.s130}
-              />
-            </Form.Item>
-            <Button
-              disabled={!code.trim()}
-              onClick={() => void redeem()}
-              type={"primary"}
-              className={styles.s131}
-            >
-              激活
-            </Button>
-          </Flex>
-        </SectionPanel>
       </div>
 
       <div className={styles.s132}>
@@ -626,6 +611,38 @@ export default function SubscriptionPage() {
           />
         </Form.Item>
       </Modal>
+
+      <AdminDialog
+        open={activationDialogOpen}
+        title="激活会员"
+        description="填入会员激活码，我马上给你把会员时间安排上。"
+        maxWidth="xs"
+        confirmText="立即激活"
+        cancelText="先放着"
+        loading={redeeming}
+        loadingText="激活中"
+        confirmDisabled={!code.trim()}
+        onClose={() => setActivationDialogOpen(false)}
+        onConfirm={() => void redeem()}
+      >
+        <Form.Item
+          layout="vertical"
+          htmlFor="subscription-field-1"
+          label="会员激活码"
+          style={{ marginBottom: 0 }}
+        >
+          <Input
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            onPressEnter={() => {
+              if (code.trim() && !redeeming) void redeem();
+            }}
+            disabled={redeeming}
+            autoFocus
+            id="subscription-field-1"
+          />
+        </Form.Item>
+      </AdminDialog>
 
       <AIRechargeDialog
         open={rechargeDialogOpen}

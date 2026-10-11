@@ -220,15 +220,20 @@ test("会员激活使用后端已有兑换接口，提交前去除首尾空格",
     });
   });
   await page.goto("/admin/subscription");
-  const input = page.getByLabel("会员激活码", { exact: true });
+  const headerActions = page.locator(".admin-page-header").getByRole("button");
+  await expect(headerActions).toHaveText(["使用激活码", "退款"]);
+  await expect(page.getByLabel("会员激活码", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "使用激活码", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "激活会员" });
+  const input = dialog.getByLabel("会员激活码", { exact: true });
   await input.fill("  TEST-ONLY-CODE  ");
-  await page.getByRole("button", { name: "激活", exact: true }).click();
+  await dialog.getByRole("button", { name: "立即激活", exact: true }).click();
   await expect.poll(() => bodies.length).toBe(1);
   expect(bodies).toEqual([{ code: "TEST-ONLY-CODE" }]);
   expect(calls.some((call) => call.path === "/api/subscription/redeem")).toBe(
     false,
   );
-  await expect(input).toHaveValue("");
+  await expect(dialog).toBeHidden();
   await expect(
     page.getByText("激活成功，会员时间已到账。", { exact: true }),
   ).toBeVisible();
@@ -424,8 +429,10 @@ test("主题不会被会员刷新或邀请编号变化覆盖", async ({ page }) 
   options.memberName = "测试 Max 刷新会员";
   options.userId = "after-invitation";
   const refreshed = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/subscription/status");
-  await page.getByLabel("会员激活码", { exact: true }).fill("THEME-REFRESH-ONLY");
-  await page.getByRole("button", { name: "激活", exact: true }).click();
+  await page.getByRole("button", { name: "使用激活码", exact: true }).click();
+  const activationDialog = page.getByRole("dialog", { name: "激活会员" });
+  await activationDialog.getByLabel("会员激活码", { exact: true }).fill("THEME-REFRESH-ONLY");
+  await activationDialog.getByRole("button", { name: "立即激活", exact: true }).click();
   expect((await refreshed).status()).toBe(200);
   await expect.poll(() => calls.filter((call) => call.path === "/api/subscription/status").length).toBeGreaterThan(previousRefreshes);
   await expect(page.locator(".goodhr-admin-toolbar").getByText(/测试 Max 刷新会员/)).toBeVisible();
