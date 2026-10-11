@@ -1,7 +1,7 @@
 /** 文件作用说明：提供紧凑候选人简历库，支持多条件查询、手动维护、本地 AI 导入、备注及人工推荐。 */
 "use client";
 import { Avatar, Button, Drawer, Dropdown, Empty, Flex, Input, Pagination, Select, Space, Table, Tag, Typography } from "antd";
-import { DownloadOutlined, FilterOutlined, MoreOutlined, PlusOutlined, SearchOutlined, SettingOutlined } from "@ant-design/icons";
+import { DownloadOutlined, FilterOutlined, MoreOutlined, PlusOutlined, SafetyCertificateOutlined, SearchOutlined, SettingOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -88,6 +88,9 @@ export default function ResumesPage() {
   const appliedFilters = readFilters(new URLSearchParams(queryText));
   return <>
     <ExtensionPairApproval />
+    <Typography.Paragraph className={styles.privacyNotice}>
+      <SafetyCertificateOutlined aria-hidden="true" /> 请勿非法买卖简历。平台不会出售您的简历，<span className={styles.privacyTail}>分享权限由您掌握。</span>
+    </Typography.Paragraph>
     <div className={styles.toolbar} data-testid="resume-filters">
       <Flex gap={8} wrap className={styles.searchControls}>
         <Input aria-label="简历关键词" prefix={<SearchOutlined />} placeholder="姓名、公司、学校、职位" value={filters.q} onChange={(event) => updateFilter("q", event.target.value)} onPressEnter={() => navigateQuery(filters)} className={styles.keyword} />

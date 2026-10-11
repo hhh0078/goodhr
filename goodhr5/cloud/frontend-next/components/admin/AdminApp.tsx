@@ -51,8 +51,8 @@ import BrowserOpenControl from "./BrowserOpenControl";
 import MessageCenter from "./MessageCenter";
 import BrandMark from "@/components/BrandMark";
 import PasswordSetupDialog from "@/components/PasswordSetupDialog";
-import { useMembershipTheme } from "@/app/providers";
-import { resolveMembershipTheme } from "@/app/theme";
+import { useUserTheme } from "@/app/providers";
+import { normalizeThemePreset } from "@/app/theme";
 import { TOKEN_KEY } from "@/lib/api";
 import {
   bindDetectedLocalAgent,
@@ -205,7 +205,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const { notification } = App.useApp();
   const pathname = usePathname();
   const router = useRouter();
-  const { membershipTheme, setMembershipTheme } = useMembershipTheme();
+  const { themePreset, setThemePreset, setThemeAccount } = useUserTheme();
+  const sessionActiveRef = useRef(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -466,6 +467,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
 
   /** refreshSession 刷新用户、会员和系统公共配置。 */
   const refreshSession = useCallback(async () => {
+    const requestToken = localStorage.getItem(TOKEN_KEY) || "";
     // 关注状态独立查询，慢接口不拖住账号和岗位；失败时保持无提醒状态。
     void refreshWechatOfficialStatus().catch(() => undefined);
     const results = await Promise.allSettled([
@@ -476,10 +478,13 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       cloudRequest("/api/ai-wallet"),
       cloudRequest("/api/tenants/invitations/pending"),
     ]);
+    // 退出或换号后的旧响应不能重新加载旧账号主题或身份。
+    if (!sessionActiveRef.current || requestToken !== (localStorage.getItem(TOKEN_KEY) || "")) return;
     const authResult = results[0];
     if (authResult.status === "rejected") throw authResult.reason;
     const authPayload = authResult.value;
     const nextUser = authPayload.user || authPayload;
+    setThemeAccount(String(nextUser?.email || nextUser?.id || ""));
     setUser(nextUser);
     const nextPasswordSetupRequired = Boolean(
       authPayload.requires_password_setup,
@@ -496,12 +501,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         results[1].value.subscription || {},
       );
       setSubscription(nextSubscription);
-      setMembershipTheme(
-        resolveMembershipTheme(
-          nextSubscription.active,
-          nextSubscription.member_type,
-        ),
-      );
     }
     if (results[4].status === "fulfilled")
       setAIWallet(results[4].value.wallet || results[4].value || {});
@@ -518,7 +517,15 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     if (results[3].status === "fulfilled") {
       setOnboardingConfig(results[3].value.config || {});
     }
-  }, [refreshWechatOfficialStatus, setMembershipTheme]);
+  }, [refreshWechatOfficialStatus, setThemeAccount]);
+
+  useEffect(() => {
+    sessionActiveRef.current = true;
+    return () => {
+      sessionActiveRef.current = false;
+      setThemeAccount("");
+    };
+  }, [setThemeAccount]);
 
   useEffect(() => {
     let active = true;
@@ -589,7 +596,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     wechatStatusRequestRef.current = null;
     setWechatOfficialStatus(null);
     localStorage.removeItem(TOKEN_KEY);
-    setMembershipTheme("free");
+    setThemeAccount("");
     router.replace("/login");
   }
 
@@ -745,11 +752,11 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                   : "本地程序未连接"}
               </Button>
               <div style={{ marginLeft: "auto" }}><MessageCenter userKey={user?.id || user?.email || ""} /></div>
-              <Tooltip title="当前会员主题">
+              <Tooltip title="切换主题">
                 <Button
                   type="text"
                   icon={<PaletteRoundedIcon aria-hidden="true" />}
-                  aria-label="当前会员主题"
+                  aria-label="切换主题"
                   onClick={() => setThemeOpen(true)}
                 />
               </Tooltip>
@@ -887,32 +894,36 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           </AdminDialog>
           <AdminDialog
             open={themeOpen}
-            title="当前会员主题"
-            description="主题会按当前有效会员自动匹配，这里只负责展示，暂时不能手动修改。"
-            confirmText="知道了"
+            title="切换主题"
+            description="选你喜欢的颜色，点一下就换好。这个浏览器会记住你的选择。"
+            confirmText="完成"
+            showCancel={false}
             onClose={() => setThemeOpen(false)}
             onConfirm={() => setThemeOpen(false)}
           >
             <ChoiceCards
-              label="会员主题"
-              value={membershipTheme}
+              label="主题颜色"
+              value={themePreset}
               columns={3}
-              readOnly
-              onChange={() => undefined}
+              onChange={(value) => {
+                if (!setThemePreset(normalizeThemePreset(value))) {
+                  notify("颜色换好了，但浏览器暂时没记住；下次打开可以再选一次。", "warning");
+                }
+              }}
               options={[
                 {
-                  value: "free",
-                  label: "免费版 · 松绿色",
+                  value: "green",
+                  label: "松绿色（默认）",
                   description: "默认主题，安静清晰，久看也不累。",
                 },
                 {
-                  value: "plus",
-                  label: "Plus · 深墨黑",
+                  value: "ink",
+                  label: "深墨黑",
                   description: "克制稳重，用黑色标记重点内容。",
                 },
                 {
-                  value: "max",
-                  label: "Max · 黑金色",
+                  value: "gold",
+                  label: "黑金色",
                   description: "低调黑金，只在重点位置使用金色。",
                 },
               ]}
