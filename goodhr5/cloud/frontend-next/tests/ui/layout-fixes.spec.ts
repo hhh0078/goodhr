@@ -203,6 +203,8 @@ async function mockLayoutSession(page: Page) {
       else if (url.pathname === "/api/ai-wallet") {
         const wallet = {
           balance: "88.0000",
+          bonus_balance: "0.7000",
+          bonus_balance_units: 7000,
           default_model: state.model,
           models: [
             { id: state.model, name: "本地模拟模型" },
@@ -511,7 +513,7 @@ for (const [width, model, label] of [
   [1390, longModel, "桌面长模型"],
   [390, longModel, "手机长模型"],
 ] as const) {
-  test(`${label}的余额卡按内容布局且不溢出`, async ({ page }) => {
+  test(`${label}的订阅摘要卡自适应布局且不溢出`, async ({ page }) => {
     mocks.get(page)!.model = model;
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/subscription");
@@ -519,6 +521,10 @@ for (const [width, model, label] of [
       .getByRole("main")
       .locator(".goodhr-section-panel")
       .filter({ has: page.getByText("AI 余额", { exact: true }) });
+    const membershipCard = page
+      .getByRole("main")
+      .locator(".goodhr-section-panel")
+      .filter({ has: page.getByText("当前会员", { exact: true }) });
     const modelButton = card.getByRole("button", {
       name: `当前模型：${model}`,
       exact: true,
@@ -527,14 +533,21 @@ for (const [width, model, label] of [
     await expectWithinViewport(page, card);
     await expectWithinViewport(page, modelButton);
     const cardBox = await visibleBox(card),
+      membershipBox = await visibleBox(membershipCard),
       modelBox = await visibleBox(modelButton);
     expect(modelBox.x + modelBox.width).toBeLessThanOrEqual(
       cardBox.x + cardBox.width + 1,
     );
     if (width >= 900) {
-      await expect(card).toHaveCSS("flex-grow", "0");
-      const mainBox = await visibleBox(page.getByRole("main"));
-      expect(cardBox.width).toBeLessThan(mainBox.width - 80);
+      expect(Math.abs(cardBox.x - membershipBox.x - membershipBox.width - 16)).toBeLessThanOrEqual(2);
+      expect(Math.abs(cardBox.y - membershipBox.y)).toBeLessThanOrEqual(2);
+      expect(Math.abs(cardBox.width - membershipBox.width)).toBeLessThanOrEqual(2);
+      expect(Math.abs(cardBox.height - membershipBox.height)).toBeLessThanOrEqual(2);
+    } else {
+      expect(cardBox.y).toBeGreaterThanOrEqual(
+        membershipBox.y + membershipBox.height + 15,
+      );
+      expect(Math.abs(cardBox.width - membershipBox.width)).toBeLessThanOrEqual(2);
     }
     if (model === longModel)
       expect(await modelButton.getAttribute("title")).toContain(longModel);

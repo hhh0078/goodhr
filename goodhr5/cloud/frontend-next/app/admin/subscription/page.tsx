@@ -888,7 +888,7 @@ function PaymentUnderstandingDialog({
     </Modal>
   );
 }
-/** InfoCard 展示订阅页顶部三列摘要。 */
+/** InfoCard 展示订阅页顶部可随容器宽度调整的摘要卡片。 */
 function InfoCard({
   icon,
   title,
