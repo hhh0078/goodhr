@@ -8,8 +8,9 @@ const cloudOrigin = new URL(process.env.NEXT_PUBLIC_CLOUD_API_BASE || "http://12
 const screenshotDirectory = resolve("artifacts/resume-library");
 // 合成16px纯色PNG只用于界面验证，不含任何真实候选人的照片。
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
-type Call = { path: string; method: string; body: any; query: URLSearchParams };
-type State = { calls: Call[]; notes: any[]; recommendations: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string }>; user: { id: string; email: string }; candidates: any[]; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; taskPlain404?: boolean; taskListEmpty?: boolean; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void> };
+type Call = { origin: string; path: string; method: string; body: any; query: URLSearchParams };
+type PairApprovalReply = { gate?: Promise<void>; status?: number; error?: string };
+type State = { calls: Call[]; notes: any[]; recommendations: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string }>; user: { id: string; email: string }; candidates: any[]; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; taskPlain404?: boolean; taskListEmpty?: boolean; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void>; pairApprovals?: Record<string, PairApprovalReply>; pairApprovalReplies?: string[] };
 const existing = { id: "resume-existing", candidate_name: "原有候选人", phone: "13800138000", row_version: 3, source_type: "automatic", education_level: "本科", expected_salary_min: null, expected_salary_max: null, work_experiences: [{ company_name: "原有公司", position_name: "产品经理", start_ym: "2021-01", content: "已有工作经历保留" }], user_email: "test@example.invalid", created_at: "2026-10-10T10:00:00+08:00", ai: { detail: { score: null, reason: "" } } };
 test.use({ storageState: { cookies: [], origins: [{ origin: previewOrigin, localStorage: [{ name: "goodhr5_access_token", value: "resume-test-only" }] }] } });
 
@@ -24,7 +25,7 @@ async function mockResumeSession(page: Page): Promise<State> {
     const headers = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
     let body: any; try { body = request.postDataJSON(); } catch { /* 上传和 GET 无 JSON 正文。 */ }
-    state.calls.push({ path: url.pathname, method, body, query: url.searchParams });
+    state.calls.push({ origin: url.origin, path: url.pathname, method, body, query: url.searchParams });
     let data: any = { ok: true };
     if (["43129", "43139"].includes(url.port)) {
       // 离线场景也完全拦截端口探测，绝不连接电脑上正在运行的真实本地程序。
@@ -32,6 +33,15 @@ async function mockResumeSession(page: Page): Promise<State> {
       if (url.pathname === "/health") data = { ok: true, version: "6.2.10.1" };
       else if (url.pathname === "/api/v1/runtime/status") data = { version: "6.2.10.1", node_installed: true, camoufox_installed: true, system_runtime: { ready: true, required: false } };
       else if (url.pathname === "/api/v1/app-update/status") data = { stage: "idle", current_version: "6.2.10.1" };
+      else if (url.pathname === "/api/v1/extensions/pair/approve" && method === "POST") {
+        // 每次请求独立捕获回包，旧配对可以晚于新配对结束，且不触达真实本地授权。
+        const key = `${url.port}:${body?.pairing_id}`;
+        const reply = { ...(state.pairApprovals?.[key] || {}) };
+        await reply.gate;
+        await route.fulfill({ status: reply.status || 200, headers, json: reply.error ? { ok: false, error: { code: reply.status === 409 ? "PAIR_EXPIRED" : "PAIR_EXCHANGE_FAILED", message: reply.error } } : { ok: true, data: { approved: true, email: state.user.email } } });
+        (state.pairApprovalReplies ||= []).push(key);
+        return;
+      }
       else if (url.pathname.startsWith("/api/v1/resume-summary/tasks")) {
         if (url.pathname === "/api/v1/resume-summary/tasks" && method === "POST") {
           if (state.rejectSummaryOnce) { state.rejectSummaryOnce = false; return route.fulfill({ status: 400, headers, json: { ok: false, error: { code: "SUMMARY_INVALID", message: "源资料太长，任务未启动" } } }); }
@@ -124,6 +134,221 @@ async function openManual(page: Page) {
 async function dismissNotices(page: Page) {
   await expect(page.locator(".ant-notification-notice")).toHaveCount(0);
 }
+
+const pairApprovePath = "/api/v1/extensions/pair/approve";
+const pairDialogTitle = "连接 GoodHR 浏览器插件";
+
+/** pairApprovalURL 生成带有筛选、分页和重复参数的合成配对入口，验证关闭只移除配对参数。 */
+function pairApprovalURL(pairingID: string, port = 43129) {
+  const query = new URLSearchParams({ q: "配对筛选保留", phone: "8000", source_type: "automatic", page: "2", page_size: "10", tag: "待跟进", extension_pair: pairingID, agent_port: String(port) });
+  query.append("extra", "first"); query.append("extra", "second");
+  return `/admin/resumes?${query}`;
+}
+
+/** pairApprovalCalls 只统计显式授权提交，区分本地端口探测与授权行为。 */
+function pairApprovalCalls(state: State) {
+  return state.calls.filter((call) => call.path === pairApprovePath && call.method === "POST");
+}
+
+/** createPairApprovalGate 暂停模拟回包，让测试通过真实按钮验证请求进行中的操作。 */
+function createPairApprovalGate() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolveGate) => { release = resolveGate; });
+  return { promise, release };
+}
+
+/** expectPairQueryCleared 检查两项配对参数已删除，原有筛选、分页和重复参数完整保留。 */
+async function expectPairQueryCleared(page: Page, originalURL: string) {
+  const expected = new URL(originalURL, previewOrigin);
+  expected.searchParams.delete("extension_pair"); expected.searchParams.delete("agent_port");
+  await expect(page).toHaveURL((url) => url.pathname === expected.pathname && url.searchParams.toString() === expected.searchParams.toString());
+  await expect(page.getByLabel("简历关键词")).toHaveValue("配对筛选保留");
+  await expect(page.getByLabel("手机号搜索")).toHaveValue("8000");
+}
+
+/** pushPairApproval 使用自己站点的原生历史导航切换配对，保持组件挂载并验证迟到回包隔离。 */
+async function pushPairApproval(page: Page, pairingID: string, port = 43129) {
+  const nextURL = pairApprovalURL(pairingID, port);
+  await page.evaluate((url) => { window.history.pushState(null, "", url); }, nextURL);
+  await expect(page).toHaveURL((url) => url.searchParams.get("extension_pair") === pairingID && url.searchParams.get("agent_port") === String(port));
+  return nextURL;
+}
+
+/** releasePairApproval 等待浏览器收到指定回包和界面完成一轮渲染，避免在迟到回包前就结束断言。 */
+async function releasePairApproval(page: Page, pairingID: string, release: () => void, port = 43129) {
+  const responsePromise = page.waitForResponse((response) => {
+    const request = response.request(), url = new URL(response.url());
+    return url.pathname === pairApprovePath && url.port === String(port) && request.method() === "POST" && request.postDataJSON()?.pairing_id === pairingID;
+  });
+  release();
+  await (await responsePromise).finished();
+  // 仅等待自有 GoodHR 页面渲染，不访问或注入招聘平台页面。
+  await page.evaluate(() => new Promise<void>((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()))));
+}
+
+for (const closing of ["取消", "右上角", "Esc", "遮罩"] as const) {
+  test(`配对未确认可通过${closing}关闭，保留筛选且不提交授权`, async ({ page }) => {
+    const state = await mockResumeSession(page);
+    const entryURL = pairApprovalURL(`pair-dismiss-${closing}`);
+    await page.goto(entryURL);
+    const dialog = page.getByRole("dialog", { name: pairDialogTitle, exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "确认连接", exact: true })).toBeEnabled();
+    if (closing === "取消") await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    else if (closing === "右上角") await dialog.locator("button.ant-modal-close").click();
+    else if (closing === "Esc") {
+      // 等待入场和浮层注册完成，再把真实 Esc 发给弹框内的按钮。
+      await expect(dialog).not.toHaveClass(/ant-zoom-(appear|enter)/);
+      await dialog.getByRole("button", { name: "取消", exact: true }).press("Escape");
+    }
+    else await page.locator(".ant-modal-wrap").filter({ has: dialog }).click({ position: { x: 10, y: 10 } });
+    await expect(dialog).toBeHidden();
+    await expectPairQueryCleared(page, entryURL);
+    await expect.poll(() => state.calls.some((call) => call.path === "/api/candidates" && call.query.get("q") === "配对筛选保留")).toBe(true);
+    expect(pairApprovalCalls(state)).toHaveLength(0);
+    expect(state.errors).toEqual([]);
+  });
+}
+
+for (const lateResult of ["成功", "失败"] as const) {
+  test(`配对处理中可关闭且只提交一次，迟到${lateResult}不重开弹框或提示`, async ({ page }) => {
+    const state = await mockResumeSession(page), gate = createPairApprovalGate();
+    const pairingID = `pair-late-${lateResult}`, entryURL = pairApprovalURL(pairingID);
+    state.pairApprovals = { [`43129:${pairingID}`]: { gate: gate.promise, ...(lateResult === "失败" ? { status: 503, error: "合成的迟到授权错误" } : {}) } };
+    await page.goto(entryURL);
+    const dialog = page.getByRole("dialog", { name: pairDialogTitle, exact: true });
+    const confirm = dialog.getByRole("button", { name: "确认连接", exact: true });
+    await confirm.dblclick();
+    await expect.poll(() => pairApprovalCalls(state).length).toBe(1);
+    await expect(confirm).toBeDisabled();
+    await confirm.click({ force: true });
+    await expect(dialog.getByText("连接正在处理，关掉弹框后也可能完成，可回插件查看结果。", { exact: true })).toBeVisible();
+    const close = dialog.locator(".ant-modal-footer").getByRole("button", { name: "关闭", exact: true });
+    const cornerClose = dialog.locator("button.ant-modal-close");
+    await expect(close).toBeEnabled();
+    await expect(cornerClose).toBeEnabled();
+    if (lateResult === "成功") {
+      mkdirSync(screenshotDirectory, { recursive: true });
+      await page.screenshot({ path: resolve(screenshotDirectory, "extension-pair-pending-closable.png"), fullPage: true, animations: "disabled" });
+    }
+    if (lateResult === "成功") await close.click();
+    else await cornerClose.click();
+    await expect(dialog).toBeHidden();
+    await expectPairQueryCleared(page, entryURL);
+    await releasePairApproval(page, pairingID, gate.release);
+    await expect.poll(() => state.pairApprovalReplies).toContain(`43129:${pairingID}`);
+    await expect(dialog).toBeHidden();
+    await expect(page.getByText("插件已授权，可以回插件继续了", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("合成的迟到授权错误", { exact: true })).toHaveCount(0);
+    await expectPairQueryCleared(page, entryURL);
+    expect(pairApprovalCalls(state)).toHaveLength(1);
+    expect(pairApprovalCalls(state)[0].body).toEqual({ pairing_id: pairingID, token: "resume-test-only" });
+    expect(state.errors).toEqual([]);
+  });
+}
+
+for (const changedKey of ["配对编号", "本地端口"] as const) {
+  test(`配对切换${changedKey}时重置状态，旧回包不覆盖新配对`, async ({ page }) => {
+    const state = await mockResumeSession(page), gate = createPairApprovalGate();
+    const oldID = "pair-old", newID = changedKey === "配对编号" ? "pair-new" : oldID, newPort = changedKey === "本地端口" ? 43139 : 43129;
+    state.pairApprovals = { [`43129:${oldID}`]: { gate: gate.promise } };
+    await page.goto(pairApprovalURL(oldID));
+    const dialog = page.getByRole("dialog", { name: pairDialogTitle, exact: true });
+    await dialog.getByRole("button", { name: "确认连接", exact: true }).click();
+    await expect.poll(() => pairApprovalCalls(state).length).toBe(1);
+    await expect(dialog.getByRole("button", { name: "确认连接", exact: true })).toBeDisabled();
+    const documents: string[] = [];
+    page.on("request", (request) => { if (request.resourceType() === "document") documents.push(request.url()); });
+    const entryURL = await pushPairApproval(page, newID, newPort);
+    await expect(dialog.getByRole("button", { name: "确认连接", exact: true })).toBeEnabled();
+    await expect(dialog.getByRole("button", { name: "取消", exact: true })).toBeEnabled();
+    await releasePairApproval(page, oldID, gate.release);
+    await expect(dialog.getByRole("button", { name: "确认连接", exact: true })).toBeEnabled();
+    await expect(dialog.getByText("授权完成，请回到插件", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("插件已授权，可以回插件继续了", { exact: true })).toHaveCount(0);
+    await dialog.getByRole("button", { name: "确认连接", exact: true }).click();
+    await expect(dialog.getByText("授权完成，请回到插件", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "确认连接", exact: true })).toHaveCount(0);
+    expect(pairApprovalCalls(state).map((call) => [call.origin, call.body.pairing_id])).toEqual([["http://127.0.0.1:43129", oldID], [`http://127.0.0.1:${newPort}`, newID]]);
+    await dialog.getByRole("button", { name: "完成", exact: true }).click();
+    await expectPairQueryCleared(page, entryURL);
+    expect(documents).toEqual([]);
+    expect(state.errors).toEqual([]);
+  });
+}
+
+test("配对成功后完成关闭，新配对再次打开并可独立连接", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  await page.goto(pairApprovalURL("pair-first-success"));
+  const dialog = page.getByRole("dialog", { name: pairDialogTitle, exact: true });
+  await dialog.getByRole("button", { name: "确认连接", exact: true }).click();
+  await expect(dialog.getByText("授权完成，请回到插件", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "完成", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expectPairQueryCleared(page, pairApprovalURL("pair-first-success"));
+  const entryURL = await pushPairApproval(page, "pair-second-success");
+  await expect(dialog.getByRole("button", { name: "确认连接", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "取消", exact: true })).toBeEnabled();
+  await expect(dialog.getByText("授权完成，请回到插件", { exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "确认连接", exact: true }).click();
+  await expect(dialog.getByText("授权完成，请回到插件", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "完成", exact: true }).click();
+  await expectPairQueryCleared(page, entryURL);
+  expect(pairApprovalCalls(state).map((call) => call.body.pairing_id)).toEqual(["pair-first-success", "pair-second-success"]);
+  expect(state.errors).toEqual([]);
+});
+
+test("配对请求失败后恢复确认按钮，可以重试且完成关闭", async ({ page }) => {
+  const state = await mockResumeSession(page), pairingID = "pair-retry", entryURL = pairApprovalURL(pairingID);
+  state.pairApprovals = { [`43129:${pairingID}`]: { status: 503, error: "插件授权暂时没完成，请再试一次" } };
+  await page.goto(entryURL);
+  const dialog = page.getByRole("dialog", { name: pairDialogTitle, exact: true });
+  await dialog.getByRole("button", { name: "确认连接", exact: true }).click();
+  await expect(page.getByText("插件授权暂时没完成，请再试一次", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "确认连接", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "取消", exact: true })).toBeEnabled();
+  state.pairApprovals[`43129:${pairingID}`] = {};
+  await dialog.getByRole("button", { name: "确认连接", exact: true }).click();
+  await expect(dialog.getByText("授权完成，请回到插件", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "完成", exact: true }).click();
+  await expectPairQueryCleared(page, entryURL);
+  expect(pairApprovalCalls(state)).toHaveLength(2);
+  expect(state.errors).toEqual([]);
+});
+
+test("配对过期提示后可取消关闭，再发起有效配对", async ({ page }) => {
+  const state = await mockResumeSession(page), entryURL = pairApprovalURL("pair-expired");
+  state.pairApprovals = { "43129:pair-expired": { status: 409, error: "这个配对请求已经过期或处理过了，请重新发起" } };
+  await page.goto(entryURL);
+  const dialog = page.getByRole("dialog", { name: pairDialogTitle, exact: true });
+  await dialog.getByRole("button", { name: "确认连接", exact: true }).click();
+  await expect(page.getByText("这个配对请求已经过期或处理过了，请重新发起", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "取消", exact: true })).toBeEnabled();
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expectPairQueryCleared(page, entryURL);
+  const renewedURL = await pushPairApproval(page, "pair-renewed");
+  await expect(dialog.getByRole("button", { name: "确认连接", exact: true })).toBeEnabled();
+  await dialog.getByRole("button", { name: "确认连接", exact: true }).click();
+  await expect(dialog.getByText("授权完成，请回到插件", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "完成", exact: true }).click();
+  await expectPairQueryCleared(page, renewedURL);
+  expect(pairApprovalCalls(state).map((call) => call.body.pairing_id)).toEqual(["pair-expired", "pair-renewed"]);
+  expect(state.errors).toEqual([]);
+});
+
+test("配对端口无效时不提交授权且仍可取消关闭", async ({ page }) => {
+  const state = await mockResumeSession(page), entryURL = pairApprovalURL("pair-invalid-port", 80);
+  await page.goto(entryURL);
+  const dialog = page.getByRole("dialog", { name: pairDialogTitle, exact: true });
+  await dialog.getByRole("button", { name: "确认连接", exact: true }).click();
+  await expect(page.getByText("配对地址不完整，请重新从插件连接", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expectPairQueryCleared(page, entryURL);
+  expect(pairApprovalCalls(state)).toHaveLength(0);
+  expect(state.errors).toEqual([]);
+});
 
 /** 添加方式直接切换且草稿分别保留，避免改版后重新出现两层选择弹框。 */
 test("添加默认AI三标签直接切换，文件文本和手工草稿各自保留，插件引导可前往下载", async ({ page }) => {
