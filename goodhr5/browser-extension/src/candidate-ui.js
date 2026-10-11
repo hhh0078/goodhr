@@ -5,7 +5,7 @@ const resumeFields = { name: "candidate_name", phone: "phone", "candidate-email"
 const draftFields = [...Object.keys(resumeFields), "duplicate-keyword", "job-filter", "job", "stage", "note", "note-time", "recommendation-note", "recommendation-time"];
 let currentResume = null, selectedCandidate = null, matches = [], groups = [], positions = [], loggedIn = false, dataUseAccepted = false, updateRequired = false, busy = false, hiddenDuplicate = false;
 let accountKey = "", identity = "", uiEpoch = 0, querySequence = 0, stateSequence = 0, duplicateTimer, draftTimer, lastQuery = "", duplicateState = "idle", edited = new Set();
-let keys = newKeys(), avatarWarning = "", aiSummary = "", summaryTask = null, summaryPolling = false, updateChecked = false, pendingJob = "", summaryUnknown = false, summarySource = null;
+let keys = newKeys(), avatarWarning = "", aiSummary = "", summaryTask = null, summaryPolling = false, updateChecked = false, pendingJob = "", jobMenuOpen = false, summaryUnknown = false, summarySource = null;
 
 /** newKeys 为独立写操作生成幂等键，失败重试沿用原标识。 */
 function newKeys() { return Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((key) => [key, shared.newKey()])); }
@@ -25,7 +25,7 @@ function refreshActions() {
   $("save").hidden = existing; $("update").hidden = !existing; $("save-note").hidden = !existing; $("save-recommendation").hidden = !existing || !$("job").value;
   for (const id of ["save-note", "save-recommendation", "retry-avatar", "job", "job-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time", "summary", "summary-cancel", "summary-retry", "summary-save"]) $(id).disabled = unavailable;
   $("check").disabled = busy || !loggedIn || !dataUseAccepted;
-  for (const node of $("job-options").querySelectorAll("input")) node.disabled = unavailable;
+  for (const node of $("job-options").querySelectorAll("button")) node.disabled = unavailable;
   $("save").disabled = unavailable || !currentResume || !phone || hiddenDuplicate || ["idle", "checking", "failed", "hidden"].includes(duplicateState) || matches.some((item) => item.match_type === "exact");
   $("update").disabled = unavailable || !phone || !selectedCandidate?.row_version; $("save-note").disabled ||= !$("note").value.trim(); $("save-recommendation").disabled ||= !$("job").value;
   const summaryMode = shared.summaryAction(summaryTask, summaryUnknown, summarySource, formResume());
@@ -57,7 +57,7 @@ function renderAvatar() { const saved = shared.validStoredAvatar(selectedCandida
 function renderCandidateInfo(resume) { $("candidate-info").textContent = [resume?.age ? `${resume.age}岁` : "", { male: "男", female: "女" }[resume?.gender] || resume?.gender, resume?.education_level, resume?.current_position || resume?.expected_position, resume?.work_region || resume?.current_region].filter(Boolean).join(" · "); }
 /** applySnapshot 同人补读只更新未手改字段，切人恢复专属草稿。 */
 async function applySnapshot(resume, switching = false) {
-  if (switching) { await persistDraft(); uiEpoch++; querySequence++; clearTimeout(duplicateTimer); identity = shared.resumeIdentity(resume); currentResume = resume; selectedCandidate = null; matches = []; groups = []; hiddenDuplicate = false; lastQuery = ""; duplicateState = "idle"; edited = new Set(); keys = newKeys(); avatarWarning = ""; aiSummary = ""; summaryTask = null; $("duplicates").replaceChildren(); $("duplicate-criteria").replaceChildren(); $("records").hidden = true; $("candidate-link").hidden = true; for (const id of draftFields) $(id).value = id === "stage" ? "draft" : ""; }
+  if (switching) { await persistDraft(); uiEpoch++; querySequence++; clearTimeout(duplicateTimer); identity = shared.resumeIdentity(resume); currentResume = resume; selectedCandidate = null; matches = []; groups = []; hiddenDuplicate = false; lastQuery = ""; duplicateState = "idle"; edited = new Set(); keys = newKeys(); avatarWarning = ""; aiSummary = ""; summaryTask = null; pendingJob = ""; jobMenuOpen = false; $("job-filter").removeAttribute("data-selected-value"); $("duplicates").replaceChildren(); $("duplicate-criteria").replaceChildren(); $("records").hidden = true; $("candidate-link").hidden = true; for (const id of draftFields) $(id).value = id === "stage" ? "draft" : ""; }
   currentResume = resume; for (const [id, field] of Object.entries(resumeFields)) if (!edited.has(id)) $(id).value = resume?.[field] || "";
   if (switching) { summaryUnknown = false; summarySource = null; pendingJob = ""; }
   if (switching && identity) { const epoch = uiEpoch; try { const { draft } = await send("DRAFT_GET", { identity, account_key: accountKey }); if (epoch === uiEpoch && draft) { for (const id of draftFields) if (draft.fields && id in draft.fields) $(id).value = draft.fields[id]; pendingJob = draft.fields?.job || ""; edited = new Set(draft.edited || []); keys = { ...keys, ...Object.fromEntries(Object.entries(draft.keys || {}).filter(([, value]) => value)) }; aiSummary = draft.ai_summary || ""; summaryTask = draft.summary_task || null; summaryUnknown = Boolean(draft.summary_unknown); summarySource = draft.summary_source || null; } } catch { /* 草稿失效不阻碍本地预览。 */ } }
@@ -85,15 +85,33 @@ function renderUpdate(update) { if (!update) return; updateRequired = Boolean(up
 async function checkUpdate() { const result = await send("CHECK_UPDATE"); renderUpdate(result); }
 /** loadPositions 读取完整岗位，旧账号返回值丢弃。 */
 async function loadPositions() { const epoch = uiEpoch; try { const result = await send("POSITIONS"); if (epoch !== uiEpoch) return; positions = result.positions || result.items || (Array.isArray(result) ? result : []); renderPositions(); } catch (error) { if (epoch === uiEpoch) showStatus(`岗位暂时没加载出来：${error.message}，可先只添加简历`, true); } }
-/** selectPosition 更新岗位选择与对应草稿，不因筛选隐藏而丢失已选岗位。 */
-function selectPosition(value) { $("job").value = value; pendingJob = ""; edited.add("job"); renderPositions(); refreshActions(); queueDraft(); }
-/** renderPositions 显示三行可滚动岗位单选列表，过滤岗位公司和城市。 */
+/** positionLabel 生成岗位搜索和选中后共用的短标签，保留公司和城市方便确认。 */
+function positionLabel(job) { return [job?.name || job?.title || job?.position_name || job?.id, job?.company_name, job?.city].filter(Boolean).join(" / "); }
+/** selectPosition 保存岗位编号并收起候选，下次清空搜索框即可取消推荐。 */
+function selectPosition(value) {
+  const selected = positions.find((job) => String(job.id) === String(value));
+  $("job").value = selected ? String(selected.id) : ""; pendingJob = ""; jobMenuOpen = false;
+  $("job-filter").value = selected ? positionLabel(selected) : "";
+  if (selected) $("job-filter").dataset.selectedValue = String(selected.id); else $("job-filter").removeAttribute("data-selected-value");
+  edited.add("job"); edited.add("job-filter"); renderPositions(); refreshActions(); queueDraft();
+}
+/** renderPositions 仅在输入搜索词后显示最多八个下拉候选，不再默认铺满岗位列表。 */
 function renderPositions() {
-  const selected = $("job").value || pendingJob, keyword = $("job-filter").value.trim().toLowerCase(); $("job").replaceChildren(new Option("暂不推荐", "")); $("job-options").replaceChildren();
-  const filtered = positions.filter((job) => job.id === selected || `${job.name || job.title || job.position_name || ""} ${job.company_name || ""} ${job.city || ""}`.toLowerCase().includes(keyword));
-  for (const job of filtered) $("job").append(new Option(job.name || job.title || job.position_name || job.id, job.id));
-  if (Array.from($("job").options).some((item) => item.value === selected)) { $("job").value = selected; pendingJob = ""; }
-  for (const job of [{ id: "", name: "暂不推荐" }, ...filtered]) { const label = document.createElement("label"), radio = document.createElement("input"), text = document.createElement("span"); radio.type = "radio"; radio.name = "job-option"; radio.value = job.id; radio.checked = job.id === $("job").value; radio.disabled = busy || !loggedIn || !dataUseAccepted || updateRequired; radio.addEventListener("change", () => selectPosition(job.id)); text.textContent = [job.name || job.title || job.position_name || job.id, job.company_name || job.city].filter(Boolean).join(" / "); label.append(radio, text); $("job-options").append(label); }
+  const selected = String($("job").value || pendingJob || ""), filter = $("job-filter"), options = $("job-options");
+  $("job").replaceChildren(new Option("暂不推荐", "")); options.replaceChildren();
+  for (const job of positions) $("job").append(new Option(job.name || job.title || job.position_name || job.id, String(job.id)));
+  const chosen = positions.find((job) => String(job.id) === selected);
+  if (chosen) {
+    $("job").value = String(chosen.id); pendingJob = "";
+    if (!filter.value.trim() || filter.dataset.selectedValue !== String(chosen.id)) filter.value = positionLabel(chosen);
+    filter.dataset.selectedValue = String(chosen.id);
+  }
+  const keyword = filter.value.trim().toLowerCase();
+  const filtered = keyword && jobMenuOpen ? positions.filter((job) => `${positionLabel(job)} ${job.department || ""}`.toLowerCase().includes(keyword)).slice(0, 8) : [];
+  options.hidden = filtered.length === 0; filter.setAttribute("aria-expanded", String(filtered.length > 0));
+  for (const job of filtered) {
+    const option = document.createElement("button"), meta = document.createElement("small"); option.type = "button"; option.className = "position-option"; option.setAttribute("role", "option"); option.setAttribute("aria-selected", String(String(job.id) === $("job").value)); option.dataset.value = String(job.id); option.append(document.createTextNode(job.name || job.title || job.position_name || String(job.id))); meta.textContent = [job.company_name, job.city].filter(Boolean).join(" · "); if (meta.textContent) option.append(meta); option.disabled = busy || !loggedIn || !dataUseAccepted || updateRequired; option.addEventListener("click", () => selectPosition(job.id)); options.append(option);
+  }
 }
 /** scheduleDuplicates 对身份与手机变更防抖，未登录未同意不查询。 */
 function scheduleDuplicates() { if (!loggedIn || !dataUseAccepted || !currentResume || busy) return; const signature = JSON.stringify(shared.duplicateInput(formResume(), $("duplicate-keyword").value)); if (signature === lastQuery) return; clearTimeout(duplicateTimer); const epoch = uiEpoch; duplicateTimer = setTimeout(() => { if (epoch === uiEpoch && !busy) checkDuplicates().catch(() => {}); }, 450); }
@@ -137,7 +155,7 @@ async function saveFollowups(kind = "both") {
   const result = await send("FOLLOWUPS", { candidate_id: candidateID, note: kind === "recommendation" ? "" : $("note").value, note_time: kind === "recommendation" ? "" : eventTime("note-time"), position_id: kind === "note" ? "" : $("job").value, stage: $("stage").value, recommendation_note: $("recommendation-note").value, recommendation_time: kind === "note" ? "" : eventTime("recommendation-time"), note_key: keys.note, recommendation_key: keys.recommendation });
   if (epoch !== uiEpoch || selectedCandidate?.id !== candidateID) return;
   if (kind !== "recommendation" && result.notes_saved) { $("note").value = ""; $("note-time").value = ""; keys.note = shared.newKey(); }
-  if (kind !== "note" && result.recommendation_saved) { $("job").value = ""; $("recommendation-note").value = ""; $("recommendation-time").value = ""; keys.recommendation = shared.newKey(); }
+  if (kind !== "note" && result.recommendation_saved) { $("job").value = ""; $("job-filter").value = ""; $("job-filter").removeAttribute("data-selected-value"); jobMenuOpen = false; $("recommendation-note").value = ""; $("recommendation-time").value = ""; keys.recommendation = shared.newKey(); }
   await loadRecords(); showStatus(result.errors?.length ? `${result.errors.map((item) => item.message).join("；")}。输入保留了，请重试` : kind === "note" ? "备注已保存" : kind === "recommendation" ? "推荐已保存" : "已添加", Boolean(result.errors?.length)); renderPositions(); refreshActions(); await persistDraft();
 }
 /** saveCandidate 一次点击直接提交，保留查重保护、幂等键和更新版本检查。 */
@@ -174,7 +192,8 @@ async function cancelSummary() { const epoch = uiEpoch, result = await send("SUM
 async function saveSummary() { requireAccount(); if (!selectedCandidate?.id || !aiSummary) return; const epoch = uiEpoch, result = await send("SUMMARY_SAVE", { candidate_id: selectedCandidate.id, row_version: selectedCandidate.row_version, ai_summary: aiSummary, idempotency_key: keys.summary }); if (epoch !== uiEpoch) return; selectedCandidate = result.candidate || result; keys.summary = shared.newKey(); showStatus("总结已保存"); refreshActions(); }
 $("reload").addEventListener("click", () => runAction(loadPreview).finally(scheduleDuplicates));
 $("check").addEventListener("click", () => runAction(() => checkDuplicates(true)));
-for (const id of draftFields) $(id).addEventListener("input", () => { edited.add(id); queueDraft(); if (["name", "phone", "duplicate-keyword"].includes(id)) { querySequence++; selectedCandidate = null; $("records").hidden = true; duplicateState = "idle"; lastQuery = ""; renderAvatar(); scheduleDuplicates(); } if (id === "job-filter" || id === "job") renderPositions(); if (["name", "phone", "city", "position", "expected-position"].includes(id)) renderCandidateInfo(formResume()); refreshActions(); });
+for (const id of draftFields) $(id).addEventListener("input", () => { edited.add(id); queueDraft(); if (["name", "phone", "duplicate-keyword"].includes(id)) { querySequence++; selectedCandidate = null; $("records").hidden = true; duplicateState = "idle"; lastQuery = ""; renderAvatar(); scheduleDuplicates(); } if (id === "job-filter") { const chosen = positions.find((job) => String(job.id) === $("job").value), label = chosen ? positionLabel(chosen) : ""; if ($("job").value && $("job-filter").value.trim() !== label) { $("job").value = ""; pendingJob = ""; $("job-filter").removeAttribute("data-selected-value"); } jobMenuOpen = Boolean($("job-filter").value.trim()); renderPositions(); } else if (id === "job") renderPositions(); if (["name", "phone", "city", "position", "expected-position"].includes(id)) renderCandidateInfo(formResume()); refreshActions(); });
+document.addEventListener("pointerdown", (event) => { if (jobMenuOpen && !event.target.closest(".jobs")) { jobMenuOpen = false; renderPositions(); } });
 $("candidate-form").addEventListener("submit", (event) => { event.preventDefault(); runAction(() => saveCandidate()); });
 $("update").addEventListener("click", () => runAction(() => saveCandidate(true)));
 $("save-note").addEventListener("click", () => runAction(() => saveFollowups("note")));

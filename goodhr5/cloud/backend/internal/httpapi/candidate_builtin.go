@@ -12,7 +12,7 @@ const builtinCandidateNotice = "这份是示例简历，由管理员内置，不
 
 // builtinCandidate 每次构建独立的虚拟资料，避免共享可变数据或复制到不同团队。
 func builtinCandidate() PositionCandidate {
-	created := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
+	created := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	return PositionCandidate{
 		ID: builtinCandidateID, CandidateName: "瓜瓜", Phone: "17607080935", Email: "1224299352@qq.com",
 		BirthYM: "1996-04", WorkRegion: "四川成都", WorkYears: "8年", EducationLevel: "本科", ExpectedPosition: "软件开发", WorkStatus: "在职，看看机会",
@@ -80,27 +80,17 @@ func builtinMatchesQuery(query PositionCandidateQuery) bool {
 	return candidateMatchesFilters(item, query) && (query.Keyword == "" || candidateContainsKeyword(item, query.Keyword))
 }
 
-// listWithBuiltin 按连续分页插入虚拟首行，真实存储数量不变，不遗漏跨页的真实简历。
+// listWithBuiltin 把虚拟示例放在全部真实简历之后，真实存储数量和既有排序保持不变。
 func (s *CandidateService) listWithBuiltin(tenantID string, query PositionCandidateQuery) ([]map[string]any, PositionCandidateListResult, int, error) {
 	matched := builtinMatchesQuery(query)
-	if matched {
-		page, size := normalizeCandidatePage(query.Page, query.PageSize)
-		offset := (page-1)*size - 1
-		if offset < 0 {
-			offset = 0
-		}
-		query.Offset = &offset
-	}
 	result, err := s.store.ListPositionCandidates(tenantID, query)
 	if err != nil || !matched {
 		return publicPositionCandidates(result.Items), result, 0, err
 	}
-	items := result.Items
-	if result.Page == 1 {
-		if len(items) >= result.PageSize {
-			items = items[:result.PageSize-1]
-		}
-		return append([]map[string]any{publicBuiltinCandidate()}, publicPositionCandidates(items)...), result, 1, nil
+	items := publicPositionCandidates(result.Items)
+	start := (result.Page - 1) * result.PageSize
+	if start <= result.Total && result.Total < start+result.PageSize {
+		items = append(items, publicBuiltinCandidate())
 	}
-	return publicPositionCandidates(items), result, 1, nil
+	return items, result, 1, nil
 }

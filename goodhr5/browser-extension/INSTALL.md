@@ -1,11 +1,11 @@
 <!-- 文件作用：介绍 GoodHR 简历插件的开发包安装、只读采集、登录和失败重试方式。 -->
-# GoodHR 简历助手 1.0.4
+# GoodHR 简历助手 1.0.5
 
 本轮交付 Chrome ZIP，可解压加载；尚未发布 Chrome 商店，不能自动安装。Firefox 本轮暂缓分发，源码仍保留兼容实现。
 
 ## Chrome 安装
 
-1. 解压 `goodhr-resume-chrome-1.0.4.zip`。
+1. 解压 `goodhr-resume-chrome-1.0.5.zip`。
 2. 打开 `chrome://extensions`，打开“开发者模式”。
 3. 点“加载已解压的扩展程序”，选择含 `manifest.json` 的解压目录。
 4. 将 GoodHR 图标固定在浏览器工具栏。需要 Chrome 116 或更高版本。
@@ -56,7 +56,7 @@
 
 ## 本地构建与测试
 
-无需安装依赖：在 `goodhr5/browser-extension` 运行 `npm test`、`npm run build:chrome`。本轮输出在 `dist/chrome` 和 `goodhr-resume-chrome-1.0.4.zip`；版本只取 `package.json`，与本地 Agent 版本相互独立。`dist/checksums.json` 记录 SHA256。默认 `npm run build` 仍保留双浏览器开发构建能力，不代表 Firefox 已发布。本地构建测试使用独立忽略目录，不改已有 `dist-local` 测试包。
+无需安装依赖：在 `goodhr5/browser-extension` 运行 `npm test`、`npm run build:chrome`。本轮输出在 `dist/chrome` 和 `goodhr-resume-chrome-1.0.5.zip`；版本只取 `package.json`，与本地 Agent 版本相互独立。`dist/checksums.json` 记录 SHA256。默认 `npm run build` 仍保留双浏览器开发构建能力，不代表 Firefox 已发布。本地构建测试使用独立忽略目录，不改已有 `dist-local` 测试包。
 
 `node scripts/export-create-fixture.js` 会从合成输入通过实际插件整理器导出 `tests/fixtures/plugin-candidate-create.json`，供云端 Go 路由测试直接验证。标签为文字数组，地区使用 `current_region` / `expected_region`；明确数值薪资单位为 K，页面原文字单独保存。该文件和企业端嵌套预览 fixture 均不包含真实个人资料。
 

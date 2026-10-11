@@ -31,6 +31,9 @@ func TestBuiltinCandidateAuthenticationAndWrites(t *testing.T) {
 		if candidate["id"] != builtinCandidateID || candidate["is_builtin"] != true || candidate["readonly"] != true || candidate["candidate_name"] != "瓜瓜" || candidate["phone"] != "17607080935" || candidate["email"] != "1224299352@qq.com" {
 			t.Fatal("builtin contract mismatch")
 		}
+		if !strings.HasPrefix(fmt.Sprint(candidate["created_at"]), "2020-01-01") {
+			t.Fatalf("builtin created_at should stay in 2020, got %v", candidate["created_at"])
+		}
 		if !strings.Contains(candidate["builtin_notice"].(string), "权限隔离") || candidate["user_email"] != "" {
 			t.Fatal("builtin owner/notice mismatch")
 		}
@@ -111,6 +114,7 @@ func TestBuiltinCandidatePaginationFiltersAndPrivacy(t *testing.T) {
 	}
 	for _, size := range []int{1, 2, 3, 100} {
 		seen := map[string]bool{}
+		ordered := []string{}
 		for page := 1; page <= 7; page++ {
 			status, data := candidateTestRequest(t, routes, token, http.MethodGet, fmt.Sprintf("/api/candidates?page=%d&page_size=%d", page, size), nil)
 			if status != http.StatusOK || data["total"] != float64(5) || data["real_total"] != float64(4) || data["builtin_total"] != float64(1) {
@@ -122,19 +126,31 @@ func TestBuiltinCandidatePaginationFiltersAndPrivacy(t *testing.T) {
 					t.Fatalf("duplicate/unknown page row %s", id)
 				}
 				seen[id] = true
+				ordered = append(ordered, id)
 			}
 		}
 		if len(seen) != len(ids) {
 			t.Fatalf("pagination omitted candidates size=%d", size)
 		}
+		if len(ordered) == 0 || ordered[len(ordered)-1] != builtinCandidateID {
+			t.Fatalf("builtin should be the final row size=%d order=%v", size, ordered)
+		}
 	}
-	for _, query := range []string{"q=瓜瓜", "q=示例计算机学院", "phone=0935", "region=成都", "education_level=本科", "work_years=8年", "work_status=在职", "tag=内置示例", "creator=管理员", "source_type=builtin", "created_from=2026-10-10&created_to=2026-10-10"} {
+	for _, query := range []string{"q=瓜瓜", "q=示例计算机学院", "phone=0935", "region=成都", "education_level=本科", "work_years=8年", "work_status=在职", "tag=内置示例", "creator=管理员", "source_type=builtin", "created_from=2020-01-01&created_to=2020-01-01"} {
 		status, data := candidateTestRequest(t, routes, token, http.MethodGet, "/api/candidates?"+query, nil)
 		if status != http.StatusOK || data["builtin_total"] != float64(1) {
 			t.Fatalf("builtin missing matching filter %s", query)
 		}
 	}
-	for _, query := range []string{"q=" + url.QueryEscape("完全不匹配"), "position_id=real-position", "source_type=manual", "creator=builtin-pages@example.com", "created_to=2026-10-09"} {
+	filterStatus, filterData := candidateTestRequest(t, routes, token, http.MethodGet, "/api/candidates?phone=0935&page_size=100", nil)
+	if filterStatus != http.StatusOK {
+		t.Fatalf("filtered candidate status=%d", filterStatus)
+	}
+	phoneMatches := filterData["candidates"].([]any)
+	if len(phoneMatches) < 2 || phoneMatches[len(phoneMatches)-1].(map[string]any)["id"] != builtinCandidateID {
+		t.Fatal("filtered builtin should stay after matching real candidates")
+	}
+	for _, query := range []string{"q=" + url.QueryEscape("完全不匹配"), "position_id=real-position", "source_type=manual", "creator=builtin-pages@example.com", "created_to=2019-12-31"} {
 		status, data := candidateTestRequest(t, routes, token, http.MethodGet, "/api/candidates?"+query, nil)
 		if status != http.StatusOK || data["builtin_total"] != float64(0) {
 			t.Fatalf("builtin ignored filter %s", query)

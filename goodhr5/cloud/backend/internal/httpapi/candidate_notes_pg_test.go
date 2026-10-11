@@ -152,7 +152,7 @@ func TestCandidatePostgresNotesMigration(t *testing.T) {
 	}
 }
 
-// TestCandidatePostgresStructuredDuplicates 验证真实参数化SQL与内存使用相同的最早经历、年龄、分组和隐藏规则。
+// TestCandidatePostgresStructuredDuplicates 验证真实参数化SQL与内存使用相同的手机号分流、最早经历、年龄、分组和隐藏规则。
 func TestCandidatePostgresStructuredDuplicates(t *testing.T) {
 	db := candidatePostgresTestDB(t)
 	var tenantID, otherTenantID string
@@ -218,6 +218,15 @@ func TestCandidatePostgresStructuredDuplicates(t *testing.T) {
 	if err != nil || len(matches) != 0 || !hidden {
 		t.Fatalf("SQL hidden exact=%+v hidden=%v err=%v", matches, hidden, err)
 	}
+	if _, err = db.Exec(`UPDATE candidate_profiles SET phone=CASE source_platform_candidate_id WHEN 'strict' THEN '13800138000' WHEN 'birth' THEN '13900139000' ELSE phone END, normalized_phone=CASE source_platform_candidate_id WHEN 'strict' THEN '13800138000' WHEN 'birth' THEN '13900139000' ELSE normalized_phone END WHERE source_platform_candidate_id IN ('strict','birth')`); err != nil {
+		t.Fatal(err)
+	}
+	query = CandidateDuplicateQuery{Phone: "+86 13800138000", Name: "张测试", Keyword: "最早大学"}
+	matches, hidden, err = store.FindCandidateDuplicates(scope, query)
+	if err != nil || hidden || len(matches) != 1 || matches[0].Candidate.ID != ids["strict"] || matches[0].MatchType != "exact" {
+		t.Fatalf("SQL phone exact mixed fuzzy results=%+v hidden=%v err=%v", matches, hidden, err)
+	}
+	query, _ = candidateDuplicateFixtures()
 	query.PlatformID, query.PlatformCandidateID, query.Keyword = "", "", ""
 	query.Age = 0
 	query.BirthYM = fmt.Sprintf("%d-01", time.Now().Year()-34)

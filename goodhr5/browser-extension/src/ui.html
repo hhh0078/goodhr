@@ -9,7 +9,7 @@
     <section id="revocation-panel" hidden><p id="revocation-message" class="error"></p><button id="revoke-retry" type="button">重试撤销旧授权</button></section>
     <section id="account-row" class="account" hidden><span id="account"></span><button id="logout" class="quiet" type="button">退出登录</button></section>
     <section id="login-panel" hidden>
-      <div class="tabs"><button id="password-mode" type="button" aria-pressed="true">密码登录</button><button id="code-mode" type="button" aria-pressed="false">验证码登录</button></div>
+      <div class="tabs" role="tablist" aria-label="登录方式"><button id="password-mode" type="button" role="tab" aria-pressed="true">密码登录</button><button id="code-mode" type="button" role="tab" aria-pressed="false">验证码登录</button><button id="local-mode" type="button" role="tab" aria-pressed="false">本地程序登录</button></div>
       <form id="login-form">
         <label>GoodHR 邮箱<input id="email" type="email" autocomplete="username" required></label>
         <label id="password-row">密码<input id="password" type="password" autocomplete="current-password"></label>
@@ -18,8 +18,12 @@
         <button class="primary" type="submit">登录</button>
       </form>
     </section>
+    <section id="pair-panel" class="local-login-panel" hidden>
+      <div class="local-login-title"><strong id="pair-heading">本地程序登录</strong><small id="pair-state"></small></div>
+      <label>程序端口<div class="inline"><input id="local-port" type="number" min="1" max="65535" value="43129"><button id="pair" class="primary" type="button">连接并登录</button></div></label>
+      <div class="local-login-foot"><button id="restore" class="quiet" type="button">恢复上次连接</button><p id="pair-status" class="muted" hidden></p></div>
+    </section>
     <section class="consent"><label class="check"><input id="consent" type="checkbox">允许读取当前可见简历并查重，点击添加或更新后保存</label><a href="privacy.html" target="_blank" rel="noreferrer">数据说明</a></section>
-    <details id="pair-panel"><summary>连接本地程序</summary><label>程序端口<input id="local-port" type="number" min="1" max="65535" value="43129"></label><div class="actions"><button id="pair" type="button">连接并授权</button><button id="restore" type="button">恢复登录</button></div><p id="pair-status" class="muted" hidden></p></details>
     <p class="muted">打开候选人详情，简历助手会自动展开。</p>
   </main><script src="shared.js"></script><script src="ui.js"></script>
 </body></html>

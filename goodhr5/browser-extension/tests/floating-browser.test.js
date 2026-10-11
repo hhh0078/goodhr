@@ -54,6 +54,7 @@ test("Chrome合成页面：识别即自动展开，同人收起保持，换人�
     await page.evaluate((resume) => GoodHRFloating.update(resume), resume); const frame = await floatingFrame(page);
     assert.equal(await frame.locator("#name").inputValue(), resume.candidate_name); assert.equal(await frame.locator("#phone").inputValue(), resume.phone);
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
+    assert.deepEqual(await page.evaluate(() => { const panel = window.fixtureShadow.querySelector(".panel"), iframe = window.fixtureShadow.querySelector("iframe"); return { panelWidth: panel.getBoundingClientRect().width, frameHeight: iframe.getBoundingClientRect().height }; }), { panelWidth: 370, frameHeight: 560 });
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".open").hidden), true);
     assert.equal(await page.evaluate(() => document.getElementById("goodhr-resume-assistant").shadowRoot), null);
     assert.equal(await page.evaluate(() => document.activeElement.id), "business-input"); assert.equal(await page.locator("#business").innerHTML(), before);

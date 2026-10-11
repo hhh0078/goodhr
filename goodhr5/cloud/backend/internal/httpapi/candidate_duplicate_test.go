@@ -142,3 +142,16 @@ func TestCandidateStructuredDuplicateHTTP(t *testing.T) {
 		}
 	}
 }
+
+// TestCandidatePhoneDuplicateOnlyReturnsExact 验证有有效手机号时不混入同名或经历相近的模糊结果。
+func TestCandidatePhoneDuplicateOnlyReturnsExact(t *testing.T) {
+	scope := CandidateLibraryScope{TenantID: "team", UserEmail: "owner@example.com"}
+	store := NewMemoryCandidateStore()
+	store.profiles["exact"] = PositionCandidate{ID: "exact", TenantID: scope.TenantID, UserEmail: scope.UserEmail, CandidateName: "张测试", Phone: "138 0013 8000", CreatedAt: time.Now().UTC()}
+	store.profiles["same-name"] = PositionCandidate{ID: "same-name", TenantID: scope.TenantID, UserEmail: scope.UserEmail, CandidateName: "张测试", Phone: "13900139000", CreatedAt: time.Now().UTC().Add(time.Minute)}
+
+	matches, hidden, err := store.FindCandidateDuplicates(scope, CandidateDuplicateQuery{Phone: "+86 13800138000", Name: "张测试", Keyword: "测试"})
+	if err != nil || hidden || candidateDuplicateIDs(matches) != "[exact]" || matches[0].MatchType != "exact" {
+		t.Fatalf("phone exact=%+v hidden=%v err=%v", matches, hidden, err)
+	}
+}

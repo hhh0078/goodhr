@@ -276,16 +276,19 @@ func (s *PostgresCandidateStore) FindCandidateDuplicates(scope CandidateLibraryS
 			conditions = append(conditions, fmt.Sprintf(clause, len(args)))
 		}
 	}
-	add(normalizeCandidatePhone(query.Phone), "cp.normalized_phone=$%[1]d OR cp.phone=$%[1]d")
+	phone := normalizeCandidatePhone(query.Phone)
+	add(phone, "cp.normalized_phone=$%[1]d OR cp.phone=$%[1]d")
 	if query.PlatformID != "" && query.PlatformCandidateID != "" {
 		args = append(args, query.PlatformID, query.PlatformCandidateID)
 		conditions = append(conditions, fmt.Sprintf("(cp.source_platform_id=$%d AND cp.source_platform_candidate_id=$%d) OR EXISTS(SELECT 1 FROM candidate_profile_sources cs WHERE cs.candidate_id=cp.id AND cs.platform_id=$%d AND cs.platform_candidate_id=$%d)", len(args)-1, len(args), len(args)-1, len(args)))
 	}
-	if candidateDuplicateStructured(query) {
-		conditions = append(conditions, candidateDuplicateSQLClauses(query, &args)...)
-	} else {
-		add(candidateLike(query.Name), "cp.candidate_name ILIKE $%d")
-		add(candidateLike(query.Keyword), "(cp.work_experiences::text||' '||cp.educations::text||' '||cp.raw_text) ILIKE $%d")
+	if phone == "" {
+		if candidateDuplicateStructured(query) {
+			conditions = append(conditions, candidateDuplicateSQLClauses(query, &args)...)
+		} else {
+			add(candidateLike(query.Name), "cp.candidate_name ILIKE $%d")
+			add(candidateLike(query.Keyword), "(cp.work_experiences::text||' '||cp.educations::text||' '||cp.raw_text) ILIKE $%d")
+		}
 	}
 	if len(conditions) == 0 {
 		return []CandidateDuplicateMatch{}, false, nil

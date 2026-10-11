@@ -211,6 +211,7 @@ func candidateDuplicateStructuredReasons(item PositionCandidate, criteria Candid
 func selectCandidateDuplicateMatches(scope CandidateLibraryScope, query CandidateDuplicateQuery, items []PositionCandidate) ([]CandidateDuplicateMatch, bool) {
 	exact, legacy, strict := []CandidateDuplicateMatch{}, []CandidateDuplicateMatch{}, []CandidateDuplicateMatch{}
 	hidden := false
+	hasPhone := normalizeCandidatePhone(query.Phone) != ""
 	criteria := candidateDuplicateCriteria(query)
 	structured := candidateDuplicateStructured(query)
 	visible := []PositionCandidate{}
@@ -227,6 +228,9 @@ func selectCandidateDuplicateMatches(scope CandidateLibraryScope, query Candidat
 		}
 		if kind == "exact" {
 			exact = append(exact, CandidateDuplicateMatch{Candidate: item, MatchType: kind, Reasons: reasons})
+			continue
+		}
+		if hasPhone {
 			continue
 		}
 		if structured && query.Keyword != "" && !candidateContainsKeyword(item, query.Keyword) {
