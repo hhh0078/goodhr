@@ -35,6 +35,12 @@ export function normalizeAIRechargePromotions(value: unknown): AIRechargePromoti
     .sort((a, b) => a.amount_cents - b.amount_cents);
 }
 
+/** defaultAIRechargeAmount 默认使用展示列表的第一个有效套餐，无活动时保留 10 元。 */
+export function defaultAIRechargeAmount(promotions: unknown): string {
+  const first = normalizeAIRechargePromotions(promotions)[0];
+  return first ? (first.amount_cents / 100).toFixed(2) : "10";
+}
+
 /** rechargeBonusCents 按最高已达到的充值门槛预估赠送，多个活动不叠加。 */
 export function rechargeBonusCents(amount: string, promotions: AIRechargePromotion[]): number {
   const cents = rechargeAmountCents(amount);

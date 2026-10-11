@@ -35,7 +35,7 @@ import {
 import { useAdmin } from "@/components/admin/AdminApp";
 import AIRechargeDialog from "@/components/payment/AIRechargeDialog";
 import AIWalletChange from "@/components/payment/AIWalletChange";
-import { AI_RECHARGE_POLICY, AI_RECHARGE_REFUND_POLICY, MAX_AI_RECHARGE_CENTS, MIN_AI_RECHARGE_CENTS, rechargeAmountCents } from "@/lib/ai-recharge";
+import { AI_RECHARGE_POLICY, AI_RECHARGE_REFUND_POLICY, MAX_AI_RECHARGE_CENTS, MIN_AI_RECHARGE_CENTS, defaultAIRechargeAmount, rechargeAmountCents } from "@/lib/ai-recharge";
 import {
   WechatPayDialog,
   wechatPaymentFromResponse,
@@ -79,7 +79,8 @@ export default function SubscriptionPage() {
   const [aiPage, setAIPage] = useState(1);
   const [recordTab, setRecordTab] = useState<"payments" | "ai">("payments");
   const [code, setCode] = useState("");
-  const [rechargeAmount, setRechargeAmount] = useState("10");
+  const [rechargeAmountDraft, setRechargeAmount] = useState<string | null>(null);
+  const rechargeAmount = rechargeAmountDraft ?? defaultAIRechargeAmount(wallet.recharge_promotions);
   const [selectedModel, setSelectedModel] = useState("");
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAILoading] = useState(false);

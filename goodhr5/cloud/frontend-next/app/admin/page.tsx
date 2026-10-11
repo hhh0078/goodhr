@@ -30,7 +30,7 @@ import { useEffect, useMemo, useState, type ElementType } from "react";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import AIRechargeDialog from "@/components/payment/AIRechargeDialog";
-import { AI_RECHARGE_POLICY, AI_RECHARGE_REFUND_POLICY, MAX_AI_RECHARGE_CENTS, MIN_AI_RECHARGE_CENTS, rechargeAmountCents } from "@/lib/ai-recharge";
+import { AI_RECHARGE_POLICY, AI_RECHARGE_REFUND_POLICY, MAX_AI_RECHARGE_CENTS, MIN_AI_RECHARGE_CENTS, defaultAIRechargeAmount, rechargeAmountCents } from "@/lib/ai-recharge";
 import {
   WechatPayDialog,
   wechatPaymentFromResponse,
@@ -140,7 +140,8 @@ export default function DashboardPage() {
   const [aiConfig, setAIConfig] = useState<any>({});
   const [currentAIModel, setCurrentAIModel] = useState("");
   const [wallet, setWallet] = useState<any>({});
-  const [rechargeAmount, setRechargeAmount] = useState("10");
+  const [rechargeAmountDraft, setRechargeAmount] = useState<string | null>(null);
+  const rechargeAmount = rechargeAmountDraft ?? defaultAIRechargeAmount(wallet.recharge_promotions);
   const [recharging, setRecharging] = useState(false);
   const [rechargeDialogOpen, setRechargeDialogOpen] = useState(false);
   const [wechatPayment, setWechatPayment] = useState<WechatPaymentState | null>(
