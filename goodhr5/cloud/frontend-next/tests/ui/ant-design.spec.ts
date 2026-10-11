@@ -313,6 +313,18 @@ async function chooseTheme(page: Page, choice: ThemeChoice) {
   await expect(dialog).not.toBeVisible();
 }
 
+/** waitForAgentProbeCacheExpiry 等待两秒探测缓存真实过期，让模拟断开进入新探测而非沿用缓存直接绑定。 */
+async function waitForAgentProbeCacheExpiry(page: Page) {
+  await expect.poll(() => page.evaluate(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem("goodhr5_local_agent_detect_cache") || "{}");
+      return typeof cached.checkedAt === "number" && Number.isFinite(cached.checkedAt) && Date.now() - cached.checkedAt > 2000;
+    } catch {
+      return false;
+    }
+  }), { message: "等待本地程序两秒探测缓存过期" }).toBe(true);
+}
+
 for (const member of ["free", "plus", "max"]) {
   test(`${member} 会员未设置主题时，正文和弹窗都默认绿色`, async ({ page }) => {
     await mockSession(page, { member });
@@ -358,7 +370,9 @@ test("主题按邮箱隔离，公开页面和注销后恢复绿色", async ({ pa
   await chooseTheme(page, themeChoices[1]);
   const keyA = themePreferenceKey(options.email);
   const keyB = themePreferenceKey("theme-b@example.invalid");
+  await expect(page.locator(".goodhr-admin-toolbar").getByRole("button", { name: /6\.2\.10\.1.*端口 43129/ })).toBeVisible();
   options.disconnected = true;
+  await waitForAgentProbeCacheExpiry(page);
   await page.locator(".goodhr-admin-toolbar").getByRole("button", { name: /端口 43129/ }).click();
   const installation = page.getByRole("dialog", { name: "请先安装本地程序", exact: true });
   await expect(installation).toBeVisible();
@@ -374,6 +388,7 @@ test("主题按邮箱隔离，公开页面和注销后恢复绿色", async ({ pa
   expect(documentRequests).toEqual([]);
 
   options.disconnected = false;
+  await waitForAgentProbeCacheExpiry(page);
   options.email = "theme-b@example.invalid";
   options.userId = "theme-user-b";
   await page.evaluate(() => localStorage.setItem("goodhr5_access_token", "test-only-token-b"));
