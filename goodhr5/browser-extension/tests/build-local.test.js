@@ -67,10 +67,10 @@ test("本地清单仅移除生产权限，不扩大招聘权限，并使用独�
 test("本地网页、协议、更新和配对入口固定5173，API固定8084且不残留生产地址", () => {
   for (const browser of ["chrome", "firefox"]) {
     const read = (file) => fs.readFileSync(path.join(OUT, browser, "src", file), "utf8");
-    for (const file of ["shared.js", "ui.js", "background.js", "ui.html", "privacy.html"]) assert.equal(read(file).includes("https://goodhr.58it.cn"), false, file);
-    for (const file of ["shared.js", "ui.js", "background.js"]) assert.doesNotThrow(() => new vm.Script(read(file)), file);
+    for (const file of ["shared.js", "ui.js", "candidate-ui.js", "background.js", "ui.html", "floating.html", "privacy.html"]) assert.equal(read(file).includes("https://goodhr.58it.cn"), false, file);
+    for (const file of ["shared.js", "ui.js", "candidate-ui.js", "background.js"]) assert.doesNotThrow(() => new vm.Script(read(file)), file);
     assert.match(read("shared.js"), /CLOUD_BASE = "http:\/\/127\.0\.0\.1:8084"/);
-    assert.match(read("ui.js"), /"http:\/\/127\.0\.0\.1:5173".*\/admin\/resumes\/detail/);
+    assert.match(read("candidate-ui.js"), /"http:\/\/127\.0\.0\.1:5173".*\/admin\/resumes\/detail/);
     assert.match(read("ui.js"), /"http:\/\/127\.0\.0\.1:5173" \+ "\/download#browser-extension"/);
     assert.match(read("ui.html"), /href="http:\/\/127\.0\.0\.1:5173\/login"/); assert.match(read("ui.html"), /value="43139"/);
     assert.match(read("ui.html"), /本地测试.*简历仅入测试库/); assert.match(read("privacy.html"), /不会请求生产 GoodHR/);
@@ -85,8 +85,8 @@ test("实际本地后台登录、查重、新增仅请求测试API，配对默�
   const resume = { candidate_name: "合成本地候选人", phone: "13800000001", platform_id: "hliepin" };
   const duplicates = await value.message({ type: "DUPLICATES", payload: { resume } }); assert.equal(duplicates.ok, true);
   const created = await value.message({ type: "CREATE", payload: { resume, idempotency_key: "local-create" } }); assert.equal(created.ok, true);
-  assert.equal(value.requests.length, 3);
-  assert.deepEqual(value.requests.map(({ url }) => new URL(url).origin), Array(3).fill("http://127.0.0.1:8084"));
+  assert.equal(value.requests.filter(({ url }) => !url.endsWith("/api/system/browser-extension")).length, 3);
+  assert.deepEqual(value.requests.map(({ url }) => new URL(url).origin), Array(value.requests.length).fill("http://127.0.0.1:8084"));
   const paired = await value.message({ type: "PAIR_START", payload: {} }); assert.equal(paired.ok, true);
   assert.equal(value.requests.at(-1).url, "http://127.0.0.1:43139/api/v1/extensions/pair/start");
   assert.equal(new URL(value.opened[0]).origin, "http://127.0.0.1:5173");

@@ -5,21 +5,22 @@ const src = path.join(__dirname, "..", "src");
 
 /** backgroundFixture 构造后台执行环境和无真实网络的受限会话。 */
 function backgroundFixture(fetchReply) {
-  const values = { session: { token: "private-background-token", user: { email: "fixture@example.test", id: "fixture" }, expires_at: "2030-01-01" } }, requests = []; let listener;
+  const values = { session: { token: "private-background-token", user: { email: "fixture@example.test", id: "fixture" }, expires_at: "2030-01-01" } }, requests = [], versionRequests = []; let listener;
   const extension = {
     runtime: { id: "test-extension", getURL: (value) => "chrome-extension://test-extension/" + value, getManifest: () => ({ version: require("../package.json").version }), onMessage: { addListener: (handler) => { listener = handler; } } },
     storage: { local: { get: async (keys) => Object.fromEntries(keys.filter((key) => key in values).map((key) => [key, values[key]])), set: async (input) => Object.assign(values, input), remove: async (keys) => { for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key]; }, setAccessLevel: async () => {} } },
     tabs: { query: async () => [], create: async () => ({}), onRemoved: { addListener: () => {} }, onUpdated: { addListener: () => {} } },
     action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {}, setTitle: () => {} }
   };
-  const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, TextEncoder, console, setTimeout, clearTimeout, fetch: async (url, options) => { requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
+  const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, TextEncoder, console, setTimeout, clearTimeout, fetch: async (url, options) => { if (url.endsWith("/api/system/browser-extension")) { versionRequests.push({ url, options }); return response({ release: { version: extension.runtime.getManifest().version } }); } requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
   vm.runInContext(fs.readFileSync(path.join(src, "shared.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "avatar.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "background.js"), "utf8"), context);
-  return { values, requests, context, extension, message: (message, sender) => new Promise((resolve) => { const result = listener(message, sender, resolve); if (result === false) resolve(undefined); }) };
+  return { values, requests, versionRequests, context, extension, message: (message, sender) => new Promise((resolve) => { const result = listener(message, sender, resolve); if (result === false) resolve(undefined); }) };
 }
 
 /** response 构造明确状态码的 JSON 响应，避免真实外部请求。 */
 function response(body = { ok: true }, status = 200) { return { ok: status >= 200 && status < 300, status, json: async () => body }; }
 const uiSender = { id: "test-extension", url: "chrome-extension://test-extension/src/ui.html" };
+const floatingSender = { id: "test-extension", url: "chrome-extension://test-extension/src/floating.html" };
 
 /** avatarScene 构造当前头像快照及稳定采集标识，图片处理由后台测试替身负责。 */
 async function avatarScene(value) {
@@ -36,17 +37,27 @@ test("招聘页面只读脚本不写 DOM、不发请求、不读网站缓存、�
 test("悬浮入口只使用固定扩展iframe，既不接网页消息，也不访问网站缓存或主世界", () => {
   const code = fs.readFileSync(path.join(src, "floating.js"), "utf8");
   assert.match(code, /attachShadow\(\{ mode: "closed" \}\)/);
-  assert.match(code, /getURL\("src\/ui\.html\?surface=floating"\)/);
+  assert.match(code, /getURL\("src\/floating\.html"\)/);
   for (const forbidden of [/addEventListener\(["']message/, /postMessage\s*\(/, /(?:fetch|XMLHttpRequest|WebSocket)\s*\(/, /localStorage|sessionStorage|document\.cookie/, /storage\.(?:local|sync)/, /\.focus\s*\(/, /\.scroll(?:To|By|IntoView)\s*\(/, /dispatchEvent\s*\(/, /innerHTML\s*=/]) assert.equal(forbidden.test(code), false, String(forbidden));
 });
 
 test("固定UI路径和网页iframe来源校验，拒绝相似路径、网页伪造与站外嵌入", async () => {
   const value = backgroundFixture();
-  for (const url of ["chrome-extension://test-extension/src/ui.html.evil", "chrome-extension://test-extension/src/privacy.html", "https://h.liepin.com/chrome-extension://test-extension/src/ui.html", "chrome-extension://other/src/ui.html", "chrome-extension://test-extension/src/ui.html?surface=evil"]) {
+  for (const url of ["chrome-extension://test-extension/src/ui.html.evil", "chrome-extension://test-extension/src/privacy.html", "https://h.liepin.com/chrome-extension://test-extension/src/ui.html", "chrome-extension://other/src/ui.html", "chrome-extension://test-extension/src/ui.html?surface=evil", "chrome-extension://test-extension/src/ui.html?surface=floating", "chrome-extension://test-extension/src/floating.html.evil", "chrome-extension://test-extension/src/floating.html?surface=floating", "chrome-extension://other/src/floating.html"]) {
     assert.equal(await value.message({ type: "STATE" }, { ...uiSender, url }), undefined);
   }
-  const iframe = { ...uiSender, url: uiSender.url + "?surface=floating", frameId: 3, tab: { id: 3, url: "https://evil.example/" } };
+  const iframe = { ...floatingSender, frameId: 3, tab: { id: 3, url: "https://evil.example/" } };
   assert.equal(await value.message({ type: "STATE" }, iframe), undefined); assert.equal(value.requests.length, 0);
+});
+
+test("独立悬浮界面不能登录、配对、退出或改变资料授权，工具栏仍可设置授权", async () => {
+  const value = backgroundFixture(), sender = { ...floatingSender, frameId: 1, tab: { id: 13, url: "https://h.liepin.com/resume/showresumedetail" } };
+  for (const type of ["LOGIN", "SEND_CODE", "CONSENT", "PAIR_START", "PAIR_CHECK", "RESTORE", "LOGOUT", "REVOKE_RETRY", "OPEN_SIDEBAR"]) {
+    assert.equal(await value.message({ type, payload: { accepted: true, email: "other@example.test", password: "synthetic", agreement_accepted: true } }, sender), undefined, type);
+  }
+  assert.equal(value.values.data_use_accepted, undefined); assert.equal(value.values.session.user.id, "fixture"); assert.equal(value.requests.length, 0); assert.equal(value.versionRequests.length, 0);
+  const accepted = await value.message({ type: "CONSENT", payload: { accepted: true } }, uiSender);
+  assert.equal(accepted.ok, true); assert.equal(value.values.data_use_accepted, true); assert.equal(value.requests.length, 0);
 });
 
 test("悬浮UI读取和头像绑定自身tab，活动tab变化不串人，旧快照不能新增", async () => {
@@ -56,7 +67,7 @@ test("悬浮UI读取和头像绑定自身tab，活动tab变化不串人，旧快
   const resumeB = { candidate_name: "合成活动乙", phone: "13800000102", platform_id: "zhaopin", source_url: tabB.url };
   value.extension.tabs.query = async () => [tabB]; value.extension.tabs.get = async (id) => id === tabA.id ? tabA : tabB;
   value.extension.tabs.sendMessage = async (id) => value.message({ type: "CANDIDATE_SNAPSHOT", resume: id === tabA.id ? resumeA : resumeB }, { id: "test-extension", frameId: 0, tab: id === tabA.id ? tabA : tabB });
-  const sender = { ...uiSender, url: uiSender.url + "?surface=floating", frameId: 1, tab: tabA };
+  const sender = { ...floatingSender, frameId: 1, tab: tabA };
   const read = await value.message({ type: "PREVIEW", payload: { tab_id: tabB.id } }, sender);
   assert.equal(read.data.resume.candidate_name, "合成悬浮甲");
   const popup = await value.message({ type: "PREVIEW" }, uiSender); assert.equal(popup.data.resume.candidate_name, "合成活动乙");
@@ -76,7 +87,7 @@ test("悬浮面板头像读取期间切人会终止CREATE，既有简历不被�
   const startedPromise = new Promise((resolve) => { started = resolve; });
   value.extension.tabs.sendMessage = async () => value.message({ type: "CANDIDATE_SNAPSHOT", resume: candidate }, { id: "test-extension", frameId: 0, tab });
   value.context.GoodHRAvatar.fetchAvatar = async () => { started(); return new Promise((resolve) => { release = resolve; }); };
-  const sender = { ...uiSender, url: uiSender.url + "?surface=floating", frameId: 2, tab };
+  const sender = { ...floatingSender, frameId: 2, tab };
   const snapshot = (await value.message({ type: "PREVIEW" }, sender)).data.resume;
   const saving = value.message({ type: "CREATE", payload: { resume: snapshot, capture_id: snapshot.capture_id, idempotency_key: "change-during-image" } }, sender);
   await startedPromise; candidate = { ...candidate, candidate_name: "合成新候选人", phone: "13800000122" }; release("data:image/png;base64,YQ==");

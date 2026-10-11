@@ -43,6 +43,7 @@ type wechatPaySettings struct {
 	PublicKeyPath    string `json:"public_key_path"`
 	PublicKeyBase64  string `json:"public_key_base64"`
 	NotifyURL        string `json:"notify_url"`
+	RefundNotifyURL  string `json:"refund_notify_url,omitempty"`
 }
 
 // wechatPayRuntime 保存按当前配置初始化好的微信支付 SDK 客户端和回调处理器。
@@ -57,15 +58,16 @@ type wechatPayRuntime struct {
 func (p *WechatPayProvider) Refund(ctx context.Context, input PaymentProviderRefundInput) (PaymentProviderRefundResult, error) {
 	runtime, err := p.initialize(ctx)
 	if err != nil {
-		return PaymentProviderRefundResult{}, err
+		return PaymentProviderRefundResult{}, fmt.Errorf("%w: %v", ErrRefundRejected, err)
 	}
 	if input.AmountCents <= 0 || input.TotalCents <= 0 || input.AmountCents > input.TotalCents {
-		return PaymentProviderRefundResult{}, fmt.Errorf("微信退款金额不正确")
+		return PaymentProviderRefundResult{}, fmt.Errorf("%w: 微信退款金额不正确", ErrRefundRejected)
 	}
 	response, _, err := runtime.refundService.Create(ctx, refunddomestic.CreateRequest{
 		OutTradeNo:  core.String(strings.TrimSpace(input.OrderNo)),
 		OutRefundNo: core.String(strings.TrimSpace(input.RefundNo)),
 		Reason:      core.String(paymentTitle(input.Reason)),
+		NotifyUrl:   optionalString(refundNotifyURL(runtime.settings)),
 		Amount: &refunddomestic.AmountReq{
 			Currency: core.String("CNY"),
 			Refund:   core.Int64(int64(input.AmountCents)),
@@ -73,12 +75,17 @@ func (p *WechatPayProvider) Refund(ctx context.Context, input PaymentProviderRef
 		},
 	})
 	if err != nil {
+		if definiteWechatRefundRejection(err) {
+			return PaymentProviderRefundResult{}, fmt.Errorf("%w: %v", ErrRefundRejected, err)
+		}
 		return PaymentProviderRefundResult{}, fmt.Errorf("微信退款申请失败: %w", err)
 	}
 	if response == nil || response.RefundId == nil || response.Status == nil {
 		return PaymentProviderRefundResult{}, fmt.Errorf("微信退款没有返回完整结果")
 	}
 	return PaymentProviderRefundResult{
+		AmountCents:      input.AmountCents,
+		TotalCents:       input.TotalCents,
 		Provider:         p.Name(),
 		OrderNo:          input.OrderNo,
 		RefundNo:         input.RefundNo,
@@ -235,6 +242,7 @@ func wechatPayConfigSignature(settings wechatPaySettings, privateKeyText string,
 		settings.PublicKeyPath,
 		settings.PublicKeyBase64,
 		settings.NotifyURL,
+		settings.RefundNotifyURL,
 		privateKeyText,
 		publicKeyText,
 	}, "\n")

@@ -7,7 +7,6 @@ import {
   Flex,
   Form,
   Input,
-  InputNumber,
   Progress,
   Select,
   Tag,
@@ -30,6 +29,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type ElementType } from "react";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import AIRechargeDialog from "@/components/payment/AIRechargeDialog";
+import { AI_RECHARGE_POLICY, AI_RECHARGE_REFUND_POLICY, MAX_AI_RECHARGE_CENTS, MIN_AI_RECHARGE_CENTS, defaultAIRechargeAmount, rechargeAmountCents } from "@/lib/ai-recharge";
 import {
   WechatPayDialog,
   wechatPaymentFromResponse,
@@ -139,7 +140,8 @@ export default function DashboardPage() {
   const [aiConfig, setAIConfig] = useState<any>({});
   const [currentAIModel, setCurrentAIModel] = useState("");
   const [wallet, setWallet] = useState<any>({});
-  const [rechargeAmount, setRechargeAmount] = useState("10");
+  const [rechargeAmountDraft, setRechargeAmount] = useState<string | null>(null);
+  const rechargeAmount = rechargeAmountDraft ?? defaultAIRechargeAmount(wallet.recharge_promotions);
   const [recharging, setRecharging] = useState(false);
   const [rechargeDialogOpen, setRechargeDialogOpen] = useState(false);
   const [wechatPayment, setWechatPayment] = useState<WechatPaymentState | null>(
@@ -226,6 +228,11 @@ export default function DashboardPage() {
   ] as const;
   /** rechargeAI 创建内置 AI 余额充值订单。 */
   async function rechargeAI() {
+    const amountCents = rechargeAmountCents(rechargeAmount);
+    if (amountCents === null || amountCents < MIN_AI_RECHARGE_CENTS || amountCents > MAX_AI_RECHARGE_CENTS) {
+      notify("充值金额需在 1–1000 元之间，最多保留两位小数。", "warning");
+      return;
+    }
     try {
       await requirePaymentLocalAgent(agentBase);
     } catch (error) {
@@ -234,7 +241,7 @@ export default function DashboardPage() {
     }
     const accepted = await confirm(
       "支付前请确认",
-      "AI 余额仅用于 GoodHR 内置 AI 调用。需要开发票请联系作者处理，发票开出后该笔订单不支持退费。",
+      `AI 余额仅用于 GoodHR 内置 AI 调用。${AI_RECHARGE_POLICY}${AI_RECHARGE_REFUND_POLICY}需要开发票请联系作者处理，发票开出后该笔订单不支持退费。`,
     );
     if (!accepted) return;
     setRecharging(true);
@@ -510,62 +517,15 @@ export default function DashboardPage() {
           />
         </Form.Item>
       </Modal>
-      <Modal
+      <AIRechargeDialog
         open={rechargeDialogOpen}
-        onCancel={() => {
-          if (!recharging) setRechargeDialogOpen(false);
-        }}
-        closable={!recharging}
-        mask={{ closable: !recharging }}
-        keyboard={!recharging}
-        width={440}
-        destroyOnHidden
-        title={<> 充值 AI 余额 </>}
-        footer={
-          <Flex justify="flex-end" gap={8} wrap>
-            <Button
-              disabled={recharging}
-              onClick={() => setRechargeDialogOpen(false)}
-              type={"text"}
-            >
-              先不充
-            </Button>
-            <Button
-              loading={recharging}
-              disabled={recharging}
-              onClick={rechargeAI}
-              type={"primary"}
-            >
-              {recharging ? "下单中" : "去支付"}
-            </Button>
-          </Flex>
-        }
-      >
-        <Form.Item
-          layout="vertical"
-          htmlFor="admin-field-2"
-          label={"充值金额（元）"}
-          className={styles.s289}
-          style={{ marginBottom: 0 }}
-        >
-          <InputNumber
-            id="admin-field-2"
-            value={rechargeAmount ? Number(rechargeAmount) : null}
-            onChange={(value) =>
-              setRechargeAmount(value === null ? "" : String(value))
-            }
-            min={0.01}
-            precision={2}
-            step={1}
-            prefix="￥"
-            disabled={recharging}
-            style={{ width: "100%" }}
-          />
-        </Form.Item>
-        <Typography.Paragraph className={`${styles.text} ${styles.s291}`}>
-          默认 10 元，够先跑一阵。填完我就去创建支付订单。
-        </Typography.Paragraph>
-      </Modal>
+        amount={rechargeAmount}
+        promotions={wallet.recharge_promotions}
+        loading={recharging}
+        onAmountChange={setRechargeAmount}
+        onClose={() => setRechargeDialogOpen(false)}
+        onConfirm={() => void rechargeAI()}
+      />
       <WechatPayDialog
         payment={wechatPayment}
         onClose={() => setWechatPayment(null)}
@@ -616,6 +576,11 @@ function AIWalletCard({
         <Flex className={styles.s298}>
           <Typography.Paragraph className={`${styles.text} ${styles.s299}`}>
             ￥{wallet.balance || "0.0000"}
+            {Number(wallet.bonus_balance_units || 0) > 0 ? (
+              <Typography.Text type="secondary" style={{ display: "block", fontSize: 12 }}>
+                含赠送 ￥{wallet.bonus_balance || "0.0000"}
+              </Typography.Text>
+            ) : null}
           </Typography.Paragraph>
           <Flex className={styles.s300}>
             <Button

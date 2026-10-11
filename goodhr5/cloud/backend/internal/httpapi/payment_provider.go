@@ -3,9 +3,24 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 )
+
+// ErrRefundRejected 表示已确认未受理的退款，可以安全释放预留余额。
+var ErrRefundRejected = errors.New("退款未受理")
+
+// ErrRefundNotFound 表示查单确认退款单不存在，重试必须保持原退款号和原参数。
+var ErrRefundNotFound = errors.New("退款单不存在")
+
+// PaymentRefundProvider 定义退款查单和验签通知能力，不影响其它支付提供方。
+type PaymentRefundProvider interface {
+	// QueryRefund 按原商户退款号查询退款最终结果。
+	QueryRefund(ctx context.Context, refundNo string) (PaymentProviderRefundResult, error)
+	// ParseRefundNotify 验签并解密微信退款通知。
+	ParseRefundNotify(ctx context.Context, request *http.Request) (PaymentProviderRefundResult, error)
+}
 
 // PaymentProvider 定义支付平台下单、查单和回调解析能力。
 type PaymentProvider interface {
@@ -56,6 +71,8 @@ type PaymentProviderRefundInput struct {
 
 // PaymentProviderRefundResult 表示第三方退款受理结果。
 type PaymentProviderRefundResult struct {
+	AmountCents      int    `json:"amount_cents"`
+	TotalCents       int    `json:"total_cents"`
 	Provider         string `json:"provider"`
 	OrderNo          string `json:"order_no"`
 	RefundNo         string `json:"refund_no"`

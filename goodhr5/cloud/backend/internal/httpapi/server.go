@@ -111,6 +111,7 @@ func NewServer() (*Server, error) {
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	adminEmails.StartRecoveryScheduler()
 	if db != nil {
+		paymentService.StartRefundReconciliation(context.Background())
 		NewWechatRewardNoticeService(NewPostgresWechatRewardNoticeStore(db), mailer, systemConfigStore).Start(context.Background())
 	}
 	candidates := NewCandidateService(auth, candidateStore, tenantStore, positionStore)
@@ -221,6 +222,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/payment/refund", s.payments.Refund)
 	mux.HandleFunc("/api/payment/orders/", s.payments.OrderDetail)
 	mux.HandleFunc("/api/payment/notify/wechat", s.payments.WechatNotify)
+	mux.HandleFunc("/api/payment/refund-notify/wechat", s.payments.WechatRefundNotify)
 	mux.HandleFunc("/api/admin/payment/orders", s.payments.ListAdminOrders)
 	mux.HandleFunc("/api/runtime/config", s.runtimeConfig.Current)
 	mux.HandleFunc("/api/invitations/summary", s.invitations.Summary)
@@ -643,6 +645,12 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 	if configKey == "system.subscription_plans" {
 		if _, err := parseSubscriptionPlans(raw); err != nil {
 			writeError(w, http.StatusBadRequest, "会员套餐配置没保存："+err.Error())
+			return
+		}
+	}
+	if configKey == "system.app_config" {
+		if _, err := parseAIRechargePromotions(raw); err != nil {
+			writeError(w, http.StatusBadRequest, "充值活动配置没保存："+err.Error())
 			return
 		}
 	}

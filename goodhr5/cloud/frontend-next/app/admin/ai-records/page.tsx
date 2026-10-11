@@ -1,6 +1,5 @@
 /** 本文件负责 AI 余额流水展示 的 Ant Design 页面。 */
 "use client";
-import { ArrowDownOutlined, ArrowUpOutlined } from "@ant-design/icons";
 import { Flex, Pagination, Table, Tag, Typography } from "antd";
 import styles from "./page.module.css";
 import { useSearchParams } from "next/navigation";
@@ -12,6 +11,7 @@ import {
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import AIWalletChange from "@/components/payment/AIWalletChange";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
 const pageSize = 20;
 /** AIRecordsPage 展示当前用户或超管指定用户的 AI 使用记录。 */
@@ -89,12 +89,9 @@ export default function AIRecordsPage() {
                   },
                   {
                     key: "amount",
-                    title: "金额",
+                    title: "余额变动",
                     render: (_, record) => (
-                      <AmountText
-                        units={Number(record.change_units || 0)}
-                        value={record.change}
-                      />
+                      <AIWalletChange record={record} />
                     ),
                   },
                   {
@@ -170,10 +167,7 @@ function RecordCard({ record }: { record: any }) {
     >
       <Flex style={{ justifyContent: "space-between", gap: 8 }}>
         <CategoryChip category={record.category} />
-        <AmountText
-          units={Number(record.change_units || 0)}
-          value={record.change}
-        />
+        <AIWalletChange record={record} />
       </Flex>
       <Typography.Text
         style={{
@@ -206,6 +200,8 @@ function CategoryChip({ category }: { category: string }) {
   const labelMap: Record<string, string> = {
     ai_usage: "AI调用",
     recharge: "充值",
+    refund: "退款",
+    refund_release: "退款退回",
     signup_bonus: "注册赠送",
     admin_adjust: "后台调整",
   };
@@ -217,30 +213,6 @@ function CategoryChip({ category }: { category: string }) {
         : "success";
   return (
     <Tag color={color as any}>{labelMap[category] || category || "记录"}</Tag>
-  );
-}
-/** AmountText 展示余额变动金额。 */
-function AmountText({ units, value }: { units: number; value: string }) {
-  const positive = units
-    ? units > 0
-    : !String(value || "")
-        .trim()
-        .startsWith("-");
-  const Icon = positive ? ArrowUpOutlined : ArrowDownOutlined;
-  return (
-    <Flex
-      gap={0.4 * 8}
-      style={{
-        alignItems: "center",
-        color: positive ? "#389e0d" : "#ad6800",
-        fontWeight: 800,
-      }}
-    >
-      <Icon aria-hidden="true" style={{ fontSize: 16 }} />
-      <Typography.Text style={{ display: "block", margin: 0, fontWeight: 800 }}>
-        {positive ? "+" : ""}￥{value || "0.00"}
-      </Typography.Text>
-    </Flex>
   );
 }
 /** TokenInfo 展示模型和 token 用量。 */

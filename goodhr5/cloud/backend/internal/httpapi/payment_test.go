@@ -119,7 +119,7 @@ func (p *fakeWechatPaymentProvider) ParseNotify(_ context.Context, _ *http.Reque
 
 // Refund 返回固定的微信退款成功结果。
 func (p *fakeWechatPaymentProvider) Refund(_ context.Context, input PaymentProviderRefundInput) (PaymentProviderRefundResult, error) {
-	return PaymentProviderRefundResult{Provider: p.Name(), OrderNo: input.OrderNo, RefundNo: input.RefundNo, ProviderRefundID: "refund-test", Status: "SUCCESS"}, nil
+	return PaymentProviderRefundResult{Provider: p.Name(), OrderNo: input.OrderNo, RefundNo: input.RefundNo, ProviderRefundID: "refund-test", Status: "SUCCESS", AmountCents: input.AmountCents, TotalCents: input.TotalCents}, nil
 }
 
 // TestApplyPaidSubscriptionOrderIgnoresMailFailure 验证邮件失败不会阻止会员到账或导致重试重复加时长。

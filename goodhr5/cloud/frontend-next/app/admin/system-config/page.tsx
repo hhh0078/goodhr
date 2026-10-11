@@ -5,6 +5,8 @@ import { SaveOutlined, UndoOutlined } from "@ant-design/icons";
 import styles from "./page.module.css";
 import { useEffect, useMemo, useState } from "react";
 import JsonEditor from "@/components/admin/JsonEditor";
+import AIRechargePromotionForm from "@/components/admin/AIRechargePromotionForm";
+import { AI_RECHARGE_CONFIG_KEY, validateAIRechargePromotions } from "@/lib/ai-recharge";
 import OnboardingRewardField, {
   validateOnboardingReward,
 } from "@/components/admin/OnboardingRewardField";
@@ -44,7 +46,13 @@ export default function SystemConfigPage() {
     setLoading(true);
     try {
       const data = await cloudRequest("/api/admin/system/configs/");
-      const nextConfigs = data.configs || [];
+      const nextConfigs = [...(Array.isArray(data.configs) ? data.configs : [])];
+      const appConfig = nextConfigs.find((item: any) => configKey(item) === "system.app_config");
+      if (appConfig) nextConfigs.push({
+        ...appConfig,
+        config_key: AI_RECHARGE_CONFIG_KEY,
+        description: "按充值门槛赠送 AI 余额，支持多个活动；赠送余额最后使用且不可退款。",
+      });
       setConfigs(nextConfigs);
       const selected =
         nextConfigs.find((item: any) => configKey(item) === activeKey) ||
@@ -74,10 +82,12 @@ export default function SystemConfigPage() {
   const dirty = draft !== original;
   const isWechatConfig = activeKey === "system.wechat_official_account";
   const isOnboardingConfig = activeKey === "system.onboarding_config";
+  const isRechargeConfig = activeKey === AI_RECHARGE_CONFIG_KEY;
   const jsonError =
     validateJSON(draft) ||
     (isWechatConfig ? validateOfficialConfig(draft) : "") ||
-    (isOnboardingConfig ? validateOnboardingReward(draft) : "");
+    (isOnboardingConfig ? validateOnboardingReward(draft) : "") ||
+    (isRechargeConfig || activeKey === "system.app_config" ? validateAIRechargePromotions(draft) : "");
   /** selectDirect 不经确认直接切换当前配置。 */
   function selectDirect(item: any) {
     const value = prettyJSON(item.config_value ?? item.value);
@@ -108,7 +118,7 @@ export default function SystemConfigPage() {
         ? officialConfigForSave(draft)
         : prettyJSON(draft);
       await cloudRequest(
-        `/api/admin/system/configs/${encodeURIComponent(activeKey)}`,
+        `/api/admin/system/configs/${encodeURIComponent(isRechargeConfig ? "system.app_config" : activeKey)}`,
         { method: "PUT", body: { config_value: formatted } },
       );
       setDraft(formatted);
@@ -321,6 +331,8 @@ export default function SystemConfigPage() {
                     onChange={setDraft}
                     notify={notify}
                   />
+                ) : isRechargeConfig ? (
+                  <AIRechargePromotionForm value={draft} onChange={setDraft} disabled={loading} />
                 ) : (
                   <>
                     {isOnboardingConfig ? (
@@ -352,6 +364,7 @@ function configKey(item: any) {
 }
 /** configCategory 根据配置键返回业务分类。 */
 function configCategory(key: string): (typeof categories)[number] {
+  if (key === AI_RECHARGE_CONFIG_KEY) return "其他配置";
   if (key === "system.wechat_official_account") return "其他配置";
   if (key.startsWith("ai.") || key.includes("prompt")) return "AI 配置";
   if (key.includes("subscription") || key.includes("payment"))
@@ -374,6 +387,7 @@ function configTitle(key: string) {
       {
         "ai.default_prompts": "AI 默认提示词",
         "system.app_config": "公共系统配置",
+        [AI_RECHARGE_CONFIG_KEY]: "充值活动配置",
         "system.subscription_plans": "订阅套餐",
         "system.onboarding_config": "本地程序与组件",
         "system.browser_extension": "浏览器插件下载",

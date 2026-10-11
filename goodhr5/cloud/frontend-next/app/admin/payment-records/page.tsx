@@ -43,7 +43,7 @@ export default function PaymentRecordsPage() {
     <>
       <PageHeader
         title="支付记录"
-        description="查看全部用户的订阅支付订单。"
+        description="查看全部用户的会员和 AI 余额支付订单，实付与赠送分开记账。"
         actions={
           <RefreshButton loading={loading} onClick={() => void load()} />
         }
@@ -60,9 +60,15 @@ export default function PaymentRecordsPage() {
             { title: "用户邮箱", dataIndex: "user_email", ellipsis: true },
             { title: "套餐", dataIndex: "plan_name" },
             {
-              title: "金额",
+              title: "实付金额",
               dataIndex: "amount_cents",
               render: (amount) => "￥" + (Number(amount || 0) / 100).toFixed(2),
+            },
+            {
+              title: "赠送余额",
+              dataIndex: "bonus_amount_cents",
+              render: (amount) => Number(amount || 0) > 0
+                ? "￥" + (Number(amount) / 100).toFixed(2) : "—",
             },
             {
               title: "状态",

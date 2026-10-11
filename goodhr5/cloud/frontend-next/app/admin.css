@@ -94,6 +94,15 @@
   flex: 1;
   min-width: 0;
 }
+.goodhr-choice-grid.goodhr-choice-compact.ant-radio-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(114px, 1fr));
+  gap: 6px;
+}
+.goodhr-choice-compact .goodhr-choice.ant-radio-wrapper {
+  padding: 6px 8px;
+  min-height: 0;
+}
 .goodhr-choice.ant-radio-wrapper:hover,
 .goodhr-choice-selected.ant-radio-wrapper {
   border-color: var(--goodhr-primary);
