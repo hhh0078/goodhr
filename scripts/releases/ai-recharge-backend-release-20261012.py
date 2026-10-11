@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 
 
-ROOT = pathlib.Path("/opt/goodhr-release/ai-recharge-backend-20261012")
+ROOT = pathlib.Path("/opt/goodhr-release/ai-recharge-backend-20261012-c9d4316a")
 LAUNCHER = pathlib.Path("/opt/goodhr-release/hr-interview-20261010-63ad61cd/hr-release.py")
 LAUNCHER_SHA256 = "f23375cf68107eb2ed21637d38b2462f7346c14b82ab9a3d069893ea700fef0c"
 DATABASE = "goodhr_ai_recharge_verify"
@@ -31,7 +31,7 @@ MIGRATION = "0092_ai_recharge_promotions.sql"
 URL_MIGRATION = "0093_repair_builtin_ai_public_url.sql"
 PENDING_MIGRATIONS = (MIGRATION, URL_MIGRATION)
 UPDATE_URL = "https://goodhr.58it.cn/api/system/browser-extension"
-UPDATE_SHA256 = "f071fd60aa79a7859fd6eb3ce32b5b9d6a5aba3bc4a21fa6cd9fa5b14e696dad"
+UPDATE_SHA256 = "53d83f2e1f9cf859a1010990a714bf7d142e02f4eb46a486e0174b064d8c9653"
 BASELINE = {
     FORMAL: ("e52f9d5750da4582f5279d8913397eceabe0a452b5656ff0c6b1fabd3b6695c2", "sha256:5257e7034c7b5f9ecd0877dfd06de80aa3d03ebcc14fe303af3ea2be054b954c", "2026-10-10T16:35:25.040978232Z"),
     "goodhr-production-frontend-1": ("0dbf4eb66895e56f563bc1e2b5f60cd90eb1fd91b70ef8f34173c9b7d403a766", "sha256:a5208e3e904a3acca657162f96c4dab49fab114f7ceb2208e0e69e9c186767ed", "2026-10-11T18:11:46.784509816Z"),
@@ -206,7 +206,9 @@ def material_proof(hr, commit=None):
     if set(new) != set(old) | set(PENDING_MIGRATIONS) or any(new.get(name) != text for name, text in old.items()):
         raise RuntimeError("候选镜像除本轮 0092、0093 外改变了历史迁移")
     source = hr.migrations_from_tar((ROOT / "source.tar").read_bytes(), "goodhr5/cloud/backend/db/migrations/")
-    if source != new or hashlib.sha256(new[MIGRATION].encode()).hexdigest() != build.get("migration_0092_sha256"):
+    extracted_migrations = ROOT / "source/goodhr5/cloud/backend/db/migrations"
+    if (source != new or hr.digest(extracted_migrations / MIGRATION) != build.get("migration_0092_sha256")
+            or hr.digest(extracted_migrations / URL_MIGRATION) != build.get("migration_0093_sha256")):
         raise RuntimeError("源码、镜像和构建证明中的迁移正文不一致")
     applied = ledger(hr, "postgres", "goodhr5")
     if len(applied) != 98 or applied != sorted(old):

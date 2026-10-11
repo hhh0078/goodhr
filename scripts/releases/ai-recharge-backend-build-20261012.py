@@ -13,12 +13,12 @@ import tarfile
 import time
 
 
-ROOT = pathlib.Path("/opt/goodhr-release/ai-recharge-backend-20261012")
+ROOT = pathlib.Path("/opt/goodhr-release/ai-recharge-backend-20261012-c9d4316a")
 BASE_IMAGE = "sha256:f82fa9573811363b3bbeeab428e776371f3830ed9fa32bcd43815b3044750477"
 CURRENT_BACKEND_IMAGE = "sha256:5257e7034c7b5f9ecd0877dfd06de80aa3d03ebcc14fe303af3ea2be054b954c"
-EXPECTED_COMMIT = "0dfaf44ae1f91562ccb359684642a5e980a10e32"
-EXPECTED_SOURCE_SHA256 = "19d1d84ae2939e139eb328172d6e1694888e0ea745bec2bf5e93430276289b66"
-EXPECTED_BINARY_SHA256 = "06ec4dccc427e7a02e04b3a646ec5ed5ab4a146b274e991c8766153d5cbb22dc"
+EXPECTED_COMMIT = "c9d4316a85a017fa1501f3fa85913543cff8cc56"
+EXPECTED_SOURCE_SHA256 = "af6d243f28de472df598e9289fa62847424b4a06fe033e6614660cd37e53fd02"
+EXPECTED_BINARY_SHA256 = "c29a479457bea8759c9f143d67c965774a1c4cfdb9f9633f3c9137fbef23220d"
 
 
 def digest(path):
@@ -119,8 +119,9 @@ def main():
     extract_backend(ROOT / "source.tar", source_root)
     backend = source_root / "goodhr5/cloud/backend"
     migration = backend / "db/migrations/0092_ai_recharge_promotions.sql"
-    if not (backend / "go.mod").is_file() or not migration.is_file():
-        raise RuntimeError("后端源码缺少 go.mod 或 0092 迁移")
+    url_migration = backend / "db/migrations/0093_repair_builtin_ai_public_url.sql"
+    if not (backend / "go.mod").is_file() or not migration.is_file() or not url_migration.is_file():
+        raise RuntimeError("后端源码缺少 go.mod、0092 或 0093 迁移")
     runtime = ROOT / "backend-runtime"
     runtime.mkdir(mode=0o700)
     shutil.copyfile(ROOT / "goodhr-server", runtime / "goodhr-server")
@@ -152,6 +153,7 @@ def main():
         "source_sha256": args.source_sha256,
         "binary_sha256": args.binary_sha256,
         "migration_0092_sha256": digest(migration),
+        "migration_0093_sha256": digest(url_migration),
         "image_id": image["Id"],
         "image_tag": tag,
         "image_bytes": image["Size"],
