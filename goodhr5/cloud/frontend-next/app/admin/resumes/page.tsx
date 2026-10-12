@@ -12,8 +12,8 @@ import ResumeEditor from "@/components/admin/resumes/ResumeEditor";
 import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
 import ResumeAddDialog from "@/components/admin/resumes/ResumeAddDialog";
 import ResumeLibrarySettingsDialog from "@/components/admin/resumes/ResumeLibrarySettingsDialog";
-import BrowserExtensionInstallGuide from "@/components/download/BrowserExtensionInstallGuide";
 import { cloudRequest } from "@/lib/admin-api";
+import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import { loadResume, loadResumePositions } from "@/lib/resume-api";
 import { experienceLabel, genderLabel, isReadOnlyResume, recordTime, resumeAge, resumeAvatarSource, salaryLabel, sourceLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume } from "@/lib/resume-types";
 import styles from "./page.module.css";
@@ -89,9 +89,12 @@ export default function ResumesPage() {
   const appliedFilters = readFilters(new URLSearchParams(queryText));
   return <>
     <ExtensionPairApproval />
-    <Typography.Paragraph className={styles.privacyNotice}>
-      <SafetyCertificateOutlined aria-hidden="true" /> 请勿非法买卖简历。平台不会出售您的简历，<span className={styles.privacyTail}>分享权限由您掌握。</span>
-    </Typography.Paragraph>
+    <div className={styles.noticeRow}>
+      <Typography.Paragraph className={styles.privacyNotice} title={`请勿非法买卖简历。平台不会出售您的简历，分享权限由您掌握。浏览器插件支持${BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}。`}>
+        <SafetyCertificateOutlined aria-hidden="true" /> 请勿非法买卖简历。平台不会出售您的简历，<span className={styles.privacyTail}>分享权限由您掌握。</span> 浏览器插件支持 {BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}。
+      </Typography.Paragraph>
+      <Link className={styles.extensionDownloadLink} href="/download#browser-extension" target="_blank" rel="noopener noreferrer">下载浏览器插件</Link>
+    </div>
     <div className={styles.toolbar} data-testid="resume-filters">
       <Flex gap={8} wrap className={styles.searchControls}>
         <Input aria-label="简历关键词" prefix={<SearchOutlined />} placeholder="姓名、公司、学校、职位" value={filters.q} onChange={(event) => updateFilter("q", event.target.value)} onPressEnter={() => navigateQuery(filters)} className={styles.keyword} />
@@ -103,7 +106,6 @@ export default function ResumesPage() {
       </Flex>
       <Flex gap={8} className={styles.toolbarActions}>
         <Button icon={<SettingOutlined aria-hidden="true" />} onClick={() => setSettingsOpen(true)}>设置</Button>
-        <BrowserExtensionInstallGuide href="/download#browser-extension" label="下载浏览器插件" />
         <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={() => setChooserOpen(true)}>添加</Button>
       </Flex>
     </div>

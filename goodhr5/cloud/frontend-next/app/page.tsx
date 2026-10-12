@@ -14,6 +14,7 @@ import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import StructuredData from "@/components/StructuredData";
 import WorkflowBand from "@/components/WorkflowBand";
+import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import {
   absoluteURL,
   createPageMetadata,
@@ -111,7 +112,7 @@ const faqs = [
   {
     question: "简历怎样进入 GoodHR 简历库？",
     answer:
-      "可以通过 AI 批量解析、手动添加或浏览器插件导入。浏览器插件会在支持的招聘平台候选人详情页自动识别资料，添加前需要确认有效手机号。",
+      `可以通过 AI 批量解析、手动添加或浏览器插件导入。浏览器插件目前支持${BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}，会在候选人详情页自动识别资料，添加前需要确认有效手机号。`,
   },
   {
     question: "简历库、猎头推荐和企业 HR 招聘流程是什么关系？",

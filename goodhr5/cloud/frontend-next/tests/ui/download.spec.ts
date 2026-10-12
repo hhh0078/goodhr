@@ -23,6 +23,7 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
   const history = page.getByRole("region", { name: "本地程序更新记录", exact: true });
   await expect(local.getByRole("heading", { name: "本地程序下载", exact: true })).toBeVisible();
   await expect(extension.getByRole("heading", { name: "浏览器插件下载 · v1.0.3", exact: true })).toBeVisible();
+  await expect(extension.getByText(/当前支持：猎聘企业端、猎聘猎头端、智联招聘、前程无忧/)).toBeVisible();
   const chromeDownload = extension.getByRole("link", {
     name: "下载 Chrome 插件",
     exact: true,
@@ -45,6 +46,7 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
   await expect(installGuide).toContainText("直接拖到扩展管理页");
   await expect(installGuide).not.toContainText("加载已解压的扩展程序");
   await expect(installGuide).toContainText("登录你的 GoodHR 账号");
+  await expect(installGuide).toContainText("当前支持 猎聘企业端、猎聘猎头端、智联招聘、前程无忧");
   await expect(installGuide).toContainText("助手会自动识别并打开");
   await expect(installGuide).toContainText("手机号是入库必填项");
   await expect(

@@ -1,6 +1,8 @@
 /* 文件作用说明：提供简历保护提示、紧凑搜索栏、表格摘要和移动端换行布局。 */
-.privacyNotice.privacyNotice { margin: 0 0 10px; font-size: 12px; line-height: 1.6; color: var(--goodhr-text-secondary); overflow-wrap: anywhere; }
+.noticeRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; margin-bottom: 10px; }
+.privacyNotice.privacyNotice { flex: 1; min-width: 0; margin: 0; overflow: hidden; color: var(--goodhr-text-secondary); font-size: 12px; line-height: 1.6; text-overflow: ellipsis; white-space: nowrap; }
 .privacyTail { display: inline-block; }
+.extensionDownloadLink { flex: none; font-size: 12px; line-height: 1.6; white-space: nowrap; }
 .toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; min-width: 0; }
 .searchControls { flex: 1; min-width: 0; }
 .keyword.keyword { width: 230px; flex: 0 1 230px; }

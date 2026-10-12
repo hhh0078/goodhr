@@ -48,6 +48,30 @@
   overflow: auto;
   box-shadow: 0 16px 42px rgba(17, 17, 17, 0.06);
 }
+.goodhr-admin-banners {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+.goodhr-admin-banner-text {
+  display: block;
+  min-width: 0;
+  padding: 2px 8px;
+  overflow: hidden;
+  color: var(--goodhr-text-secondary);
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+a.goodhr-admin-banner-text:hover {
+  text-decoration: underline;
+}
 .admin-page-header {
   margin-bottom: 20px;
 }
