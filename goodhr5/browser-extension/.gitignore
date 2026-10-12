@@ -1,5 +1,6 @@
 # 文件作用：不把构建目录、开发包或本机日志加入 Git；发布构建可重复生成。
 dist/
 dist-local/
+dist-firefox-unsigned/
 artifacts/
 *.log

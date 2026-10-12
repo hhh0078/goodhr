@@ -81,7 +81,7 @@ export default function BrowserExtensionInstallGuide({
               </ol>
             ) : (
               <ol>
-                <li>下载 Firefox 插件安装包。</li>
+                <li>下载经过 Mozilla 签名的 Firefox 插件安装包。</li>
                 <li>打开下载记录，点击安装包并按 Firefox 提示确认权限。</li>
               </ol>
             )}
@@ -99,7 +99,9 @@ export default function BrowserExtensionInstallGuide({
           <Alert
             type="info"
             showIcon
-            title={browser === "Chrome" ? "Chrome 在 Windows 上不允许直接安装本站下载的插件包，需要解压后加载一次。" : "插件只读取当前打开的候选人资料，不会替你点击招聘页面。"}
+            title={browser === "Chrome"
+              ? "Chrome 在 Windows 上不允许直接安装本站下载的插件包，需要解压后加载一次。"
+              : "插件只读取当前打开的候选人资料，不会替你点击招聘页面。"}
           />
         </Flex>
       </Modal>

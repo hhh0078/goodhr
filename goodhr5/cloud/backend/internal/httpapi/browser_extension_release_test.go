@@ -99,6 +99,62 @@ func TestBrowserExtensionReleaseReflectsConfig(t *testing.T) {
 	}
 }
 
+// TestBrowserExtensionReleaseFirefoxSigningGate 验证未签名或安装包信息异常时公开接口不会暴露 Firefox 下载地址。
+func TestBrowserExtensionReleaseFirefoxSigningGate(t *testing.T) {
+	validSHA256 := strings.Repeat("a", 64)
+	for _, item := range []struct {
+		name       string
+		url        string
+		sha256     string
+		signed     bool
+		wantURL    string
+		wantSHA256 string
+		wantSigned bool
+	}{
+		{"已签名HTTPS XPI", "https://downloads.example.test/goodhr-firefox.xpi", validSHA256, true, "https://downloads.example.test/goodhr-firefox.xpi", validSHA256, true},
+		{"未签名", "https://downloads.example.test/goodhr-firefox.xpi", validSHA256, false, "", "", false},
+		{"相对地址", "/downloads/goodhr-firefox.xpi", validSHA256, true, "", "", false},
+		{"HTTP地址", "http://downloads.example.test/goodhr-firefox.xpi", validSHA256, true, "", "", false},
+		{"非XPI安装包", "https://downloads.example.test/goodhr-firefox.zip", validSHA256, true, "", "", false},
+		{"大写摘要", "https://downloads.example.test/goodhr-firefox.xpi", strings.Repeat("A", 64), true, "", "", false},
+		{"摘要长度错误", "https://downloads.example.test/goodhr-firefox.xpi", strings.Repeat("a", 63), true, "", "", false},
+		{"摘要含非十六进制字符", "https://downloads.example.test/goodhr-firefox.xpi", strings.Repeat("g", 64), true, "", "", false},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			store := NewMemorySystemConfigStore()
+			server := &Server{systemConfigs: store}
+			config, err := json.Marshal(BrowserExtensionRelease{
+				Version:       "1.2.3",
+				URLChrome:     "/downloads/chrome.zip",
+				SHA256Chrome:  "chrome-summary-is-preserved",
+				URLFirefox:    item.url,
+				SHA256Firefox: item.sha256,
+				FirefoxSigned: item.signed,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Save(SystemConfig{ConfigKey: browserExtensionConfigKey, ConfigValue: string(config), Enabled: true}); err != nil {
+				t.Fatal(err)
+			}
+			response := httptest.NewRecorder()
+			server.GetBrowserExtension(response, httptest.NewRequest(http.MethodGet, "/api/system/browser-extension", nil))
+			var result struct {
+				Release BrowserExtensionRelease `json:"release"`
+			}
+			if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil {
+				t.Fatalf("读取公开配置失败: %s", response.Body.String())
+			}
+			if result.Release.URLFirefox != item.wantURL || result.Release.SHA256Firefox != item.wantSHA256 || result.Release.FirefoxSigned != item.wantSigned {
+				t.Fatalf("Firefox 门禁结果不正确: %+v", result.Release)
+			}
+			if result.Release.URLChrome != "/downloads/chrome.zip" || result.Release.SHA256Chrome != "chrome-summary-is-preserved" {
+				t.Fatalf("Firefox 门禁不应改动 Chrome 配置: %+v", result.Release)
+			}
+		})
+	}
+}
+
 // TestBrowserExtensionReleasePostgresMigration 验证下载配置迁移可执行、包摘要正确且重跑不覆盖后台维护。
 func TestBrowserExtensionReleasePostgresMigration(t *testing.T) {
 	db := candidatePostgresTestDB(t)

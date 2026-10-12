@@ -108,16 +108,28 @@ export default async function DownloadPage() {
 }
 /** BrowserExtensionDownloads 展示后台配置的 Chrome/Firefox 插件包与准确的安装方式。 */
 function BrowserExtensionDownloads({release}: {release: BrowserExtensionRelease | null}) {
+  const firefoxAvailable = isSignedFirefoxDownload(release);
   return <section id="browser-extension" className={`public-download-10 ${styles.downloadSection}`} aria-labelledby="browser-extension-heading">
     <h2 id="browser-extension-heading" className="public-text public-download-11">浏览器插件下载{release?.version ? ` · v${release.version}` : ""}</h2>
     <p className={`public-text public-download-18 ${styles.sectionDescription}`}>打开猎聘企业端、猎头端、智联或前程无忧候选人详情后，插件会自动识别简历并打开助手。查重、补手机号、记备注和入库都在助手里完成。</p>
     <div className="public-download-4">
       <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note="下载前会先展示安装教程。Chrome 在 Windows 上需要解压后，通过开发者模式加载插件文件夹。" href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} browser="Chrome" />
-      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={!release?.url_firefox ? "本轮先开放 Chrome，Firefox 等功能稳定后再提供。" : release.firefox_signed ? "已签名安装包，下载前会先展示安装教程。" : "当前为开发包，下载页会说明临时加载方法。"} href={release?.url_firefox || ""} available={Boolean(release?.url_firefox)} browser="Firefox" />
+      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={firefoxAvailable ? "已签名安装包，下载前会先展示安装教程。" : "正在完成 Mozilla 签名，签名通过后开放下载。"} href={firefoxAvailable ? release?.url_firefox || "" : ""} available={firefoxAvailable} browser="Firefox" />
     </div>
     {release?.note ? <p className="public-text public-download-18">{release.note}</p> : null}
     <p className="public-text public-download-18">浏览器插件统一版本号，开放的版本以本页下载入口为准。插件仅读取可见候选人信息；悬浮界面独立显示，不自动点击或解锁手机号。</p>
   </section>;
+}
+
+/** isSignedFirefoxDownload 只允许下载页展示已签名的 HTTPS XPI 安装包。 */
+function isSignedFirefoxDownload(release: BrowserExtensionRelease | null): boolean {
+  if (!release?.firefox_signed || !release.url_firefox) return false;
+  try {
+    const downloadURL = new URL(release.url_firefox);
+    return downloadURL.protocol === "https:" && downloadURL.pathname.endsWith(".xpi");
+  } catch {
+    return false;
+  }
 }
 
 /** DownloadCard 展示一个操作系统的下载入口。 */

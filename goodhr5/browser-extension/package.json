@@ -6,7 +6,10 @@
   "scripts": {
     "build": "node scripts/build.js",
     "build:chrome": "node scripts/build.js --chrome",
+    "build:firefox:unsigned": "node scripts/build.js --firefox",
     "build:local": "node scripts/build.js --local",
+    "lint:firefox": "npx --yes web-ext@10.7.0 lint --source-dir dist-firefox-unsigned/firefox --output=json",
+    "sign:firefox": "npx --yes web-ext@10.7.0 sign --channel=unlisted --source-dir dist-firefox-unsigned/firefox --artifacts-dir artifacts/firefox-signed",
     "test": "node --test tests/*.test.js",
     "test:ui": "node scripts/smoke-ui.js",
     "test:extension": "node scripts/smoke-extension.js"

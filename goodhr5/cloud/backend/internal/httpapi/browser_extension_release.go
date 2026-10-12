@@ -36,12 +36,41 @@ func (s *Server) GetBrowserExtension(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	release.URLChrome = safeExtensionDownloadURL(release.URLChrome)
-	release.URLFirefox = safeExtensionDownloadURL(release.URLFirefox)
+	normalizePublicFirefoxRelease(&release)
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, struct {
 		OK      bool                    `json:"ok"`
 		Release BrowserExtensionRelease `json:"release"`
 	}{true, release})
+}
+
+// normalizePublicFirefoxRelease 仅公开已完成 Mozilla 签名、地址和摘要均有效的 Firefox 安装包。
+func normalizePublicFirefoxRelease(release *BrowserExtensionRelease) {
+	if release == nil {
+		return
+	}
+	downloadURL := safeExtensionDownloadURL(release.URLFirefox)
+	parsed, err := url.Parse(downloadURL)
+	if !release.FirefoxSigned || err != nil || parsed.Scheme != "https" || !strings.HasSuffix(parsed.Path, ".xpi") || !isLowercaseSHA256(release.SHA256Firefox) {
+		release.URLFirefox = ""
+		release.SHA256Firefox = ""
+		release.FirefoxSigned = false
+		return
+	}
+	release.URLFirefox = downloadURL
+}
+
+// isLowercaseSHA256 验证摘要是 64 位小写十六进制，避免错误安装包被公开。
+func isLowercaseSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // safeExtensionDownloadURL 仅允许本站绝对路径或 HTTPS 下载地址，拒绝脚本和协议相对地址。
