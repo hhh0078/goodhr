@@ -120,9 +120,20 @@ func TestPrepareFirefoxDownloadsSignedXPIAndIsIdempotent(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(destination, "META-INF", "cose.sig")); err != nil {
 		t.Fatalf("COSE 签名信封没有保留：%v", err)
 	}
+	storedXPI, err := os.ReadFile(filepath.Join(destination, signedFirefoxXPIFilename))
+	if err != nil || !bytes.Equal(storedXPI, archive) {
+		t.Fatalf("供 Firefox Profile 安装的原始签名 XPI 没有逐字节保留：%v", err)
+	}
 	result, err = PrepareFirefox(context.Background(), options)
 	if err != nil || !result.AlreadyCurrent || downloadCount.Load() != 1 {
 		t.Fatalf("Firefox 同版本没有幂等跳过：%+v downloads=%d err=%v", result, downloadCount.Load(), err)
+	}
+	if err = os.Remove(filepath.Join(destination, signedFirefoxXPIFilename)); err != nil {
+		t.Fatal(err)
+	}
+	result, err = PrepareFirefox(context.Background(), options)
+	if err != nil || result.AlreadyCurrent || downloadCount.Load() != 2 {
+		t.Fatalf("旧版解压目录缺少原始 XPI 时没有修复：%+v downloads=%d err=%v", result, downloadCount.Load(), err)
 	}
 }
 

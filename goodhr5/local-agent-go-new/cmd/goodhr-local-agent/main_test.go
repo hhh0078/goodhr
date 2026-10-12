@@ -1,4 +1,4 @@
-// 本文件负责验证本地程序异常退出时 JSON 行日志使用独立的异常退出类别。
+// 本文件负责验证本地程序入口、Mac 应用包模式和异常退出日志。
 package main
 
 import (
@@ -6,10 +6,27 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// TestMacAppRunsInBackground 验证 Mac 安装包声明为后台应用，避免无窗口的 Agent 在 Dock 持续跳动。
+func TestMacAppRunsInBackground(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("仅在 macOS 上验证应用包配置")
+	}
+	plist := filepath.Join("..", "..", "packaging", "macos", "Info.plist")
+	output, err := exec.Command("plutil", "-extract", "LSBackgroundOnly", "raw", "-o", "-", plist).Output()
+	if err != nil {
+		t.Fatalf("读取 Mac 应用后台配置失败：%v", err)
+	}
+	if strings.TrimSpace(string(output)) != "true" {
+		t.Fatalf("Mac 应用必须声明 LSBackgroundOnly=true，当前为 %q", strings.TrimSpace(string(output)))
+	}
+}
 
 // TestAgentExitCategory 验证异常退出原因仍可读，且日志类型为异常退出。
 func TestAgentExitCategory(t *testing.T) {

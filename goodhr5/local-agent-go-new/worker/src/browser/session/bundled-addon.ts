@@ -5,6 +5,11 @@ import type { LaunchOptions } from "camoufox-js";
 import type { ActionContext } from "../../contracts/common.js";
 import { WorkerError } from "../../errors/worker-error.js";
 
+/** isRecord 判断扩展 manifest 字段是否是可安全读取的对象。 */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 /** offlineAddonOptions 校验扩展清单并生成离线启动配置，不改变调用方的扩展数组。 */
 export async function offlineAddonOptions(
   extensionPaths: string[] | undefined,
@@ -27,14 +32,16 @@ export async function offlineAddonOptions(
       const manifest: unknown = JSON.parse(
         await fs.readFile(path.join(addonPath, "manifest.json"), "utf8"),
       );
+      const background = isRecord(manifest) ? manifest.background : undefined;
       if (
-        !manifest || typeof manifest !== "object" ||
+        !isRecord(manifest) ||
         !("manifest_version" in manifest) ||
         (manifest.manifest_version !== 2 && manifest.manifest_version !== 3) ||
         !("name" in manifest) || typeof manifest.name !== "string" || !manifest.name.trim() ||
-        !("version" in manifest) || typeof manifest.version !== "string" || !manifest.version.trim()
+        !("version" in manifest) || typeof manifest.version !== "string" || !manifest.version.trim() ||
+        (isRecord(background) && typeof background.service_worker === "string" && Boolean(background.service_worker.trim()))
       ) {
-        throw new Error("扩展 manifest.json 内容不完整");
+        throw new Error("扩展 manifest.json 不是可用的 Firefox 包");
       }
     } catch (error) {
       throw new WorkerError({

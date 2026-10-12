@@ -19,7 +19,7 @@ async function fixture(t) {
     else process.env.GOODHR_UBO_EXTENSION_PATH = previous;
     await fs.rm(root, { recursive: true, force: true });
   });
-  await fs.writeFile(path.join(root, "manifest.json"), JSON.stringify({ name: "fixture", version: "1", manifest_version: 2 }));
+  await fs.writeFile(path.join(root, "manifest.json"), JSON.stringify({ name: "fixture", version: "1", manifest_version: 2, background: { scripts: ["background.js"] } }));
   return root;
 }
 
@@ -64,4 +64,33 @@ test("自定义扩展损坏和内置路径缺失时明确报错", async (t) => {
   });
   delete process.env.GOODHR_UBO_EXTENSION_PATH;
   await assert.rejects(offlineAddonOptions([], context), { code: "BROWSER_ADDON_INVALID" });
+});
+
+/** 验证旧 Chrome service_worker 扩展不会被误当成 Firefox 扩展启动。 */
+test("旧 Chrome 插件不能进入 Camoufox 的扩展列表", async (t) => {
+  const root = await fixture(t);
+  const chrome = path.join(root, "legacy-chrome");
+  await fs.mkdir(chrome);
+  await fs.writeFile(path.join(chrome, "manifest.json"), JSON.stringify({
+    name: "旧插件", version: "1", manifest_version: 3,
+    background: { service_worker: "background.js" },
+  }));
+  await assert.rejects(offlineAddonOptions([chrome], context), (error) => {
+    assert.equal(error.code, "BROWSER_ADDON_INVALID");
+    assert.equal(error.details.addon_path, chrome);
+    return true;
+  });
+});
+
+/** 验证没有后台脚本的纯内容脚本 Firefox 插件仍能使用。 */
+test("纯内容脚本 Firefox 插件仍可加载", async (t) => {
+  const root = await fixture(t);
+  const contentOnly = path.join(root, "content-only");
+  await fs.mkdir(contentOnly);
+  await fs.writeFile(path.join(contentOnly, "manifest.json"), JSON.stringify({
+    name: "内容脚本插件", version: "1", manifest_version: 3,
+    content_scripts: [{ matches: ["https://example.com/*"], js: ["content.js"] }],
+  }));
+  const result = await offlineAddonOptions([contentOnly], context);
+  assert.ok(result.addons?.includes(contentOnly));
 });

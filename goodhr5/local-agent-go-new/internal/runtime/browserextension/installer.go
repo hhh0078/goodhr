@@ -22,6 +22,7 @@ const (
 	maxReleaseBytes          = int64(1 << 20)
 	receiptFilename          = ".goodhr-release.json"
 	loadRequiredFilename     = ".goodhr-load-required"
+	signedFirefoxXPIFilename = ".goodhr-signed.xpi"
 )
 
 type browserKind string
@@ -31,7 +32,7 @@ const (
 	browserFirefox browserKind = "firefox"
 )
 
-// ManagedFirefoxDestination 返回 GoodHR 自带 Firefox 会自动扫描的简历插件稳定目录。
+// ManagedFirefoxDestination 返回签名 XPI 的稳定来源目录，Worker 会把原包装入当前 Firefox Profile。
 func ManagedFirefoxDestination(extensionsDir string) (string, error) {
 	extensionsDir = strings.TrimSpace(extensionsDir)
 	if extensionsDir == "" {
@@ -77,7 +78,7 @@ func Prepare(ctx context.Context, options Options) (Result, error) {
 	return prepareForBrowser(ctx, options, browserChrome)
 }
 
-// PrepareFirefox 读取云端已签名 Firefox 插件配置，完成下载、校验、安全解压和原子替换。
+// PrepareFirefox 下载并校验已签名 Firefox 插件，同时保留原始 XPI 供持久 Profile 安装。
 func PrepareFirefox(ctx context.Context, options Options) (Result, error) {
 	if strings.TrimSpace(options.DestinationDir) == "" {
 		return Result{}, fmt.Errorf("Firefox 插件稳定目录不能为空")
@@ -129,7 +130,12 @@ func prepareForBrowser(ctx context.Context, options Options, browser browserKind
 	current, manifestErr := readManifest(filepath.Join(destination, "manifest.json"))
 	receipt, receiptErr := readReceipt(filepath.Join(destination, receiptFilename))
 	currentTreeSHA256, treeErr := directoryTreeSHA256(destination)
-	if manifestErr == nil && receiptErr == nil && treeErr == nil && current.Version == published.Version && validateManifest(browser, destination, current) == nil && receipt.Version == published.Version && receipt.SHA256 == releaseSHA256 && receipt.TreeSHA256 == currentTreeSHA256 {
+	signedXPIReady := browser != browserFirefox
+	if browser == browserFirefox {
+		actualSHA256, hashErr := fileSHA256(filepath.Join(destination, signedFirefoxXPIFilename))
+		signedXPIReady = hashErr == nil && actualSHA256 == releaseSHA256
+	}
+	if manifestErr == nil && receiptErr == nil && treeErr == nil && signedXPIReady && current.Version == published.Version && validateManifest(browser, destination, current) == nil && receipt.Version == published.Version && receipt.SHA256 == releaseSHA256 && receipt.TreeSHA256 == currentTreeSHA256 {
 		return Result{Version: published.Version, Directory: destination, AlreadyCurrent: true}, nil
 	}
 
@@ -160,6 +166,15 @@ func prepareForBrowser(ctx context.Context, options Options, browser browserKind
 	}
 	if manifest.Version != published.Version {
 		return Result{}, fmt.Errorf("插件版本校验失败：配置为 %s，压缩包为 %s", published.Version, manifest.Version)
+	}
+	if browser == browserFirefox {
+		signedXPIPath := filepath.Join(staging, signedFirefoxXPIFilename)
+		if _, statErr := os.Lstat(signedXPIPath); !os.IsNotExist(statErr) {
+			return Result{}, fmt.Errorf("Firefox 插件压缩包包含保留文件名或无法检查：%v", statErr)
+		}
+		if err = os.Rename(archivePath, signedXPIPath); err != nil {
+			return Result{}, fmt.Errorf("保存 Mozilla 签名原包失败：%w", err)
+		}
 	}
 	treeSHA256, err := directoryTreeSHA256(staging)
 	if err != nil {

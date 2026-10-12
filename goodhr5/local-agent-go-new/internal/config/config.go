@@ -166,7 +166,7 @@ func (c Config) EnsureDirectories() error {
 }
 
 // ExtensionPaths 返回扩展目录下可以交给 Camoufox（Firefox 插件）加载的一级子目录。
-// 无效扩展目录会被忽略，避免一个放错位置的文件阻断浏览器启动。
+// Chrome service_worker 和无效目录会被忽略，避免旧插件阻断整批 Firefox 扩展安装。
 func (c Config) ExtensionPaths() []string {
 	entries, err := os.ReadDir(c.ExtensionsDir)
 	if err != nil {
@@ -186,11 +186,15 @@ func (c Config) ExtensionPaths() []string {
 			Name            string `json:"name"`
 			Version         string `json:"version"`
 			ManifestVersion int    `json:"manifest_version"`
+			Background      struct {
+				ServiceWorker string `json:"service_worker"`
+			} `json:"background"`
 		}
 		if json.Unmarshal(content, &manifest) != nil ||
 			strings.TrimSpace(manifest.Name) == "" ||
 			strings.TrimSpace(manifest.Version) == "" ||
-			(manifest.ManifestVersion != 2 && manifest.ManifestVersion != 3) {
+			(manifest.ManifestVersion != 2 && manifest.ManifestVersion != 3) ||
+			strings.TrimSpace(manifest.Background.ServiceWorker) != "" {
 			continue
 		}
 		paths = append(paths, path)

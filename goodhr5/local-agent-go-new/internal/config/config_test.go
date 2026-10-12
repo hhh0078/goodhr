@@ -51,15 +51,16 @@ func TestExtensionPaths(t *testing.T) {
 	}
 	validPath := filepath.Join(cfg.ExtensionsDir, "valid-extension")
 	invalidPath := filepath.Join(cfg.ExtensionsDir, "invalid-extension")
+	legacyChromePath := filepath.Join(cfg.ExtensionsDir, "browser-extension")
 	nestedPath := filepath.Join(cfg.ExtensionsDir, "nested", "child")
-	for _, path := range []string{validPath, invalidPath, nestedPath} {
+	for _, path := range []string{validPath, invalidPath, legacyChromePath, nestedPath} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatalf("MkdirAll(%q) error = %v", path, err)
 		}
 	}
 	if err := os.WriteFile(
 		filepath.Join(validPath, "manifest.json"),
-		[]byte(`{"name":"测试扩展","version":"1.0.0","manifest_version":3}`),
+		[]byte(`{"name":"测试扩展","version":"1.0.0","manifest_version":3,"content_scripts":[{"matches":["https://example.com/*"],"js":["content.js"]}]}`),
 		0o644,
 	); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -72,8 +73,15 @@ func TestExtensionPaths(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	if err := os.WriteFile(
+		filepath.Join(legacyChromePath, "manifest.json"),
+		[]byte(`{"name":"旧版 Chrome 扩展","version":"1.0.0","manifest_version":3,"background":{"service_worker":"background.js"}}`),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.WriteFile(
 		filepath.Join(nestedPath, "manifest.json"),
-		[]byte(`{"name":"嵌套扩展","version":"1.0.0","manifest_version":3}`),
+		[]byte(`{"name":"嵌套扩展","version":"1.0.0","manifest_version":3,"background":{"scripts":["background.js"]}}`),
 		0o644,
 	); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)

@@ -65,7 +65,7 @@ export default async function DownloadPage() {
               <DownloadCard
                 icon={<AppleIcon aria-hidden="true" />}
                 system="macOS"
-                note={`适用于 macOS 13 及以上的 Apple 芯片和 Intel 芯片电脑。${mac?.version ? `当前版本 ${mac.version}。` : ""}`}
+                note={`适用于 macOS 13 及以上的 Apple 芯片和 Intel 芯片电脑。${mac?.version ? `当前版本 ${mac.version}。` : ""}安装包暂未签名，首次打开如提示“移到废纸篓”，请查看下方安装前说明。`}
                 href={mac?.urlMac || ""}
                 available={Boolean(mac?.urlMac)}
               />
@@ -78,7 +78,7 @@ export default async function DownloadPage() {
             <div className="public-download-12">
               {[
                 "Windows 安装时可勾选桌面快捷方式；Mac 安装后从“应用程序”打开。",
-                "Mac 安装包暂未签名。若首次打开被拦住，可到“系统设置 → 隐私与安全性”选择“仍要打开”。",
+                "Mac 首次打开安装包或程序时，若提示“移到废纸篓”，请先取消弹窗，再打开“系统设置 → 隐私与安全性”，滑到页面底部，点击“仍要打开”并按提示确认。若暂未看到该按钮，请重新尝试打开后再查看。",
                 "首次启动会检查浏览器、Node 和 OCR 等运行组件。",
                 "招聘平台登录状态、截图和浏览器资料只保存在当前电脑。",
               ].map((text) => (

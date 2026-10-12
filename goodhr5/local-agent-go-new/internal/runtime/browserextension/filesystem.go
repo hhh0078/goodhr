@@ -2,11 +2,32 @@
 package browserextension
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
+
+// fileSHA256 流式计算已保存签名插件的摘要，供幂等判断核对原始 XPI。
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("签名插件文件不是普通文件：%s", path)
+	}
+	hash := sha256.New()
+	if _, err = io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
 
 type releaseReceipt struct {
 	Version    string `json:"version"`

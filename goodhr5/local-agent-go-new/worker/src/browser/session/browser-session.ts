@@ -23,6 +23,7 @@ import { DownloadManager } from "./download-manager.js";
 import { ElementRegistry } from "./element-registry.js";
 import { loadStableProfileFingerprint } from "./fingerprint.js";
 import { initializeChineseLanguagePack } from "./language-initializer.js";
+import { installManagedFirefoxAddon } from "./managed-firefox-addon.js";
 import { pageURLContainsTarget, safeURL } from "./navigation.js";
 import { trackPageDiagnostics } from "./page-diagnostics.js";
 import { BrowserLifecycle } from "./browser-lifecycle.js";
@@ -124,10 +125,20 @@ export class BrowserSession {
       if (request.user_data_dir) {
         this.userDataDir = request.user_data_dir;
         await fs.mkdir(this.userDataDir, { recursive: true });
+        let launchRequest = request;
+        if (process.platform === "darwin") {
+          const managedDir = await installManagedFirefoxAddon(this.userDataDir, request.extension_paths, actionContext);
+          if (managedDir) {
+            launchRequest = {
+              ...request,
+              extension_paths: (request.extension_paths ?? []).filter(item => item !== managedDir),
+            };
+          }
+        }
         const fingerprint = await loadStableProfileFingerprint(
           this.userDataDir,
         );
-        const options = await buildLaunchOptions(request, actionContext, fingerprint);
+        const options = await buildLaunchOptions(launchRequest, actionContext, fingerprint);
         assertInputAllowed(actionContext);
         await initializeChineseLanguagePack(this.userDataDir, options);
         options.firefoxUserPrefs = { ...options.firefoxUserPrefs, ...nativeDownloadPrefs };

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- 文件作用说明：声明 GoodHR macOS 应用的入口、标识、版本和图标。 -->
+<!-- 文件作用说明：声明 GoodHR macOS 后台应用的入口、标识、版本和图标。 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -13,6 +13,8 @@
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0</string>
     <key>CFBundleVersion</key><string>0</string>
+    <!-- Agent 通过浏览器控制台交互，没有原生窗口；后台模式避免 Dock 持续等待窗口出现。 -->
+    <key>LSBackgroundOnly</key><true/>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
 </dict>
 </plist>

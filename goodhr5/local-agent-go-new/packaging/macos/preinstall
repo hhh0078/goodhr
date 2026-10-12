@@ -1,0 +1,72 @@
+#!/bin/sh
+# 文件作用说明：macOS 升级覆盖应用前，仅让当前登录用户的旧版 GoodHR Agent 正常退出。
+
+set -eu
+
+target_volume=${3:-/}
+[ "$target_volume" = / ] || exit 0
+agent_executable='/Applications/GoodHR Local Agent.app/Contents/MacOS/goodhr-local-agent'
+agent_pattern='^/Applications/GoodHR Local Agent[.]app/Contents/MacOS/goodhr-local-agent($|[[:space:]])'
+health_port=43129
+# Agent 正常退出最多包含任务、浏览器和下载收尾，安装器留出完整等待时间。
+max_wait_seconds=150
+console_user=$(/usr/bin/stat -f %Su /dev/console)
+case "$console_user" in
+  ''|root|loginwindow) exit 0 ;;
+esac
+console_uid=$(/usr/bin/id -u "$console_user")
+
+# find_agent_pids 只列出当前登录用户、从正式安装路径启动的 Agent 候选进程。
+find_agent_pids() {
+  /usr/bin/pgrep -U "$console_uid" -f "$agent_pattern" || {
+    result=$?
+    [ "$result" -eq 1 ] || return "$result"
+  }
+}
+
+# is_exact_agent_pid 再核对用户、命令行和实际可执行文件，防止误停其他进程。
+is_exact_agent_pid() {
+  pid=$1
+  case "$pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  actual_uid=$(/bin/ps -p "$pid" -o uid= 2>/dev/null | /usr/bin/tr -d '[:space:]')
+  [ "$actual_uid" = "$console_uid" ] || return 1
+  command_line=$(/bin/ps -ww -p "$pid" -o command= 2>/dev/null) || return 1
+  case "$command_line" in
+    "$agent_executable"|"$agent_executable "*) ;;
+    *) return 1 ;;
+  esac
+  /usr/sbin/lsof -nP -a -p "$pid" -d txt -Fn 2>/dev/null | /usr/bin/grep -Fqx "n$agent_executable"
+}
+
+old_pids=$(find_agent_pids)
+old_agent_found=0
+for pid in $old_pids; do
+  if is_exact_agent_pid "$pid"; then
+    old_agent_found=1
+    /bin/kill -TERM "$pid" 2>/dev/null || true
+  fi
+done
+[ "$old_agent_found" -eq 1 ] || exit 0
+
+waited=0
+while :; do
+  remaining_pids=$(find_agent_pids)
+  agent_running=0
+  for pid in $remaining_pids; do
+    if is_exact_agent_pid "$pid"; then
+      agent_running=1
+      break
+    fi
+  done
+  if [ "$agent_running" -eq 0 ] && ! /usr/sbin/lsof -nP -t -iTCP:"$health_port" -sTCP:LISTEN >/dev/null 2>&1; then
+    exit 0
+  fi
+  [ "$waited" -lt "$max_wait_seconds" ] || break
+  /bin/sleep 1
+  waited=$((waited + 1))
+done
+
+echo 'GoodHR 旧版仍在运行，或本地端口 43129 尚未释放。请在“活动监视器”中退出 GoodHR，再重新安装。' >&2
+exit 1
