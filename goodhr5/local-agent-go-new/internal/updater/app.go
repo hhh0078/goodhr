@@ -242,6 +242,9 @@ func validateDownloadURL(value string) error {
 	if err != nil || parsed.Host == "" || parsed.Scheme != "https" || parsed.User != nil {
 		return fmt.Errorf("本地程序更新包下载地址不正确")
 	}
+	if goruntime.GOOS == "darwin" && !strings.EqualFold(filepath.Ext(parsed.Path), ".pkg") {
+		return fmt.Errorf("macOS 更新包必须是 .pkg 安装器")
+	}
 	return nil
 }
 
@@ -346,7 +349,8 @@ func partAt(parts []int, index int) int {
 func startInstaller(packagePath string) error {
 	switch goruntime.GOOS {
 	case "darwin":
-		return exec.Command("open", packagePath).Start()
+		// 等安装器收到打开请求后再退出 Agent，避免 ZIP 仅被解压或启动请求尚未送达。
+		return exec.Command("/usr/bin/open", packagePath).Run()
 	case "windows":
 		script := windowsInstallerScript(packagePath, os.Getpid())
 		return exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script).Start()

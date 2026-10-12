@@ -1,0 +1,18 @@
+#!/bin/sh
+# 文件作用说明：macOS 安装完成后，以当前登录用户身份启动 GoodHR 本地程序。
+
+set -eu
+
+target_volume=${3:-/}
+[ "$target_volume" = / ] || exit 0
+app_path='/Applications/GoodHR Local Agent.app'
+[ -x "$app_path/Contents/MacOS/goodhr-local-agent" ] || exit 1
+console_user=$(/usr/bin/stat -f %Su /dev/console)
+case "$console_user" in
+  ''|root|loginwindow) exit 0 ;;
+esac
+console_uid=$(/usr/bin/id -u "$console_user")
+if ! /bin/launchctl asuser "$console_uid" /usr/bin/sudo -u "$console_user" /usr/bin/open "$app_path"; then
+  echo 'GoodHR 已安装，请从“应用程序”手动打开。' >&2
+fi
+exit 0

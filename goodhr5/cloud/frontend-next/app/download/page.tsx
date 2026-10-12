@@ -65,7 +65,7 @@ export default async function DownloadPage() {
               <DownloadCard
                 icon={<AppleIcon aria-hidden="true" />}
                 system="macOS"
-                note={`适用于 Apple 芯片和 Intel 芯片电脑。${mac?.version ? `当前版本 ${mac.version}。` : ""}`}
+                note={`适用于 macOS 13 及以上的 Apple 芯片和 Intel 芯片电脑。${mac?.version ? `当前版本 ${mac.version}。` : ""}`}
                 href={mac?.urlMac || ""}
                 available={Boolean(mac?.urlMac)}
               />
@@ -77,7 +77,8 @@ export default async function DownloadPage() {
             <h2 className="public-text public-download-11">安装前说明</h2>
             <div className="public-download-12">
               {[
-                "安装时请勾选创建桌面快捷方式。",
+                "Windows 安装时可勾选桌面快捷方式；Mac 安装后从“应用程序”打开。",
+                "Mac 安装包暂未签名。若首次打开被拦住，可到“系统设置 → 隐私与安全性”选择“仍要打开”。",
                 "首次启动会检查浏览器、Node 和 OCR 等运行组件。",
                 "招聘平台登录状态、截图和浏览器资料只保存在当前电脑。",
               ].map((text) => (

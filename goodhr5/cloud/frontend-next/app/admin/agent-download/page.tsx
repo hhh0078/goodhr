@@ -376,7 +376,8 @@ function buildComponents(
   const isWindows =
     typeof navigator !== "undefined" &&
     navigator.userAgent.toLowerCase().includes("windows");
-  const platformKey = isWindows ? "win" : "mac";
+  const isIntelMac = textValue(runtime.platform) === "darwin-x64";
+  const platformKey = isIntelMac ? "darwin-x64" : isWindows ? "win" : "mac";
   const configured = asRecord(asRecord(config).runtime_components);
   const nestedRuntime = asRecord(runtime.runtime);
   const installed = asRecord(
@@ -386,7 +387,7 @@ function buildComponents(
     const componentConfig = asRecord(configured[key]);
     const asset = asRecord(
       componentConfig[platformKey] ||
-        componentConfig[isWindows ? "windows" : "macos"],
+        (isIntelMac ? null : componentConfig[isWindows ? "windows" : "macos"]),
     );
     const local = asRecord(installed[key]);
     const pathKey = `${key.replace("_runtime", "")}_path`;

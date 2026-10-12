@@ -51,3 +51,22 @@ test("没有语言包不额外启动", async (t) => {
   await fs.rm(path.join(root, "browser", "extensions"), { recursive: true });
   await initializeChineseLanguagePack(root, options, async () => { throw new Error("不应启动"); });
 });
+
+/** 验证 macOS 首次启动会读取 Camoufox.app 内的语言包。 */
+test("macOS 应用包内语言包会完成注册", { skip: process.platform !== "darwin" }, async (t) => {
+  const { root } = await fixture(t);
+  const resources = path.join(root, "Camoufox.app", "Contents", "Resources");
+  const extensions = path.join(resources, "browser", "extensions");
+  await fs.mkdir(extensions, { recursive: true });
+  await fs.writeFile(path.join(extensions, "langpack-zh-CN@firefox.mozilla.org.xpi"), "fixture");
+  await fs.rm(path.join(root, "browser"), { recursive: true });
+  const options = { executablePath: path.join(root, "Camoufox.app", "Contents", "MacOS", "camoufox"), headless: false };
+  let launches = 0;
+  await initializeChineseLanguagePack(root, options, async () => {
+    launches++;
+    return { async close() {
+      await fs.writeFile(path.join(root, "extensions.json"), JSON.stringify({ addons: [{ id: "langpack-zh-CN@firefox.mozilla.org", active: true }] }));
+    } };
+  });
+  assert.equal(launches, 1);
+});

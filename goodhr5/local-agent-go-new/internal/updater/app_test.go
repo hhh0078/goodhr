@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 )
@@ -47,6 +48,9 @@ func TestUpdateDownloadRequiresHTTPSAndSHA256(t *testing.T) {
 	}
 	if err := validateDownloadURL("http://oss.example.com/goodhr.pkg"); err == nil {
 		t.Fatal("HTTP 更新地址不应被接受")
+	}
+	if err := validateDownloadURL("https://oss.example.com/goodhr.zip"); err == nil && goruntime.GOOS == "darwin" {
+		t.Fatal("macOS ZIP 不是安装器，不应关闭 Agent")
 	}
 	if err := validateSHA256(""); err == nil {
 		t.Fatal("空 SHA256 不应被接受")

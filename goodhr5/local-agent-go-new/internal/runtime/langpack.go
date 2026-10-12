@@ -38,7 +38,7 @@ func EnsureChineseLanguagePack(camoufoxDir string) error {
 	if major != langpackFirefoxMajor {
 		return fmt.Errorf("Camoufox 大版本 %s 与内置中文语言包 %s 不匹配，本次跳过", major, langpackFirefoxMajor)
 	}
-	targetDir := filepath.Join(camoufoxDir, "browser", "extensions")
+	targetDir := filepath.Join(camoufoxResourceDir(camoufoxDir), "browser", "extensions")
 	targetPath := filepath.Join(targetDir, langpackExtensionID+".xpi")
 	if info, statErr := os.Stat(targetPath); statErr == nil && info.Size() == int64(len(langpackBinary)) {
 		return nil

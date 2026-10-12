@@ -246,11 +246,15 @@ func (m *Manager) CamoufoxPath() string {
 	}
 }
 
-// OCRInstalled 检查 OCR 可执行文件和基础检测模型是否完整。
+// OCRInstalled 检查 OCR 可执行文件；Windows 额外检查模型，macOS 使用系统 Vision。
 func (m *Manager) OCRInstalled() bool {
 	ocrPath := m.OCRPath()
 	if !fileExists(ocrPath) {
 		return false
+	}
+	if goruntime.GOOS == "darwin" {
+		info, err := os.Stat(ocrPath)
+		return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
 	}
 	modelRoot := filepath.Join(filepath.Dir(ocrPath), "models")
 	return fileExists(filepath.Join(modelRoot, "ch_PP-OCRv3_det_infer.onnx"))

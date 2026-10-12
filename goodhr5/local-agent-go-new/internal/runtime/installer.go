@@ -84,8 +84,11 @@ func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 
 // installAsset 下载、SHA256 校验、安全解压并替换一个组件目录。
 func (m *Manager) installAsset(ctx context.Context, component string, label string, targetName string, asset Asset) error {
+	// 同版本的 Apple/Intel 包内容不同；旧记录缺少摘要时也必须重新安装。
 	if current, ok := m.loadVersions()[component]; ok &&
 		strings.TrimSpace(current.Version) == strings.TrimSpace(asset.Version) &&
+		validateSHA256(asset.SHA256) == nil &&
+		strings.EqualFold(strings.TrimSpace(current.SHA256), strings.TrimSpace(asset.SHA256)) &&
 		m.componentInstalled(component) {
 		m.setInstallProgress(InstallProgress{
 			Running: true, Component: component, Stage: "skipped",

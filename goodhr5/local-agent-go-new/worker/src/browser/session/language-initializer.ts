@@ -29,7 +29,11 @@ export async function initializeChineseLanguagePack(
   if (!options.executablePath || await hasRegisteredChineseLanguagePack(profileDir)) return;
   // 未安装中文语言包时保持原有回退行为，避免每次启动都进行无效初始化。
   const installDir = process.env.CAMOUFOX_INSTALL_DIR || path.dirname(options.executablePath);
-  const pack = path.join(installDir, "browser", "extensions", `${languagePackID}.xpi`);
+  const appContents = path.dirname(path.dirname(options.executablePath));
+  const resourceDir = process.platform === "darwin" &&
+    path.basename(appContents) === "Contents" && path.basename(path.dirname(appContents)) === "Camoufox.app"
+    ? path.join(appContents, "Resources") : installDir;
+  const pack = path.join(resourceDir, "browser", "extensions", `${languagePackID}.xpi`);
   try {
     await fs.access(pack);
   } catch {

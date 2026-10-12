@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -89,7 +90,7 @@ func New(executable string, logSinks ...func([]byte)) *Client {
 	return client
 }
 
-// Ready 检查 OCR 可执行文件和基础模型是否完整。
+// Ready 检查 OCR 可执行文件；Windows 额外检查 RapidOCR 模型，macOS 使用系统 Vision。
 func (c *Client) Ready() error {
 	path, err := c.resolveExecutable()
 	if err != nil {
@@ -98,6 +99,12 @@ func (c *Client) Ready() error {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
 		return &Error{Code: ErrorUnavailable, Message: "OCR 组件暂不可用", Cause: err}
+	}
+	if runtime.GOOS == "darwin" {
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			return &Error{Code: ErrorUnavailable, Message: "OCR 组件没有执行权限"}
+		}
+		return nil
 	}
 	modelPath := filepath.Join(filepath.Dir(path), "models", "ch_PP-OCRv3_det_infer.onnx")
 	if _, err = os.Stat(modelPath); err != nil {

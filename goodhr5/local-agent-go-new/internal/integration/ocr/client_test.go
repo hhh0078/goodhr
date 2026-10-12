@@ -8,10 +8,57 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+// TestReadyDarwinVisionWithoutModel 验证 macOS 内置 Vision 不需要 RapidOCR 模型但需要可执行文件。
+func TestReadyDarwinVisionWithoutModel(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("只检查 macOS Vision 组件")
+	}
+	path := filepath.Join(t.TempDir(), "RapidOCR-json")
+	if err := os.WriteFile(path, []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	client := New(path)
+	if err := client.Ready(); err != nil {
+		t.Fatalf("Vision 组件不应要求模型：%v", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Ready(); !IsUnavailable(err) {
+		t.Fatalf("不可执行的 Vision 组件应报 OCR_UNAVAILABLE：%v", err)
+	}
+}
+
+// TestDarwinVisionOCRProtocol 使用真实 Mac OCR 二进制验证 Go 逐行请求和常驻进程复用。
+func TestDarwinVisionOCRProtocol(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("只在 macOS 验证 Vision OCR")
+	}
+	binary := os.Getenv("GOODHR_VISION_OCR_BINARY")
+	image := os.Getenv("GOODHR_VISION_OCR_TEST_IMAGE")
+	if binary == "" || image == "" {
+		t.Skip("设置 GOODHR_VISION_OCR_BINARY 和 GOODHR_VISION_OCR_TEST_IMAGE 后运行")
+	}
+	client := New(binary)
+	defer client.Close()
+	if err := client.Ready(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for attempt := 0; attempt < 2; attempt++ {
+		result, err := client.Recognize(ctx, image)
+		if err != nil || !strings.Contains(result.Text, "招聘经理") {
+			t.Fatalf("第 %d 次中文识别失败：text=%q err=%v", attempt+1, result.Text, err)
+		}
+	}
+}
 
 // TestErrorClassification 验证 OCR 错误分类不会依赖中文字符串判断。
 func TestErrorClassification(t *testing.T) {
@@ -164,6 +211,9 @@ func TestResolveExecutableFindsNestedInstall(t *testing.T) {
 
 // TestResolveExecutableFindsWindowsEXE 验证 Windows 已安装的 exe 和模型可直接用于 OCR 启动检查。
 func TestResolveExecutableFindsWindowsEXE(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows RapidOCR 检查只在 Windows 运行")
+	}
 	root := t.TempDir()
 	executable := filepath.Join(root, "RapidOCR-json.exe")
 	if err := os.MkdirAll(filepath.Join(root, "models"), 0o755); err != nil {

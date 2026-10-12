@@ -137,21 +137,25 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			ConfigKey: "system.onboarding_config",
 			ConfigValue: `{
 	"local_agent": [
+		{"version": "6.2.10.4", "url_win": "", "url_mac": "https://oss2.58it.cn/GoodHR-Local-Agent-Setup-v6.2.10.4-mac-universal-d24d8a5e.pkg", "sha256": "d24d8a5ecfd4fdeef5591903886cd8350f1c5f1fe3541c12d4b1f8f48701bdc2", "note": "macOS Apple 芯片与 Intel 芯片通用安装包"},
 		{"version": "5.0.0", "url_win": "", "url_mac": "", "sha256": "", "note": "GoodHR 本地程序安装包"}
 	],
 	"local_agent_console_url": "https://goodhr5.58it.cn/admin",
 	"runtime_components": {
 					"node_runtime": {
 						"win": {"version": "22.19.0", "url": "https://oss2.58it.cn/goodhr-node-runtime-win-x64.zip", "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86", "note": "GoodHR Node 运行环境 Windows x64"},
-						"mac": {"version": "22.19.0", "url": "https://oss2.58it.cn/goodhr-node-runtime-darwin-arm64.tar.gz", "sha256": "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d", "note": "GoodHR Node 运行环境 macOS Apple Silicon"}
+						"mac": {"version": "22.19.0", "url": "https://oss2.58it.cn/goodhr-node-runtime-v22.19.0-darwin-arm64.tar.gz", "sha256": "4f2fdfb47352e3ab3908268dd2552081ce1e72f86b4e0ef45b379c18816af552", "note": "GoodHR Node 运行环境 macOS Apple Silicon"},
+						"darwin-x64": {"version": "22.19.0", "url": "https://oss2.58it.cn/goodhr-node-runtime-v22.19.0-darwin-x64.tar.gz", "sha256": "bae90145c832278b2f93dbcf0ed3865755c6ef726efb9c7a5dc77ed519dec3ca", "note": "GoodHR Node 运行环境 macOS Intel"}
 					},
 					"camoufox": {
 						"win": {"version": "152.0.4-beta.30", "url": "https://oss2.58it.cn/camoufox-152.0.4-beta.30-win.x86_64.zip", "sha256": "ea52a02fb1cfb1813ef6a326bea03fb2b650c9774143d953a94a27bfc8f10072", "note": "Camoufox Windows x64"},
-						"mac": {"version": "152.0.4-beta.30", "url": "https://oss2.58it.cn/camoufox-152.0.4-beta.30-mac.arm64.zip", "sha256": "3b43e766574f286a6a63296cf58b660b7a3120952086c869b4df4c9a71604bc3", "note": "Camoufox macOS Apple Silicon"}
+						"mac": {"version": "152.0.4-beta.30", "url": "https://oss2.58it.cn/camoufox-152.0.4-beta.30-mac.arm64.zip", "sha256": "3b43e766574f286a6a63296cf58b660b7a3120952086c869b4df4c9a71604bc3", "note": "Camoufox macOS Apple Silicon"},
+						"darwin-x64": {"version": "152.0.4-beta.30", "url": "https://oss2.58it.cn/camoufox-152.0.4-beta.30-mac.x86_64.zip", "sha256": "f12f90a3650478e670064a2f071c13b998fdd1125f79dc9f6cad5a9b9395b4bc", "note": "Camoufox macOS Intel"}
 					},
 					"ocr": {
 						"win": {"version": "rapidocr-json-v0.2.0", "url": "https://oss2.58it.cn/goodhr-rapidocr-json-win-x64-v0.2.0.zip", "sha256": "4db6867818002f194f79d1edda291efb438ab6f371d4b307bae990232b917a3d", "note": "RapidOCR-json Windows x64，包含中英文 V3/V4 模型"},
-						"mac": {"version": "", "url": "", "sha256": "", "note": "macOS OCR 组件待上传"}
+						"mac": {"version": "goodhr-ocr-vision-v1.0.0", "url": "https://oss2.58it.cn/goodhr-ocr-vision-v1.0.0-darwin-universal.zip", "sha256": "6a1afd55ce506659b15dc2c88d601e8947a5a20f153959f1c81c8a2e063099e3", "note": "GoodHR OCR macOS Apple Silicon，通用安装包"},
+						"darwin-x64": {"version": "goodhr-ocr-vision-v1.0.0", "url": "https://oss2.58it.cn/goodhr-ocr-vision-v1.0.0-darwin-universal.zip", "sha256": "6a1afd55ce506659b15dc2c88d601e8947a5a20f153959f1c81c8a2e063099e3", "note": "GoodHR OCR macOS Intel，通用安装包"}
 					}
 				},
 				"trial_days": 3,

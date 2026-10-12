@@ -2,6 +2,7 @@
 package runtime
 
 import (
+	"archive/zip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,5 +54,68 @@ func TestEnsureCamoufoxTabInteractionWithoutTheme(t *testing.T) {
 	}
 	if err := EnsureCamoufoxTabInteraction(""); err == nil {
 		t.Fatal("空目录应该返回错误")
+	}
+}
+
+// TestMacCamoufoxResourceLayout 验证 .app 内的主题、策略、布局和中文语言包会被实际修正。
+func TestMacCamoufoxResourceLayout(t *testing.T) {
+	root := t.TempDir()
+	resources := filepath.Join(root, "Camoufox.app", "Contents", "Resources")
+	for _, dir := range []string{"browser", "distribution"} {
+		if err := os.MkdirAll(filepath.Join(resources, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stylePath := filepath.Join(resources, "chrome.css")
+	if err := os.WriteFile(stylePath, []byte("#TabsToolbar {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(resources, "distribution", "policies.json")
+	if err := os.WriteFile(policyPath, []byte(`{"policies":{"DisplayBookmarksToolbar":"never"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(resources, "browser", "omni.ja")
+	archive, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(archive)
+	entry, err := writer.Create(browserLayoutResource)
+	if err == nil {
+		_, err = entry.Write([]byte(`<toolbaritem id="personal-bookmarks" removable="true"/>`))
+	}
+	if closeErr := writer.Close(); err == nil {
+		err = closeErr
+	}
+	if closeErr := archive.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeVersionFile(t, root, "152.0.4")
+	for _, ensure := range []func(string) error{
+		EnsureCamoufoxTabInteraction,
+		EnsureCamoufoxBookmarkToolbar,
+		EnsureCamoufoxBookmarkWidget,
+		EnsureChineseLanguagePack,
+	} {
+		if err := ensure(root); err != nil {
+			t.Fatal(err)
+		}
+	}
+	style, err := os.ReadFile(stylePath)
+	if err != nil || !strings.Contains(string(style), "no-drag !important") {
+		t.Fatal(".app 标签修正没有生效", err)
+	}
+	policy, err := os.ReadFile(policyPath)
+	if err != nil || !strings.Contains(string(policy), `"DisplayBookmarksToolbar": "always"`) {
+		t.Fatal(".app 书签栏策略没有生效", err)
+	}
+	if _, err := os.Stat(archivePath + ".goodhr-original"); err != nil {
+		t.Fatal(".app 布局修正没有生效", err)
+	}
+	if _, err := os.Stat(filepath.Join(resources, "browser", "extensions", langpackExtensionID+".xpi")); err != nil {
+		t.Fatal(".app 中文语言包没有安装", err)
 	}
 }

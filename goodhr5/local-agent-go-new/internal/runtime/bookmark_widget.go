@@ -19,7 +19,7 @@ func EnsureCamoufoxBookmarkWidget(camoufoxDir string) error {
 	if strings.TrimSpace(camoufoxDir) == "" {
 		return fmt.Errorf("Camoufox 目录为空")
 	}
-	archivePath := filepath.Join(camoufoxDir, "browser", "omni.ja")
+	archivePath := filepath.Join(camoufoxResourceDir(camoufoxDir), "browser", "omni.ja")
 	info, err := os.Stat(archivePath)
 	if os.IsNotExist(err) {
 		return nil

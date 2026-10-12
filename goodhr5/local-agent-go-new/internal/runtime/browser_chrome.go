@@ -29,12 +29,21 @@ const camoufoxTabInteractionCSS = `
 }
 `
 
+// camoufoxResourceDir 返回浏览器资源目录，兼容 macOS .app 与其他平台的平铺目录。
+func camoufoxResourceDir(camoufoxDir string) string {
+	appResources := filepath.Join(camoufoxDir, "Camoufox.app", "Contents", "Resources")
+	if info, err := os.Stat(appResources); err == nil && info.IsDir() {
+		return appResources
+	}
+	return camoufoxDir
+}
+
 // EnsureCamoufoxTabInteraction 补齐标签点击样式；重复调用不会重复写入，下载新组件后会重新补齐。
 func EnsureCamoufoxTabInteraction(camoufoxDir string) error {
 	if strings.TrimSpace(camoufoxDir) == "" {
 		return fmt.Errorf("Camoufox 目录为空")
 	}
-	stylePath := filepath.Join(camoufoxDir, "chrome.css")
+	stylePath := filepath.Join(camoufoxResourceDir(camoufoxDir), "chrome.css")
 	content, err := os.ReadFile(stylePath)
 	if os.IsNotExist(err) {
 		return nil // 不带自定义主题的版本无需修正。
@@ -60,7 +69,7 @@ func EnsureCamoufoxBookmarkToolbar(camoufoxDir string) error {
 	if strings.TrimSpace(camoufoxDir) == "" {
 		return fmt.Errorf("Camoufox 目录为空")
 	}
-	policyPath := filepath.Join(camoufoxDir, "distribution", "policies.json")
+	policyPath := filepath.Join(camoufoxResourceDir(camoufoxDir), "distribution", "policies.json")
 	content, err := os.ReadFile(policyPath)
 	if os.IsNotExist(err) {
 		return nil

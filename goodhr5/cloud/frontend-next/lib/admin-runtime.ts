@@ -11,17 +11,20 @@ const requiredRuntimeAssets: Record<string, string> = {
 	camoufox: "Camoufox 浏览器",
 };
 
+// 旧 mac 别名仅用于 Apple 芯片，Intel 必须使用独立配置，避免装错架构。
+const runtimePlatformAliases: Record<string, string[]> = {
+	"win-x64": ["win-x64", "windows-x64", "win", "windows"],
+	"darwin-arm64": ["darwin-arm64", "mac-arm64", "macos-arm64", "mac", "macos", "darwin"],
+	"darwin-x64": ["darwin-x64"],
+};
+
 /** missingRequiredRuntimeURLs 返回当前系统必需运行组件里缺少下载地址或校验值的项目。 */
 export function missingRequiredRuntimeURLs(config: any, platform: string) {
 	const source = config?.runtime_components || config?.runtimeComponents || config?.local_runtime_components || config?.runtime || {};
-	const platforms: Record<string, string[]> = {
-		"win-x64": ["win-x64", "windows-x64", "win", "windows"],
-		"darwin-arm64": ["darwin-arm64", "mac-arm64", "macos-arm64", "mac", "macos", "darwin"],
-	};
 	return Object.entries(requiredRuntimeAssets)
 		.filter(([key]) => {
 			const item = source?.[key] || {};
-			const asset = (platforms[platform] || []).map((alias) => item?.[alias]).find((value) => value && typeof value === "object");
+			const asset = (runtimePlatformAliases[platform] || []).map((alias) => item?.[alias]).find((value) => value && typeof value === "object");
 			return !String(asset?.url || "").trim() || !String(asset?.sha256 || "").trim();
 		})
 		.map(([, name]) => name);
@@ -35,12 +38,11 @@ export function buildRuntimeInstallPayload(config: any) {
 		camoufox: ["camoufox", "camofox", "camou_fox", "camouFox"],
 		ocr: ["ocr", "rapidocr", "rapidOCR"],
 	};
-	const platforms: Record<string, string[]> = { "win-x64": ["win-x64", "windows-x64", "win", "windows"], "darwin-arm64": ["darwin-arm64", "mac-arm64", "macos-arm64", "mac", "macos", "darwin"] };
 	const manifest: Record<string, any> = {};
 	for (const [component, componentAliases] of Object.entries(aliases)) {
 		const componentConfig = componentAliases.map((key) => source?.[key]).find((value) => value && typeof value === "object") || {};
 		manifest[component] = {};
-		for (const [platform, platformAliases] of Object.entries(platforms)) {
+		for (const [platform, platformAliases] of Object.entries(runtimePlatformAliases)) {
 			const asset = platformAliases.map((key) => componentConfig?.[key]).find((value) => value && typeof value === "object");
 			if (asset?.url) manifest[component][platform] = { version: String(asset.version || ""), url: String(asset.url || ""), sha256: String(asset.sha256 || ""), note: String(asset.note || asset.changelog || asset.description || asset.release_note || "") };
 		}
