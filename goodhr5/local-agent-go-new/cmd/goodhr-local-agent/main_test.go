@@ -30,18 +30,17 @@ func TestAgentExitCategory(t *testing.T) {
 	}
 }
 
-// TestBrowserExtensionCommandReturnsBeforeAgentBootstrap 验证插件准备命令不会读取运行配置或启动正常 Agent。
-func TestBrowserExtensionCommandReturnsBeforeAgentBootstrap(t *testing.T) {
+// TestNormalStartupDoesNotPrepareChromeExtension 验证正常程序不再保留 Chrome 插件准备命令或扩展管理页入口。
+func TestNormalStartupDoesNotPrepareChromeExtension(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("main.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(content)
-	commandIndex := strings.Index(source, "if *prepareBrowserExtension")
-	configIndex := strings.Index(source, "config.Load(")
-	bootstrapIndex := strings.Index(source, "bootstrap.New(")
-	if commandIndex < 0 || configIndex < 0 || bootstrapIndex < 0 || commandIndex >= configIndex || commandIndex >= bootstrapIndex {
-		t.Fatal("插件准备命令没有在正常 Agent 配置和启动前返回")
+	for _, forbidden := range []string{"prepare-browser-extension", "browser-extension-dir", "prepareLatestBrowserExtension", "准备 Chrome 浏览器插件"} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("本地程序仍包含 Chrome 插件安装入口：%s", forbidden)
+		}
 	}
 }
 

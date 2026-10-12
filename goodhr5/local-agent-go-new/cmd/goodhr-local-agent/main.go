@@ -38,15 +38,10 @@ func run() (runErr error) {
 	port := flag.Int("port", config.DefaultPort, "本地监听端口")
 	dataDir := flag.String("data-dir", "", "本地数据目录")
 	agentVersion := flag.String("version", version.Value, "本地程序版本号")
-	prepareBrowserExtension := flag.Bool("prepare-browser-extension", false, "下载并准备最新版 Chrome 浏览器插件")
-	browserExtensionDir := flag.String("browser-extension-dir", "", "Chrome 浏览器插件稳定目录")
 	flag.Parse()
 	version.Value = strings.TrimSpace(*agentVersion)
 	if version.Value == "" {
 		return fmt.Errorf("本地程序版本号不能为空")
-	}
-	if *prepareBrowserExtension {
-		return prepareLatestBrowserExtension(*browserExtensionDir)
 	}
 
 	cfg, err := config.Load(*host, *port, *dataDir)
@@ -186,22 +181,6 @@ func run() (runErr error) {
 		return fmt.Errorf("本地程序运行失败：%w", err)
 	}
 	exitReason = application.ExitReason()
-	return nil
-}
-
-// prepareLatestBrowserExtension 在专用命令模式中准备插件，完成后不启动正常 Agent 服务。
-func prepareLatestBrowserExtension(destination string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	log.Printf("event=browser_extension_prepare_start directory=%q", strings.TrimSpace(destination))
-	result, err := browserextension.Prepare(ctx, browserextension.Options{
-		CloudBaseURL:   config.DefaultCloudURL,
-		DestinationDir: strings.TrimSpace(destination),
-	})
-	if err != nil {
-		return fmt.Errorf("准备 Chrome 浏览器插件失败：%w", err)
-	}
-	log.Printf("event=browser_extension_prepare_success version=%q directory=%q already_current=%t", result.Version, result.Directory, result.AlreadyCurrent)
 	return nil
 }
 
