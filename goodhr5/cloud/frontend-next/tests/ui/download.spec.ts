@@ -45,7 +45,20 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
     .getByRole("button", { name: "先不安装", exact: true })
     .click();
   await expect(installGuide).not.toBeVisible();
-  await expect(extension.getByRole("button", { name: "正在准备中", exact: true })).toBeDisabled();
+  const firefoxDownload = extension.getByRole("link", {
+    name: "下载 Firefox 插件",
+    exact: true,
+  });
+  await expect(firefoxDownload).toHaveAttribute(
+    "href",
+    "/downloads/goodhr-extension-firefox-1.0.3.zip",
+  );
+  await firefoxDownload.click();
+  await expect(installGuide).toBeVisible();
+  await expect(installGuide).toContainText("about:debugging#/runtime/this-firefox");
+  await expect(installGuide).toContainText("临时载入附加组件");
+  await expect(installGuide).toContainText("Firefox 重启后会自动移除");
+  await installGuide.getByRole("button", { name: "先不安装", exact: true }).click();
   await expect(history.getByRole("article")).toHaveCount(3);
   await expect(history.getByText("synthetic-40", { exact: true })).toBeVisible();
   await expect(history.getByText("synthetic-37", { exact: true })).toHaveCount(0);
@@ -70,6 +83,9 @@ test("不启用JavaScript时下载入口和近期更新仍有服务端正文", a
   await expect(
     extension.getByRole("link", { name: "下载 Chrome 插件", exact: true }),
   ).toHaveAttribute("href", "/downloads/goodhr-extension-chrome-1.0.3.zip");
+  await expect(
+    extension.getByRole("link", { name: "下载 Firefox 插件", exact: true }),
+  ).toHaveAttribute("href", "/downloads/goodhr-extension-firefox-1.0.3.zip");
   await expect(page.getByRole("article")).toHaveCount(3);
   await expect(page.getByRole("heading", { name: "synthetic-40", exact: true })).toBeVisible();
   await context.close();

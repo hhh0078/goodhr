@@ -367,7 +367,7 @@ test("添加默认AI三标签直接切换，文件文本和手工草稿各自保
   await dialog.getByLabel("手机号", { exact: true }).fill("13900139000");
   await dialog.getByLabel("首条备注", { exact: true }).fill("切换标签后仍需保留的备注");
   await dialog.getByRole("tab", { name: "浏览器插件一键导入", exact: true }).click();
-  await expect(dialog.getByText(/Chrome 已可下载，Firefox 正在准备中/)).toBeVisible();
+  await expect(dialog.getByText(/Chrome 和 Firefox 都可以下载/)).toBeVisible();
   await expect(dialog.getByRole("link", { name: /前往下载$/ })).toHaveAttribute("href", "/download#browser-extension");
   await expect(dialog.getByRole("link", { name: /前往下载$/ })).toHaveAttribute("target", "_blank");
   mkdirSync(screenshotDirectory, { recursive: true });

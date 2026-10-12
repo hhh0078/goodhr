@@ -51,7 +51,7 @@ function manifest(browser, local = false) {
     common.action.default_title = LOCAL.name;
   }
   if (browser === "chrome") return { ...common, minimum_chrome_version: "116", permissions: [...common.permissions, "sidePanel"], background: { service_worker: "src/background.js" }, side_panel: { default_path: "src/ui.html" } };
-  return { ...common, background: { scripts: ["src/shared.js", "src/avatar.js", "src/background.js"] }, sidebar_action: { default_title: common.name, default_panel: "src/ui.html", default_icon: "icons/32.png" }, browser_specific_settings: { gecko: { id: local ? "resume-assistant-local@goodhr.local" : "resume-assistant@goodhr.58it.cn", strict_min_version: "140.0", data_collection_permissions: { required: ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent", "personalCommunications"] } } } };
+  return { ...common, background: { scripts: ["src/shared.js", "src/avatar.js", "src/background.js"] }, sidebar_action: { default_title: common.name, default_panel: "src/ui.html", default_icon: "icons/32.png", open_at_install: false }, browser_specific_settings: { gecko: { id: local ? "resume-assistant-local@goodhr.local" : "resume-assistant@goodhr.58it.cn", strict_min_version: "140.0", data_collection_permissions: { required: ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent", "personalCommunications", "locationInfo", "browsingActivity"] } } } };
 }
 
 /** replaceRequired 替换已知构建模板，源模板变化时停止，避免静默留下生产地址。 */
@@ -92,6 +92,23 @@ function parseBuildOptions(argv) {
   throw new Error("仅支持 npm run build、build:chrome 或 build:local；本地 API 与网页地址固定，不接受自定义 URL");
 }
 
+/** installDocument 为正式 Firefox 选择临时加载说明，Chrome 和本地测试继续使用各自原文档。 */
+function installDocument(browser, local) {
+  if (local) return "LOCAL-INSTALL.md";
+  return browser === "firefox" ? "FIREFOX-INSTALL.md" : "INSTALL.md";
+}
+
+/** preparePackageDirectory 生成单个浏览器的确定性目录，公共业务文件保持同源同字节。 */
+function preparePackageDirectory(directory, browser, local = false) {
+  fs.mkdirSync(directory, { recursive: true });
+  fs.cpSync(path.join(ROOT, "src"), path.join(directory, "src"), { recursive: true });
+  if (local) prepareLocalOutput(directory);
+  fs.mkdirSync(path.join(directory, "icons"));
+  for (const size of [16,32,48,64,128]) fs.writeFileSync(path.join(directory, "icons", `${size}.png`), iconPNG(size));
+  fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest(browser, local), null, 2) + "\n");
+  fs.copyFileSync(path.join(ROOT, installDocument(browser, local)), path.join(directory, "INSTALL.md"));
+}
+
 /** build 清理已确认的插件 dist 或 dist-local 目录，分别输出正式开发包与本地测试包。 */
 function build(options = {}) {
   if (Object.keys(options).some((key) => !["local", "chromeOnly", "test"].includes(key)) || Object.values(options).some((value) => typeof value !== "boolean")) throw new Error("构建参数仅支持布尔值 local/chromeOnly/test");
@@ -102,11 +119,7 @@ function build(options = {}) {
   if (!options.chromeOnly) fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
   const packages = [];
   for (const browser of options.chromeOnly ? ["chrome"] : ["chrome", "firefox"]) {
-    const directory = path.join(OUT, browser); if (options.chromeOnly) fs.rmSync(directory, { recursive: true, force: true }); fs.mkdirSync(directory, { recursive: true }); fs.cpSync(path.join(ROOT, "src"), path.join(directory, "src"), { recursive: true });
-    if (local) prepareLocalOutput(directory);
-    fs.mkdirSync(path.join(directory, "icons")); for (const size of [16,32,48,64,128]) fs.writeFileSync(path.join(directory, "icons", `${size}.png`), iconPNG(size));
-    fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest(browser, local), null, 2) + "\n");
-    fs.copyFileSync(path.join(ROOT, local ? "LOCAL-INSTALL.md" : "INSTALL.md"), path.join(directory, "INSTALL.md"));
+    const directory = path.join(OUT, browser); if (options.chromeOnly) fs.rmSync(directory, { recursive: true, force: true }); preparePackageDirectory(directory, browser, local);
     const archive = zipBuffer(filesUnder(directory)), name = `goodhr-resume-${browser}-${local ? "local-" : ""}${version}.zip`; fs.writeFileSync(path.join(OUT, name), archive);
     packages.push({ browser, file: name, bytes: archive.length, sha256: crypto.createHash("sha256").update(archive).digest("hex"), signed: false });
     if (browser === "firefox") { const xpi = `goodhr-resume-firefox-${local ? "local-" : ""}${version}-unsigned.xpi`; fs.writeFileSync(path.join(OUT, xpi), archive); packages.push({ browser, file: xpi, bytes: archive.length, sha256: crypto.createHash("sha256").update(archive).digest("hex"), signed: false, installation: "temporary-only" }); }
@@ -117,4 +130,4 @@ function build(options = {}) {
 }
 
 if (require.main === module) build(parseBuildOptions(process.argv.slice(2)));
-module.exports = { manifest, zipBuffer, crc32, iconPNG, build, parseBuildOptions };
+module.exports = { manifest, zipBuffer, crc32, iconPNG, build, parseBuildOptions, installDocument, preparePackageDirectory };

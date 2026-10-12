@@ -12,7 +12,7 @@ const localAgent = Array.from({ length: 40 }, (_, index) => ({
 function servePublicFixture(request, response) {
   const path = new URL(request.url, `http://127.0.0.1:${port}`).pathname;
   const data = path === "/api/system/local-agent-updates" ? { local_agent: localAgent }
-    : path === "/api/system/browser-extension" ? { release: { version: "1.0.3", note: "合成插件更新说明", url_chrome: "/downloads/goodhr-extension-chrome-1.0.3.zip", sha256_chrome: "", url_firefox: "", sha256_firefox: "", firefox_signed: false } }
+    : path === "/api/system/browser-extension" ? { release: { version: "1.0.3", note: "合成插件更新说明", url_chrome: "/downloads/goodhr-extension-chrome-1.0.3.zip", sha256_chrome: "", url_firefox: "/downloads/goodhr-extension-firefox-1.0.3.zip", sha256_firefox: "", firefox_signed: false } }
     : path === "/api/public/stats/today" ? { processed_resume_count: 0, today_registered_count: 0 } : {};
   response.writeHead(200, { "Content-Type": "application/json" });
   response.end(JSON.stringify(data));

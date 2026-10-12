@@ -112,7 +112,7 @@ function BrowserExtensionDownloads({release}: {release: BrowserExtensionRelease 
     <p className={`public-text public-download-18 ${styles.sectionDescription}`}>打开猎聘企业端、猎头端、智联或前程无忧候选人详情后，插件会自动识别简历并打开助手。查重、补手机号、记备注和入库都在助手里完成。</p>
     <div className="public-download-4">
       <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note="下载前会先展示安装教程。Chrome 在 Windows 上需要解压后，通过开发者模式加载插件文件夹。" href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} browser="Chrome" />
-      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={!release?.url_firefox ? "本轮先开放 Chrome，Firefox 等功能稳定后再提供。" : release.firefox_signed ? "已签名安装包，下载前会先展示安装教程。" : "当前为开发包，下载页会说明临时加载方法。"} href={release?.url_firefox || ""} available={Boolean(release?.url_firefox)} browser="Firefox" />
+      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={!release?.url_firefox ? "本轮先开放 Chrome，Firefox 等功能稳定后再提供。" : release.firefox_signed ? "已签名安装包，下载前会先展示安装教程。" : "当前为临时测试包，下载页会说明加载方法。"} href={release?.url_firefox || ""} available={Boolean(release?.url_firefox)} browser="Firefox" firefoxSigned={release?.firefox_signed === true} />
     </div>
     {release?.note ? <p className="public-text public-download-18">{release.note}</p> : null}
     <p className="public-text public-download-18">浏览器插件统一版本号，开放的版本以本页下载入口为准。插件仅读取可见候选人信息；悬浮界面独立显示，不自动点击或解锁手机号。</p>
@@ -128,6 +128,7 @@ function DownloadCard({
   available,
   buttonLabel = "下载安装程序",
   browser,
+  firefoxSigned = false,
 }: {
   icon: ReactNode;
   system: string;
@@ -136,6 +137,7 @@ function DownloadCard({
   available: boolean;
   buttonLabel?: string;
   browser?: "Chrome" | "Firefox";
+  firefoxSigned?: boolean;
 }) {
   return (
     <div className="public-panel public-download-19">
@@ -147,6 +149,7 @@ function DownloadCard({
           href={href}
           label={buttonLabel}
           browser={browser}
+          firefoxSigned={browser === "Firefox" && firefoxSigned}
           type="primary"
           className="public-download-23"
         />
