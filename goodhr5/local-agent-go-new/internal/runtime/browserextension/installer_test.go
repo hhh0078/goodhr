@@ -84,6 +84,128 @@ func TestPrepareDownloadsAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestPrepareFirefoxDownloadsSignedXPIAndIsIdempotent 验证签名 Firefox XPI 会解压到稳定目录且重复启动不重复下载。
+func TestPrepareFirefoxDownloadsSignedXPIAndIsIdempotent(t *testing.T) {
+	archive := buildFirefoxXPI(t, "1.2.3", expectedFirefoxID, "console.log('goodhr')", true)
+	digest := sha256.Sum256(archive)
+	var downloadCount atomic.Int32
+	var server *httptest.Server
+	server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case releasePath:
+			_ = json.NewEncoder(w).Encode(releaseResponse{OK: true, Release: release{
+				Version: "1.2.3", URLFirefox: server.URL + "/plugin.xpi",
+				SHA256Firefox: hex.EncodeToString(digest[:]), FirefoxSigned: true,
+			}})
+		case "/plugin.xpi":
+			downloadCount.Add(1)
+			_, _ = w.Write(archive)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	destination := filepath.Join(t.TempDir(), managedFirefoxDirName)
+	options := Options{CloudBaseURL: server.URL, DestinationDir: destination, HTTPClient: server.Client()}
+	result, err := PrepareFirefox(context.Background(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Version != "1.2.3" || result.Directory != destination || result.AlreadyCurrent || downloadCount.Load() != 1 {
+		t.Fatalf("首次准备 Firefox 插件结果不正确：%+v downloads=%d", result, downloadCount.Load())
+	}
+	if _, err = os.Stat(filepath.Join(destination, "META-INF", "mozilla.rsa")); err != nil {
+		t.Fatalf("签名信封没有保留：%v", err)
+	}
+	if _, err = os.Stat(filepath.Join(destination, "META-INF", "cose.sig")); err != nil {
+		t.Fatalf("COSE 签名信封没有保留：%v", err)
+	}
+	result, err = PrepareFirefox(context.Background(), options)
+	if err != nil || !result.AlreadyCurrent || downloadCount.Load() != 1 {
+		t.Fatalf("Firefox 同版本没有幂等跳过：%+v downloads=%d err=%v", result, downloadCount.Load(), err)
+	}
+}
+
+// TestPrepareFirefoxRejectsUnsignedOrWrongIdentity 验证未签名配置、错误扩展编号和缺失签名信封都不会进入稳定目录。
+func TestPrepareFirefoxRejectsUnsignedOrWrongIdentity(t *testing.T) {
+	for _, item := range []struct {
+		name      string
+		signed    bool
+		firefoxID string
+		signature bool
+		wantError string
+	}{
+		{name: "unsigned-config", signed: false, firefoxID: expectedFirefoxID, signature: true, wantError: "尚未完成 Mozilla 签名"},
+		{name: "wrong-id", signed: true, firefoxID: "other@goodhr.test", signature: true, wantError: "Firefox 扩展编号不正确"},
+		{name: "missing-signature-envelope", signed: true, firefoxID: expectedFirefoxID, signature: false, wantError: "Mozilla 签名信封"},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			archive := buildFirefoxXPI(t, "1.2.3", item.firefoxID, "background", item.signature)
+			digest := sha256.Sum256(archive)
+			var server *httptest.Server
+			server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case releasePath:
+					_ = json.NewEncoder(w).Encode(releaseResponse{OK: true, Release: release{
+						Version: "1.2.3", URLFirefox: server.URL + "/plugin.xpi",
+						SHA256Firefox: hex.EncodeToString(digest[:]), FirefoxSigned: item.signed,
+					}})
+				case "/plugin.xpi":
+					_, _ = w.Write(archive)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			destination := filepath.Join(t.TempDir(), managedFirefoxDirName)
+			_, err := PrepareFirefox(context.Background(), Options{CloudBaseURL: server.URL, DestinationDir: destination, HTTPClient: server.Client()})
+			if err == nil || !strings.Contains(err.Error(), item.wantError) {
+				t.Fatalf("Firefox 无效发布没有被拒绝：%v", err)
+			}
+			if _, statErr := os.Stat(destination); !os.IsNotExist(statErr) {
+				t.Fatalf("无效 Firefox 发布不应生成稳定目录：%v", statErr)
+			}
+		})
+	}
+}
+
+// TestPrepareFirefoxFailurePreservesPrevious 验证新版 XPI 校验失败时旧版扩展目录保持完整。
+func TestPrepareFirefoxFailurePreservesPrevious(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), managedFirefoxDirName)
+	firstArchive := buildFirefoxXPI(t, "1.2.3", expectedFirefoxID, "old-background", true)
+	firstDigest := sha256.Sum256(firstArchive)
+	firstServer := newFirefoxReleaseServer(t, firstArchive, "1.2.3", hex.EncodeToString(firstDigest[:]), true)
+	if _, err := PrepareFirefox(context.Background(), Options{CloudBaseURL: firstServer.URL, DestinationDir: destination, HTTPClient: firstServer.Client()}); err != nil {
+		firstServer.Close()
+		t.Fatal(err)
+	}
+	firstServer.Close()
+
+	brokenArchive := buildFirefoxXPI(t, "1.2.4", expectedFirefoxID, "new-background", false)
+	brokenDigest := sha256.Sum256(brokenArchive)
+	brokenServer := newFirefoxReleaseServer(t, brokenArchive, "1.2.4", hex.EncodeToString(brokenDigest[:]), true)
+	defer brokenServer.Close()
+	if _, err := PrepareFirefox(context.Background(), Options{CloudBaseURL: brokenServer.URL, DestinationDir: destination, HTTPClient: brokenServer.Client()}); err == nil {
+		t.Fatal("缺少签名信封的新版 Firefox 插件没有被拒绝")
+	}
+	content, err := os.ReadFile(filepath.Join(destination, "src", "background.js"))
+	if err != nil || string(content) != "old-background" {
+		t.Fatalf("失败后旧版 Firefox 插件没有保留：content=%q err=%v", content, err)
+	}
+}
+
+// TestManagedFirefoxDestination 验证托管插件位于扩展根目录的固定一级子目录。
+func TestManagedFirefoxDestination(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "extensions")
+	destination, err := ManagedFirefoxDestination(root)
+	if err != nil || destination != filepath.Join(root, managedFirefoxDirName) {
+		t.Fatalf("Firefox 托管目录不正确：%q err=%v", destination, err)
+	}
+	if _, err = ManagedFirefoxDestination("  "); err == nil {
+		t.Fatal("空扩展根目录没有被拒绝")
+	}
+}
+
 // TestPrepareSameVersionChangedDigestDownloadsAgain 验证同版本换包时摘要收据会触发重新下载和替换。
 func TestPrepareSameVersionChangedDigestDownloadsAgain(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "chrome")
@@ -278,6 +400,30 @@ func chromeManifest(name string, version string) string {
 	return fmt.Sprintf(`{"manifest_version":3,"name":%q,"version":%q,"background":{"service_worker":"src/background.js"}}`, name, version)
 }
 
+// firefoxManifest 构造带固定 Firefox 扩展编号和后台脚本的测试清单。
+func firefoxManifest(name string, version string, firefoxID string) string {
+	return fmt.Sprintf(`{"manifest_version":3,"name":%q,"version":%q,"background":{"scripts":["src/background.js"]},"browser_specific_settings":{"gecko":{"id":%q}}}`, name, version, firefoxID)
+}
+
+// buildFirefoxXPI 构造可测试的 Firefox XPI；签名信封只用于验证文件边界，不模拟 Mozilla 加密签名。
+func buildFirefoxXPI(t *testing.T, version string, firefoxID string, background string, includeSignatureEnvelope bool) []byte {
+	t.Helper()
+	entries := []zipEntry{
+		{name: "manifest.json", body: firefoxManifest(expectedExtensionName, version, firefoxID)},
+		{name: "src/background.js", body: background},
+	}
+	if includeSignatureEnvelope {
+		entries = append(entries,
+			zipEntry{name: "META-INF/manifest.mf", body: "manifest"},
+			zipEntry{name: "META-INF/mozilla.sf", body: "signature-file"},
+			zipEntry{name: "META-INF/mozilla.rsa", body: "signature-block"},
+			zipEntry{name: "META-INF/cose.manifest", body: "cose-manifest"},
+			zipEntry{name: "META-INF/cose.sig", body: "cose-signature"},
+		)
+	}
+	return buildZip(t, entries)
+}
+
 // TestReplaceDirectoryRollsBack 验证新目录切换失败时旧插件会恢复到稳定目录。
 func TestReplaceDirectoryRollsBack(t *testing.T) {
 	root := t.TempDir()
@@ -322,6 +468,26 @@ func newReleaseServer(t *testing.T, archive []byte, version string, digest strin
 			http.NotFound(w, r)
 		}
 	}))
+}
+
+// newFirefoxReleaseServer 创建 HTTPS 公开配置和签名 XPI 测试服务。
+func newFirefoxReleaseServer(t *testing.T, archive []byte, version string, digest string, signed bool) *httptest.Server {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case releasePath:
+			_ = json.NewEncoder(w).Encode(releaseResponse{OK: true, Release: release{
+				Version: version, URLFirefox: server.URL + "/plugin.xpi",
+				SHA256Firefox: digest, FirefoxSigned: signed,
+			}})
+		case "/plugin.xpi":
+			_, _ = w.Write(archive)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	return server
 }
 
 // buildZip 构造包含指定条目和文件类型的测试压缩包。

@@ -20,8 +20,14 @@ type extensionManifest struct {
 	Name            string `json:"name"`
 	Version         string `json:"version"`
 	Background      struct {
-		ServiceWorker string `json:"service_worker"`
+		ServiceWorker string   `json:"service_worker"`
+		Scripts       []string `json:"scripts"`
 	} `json:"background"`
+	BrowserSpecificSettings struct {
+		Gecko struct {
+			ID string `json:"id"`
+		} `json:"gecko"`
+	} `json:"browser_specific_settings"`
 }
 
 // extractArchive 安全解压普通文件和目录，并限制条目数量及解压后总大小。
@@ -147,6 +153,10 @@ func readManifest(manifestPath string) (extensionManifest, error) {
 	manifest.Name = strings.TrimSpace(manifest.Name)
 	manifest.Version = strings.TrimSpace(manifest.Version)
 	manifest.Background.ServiceWorker = strings.TrimSpace(manifest.Background.ServiceWorker)
+	for index := range manifest.Background.Scripts {
+		manifest.Background.Scripts[index] = strings.TrimSpace(manifest.Background.Scripts[index])
+	}
+	manifest.BrowserSpecificSettings.Gecko.ID = strings.TrimSpace(manifest.BrowserSpecificSettings.Gecko.ID)
 	if manifest.Name == "" || manifest.Version == "" {
 		return extensionManifest{}, fmt.Errorf("manifest.json 缺少名称或版本")
 	}
@@ -235,6 +245,52 @@ func validateChromeManifest(root string, manifest extensionManifest) error {
 	info, err := os.Stat(workerPath)
 	if err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("插件后台入口文件不存在")
+	}
+	return nil
+}
+
+// validateFirefoxManifest 核对固定产品身份、Mozilla 扩展编号、后台脚本和签名信封文件。
+func validateFirefoxManifest(root string, manifest extensionManifest) error {
+	if manifest.Name != expectedExtensionName {
+		return fmt.Errorf("插件身份校验失败：manifest 名称不正确")
+	}
+	if manifest.ManifestVersion != 3 || len(manifest.Background.Scripts) == 0 {
+		return fmt.Errorf("插件格式校验失败：不是可用的 Firefox Manifest V3 包")
+	}
+	if manifest.BrowserSpecificSettings.Gecko.ID != expectedFirefoxID {
+		return fmt.Errorf("插件身份校验失败：Firefox 扩展编号不正确")
+	}
+	for _, script := range manifest.Background.Scripts {
+		if script == "" {
+			return fmt.Errorf("插件格式校验失败：Firefox 后台入口不能为空")
+		}
+		if err := validateRegularArchiveFile(root, script, "Firefox 后台入口"); err != nil {
+			return err
+		}
+	}
+	for _, signatureFile := range []string{
+		"META-INF/manifest.mf",
+		"META-INF/mozilla.sf",
+		"META-INF/mozilla.rsa",
+		"META-INF/cose.manifest",
+		"META-INF/cose.sig",
+	} {
+		if err := validateRegularArchiveFile(root, signatureFile, "Mozilla 签名信封"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateRegularArchiveFile 校验插件清单引用的相对路径安全，且目标是非空普通文件。
+func validateRegularArchiveFile(root string, relative string, label string) error {
+	targetPath, err := safeArchivePath(root, relative)
+	if err != nil {
+		return fmt.Errorf("%s不安全：%w", label, err)
+	}
+	info, err := os.Stat(targetPath)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 {
+		return fmt.Errorf("%s文件不存在或为空：%s", label, relative)
 	}
 	return nil
 }

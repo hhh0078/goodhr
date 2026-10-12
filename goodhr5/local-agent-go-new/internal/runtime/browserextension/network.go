@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 )
 
@@ -20,13 +21,26 @@ type releaseResponse struct {
 }
 
 type release struct {
-	Version      string `json:"version"`
-	URLChrome    string `json:"url_chrome"`
-	SHA256Chrome string `json:"sha256_chrome"`
+	Version       string `json:"version"`
+	URLChrome     string `json:"url_chrome"`
+	URLFirefox    string `json:"url_firefox"`
+	SHA256Chrome  string `json:"sha256_chrome"`
+	SHA256Firefox string `json:"sha256_firefox"`
+	FirefoxSigned bool   `json:"firefox_signed"`
 }
 
 // fetchRelease 从云端公开接口读取并校验 Chrome 插件发布信息。
 func fetchRelease(ctx context.Context, client *http.Client, cloudBaseURL string) (release, string, error) {
+	return fetchReleaseForBrowser(ctx, client, cloudBaseURL, browserChrome)
+}
+
+// fetchFirefoxRelease 从云端公开接口读取并校验已完成 Mozilla 签名的 Firefox 插件信息。
+func fetchFirefoxRelease(ctx context.Context, client *http.Client, cloudBaseURL string) (release, string, error) {
+	return fetchReleaseForBrowser(ctx, client, cloudBaseURL, browserFirefox)
+}
+
+// fetchReleaseForBrowser 读取统一发布配置，并按目标浏览器选择经过校验的下载地址和摘要。
+func fetchReleaseForBrowser(ctx context.Context, client *http.Client, cloudBaseURL string, browser browserKind) (release, string, error) {
 	base, err := parseCloudBaseURL(cloudBaseURL)
 	if err != nil {
 		return release{}, "", err
@@ -60,14 +74,34 @@ func fetchRelease(ctx context.Context, client *http.Client, cloudBaseURL string)
 	}
 	payload.Release.Version = strings.TrimSpace(payload.Release.Version)
 	payload.Release.URLChrome = strings.TrimSpace(payload.Release.URLChrome)
+	payload.Release.URLFirefox = strings.TrimSpace(payload.Release.URLFirefox)
 	payload.Release.SHA256Chrome = strings.ToLower(strings.TrimSpace(payload.Release.SHA256Chrome))
-	if !payload.OK || payload.Release.Version == "" || payload.Release.URLChrome == "" {
+	payload.Release.SHA256Firefox = strings.ToLower(strings.TrimSpace(payload.Release.SHA256Firefox))
+	if !payload.OK || payload.Release.Version == "" {
 		return release{}, "", fmt.Errorf("云端插件配置不完整")
 	}
-	if err = validateSHA256(payload.Release.SHA256Chrome); err != nil {
+	downloadValue := payload.Release.URLChrome
+	digest := payload.Release.SHA256Chrome
+	if browser == browserFirefox {
+		if !payload.Release.FirefoxSigned {
+			return release{}, "", fmt.Errorf("云端 Firefox 插件尚未完成 Mozilla 签名")
+		}
+		downloadValue = payload.Release.URLFirefox
+		digest = payload.Release.SHA256Firefox
+	}
+	if downloadValue == "" {
+		return release{}, "", fmt.Errorf("云端插件配置不完整")
+	}
+	if err = validateSHA256(digest); err != nil {
 		return release{}, "", err
 	}
-	downloadURL, err := resolveDownloadURL(base, payload.Release.URLChrome)
+	if browser == browserFirefox {
+		parsed, parseErr := url.Parse(downloadValue)
+		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" || !strings.EqualFold(path.Ext(parsed.Path), ".xpi") {
+			return release{}, "", fmt.Errorf("Firefox 插件下载地址必须是 HTTPS XPI")
+		}
+	}
+	downloadURL, err := resolveDownloadURL(base, downloadValue)
 	if err != nil {
 		return release{}, "", err
 	}

@@ -72,12 +72,12 @@ export default function BrowserExtensionInstallGuide({
             </Typography.Title>
             {browser === "Chrome" ? (
               <ol>
-                <li>下载插件压缩包，并在下载记录里打开文件所在位置。</li>
-                <li>右键压缩包，选择“全部解压”。</li>
+                <li>下载插件安装包。下载完成后先别解压，原文件直接安装。</li>
                 <li>
                   在 Chrome 地址栏打开 <Typography.Text code>chrome://extensions</Typography.Text>，打开右上角“开发者模式”。
                 </li>
-                <li>点击“加载已解压的扩展程序”，选择刚才解压出来的插件文件夹。</li>
+                <li>点击浏览器右上角的下载图标，在下载记录里找到插件安装包。</li>
+                <li>把安装包直接拖到扩展管理页，按 Chrome 提示完成安装。</li>
               </ol>
             ) : (
               <ol>
@@ -100,7 +100,7 @@ export default function BrowserExtensionInstallGuide({
             type="info"
             showIcon
             title={browser === "Chrome"
-              ? "Chrome 在 Windows 上不允许直接安装本站下载的插件包，需要解压后加载一次。"
+              ? "安装包直接拖进去就行，无需解压。若 Chrome 没反应，确认“开发者模式”已经打开，再试一次。"
               : "插件只读取当前打开的候选人资料，不会替你点击招聘页面。"}
           />
         </Flex>

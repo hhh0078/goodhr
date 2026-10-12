@@ -1,4 +1,4 @@
-// Package browserextension 文件作用：安全下载、校验并原子准备 GoodHR Chrome 浏览器插件目录。
+// Package browserextension 文件作用：安全下载、校验并原子准备 GoodHR Chrome 与 Firefox 浏览器插件目录。
 package browserextension
 
 import (
@@ -14,6 +14,8 @@ import (
 const (
 	releasePath              = "/api/system/browser-extension"
 	expectedExtensionName    = "GoodHR 简历助手"
+	expectedFirefoxID        = "resume-assistant@goodhr.58it.cn"
+	managedFirefoxDirName    = "goodhr-resume-assistant"
 	defaultMaxArchiveBytes   = int64(100 << 20)
 	defaultMaxExtractedBytes = int64(256 << 20)
 	defaultMaxArchiveEntries = 5000
@@ -21,6 +23,22 @@ const (
 	receiptFilename          = ".goodhr-release.json"
 	loadRequiredFilename     = ".goodhr-load-required"
 )
+
+type browserKind string
+
+const (
+	browserChrome  browserKind = "chrome"
+	browserFirefox browserKind = "firefox"
+)
+
+// ManagedFirefoxDestination 返回 GoodHR 自带 Firefox 会自动扫描的简历插件稳定目录。
+func ManagedFirefoxDestination(extensionsDir string) (string, error) {
+	extensionsDir = strings.TrimSpace(extensionsDir)
+	if extensionsDir == "" {
+		return "", fmt.Errorf("Firefox 扩展根目录不能为空")
+	}
+	return filepath.Join(extensionsDir, managedFirefoxDirName), nil
+}
 
 // Options 定义插件准备流程的云端、目录和下载限制。
 type Options struct {
@@ -56,6 +74,19 @@ func DefaultDestinationDir() (string, error) {
 
 // Prepare 读取云端最新 Chrome 插件配置，完成下载、校验、安全解压和原子替换。
 func Prepare(ctx context.Context, options Options) (Result, error) {
+	return prepareForBrowser(ctx, options, browserChrome)
+}
+
+// PrepareFirefox 读取云端已签名 Firefox 插件配置，完成下载、校验、安全解压和原子替换。
+func PrepareFirefox(ctx context.Context, options Options) (Result, error) {
+	if strings.TrimSpace(options.DestinationDir) == "" {
+		return Result{}, fmt.Errorf("Firefox 插件稳定目录不能为空")
+	}
+	return prepareForBrowser(ctx, options, browserFirefox)
+}
+
+// prepareForBrowser 复用统一下载与原子切换流程，并按浏览器执行发布字段和清单校验。
+func prepareForBrowser(ctx context.Context, options Options, browser browserKind) (Result, error) {
 	destination := strings.TrimSpace(options.DestinationDir)
 	if destination == "" {
 		var err error
@@ -81,28 +112,38 @@ func Prepare(ctx context.Context, options Options) (Result, error) {
 		maxExtractedBytes = defaultMaxExtractedBytes
 	}
 
-	release, downloadURL, err := fetchRelease(ctx, client, options.CloudBaseURL)
+	var published release
+	var downloadURL string
+	if browser == browserFirefox {
+		published, downloadURL, err = fetchFirefoxRelease(ctx, client, options.CloudBaseURL)
+	} else {
+		published, downloadURL, err = fetchRelease(ctx, client, options.CloudBaseURL)
+	}
 	if err != nil {
 		return Result{}, err
+	}
+	releaseSHA256 := published.SHA256Chrome
+	if browser == browserFirefox {
+		releaseSHA256 = published.SHA256Firefox
 	}
 	current, manifestErr := readManifest(filepath.Join(destination, "manifest.json"))
 	receipt, receiptErr := readReceipt(filepath.Join(destination, receiptFilename))
 	currentTreeSHA256, treeErr := directoryTreeSHA256(destination)
-	if manifestErr == nil && receiptErr == nil && treeErr == nil && current.Version == release.Version && validateChromeManifest(destination, current) == nil && receipt.Version == release.Version && receipt.SHA256 == release.SHA256Chrome && receipt.TreeSHA256 == currentTreeSHA256 {
-		return Result{Version: release.Version, Directory: destination, AlreadyCurrent: true}, nil
+	if manifestErr == nil && receiptErr == nil && treeErr == nil && current.Version == published.Version && validateManifest(browser, destination, current) == nil && receipt.Version == published.Version && receipt.SHA256 == releaseSHA256 && receipt.TreeSHA256 == currentTreeSHA256 {
+		return Result{Version: published.Version, Directory: destination, AlreadyCurrent: true}, nil
 	}
 
 	parent := filepath.Dir(destination)
 	if err = os.MkdirAll(parent, 0o755); err != nil {
 		return Result{}, fmt.Errorf("创建插件目录失败：%w", err)
 	}
-	archivePath, err := downloadArchive(ctx, client, downloadURL, release.SHA256Chrome, parent, maxArchiveBytes)
+	archivePath, err := downloadArchive(ctx, client, downloadURL, releaseSHA256, parent, maxArchiveBytes)
 	if err != nil {
 		return Result{}, err
 	}
 	defer os.Remove(archivePath)
 
-	staging, err := os.MkdirTemp(parent, ".chrome-stage-")
+	staging, err := os.MkdirTemp(parent, "."+string(browser)+"-stage-")
 	if err != nil {
 		return Result{}, fmt.Errorf("创建插件临时目录失败：%w", err)
 	}
@@ -114,17 +155,17 @@ func Prepare(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("读取插件 manifest.json 失败：%w", err)
 	}
-	if err = validateChromeManifest(staging, manifest); err != nil {
+	if err = validateManifest(browser, staging, manifest); err != nil {
 		return Result{}, err
 	}
-	if manifest.Version != release.Version {
-		return Result{}, fmt.Errorf("插件版本校验失败：配置为 %s，压缩包为 %s", release.Version, manifest.Version)
+	if manifest.Version != published.Version {
+		return Result{}, fmt.Errorf("插件版本校验失败：配置为 %s，压缩包为 %s", published.Version, manifest.Version)
 	}
 	treeSHA256, err := directoryTreeSHA256(staging)
 	if err != nil {
 		return Result{}, fmt.Errorf("计算插件目录摘要失败：%w", err)
 	}
-	newReceipt := releaseReceipt{Version: release.Version, SHA256: release.SHA256Chrome, TreeSHA256: treeSHA256}
+	newReceipt := releaseReceipt{Version: published.Version, SHA256: releaseSHA256, TreeSHA256: treeSHA256}
 	if err = writeReceipt(filepath.Join(staging, receiptFilename), newReceipt); err != nil {
 		return Result{}, err
 	}
@@ -134,5 +175,13 @@ func Prepare(ctx context.Context, options Options) (Result, error) {
 	if err = replaceDirectory(destination, staging, os.Rename); err != nil {
 		return Result{}, err
 	}
-	return Result{Version: release.Version, Directory: destination}, nil
+	return Result{Version: published.Version, Directory: destination}, nil
+}
+
+// validateManifest 按目标浏览器核对固定产品身份、后台入口和 Firefox 扩展编号。
+func validateManifest(browser browserKind, root string, manifest extensionManifest) error {
+	if browser == browserFirefox {
+		return validateFirefoxManifest(root, manifest)
+	}
+	return validateChromeManifest(root, manifest)
 }

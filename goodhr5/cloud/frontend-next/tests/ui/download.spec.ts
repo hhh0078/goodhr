@@ -41,6 +41,9 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
     installGuide.getByRole("heading", { name: "使用方法", exact: true }),
   ).toBeVisible();
   await expect(installGuide).toContainText("开发者模式");
+  await expect(installGuide).toContainText("无需解压");
+  await expect(installGuide).toContainText("直接拖到扩展管理页");
+  await expect(installGuide).not.toContainText("加载已解压的扩展程序");
   await expect(installGuide).toContainText("登录你的 GoodHR 账号");
   await expect(installGuide).toContainText("助手会自动识别并打开");
   await expect(installGuide).toContainText("手机号是入库必填项");
@@ -89,6 +92,7 @@ test("不启用JavaScript时下载入口和近期更新仍有服务端正文", a
   const extension = page.locator("#browser-extension");
   await expect(extension).toContainText("Chrome");
   await expect(extension).toContainText("开发者模式");
+  await expect(extension).toContainText("无需解压");
   await expect(
     extension.getByRole("link", { name: "下载 Chrome 插件", exact: true }),
   ).toHaveAttribute("href", "/downloads/goodhr-extension-chrome-1.0.3.zip");

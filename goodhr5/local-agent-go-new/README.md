@@ -91,7 +91,7 @@ Camoufox（Firefox 反检测内核）负责指纹伪装：同一个持久化 Pro
 
 语言与时区固定为 zh-CN 和 Asia/Shanghai：用户与招聘平台均在中国大陆，指纹身份保持一致即可，不启用 Camoufox 的 geoip（按代理 IP 动态匹配时区、语言和经纬度），因此也不需要 GeoLite2 数据库、不产生额外的联网探测；启动参数中的 `geoip` 字段为旧版兼容保留，传入后不生效。
 
-把解压后的 Firefox 插件文件夹放入健康接口返回的 `extensionsDir` 即可。程序只扫描该目录的一级子目录和有效 `manifest.json`，并通过 Camoufox 官方 `addons` 参数加载；扩展列表变化后，下次打开页面会自动重启浏览器再应用新列表。
+正常启动时，程序会读取 GoodHR 公开发布配置，只下载已标记完成 Mozilla 签名的 Firefox XPI，校验 SHA256、固定扩展编号和包内版本后安全解压到 `extensionsDir/goodhr-resume-assistant`。同版本同摘要会跳过下载；网络、摘要或包内容异常时保留旧版并继续启动 Agent。程序只扫描 `extensionsDir` 的一级子目录和有效 `manifest.json`，并通过 Camoufox 官方 `addons` 参数加载；自定义解压扩展仍可放在该目录的其他一级子目录中。
 
 UBO（uBlock Origin）1.75.0 已随 Go 主程序内置，首次打开浏览器不再联网下载该扩展。启动前逐文件校验，文件缺失或损坏时从内置包离线恢复，旧目录保留为 `UBO-backup-*`，其他扩展与登录数据不受影响。Worker 明确排除默认 UBO 下载，扩展异常会记录具体目录。扩展自身的过滤规则更新保持原行为。UBO 作者为 Raymond Hill & contributors，原始扩展及其 GPL-3.0 和第三方许可证完整保留；对应源码见 https://github.com/gorhill/uBlock/tree/1.75.0 。
 

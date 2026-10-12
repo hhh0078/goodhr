@@ -1,20 +1,21 @@
-<!-- 文件作用：介绍 GoodHR 简历插件的开发包安装、只读采集、登录和失败重试方式。 -->
+<!-- 文件作用：介绍 GoodHR 简历插件正式包的安装、只读采集、登录和失败重试方式。 -->
 # GoodHR 简历助手 1.0.7
 
-本轮交付 Chrome ZIP，可解压加载；尚未发布 Chrome 商店，不能自动安装。Firefox 本轮暂缓分发，源码仍保留兼容实现。
+Chrome 与 Firefox 使用统一版本号。Chrome 下载包直接拖入扩展管理页安装；Firefox 使用 Mozilla 审核签名的 XPI。
 
 ## Chrome 安装
 
-1. 解压 `goodhr-resume-chrome-1.0.7.zip`。
+1. 下载 Chrome 插件安装包，保留原文件，无需解压。
 2. 打开 `chrome://extensions`，打开“开发者模式”。
-3. 点“加载已解压的扩展程序”，选择含 `manifest.json` 的解压目录。
-4. 将 GoodHR 图标固定在浏览器工具栏。需要 Chrome 116 或更高版本。
+3. 点击浏览器右上角下载图标，在下载记录中找到插件安装包。
+4. 把安装包直接拖到扩展管理页，按 Chrome 提示完成安装。
+5. 将 GoodHR 图标固定在浏览器工具栏。需要 Chrome 116 或更高版本。
 
-## Firefox 暂缓分发
+## Firefox 安装
 
-旧版 1.0.2 ZIP / `unsigned.xpi` 仅作为历史开发资源保留，没有 Mozilla 签名，只能通过 `about:debugging#/runtime/this-firefox` 临时加载，重启后移除。当前新版下载入口仅提供 Chrome，Firefox 等单独验收后再分发。
-
-正式 Firefox 安装需单独完成 Mozilla 签名。Chrome 正式公开分发需独立的商店流程。本版本不自动安装到 Agent / Camoufox，也不改变原来的招聘自动化。
+1. 从 GoodHR 下载页下载经过 Mozilla 签名的 `.xpi` 安装包，无需解压。
+2. 打开 Firefox 下载记录，点击安装包并按提示确认权限。
+3. GoodHR 本地程序启动时会校验并准备同版本 Firefox 插件，供 GoodHR 自带的浏览器自动加载。
 
 ## 登录和使用
 

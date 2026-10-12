@@ -1,18 +1,16 @@
-<!-- 文件作用：说明 Firefox 未签名开发包的临时安装方式、使用边界和与 Chrome 一致的功能。 -->
+<!-- 文件作用：说明 Mozilla 签名 Firefox 正式包的安装方式、使用边界和与 Chrome 一致的功能。 -->
 
 # GoodHR 简历助手 Firefox 版
 
 ## 安装方式
 
-当前提供的是未签名 Firefox ZIP 开发包，只能临时加载：
+当前提供的是 Mozilla 审核签名的 Firefox XPI 正式包：
 
-1. 下载 `goodhr-resume-firefox-1.0.7.zip`，无需解压。
-2. 在 Firefox 地址栏打开 `about:debugging#/runtime/this-firefox`。
-3. 点击“临时载入附加组件”。
-4. 选择下载好的 ZIP 文件。
-5. 安装后点击浏览器工具栏里的 GoodHR 绿色图标，登录 GoodHR 或连接同账号的本地程序。
+1. 从 GoodHR 下载页下载 `.xpi`，无需解压。
+2. 打开 Firefox 下载记录，点击安装包并按浏览器提示确认权限。
+3. 安装后点击浏览器工具栏里的 GoodHR 绿色图标，登录 GoodHR 或连接同账号的本地程序。
 
-Firefox 重启后会自动移除未签名临时插件，这是浏览器对开发包的限制。再次使用时，请按上面的步骤重新载入。后续提供 Mozilla 签名版本后，才可以长期保留安装。
+签名版在 Firefox 重启后仍会保留。GoodHR 本地程序也会在启动时校验并准备最新版签名插件，供 GoodHR 自带的 Firefox 自动加载。
 
 ## 使用方式
 

@@ -37,7 +37,10 @@ test("Chrome 与 Firefox 正式目录的公共业务文件和品牌图标逐字�
     const firefoxFiles = filesUnder(firefox).filter((file) => !["manifest.json", "INSTALL.md"].includes(file));
     assert.deepEqual(firefoxFiles, chromeFiles);
     for (const file of chromeFiles) assert.deepEqual(fs.readFileSync(path.join(firefox, file)), fs.readFileSync(path.join(chrome, file)), file);
-    assert.match(fs.readFileSync(path.join(firefox, "INSTALL.md"), "utf8"), /about:debugging#\/runtime\/this-firefox/);
+    const firefoxGuide = fs.readFileSync(path.join(firefox, "INSTALL.md"), "utf8");
+    assert.match(firefoxGuide, /Mozilla 审核签名/);
+    assert.match(firefoxGuide, /无需解压/);
+    assert.doesNotMatch(firefoxGuide, /about:debugging|临时载入附加组件/);
     assert.deepEqual(fs.readFileSync(path.join(chrome, "INSTALL.md")), fs.readFileSync(path.join(ROOT, "INSTALL.md")));
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 });
