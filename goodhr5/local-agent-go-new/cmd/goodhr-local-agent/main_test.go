@@ -5,6 +5,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -24,5 +27,20 @@ func TestAgentExitCategory(t *testing.T) {
 	}
 	if event["category"] != "异常退出" || event["error_message"] != "测试崩溃" {
 		t.Fatalf("异常退出日志内容不正确：%v", event)
+	}
+}
+
+// TestBrowserExtensionCommandReturnsBeforeAgentBootstrap 验证插件准备命令不会读取运行配置或启动正常 Agent。
+func TestBrowserExtensionCommandReturnsBeforeAgentBootstrap(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(content)
+	commandIndex := strings.Index(source, "if *prepareBrowserExtension")
+	configIndex := strings.Index(source, "config.Load(")
+	bootstrapIndex := strings.Index(source, "bootstrap.New(")
+	if commandIndex < 0 || configIndex < 0 || bootstrapIndex < 0 || commandIndex >= configIndex || commandIndex >= bootstrapIndex {
+		t.Fatal("插件准备命令没有在正常 Agent 配置和启动前返回")
 	}
 }
