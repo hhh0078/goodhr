@@ -89,7 +89,8 @@ function parseBuildOptions(argv) {
   if (!argv.length) return { local: false };
   if (argv.length === 1 && argv[0] === "--local") return { local: true };
   if (argv.length === 1 && argv[0] === "--chrome") return { local: false, chromeOnly: true };
-  throw new Error("仅支持 npm run build、build:chrome 或 build:local；本地 API 与网页地址固定，不接受自定义 URL");
+  if (argv.length === 1 && argv[0] === "--firefox") return { local: false, firefoxOnly: true };
+  throw new Error("仅支持 npm run build、build:chrome、build:firefox:unsigned 或 build:local；本地 API 与网页地址固定，不接受自定义 URL");
 }
 
 /** installDocument 为正式 Firefox 选择临时加载说明，Chrome 和本地测试继续使用各自原文档。 */
@@ -111,18 +112,21 @@ function preparePackageDirectory(directory, browser, local = false) {
 
 /** build 清理已确认的插件 dist 或 dist-local 目录，分别输出正式开发包与本地测试包。 */
 function build(options = {}) {
-  if (Object.keys(options).some((key) => !["local", "chromeOnly", "test"].includes(key)) || Object.values(options).some((value) => typeof value !== "boolean")) throw new Error("构建参数仅支持布尔值 local/chromeOnly/test");
+  if (Object.keys(options).some((key) => !["local", "chromeOnly", "firefoxOnly", "test"].includes(key)) || Object.values(options).some((value) => typeof value !== "boolean")) throw new Error("构建参数仅支持布尔值 local/chromeOnly/firefoxOnly/test");
   if (options.test && !options.local) throw new Error("隔离测试输出仅用于固定本地模式");
-  const local = options.local === true, outputName = options.test ? path.join("artifacts", "build-local-test") : local ? "dist-local" : "dist", OUT = path.join(ROOT, outputName);
+  if (options.chromeOnly && options.firefoxOnly) throw new Error("不能同时选择 Chrome 和 Firefox 单独构建");
+  const local = options.local === true, outputName = options.test ? path.join("artifacts", "build-local-test") : local ? "dist-local" : options.firefoxOnly ? "dist-firefox-unsigned" : "dist", OUT = path.join(ROOT, outputName);
   if (path.resolve(OUT) !== path.join(ROOT, outputName) || !OUT.startsWith(ROOT + path.sep)) throw new Error("构建目录超出插件范围，停止清理");
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("版本号必须是三段数字");
   if (!options.chromeOnly) fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
   const packages = [];
-  for (const browser of options.chromeOnly ? ["chrome"] : ["chrome", "firefox"]) {
+  const browsers = options.chromeOnly ? ["chrome"] : options.firefoxOnly ? ["firefox"] : ["chrome", "firefox"];
+  for (const browser of browsers) {
     const directory = path.join(OUT, browser); if (options.chromeOnly) fs.rmSync(directory, { recursive: true, force: true }); preparePackageDirectory(directory, browser, local);
-    const archive = zipBuffer(filesUnder(directory)), name = `goodhr-resume-${browser}-${local ? "local-" : ""}${version}.zip`; fs.writeFileSync(path.join(OUT, name), archive);
-    packages.push({ browser, file: name, bytes: archive.length, sha256: crypto.createHash("sha256").update(archive).digest("hex"), signed: false });
-    if (browser === "firefox") { const xpi = `goodhr-resume-firefox-${local ? "local-" : ""}${version}-unsigned.xpi`; fs.writeFileSync(path.join(OUT, xpi), archive); packages.push({ browser, file: xpi, bytes: archive.length, sha256: crypto.createHash("sha256").update(archive).digest("hex"), signed: false, installation: "temporary-only" }); }
+    const archive = zipBuffer(filesUnder(directory)), name = browser === "firefox" ? `goodhr-resume-firefox-${local ? "local-" : ""}unsigned-${version}.zip` : `goodhr-resume-chrome-${local ? "local-" : ""}${version}.zip`; fs.writeFileSync(path.join(OUT, name), archive);
+    const checksum = crypto.createHash("sha256").update(archive).digest("hex"), metadata = browser === "firefox" ? { signed: false, publishable: false, installation: "temporary-only" } : { signed: false };
+    packages.push({ browser, file: name, bytes: archive.length, sha256: checksum, ...metadata });
+    if (browser === "firefox") { const xpi = `goodhr-resume-firefox-${local ? "local-" : ""}unsigned-${version}.xpi`; fs.writeFileSync(path.join(OUT, xpi), archive); packages.push({ browser, file: xpi, bytes: archive.length, sha256: checksum, ...metadata }); }
   }
   fs.writeFileSync(path.join(OUT, "checksums.json"), JSON.stringify({ description: "文件作用：记录同版本开发包的体积、SHA256 和未签名状态。", version, packages }, null, 2) + "\n");
   console.log(JSON.stringify({ version, packages }, null, 2));

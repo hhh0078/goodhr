@@ -9,7 +9,6 @@ type BrowserExtensionInstallGuideProps = {
   href: string;
   label: string;
   browser?: "Chrome" | "Firefox";
-  firefoxSigned?: boolean;
   className?: string;
   type?: "default" | "primary";
   icon?: ReactNode;
@@ -21,7 +20,6 @@ export default function BrowserExtensionInstallGuide({
   href,
   label,
   browser = "Chrome",
-  firefoxSigned = false,
   className,
   type = "default",
   icon = <DownloadOutlined aria-hidden="true" />,
@@ -81,18 +79,10 @@ export default function BrowserExtensionInstallGuide({
                 </li>
                 <li>点击“加载已解压的扩展程序”，选择刚才解压出来的插件文件夹。</li>
               </ol>
-            ) : firefoxSigned ? (
-              <ol>
-                <li>下载 Firefox 插件安装包。</li>
-                <li>打开下载记录，点击安装包并按 Firefox 提示确认权限。</li>
-              </ol>
             ) : (
               <ol>
-                <li>下载 Firefox 临时测试包，不用解压。</li>
-                <li>
-                  在 Firefox 地址栏打开 <Typography.Text code>about:debugging#/runtime/this-firefox</Typography.Text>。
-                </li>
-                <li>点击“临时载入附加组件”，选择刚下载的 ZIP 文件。</li>
+                <li>下载经过 Mozilla 签名的 Firefox 插件安装包。</li>
+                <li>打开下载记录，点击安装包并按 Firefox 提示确认权限。</li>
               </ol>
             )}
           </section>
@@ -111,9 +101,7 @@ export default function BrowserExtensionInstallGuide({
             showIcon
             title={browser === "Chrome"
               ? "Chrome 在 Windows 上不允许直接安装本站下载的插件包，需要解压后加载一次。"
-              : firefoxSigned
-                ? "插件只读取当前打开的候选人资料，不会替你点击招聘页面。"
-                : "这是未签名临时测试包，Firefox 重启后会自动移除，需要重新载入。"}
+              : "插件只读取当前打开的候选人资料，不会替你点击招聘页面。"}
           />
         </Flex>
       </Modal>

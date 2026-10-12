@@ -3,7 +3,16 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
+const fixtureOrigin = `http://127.0.0.1:${process.env.DOWNLOAD_FIXTURE_PORT || "5239"}`;
+
+/** setFirefoxReleaseMode 切换合成接口的 Firefox 签名状态。 */
+async function setFirefoxReleaseMode(mode: "signed" | "unsigned") {
+  const response = await fetch(`${fixtureOrigin}/__test__/firefox-release?mode=${mode}`);
+  if (!response.ok) throw new Error(`切换 Firefox 合成配置失败：${response.status}`);
+}
+
 test("下载入口分区，更新记录默认三条并可展开收起", async ({ page }) => {
+  await setFirefoxReleaseMode("signed");
   await page.goto("/download");
   const local = page.locator("#local-agent");
   const extension = page.locator("#browser-extension");
@@ -51,13 +60,12 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
   });
   await expect(firefoxDownload).toHaveAttribute(
     "href",
-    "/downloads/goodhr-extension-firefox-1.0.3.zip",
+    "https://downloads.example.invalid/goodhr-extension-firefox-1.0.3.xpi",
   );
   await firefoxDownload.click();
   await expect(installGuide).toBeVisible();
-  await expect(installGuide).toContainText("about:debugging#/runtime/this-firefox");
-  await expect(installGuide).toContainText("临时载入附加组件");
-  await expect(installGuide).toContainText("Firefox 重启后会自动移除");
+  await expect(installGuide).toContainText("经过 Mozilla 签名");
+  await expect(installGuide).not.toContainText("临时载入附加组件");
   await installGuide.getByRole("button", { name: "先不安装", exact: true }).click();
   await expect(history.getByRole("article")).toHaveCount(3);
   await expect(history.getByText("synthetic-40", { exact: true })).toBeVisible();
@@ -73,6 +81,7 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
 });
 
 test("不启用JavaScript时下载入口和近期更新仍有服务端正文", async ({ browser, baseURL }) => {
+  await setFirefoxReleaseMode("signed");
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
   await page.goto(`${baseURL}/download`);
@@ -85,8 +94,22 @@ test("不启用JavaScript时下载入口和近期更新仍有服务端正文", a
   ).toHaveAttribute("href", "/downloads/goodhr-extension-chrome-1.0.3.zip");
   await expect(
     extension.getByRole("link", { name: "下载 Firefox 插件", exact: true }),
-  ).toHaveAttribute("href", "/downloads/goodhr-extension-firefox-1.0.3.zip");
+  ).toHaveAttribute("href", "https://downloads.example.invalid/goodhr-extension-firefox-1.0.3.xpi");
   await expect(page.getByRole("article")).toHaveCount(3);
   await expect(page.getByRole("heading", { name: "synthetic-40", exact: true })).toBeVisible();
   await context.close();
+});
+
+test("未签名 Firefox 包只显示签名进度且没有下载入口", async ({ page }) => {
+  await setFirefoxReleaseMode("unsigned");
+  try {
+    await page.goto("/download");
+    const extension = page.locator("#browser-extension");
+    await expect(extension).toContainText("正在完成 Mozilla 签名，签名通过后开放下载。");
+    await expect(extension.getByRole("link", { name: "下载 Firefox 插件", exact: true })).toHaveCount(0);
+    await expect(extension.getByText("正在准备中", { exact: true })).toBeVisible();
+    await expect(page.getByText("临时载入附加组件", { exact: true })).toHaveCount(0);
+  } finally {
+    await setFirefoxReleaseMode("signed");
+  }
 });

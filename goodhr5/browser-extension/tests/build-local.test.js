@@ -48,8 +48,22 @@ test("本地构建保留正式源码、协议和正式包全部字节，拒绝�
   assert.deepEqual(fs.readFileSync(path.join(ROOT, "INSTALL.md")), installBefore);
   assert.deepEqual(parseBuildOptions([]), { local: false }); assert.deepEqual(parseBuildOptions(["--local"]), { local: true });
   assert.deepEqual(parseBuildOptions(["--chrome"]), { local: false, chromeOnly: true });
+  assert.deepEqual(parseBuildOptions(["--firefox"]), { local: false, firefoxOnly: true });
   for (const argv of [["--local", "--url=http://example.test"], ["--api-url", "http://example.test"], ["--local=https://example.test"]]) assert.throws(() => parseBuildOptions(argv), /固定/);
   assert.throws(() => build({ local: "true" }), /布尔/); assert.throws(() => build({ local: true, api: "http://example.test" }), /布尔/);
+});
+
+test("Firefox 待签名包独立构建，不修改 Chrome 正式包且不能冒充正式安装包", () => {
+  const chromeBefore = hashes(path.join(ROOT, "dist", "chrome")), output = path.join(ROOT, "dist-firefox-unsigned");
+  try {
+    const result = build({ firefoxOnly: true });
+    assert.deepEqual(hashes(path.join(ROOT, "dist", "chrome")), chromeBefore);
+    assert.equal(result.packages.length, 2);
+    for (const item of result.packages) {
+      assert.equal(item.browser, "firefox"); assert.equal(item.signed, false); assert.equal(item.publishable, false);
+      assert.equal(item.installation, "temporary-only"); assert.match(item.file, /firefox-unsigned-\d+\.\d+\.\d+\.(zip|xpi)$/);
+    }
+  } finally { fs.rmSync(output, { recursive: true, force: true }); }
 });
 
 test("本地清单仅移除生产权限，不扩大招聘权限，并使用独立Firefox账号存储", () => {
