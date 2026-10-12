@@ -20,8 +20,50 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
     name: "安装浏览器插件",
     exact: true,
   });
+  const windowsGuide = page.getByRole("dialog", {
+    name: "安装 Windows 版 GoodHR",
+    exact: true,
+  });
+  const macGuide = page.getByRole("dialog", {
+    name: "安装 macOS 版 GoodHR",
+    exact: true,
+  });
   const history = page.getByRole("region", { name: "本地程序更新记录", exact: true });
-  await expect(local.getByRole("heading", { name: "本地程序下载", exact: true })).toBeVisible();
+  await expect(local.getByRole("heading", { name: "本地程序下载", exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "下载并安装 GoodHR", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "下载分类", exact: true })).toHaveCount(0);
+  const windowsCard = local.locator(".public-panel").filter({ hasText: "Windows" });
+  const windowsIconBox = await windowsCard.locator(".anticon-windows").boundingBox();
+  const windowsTitleBox = await windowsCard.getByRole("heading", { name: "Windows", exact: true }).boundingBox();
+  expect(windowsIconBox).not.toBeNull();
+  expect(windowsTitleBox).not.toBeNull();
+  expect(Math.abs((windowsIconBox!.y + windowsIconBox!.height / 2) - (windowsTitleBox!.y + windowsTitleBox!.height / 2))).toBeLessThan(4);
+  expect((await windowsCard.boundingBox())!.height).toBeLessThan(220);
+  const windowsDownload = windowsCard.getByRole("link", { name: "下载安装程序", exact: true });
+  await expect(windowsDownload).toHaveAttribute("href", "https://example.invalid/goodhr-windows.zip");
+  await windowsDownload.click();
+  await expect(windowsGuide).toBeVisible();
+  await expect(windowsGuide).toContainText("360、安全管家");
+  await expect(windowsGuide).toContainText("直接打开下载好的压缩包");
+  await expect(windowsGuide).toContainText("双击安装程序");
+  await expect(windowsGuide).toContainText("无需先解压");
+  await expect(windowsGuide).toContainText("联系作者协助");
+  await expect(windowsGuide.getByRole("link", { name: "下载 Windows 版", exact: true })).toHaveAttribute("href", "https://example.invalid/goodhr-windows.zip");
+  await windowsGuide.getByRole("button", { name: "先不下载", exact: true }).click();
+  await expect(windowsGuide).not.toBeVisible();
+  const macCard = local.locator(".public-panel").filter({ hasText: "macOS" });
+  const macDownload = macCard.getByRole("link", { name: "下载安装程序", exact: true });
+  await expect(macDownload).toHaveAttribute("href", "https://example.invalid/goodhr-mac.zip");
+  await macDownload.click();
+  await expect(macGuide).toBeVisible();
+  await expect(macGuide).toContainText("首次打开 macOS 安装包或程序");
+  await expect(macGuide).toContainText("移到废纸篓");
+  await expect(macGuide).toContainText("系统设置 → 隐私与安全性");
+  await expect(macGuide).toContainText("仍要打开");
+  await expect(macGuide).toContainText("联系作者协助");
+  await expect(macGuide.getByRole("link", { name: "下载 macOS 版", exact: true })).toHaveAttribute("href", "https://example.invalid/goodhr-mac.zip");
+  await macGuide.getByRole("button", { name: "先不下载", exact: true }).click();
+  await expect(macGuide).not.toBeVisible();
   await expect(extension.getByRole("heading", { name: "浏览器插件下载 · v1.0.3", exact: true })).toBeVisible();
   await expect(extension.getByText(/当前支持：猎聘企业端、猎聘猎头端、智联招聘、前程无忧/)).toBeVisible();
   const chromeDownload = extension.getByRole("link", {
@@ -91,6 +133,10 @@ test("不启用JavaScript时下载入口和近期更新仍有服务端正文", a
   const page = await context.newPage();
   await page.goto(`${baseURL}/download`);
   await expect(page.locator("#local-agent")).toContainText("Windows");
+  const local = page.locator("#local-agent");
+  await expect(local.getByRole("link", { name: "下载安装程序", exact: true })).toHaveCount(2);
+  await expect(local.getByRole("link", { name: "下载安装程序", exact: true }).first()).toHaveAttribute("href", "https://example.invalid/goodhr-windows.zip");
+  await expect(local.getByRole("link", { name: "下载安装程序", exact: true }).nth(1)).toHaveAttribute("href", "https://example.invalid/goodhr-mac.zip");
   const extension = page.locator("#browser-extension");
   await expect(extension).toContainText("Chrome");
   await expect(extension).toContainText("开发者模式");

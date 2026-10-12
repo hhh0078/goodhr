@@ -10,6 +10,7 @@ import type { ReactNode } from "react";
 import MarketingShell from "@/components/MarketingShell";
 import DownloadUpdateRecords from "@/components/download/DownloadUpdateRecords";
 import BrowserExtensionInstallGuide from "@/components/download/BrowserExtensionInstallGuide";
+import LocalAgentInstallGuide from "@/components/download/LocalAgentInstallGuide";
 import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import styles from "@/components/download/download.module.css";
 import { getLocalAgentUpdates, getBrowserExtensionRelease, type BrowserExtensionRelease } from "@/lib/public-data";
@@ -39,29 +40,23 @@ export default async function DownloadPage() {
       eyebrow="下载中心"
       title="下载并安装 GoodHR"
       description="本地程序帮你跑招聘任务，浏览器插件帮你把候选人记入简历库。按需要选择，也可以一起用。"
+      showIntro={false}
     >
-      <section className="public-download-2">
+      <section className={`public-download-2 ${styles.content}`}>
         <div className="public-container">
-          <nav className={styles.categories} aria-label="下载分类">
-            <Button href="#local-agent" icon={<DownloadRoundedIcon aria-hidden="true" />}>
-              本地程序下载
-            </Button>
-            <Button href="#browser-extension" icon={<DownloadRoundedIcon aria-hidden="true" />}>
-              浏览器插件下载
-            </Button>
-          </nav>
           <section id="local-agent" className={styles.downloadSection} aria-labelledby="local-agent-heading">
-            <h2 id="local-agent-heading" className="public-text public-download-11">本地程序下载</h2>
+            <h1 id="local-agent-heading" className="public-text public-download-11">本地程序下载</h1>
             <p className={`public-text public-download-18 ${styles.sectionDescription}`}>
               运行招聘任务、AI 筛选和自动回复。安装后会自动打开控制台。
             </p>
-            <div className="public-download-4">
+            <div className={`public-download-4 ${styles.cardGrid}`}>
               <DownloadCard
                 icon={<WindowRoundedIcon aria-hidden="true" />}
                 system="Windows"
                 note={`支持 Windows 10 / 11，推荐 64 位系统。${windows?.version ? `当前版本 ${windows.version}。` : ""}`}
                 href={windows?.urlWin || ""}
                 available={Boolean(windows?.urlWin)}
+                localPlatform="Windows"
               />
               <DownloadCard
                 icon={<AppleIcon aria-hidden="true" />}
@@ -69,6 +64,7 @@ export default async function DownloadPage() {
                 note={`适用于 macOS 13 及以上的 Apple 芯片和 Intel 芯片电脑。${mac?.version ? `当前版本 ${mac.version}。` : ""}安装包暂未签名，首次打开如提示“移到废纸篓”，请查看下方安装前说明。`}
                 href={mac?.urlMac || ""}
                 available={Boolean(mac?.urlMac)}
+                localPlatform="macOS"
               />
             </div>
           </section>
@@ -113,7 +109,7 @@ function BrowserExtensionDownloads({release}: {release: BrowserExtensionRelease 
   return <section id="browser-extension" className={`public-download-10 ${styles.downloadSection}`} aria-labelledby="browser-extension-heading">
     <h2 id="browser-extension-heading" className="public-text public-download-11">浏览器插件下载{release?.version ? ` · v${release.version}` : ""}</h2>
     <p className={`public-text public-download-18 ${styles.sectionDescription}`}><strong>当前支持：{BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}。</strong> 打开候选人详情后，插件会自动识别简历并打开助手。查重、补手机号、记备注和入库都在助手里完成。</p>
-    <div className="public-download-4">
+    <div className={`public-download-4 ${styles.cardGrid}`}>
       <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note="下载前会先展示安装教程。打开开发者模式后，把下载记录里的安装包直接拖进扩展管理页，无需解压。" href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} browser="Chrome" />
       <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={firefoxAvailable ? "已签名安装包，下载前会先展示安装教程。" : "正在完成 Mozilla 签名，签名通过后开放下载。"} href={firefoxAvailable ? release?.url_firefox || "" : ""} available={firefoxAvailable} browser="Firefox" />
     </div>
@@ -142,6 +138,7 @@ function DownloadCard({
   available,
   buttonLabel = "下载安装程序",
   browser,
+  localPlatform,
 }: {
   icon: ReactNode;
   system: string;
@@ -150,31 +147,41 @@ function DownloadCard({
   available: boolean;
   buttonLabel?: string;
   browser?: "Chrome" | "Firefox";
+  localPlatform?: "Windows" | "macOS";
 }) {
   return (
-    <div className="public-panel public-download-19">
-      <div className="public-download-20">{icon}</div>
-      <h3 className="public-text public-download-21">{system}</h3>
-      <p className="public-text public-download-22">{note}</p>
+    <div className={`public-panel ${styles.downloadCard}`}>
+      <div className={styles.cardHeading}>
+        <span className={styles.cardIcon}>{icon}</span>
+        <h3 className={`public-text ${styles.cardTitle}`}>{system}</h3>
+      </div>
+      <p className={`public-text ${styles.cardNote}`}>{note}</p>
       {available && browser ? (
         <BrowserExtensionInstallGuide
           href={href}
           label={buttonLabel}
           browser={browser}
           type="primary"
-          className="public-download-23"
+          className={styles.cardAction}
+        />
+      ) : available && localPlatform ? (
+        <LocalAgentInstallGuide
+          href={href}
+          label={buttonLabel}
+          platform={localPlatform}
+          className={styles.cardAction}
         />
       ) : available ? (
         <Button
           href={href}
           type="primary"
           icon={<DownloadRoundedIcon aria-hidden="true" />}
-          className="public-download-23"
+          className={styles.cardAction}
         >
           {buttonLabel}
         </Button>
       ) : (
-        <Button disabled type="default" className="public-download-25">
+        <Button disabled type="default" className={styles.cardAction}>
           正在准备中
         </Button>
       )}

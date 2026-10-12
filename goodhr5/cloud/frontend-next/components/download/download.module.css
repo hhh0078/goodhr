@@ -1,9 +1,52 @@
-/* 本文件负责下载分类导航、下载区间距与更新记录展开按钮的局部样式。 */
-.categories {
+/* 本文件负责下载区间距、紧凑下载卡片与更新记录展开按钮的局部样式。 */
+.content {
+  padding-top: 32px;
+}
+
+.cardGrid {
+  align-items: start;
+}
+
+.downloadCard {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 28px;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 20px;
+  border-color: var(--goodhr-border, #dce5e0);
+}
+
+.cardHeading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cardIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--goodhr-primary, #159a62);
+}
+
+.cardIcon :global(svg) {
+  font-size: 26px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.cardNote {
+  margin: 8px 0 0;
+  color: var(--goodhr-text-secondary, #637069);
+  line-height: 1.6;
+}
+
+.cardAction {
+  margin-top: 14px;
 }
 
 .downloadSection {
@@ -21,8 +64,11 @@
 }
 
 @media (max-width: 599px) {
-  .categories {
-    gap: 8px;
-    margin-bottom: 24px;
+  .content {
+    padding-top: 24px;
+  }
+
+  .downloadCard {
+    padding: 16px;
   }
 }
