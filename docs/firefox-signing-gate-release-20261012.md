@@ -12,6 +12,7 @@ Firefox 与 Chrome 继续使用统一插件版本 `1.0.7`。Chrome 的普通用�
 
 - `042fb663edfa58c3fb6342f1b5b82f8e10d16242`：公开接口与下载页增加 Firefox 签名门禁。
 - `deba7c8df5e5260d2fadbf501aa49a94fbffb869`：本地程序启动时自动准备签名 Firefox 插件，并统一 Chrome 无需解压说明。
+- `2aeb3b1e986b1904940e3c4ce860377d1bca8e59`：移除本地程序的 Chrome 插件准备与扩展管理页引导，恢复安装后直接打开 GoodHR 控制台；Firefox 自动准备保持不变。
 
 Firefox 下载信息只有同时满足以下条件才会公开：
 
@@ -53,8 +54,9 @@ Agent 正常启动时会读取公开插件配置，把签名 Firefox XPI 下载�
 
 - 同版本、同摘要且目录内容未变化时幂等跳过。
 - 下载或校验失败时保留上一版插件，不阻断 Agent 启动。
-- Windows 与 macOS 共用该逻辑；本轮正式对外发布的可选安装包为 Windows `6.2.10.5`。
+- Windows 与 macOS 共用该逻辑；修正后的正式可选安装包为 Windows `6.2.10.6`。
 - 本地程序不会改普通系统 Firefox 的用户配置或企业策略。
+- 本地程序不会下载、安装或打开 Chrome 插件；官网 Chrome 下载入口只供用户主动安装。
 
 ## 测试结果
 
@@ -68,18 +70,18 @@ Agent 正常启动时会读取公开插件配置，把签名 Firefox XPI 下载�
 
 ## 前端生产切换
 
-- 正式前端镜像：`sha256:b46fd710015a11eb2893ed69b3b2279e42b212378ea0244ba3ab0cc84f423b8e`。
-- 正式前端容器：`b5e1a403fe31dd0ea9b197ae182611d8d01e359d6f8827450537d8a757a0d0b4`，发布标签 `extension-install-deba7c8d`，启动后重启次数为 `0`。
-- 原前端保留为 `goodhr-production-frontend-1-backup-extension-install-deba7c8d`。
-- 服务器证据目录：`/opt/goodhr-release/extension-install-deba7c8d`，包含构建日志、候选验证、配置备份、应用与回滚 SQL、容器证据和一键前端回滚脚本。
+- 当前正式前端镜像：`sha256:76bfde98a01066af04144af7f267654b0dfd830f1ee994527bc0bc33af8e6447`。
+- 当前正式前端容器：`021f3b2d44a1c6e407e51fe0eb17b0bd0bb3773a7e56a1b95f017234bab5cee0`，发布标签 `firefox-only-agent-2aeb3b1e`，启动后重启次数为 `0`。
+- 上一版前端保留为 `goodhr-production-frontend-1-backup-firefox-only-agent-2aeb3b1e`。
+- 当前服务器证据目录：`/opt/goodhr-release/firefox-only-agent-2aeb3b1e`，包含配置前后备份、应用与回滚 SQL、容器证据和前端回滚脚本。
 - 切换前发现另一个未完成的 Mac 前端候选留下了未启动容器，并短暂造成 5175 空档；已先恢复旧前端，再把未启动容器保留为 `goodhr-production-frontend-mac-pending-20261012`，最后完成本次候选验证和正式切换。
 - 后端、PostgreSQL 与 Redis 容器 ID、启动时间保持不变。
 
 ## 最终公网验证
 
-- `/download` 返回 `200`，显示 Chrome“无需解压”、Firefox“已签名安装包”和 Windows `6.2.10.5`。
+- `/download` 返回 `200`，显示 Chrome 手动安装教程、Firefox“已签名安装包”和 Windows `6.2.10.6`。
 - Chrome 教程弹框显示从下载记录直接拖入扩展管理页，不包含旧的手工解压步骤。
 - `/api/system/browser-extension` 返回签名 Firefox 地址、完整摘要和 `firefox_signed=true`，同时包含 `Cache-Control: no-store`。
-- `/api/system/local-agent-updates` 首个 Windows 可用版本为 `6.2.10.5`。
-- `system.app_config.local_agent_version` 仍为 `6.2.10.1`，因此 `6.2.10.5` 不强制更新。
+- `/api/system/local-agent-updates` 首个 Windows 可用版本为 `6.2.10.6`；错误边界的 `6.2.10.4`、`6.2.10.5` 已从公开列表移除。
+- `system.app_config.local_agent_version` 仍为 `6.2.10.1`，因此 `6.2.10.6` 不强制更新。
 - 未登录访问私有候选人接口仍返回 `401`。
