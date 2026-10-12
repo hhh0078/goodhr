@@ -15,11 +15,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   applicationName: "GoodHR",
   title: {
-    default: "GoodHR AI招聘助手 - 自动筛选简历、自动打招呼与招聘消息回复",
+    default: "GoodHR AI招聘助手 - 简历库、猎头推荐与HR招聘流程",
     template: "%s | GoodHR AI招聘助手",
   },
   description:
-    "GoodHR 是完全开源的 HR 和猎头招聘自动化工具，覆盖招聘平台自动筛选、AI筛选简历、自动打招呼、AI打招呼、自动回复消息和简历下载管理。",
+    "GoodHR 是面向 HR 和猎头的完全开源招聘系统，覆盖招聘平台自动筛选与沟通、结构化简历库、猎头推荐记录和企业 HR 招聘流程。",
   keywords: CORE_SEO_KEYWORDS,
   authors: [{ name: "GoodHR", url: SITE_URL }],
   creator: "GoodHR",
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     url: SITE_URL,
     title: "GoodHR AI招聘助手",
     description:
-      "完全开源的招聘自动化工具，支持自动筛选候选人、自动打招呼、AI招聘消息回复和简历管理。",
+      "完全开源的招聘系统，支持招聘平台自动化、结构化简历库、猎头推荐流程和企业 HR 招聘流程。",
   },
   twitter: {
     card: "summary_large_image",
@@ -79,7 +79,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
               telephone: "+86-17607080935",
               sameAs: [GITHUB_REPOSITORY_URL],
               description:
-                "面向 HR、招聘团队和猎头顾问的完全开源 AI 招聘自动化工具。",
+                "面向 HR、招聘团队和猎头顾问的完全开源招聘系统，连接招聘平台自动化、简历库、猎头推荐和企业招聘流程。",
             },
             {
               "@context": "https://schema.org",
@@ -89,7 +89,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
               inLanguage: "zh-CN",
               sameAs: [GITHUB_REPOSITORY_URL],
               description:
-                "完全开源的招聘平台自动筛选、自动打招呼、AI自动回复和简历管理工具。",
+                "提供招聘平台自动筛选与沟通、结构化简历库、猎头推荐流程和企业 HR 招聘流程的完全开源招聘系统。",
             },
           ]}
         />

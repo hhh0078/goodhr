@@ -1,7 +1,7 @@
 /** 文件作用说明：提供紧凑候选人简历库，支持多条件查询、手动维护、本地 AI 导入、备注及人工推荐。 */
 "use client";
 import { Avatar, Button, Drawer, Dropdown, Empty, Flex, Input, Pagination, Select, Space, Table, Tag, Typography } from "antd";
-import { DownloadOutlined, FilterOutlined, MoreOutlined, PlusOutlined, SafetyCertificateOutlined, SearchOutlined, SettingOutlined } from "@ant-design/icons";
+import { FilterOutlined, MoreOutlined, PlusOutlined, SafetyCertificateOutlined, SearchOutlined, SettingOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import ResumeEditor from "@/components/admin/resumes/ResumeEditor";
 import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
 import ResumeAddDialog from "@/components/admin/resumes/ResumeAddDialog";
 import ResumeLibrarySettingsDialog from "@/components/admin/resumes/ResumeLibrarySettingsDialog";
+import BrowserExtensionInstallGuide from "@/components/download/BrowserExtensionInstallGuide";
 import { cloudRequest } from "@/lib/admin-api";
 import { loadResume, loadResumePositions } from "@/lib/resume-api";
 import { experienceLabel, genderLabel, isReadOnlyResume, recordTime, resumeAge, resumeAvatarSource, salaryLabel, sourceLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume } from "@/lib/resume-types";
@@ -102,7 +103,7 @@ export default function ResumesPage() {
       </Flex>
       <Flex gap={8} className={styles.toolbarActions}>
         <Button icon={<SettingOutlined aria-hidden="true" />} onClick={() => setSettingsOpen(true)}>设置</Button>
-        <Dropdown trigger={["click"]} menu={{ items: [{ key: "chrome", label: <a href="/download?browser=chrome#browser-extension" target="_blank" rel="noopener noreferrer">Chrome 插件</a> }, { key: "firefox", label: <a href="/download?browser=firefox#browser-extension" target="_blank" rel="noopener noreferrer">Firefox 插件</a> }] }}><Button icon={<DownloadOutlined />}>下载浏览器插件</Button></Dropdown>
+        <BrowserExtensionInstallGuide href="/download#browser-extension" label="下载浏览器插件" />
         <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={() => setChooserOpen(true)}>添加</Button>
       </Flex>
     </div>

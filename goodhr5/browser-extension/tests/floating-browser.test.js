@@ -55,24 +55,26 @@ test("Chrome合成页面：识别即自动展开，同人收起保持，换人�
     assert.equal(await frame.locator("#name").inputValue(), resume.candidate_name); assert.equal(await frame.locator("#phone").inputValue(), resume.phone);
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
     assert.deepEqual(await page.evaluate(() => { const panel = window.fixtureShadow.querySelector(".panel"), iframe = window.fixtureShadow.querySelector("iframe"); return { panelWidth: panel.getBoundingClientRect().width, frameHeight: iframe.getBoundingClientRect().height }; }), { panelWidth: 370, frameHeight: 560 });
-    assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".open").hidden), true);
+    assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".open")), null);
     assert.equal(await page.evaluate(() => document.getElementById("goodhr-resume-assistant").shadowRoot), null);
     assert.equal(await page.evaluate(() => document.activeElement.id), "business-input"); assert.equal(await page.locator("#business").innerHTML(), before);
     assert.equal(await page.evaluate(() => window.fixtureShadow.textContent.includes("打开助手") || window.fixtureShadow.textContent.includes("资料不会自动入库")), false);
     await frame.locator("#note").fill("关闭后保留的合成草稿"); await clickOwnButton(page, ".close");
     await page.evaluate((resume) => { GoodHRFloating.update(resume); GoodHRFloating.update({ ...resume, online_status: "刚刚活跃" }); }, resume);
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), true);
-    await clickOwnButton(page, ".open"); assert.equal(await frame.locator("#note").inputValue(), "关闭后保留的合成草稿");
+    assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), false); assert.equal(await frame.locator("#note").inputValue(), "关闭后保留的合成草稿");
+    await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume("candidate-b", "13800000152"));
+    assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
     await page.evaluate(() => { window.postMessage({ type: "CREATE", payload: { candidate_name: "伪造" } }, "*"); window.fixtureShadow.querySelector("iframe").contentWindow.postMessage({ type: "LOGIN", payload: { email: "evil@example.test" } }, "*"); });
     assert.equal(calls.some((type) => ["LOGIN", "CREATE", "UPDATE", "DUPLICATES", "FOLLOWUPS"].includes(type)), false);
     const bar = await point(page, ".bar"); await page.mouse.move(bar.x, bar.y); await page.mouse.down(); await page.mouse.move(-70, -70, { steps: 8 }); await page.mouse.up();
     const rectangle = await page.locator("#goodhr-resume-assistant").boundingBox(); assert.ok(rectangle.x >= 7 && rectangle.y >= 7); assert.ok(rectangle.x + rectangle.width <= 1150 && rectangle.y + rectangle.height <= 900);
-    await clickOwnButton(page, ".close"); await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume("candidate-b", "13800000152"));
+    await clickOwnButton(page, ".close"); await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume("candidate-c", "13800000153"));
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false); assert.equal(await page.locator("#goodhr-resume-assistant").count(), 1);
     assert.equal(await page.locator("#business").innerHTML(), before); assert.equal(await page.evaluate(() => window.scrollY), 0); assert.equal(network.some((url) => !url.startsWith(origin + "/")), false);
     fs.mkdirSync(ARTIFACTS, { recursive: true }); await page.screenshot({ path: path.join(ARTIFACTS, `plugin-floating-host-${version}.png`), caret: "initial" });
     await page.evaluate(() => GoodHRFloating.update(null)); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), false);
-    await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume("candidate-b", "13800000152")); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
+    await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume("candidate-c", "13800000153")); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
   } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
 });
 
@@ -115,7 +117,8 @@ test("Chrome合成页面：补齐手机号不打断同人收起状态，小窗�
     await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
     await page.evaluate((resume) => GoodHRFloating.update(resume), resume); await clickOwnButton(page, ".close");
     await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume()); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), true);
-    await clickOwnButton(page, ".open"); await page.setViewportSize({ width: 360, height: 420 });
+    assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".open")), null);
+    await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume("candidate-b", "13800000152")); await page.setViewportSize({ width: 360, height: 420 });
     const bar = await point(page, ".bar"); await page.mouse.move(bar.x, bar.y); await page.mouse.down(); await page.mouse.move(600, 600, { steps: 8 }); await page.mouse.up();
     const rectangle = await page.locator("#goodhr-resume-assistant").boundingBox(); assert.ok(rectangle.x >= 7 && rectangle.y >= 7); assert.ok(rectangle.x + rectangle.width <= 360 && rectangle.y + rectangle.height <= 420);
     assert.equal(await page.evaluate(() => window.scrollY), 0);

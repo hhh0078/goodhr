@@ -14,15 +14,18 @@ import MarketingShell from "@/components/MarketingShell";
 import { createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
-  title: "招聘自动化功能 - AI筛选、自动打招呼、自动回复与简历下载",
+  title: "招聘自动化功能 - 简历库、猎头推荐与企业HR招聘流程",
   description:
-    "了解 GoodHR 在 BOSS直聘、猎聘、智联招聘等平台场景中的关键词筛选、AI筛选、自动打招呼、AI自动回复、候选人跟进和简历下载管理能力。",
+    "了解 GoodHR 的招聘平台自动化、结构化简历库、候选人查重、猎头岗位推荐记录，以及企业 HR 面试、评价、审核、Offer 和入职流程。",
   path: "/features",
   keywords: [
     "招聘自动化功能",
     "AI自动回复候选人",
     "跨平台招聘工具",
     "自动下载招聘简历",
+    "结构化简历库",
+    "猎头推荐流程",
+    "企业HR招聘流程",
   ],
 });
 
@@ -64,8 +67,18 @@ const features = [
   },
   {
     icon: DownloadRoundedIcon,
-    title: "简历下载与人才库",
-    text: "整理招聘平台候选人详情、评分和沟通结果，便于管理 BOSS、猎聘、智联等平台简历。",
+    title: "结构化简历库",
+    text: "通过 AI 批量解析、手动添加或浏览器插件导入候选人，按手机号和履历线索查重，并保留备注与来源。",
+  },
+  {
+    icon: QueryStatsRoundedIcon,
+    title: "猎头推荐流程",
+    text: "一位候选人可以推荐到多个岗位，每个岗位独立记录推荐阶段、备注、操作人、时间和推进历史。",
+  },
+  {
+    icon: ManageAccountsRoundedIcon,
+    title: "企业 HR 招聘流程",
+    text: "按候选人与岗位启动独立流程，用团队模板推进面试安排、面评、审核、Offer 和入职确认。",
   },
 ];
 
@@ -75,7 +88,7 @@ export default function FeaturesPage() {
     <MarketingShell
       eyebrow="功能介绍"
       title="围绕真实招聘流程，减少每天重复的动作"
-      description="GoodHR 把候选人读取、关键词筛选、AI筛选、详情分析、自动打招呼、招聘消息回复和简历整理连续完成。"
+      description="GoodHR 把候选人读取、筛选和沟通接到结构化简历库，再通过猎头推荐和企业 HR 招聘流程继续推进，每段历史独立保留。"
     >
       <section className="public-features-2">
         <div className="public-container">

@@ -9,6 +9,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import MarketingShell from "@/components/MarketingShell";
 import DownloadUpdateRecords from "@/components/download/DownloadUpdateRecords";
+import BrowserExtensionInstallGuide from "@/components/download/BrowserExtensionInstallGuide";
 import styles from "@/components/download/download.module.css";
 import { getLocalAgentUpdates, getBrowserExtensionRelease, type BrowserExtensionRelease } from "@/lib/public-data";
 import { createPageMetadata } from "@/lib/seo";
@@ -108,13 +109,13 @@ export default async function DownloadPage() {
 function BrowserExtensionDownloads({release}: {release: BrowserExtensionRelease | null}) {
   return <section id="browser-extension" className={`public-download-10 ${styles.downloadSection}`} aria-labelledby="browser-extension-heading">
     <h2 id="browser-extension-heading" className="public-text public-download-11">浏览器插件下载{release?.version ? ` · v${release.version}` : ""}</h2>
-    <p className={`public-text public-download-18 ${styles.sectionDescription}`}>打开猎聘企业端、猎头端、智联或前程无忧候选人详情，点击 GoodHR 悬浮入口即可添加简历、查重、记备注。手机号没认出来时可以手动补齐。</p>
+    <p className={`public-text public-download-18 ${styles.sectionDescription}`}>打开猎聘企业端、猎头端、智联或前程无忧候选人详情后，插件会自动识别简历并打开助手。查重、补手机号、记备注和入库都在助手里完成。</p>
     <div className="public-download-4">
-      <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note="下载后解压，在扩展管理页打开开发者模式，加载已解压的扩展程序。" href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} />
-      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={!release?.url_firefox ? "本轮先开放 Chrome，Firefox 等功能稳定后再提供。" : release.firefox_signed ? "已签名安装包，下载后按 Firefox 提示安装。" : "当前为开发包：解压后通过 about:debugging 临时加载 manifest.json，重启浏览器后需重新加载。"} href={release?.url_firefox || ""} available={Boolean(release?.url_firefox)} />
+      <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note="下载前会先展示安装教程。Chrome 在 Windows 上需要解压后，通过开发者模式加载插件文件夹。" href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} browser="Chrome" />
+      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={!release?.url_firefox ? "本轮先开放 Chrome，Firefox 等功能稳定后再提供。" : release.firefox_signed ? "已签名安装包，下载前会先展示安装教程。" : "当前为开发包，下载页会说明临时加载方法。"} href={release?.url_firefox || ""} available={Boolean(release?.url_firefox)} browser="Firefox" />
     </div>
     {release?.note ? <p className="public-text public-download-18">{release.note}</p> : null}
-    <p className="public-text public-download-18">浏览器插件统一版本号，开放的版本以本页下载入口为准。插件仅读取可见候选人信息，保存前由你确认；悬浮界面独立显示，不自动点击或解锁手机号。</p>
+    <p className="public-text public-download-18">浏览器插件统一版本号，开放的版本以本页下载入口为准。插件仅读取可见候选人信息；悬浮界面独立显示，不自动点击或解锁手机号。</p>
   </section>;
 }
 
@@ -126,6 +127,7 @@ function DownloadCard({
   href,
   available,
   buttonLabel = "下载安装程序",
+  browser,
 }: {
   icon: ReactNode;
   system: string;
@@ -133,13 +135,22 @@ function DownloadCard({
   href: string;
   available: boolean;
   buttonLabel?: string;
+  browser?: "Chrome" | "Firefox";
 }) {
   return (
     <div className="public-panel public-download-19">
       <div className="public-download-20">{icon}</div>
       <h3 className="public-text public-download-21">{system}</h3>
       <p className="public-text public-download-22">{note}</p>
-      {available ? (
+      {available && browser ? (
+        <BrowserExtensionInstallGuide
+          href={href}
+          label={buttonLabel}
+          browser={browser}
+          type="primary"
+          className="public-download-23"
+        />
+      ) : available ? (
         <Button
           href={href}
           type="primary"

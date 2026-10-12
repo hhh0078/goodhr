@@ -352,25 +352,29 @@ async function runAdminPageChecks(baseURL = "http://127.0.0.1:5190") {
       .first()
       .click();
     dialog = page.getByRole("dialog");
-    await dialog.getByRole("textbox").waitFor();
+    const noteInput = dialog.getByPlaceholder("比如：意向不错，周五再约一次。", {
+      exact: true,
+    });
+    await noteInput.waitFor();
     verify(
       await dialog
-        .getByRole("button", { name: "新增备注", exact: true })
+        .getByRole("button", { name: "加备注", exact: true })
         .isDisabled(),
       "备注空内容阻止提交",
     );
-    await dialog.getByLabel("新增备注", { exact: true }).fill("弹框测试新备注");
-    await dialog.getByRole("button", { name: "新增备注", exact: true }).click();
+    await noteInput.fill("弹框测试新备注");
+    await dialog.getByRole("button", { name: "加备注", exact: true }).click();
     await page.waitForTimeout(750);
     verify(
-      (await dialog.getByRole("textbox").inputValue()) === "",
+      (await noteInput.inputValue()) === "",
       "备注提交成功后清空输入",
     );
     verify(
       (await dialog.getByText("弹框测试新备注", { exact: true }).count()) === 1,
       "备注提交成功后列表展示新增内容",
     );
-    await close(dialog);
+    await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+    await dialog.waitFor({ state: "hidden" });
 
     await open("/admin/accounts");
     await page.getByRole("button", { name: "新增账号", exact: true }).click();

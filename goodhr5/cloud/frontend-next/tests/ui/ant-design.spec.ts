@@ -28,6 +28,8 @@ type MockOptions = {
   passwordSetup?: boolean;
   invitation?: boolean;
   delayInvitation?: boolean;
+  runtimeStatusGate?: Promise<void>;
+  onRuntimeStatusRequest?: () => void;
   userId?: string;
   email?: string;
 };
@@ -71,13 +73,16 @@ async function mockSession(page: Page, options: MockOptions = {}) {
       if (port === "43129") {
         if (options.disconnected) return route.abort("connectionrefused");
         if (path === "/health") data = { ok: true, version: "6.2.10.1" };
-        else if (path === "/api/v1/runtime/status")
+        else if (path === "/api/v1/runtime/status") {
+          options.onRuntimeStatusRequest?.();
+          await options.runtimeStatusGate;
           data = {
             version: "6.2.10.1",
             node_installed: !options.missingRuntime,
             camoufox_installed: !options.missingRuntime,
             system_runtime: { ready: true, required: false },
           };
+        }
         else if (path === "/api/v1/app-update/status")
           data = { current_version: "6.2.10.1", stage: "idle" };
       } else {
@@ -576,6 +581,35 @@ test("必要组件缺失时不能用遮罩或 Escape 关闭弹窗", async ({ pag
   await expect(dialog.locator(".ant-modal-close")).toHaveCount(0);
 });
 
+test("必要组件状态没返回时保持关闭，确认缺失后才显示弹窗", async ({
+  page,
+}) => {
+  let releaseRuntimeStatus!: () => void;
+  let markRuntimeStatusRequested!: () => void;
+  const runtimeStatusGate = new Promise<void>((resolve) => {
+    releaseRuntimeStatus = resolve;
+  });
+  const runtimeStatusRequested = new Promise<void>((resolve) => {
+    markRuntimeStatusRequested = resolve;
+  });
+  await mockSession(page, {
+    missingRuntime: true,
+    runtimeStatusGate,
+    onRuntimeStatusRequest: markRuntimeStatusRequested,
+  });
+  await page.goto("/admin/accounts", { waitUntil: "domcontentloaded" });
+  await runtimeStatusRequested;
+  const dialog = page.getByRole("dialog", {
+    name: "准备必要组件",
+    exact: true,
+  });
+  // 状态接口保持未完成一小段时间，旧实现会在这里把空状态误判成组件缺失。
+  await page.waitForTimeout(200);
+  await expect(dialog).not.toBeVisible();
+  releaseRuntimeStatus();
+  await expect(dialog).toBeVisible();
+});
+
 test("补设密码不能关闭且不匹配的输入不能保存", async ({ page }) => {
   const calls = await mockSession(page, { passwordSetup: true });
   await page.goto("/admin/accounts");
@@ -814,4 +848,28 @@ test("官网原始 HTML 保留正文、元信息及抓取入口", async ({ reque
   const oldURL = await request.get("/features.html", { maxRedirects: 0 });
   expect(oldURL.status()).toBe(308);
   expect(oldURL.headers().location).toBe("/features");
+});
+
+test("官网服务端正文、结构化数据和 llms 说明三段招聘能力", async ({ request }) => {
+  const response = await request.get("/");
+  expect(response.status()).toBe(200);
+  const html = await response.text();
+  for (const title of ["结构化简历库", "猎头推荐流程", "企业 HR 招聘流程"])
+    expect(html).toContain(title);
+  expect(html).toContain("候选人先进入简历库");
+  expect(html).toContain("不会互相覆盖");
+
+  const scripts = [...html.matchAll(/<script type="application\/ld\+json">([^<]+)<\/script>/g)]
+    .map((match) => JSON.parse(match[1]))
+    .flat();
+  const application = scripts.find((item) => item?.["@type"] === "SoftwareApplication");
+  expect(application?.featureList).toEqual(
+    expect.arrayContaining(["结构化简历库", "猎头推荐流程", "企业 HR 招聘流程"]),
+  );
+
+  const llmsResponse = await request.get("/llms.txt");
+  expect(llmsResponse.status()).toBe(200);
+  const llms = await llmsResponse.text();
+  for (const text of ["结构化简历库", "猎头推荐流程", "企业 HR 招聘流程", "不会互相覆盖"])
+    expect(llms).toContain(text);
 });

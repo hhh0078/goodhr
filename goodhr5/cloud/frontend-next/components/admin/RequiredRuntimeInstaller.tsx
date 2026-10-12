@@ -35,6 +35,7 @@ export default function RequiredRuntimeInstaller({
   notify,
 }: RequiredRuntimeInstallerProps) {
   const [runtime, setRuntime] = useState<any>({});
+  const [loadedAgentBase, setLoadedAgentBase] = useState("");
   const [installing, setInstalling] = useState(false);
   const [checkingSystem, setCheckingSystem] = useState(false);
   const [error, setError] = useState("");
@@ -50,7 +51,9 @@ export default function RequiredRuntimeInstaller({
   );
   const missingDownloadable = hasMissingDownloadableRuntime(runtime);
   const visible = Boolean(
-    agentBase && components.some((item) => !item.installed),
+    agentBase &&
+      loadedAgentBase === agentBase &&
+      components.some((item) => !item.installed),
   );
   const running = Boolean(installing || progress?.running);
   useAdminOverlay(visible || running || checkingSystem);
@@ -66,12 +69,14 @@ export default function RequiredRuntimeInstaller({
   const loadStatus = useCallback(async () => {
     if (!agentBase) {
       setRuntime({});
+      setLoadedAgentBase("");
       return;
     }
     try {
-      setRuntime(
-        (await localRequest(agentBase, "/api/v1/runtime/status")) || {},
-      );
+      const status =
+        (await localRequest(agentBase, "/api/v1/runtime/status")) || {};
+      setRuntime(status);
+      setLoadedAgentBase(agentBase);
     } catch (loadError) {
       setError(
         loadError instanceof Error ? loadError.message : "运行组件状态读取失败",

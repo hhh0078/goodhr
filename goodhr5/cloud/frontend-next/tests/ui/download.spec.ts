@@ -7,10 +7,44 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
   await page.goto("/download");
   const local = page.locator("#local-agent");
   const extension = page.locator("#browser-extension");
+  const installGuide = page.getByRole("dialog", {
+    name: "安装浏览器插件",
+    exact: true,
+  });
   const history = page.getByRole("region", { name: "本地程序更新记录", exact: true });
   await expect(local.getByRole("heading", { name: "本地程序下载", exact: true })).toBeVisible();
   await expect(extension.getByRole("heading", { name: "浏览器插件下载 · v1.0.3", exact: true })).toBeVisible();
-  await expect(extension.getByRole("link", { name: /下载 Chrome 插件/ })).toHaveAttribute("href", "/downloads/goodhr-extension-chrome-1.0.3.zip");
+  const chromeDownload = extension.getByRole("link", {
+    name: "下载 Chrome 插件",
+    exact: true,
+  });
+  await expect(installGuide).not.toBeVisible();
+  await expect(chromeDownload).toHaveAttribute(
+    "href",
+    "/downloads/goodhr-extension-chrome-1.0.3.zip",
+  );
+  await chromeDownload.click();
+  await expect(installGuide).toBeVisible();
+  await expect(
+    installGuide.getByRole("heading", { name: "安装方法", exact: true }),
+  ).toBeVisible();
+  await expect(
+    installGuide.getByRole("heading", { name: "使用方法", exact: true }),
+  ).toBeVisible();
+  await expect(installGuide).toContainText("开发者模式");
+  await expect(installGuide).toContainText("登录你的 GoodHR 账号");
+  await expect(installGuide).toContainText("助手会自动识别并打开");
+  await expect(installGuide).toContainText("手机号是入库必填项");
+  await expect(
+    installGuide.getByRole("link", {
+      name: "前往插件下载",
+      exact: true,
+    }),
+  ).toHaveAttribute("href", "/downloads/goodhr-extension-chrome-1.0.3.zip");
+  await installGuide
+    .getByRole("button", { name: "先不安装", exact: true })
+    .click();
+  await expect(installGuide).not.toBeVisible();
   await expect(extension.getByRole("button", { name: "正在准备中", exact: true })).toBeDisabled();
   await expect(history.getByRole("article")).toHaveCount(3);
   await expect(history.getByText("synthetic-40", { exact: true })).toBeVisible();
@@ -30,7 +64,12 @@ test("不启用JavaScript时下载入口和近期更新仍有服务端正文", a
   const page = await context.newPage();
   await page.goto(`${baseURL}/download`);
   await expect(page.locator("#local-agent")).toContainText("Windows");
-  await expect(page.locator("#browser-extension")).toContainText("Chrome");
+  const extension = page.locator("#browser-extension");
+  await expect(extension).toContainText("Chrome");
+  await expect(extension).toContainText("开发者模式");
+  await expect(
+    extension.getByRole("link", { name: "下载 Chrome 插件", exact: true }),
+  ).toHaveAttribute("href", "/downloads/goodhr-extension-chrome-1.0.3.zip");
   await expect(page.getByRole("article")).toHaveCount(3);
   await expect(page.getByRole("heading", { name: "synthetic-40", exact: true })).toBeVisible();
   await context.close();

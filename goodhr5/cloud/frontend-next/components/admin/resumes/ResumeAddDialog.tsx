@@ -56,7 +56,7 @@ export default function ResumeAddDialog({ open, initialTab = "ai", initialTaskID
         {
           key: "plugin", label: "浏览器插件一键导入", forceRender: true, disabled: busy && tab !== "plugin",
           children: <div className={styles.pluginGuide}>
-            <Typography.Paragraph>在招聘页面打开 GoodHR 插件，核对手机号后，就能一键导入简历库。</Typography.Paragraph>
+            <Typography.Paragraph>打开候选人详情后，GoodHR 会自动识别简历。核对手机号，就能一键导入简历库。</Typography.Paragraph>
             <Typography.Paragraph type="secondary">Chrome 已可下载，Firefox 正在准备中。安装方法也在下载页，跟着操作就好。</Typography.Paragraph>
             <Button type="primary" icon={<DownloadOutlined />} href="/download#browser-extension" target="_blank" rel="noopener noreferrer">前往下载</Button>
           </div>,

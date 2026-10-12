@@ -4,12 +4,10 @@ import ArrowForwardRoundedIcon from "@ant-design/icons/lib/icons/ArrowRightOutli
 import CheckCircleRoundedIcon from "@ant-design/icons/lib/icons/CheckCircleOutlined";
 import DownloadRoundedIcon from "@ant-design/icons/lib/icons/DownloadOutlined";
 import GitHubIcon from "@ant-design/icons/lib/icons/GithubOutlined";
-import InsightsRoundedIcon from "@ant-design/icons/lib/icons/BarChartOutlined";
 import MarkChatReadRoundedIcon from "@ant-design/icons/lib/icons/CommentOutlined";
 import PersonSearchRoundedIcon from "@ant-design/icons/lib/icons/UserOutlined";
 import SaveAltRoundedIcon from "@ant-design/icons/lib/icons/DownloadOutlined";
 import SpeedRoundedIcon from "@ant-design/icons/lib/icons/DashboardOutlined";
-import VerifiedUserRoundedIcon from "@ant-design/icons/lib/icons/SafetyCertificateOutlined";
 import Button from "antd/es/button";
 import type { Metadata } from "next";
 import SiteFooter from "@/components/SiteFooter";
@@ -24,9 +22,9 @@ import {
 } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
-  title: "GoodHR AI招聘助手 - 自动筛选、自动打招呼与招聘消息回复",
+  title: "GoodHR AI招聘助手 - 简历库、猎头推荐与HR招聘流程",
   description:
-    "GoodHR 是完全开源的 AI 招聘助手，帮助 HR 和猎头在主流招聘平台完成自动筛选简历、AI筛选、自动打招呼、AI自动回复、候选人跟进和简历下载管理。",
+    "GoodHR 是面向 HR 和猎头的完全开源招聘系统，支持招聘平台自动筛选与沟通、结构化简历库、候选人查重、猎头岗位推荐记录，以及企业 HR 面试、评价、审核和录用流程。",
   path: "/",
   keywords: [
     "免费招聘软件",
@@ -36,24 +34,30 @@ export const metadata: Metadata = createPageMetadata({
     "多招聘平台自动化",
     "开源招聘系统",
     "开源AI招聘助手",
+    "结构化简历库",
+    "猎头推荐流程",
+    "企业HR招聘流程",
   ],
 });
 
-const benefits = [
+const productFlows = [
   {
-    icon: SpeedRoundedIcon,
-    title: "减少重复操作",
-    description: "连续读取候选人、筛选并执行沟通，让招聘人员专注判断。",
+    icon: SaveAltRoundedIcon,
+    title: "结构化简历库",
+    description:
+      "支持 AI 批量解析、手动添加和浏览器插件导入；按手机号和履历线索查重，并保留头像、备注、来源和岗位记录。",
   },
   {
-    icon: InsightsRoundedIcon,
-    title: "结果清楚可追踪",
-    description: "每次分析都有分数和理由，岗位运行处理数量随时可见。",
+    icon: MarkChatReadRoundedIcon,
+    title: "猎头推荐流程",
+    description:
+      "候选人可推荐到多个岗位，按岗位保存推荐状态、备注、操作人和时间，全部推进历史都能追踪。",
   },
   {
-    icon: VerifiedUserRoundedIcon,
-    title: "动作更接近人工",
-    description: "控制节奏、滚动和操作间隔，避免机械式批量点击。",
+    icon: CheckCircleRoundedIcon,
+    title: "企业 HR 招聘流程",
+    description:
+      "按候选人与岗位启动流程，用可配置模板推进面试安排、面评、审核、Offer 和入职确认，并汇总团队待办。",
   },
 ];
 
@@ -104,6 +108,16 @@ const faqs = [
     answer:
       "不会。招聘平台 Cookie、浏览器资料、截图和 OCR 数据保存在用户本机，云端主要保存账号认证、岗位、岗位运行和团队配置。",
   },
+  {
+    question: "简历怎样进入 GoodHR 简历库？",
+    answer:
+      "可以通过 AI 批量解析、手动添加或浏览器插件导入。浏览器插件会在支持的招聘平台候选人详情页自动识别资料，添加前需要确认有效手机号。",
+  },
+  {
+    question: "简历库、猎头推荐和企业 HR 招聘流程是什么关系？",
+    answer:
+      "简历库保存候选人资料和通用备注；猎头推荐按候选人与岗位记录推荐阶段和跟进历史；企业 HR 招聘使用独立流程推进面试、评价、审核和录用。三类记录互相关联，但不会覆盖彼此的历史。",
+  },
 ];
 
 /** HomePage 输出新版官网首页。 */
@@ -122,14 +136,16 @@ export default function HomePage() {
             downloadUrl: absoluteURL("/download"),
             codeRepository: GITHUB_REPOSITORY_URL,
             description:
-              "完全开源的 HR 和猎头招聘平台自动化工具，支持自动筛选、AI筛选、自动打招呼、AI自动回复和简历管理。",
+              "面向 HR 和猎头的完全开源招聘系统，支持招聘平台自动化、结构化简历库、猎头推荐流程和企业 HR 招聘流程。",
             offers: {
               "@type": "Offer",
               price: "0",
               priceCurrency: "CNY",
               description: "关键词筛选与基础招聘流程可免费使用",
             },
-            featureList: automationScenes.map((item) => item.title),
+            featureList: [...automationScenes, ...productFlows].map(
+              (item) => item.title,
+            ),
           },
           {
             "@context": "https://schema.org",
@@ -261,12 +277,16 @@ export default function HomePage() {
 
         <section id="capabilities" className="public-home-39">
           <div className="public-container">
-            <p className="public-text public-home-41">围绕真实招聘流程</p>
+            <p className="public-text public-home-41">从人才入库到招聘推进</p>
             <h2 className="public-text public-home-42">
-              不增加复杂工作台，只减少每天重复的动作
+              简历、推荐、面试，一条流程接着走
             </h2>
+            <p className="public-text public-home-27">
+              候选人先进入简历库，猎头按岗位记录推荐进度，企业 HR
+              再用独立流程推进面试、评价、审核和录用。每段记录都保留，不会互相覆盖。
+            </p>
             <div className="public-home-43">
-              {benefits.map((item, index) => {
+              {productFlows.map((item, index) => {
                 const Icon = item.icon;
                 return (
                   <div
@@ -275,9 +295,13 @@ export default function HomePage() {
                       {
                         "--public-home-44-0": (index === 0 ? 0 : 4) * 8 + "px",
                         "--public-home-44-1":
-                          index < benefits.length - 1 ? "1px solid" : "none",
+                          index < productFlows.length - 1
+                            ? "1px solid"
+                            : "none",
                         "--public-home-44-2":
-                          index < benefits.length - 1 ? "1px solid" : "none",
+                          index < productFlows.length - 1
+                            ? "1px solid"
+                            : "none",
                       } as import("react").CSSProperties
                     }
                     className="public-home-44"

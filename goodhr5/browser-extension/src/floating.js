@@ -2,7 +2,7 @@
 (function (root) {
   "use strict";
   const extension = root.browser || root.chrome;
-  let host = null, button = null, panel = null, frame = null, opened = false, currentIdentity = "", currentPhone = "";
+  let host = null, panel = null, frame = null, currentIdentity = "", currentPhone = "";
   let moved = false;
 
   /** makeElement 在插件自己的 Shadow DOM 内创建静态 UI，不插入不可信 HTML。 */
@@ -32,13 +32,13 @@
 
   /** setOpen 仅展开或收起插件面板；收起时保留 iframe 输入，避免备注草稿丢失。 */
   function setOpen(value) {
-    opened = value; panel.hidden = !value; button.hidden = value; button.setAttribute("aria-expanded", String(value));
+    panel.hidden = !value; host.hidden = !value;
     if (value && !frame) {
       frame = makeElement("iframe", "frame"); frame.title = "GoodHR 简历助手"; frame.referrerPolicy = "no-referrer";
       frame.src = extension.runtime.getURL("src/floating.html"); panel.appendChild(frame);
       // 不监听网页 postMessage；招聘页面无法指挥扩展登录、查重或保存。
     }
-    if (moved) { const rect = host.getBoundingClientRect(); moveWithinWindow(rect.left, rect.top); }
+    if (value && moved) { const rect = host.getBoundingClientRect(); moveWithinWindow(rect.left, rect.top); }
   }
 
   /** mount 创建唯一、正常命名的隔离入口；不使用随机标识或检测规避伪装。 */
@@ -54,12 +54,10 @@
       .panel{width:370px;max-width:calc(100vw - 26px)}.bar{display:flex;justify-content:space-between;align-items:center;height:26px;padding:0 8px;font-size:12px;color:#6b8b7e;background:#f4fbf7}.handle{font-size:16px;letter-spacing:2px}.close{background:transparent;color:#477a68;border-color:transparent;padding:0 6px;font-size:18px;line-height:22px}
       .frame{display:block;border:0;background:#fff;width:100%;height:min(560px,calc(100vh - 64px))}[hidden]{display:none!important}`;
     const shell = makeElement("div", "shell");
-    button = makeElement("button", "open", "GoodHR"); button.type = "button"; button.setAttribute("aria-expanded", "false");
-    button.addEventListener("click", () => setOpen(!opened));
     panel = makeElement("section", "panel"); panel.hidden = true;
     const bar = makeElement("div", "bar grip"), label = makeElement("span", "handle", "⋮⋮"), close = makeElement("button", "close", "×"); close.type = "button"; close.setAttribute("aria-label", "收起 GoodHR 简历助手"); label.setAttribute("aria-hidden", "true"); bar.setAttribute("aria-label", "拖动 GoodHR 简历助手"); bindDragging(bar);
     close.addEventListener("click", () => setOpen(false)); bar.append(label, close); panel.appendChild(bar);
-    shell.append(button, panel); shadow.append(style, shell); document.documentElement.appendChild(host);
+    shell.append(panel); shadow.append(style, shell); document.documentElement.appendChild(host);
     shadow.addEventListener("click", (event) => event.stopPropagation());
     root.addEventListener("resize", () => { if (moved && host && !host.hidden) { const rect = host.getBoundingClientRect(); moveWithinWindow(rect.left, rect.top); } });
   }
@@ -74,8 +72,7 @@
     if (!resume?.candidate_name) { if (host && !host.hidden) host.hidden = true; currentIdentity = ""; currentPhone = ""; return; }
     const identity = identityOf(resume), phone = root.GoodHRShared ? root.GoodHRShared.normalizePhone(resume.phone) : resume.phone || "";
     const changed = identity !== currentIdentity || Boolean(phone && currentPhone && phone !== currentPhone);
-    mount(); if (host.hidden) host.hidden = false;
-    button.setAttribute("aria-label", `打开 ${resume.candidate_name} 的 GoodHR 助手`);
+    mount(); host.setAttribute("aria-label", `${resume.candidate_name} 的 GoodHR 简历助手`);
     currentIdentity = identity; currentPhone = changed ? phone : phone || currentPhone;
     if (changed) setOpen(true);
   }

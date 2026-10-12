@@ -385,6 +385,39 @@ test("添加默认AI三标签直接切换，文件文本和手工草稿各自保
   expect(state.errors).toEqual([]);
 });
 
+/** 顶部下载入口必须先展示教程，用户确认后才进入统一下载页。 */
+test("简历库顶部下载浏览器插件先展示安装与使用教程", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  await page.goto("/admin/resumes");
+  const installGuide = page.getByRole("dialog", {
+    name: "安装浏览器插件",
+    exact: true,
+  });
+  await expect(installGuide).not.toBeVisible();
+  await page
+    .getByRole("link", { name: "下载浏览器插件", exact: true })
+    .click();
+  await expect(installGuide).toBeVisible();
+  await expect(
+    installGuide.getByRole("heading", { name: "安装方法", exact: true }),
+  ).toBeVisible();
+  await expect(
+    installGuide.getByRole("heading", { name: "使用方法", exact: true }),
+  ).toBeVisible();
+  await expect(installGuide).toContainText("开发者模式");
+  await expect(installGuide).toContainText("登录你的 GoodHR 账号");
+  await expect(installGuide).toContainText("助手会自动识别并打开");
+  await expect(installGuide).toContainText("手机号是入库必填项");
+  await expect(
+    installGuide.getByRole("link", { name: "前往插件下载", exact: true }),
+  ).toHaveAttribute("href", "/download#browser-extension");
+  await installGuide
+    .getByRole("button", { name: "先不安装", exact: true })
+    .click();
+  await expect(installGuide).not.toBeVisible();
+  expect(state.errors).toEqual([]);
+});
+
 /** 真实旧版Agent响应为纯文本404，界面应提供更新路径并继续允许其他添加方式。 */
 test("本地导入纯文本404提示更新，手动及插件仍可用且不展示JSON解析异常", async ({ page }) => {
   const state = await mockResumeSession(page); state.taskPlain404 = true;
