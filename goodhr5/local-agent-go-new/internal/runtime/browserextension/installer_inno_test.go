@@ -1,4 +1,4 @@
-// Package browserextension 文件作用：静态验证 Windows 安装器会先准备插件，并区分交互安装与静默升级。
+// Package browserextension 文件作用：静态验证 Windows 安装器只启动 GoodHR 页面，不尝试安装 Chrome 插件。
 package browserextension
 
 import (
@@ -8,42 +8,36 @@ import (
 	"testing"
 )
 
-// TestInnoInstallerIntegratesBrowserExtensionPreparation 验证安装器命令、目录、静默分支和无需手工解压的加载引导齐全。
-func TestInnoInstallerIntegratesBrowserExtensionPreparation(t *testing.T) {
+// TestInnoInstallerStartsAgentWithoutChromeExtensionPreparation 验证安装完成后直接启动 Agent，由 Agent 打开原有控制台页面。
+func TestInnoInstallerStartsAgentWithoutChromeExtensionPreparation(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("..", "..", "..", "packaging", "GoodHRLocalAgent.iss"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	script := string(content)
-	required := []string{
-		"--prepare-browser-extension",
-		"--browser-extension-dir",
-		"{localappdata}\\GoodHRLocalAgent\\browser-extension\\chrome",
-		"CurStep = ssPostInstall",
-		"if not WizardSilent then",
-		"LoadRequired := FileExists(ChromeExtensionLoadMarker)",
-		"if LoadRequired then",
-		"if OpenChromeExtensionGuide then",
-		"DeleteFile(ChromeExtensionLoadMarker)",
-		"chrome://extensions",
-		"不需要手动下载或解压",
-		"把安装包直接拖进扩展管理页，无需解压",
-		"/download#browser-extension",
-	}
+	required := []string{"Filename: \"{app}\\{#MyAppExeName}\"", "安装完成后立即运行 GoodHR 小助手", "Flags: nowait postinstall"}
 	for _, token := range required {
 		if !strings.Contains(script, token) {
-			t.Fatalf("安装器缺少插件流程：%s", token)
+			t.Fatalf("安装器缺少原有启动流程：%s", token)
 		}
 	}
-	if strings.Contains(script, "加载已解压的扩展程序") || strings.Contains(script, "请先解压") {
-		t.Fatal("安装器不得再要求用户手动解压 Chrome 插件")
+	for _, forbidden := range []string{
+		"--prepare-browser-extension", "--browser-extension-dir", "ChromeExtensionDir", "PrepareLatestChromeExtension",
+		"OpenChromeExtensionGuide", "chrome://extensions", "browser-extension\\chrome", "ExtensionInstallForcelist",
+	} {
+		if strings.Contains(strings.ToLower(script), strings.ToLower(forbidden)) {
+			t.Fatalf("安装器仍会尝试安装或引导加载 Chrome 插件：%s", forbidden)
+		}
 	}
-	if strings.Contains(strings.ToLower(script), "extensioninstallforcelist") || strings.Contains(strings.ToLower(script), "regwrite") {
-		t.Fatal("安装器不得写入 Chrome 企业强制安装策略")
+}
+
+// TestWindowsPackageDoesNotPassChromeGuideURL 验证打包脚本不再向安装器传入只服务于 Chrome 引导页的参数。
+func TestWindowsPackageDoesNotPassChromeGuideURL(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "..", "scripts", "package-windows.ps1"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	prepareIndex := strings.Index(script, "procedure PrepareLatestChromeExtension")
-	startIndex := strings.Index(script, "Filename: \"{app}\\{#MyAppExeName}\"")
-	if prepareIndex < 0 || startIndex < 0 {
-		t.Fatal("安装器插件准备或主程序启动入口缺失")
+	if strings.Contains(string(content), "MyPublicBaseURL") {
+		t.Fatal("Windows 打包脚本仍会向安装器传入 Chrome 引导页地址")
 	}
 }

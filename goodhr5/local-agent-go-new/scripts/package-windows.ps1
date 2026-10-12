@@ -171,7 +171,7 @@ Write-Step "生成 Windows ZIP 发布包"
 Compress-Archive -Path $PackageDir -DestinationPath $ArchivePath -CompressionLevel Optimal
 
 Write-Step "生成 Inno Setup 安装器"
-& $InnoSetup "/Q" "/DMyAppVersion=$Version" "/DMyEnvironmentSuffix=$EnvironmentSuffix" "/DMyPublicBaseURL=$PublicBaseURL" $InstallerScript
+& $InnoSetup "/Q" "/DMyAppVersion=$Version" "/DMyEnvironmentSuffix=$EnvironmentSuffix" $InstallerScript
 if ($LASTEXITCODE -ne 0) {
   throw "Windows 安装器生成失败，退出码：$LASTEXITCODE"
 }

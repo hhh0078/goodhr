@@ -6,9 +6,6 @@
 #ifndef MyEnvironmentSuffix
 #define MyEnvironmentSuffix ""
 #endif
-#ifndef MyPublicBaseURL
-#define MyPublicBaseURL "https://goodhr.58it.cn"
-#endif
 #define MyAppExeName "goodhr-local-agent.exe"
 #define MyPackageDir "..\release\goodhr-local-agent-v" + MyAppVersion + MyEnvironmentSuffix + "-windows-x64"
 #define MyLogoFile "..\assets\goodhr-logo.ico"
@@ -64,7 +61,6 @@ Name: "{autoprograms}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; Ic
 Name: "{autodesktop}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\goodhr-logo.ico"; Tasks: desktopicon
 
 [Run]
-; 插件已在 ssPostInstall 阶段先同步；随后再启动主程序，避免两个模式争用同一可执行文件。
 ; postinstall 让手动安装完成页默认勾选立即运行；不使用 skipifsilent，保证自动更新结束后也会重新启动。
 Filename: "{app}\{#MyAppExeName}"; Description: "安装完成后立即运行 GoodHR 小助手"; Flags: nowait postinstall
 
@@ -114,107 +110,4 @@ begin
   StopGoodHRWorkerProcesses;
   Sleep(500);
   Result := '';
-end;
-
-// ChromeExtensionDir 返回当前用户专用的 Chrome 插件稳定目录。
-function ChromeExtensionDir: String;
-begin
-  Result := ExpandConstant('{localappdata}\GoodHRLocalAgent\browser-extension\chrome');
-end;
-
-// ChromeExtensionLoadMarker 返回插件首次加载或升级后需要重新加载的标记文件。
-function ChromeExtensionLoadMarker: String;
-begin
-  Result := AddBackslash(ChromeExtensionDir) + '.goodhr-load-required';
-end;
-
-// FindChromeExecutable 查找当前机器常见的 Chrome 安装位置。
-function FindChromeExecutable: String;
-var
-  Candidate: String;
-begin
-  Result := '';
-  Candidate := ExpandConstant('{localappdata}\Google\Chrome\Application\chrome.exe');
-  if FileExists(Candidate) then
-  begin
-    Result := Candidate;
-    Exit;
-  end;
-  Candidate := ExpandConstant('{pf}\Google\Chrome\Application\chrome.exe');
-  if FileExists(Candidate) then
-  begin
-    Result := Candidate;
-    Exit;
-  end;
-  Candidate := ExpandConstant('{pf32}\Google\Chrome\Application\chrome.exe');
-  if FileExists(Candidate) then
-    Result := Candidate;
-end;
-
-// OpenChromeExtensionGuide 打开 Chrome 扩展管理页和已准备好的插件目录，并返回两个入口是否成功发起。
-function OpenChromeExtensionGuide: Boolean;
-var
-  ChromePath: String;
-  ResultCode: Integer;
-  BrowserOpened: Boolean;
-  FolderOpened: Boolean;
-begin
-  ChromePath := FindChromeExecutable;
-  if ChromePath <> '' then
-    BrowserOpened := Exec(ChromePath, 'chrome://extensions', '', SW_SHOWNORMAL, ewNoWait, ResultCode)
-  else
-    BrowserOpened := ShellExec('open', 'chrome://extensions', '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
-  FolderOpened := ShellExec('open', ChromeExtensionDir, '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
-  Result := BrowserOpened and FolderOpened;
-end;
-
-// PrepareLatestChromeExtension 调用已安装的新主程序下载、校验并准备最新版 Chrome 插件。
-procedure PrepareLatestChromeExtension;
-var
-  ResultCode: Integer;
-  Started: Boolean;
-  LoadRequired: Boolean;
-  Parameters: String;
-begin
-  ResultCode := -1;
-  Parameters := '--prepare-browser-extension --browser-extension-dir "' + ChromeExtensionDir + '"';
-  Started := Exec(ExpandConstant('{app}\{#MyAppExeName}'), Parameters, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  if Started and (ResultCode = 0) then
-  begin
-    Log('GoodHR Chrome browser extension prepared successfully.');
-    LoadRequired := FileExists(ChromeExtensionLoadMarker);
-    if LoadRequired then
-    begin
-      if not WizardSilent then
-        MsgBox('插件已经由本地程序准备好了，不需要手动下载或解压。Chrome 还需要你确认一下：' + #13#10 + #13#10 +
-          '1. 打开右上角的“开发者模式”' + #13#10 +
-          '2. 点击左上角的本地插件加载按钮' + #13#10 +
-          '3. 选择接下来打开的插件文件夹' + #13#10 + #13#10 +
-          '如果以前加载过，这次点一下“重新加载”就行。也可以去官网下载页，把安装包直接拖进扩展管理页，无需解压。', mbInformation, MB_OK);
-      if OpenChromeExtensionGuide then
-      begin
-        if not DeleteFile(ChromeExtensionLoadMarker) then
-          Log('GoodHR Chrome browser extension load marker could not be cleared.');
-      end
-      else
-        Log('GoodHR Chrome browser extension guide could not be opened; keeping the load marker.');
-    end;
-    if not LoadRequired then
-      Log('GoodHR Chrome browser extension is current; skipped the repeated guide.');
-    Exit;
-  end;
-
-  Log(Format('GoodHR Chrome browser extension preparation failed. started=%d exit_code=%d', [Ord(Started), ResultCode]));
-  if not WizardSilent then
-  begin
-    if MsgBox('插件这次没准备成功，但本地程序已经装好了。要不要去官网下载页手动安装？', mbError, MB_YESNO) = IDYES then
-      ShellExec('open', '{#MyPublicBaseURL}/download#browser-extension', '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
-  end;
-end;
-
-// CurStepChanged 在文件复制完成后先同步插件，再进入主程序启动步骤。
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssPostInstall then
-    PrepareLatestChromeExtension;
 end;
