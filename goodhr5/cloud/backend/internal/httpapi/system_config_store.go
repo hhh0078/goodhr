@@ -137,7 +137,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			ConfigKey: "system.onboarding_config",
 			ConfigValue: `{
 	"local_agent": [
-		{"version": "6.2.10.4", "url_win": "", "url_mac": "https://oss2.58it.cn/GoodHR-Local-Agent-Setup-v6.2.10.4-mac-universal-d24d8a5e.pkg", "sha256": "d24d8a5ecfd4fdeef5591903886cd8350f1c5f1fe3541c12d4b1f8f48701bdc2", "note": "macOS Apple 芯片与 Intel 芯片通用安装包"},
+		{"version": "6.2.10.6", "url_win": "", "url_mac": "https://oss2.58it.cn/GoodHR-Local-Agent-Setup-v6.2.10.6-mac-universal-b7886055.pkg", "sha256": "b7886055e93995fc626f0f67961e73976eb4288fdb700b6d28ff54a6c6239412", "note": "macOS Apple 芯片与 Intel 芯片通用安装包"},
 		{"version": "5.0.0", "url_win": "", "url_mac": "", "sha256": "", "note": "GoodHR 本地程序安装包"}
 	],
 	"local_agent_console_url": "https://goodhr5.58it.cn/admin",

@@ -95,7 +95,7 @@ func TestRuntimeConfigCurrent(t *testing.T) {
 		t.Fatalf("本地程序发布记录缺失：%v", payload.Config["local_agent"])
 	}
 	macRelease, ok := releases[0].(map[string]any)
-	if !ok || macRelease["version"] != "6.2.10.4" || macRelease["url_mac"] != "https://oss2.58it.cn/GoodHR-Local-Agent-Setup-v6.2.10.4-mac-universal-d24d8a5e.pkg" || macRelease["sha256"] != "d24d8a5ecfd4fdeef5591903886cd8350f1c5f1fe3541c12d4b1f8f48701bdc2" || macRelease["url_win"] != "" {
+	if !ok || macRelease["version"] != "6.2.10.6" || macRelease["url_mac"] != "https://oss2.58it.cn/GoodHR-Local-Agent-Setup-v6.2.10.6-mac-universal-b7886055.pkg" || macRelease["sha256"] != "b7886055e93995fc626f0f67961e73976eb4288fdb700b6d28ff54a6c6239412" || macRelease["url_win"] != "" {
 		t.Fatalf("Mac 本地程序发布记录不完整：%v", macRelease)
 	}
 }
