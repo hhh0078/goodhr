@@ -3,8 +3,8 @@
 const extension = globalThis.browser || globalThis.chrome, $ = (id) => document.getElementById(id), shared = GoodHRShared;
 const resumeFields = { name: "candidate_name", phone: "phone", "candidate-email": "email", city: "work_region", position: "current_position", "expected-position": "expected_position" };
 const draftFields = [...Object.keys(resumeFields), "duplicate-keyword", "job-filter", "job", "stage", "note", "note-time", "recommendation-note", "recommendation-time"];
-let currentResume = null, selectedCandidate = null, matches = [], groups = [], positions = [], loggedIn = false, dataUseAccepted = false, updateRequired = false, busy = false, hiddenDuplicate = false;
-let accountKey = "", identity = "", uiEpoch = 0, querySequence = 0, stateSequence = 0, duplicateTimer, draftTimer, lastQuery = "", duplicateState = "idle", edited = new Set();
+let currentResume = null, selectedCandidate = null, matches = [], groups = [], positions = [], loggedIn = false, dataUseAccepted = false, updateRequired = false, autoCloseAfterSave = true, busy = false, hiddenDuplicate = false;
+let accountKey = "", identity = "", uiEpoch = 0, querySequence = 0, stateSequence = 0, duplicateTimer, draftTimer, autoCloseTimer, lastQuery = "", duplicateState = "idle", edited = new Set();
 let keys = newKeys(), avatarWarning = "", aiSummary = "", summaryTask = null, summaryPolling = false, updateChecked = false, pendingJob = "", jobMenuOpen = false, summaryUnknown = false, summarySource = null;
 
 /** newKeys 为独立写操作生成幂等键，失败重试沿用原标识。 */
@@ -15,6 +15,11 @@ async function send(type, payload = {}) { const guarded = ["POSITIONS", "DUPLICA
 function showStatus(text, error = false) { $("status").hidden = !text; $("status").textContent = text || ""; $("status").classList.toggle("error", error); }
 /** runAction 防止重复写入，失败保留表单。 */
 async function runAction(action) { if (busy) return; busy = true; refreshActions(); try { await action(); } catch (error) { showStatus(error.message, true); if (["UPDATE_REQUIRED", "EXTENSION_UPDATE_REQUIRED"].includes(error.code) || error.status === 426) { updateRequired = true; try { await checkUpdate(); } catch { renderUpdate({ update_required: true }); } } else if (error.status === 409) { lastQuery = ""; try { await checkDuplicates(true); } catch { /* 保留错误和草稿供明确重试。 */ } } } finally { busy = false; refreshActions(); queueDraft(); } }
+/** scheduleAutoClose 新简历完整入库后延迟收起；切人、关闭设置或迟到结果都不会关闭当前卡片。 */
+function scheduleAutoClose(epoch, savedIdentity) {
+  clearTimeout(autoCloseTimer); if (!autoCloseAfterSave) return;
+  autoCloseTimer = setTimeout(() => { if (epoch !== uiEpoch || savedIdentity !== identity || !autoCloseAfterSave) return; send("CLOSE_FLOATING", { identity: savedIdentity }).catch(() => {}); }, 500);
+}
 /** requireAccount 未登录或未授权时引导工具栏设置，旧版本禁止写入。 */
 function requireAccount() { if (!loggedIn || !dataUseAccepted) throw new Error("请点工具栏 GoodHR 图标登录并授权"); if (updateRequired) throw new Error("请先更新插件，再继续保存"); }
 /** formResume 合并人工填写与当前只读快照。 */
@@ -57,7 +62,7 @@ function renderAvatar() { const saved = shared.validStoredAvatar(selectedCandida
 function renderCandidateInfo(resume) { $("candidate-info").textContent = [resume?.age ? `${resume.age}岁` : "", { male: "男", female: "女" }[resume?.gender] || resume?.gender, resume?.education_level, resume?.current_position || resume?.expected_position, resume?.work_region || resume?.current_region].filter(Boolean).join(" · "); }
 /** applySnapshot 同人补读只更新未手改字段，切人恢复专属草稿。 */
 async function applySnapshot(resume, switching = false) {
-  if (switching) { await persistDraft(); uiEpoch++; querySequence++; clearTimeout(duplicateTimer); identity = shared.resumeIdentity(resume); currentResume = resume; selectedCandidate = null; matches = []; groups = []; hiddenDuplicate = false; lastQuery = ""; duplicateState = "idle"; edited = new Set(); keys = newKeys(); avatarWarning = ""; aiSummary = ""; summaryTask = null; pendingJob = ""; jobMenuOpen = false; $("job-filter").removeAttribute("data-selected-value"); $("duplicates").replaceChildren(); $("duplicate-criteria").replaceChildren(); $("records").hidden = true; $("candidate-link").hidden = true; for (const id of draftFields) $(id).value = id === "stage" ? "draft" : ""; }
+  if (switching) { await persistDraft(); uiEpoch++; querySequence++; clearTimeout(duplicateTimer); clearTimeout(autoCloseTimer); identity = shared.resumeIdentity(resume); currentResume = resume; selectedCandidate = null; matches = []; groups = []; hiddenDuplicate = false; lastQuery = ""; duplicateState = "idle"; edited = new Set(); keys = newKeys(); avatarWarning = ""; aiSummary = ""; summaryTask = null; pendingJob = ""; jobMenuOpen = false; $("job-filter").removeAttribute("data-selected-value"); $("duplicates").replaceChildren(); $("duplicate-criteria").replaceChildren(); $("records").hidden = true; $("candidate-link").hidden = true; for (const id of draftFields) $(id).value = id === "stage" ? "draft" : ""; }
   currentResume = resume; for (const [id, field] of Object.entries(resumeFields)) if (!edited.has(id)) $(id).value = resume?.[field] || "";
   if (switching) { summaryUnknown = false; summarySource = null; pendingJob = ""; }
   if (switching && identity) { const epoch = uiEpoch; try { const { draft } = await send("DRAFT_GET", { identity, account_key: accountKey }); if (epoch === uiEpoch && draft) { for (const id of draftFields) if (draft.fields && id in draft.fields) $(id).value = draft.fields[id]; pendingJob = draft.fields?.job || ""; edited = new Set(draft.edited || []); keys = { ...keys, ...Object.fromEntries(Object.entries(draft.keys || {}).filter(([, value]) => value)) }; aiSummary = draft.ai_summary || ""; summaryTask = draft.summary_task || null; summaryUnknown = Boolean(draft.summary_unknown); summarySource = draft.summary_source || null; } } catch { /* 草稿失效不阻碍本地预览。 */ } }
@@ -68,7 +73,7 @@ async function loadState() {
   const sequence = ++stateSequence, state = await send("STATE"); if (sequence !== stateSequence) return;
   const nextAccount = state.account_key || (state.logged_in ? JSON.stringify([state.user?.id || "", state.user?.email || ""]) : "preview"), changedAccount = nextAccount !== accountKey;
   if (changedAccount) { identity = ""; accountKey = nextAccount; positions = []; }
-  const wasLoggedIn = loggedIn, wasAccepted = dataUseAccepted; loggedIn = Boolean(state.logged_in); dataUseAccepted = Boolean(state.data_use_accepted); renderUpdate(state.update);
+  const wasLoggedIn = loggedIn, wasAccepted = dataUseAccepted; loggedIn = Boolean(state.logged_in); dataUseAccepted = Boolean(state.data_use_accepted); autoCloseAfterSave = state.auto_close_after_save !== false; renderUpdate(state.update);
   if (!dataUseAccepted || !loggedIn) { querySequence++; clearTimeout(duplicateTimer); selectedCandidate = null; matches = []; groups = []; lastQuery = ""; duplicateState = "idle"; $("records").hidden = true; $("duplicates").replaceChildren(); }
   const switching = changedAccount || identity !== shared.resumeIdentity(state.resume); if (switching || JSON.stringify(state.resume) !== JSON.stringify(currentResume)) await applySnapshot(state.resume, switching);
   if (loggedIn && dataUseAccepted && (!wasLoggedIn || !wasAccepted || changedAccount)) await loadPositions();
@@ -153,10 +158,10 @@ function eventTime(id) { const value = $(id).value; if (!value) return ""; const
 async function saveFollowups(kind = "both") {
   requireAccount(); if (!selectedCandidate?.id) throw new Error("先选已有简历，或先把新人添加到库里"); const epoch = uiEpoch, candidateID = selectedCandidate.id;
   const result = await send("FOLLOWUPS", { candidate_id: candidateID, note: kind === "recommendation" ? "" : $("note").value, note_time: kind === "recommendation" ? "" : eventTime("note-time"), position_id: kind === "note" ? "" : $("job").value, stage: $("stage").value, recommendation_note: $("recommendation-note").value, recommendation_time: kind === "note" ? "" : eventTime("recommendation-time"), note_key: keys.note, recommendation_key: keys.recommendation });
-  if (epoch !== uiEpoch || selectedCandidate?.id !== candidateID) return;
+  if (epoch !== uiEpoch || selectedCandidate?.id !== candidateID) return null;
   if (kind !== "recommendation" && result.notes_saved) { $("note").value = ""; $("note-time").value = ""; keys.note = shared.newKey(); }
   if (kind !== "note" && result.recommendation_saved) { $("job").value = ""; $("job-filter").value = ""; $("job-filter").removeAttribute("data-selected-value"); jobMenuOpen = false; $("recommendation-note").value = ""; $("recommendation-time").value = ""; keys.recommendation = shared.newKey(); }
-  await loadRecords(); showStatus(result.errors?.length ? `${result.errors.map((item) => item.message).join("；")}。输入保留了，请重试` : kind === "note" ? "备注已保存" : kind === "recommendation" ? "推荐已保存" : "已添加", Boolean(result.errors?.length)); renderPositions(); refreshActions(); await persistDraft();
+  await loadRecords(); showStatus(result.errors?.length ? `${result.errors.map((item) => item.message).join("；")}。输入保留了，请重试` : kind === "note" ? "备注已保存" : kind === "recommendation" ? "推荐已保存" : "已添加", Boolean(result.errors?.length)); renderPositions(); refreshActions(); await persistDraft(); return result;
 }
 /** saveCandidate 一次点击直接提交，保留查重保护、幂等键和更新版本检查。 */
 async function saveCandidate(updating = false) {
@@ -166,8 +171,10 @@ async function saveCandidate(updating = false) {
   if (updating) { if (!selectedCandidate?.id || !selectedCandidate?.row_version) throw new Error("请先选择已有简历"); const changes = shared.describeResumeChanges(selectedCandidate, resume); if (!changes.length && !currentResume?.avatar_detected) { showStatus("资料没有变化"); return; } }
   const epoch = uiEpoch, result = await send(updating ? "UPDATE" : "CREATE", { resume, capture_id: currentResume?.capture_id, existing_avatar_data_url: selectedCandidate?.avatar_data_url, idempotency_key: keys.save, candidate_id: selectedCandidate?.id, row_version: selectedCandidate?.row_version }); if (epoch !== uiEpoch) return;
   selectedCandidate = result.candidate || result; if (!selectedCandidate?.id) throw new Error("还没拿到简历编号，请先重读并查重"); avatarWarning = result.avatar_warning || ""; keys.save = shared.newKey(); keys.avatar = shared.newKey(); duplicateState = "existing"; $("duplicate-status").textContent = "已入库"; if (!updating) { matches = []; groups = []; hiddenDuplicate = false; renderMatches(); } renderAvatar(); refreshActions();
-  if (updating) { await loadRecords(); showStatus("已更新"); } else { await saveFollowups(); }
-  if (avatarWarning) showStatus(`${$("status").textContent}；${avatarWarning}`, true); await persistDraft();
+  const followups = updating ? null : await saveFollowups(); if (epoch !== uiEpoch) return;
+  if (updating) { await loadRecords(); showStatus("已更新"); }
+  if (avatarWarning) showStatus(`${$("status").textContent}；${avatarWarning}`, true); const draftSaved = await persistDraft();
+  if (!updating && !avatarWarning && !followups?.errors?.length && draftSaved) scheduleAutoClose(epoch, identity);
 }
 /** retryAvatar 独立重试头像，不重建主体或顺带提交备注。 */
 async function retryAvatar() { requireAccount(); const epoch = uiEpoch, result = await send("AVATAR_RETRY", { candidate_id: selectedCandidate?.id, row_version: selectedCandidate?.row_version, capture_id: currentResume?.capture_id, existing_avatar_data_url: selectedCandidate?.avatar_data_url, idempotency_key: keys.avatar }); if (epoch !== uiEpoch) return; if (!result.unchanged) selectedCandidate = result.candidate || result; avatarWarning = ""; keys.avatar = shared.newKey(); renderAvatar(); showStatus(result.unchanged ? "头像没有变化" : "头像已保存"); }

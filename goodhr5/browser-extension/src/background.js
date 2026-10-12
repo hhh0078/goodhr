@@ -51,7 +51,7 @@ async function requireCurrentVersion() {
 }
 
 /** readSettings 读取插件私有登录与配对信息，不读取任何网站缓存。 */
-async function readSettings() { return extension.storage.local.get(["session", "installation_id", "pairing_token", "pairing_account_key", "local_port", "pending_pair", "pending_revoke", "data_use_accepted"]); }
+async function readSettings() { return extension.storage.local.get(["session", "installation_id", "pairing_token", "pairing_account_key", "local_port", "pending_pair", "pending_revoke", "data_use_accepted", "auto_close_after_save"]); }
 
 /** requestJSON 请求固定白名单地址并限制超时，拒绝重定向至其他域名。 */
 async function requestJSON(url, options = {}) {
@@ -277,7 +277,7 @@ async function prepareAvatar(captureID, sourceTab = null) {
 /** publicState 返回不含 token、配对令牌、挑战值的界面状态。 */
 async function publicState(sourceTab = null) {
   await retryRevocation(); await tryRestore(); const settings = await readSettings();
-  return { logged_in: Boolean(settings.session?.token), account_key: accountKey(settings), paired: Boolean(settings.pairing_token && !settings.pending_revoke), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version, update: await checkUpdate() };
+  return { logged_in: Boolean(settings.session?.token), account_key: accountKey(settings), paired: Boolean(settings.pairing_token && !settings.pending_revoke), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), auto_close_after_save: settings.auto_close_after_save !== false, resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version, update: await checkUpdate() };
 }
 
 /** accountKey 用公开账号标识隔离草稿和迟到界面请求，不包含任何凭证。 */
@@ -398,6 +398,7 @@ async function handleUIMessage(message, sourceTab = null) {
     case "STATE": return publicState(sourceTab);
     case "PREVIEW": return { resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version };
     case "CONSENT": if (!payload.accepted) { authGeneration++; duplicateCache.clear(); } await extension.storage.local.set({ data_use_accepted: payload.accepted === true }); if (payload.accepted) { const snapshot = await currentSnapshot(sourceTab), tab = sourceTab || await activeTab(); if (tab?.id && snapshot) scheduleCaptureCheck(tab.id, snapshot); } return { ok: true };
+    case "SET_AUTO_CLOSE": await extension.storage.local.set({ auto_close_after_save: payload.enabled !== false }); return { enabled: payload.enabled !== false };
     case "SEND_CODE": return requestJSON(shared.CLOUD_BASE + "/api/auth/extension-send-code", { method: "POST", body: JSON.stringify({ email: shared.cleanText(payload.email, 120) }) });
     case "LOGIN": {
       const generation = ++authGeneration;
@@ -416,6 +417,11 @@ async function handleUIMessage(message, sourceTab = null) {
     case "DRAFT_GET": return draftOperation(payload, false);
     case "DRAFT_SAVE": return draftOperation(payload, true);
     case "CHECK_UPDATE": return checkUpdate(true);
+    case "CLOSE_FLOATING": {
+      if (!sourceTab?.id || (await readSettings()).auto_close_after_save === false) return { closed: false };
+      const result = await extension.tabs.sendMessage(sourceTab.id, { type: "CLOSE_FLOATING", identity: shared.cleanText(payload.identity, 1500) }, { frameId: 0 });
+      return { closed: Boolean(result?.closed) };
+    }
     case "SUMMARY_START": return summaryOperation(payload, "start");
     case "SUMMARY_POLL": return summaryOperation(payload, "poll");
     case "SUMMARY_CANCEL": return summaryOperation(payload, "cancel");
@@ -457,7 +463,7 @@ function onMessage(message, sender, sendResponse) {
   if (sender.id !== extension.runtime.id) return false;
   if (isTrustedUI(sender)) {
     const floating = new URL(sender.url).pathname === "/src/floating.html";
-    if (floating && ["LOGIN", "SEND_CODE", "CONSENT", "PAIR_START", "PAIR_CHECK", "RESTORE", "LOGOUT", "REVOKE_RETRY", "OPEN_SIDEBAR"].includes(message.type)) return false;
+    if (floating && ["LOGIN", "SEND_CODE", "CONSENT", "SET_AUTO_CLOSE", "PAIR_START", "PAIR_CHECK", "RESTORE", "LOGOUT", "REVOKE_RETRY", "OPEN_SIDEBAR"].includes(message.type)) return false;
     if (!floating && sender.tab) return false;
     // 嵌入UI的sender.tab由浏览器提供；任何payload里的tab编号都不能改变资料来源。
     if (sender.tab && (!shared.platformForURL(sender.tab.url) || !Number.isInteger(sender.frameId) || sender.frameId < 1)) return false;

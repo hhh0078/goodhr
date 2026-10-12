@@ -51,8 +51,8 @@
       :host([hidden]){display:none!important}*{box-sizing:border-box}.shell{font:13px/1.5 system-ui,-apple-system,"Microsoft YaHei",sans-serif;color:#233e35;border:1px solid #b9ddcf;border-radius:12px;background:#fff;box-shadow:0 6px 24px #174c3621;overflow:hidden}
       .grip{cursor:grab;touch-action:none;user-select:none}
       button{font:inherit;border:1px solid #0b8968;border-radius:7px;background:#0b8968;color:#fff;padding:7px 12px;cursor:pointer;white-space:nowrap}button:hover{background:#087253}button:focus-visible{outline:2px solid #0b8968;outline-offset:2px}
-      .panel{width:370px;max-width:calc(100vw - 26px)}.bar{display:flex;justify-content:space-between;align-items:center;height:26px;padding:0 8px;font-size:12px;color:#6b8b7e;background:#f4fbf7}.handle{font-size:16px;letter-spacing:2px}.close{background:transparent;color:#477a68;border-color:transparent;padding:0 6px;font-size:18px;line-height:22px}
-      .frame{display:block;border:0;background:#fff;width:100%;height:min(560px,calc(100vh - 64px))}[hidden]{display:none!important}`;
+      .panel{width:248px;max-width:calc(100vw - 26px)}.bar{display:flex;justify-content:space-between;align-items:center;height:26px;padding:0 8px;font-size:12px;color:#6b8b7e;background:#f4fbf7}.handle{font-size:16px;letter-spacing:2px}.close{background:transparent;color:#477a68;border-color:transparent;padding:0 6px;font-size:18px;line-height:22px}
+      .frame{display:block;border:0;background:#fff;width:100%;height:min(460px,calc(100vh - 64px))}[hidden]{display:none!important}`;
     const shell = makeElement("div", "shell");
     panel = makeElement("section", "panel"); panel.hidden = true;
     const bar = makeElement("div", "bar grip"), label = makeElement("span", "handle", "⋮⋮"), close = makeElement("button", "close", "×"); close.type = "button"; close.setAttribute("aria-label", "收起 GoodHR 简历助手"); label.setAttribute("aria-hidden", "true"); bar.setAttribute("aria-label", "拖动 GoodHR 简历助手"); bindDragging(bar);
@@ -77,5 +77,11 @@
     if (changed) setOpen(true);
   }
 
-  root.GoodHRFloating = Object.freeze({ update });
+  /** close 仅在身份仍对应当前候选人时收起插件卡片，避免迟到的保存结果关闭下一人的卡片。 */
+  function close(identity = "") {
+    if (!host || !panel || (identity && identity !== currentIdentity)) return false;
+    setOpen(false); return true;
+  }
+
+  root.GoodHRFloating = Object.freeze({ update, close });
 })(globalThis);

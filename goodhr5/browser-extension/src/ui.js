@@ -10,7 +10,7 @@ function showStatus(text, error = false) { $("status").hidden = !text; $("status
 /** showPairStatus 只在连接有进展时显示提示。 */
 function showPairStatus(text) { $("pair-status").hidden = !text; $("pair-status").textContent = text || ""; }
 /** refreshActions 阻止重复登录或设置写入。 */
-function refreshActions() { for (const node of document.querySelectorAll("button, #consent")) node.disabled = busy; }
+function refreshActions() { for (const node of document.querySelectorAll("button, #consent, #auto-close")) node.disabled = busy; }
 /** runAction 保留失败输入，完成后恢复操作。 */
 async function runAction(action) { if (busy) return; busy = true; refreshActions(); try { await action(); } catch (error) { showStatus(error.message, true); } finally { busy = false; refreshActions(); } }
 /** setMode 切换三种登录方式；本地程序复用现有安全配对流程，不保存密码。 */
@@ -34,7 +34,7 @@ function renderUpdate(update) { if (!update) return; const required = Boolean(up
 async function loadState() {
   const sequence = ++stateSequence, state = await send("STATE"); if (sequence !== stateSequence) return;
   loggedIn = Boolean(state.logged_in); paired = Boolean(state.paired); pairPending = Boolean(state.pairing_pending);
-  $("version").textContent = `v${state.version}`; $("consent").checked = Boolean(state.data_use_accepted); $("local-port").value = state.local_port || 43129;
+  $("version").textContent = `v${state.version}`; $("consent").checked = Boolean(state.data_use_accepted); $("auto-close").checked = state.auto_close_after_save !== false; $("local-port").value = state.local_port || 43129;
   $("revocation-panel").hidden = !state.revocation_pending; $("revocation-message").textContent = state.revocation_message || "";
   $("login-panel").hidden = loggedIn; $("account-row").hidden = !loggedIn; $("account").textContent = state.user?.email || "GoodHR 账号";
   $("pair-heading").textContent = loggedIn ? "本地程序" : "本地程序登录";
@@ -51,6 +51,7 @@ $("password-mode").addEventListener("click", () => setMode("password"));
 $("code-mode").addEventListener("click", () => setMode("code"));
 $("local-mode").addEventListener("click", () => setMode("local"));
 $("consent").addEventListener("change", () => runAction(async () => { await send("CONSENT", { accepted: $("consent").checked }); showStatus($("consent").checked ? "已允许，打开候选人即可使用" : "已关闭，简历仅在本地预览"); await loadState(); }));
+$("auto-close").addEventListener("change", () => runAction(async () => { const enabled = $("auto-close").checked; await send("SET_AUTO_CLOSE", { enabled }); showStatus(enabled ? "新简历入库后会自动收起" : "已保留入库后的页面卡片"); await loadState(); }));
 $("login-form").addEventListener("submit", (event) => { event.preventDefault(); runAction(async () => { await send("LOGIN", { email: $("email").value, password: mode === "password" ? $("password").value : "", code: mode === "code" ? $("code").value : "", agreement_accepted: $("agreement").checked }); $("password").value = ""; $("code").value = ""; await loadState(); showStatus("已登录，打开候选人即可使用"); }); });
 $("send-code").addEventListener("click", () => runAction(async () => { await send("SEND_CODE", { email: $("email").value }); showStatus("验证码已发送，请查看邮箱"); }));
 $("pair").addEventListener("click", () => runAction(async () => { await send("PAIR_START", { port: Number($("local-port").value) }); pairPending = true; showPairStatus("请在控制台确认账号与授权"); }));

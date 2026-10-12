@@ -26,7 +26,7 @@ async function preparePage(browser, origin, handler) {
   await page.route("**/*", (route) => { const url = route.request().url(); network.push(url); return url.startsWith(origin + "/") ? route.continue() : route.abort(); });
   await page.exposeFunction("fixtureMessage", handler);
   await page.addInitScript(({ origin, version }) => {
-    window.chrome = { runtime: { id: "fixture-extension", getURL: (file) => origin + "/" + file, getManifest: () => ({ version }), sendMessage: (message) => window.fixtureMessage(message), onMessage: { addListener: (listener) => { window.fixtureCaptureListener = listener; } } } };
+    window.chrome = { runtime: { id: "fixture-extension", getURL: (file) => origin + "/" + file, getManifest: () => ({ version }), sendMessage: async (message) => { const result = await window.fixtureMessage(message); if (message.type === "CLOSE_FLOATING" && result?.ok && window.top.fixtureCaptureListener) window.top.fixtureCaptureListener({ type: "CLOSE_FLOATING", identity: message.payload?.identity || "" }, { id: "fixture-extension" }, () => {}); return result; }, onMessage: { addListener: (listener) => { window.fixtureCaptureListener = listener; } } } };
     // 只在合成测试页捕获本插件自己的 closed Shadow；生产脚本没有这一入口。
     const attachShadow = Element.prototype.attachShadow; Element.prototype.attachShadow = function (options) { const shadow = attachShadow.call(this, options); if (this.id === "goodhr-resume-assistant") window.fixtureShadow = shadow; return shadow; };
   }, { origin, version });
@@ -54,11 +54,12 @@ test("Chrome合成页面：识别即自动展开，同人收起保持，换人�
     await page.evaluate((resume) => GoodHRFloating.update(resume), resume); const frame = await floatingFrame(page);
     assert.equal(await frame.locator("#name").inputValue(), resume.candidate_name); assert.equal(await frame.locator("#phone").inputValue(), resume.phone);
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
-    assert.deepEqual(await page.evaluate(() => { const panel = window.fixtureShadow.querySelector(".panel"), iframe = window.fixtureShadow.querySelector("iframe"); return { panelWidth: panel.getBoundingClientRect().width, frameHeight: iframe.getBoundingClientRect().height }; }), { panelWidth: 370, frameHeight: 560 });
+    assert.deepEqual(await page.evaluate(() => { const panel = window.fixtureShadow.querySelector(".panel"), iframe = window.fixtureShadow.querySelector("iframe"); return { panelWidth: panel.getBoundingClientRect().width, frameHeight: iframe.getBoundingClientRect().height }; }), { panelWidth: 248, frameHeight: 460 });
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".open")), null);
     assert.equal(await page.evaluate(() => document.getElementById("goodhr-resume-assistant").shadowRoot), null);
     assert.equal(await page.evaluate(() => document.activeElement.id), "business-input"); assert.equal(await page.locator("#business").innerHTML(), before);
     assert.equal(await page.evaluate(() => window.fixtureShadow.textContent.includes("打开助手") || window.fixtureShadow.textContent.includes("资料不会自动入库")), false);
+    assert.equal(await page.evaluate(() => GoodHRFloating.close("not-current")), false); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
     await frame.locator("#note").fill("关闭后保留的合成草稿"); await clickOwnButton(page, ".close");
     await page.evaluate((resume) => { GoodHRFloating.update(resume); GoodHRFloating.update({ ...resume, online_status: "刚刚活跃" }); }, resume);
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), true);
@@ -152,7 +153,7 @@ test("Chrome真实简历浮层：初次自动读当前人，缺手机可填写�
       if (type === "CANDIDATE_SNAPSHOT") { snapshot = resume ? { ...resume, capture_id: `synthetic-${resume.platform_candidate_id}` } : null; return { ok: true }; }
       if (type === "STATE") {
         await page.evaluate(() => new Promise((resolve) => window.fixtureCaptureListener({ type: "REQUEST_CAPTURE" }, { id: "fixture-extension" }, resolve)));
-        return { ok: true, data: { logged_in: true, data_use_accepted: true, account_key: "synthetic-only", resume: snapshot, version } };
+        return { ok: true, data: { logged_in: true, data_use_accepted: true, auto_close_after_save: true, account_key: "synthetic-only", resume: snapshot, version } };
       }
       if (type === "DRAFT_GET") return { ok: true, data: { draft: drafts.get(payload.identity) || null } };
       if (type === "DRAFT_SAVE") { drafts.set(payload.identity, payload.draft); return { ok: true, data: {} }; }
@@ -188,6 +189,55 @@ test("Chrome真实简历浮层：初次自动读当前人，缺手机可填写�
     assert.equal(writes.filter((item) => item.type === "CREATE").length, 1); assert.equal(writes.find((item) => item.type === "CREATE").payload.resume.phone, "13800000151");
     await frame.waitForFunction(() => document.getElementById("note").value === "");
     assert.equal(writes.filter((item) => item.type === "FOLLOWUPS").length, 1); assert.equal(writes.find((item) => item.type === "FOLLOWUPS").payload.note, "甲候选人的合成草稿");
+    await frame.waitForFunction(() => document.getElementById("status").textContent === "已添加"); await page.waitForTimeout(300); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true);
+    await page.waitForFunction(() => document.getElementById("goodhr-resume-assistant").hidden); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), false);
     assert.deepEqual(dialogs, []); assert.deepEqual(errors, []); assert.equal(await page.locator("#business").innerHTML(), before);
+  } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("Chrome真实简历浮层：仅完整CREATE延迟关闭，UPDATE、部分失败和切人都保持打开", async () => {
+  const { server, origin } = await localServer(true), browser = await chromium.launch({ channel: "chrome", headless: true }), drafts = new Map(), closes = [];
+  let page, snapshot = null, duplicateMode = "none", failFollowup = true, autoClose = true;
+  try {
+    ({ page } = await preparePage(browser, origin, async ({ type, payload = {}, resume }) => {
+      if (type === "CANDIDATE_SNAPSHOT") { snapshot = resume ? { ...resume, capture_id: `close-${resume.platform_candidate_id}` } : null; return { ok: true }; }
+      if (type === "STATE") return { ok: true, data: { logged_in: true, data_use_accepted: true, auto_close_after_save: autoClose, account_key: "close-fixture", resume: snapshot, version } };
+      if (type === "DRAFT_GET") return { ok: true, data: { draft: drafts.get(payload.identity) || null } };
+      if (type === "DRAFT_SAVE") { drafts.set(payload.identity, payload.draft); return { ok: true, data: {} }; }
+      if (type === "CHECK_UPDATE") return { ok: true, data: { current_version: version, latest_version: version, update_required: false } };
+      if (type === "POSITIONS") return { ok: true, data: { items: [] } };
+      if (type === "DUPLICATES") { const matches = duplicateMode === "exact" ? [{ match_type: "exact", reasons: ["手机号一致"], candidate: { id: "existing-close", candidate_name: snapshot.candidate_name, phone: snapshot.phone, current_position: "原职位", row_version: 1 } }] : []; return { ok: true, data: { matches, groups: [] } }; }
+      if (type === "CREATE") return { ok: true, data: { candidate: { id: `created-${snapshot.platform_candidate_id}`, ...payload.resume, row_version: 1 } } };
+      if (type === "UPDATE") return { ok: true, data: { candidate: { id: payload.candidate_id, ...payload.resume, row_version: 2 } } };
+      if (type === "FOLLOWUPS") return { ok: true, data: { notes_saved: !failFollowup, recommendation_saved: true, errors: failFollowup ? [{ kind: "note", message: "合成备注失败" }] : [] } };
+      if (type === "DETAIL") return { ok: true, data: { notes: [], recommendations: [] } };
+      if (type === "CLOSE_FLOATING") { closes.push(payload.identity); return { ok: true, data: { closed: true } }; }
+      return { ok: true, data: {} };
+    }));
+    await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
+    await page.evaluate((resume) => { window.fixtureCandidate = resume; window.GoodHRExtraction = { extractCurrentCandidate: () => window.fixtureCandidate }; }, sampleResume("partial", "13800000201"));
+    await page.addScriptTag({ path: path.join(ROOT, "src", "content.js") }); await page.waitForFunction(() => Boolean(window.fixtureShadow?.querySelector("iframe")?.contentDocument?.getElementById("name")?.value));
+    const frame = page.frames().find((item) => item.url().includes("/src/floating.html"));
+
+    await frame.locator("#note").fill("这条备注模拟部分失败"); await frame.waitForFunction(() => !document.getElementById("save").disabled); await frame.locator("#save").click();
+    await frame.waitForFunction(() => document.getElementById("status").textContent.includes("输入保留")); await page.waitForTimeout(650); assert.equal(closes.length, 0); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true);
+
+    failFollowup = false; duplicateMode = "none";
+    await page.evaluate((resume) => { window.fixtureCandidate = resume; window.fixtureCaptureListener({ type: "REQUEST_CAPTURE" }, { id: "fixture-extension" }, () => {}); }, sampleResume("switch-before-close", "13800000202"));
+    await frame.waitForFunction(() => document.getElementById("phone").value === "13800000202" && !document.getElementById("save").disabled); await frame.locator("#save").click(); await frame.waitForFunction(() => document.getElementById("status").textContent === "已添加");
+    await page.evaluate((resume) => { window.fixtureCandidate = resume; window.fixtureCaptureListener({ type: "REQUEST_CAPTURE" }, { id: "fixture-extension" }, () => {}); }, sampleResume("existing-update", "13800000203"));
+    await frame.waitForFunction(() => document.getElementById("phone").value === "13800000203"); await page.waitForTimeout(650); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true); const closesAfterSwitch = closes.length;
+
+    duplicateMode = "exact"; await frame.evaluate(() => checkDuplicates(true)); await frame.locator("#update").waitFor({ state: "visible" }); await frame.locator("#resume-details > summary").click(); await frame.locator("#position").fill("更新后的职位"); await frame.locator("#update").click();
+    await frame.waitForFunction(() => document.getElementById("status").textContent === "已更新"); await page.waitForTimeout(650); assert.equal(closes.length, closesAfterSwitch); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true);
+
+    autoClose = false; duplicateMode = "none"; await page.evaluate((resume) => { window.fixtureCandidate = resume; window.fixtureCaptureListener({ type: "REQUEST_CAPTURE" }, { id: "fixture-extension" }, () => {}); }, sampleResume("disabled-create", "13800000204"));
+    await frame.waitForFunction(() => document.getElementById("phone").value === "13800000204" && !document.getElementById("save").disabled); await frame.locator("#save").click(); await frame.waitForFunction(() => document.getElementById("status").textContent === "已添加");
+    await page.waitForTimeout(650); assert.equal(closes.length, closesAfterSwitch); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true);
+
+    autoClose = true; await page.evaluate((resume) => { window.fixtureCandidate = resume; window.fixtureCaptureListener({ type: "REQUEST_CAPTURE" }, { id: "fixture-extension" }, () => {}); }, sampleResume("complete-create", "13800000205"));
+    await frame.waitForFunction(() => document.getElementById("phone").value === "13800000205" && !document.getElementById("save").disabled); await frame.locator("#save").click(); await frame.waitForFunction(() => document.getElementById("status").textContent === "已添加");
+    await page.waitForTimeout(300); assert.equal(closes.length, closesAfterSwitch); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true);
+    await page.waitForFunction(() => document.getElementById("goodhr-resume-assistant").hidden); assert.equal(closes.length, closesAfterSwitch + 1);
   } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
 });

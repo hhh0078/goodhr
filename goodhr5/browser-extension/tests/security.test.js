@@ -60,6 +60,20 @@ test("独立悬浮界面不能登录、配对、退出或改变资料授权，�
   assert.equal(accepted.ok, true); assert.equal(value.values.data_use_accepted, true); assert.equal(value.requests.length, 0);
 });
 
+test("入库自动关闭默认开启并持久化，只有工具栏能设置且只向来源页主框架发收起请求", async () => {
+  const value = backgroundFixture(), tab = { id: 31, url: "https://h.liepin.com/resume/showresumedetail" }, sender = { ...floatingSender, frameId: 2, tab };
+  const initial = await value.message({ type: "STATE" }, uiSender); assert.equal(initial.data.auto_close_after_save, true);
+  assert.equal(await value.message({ type: "SET_AUTO_CLOSE", payload: { enabled: false } }, sender), undefined); assert.equal(value.values.auto_close_after_save, undefined);
+  const disabled = await value.message({ type: "SET_AUTO_CLOSE", payload: { enabled: false } }, uiSender); assert.equal(disabled.ok, true); assert.equal(value.values.auto_close_after_save, false);
+  const restored = await value.message({ type: "STATE" }, uiSender); assert.equal(restored.data.auto_close_after_save, false);
+  const deliveries = []; value.extension.tabs.sendMessage = async (...args) => { deliveries.push(args); return { closed: true }; };
+  const skipped = await value.message({ type: "CLOSE_FLOATING", payload: { identity: "disabled" } }, sender); assert.equal(skipped.data.closed, false); assert.equal(deliveries.length, 0);
+  await value.message({ type: "SET_AUTO_CLOSE", payload: { enabled: true } }, uiSender);
+  const longIdentity = JSON.stringify(["hliepin", "fixture", `https://h.liepin.com/${"a".repeat(700)}`, "合成长链接候选人"]);
+  const closed = await value.message({ type: "CLOSE_FLOATING", payload: { identity: longIdentity } }, sender); assert.equal(closed.data.closed, true);
+  assert.equal(deliveries.length, 1); assert.equal(deliveries[0][0], tab.id); assert.equal(deliveries[0][1].type, "CLOSE_FLOATING"); assert.equal(deliveries[0][1].identity, longIdentity); assert.equal(deliveries[0][2].frameId, 0);
+});
+
 test("悬浮UI读取和头像绑定自身tab，活动tab变化不串人，旧快照不能新增", async () => {
   const value = backgroundFixture(); value.values.data_use_accepted = true;
   const tabA = { id: 23, url: "https://h.liepin.com/resume/showresumedetail" }, tabB = { id: 24, url: "https://rd6.zhaopin.com/app" };
@@ -98,7 +112,7 @@ test("悬浮面板头像读取期间切人会终止CREATE，既有简历不被�
 
 test("内容脚本不能调用登录、查重、保存或读取凭证接口", async () => {
   const value = backgroundFixture(), sender = { id: "test-extension", frameId: 0, tab: { id: 4, url: "https://h.liepin.com/resume/showresumedetail" } };
-  for (const type of ["STATE", "PREVIEW", "LOGIN", "CREATE", "AVATAR_RETRY", "DUPLICATES", "RESTORE", "FOLLOWUPS", "LOGOUT", "REVOKE_RETRY", "DRAFT_GET", "DRAFT_SAVE", "CHECK_UPDATE", "SUMMARY_START", "SUMMARY_SAVE"]) assert.equal(await value.message({ type, payload: {} }, sender), undefined);
+  for (const type of ["STATE", "PREVIEW", "LOGIN", "CREATE", "AVATAR_RETRY", "DUPLICATES", "RESTORE", "FOLLOWUPS", "LOGOUT", "REVOKE_RETRY", "DRAFT_GET", "DRAFT_SAVE", "CHECK_UPDATE", "SET_AUTO_CLOSE", "CLOSE_FLOATING", "SUMMARY_START", "SUMMARY_SAVE"]) assert.equal(await value.message({ type, payload: {} }, sender), undefined);
   assert.equal(value.requests.length, 0);
 });
 

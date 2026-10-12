@@ -23,13 +23,15 @@
   /** scheduleCapture 合并页面自然变化，避免每个节点变化都重复扫描。 */
   function scheduleCapture() { clearTimeout(pendingTimer); pendingTimer = setTimeout(() => capture(), 450); }
 
-  /** handleCaptureRequest 仅响应同一插件的重新读取请求，不接受页面自定义事件。 */
-  function handleCaptureRequest(message, sender, sendResponse) {
-    if (sender.id !== extension.runtime.id || message?.type !== "REQUEST_CAPTURE") return false;
+  /** handleRuntimeMessage 仅响应同一插件的重读与收起请求，不接受页面自定义事件。 */
+  function handleRuntimeMessage(message, sender, sendResponse) {
+    if (sender.id !== extension.runtime.id) return false;
+    if (message?.type === "CLOSE_FLOATING") { sendResponse({ ok: true, closed: Boolean(globalThis.GoodHRFloating?.close(message.identity || "")) }); return false; }
+    if (message?.type !== "REQUEST_CAPTURE") return false;
     capture(true).then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false })); return true;
   }
 
-  extension.runtime.onMessage.addListener(handleCaptureRequest);
+  extension.runtime.onMessage.addListener(handleRuntimeMessage);
   new MutationObserver(scheduleCapture).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden", "aria-hidden"] });
   setInterval(scheduleCapture, 2000);
   capture();
