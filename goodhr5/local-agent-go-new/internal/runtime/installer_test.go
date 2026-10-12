@@ -85,7 +85,7 @@ func TestInstallAssetReplacesSameVersionDifferentSHA(t *testing.T) {
 	manager := &Manager{runtimeDir: runtimeDir}
 	newAsset := Asset{Version: "152.0.4-beta.30", URL: server.URL + "/intel.zip", SHA256: hex.EncodeToString(newSHA[:])}
 	oldAsset := Asset{Version: newAsset.Version, URL: server.URL + "/arm64.zip", SHA256: hex.EncodeToString(oldSHA[:])}
-	if err := manager.saveVersion("camoufox", oldAsset); err != nil {
+	if err := manager.saveVersion("camoufox", oldAsset, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.installAsset(context.Background(), "camoufox", "Camoufox 浏览器", "camoufox", newAsset); err != nil {
@@ -107,7 +107,7 @@ func TestInstallAssetReplacesSameVersionDifferentSHA(t *testing.T) {
 		t.Fatalf("同版本同校验值不应重复下载：实际 %d 次", got)
 	}
 	oldAsset.SHA256 = "" // 兼容没有记录校验值的旧安装，重新校验并安装。
-	if err := manager.saveVersion("camoufox", oldAsset); err != nil {
+	if err := manager.saveVersion("camoufox", oldAsset, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.installAsset(context.Background(), "camoufox", "Camoufox 浏览器", "camoufox", newAsset); err != nil {

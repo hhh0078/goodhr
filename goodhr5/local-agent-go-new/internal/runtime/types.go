@@ -46,6 +46,8 @@ type InstalledComponent struct {
 	URL         string `json:"url"`
 	SHA256      string `json:"sha256"`
 	InstalledAt string `json:"installed_at"`
+	// ExecutablePath 保存相对于运行组件目录的可执行文件路径，支持程序目录整体迁移。
+	ExecutablePath string `json:"executable_path,omitempty"`
 }
 
 // InstallProgress 表示控制台轮询的组件安装进度。

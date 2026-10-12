@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -32,9 +33,10 @@ func (m *Manager) StartInstall(manifest Manifest) (Status, error) {
 	go func() {
 		defer m.installMu.Unlock()
 		if err := m.install(context.Background(), manifest); err != nil {
-			m.setInstallProgress(InstallProgress{
-				Running: false, Stage: "failed", Message: err.Error(),
-			})
+			progress := m.InstallProgress()
+			log.Printf("[运行组件] 安装失败 platform=%s component=%s stage=%s percent=%d runtime_dir=%s err=%v", platformKey(), progress.Component, progress.Stage, progress.Percent, m.runtimeDir, err)
+			progress.Running, progress.Stage, progress.Message = false, "failed", err.Error()
+			m.setInstallProgress(progress)
 			return
 		}
 		m.ensureCamoufoxInterface()
@@ -82,7 +84,7 @@ func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 	return nil
 }
 
-// installAsset 下载、SHA256 校验、安全解压并替换一个组件目录。
+// installAsset 下载并校验组件；Node 原地解压并记录路径，其他组件替换固定目录。
 func (m *Manager) installAsset(ctx context.Context, component string, label string, targetName string, asset Asset) error {
 	// 同版本的 Apple/Intel 包内容不同；旧记录缺少摘要时也必须重新安装。
 	if current, ok := m.loadVersions()[component]; ok &&
@@ -126,11 +128,20 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 		Running: true, Component: component, Stage: "extract",
 		Message: "正在解压" + label, Percent: 75,
 	})
-	stagingDir, err := os.MkdirTemp(m.runtimeDir, "."+targetName+"-install-*")
+	directoryPattern := "." + targetName + "-install-*"
+	if component == "node_runtime" {
+		directoryPattern = "node-runtime-*"
+	}
+	stagingDir, err := os.MkdirTemp(m.runtimeDir, directoryPattern)
 	if err != nil {
 		return fmt.Errorf("创建%s临时目录失败：%w", label, err)
 	}
-	defer os.RemoveAll(stagingDir)
+	keepDirectory := false
+	defer func() {
+		if !keepDirectory {
+			_ = os.RemoveAll(stagingDir)
+		}
+	}()
 	if err = extractArchive(archivePath, stagingDir, func(written int64, total int64) {
 		progress := InstallProgress{
 			Running: true, Component: component, Stage: "extract",
@@ -146,15 +157,29 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 	}
 	sourceDir := installRoot(stagingDir, component)
 	targetDir := filepath.Join(m.runtimeDir, targetName)
-	if err = replaceDirectory(sourceDir, targetDir); err != nil {
+	executablePath := ""
+	if component == "node_runtime" {
+		m.setInstallProgress(InstallProgress{Running: true, Component: component, Stage: "check", Message: "正在检查刚安装的" + label, Percent: 95})
+		nodePath := findFile(sourceDir, nodeBinaryName())
+		if err = checkNodeExecutable(ctx, nodePath); err != nil {
+			return fmt.Errorf("检查刚安装的%s失败（路径：%s）：%w", label, nodePath, err)
+		}
+		executablePath, err = filepath.Rel(m.runtimeDir, nodePath)
+		if err != nil {
+			return fmt.Errorf("记录%s安装路径失败：%w", label, err)
+		}
+		executablePath = filepath.ToSlash(executablePath)
+	} else if err = replaceDirectory(sourceDir, targetDir); err != nil {
 		return fmt.Errorf("安装%s失败：%w", label, err)
 	}
 	if component == "camoufox" {
 		m.writeCamoufoxVersionFile(targetDir, asset.Version)
 	}
-	if err = m.saveVersion(component, asset); err != nil {
+	m.setInstallProgress(InstallProgress{Running: true, Component: component, Stage: "register", Message: "正在记录" + label + "安装结果", Percent: 95})
+	if err = m.saveVersion(component, asset, executablePath); err != nil {
 		return fmt.Errorf("保存%s版本记录失败：%w", label, err)
 	}
+	keepDirectory = component == "node_runtime"
 	m.setInstallProgress(InstallProgress{
 		Running: true, Component: component, Stage: "installed",
 		Message: label + "安装完成", Percent: 95,

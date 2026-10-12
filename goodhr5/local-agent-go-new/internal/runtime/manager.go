@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +19,14 @@ import (
 
 // Manager 负责运行组件状态检查和 Worker 生命周期。
 type Manager struct {
-	nodePath          string
-	worker            *browserprocess.Manager
-	entryPath         string
-	runtimeDir        string
-	ocrPath           string
-	installMu         sync.Mutex
+	nodePath   string
+	worker     *browserprocess.Manager
+	entryPath  string
+	runtimeDir string
+	ocrPath    string
+	installMu  sync.Mutex
+	// versionsMu 避免 Windows 状态轮询读取版本文件时阻挡该文件的原子替换。
+	versionsMu        sync.RWMutex
 	progressMu        sync.Mutex
 	progress          InstallProgress
 	systemMu          sync.Mutex
@@ -95,27 +96,18 @@ func (m *Manager) inputSafetyStatus() NativeInputSafetyStatus {
 	return m.nativeInputStatus
 }
 
-// CheckNode 检查 Node.js 二进制是否存在。
+// CheckNode 检查当前平台 Node.js 文件能够执行且主版本符合 Worker 要求。
 func (m *Manager) CheckNode() error {
-	nodePath := m.NodePath()
-	if !fileExists(nodePath) {
-		return fmt.Errorf("Node.js 暂时没找到：%s", nodePath)
-	}
-	output, err := commandOutput(nodePath, "--version")
-	if err != nil {
-		return fmt.Errorf("Node.js 版本读取失败：%w", err)
-	}
-	versionText := strings.TrimPrefix(strings.TrimSpace(string(output)), "v")
-	majorText := strings.SplitN(versionText, ".", 2)[0]
-	major, err := strconv.Atoi(majorText)
-	if err != nil || major < 22 {
-		return fmt.Errorf("Node.js 版本需要 22 或更高，当前是 %s", strings.TrimSpace(string(output)))
-	}
-	return nil
+	return checkNodeExecutable(context.Background(), m.NodePath())
 }
 
-// NodePath 返回当前可用的打包 Node.js 或系统 Node.js 路径。
+// NodePath 优先使用已验证的新安装路径，并兼容旧打包目录和系统 Node.js。
 func (m *Manager) NodePath() string {
+	if recorded := m.loadVersions()["node_runtime"].ExecutablePath; recorded != "" {
+		if path, err := safeJoin(m.runtimeDir, recorded); err == nil && fileExists(path) {
+			return path
+		}
+	}
 	if bundled := findFile(filepath.Join(m.runtimeDir, "node"), nodeBinaryName()); bundled != "" {
 		return bundled
 	}
@@ -312,21 +304,26 @@ func (m *Manager) statePath() string {
 
 // loadVersions 读取已安装运行组件版本记录。
 func (m *Manager) loadVersions() map[string]InstalledComponent {
+	m.versionsMu.RLock()
+	defer m.versionsMu.RUnlock()
 	result := make(map[string]InstalledComponent)
 	content, err := os.ReadFile(m.statePath())
 	if err != nil {
 		return result
 	}
-	_ = json.Unmarshal(content, &result)
+	if err := json.Unmarshal(content, &result); err != nil || result == nil {
+		return make(map[string]InstalledComponent)
+	}
 	return result
 }
 
-// saveVersion 保存单个运行组件版本记录。
-func (m *Manager) saveVersion(component string, asset Asset) error {
+// saveVersion 原子保存组件版本与相对可执行路径，失败时保留旧安装记录。
+func (m *Manager) saveVersion(component string, asset Asset, executablePath string) error {
 	versions := m.loadVersions()
 	versions[component] = InstalledComponent{
 		Version: asset.Version, URL: asset.URL, SHA256: asset.SHA256,
-		InstalledAt: time.Now().UTC().Format(time.RFC3339Nano),
+		InstalledAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		ExecutablePath: executablePath,
 	}
 	content, err := json.MarshalIndent(versions, "", "  ")
 	if err != nil {
@@ -335,7 +332,21 @@ func (m *Manager) saveVersion(component string, asset Asset) error {
 	if err = os.MkdirAll(m.runtimeDir, 0o755); err != nil {
 		return fmt.Errorf("创建运行目录失败：%w", err)
 	}
-	return os.WriteFile(m.statePath(), content, 0o644)
+	temporary, err := os.CreateTemp(m.runtimeDir, ".components-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temporary.Name())
+	if _, err = temporary.Write(content); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err = temporary.Close(); err != nil {
+		return err
+	}
+	m.versionsMu.Lock()
+	defer m.versionsMu.Unlock()
+	return os.Rename(temporary.Name(), m.statePath())
 }
 
 // fileExists 判断路径是否为普通文件。

@@ -53,6 +53,25 @@ POST /api/v1/page/open
 
 ## 2. 开发前必须执行
 
+### 双平台适配与验证
+
+本地程序会分别发布 Windows 版和 macOS 版，所有公共能力必须同时保持可用。
+
+| 发布目标 | Go 目标 | 运行组件清单编号 | 系统适配重点 |
+| --- | --- | --- | --- |
+| Windows x64 | `windows/amd64` | `win-x64` | `node.exe`、文件占用与目录权限、VC++ 运行库、隐藏控制台、资源管理器与防睡眠 |
+| macOS Apple Silicon | `darwin/arm64` | `darwin-arm64` | `bin/node` 的可执行权限、Apple 原生依赖、Finder、Vision OCR 与 `caffeinate` |
+| macOS Intel | `darwin/amd64` | `darwin-x64` | Intel Node 与原生依赖，不得复用仅适用于 Apple 芯片的组件 |
+
+- 修改前说明此次涉及哪些系统差异，并查找现有平台适配方法。
+- Go 的 Windows 专属调用放入 `_windows.go` 并声明构建约束；macOS 与其他系统实现使用相应构建约束。公共代码不得无条件引用 `syscall.SysProcAttr` 的 Windows 字段或 Windows API。
+- Worker 系统调用与原生依赖必须按系统、架构选择；公共浏览器能力保持同一份流程，不用 Windows 专属命令处理 Mac。
+- Node 安装使用对应平台压缩包，保留包装目录与可执行权限；在原地验证 Node 能运行且主版本至少为 22 后记录相对路径。Windows 与 Mac 都不依赖移动整个 Node 文件夹来完成安装。
+- 旧 `runtime/node` 目录和系统 Node 仍需兼容；Mac 的 `.app` 浏览器结构、Vision OCR 和双架构 Worker 依赖不可因 Windows 修复被破坏。
+- Windows 安装包使用 `scripts/package-windows.ps1`；macOS 包使用 `scripts/package-release.sh`，由 Mac 生成同时包含 Apple 与 Intel 主程序及对应原生依赖的产物。
+- 修改后必须验证 Windows x64、macOS arm64 和 macOS amd64 编译。改变安装或系统行为时，还应在对应系统执行回归；若当前没有 Mac，必须明确记录“仅完成交叉编译，Mac 真机运行尚未验证”。
+- 在本目录 README 或对应流程文档中写明分别适配的位置、规则与验证结果。禁止把 Windows 测试通过写成 Mac 已验证。
+
 1. 先阅读本文件和本次涉及目录的文档。
 2. 先搜索是否已有相同或相似方法、类型、接口和错误码。
 3. 向用户总结需求理解，等待确认后再写代码。
