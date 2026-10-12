@@ -225,7 +225,7 @@ export default function AgentDownloadPage() {
                     fontWeight: 760,
                   }}
                 >
-                  加入浏览器扩展
+                  GoodHR 浏览器插件
                 </Typography.Title>
                 <Typography.Text
                   style={{
@@ -236,8 +236,9 @@ export default function AgentDownloadPage() {
                     lineHeight: 1.75,
                   }}
                 >
-                  如果下载的是压缩包，请先解压；如果拿到的已经是扩展文件夹，直接放进下面的目录。扩展文件夹里面必须能看到
-                  manifest.json。
+                  GoodHR 自带浏览器会自动同步官方简历插件，不需要下载或解压。普通 Chrome 请到
+                  <Typography.Link href="/download#browser-extension">官网下载页</Typography.Link>
+                  ，按“无需解压”的教程安装。下面目录只用于开发或自定义扩展，放入的文件夹必须包含 manifest.json。
                 </Typography.Text>
                 <div
                   style={{
@@ -273,7 +274,7 @@ export default function AgentDownloadPage() {
                 disabled={openingExtensions || !extensionsDirectory}
                 onClick={() => void openExtensionsDirectory()}
               >
-                {openingExtensions ? "正在打开" : "打开扩展目录"}
+                {openingExtensions ? "正在打开" : "打开自定义目录"}
               </Button>
             </Flex>
           </SectionPanel>

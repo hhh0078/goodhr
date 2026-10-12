@@ -186,11 +186,11 @@ begin
     if LoadRequired then
     begin
       if not WizardSilent then
-        MsgBox('插件已经准备好了。Chrome 还需要你确认一下：' + #13#10 + #13#10 +
+        MsgBox('插件已经由本地程序准备好了，不需要手动下载或解压。Chrome 还需要你确认一下：' + #13#10 + #13#10 +
           '1. 打开右上角的“开发者模式”' + #13#10 +
-          '2. 点击“加载已解压的扩展程序”' + #13#10 +
+          '2. 点击左上角的本地插件加载按钮' + #13#10 +
           '3. 选择接下来打开的插件文件夹' + #13#10 + #13#10 +
-          '如果以前加载过，这次点一下“重新加载”就行。浏览器这一步必须由你点，我已经把文件准备好了。', mbInformation, MB_OK);
+          '如果以前加载过，这次点一下“重新加载”就行。也可以去官网下载页，把安装包直接拖进扩展管理页，无需解压。', mbInformation, MB_OK);
       if OpenChromeExtensionGuide then
       begin
         if not DeleteFile(ChromeExtensionLoadMarker) then
