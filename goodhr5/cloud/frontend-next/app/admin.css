@@ -36,7 +36,7 @@
 }
 .goodhr-admin-main {
   margin-left: calc(var(--goodhr-sidebar-width) + 16px);
-  padding-top: 86px;
+  padding-top: 72px;
   height: calc(100dvh - 32px);
   display: flex;
   flex-direction: column;
@@ -55,16 +55,16 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 .goodhr-admin-banner-text {
   display: block;
   min-width: 0;
-  padding: 2px 8px;
+  padding: 0 6px;
   overflow: hidden;
   color: var(--goodhr-text-secondary);
   font-size: 12px;
-  line-height: 22px;
+  line-height: 18px;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -176,6 +176,9 @@ a.goodhr-admin-banner-text:hover {
   .goodhr-desktop-lg {
     display: none !important;
   }
+  .goodhr-admin-main {
+    padding-top: 69px;
+  }
 }
 @media (max-width: 899px) {
   .goodhr-admin-layout {
@@ -196,7 +199,7 @@ a.goodhr-admin-banner-text:hover {
   }
   .goodhr-admin-main {
     margin-left: 0;
-    padding-top: 80px;
+    padding-top: 65px;
     height: 100dvh;
   }
   .goodhr-admin-content {

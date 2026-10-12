@@ -406,7 +406,7 @@ test("后台广告用单行纯文字等宽展示，长文案显示省略号", as
     { enabled: true, text: "第二条可点击广告", url: "https://example.invalid/two" },
     { enabled: true, text: "第三条可点击广告", url: "https://example.invalid/three" },
   ] };
-  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.setViewportSize({ width: 1115, height: 800 });
   await page.goto("/admin/resumes");
   const banners = page.getByRole("navigation", { name: "GoodHR 公告与推荐", exact: true });
   const links = banners.getByRole("link");
@@ -420,6 +420,24 @@ test("后台广告用单行纯文字等宽展示，长文案显示省略号", as
   expect(new Set(metrics.map((item) => item.y)).size).toBe(1);
   expect(metrics.every((item) => item.height <= 26 && item.whiteSpace === "nowrap" && item.overflow === "hidden" && item.textOverflow === "ellipsis")).toBe(true);
   expect(metrics[0].scrollWidth).toBeGreaterThan(metrics[0].clientWidth);
+  const verticalMetrics = await page.locator(".goodhr-admin-toolbar, .goodhr-admin-banners, .goodhr-admin-content").evaluateAll((elements) => elements.map((element) => {
+    const box = element.getBoundingClientRect();
+    return { top: box.top, bottom: box.bottom, height: box.height };
+  }));
+  const [toolbar, bannerRow, content] = verticalMetrics;
+  expect(bannerRow.height).toBeLessThanOrEqual(18);
+  expect(bannerRow.top).toBeGreaterThanOrEqual(toolbar.bottom);
+  expect(bannerRow.top - toolbar.bottom).toBeLessThanOrEqual(6);
+  expect(content.top - bannerRow.bottom).toBeLessThanOrEqual(4);
+  await page.setViewportSize({ width: 760, height: 800 });
+  const mobileVerticalMetrics = await page.locator(".goodhr-admin-toolbar, .goodhr-admin-banners, .goodhr-admin-content").evaluateAll((elements) => elements.map((element) => {
+    const box = element.getBoundingClientRect();
+    return { top: box.top, bottom: box.bottom };
+  }));
+  const [mobileToolbar, mobileBannerRow, mobileContent] = mobileVerticalMetrics;
+  expect(mobileBannerRow.top).toBeGreaterThanOrEqual(mobileToolbar.bottom);
+  expect(mobileBannerRow.top - mobileToolbar.bottom).toBeLessThanOrEqual(6);
+  expect(mobileContent.top - mobileBannerRow.bottom).toBeLessThanOrEqual(4);
   expect(state.errors).toEqual([]);
 });
 
