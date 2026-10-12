@@ -4,6 +4,7 @@
 import DownloadOutlined from "@ant-design/icons/lib/icons/DownloadOutlined";
 import { Alert, Button, Flex, Modal, Typography } from "antd";
 import { useState, type MouseEvent, type ReactNode } from "react";
+import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 
 type BrowserExtensionInstallGuideProps = {
   href: string;
@@ -92,7 +93,7 @@ export default function BrowserExtensionInstallGuide({
             </Typography.Title>
             <ol>
               <li>点击浏览器工具栏里的 GoodHR 图标，登录你的 GoodHR 账号。</li>
-              <li>打开猎聘企业端、猎聘猎头端、智联或前程无忧的候选人详情，助手会自动识别并打开。</li>
+              <li>当前支持 {BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}。打开候选人详情后，助手会自动识别并打开。</li>
               <li>手机号是入库必填项。没有识别到时先补上，再一键添加到简历库。</li>
             </ol>
           </section>

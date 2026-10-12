@@ -10,7 +10,7 @@ const screenshotDirectory = resolve("artifacts/resume-library");
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 type Call = { origin: string; path: string; method: string; body: any; query: URLSearchParams };
 type PairApprovalReply = { gate?: Promise<void>; status?: number; error?: string };
-type State = { calls: Call[]; notes: any[]; recommendations: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string }>; user: { id: string; email: string }; candidates: any[]; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; taskPlain404?: boolean; taskListEmpty?: boolean; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void>; pairApprovals?: Record<string, PairApprovalReply>; pairApprovalReplies?: string[] };
+type State = { calls: Call[]; notes: any[]; recommendations: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string }>; user: { id: string; email: string }; candidates: any[]; appConfig?: any; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; taskPlain404?: boolean; taskListEmpty?: boolean; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void>; pairApprovals?: Record<string, PairApprovalReply>; pairApprovalReplies?: string[] };
 const existing = { id: "resume-existing", candidate_name: "原有候选人", phone: "13800138000", row_version: 3, source_type: "automatic", education_level: "本科", expected_salary_min: null, expected_salary_max: null, work_experiences: [{ company_name: "原有公司", position_name: "产品经理", start_ym: "2021-01", content: "已有工作经历保留" }], user_email: "test@example.invalid", created_at: "2026-10-10T10:00:00+08:00", ai: { detail: { score: null, reason: "" } } };
 test.use({ storageState: { cookies: [], origins: [{ origin: previewOrigin, localStorage: [{ name: "goodhr5_access_token", value: "resume-test-only" }] }] } });
 
@@ -75,7 +75,7 @@ async function mockResumeSession(page: Page): Promise<State> {
     } else if (url.pathname === "/api/auth/me") data = { user: { ...state.user, role: "super_admin", tenant_id: "test-team", password_set: true } };
     else if (url.pathname === "/api/subscription/status") data = { subscription: { active: true, member_type: "plus", member_name: "Plus", remaining_days: 30, allow_ai: true, allow_auto_reply: true } };
     else if (url.pathname === "/api/config/notification-profile") data = { profile: { completed: true } };
-    else if (url.pathname === "/api/runtime/config" || url.pathname === "/api/system/app-config") data = { config: {} };
+    else if (url.pathname === "/api/runtime/config" || url.pathname === "/api/system/app-config") data = { config: state.appConfig || {} };
     else if (url.pathname === "/api/user-flow") data = { flow: { version: 2, state: "completed", stage: "completed", steps: {} } };
     else if (url.pathname.includes("/invitations")) data = { invitations: [] };
     else if (url.pathname === "/api/ai-wallet") data = { wallet: { balance: "100", models: [], default_model: "test" } };
@@ -367,6 +367,7 @@ test("添加默认AI三标签直接切换，文件文本和手工草稿各自保
   await dialog.getByLabel("手机号", { exact: true }).fill("13900139000");
   await dialog.getByLabel("首条备注", { exact: true }).fill("切换标签后仍需保留的备注");
   await dialog.getByRole("tab", { name: "浏览器插件一键导入", exact: true }).click();
+  await expect(dialog.getByText("当前支持：猎聘企业端、猎聘猎头端、智联招聘、前程无忧", { exact: true })).toBeVisible();
   await expect(dialog.getByText(/Chrome 和 Firefox 都可以下载/)).toBeVisible();
   await expect(dialog.getByRole("link", { name: /前往下载$/ })).toHaveAttribute("href", "/download#browser-extension");
   await expect(dialog.getByRole("link", { name: /前往下载$/ })).toHaveAttribute("target", "_blank");
@@ -385,39 +386,40 @@ test("添加默认AI三标签直接切换，文件文本和手工草稿各自保
   expect(state.errors).toEqual([]);
 });
 
-/** 顶部下载入口必须先展示教程，用户确认后才进入统一下载页。 */
-test("简历库顶部下载浏览器插件先展示安装与使用教程", async ({ page }) => {
+/** 顶部下载入口保持为紧凑文字，直接进入统一下载页，具体安装包仍在下载页展示教程。 */
+test("简历库顶部用文字链接直接前往浏览器插件下载页", async ({ page }) => {
   const state = await mockResumeSession(page);
   await page.goto("/admin/resumes");
-  const installGuide = page.getByRole("dialog", {
-    name: "安装浏览器插件",
-    exact: true,
-  });
-  await expect(installGuide).not.toBeVisible();
-  await page
-    .getByRole("link", { name: "下载浏览器插件", exact: true })
-    .click();
-  await expect(installGuide).toBeVisible();
-  await expect(
-    installGuide.getByRole("heading", { name: "安装方法", exact: true }),
-  ).toBeVisible();
-  await expect(
-    installGuide.getByRole("heading", { name: "使用方法", exact: true }),
-  ).toBeVisible();
-  await expect(installGuide).toContainText("开发者模式");
-  await expect(installGuide).toContainText("无需解压");
-  await expect(installGuide).toContainText("直接拖到扩展管理页");
-  await expect(installGuide).not.toContainText("加载已解压的扩展程序");
-  await expect(installGuide).toContainText("登录你的 GoodHR 账号");
-  await expect(installGuide).toContainText("助手会自动识别并打开");
-  await expect(installGuide).toContainText("手机号是入库必填项");
-  await expect(
-    installGuide.getByRole("link", { name: "前往插件下载", exact: true }),
-  ).toHaveAttribute("href", "/download#browser-extension");
-  await installGuide
-    .getByRole("button", { name: "先不安装", exact: true })
-    .click();
-  await expect(installGuide).not.toBeVisible();
+  await expect(page.getByText(/浏览器插件支持 猎聘企业端、猎聘猎头端、智联招聘、前程无忧/)).toBeVisible();
+  const download = page.getByRole("link", { name: "下载浏览器插件", exact: true });
+  await expect(download).toHaveAttribute("href", "/download#browser-extension");
+  await expect(download).toHaveAttribute("target", "_blank");
+  await expect(download).not.toHaveClass(/ant-btn/);
+  expect(state.errors).toEqual([]);
+});
+
+/** 后台广告必须保持单行纯文字，数量变化时始终等分可用宽度。 */
+test("后台广告用单行纯文字等宽展示，长文案显示省略号", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.appConfig = { admin_banners: [
+    { enabled: true, text: "这是一条用于验证省略号的很长广告文字".repeat(12), url: "https://example.invalid/one", text_color: "#20413a" },
+    { enabled: true, text: "第二条可点击广告", url: "https://example.invalid/two" },
+    { enabled: true, text: "第三条可点击广告", url: "https://example.invalid/three" },
+  ] };
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin/resumes");
+  const banners = page.getByRole("navigation", { name: "GoodHR 公告与推荐", exact: true });
+  const links = banners.getByRole("link");
+  await expect(links).toHaveCount(3);
+  await expect(banners.locator(".ant-alert")).toHaveCount(0);
+  const metrics = await links.evaluateAll((elements) => elements.map((element) => {
+    const box = element.getBoundingClientRect(), style = getComputedStyle(element);
+    return { width: box.width, y: box.y, height: box.height, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, whiteSpace: style.whiteSpace, overflow: style.overflow, textOverflow: style.textOverflow };
+  }));
+  expect(Math.max(...metrics.map((item) => item.width)) - Math.min(...metrics.map((item) => item.width))).toBeLessThanOrEqual(1);
+  expect(new Set(metrics.map((item) => item.y)).size).toBe(1);
+  expect(metrics.every((item) => item.height <= 26 && item.whiteSpace === "nowrap" && item.overflow === "hidden" && item.textOverflow === "ellipsis")).toBe(true);
+  expect(metrics[0].scrollWidth).toBeGreaterThan(metrics[0].clientWidth);
   expect(state.errors).toEqual([]);
 });
 
@@ -469,7 +471,7 @@ test("候选人手机号紧邻姓名且头像垂直居中，公司名称比职�
   const companyWeight = await company.evaluate((element) => Number(getComputedStyle(element).fontWeight));
   const bodyWeight = await company.locator("..").evaluate((element) => Number(getComputedStyle(element).fontWeight));
   expect(companyWeight).toBeGreaterThan(bodyWeight);
-  const privacyNotice = page.getByText("请勿非法买卖简历。平台不会出售您的简历，分享权限由您掌握。", { exact: true });
+  const privacyNotice = page.getByTitle("请勿非法买卖简历。平台不会出售您的简历，分享权限由您掌握。浏览器插件支持猎聘企业端、猎聘猎头端、智联招聘、前程无忧。", { exact: true });
   await expect(privacyNotice).toBeVisible();
   const [noticeBox, filtersBox] = await Promise.all([privacyNotice.boundingBox(), page.getByTestId("resume-filters").boundingBox()]);
   if (!noticeBox || !filtersBox) throw new Error("简历保护提示或搜索栏没有显示。");

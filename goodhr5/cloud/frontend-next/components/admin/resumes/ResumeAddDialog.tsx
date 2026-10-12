@@ -9,6 +9,7 @@ import type { PositionOption, Resume } from "@/lib/resume-types";
 import ResumeEditor from "./ResumeEditor";
 import ResumeImportDialog from "./ResumeImportDialog";
 import styles from "./resumes.module.css";
+import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 
 export type ResumeAddTab = "ai" | "manual" | "plugin";
 export interface ResumeAddDialogProps {
@@ -56,6 +57,7 @@ export default function ResumeAddDialog({ open, initialTab = "ai", initialTaskID
         {
           key: "plugin", label: "浏览器插件一键导入", forceRender: true, disabled: busy && tab !== "plugin",
           children: <div className={styles.pluginGuide}>
+            <Typography.Paragraph strong>当前支持：{BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}</Typography.Paragraph>
             <Typography.Paragraph>打开候选人详情后，GoodHR 会自动识别简历。核对手机号，就能一键导入简历库。</Typography.Paragraph>
             <Typography.Paragraph type="secondary">Chrome 和 Firefox 都可以下载。安装方法也在下载页，跟着操作就好。</Typography.Paragraph>
             <Button type="primary" icon={<DownloadOutlined />} href="/download#browser-extension" target="_blank" rel="noopener noreferrer">前往下载</Button>

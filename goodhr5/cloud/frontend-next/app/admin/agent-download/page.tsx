@@ -14,6 +14,7 @@ import {
   missingRequiredRuntimeURLs,
   waitForRuntimeInstall,
 } from "@/lib/admin-runtime";
+import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import {
   EmptyState,
   PageHeader,
@@ -236,7 +237,7 @@ export default function AgentDownloadPage() {
                     lineHeight: 1.75,
                   }}
                 >
-                  GoodHR 自带的 Firefox 浏览器会自动同步官方简历插件，不需要下载或解压。普通 Chrome 请到
+                  当前支持 {BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}。GoodHR 自带的 Firefox 浏览器会自动同步官方简历插件，不需要下载或解压。普通 Chrome 请到
                   <Typography.Link href="/download#browser-extension">官网下载页</Typography.Link>
                   ，按“无需解压”的教程安装。下面目录只用于开发或自定义扩展，放入的文件夹必须包含 manifest.json。
                 </Typography.Text>

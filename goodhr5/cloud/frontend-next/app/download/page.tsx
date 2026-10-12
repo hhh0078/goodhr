@@ -10,6 +10,7 @@ import type { ReactNode } from "react";
 import MarketingShell from "@/components/MarketingShell";
 import DownloadUpdateRecords from "@/components/download/DownloadUpdateRecords";
 import BrowserExtensionInstallGuide from "@/components/download/BrowserExtensionInstallGuide";
+import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import styles from "@/components/download/download.module.css";
 import { getLocalAgentUpdates, getBrowserExtensionRelease, type BrowserExtensionRelease } from "@/lib/public-data";
 import { createPageMetadata } from "@/lib/seo";
@@ -17,7 +18,7 @@ import { createPageMetadata } from "@/lib/seo";
 export const metadata: Metadata = createPageMetadata({
   title: "下载GoodHR - HR与猎头招聘自动化工具",
   description:
-    "下载 GoodHR Windows 或 macOS 本地程序与浏览器插件，用于招聘自动化、AI筛选、自动回复和候选人简历导入；查看各版本更新说明。",
+    `下载 GoodHR Windows 或 macOS 本地程序，以及支持${BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}的 Chrome、Firefox 简历插件；用于招聘自动化、AI筛选、自动回复和候选人简历导入。`,
   path: "/download",
   keywords: [
     "招聘软件免费下载",
@@ -111,7 +112,7 @@ function BrowserExtensionDownloads({release}: {release: BrowserExtensionRelease 
   const firefoxAvailable = isSignedFirefoxDownload(release);
   return <section id="browser-extension" className={`public-download-10 ${styles.downloadSection}`} aria-labelledby="browser-extension-heading">
     <h2 id="browser-extension-heading" className="public-text public-download-11">浏览器插件下载{release?.version ? ` · v${release.version}` : ""}</h2>
-    <p className={`public-text public-download-18 ${styles.sectionDescription}`}>打开猎聘企业端、猎头端、智联或前程无忧候选人详情后，插件会自动识别简历并打开助手。查重、补手机号、记备注和入库都在助手里完成。</p>
+    <p className={`public-text public-download-18 ${styles.sectionDescription}`}><strong>当前支持：{BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}。</strong> 打开候选人详情后，插件会自动识别简历并打开助手。查重、补手机号、记备注和入库都在助手里完成。</p>
     <div className="public-download-4">
       <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note="下载前会先展示安装教程。打开开发者模式后，把下载记录里的安装包直接拖进扩展管理页，无需解压。" href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} browser="Chrome" />
       <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={firefoxAvailable ? "已签名安装包，下载前会先展示安装教程。" : "正在完成 Mozilla 签名，签名通过后开放下载。"} href={firefoxAvailable ? release?.url_firefox || "" : ""} available={firefoxAvailable} browser="Firefox" />

@@ -1,6 +1,7 @@
 /** 本文件负责向 AI 搜索与问答系统提供 GoodHR 的纯文本产品说明。 */
 
 import { PLATFORM_AUTOMATION_KEYWORDS, RECRUITMENT_PLATFORMS, SITE_URL } from "@/lib/seo";
+import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 
 export const dynamic = "force-static";
 
@@ -17,6 +18,7 @@ export function GET() {
 - 自动打招呼、AI 打招呼、自动回复招聘消息和邀约跟进
 - 招聘简历整理、结构化简历库和简历下载管理
 - AI 批量解析、手动添加和浏览器插件导入简历，按手机号和履历线索查重
+- 浏览器简历插件目前支持${BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}
 - 猎头推荐流程按候选人与岗位记录推荐阶段、备注、操作人、时间和推进历史
 - 企业 HR 招聘流程通过可配置模板管理面试、面评、审核、Offer 和入职确认
 - 多账号、岗位模板、岗位运行日志和本地浏览器资料管理

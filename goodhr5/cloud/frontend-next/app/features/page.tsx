@@ -11,6 +11,7 @@ import TuneRoundedIcon from "@ant-design/icons/lib/icons/SlidersOutlined";
 
 import type { Metadata } from "next";
 import MarketingShell from "@/components/MarketingShell";
+import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import { createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
@@ -68,7 +69,7 @@ const features = [
   {
     icon: DownloadRoundedIcon,
     title: "结构化简历库",
-    text: "通过 AI 批量解析、手动添加或浏览器插件导入候选人，按手机号和履历线索查重，并保留备注与来源。",
+    text: `通过 AI 批量解析、手动添加或浏览器插件导入候选人。插件目前支持${BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}；入库后按手机号和履历线索查重，并保留备注与来源。`,
   },
   {
     icon: QueryStatsRoundedIcon,

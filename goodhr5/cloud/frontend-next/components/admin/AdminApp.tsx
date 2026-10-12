@@ -158,7 +158,7 @@ export function useAdmin() {
   return value;
 }
 
-/** AdminBanners 展示后台全局常驻广告位，最多显示三条。 */
+/** AdminBanners 将后台广告压成一行等宽文字，长文案只显示单行省略号。 */
 function AdminBanners({ appConfig }: { appConfig: any }) {
   const source = Array.isArray(appConfig?.admin_banners)
     ? appConfig.admin_banners
@@ -170,29 +170,23 @@ function AdminBanners({ appConfig }: { appConfig: any }) {
     .slice(0, 3);
   if (!banners.length) return null;
   return (
-    <Flex gap={8} wrap style={{ marginBottom: 12 }}>
-      {banners.map((banner: any, index: number) => (
-        <Alert
-          key={index}
-          title={banner.text}
-          type="warning"
-          onClick={() => openExternalURL(banner.url)}
-          style={{
-            flex: "1 1 240px",
-            cursor: banner.url ? "pointer" : undefined,
-            background: banner.background_color || undefined,
-            color: banner.text_color || undefined,
-          }}
-        />
-      ))}
-    </Flex>
+    <nav className="goodhr-admin-banners" aria-label="GoodHR 公告与推荐">
+      {banners.map((banner: any, index: number) => {
+        const text = String(banner.text || "").trim();
+        const url = String(banner.url || "").trim();
+        const common = {
+          className: "goodhr-admin-banner-text",
+          title: text,
+          style: { color: banner.text_color || undefined },
+        };
+        return url ? (
+          <a key={index} {...common} href={url} target="_blank" rel="noopener noreferrer">{text}</a>
+        ) : (
+          <span key={index} {...common}>{text}</span>
+        );
+      })}
+    </nav>
   );
-}
-
-/** openExternalURL 新开页面打开配置里的外部链接。 */
-function openExternalURL(url?: string) {
-  const value = String(url || "").trim();
-  if (value) window.open(value, "_blank", "noopener,noreferrer");
 }
 
 /** formatAIBalance 格式化顶部栏 AI 余额。 */
