@@ -29,6 +29,10 @@ func TestEnsureCamoufoxFontRendering(t *testing.T) {
 			if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			originalInfo, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
 			for i := 0; i < 2; i++ {
 				if err := ensureCamoufoxFontRendering(root, "darwin"); err != nil {
 					t.Fatal(err)
@@ -47,7 +51,7 @@ func TestEnsureCamoufoxFontRendering(t *testing.T) {
 				}
 			}
 			info, err := os.Stat(path)
-			if err != nil || info.Mode().Perm() != 0o600 {
+			if err != nil || info.Mode().Perm() != originalInfo.Mode().Perm() {
 				t.Fatal("原配置文件权限没有保留", err)
 			}
 			entries, err := os.ReadDir(resources)

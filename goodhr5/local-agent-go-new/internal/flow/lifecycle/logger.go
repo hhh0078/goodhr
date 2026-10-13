@@ -188,6 +188,9 @@ func visibleTaskStep(flow string, step string, status string, err error) bool {
 	if flow == "lifecycle" && step == "agent_shutdown" && status == "stopped" {
 		return true
 	}
+	if flow == "greeting" && step == "browse_candidate_detail" {
+		return status == "start" || status == "success"
+	}
 	if status != "start" {
 		return false
 	}
@@ -383,7 +386,7 @@ func userStepLabel(step string) string {
 		"scroll_to_candidate":           "滚动到当前候选人",
 		"open_detail":                   "打开候选人详情",
 		"read_detail_text":              "读取候选人详情",
-		"browse_candidate_detail":       "浏览候选人详情",
+		"browse_candidate_detail":       "滚动浏览详情",
 		"close_detail":                  "关闭候选人详情",
 		"ai_decision":                   "AI 正在判断候选人匹配度",
 		"request_candidate_info":        "索要候选人资料",

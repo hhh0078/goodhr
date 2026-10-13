@@ -17,6 +17,27 @@ type loggedRuntime struct {
 	logger shared.Logger
 }
 
+// loggedDetailRuntime 只为原本支持详情浏览的平台保留该可选能力。
+type loggedDetailRuntime struct {
+	*loggedRuntime
+	detailBrowser model.DetailBrowser
+}
+
+// newLoggedRuntime 创建日志封装，并保留底层平台已有的可选详情浏览能力。
+func newLoggedRuntime(runtime model.Runtime, taskID string, logger shared.Logger) model.Runtime {
+	logged := &loggedRuntime{Runtime: runtime, taskID: taskID, logger: logger}
+	if detailBrowser, ok := runtime.(model.DetailBrowser); ok {
+		return &loggedDetailRuntime{loggedRuntime: logged, detailBrowser: detailBrowser}
+	}
+	return logged
+}
+
+// BrowseCandidateDetail 转发平台详情浏览，并记录失败或异常，不改变返回结果。
+func (l *loggedDetailRuntime) BrowseCandidateDetail(ctx context.Context, browser model.Browser, config model.Config, candidate model.Candidate) (err error) {
+	defer l.record("browse_candidate_detail", time.Now(), &err)
+	return l.detailBrowser.BrowseCandidateDetail(ctx, browser, config, candidate)
+}
+
 // record 在方法返回或发生 panic 时记录该方法的结果与耗时。
 func (l *loggedRuntime) record(step string, startedAt time.Time, runErr *error) {
 	if recovered := recover(); recovered != nil {

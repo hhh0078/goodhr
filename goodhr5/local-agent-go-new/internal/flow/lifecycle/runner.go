@@ -361,7 +361,7 @@ func (r *Runner) run(ctx context.Context, active *activeTask) {
 	if err != nil {
 		return
 	}
-	runtime = &loggedRuntime{Runtime: runtime, taskID: prepared.Request.TaskID, logger: r.logger}
+	runtime = newLoggedRuntime(runtime, prepared.Request.TaskID, r.logger)
 	switch prepared.Request.TaskType {
 	case "greeting":
 		stats, err = r.greeting.Run(ctx, prepared, runtime)

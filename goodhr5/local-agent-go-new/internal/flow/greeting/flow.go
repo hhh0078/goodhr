@@ -415,7 +415,10 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		if detailMode != "ai" && !prepared.Position.RequiresOCR {
 			if detailBrowser, ok := runtime.(model.DetailBrowser); ok {
 				startedAt := time.Now()
+				f.log(prepared.Request.TaskID, "browse_candidate_detail", "start", startedAt, nil)
 				if err := detailBrowser.BrowseCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+					f.log(prepared.Request.TaskID, "browse_candidate_detail", "failed", startedAt, err)
+					stats.Failed++
 					return fmt.Errorf("浏览候选人详情中断：%w", err)
 				}
 				f.log(prepared.Request.TaskID, "browse_candidate_detail", "success", startedAt, nil)
