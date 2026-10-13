@@ -19,6 +19,7 @@
 
 - 使用 [smoke-macos-chinese.mjs](../scripts/smoke-macos-chinese.mjs) 和可见浏览器测试 Apple 芯片及 Rosetta Intel 组件。每个架构分别以 Windows、macOS 两种浏览器指纹打开隔离页面；每种指纹对 8 种字体、UTF-8、GB18030、Brotli、gzip 完成 `32` 次中文文本断言和 `4` 张截图。BOSS 直聘公开页中文显示正常，隔离浏览器 GPU 进程数均为 `0`。
 - 原先启用 GPU 的隔离 Intel 旧 Profile 也通过 `32` 次文本断言和 `4` 张截图；修正后 GPU 进程数为 `0`。证据分别见 `/tmp/goodhr-font-final-arm64-render/evidence.json`、`/tmp/goodhr-font-final-x64-render/evidence.json`、`/tmp/goodhr-font-final-x64-old-profile/evidence.json`。
+- 另外使用正式 Intel Node `22.19.0`（`process.arch=x64`）加载最终 Worker 的 Intel `impit` 原生模块，并再次对旧隔离 Profile 完成 `32` 次中文断言、截图人工检查和 GPU `0` 检查；证据位于 `/tmp/goodhr-font-final-x64-native-node/evidence.json`。
 - Go `browser/runtime/config` 测试通过，`runtime` 的 `go vet` 通过；Worker `208` 项测试通过；Windows 目标编译通过。Windows 尚未进行真机测试。
 
 ## 生产下载配置与回退材料
@@ -30,3 +31,4 @@
 - 配置发布前、后备份位于本机 `/tmp/goodhr-onboarding-before-mac-6.2.10.7.json`、`/tmp/goodhr-onboarding-after-mac-6.2.10.7.json`，权限 `0600`。截图为 `/tmp/goodhr-mac-6.2.10.7-upload-proof.png` 和 `/tmp/goodhr-mac-6.2.10.7-config-proof.png`。
 - `cloud/backend/docs/mac-local-agent-6.2.10.7-production-config-20261013.sql` 与对应 `production-rollback` SQL 是经过代码审阅的数据库备用材料，本次没有执行；回退文件只删除内容匹配的这一条 Mac 记录，不覆盖后来新增的记录。
 - 安装后请完全退出旧 GoodHR Firefox，再重新打开；已有打开的浏览器无法在运行中更换早启动配置。未签名包仍可能需要到“系统设置 → 隐私与安全性”点击“仍要打开”。
+- 修复提交为 `36f6121b`；合并云端最新改动后，Gitee 与 GitHub 的功能分支和主分支均已同步到 `844702a0`。本文随后补入 Intel Node 原生模块验证记录，不改变安装包源码。
