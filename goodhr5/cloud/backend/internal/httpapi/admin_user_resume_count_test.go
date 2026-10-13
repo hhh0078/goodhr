@@ -156,10 +156,10 @@ func TestAdminUserResumeCountsPostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.Exec(`INSERT INTO candidate_profiles(id,tenant_id,created_by_user_id) VALUES($1,$2,$3)`, builtinCandidateID, tenantID, ids[0]); err != nil {
+	if _, err := db.Exec(`INSERT INTO candidate_profiles(id,tenant_id,created_by_user_id,source_platform_candidate_id) VALUES($1,$2,$3,'count-builtin')`, builtinCandidateID, tenantID, ids[0]); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO candidate_profiles(tenant_id) VALUES($1)`, tenantID); err != nil {
+	if _, err := db.Exec(`INSERT INTO candidate_profiles(tenant_id,source_platform_candidate_id) VALUES($1,'count-unowned')`, tenantID); err != nil {
 		t.Fatal(err)
 	}
 	store := NewPostgresAdminUserStore(db)
