@@ -14,6 +14,7 @@ import { useAdmin } from "@/components/admin/AdminApp";
 export default function PaymentRecordsPage() {
   const { user, notify } = useAdmin();
   const [orders, setOrders] = useState<any[]>([]);
+  const [monthlyAIConsumption, setMonthlyAIConsumption] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   /** load 读取超级管理员支付记录。 */
   async function load() {
@@ -21,7 +22,10 @@ export default function PaymentRecordsPage() {
     try {
       const data = await cloudRequest("/api/admin/payment/orders");
       setOrders(data.orders || []);
+      setMonthlyAIConsumption(typeof data.stats?.monthly_ai_consumption === "string"
+        ? data.stats.monthly_ai_consumption : null);
     } catch (error) {
+      setMonthlyAIConsumption(null);
       notify(
         error instanceof Error ? error.message : "支付记录读取失败",
         "error",
@@ -43,7 +47,7 @@ export default function PaymentRecordsPage() {
     <>
       <PageHeader
         title="支付记录"
-        description="查看全部用户的会员和 AI 余额支付订单，实付与赠送分开记账。"
+        description={`查看全部用户的会员和 AI 余额支付订单，实付与赠送分开记账。本月 AI 消费 ${loading ? "读取中" : monthlyAIConsumption === null ? "暂未读取" : `¥${monthlyAIConsumption}`}（北京时间）。`}
         actions={
           <RefreshButton loading={loading} onClick={() => void load()} />
         }

@@ -70,6 +70,8 @@ type AIWalletStore interface {
 	ResolveRefund(refundNo string, status string, providerRefundID string, responseData string, orders PaymentStore) (PaymentRefund, error)
 	// ListRecords 读取指定用户的 AI 余额流水。
 	ListRecords(email string, limit int, offset int) ([]AIWalletRecord, int, error)
+	// UsageUnitsBetween 汇总时间区间内全部用户的 AI 调用扣费，单位为 0.0001 元，左闭右开。
+	UsageUnitsBetween(start time.Time, end time.Time) (int64, error)
 	// UserEmailByAIKey 通过用户专属 AI Key 找到账号邮箱。
 	UserEmailByAIKey(apiKey string) (string, error)
 }
@@ -611,6 +613,28 @@ func (s *MemoryAIWalletStore) ListRecords(email string, limit int, offset int) (
 	return append([]AIWalletRecord{}, filtered[offset:end]...), total, nil
 }
 
+// UsageUnitsBetween 汇总内存流水中指定时间区间的 AI 调用扣费，不包含充值、赠送和退款。
+// start 为包含的起始时间，end 为不包含的结束时间；统计不受用户筛选或流水分页影响。
+func (s *MemoryAIWalletStore) UsageUnitsBetween(start time.Time, end time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var units int64
+	for _, record := range s.records {
+		if record.Category != "ai_usage" || record.ChangeUnits >= 0 || record.CreatedAt.Before(start) || !record.CreatedAt.Before(end) {
+			continue
+		}
+		if record.ChangeUnits == math.MinInt64 {
+			return 0, errors.New("AI 消费金额超出了可统计范围。")
+		}
+		var err error
+		units, err = checkedAIWalletAdd(units, -record.ChangeUnits)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return units, nil
+}
+
 // UserEmailByAIKey 通过内存 AI Key 查找用户邮箱。
 func (s *MemoryAIWalletStore) UserEmailByAIKey(apiKey string) (string, error) {
 	s.mu.Lock()
@@ -691,6 +715,20 @@ func (s *PostgresAIWalletStore) ListRecords(email string, limit int, offset int)
 		return nil, 0, err
 	}
 	return records, total, nil
+}
+
+// UsageUnitsBetween 在 PostgreSQL 中汇总全部用户的实际 AI 扣费，使用整数单位保留账本精度。
+// start 为包含的起始时间，end 为不包含的结束时间；没有扣费记录时返回零，读取失败时返回错误。
+func (s *PostgresAIWalletStore) UsageUnitsBetween(start time.Time, end time.Time) (int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var units int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(-change_units::numeric), 0)
+		FROM ai_balance_records
+		WHERE category='ai_usage' AND change_units<0 AND created_at >= $1 AND created_at < $2
+	`, start, end).Scan(&units)
+	return units, err
 }
 
 // UserEmailByAIKey 通过 PostgreSQL 中的 AI Key 查找用户邮箱。

@@ -286,7 +286,8 @@ func (s *PaymentService) ListMyOrders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "orders": publicPaymentOrders(orders)})
 }
 
-// ListAdminOrders 返回全部支付记录，只有超级管理员可访问。
+// ListAdminOrders 返回全部支付记录和本月全局 AI 消费，只有超级管理员可访问。
+// 月消费按北京时间从月初统计到查询时刻，读取全部实际扣费流水，不受支付订单分页影响。
 func (s *PaymentService) ListAdminOrders(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
@@ -302,7 +303,27 @@ func (s *PaymentService) ListAdminOrders(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "failed to list payment orders")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "orders": publicPaymentOrders(orders)})
+	if s.aiWallet == nil {
+		writeError(w, http.StatusInternalServerError, "AI 消费账本还没接上，请稍后刷新。")
+		return
+	}
+	now := time.Now().In(chinaLocation())
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	consumptionUnits, err := s.aiWallet.UsageUnitsBetween(monthStart, now)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "本月 AI 消费暂时没查到，请稍后刷新。")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "orders": publicPaymentOrders(orders),
+		"stats": map[string]any{
+			"month":                        now.Format("2006-01"),
+			"timezone":                     chinaTimezoneName,
+			"as_of":                        now,
+			"monthly_ai_consumption_units": consumptionUnits,
+			"monthly_ai_consumption":       aiUnitsToYuanString(consumptionUnits),
+		},
+	})
 }
 
 // OrderDetail 返回当前用户可见的单条支付记录。
