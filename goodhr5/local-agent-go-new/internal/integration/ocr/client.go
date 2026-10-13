@@ -67,13 +67,15 @@ func IsNoText(err error) bool {
 // Client 管理 OCR 常驻子进程和串行 JSON 行请求。
 type Client struct {
 	executable string
-	mu         sync.Mutex
-	command    *exec.Cmd
-	stdin      io.WriteCloser
-	stdout     *bufio.Reader
-	done       chan error
-	processLog *ocrProcessDiagnostics
-	logSink    func([]byte)
+	// executableResolver 由运行组件管理器提供当前路径，安装后不再依赖旧固定目录。
+	executableResolver func() string
+	mu                 sync.Mutex
+	command            *exec.Cmd
+	stdin              io.WriteCloser
+	stdout             *bufio.Reader
+	done               chan error
+	processLog         *ocrProcessDiagnostics
+	logSink            func([]byte)
 }
 
 // Result 表示 OCR 文字识别结果。
@@ -87,6 +89,13 @@ func New(executable string, logSinks ...func([]byte)) *Client {
 	if len(logSinks) > 0 {
 		client.logSink = logSinks[0]
 	}
+	return client
+}
+
+// NewWithExecutableResolver 创建使用动态组件路径的 OCR 客户端，保持 Windows 模型与 Mac Vision 协议不变。
+func NewWithExecutableResolver(resolver func() string, logSinks ...func([]byte)) *Client {
+	client := New("", logSinks...)
+	client.executableResolver = resolver
 	return client
 }
 
@@ -289,13 +298,17 @@ func (c *Client) stopLocked() {
 	c.processLog = nil
 }
 
-// resolveExecutable 按配置和 PATH 查找 OCR 可执行文件。
+// resolveExecutable 优先解析运行组件管理器的当前路径，再兼容静态配置、旧包装目录和 PATH。
 func (c *Client) resolveExecutable() (string, error) {
-	if c.executable != "" {
-		if info, err := os.Stat(c.executable); err == nil && !info.IsDir() {
-			return c.executable, nil
+	executable := c.executable
+	if c.executableResolver != nil {
+		executable = strings.TrimSpace(c.executableResolver())
+	}
+	if executable != "" {
+		if info, err := os.Stat(executable); err == nil && !info.IsDir() {
+			return executable, nil
 		}
-		if found := findOCRExecutable(filepath.Dir(c.executable)); found != "" {
+		if found := findOCRExecutable(filepath.Dir(executable)); found != "" {
 			return found, nil
 		}
 	}

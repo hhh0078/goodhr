@@ -175,22 +175,3 @@ func installRoot(stagingDir string, component string) string {
 		current = filepath.Join(current, name)
 	}
 }
-
-// replaceDirectory 用新目录替换旧组件，并在失败时恢复旧目录。
-func replaceDirectory(sourceDir string, targetDir string) error {
-	backupDir := targetDir + ".backup"
-	_ = os.RemoveAll(backupDir)
-	if _, err := os.Stat(targetDir); err == nil {
-		if err = os.Rename(targetDir, backupDir); err != nil {
-			return err
-		}
-	}
-	if err := os.Rename(sourceDir, targetDir); err != nil {
-		if _, backupErr := os.Stat(backupDir); backupErr == nil {
-			_ = os.Rename(backupDir, targetDir)
-		}
-		return err
-	}
-	_ = os.RemoveAll(backupDir)
-	return nil
-}

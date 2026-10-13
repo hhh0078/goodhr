@@ -72,7 +72,7 @@ func TestSimulateFirstInstallCamoufox(t *testing.T) {
 	if _, err := os.Stat(binaryPath); err != nil {
 		t.Fatalf("浏览器可执行文件不存在：%v", err)
 	}
-	versionContent, err := os.ReadFile(filepath.Join(runtimeDir, "camoufox", "version.json"))
+	versionContent, err := os.ReadFile(filepath.Join(manager.CamoufoxDir(), "version.json"))
 	if err != nil {
 		t.Fatalf("version.json 不存在：%v", err)
 	}

@@ -70,7 +70,7 @@ func TestWindowsNodeRenameBlockedByOpenHandle(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer syscall.CloseHandle(handle)
-			err = replaceDirectory(sourceDir, filepath.Join(runtimeDir, "node"))
+			err = os.Rename(sourceDir, filepath.Join(runtimeDir, "node"))
 			if !errors.Is(err, syscall.ERROR_ACCESS_DENIED) && !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
 				t.Fatalf("占用应阻止移动，实际 %v", err)
 			}
@@ -85,7 +85,7 @@ func TestInstallNodeLockedStatePreservesPreviousRecord(t *testing.T) {
 	runtimeDir := t.TempDir()
 	legacyPath := writeLegacyTestNode(t, runtimeDir, nodeTestExecutable(t))
 	manager := &Manager{runtimeDir: runtimeDir}
-	if err := manager.saveVersion("node_runtime", Asset{Version: "previous"}, filepath.ToSlash(filepath.Join("node", nodeBinaryName()))); err != nil {
+	if err := manager.saveVersion("node_runtime", Asset{Version: "previous"}, filepath.ToSlash(filepath.Join("node", nodeBinaryName())), ""); err != nil {
 		t.Fatal(err)
 	}
 	before, err := os.ReadFile(manager.statePath())

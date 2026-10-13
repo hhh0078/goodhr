@@ -168,7 +168,7 @@ func TestInstallNodeFailurePreservesPreviousVersion(t *testing.T) {
 			legacyPath := writeLegacyTestNode(t, runtimeDir, executable)
 			manager := &Manager{runtimeDir: runtimeDir}
 			oldAsset := Asset{Version: "previous", SHA256: strings.Repeat("a", 64)}
-			if err := manager.saveVersion("node_runtime", oldAsset, filepath.ToSlash(filepath.Join("node", nodeBinaryName()))); err != nil {
+			if err := manager.saveVersion("node_runtime", oldAsset, filepath.ToSlash(filepath.Join("node", nodeBinaryName())), ""); err != nil {
 				t.Fatal(err)
 			}
 			before, err := os.ReadFile(manager.statePath())
@@ -222,7 +222,7 @@ func TestRecordedNodePathFallback(t *testing.T) {
 	legacyPath := writeLegacyTestNode(t, runtimeDir, []byte("legacy"))
 	manager := &Manager{runtimeDir: runtimeDir}
 	for _, path := range []string{"", "missing/node.exe", "../outside/node.exe", legacyPath} {
-		if err := manager.saveVersion("node_runtime", Asset{Version: "previous"}, path); err != nil {
+		if err := manager.saveVersion("node_runtime", Asset{Version: "previous"}, path, ""); err != nil {
 			t.Fatal(err)
 		}
 		if got := manager.NodePath(); got != legacyPath {
@@ -232,7 +232,7 @@ func TestRecordedNodePathFallback(t *testing.T) {
 	if err := os.WriteFile(manager.statePath(), []byte("null"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.saveVersion("node_runtime", Asset{Version: "repaired"}, ""); err != nil {
+	if err := manager.saveVersion("node_runtime", Asset{Version: "repaired"}, "", ""); err != nil {
 		t.Fatalf("空安装记录无法修复：%v", err)
 	}
 }
@@ -243,7 +243,7 @@ func TestInstallNodeDuringStatusPolling(t *testing.T) {
 	runtimeDir := t.TempDir()
 	writeLegacyTestNode(t, runtimeDir, nodeTestExecutable(t))
 	manager := &Manager{runtimeDir: runtimeDir}
-	if err := manager.saveVersion("node_runtime", Asset{Version: "previous"}, ""); err != nil {
+	if err := manager.saveVersion("node_runtime", Asset{Version: "previous"}, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	stop := make(chan struct{})

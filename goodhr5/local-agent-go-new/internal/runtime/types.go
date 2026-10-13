@@ -48,6 +48,8 @@ type InstalledComponent struct {
 	InstalledAt string `json:"installed_at"`
 	// ExecutablePath 保存相对于运行组件目录的可执行文件路径，支持程序目录整体迁移。
 	ExecutablePath string `json:"executable_path,omitempty"`
+	// DirectoryPath 保存组件根目录的相对路径；Mac 的 .app 结构和浏览器扩展均以此目录为准。
+	DirectoryPath string `json:"directory_path,omitempty"`
 }
 
 // InstallProgress 表示控制台轮询的组件安装进度。

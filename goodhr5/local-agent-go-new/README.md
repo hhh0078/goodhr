@@ -6,7 +6,7 @@
 
 `local-agent-go-new` 是按清晰边界重构后的 GoodHR 本地程序。它保留 Camoufox 及其反检测增强，由严格 TypeScript Worker 调用浏览器，Go 负责任务流程和平台适配。
 
-本地程序会分别打包为 **Windows x64 版** 和 **macOS 版（Apple Silicon 与 Intel）**。修改公共流程、运行组件或系统能力时必须同时适配三个目标；平台规则见 [开发规范](AGENTS.md#双平台适配与验证)，Node 安装与平台差异见 [本地程序流程](docs/runtime-flow.md#支持的平台与运行组件安装)。Windows 测试通过不能代表 Mac 已验证。
+本地程序会分别打包为 **Windows x64 版** 和 **macOS 版（Apple Silicon 与 Intel）**。修改公共流程、运行组件或系统能力时必须同时适配三个目标；平台规则见 [开发规范](AGENTS.md#双平台适配与验证)，Node、Camoufox 和 OCR 安装与平台差异见 [本地程序流程](docs/runtime-flow.md#支持的平台与运行组件安装)。Windows 测试通过不能代表 Mac 已验证。
 
 ## 技术组成
 

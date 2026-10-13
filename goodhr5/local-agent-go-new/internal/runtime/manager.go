@@ -54,7 +54,7 @@ func (m *Manager) ensureCamoufoxInterface() {
 		m.setNativeInputSafetyStatus(NativeInputSafetyStatus{ExpectedVersion: nativeInputSafetyVersion, InstalledVersion: "missing", Error: "浏览器尚未安装"})
 		return
 	}
-	camoufoxDir := filepath.Join(m.runtimeDir, "camoufox")
+	camoufoxDir := m.CamoufoxDir()
 	if err := EnsureCamoufoxFontRendering(camoufoxDir); err != nil {
 		log.Printf("[运行组件] 浏览器中文字体渲染修正没有完成 err=%v", err)
 	}
@@ -106,10 +106,8 @@ func (m *Manager) CheckNode() error {
 
 // NodePath 优先使用已验证的新安装路径，并兼容旧打包目录和系统 Node.js。
 func (m *Manager) NodePath() string {
-	if recorded := m.loadVersions()["node_runtime"].ExecutablePath; recorded != "" {
-		if path, err := safeJoin(m.runtimeDir, recorded); err == nil && fileExists(path) {
-			return path
-		}
+	if recorded := m.recordedExecutablePath("node_runtime"); recorded != "" {
+		return recorded
 	}
 	if bundled := findFile(filepath.Join(m.runtimeDir, "node"), nodeBinaryName()); bundled != "" {
 		return bundled
@@ -163,10 +161,10 @@ func (m *Manager) EnsureWorker(ctx context.Context) error {
 		return fmt.Errorf("%s", status.Message)
 	}
 	if fileExists(m.CamoufoxPath()) {
-		if err := EnsureCamoufoxFontRendering(filepath.Join(m.runtimeDir, "camoufox")); err != nil {
+		if err := EnsureCamoufoxFontRendering(m.CamoufoxDir()); err != nil {
 			return fmt.Errorf("浏览器中文显示设置还没准备好，请重新安装运行组件后再试：%w", err)
 		}
-		if err := EnsureBundledUBO(filepath.Join(m.runtimeDir, "camoufox")); err != nil {
+		if err := EnsureBundledUBO(m.CamoufoxDir()); err != nil {
 			return fmt.Errorf("浏览器内置扩展没准备好，请重试：%w", err)
 		}
 	}
@@ -209,18 +207,15 @@ func (m *Manager) Status() Status {
 
 // OCRPath 返回当前平台可用的 OCR 可执行文件路径。
 func (m *Manager) OCRPath() string {
+	if recorded := m.recordedExecutablePath("ocr"); recorded != "" {
+		return recorded
+	}
 	if fileExists(m.ocrPath) {
 		return m.ocrPath
 	}
 	root := filepath.Join(m.runtimeDir, "ocr")
-	names := []string{"RapidOCR-json", "RapidOCR_json", "rapidocr-json"}
-	if goruntime.GOOS == "windows" {
-		names = []string{"RapidOCR-json.exe", "RapidOCR_json.exe", "rapidocr-json.exe"}
-	}
-	for _, name := range names {
-		if found := findFile(root, name); found != "" {
-			return found
-		}
+	if found := findOCRBinary(root, goruntime.GOOS); found != "" {
+		return found
 	}
 	return m.ocrPath
 }
@@ -230,32 +225,15 @@ func (m *Manager) CamoufoxPath() string {
 	if value := strings.TrimSpace(os.Getenv("CAMOUFOX_BINARY_PATH")); value != "" {
 		return value
 	}
-	root := filepath.Join(m.runtimeDir, "camoufox")
-	switch goruntime.GOOS {
-	case "darwin":
-		return firstExistingFile(
-			filepath.Join(root, "Camoufox.app", "Contents", "MacOS", "camoufox"),
-			findFile(root, "camoufox"),
-		)
-	case "windows":
-		return firstExistingFile(findFile(root, "camoufox.exe"), findFile(root, "camoufox"))
-	default:
-		return firstExistingFile(findFile(root, "camoufox-bin"), findFile(root, "camoufox"))
+	if recorded := m.recordedExecutablePath("camoufox"); recorded != "" {
+		return recorded
 	}
+	return findCamoufoxBinary(filepath.Join(m.runtimeDir, "camoufox"), goruntime.GOOS)
 }
 
 // OCRInstalled 检查 OCR 可执行文件；Windows 额外检查模型，macOS 使用系统 Vision。
 func (m *Manager) OCRInstalled() bool {
-	ocrPath := m.OCRPath()
-	if !fileExists(ocrPath) {
-		return false
-	}
-	if goruntime.GOOS == "darwin" {
-		info, err := os.Stat(ocrPath)
-		return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
-	}
-	modelRoot := filepath.Join(filepath.Dir(ocrPath), "models")
-	return fileExists(filepath.Join(modelRoot, "ch_PP-OCRv3_det_infer.onnx"))
+	return checkOCRFiles(m.OCRPath(), goruntime.GOOS) == nil
 }
 
 // InstallProgress 返回当前组件安装进度。
@@ -280,7 +258,7 @@ func (m *Manager) configureWorkerEnvironment() {
 	}
 	m.worker.SetExecutable(m.NodePath())
 	browserPath := m.CamoufoxPath()
-	camoufoxDir := filepath.Join(m.runtimeDir, "camoufox")
+	camoufoxDir := m.CamoufoxDir()
 	environment := []string{
 		"CAMOUFOX_INSTALL_DIR=" + camoufoxDir,
 		"GOODHR_UBO_EXTENSION_PATH=" + bundledUBOPath(camoufoxDir, goruntime.GOOS),
@@ -323,13 +301,14 @@ func (m *Manager) loadVersions() map[string]InstalledComponent {
 	return result
 }
 
-// saveVersion 原子保存组件版本与相对可执行路径，失败时保留旧安装记录。
-func (m *Manager) saveVersion(component string, asset Asset, executablePath string) error {
+// saveVersion 原子保存组件版本、根目录与可执行文件相对路径，失败时保留旧组件。
+func (m *Manager) saveVersion(component string, asset Asset, executablePath string, directoryPath string) error {
 	versions := m.loadVersions()
 	versions[component] = InstalledComponent{
 		Version: asset.Version, URL: asset.URL, SHA256: asset.SHA256,
 		InstalledAt:    time.Now().UTC().Format(time.RFC3339Nano),
 		ExecutablePath: executablePath,
+		DirectoryPath:  directoryPath,
 	}
 	content, err := json.MarshalIndent(versions, "", "  ")
 	if err != nil {

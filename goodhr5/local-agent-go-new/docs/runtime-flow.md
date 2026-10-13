@@ -10,16 +10,24 @@
 | --- | --- | --- | --- |
 | 下载资源 | `win-x64` 清单 | 按芯片选择 `darwin-arm64` / `darwin-x64` 清单 | `internal/runtime/installer.go` 的 `platformKey` |
 | Node 查找与安装 | 查找 `node.exe`，原地解压并检查版本 | 查找 `node`，保留 ZIP / tar.gz 的可执行权限与 `bin` 目录，原地检查版本 | `internal/runtime/installer.go`、`manager.go`、`node_executable.go` |
+| Camoufox 查找与安装 | 查找 `camoufox.exe`，原地登记实际组件目录 | 保留 `.app/Contents/MacOS` 与 `.app/Contents/Resources`，检查执行权限 | `internal/runtime/component_paths.go`、`installer.go`、`manager.go` |
+| OCR 查找与安装 | 查找 `RapidOCR-json.exe` 并检查 ONNX 模型，原地登记 | 查找 Vision 可执行文件、检查执行权限，不要求 ONNX 模型 | `internal/runtime/component_paths.go`、`manager.go` |
 | 短命令执行 | 隐藏临时控制台窗口 | 使用普通可取消子进程，不引用 Windows API | `internal/runtime/command_windows.go` / `command_other.go` |
 | 原生运行库 | 检查 VC++ x64 运行库 | 不执行 Windows 运行库检查 | `internal/runtime/system_runtime_windows.go` / `system_runtime_other.go` |
 
-Node 是免安装压缩包，不需要调用系统安装器。安装顺序为：下载、SHA256 校验、解压到独立 `runtime/node-runtime-*` 目录、检查实际可执行文件与 Node 22+ 版本、原子写入 `installed-components.json` 的相对 `executable_path`。验证及保存成功后直接使用该路径，重启时重新读取；目录整体迁移后相对路径仍有效。失败时清理本次新目录，并保留旧目录与旧安装记录；旧固定 `runtime/node` 和系统 Node 继续兼容。已经安装成功的目录不得当作临时目录清理。
+Node、Camoufox 和 OCR 都使用免安装压缩包，不调用系统安装器。安装顺序为：下载、SHA256 校验、解压到独立 `runtime/node-runtime-*`、`runtime/camoufox-runtime-*` 或 `runtime/ocr-runtime-*` 目录、检查实际可执行文件与对应平台要求、原子写入 `installed-components.json` 的相对 `executable_path` 和 `directory_path`。Node 还须实际执行并确认主版本至少为 22。验证及保存成功后直接使用新路径，不再移动、覆盖或删除旧组件目录；重启时重新读取，目录整体迁移后相对路径仍有效。失败时清理本次新目录并保留旧目录与旧安装记录。旧固定 `runtime/node`、`runtime/camoufox`、`runtime/ocr`、系统 Node 和没有路径字段的历史记录继续兼容。已成功安装的目录不能当作临时目录清理；旧版本暂时保留，避免文件占用时清理失败影响本次安装。
+
+Camoufox 的 `version.json` 写在实际组件根目录；Worker 的 `CAMOUFOX_INSTALL_DIR`、`CAMOUFOX_BINARY_PATH`、UBO、语言包、字体与浏览器原生资源补丁统一使用这个目录。Mac 中组件根目录是 `Camoufox.app` 的父目录，不能设成 `Contents/MacOS`。显式 `CAMOUFOX_BINARY_PATH` 仍优先，根目录按对应系统的应用结构解析。浏览器文件检查通过只能说明文件已安装，不能代表系统一定允许启动；真正的系统执行策略问题仍需启动日志确认。
+
+OCR 客户端在 `internal/bootstrap/application.go` 通过 `ocr.NewWithExecutableResolver(runtimeManager.OCRPath, ...)` 组装，每次准备启动时解析当前安装路径，避免界面显示已安装但识别进程仍使用旧固定目录。已运行的旧 Worker 或 OCR 进程保留原目录，重新启动本地程序后切换到最新安装；不为组件更新关闭用户正在用的浏览器。
 
 Windows 的 `rename ... Access is denied` 只能确认目录移动被拒绝，不能单凭报错断言安全中心拦截；文件或目录占用、访问权限和安全软件都可能涉及。新流程减少对目录重命名权限及文件占用时机的依赖。若可执行文件本身仍被禁止启动，安装应在版本检查阶段明确失败，不能登记为可用。安装失败日志保留系统、组件、阶段、路径和原始错误，便于进一步区分原因。
 
-回归要求：Windows 实际验证目录被占用、重启读取路径、安装失败保留旧版本；公共测试验证 ZIP / tar.gz 及路径安全。Windows x64、macOS arm64、macOS amd64 都需编译，Mac 可执行权限、双架构依赖与真机安装需在 Mac 验证。交叉编译通过不代表 Mac 真机验证完成。
+回归要求：Windows 实际复现浏览器子文件被占用导致的 `Access is denied`，验证无需移动的新目录登记、旧目录被占用时的完整安装、版本文件被占用时保留旧记录；公共测试验证重启、目录整体迁移、ZIP / tar.gz、缺文件与模型、路径安全及实际 Node 子进程收到的浏览器环境。Windows x64、macOS arm64、macOS amd64 都需编译，Mac 可执行权限、双架构依赖与真机安装需在 Mac 验证。交叉编译通过不代表 Mac 真机验证完成。
 
 2026-10-12 验证记录：Windows `go test ./... -count=1` 通过；Node 安装回归覆盖文件占用、状态文件占用、并发状态读取、失败保留旧版本、ZIP / tar.gz、重启和相对路径迁移，真实 Node v22.14.0 原地安装与执行冒烟通过。Windows x64 主程序及 macOS arm64 / amd64 主程序与运行组件测试程序编译通过。macOS 真机运行、原生依赖和安装包验证尚未完成；本次未发布新版安装包。
+
+2026-10-13 追加验证：Windows 实际复现 Camoufox 子文件占用时 `rename ... Access is denied`，原地登记通过；浏览器与 OCR 的旧目录占用、损坏包、缺可执行文件/模型、版本记录占用、重启与路径迁移回归通过。真实 Node 子进程确认浏览器根目录、版本和 UBO 环境正确，OCR 客户端确认安装后使用新路径。将本机 Camoufox 152.0.4-beta.30 样本打成 ZIP 后，完整经过下载、校验、解压、记录路径、资源检查、Go → Worker → 无界面浏览器启动/关闭，测试通过；使用隔离 Profile，没有访问招聘页面。macOS arm64 / amd64 主程序和运行组件测试程序交叉编译通过，Mac 真机安装、执行权限与浏览器运行尚未验证。独立 Windows 测试包使用正式站点地址，服务器仅增加下载文件，不修改应用配置、组件清单或自动更新配置。
 
 ## 1. 程序启动流程
 

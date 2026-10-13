@@ -84,7 +84,7 @@ func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 	return nil
 }
 
-// installAsset 下载并校验组件；Node 原地解压并记录路径，其他组件替换固定目录。
+// installAsset 下载并原地安装全部组件，验证成功后记录相对路径，不移动或覆盖旧组件目录。
 func (m *Manager) installAsset(ctx context.Context, component string, label string, targetName string, asset Asset) error {
 	// 同版本的 Apple/Intel 包内容不同；旧记录缺少摘要时也必须重新安装。
 	if current, ok := m.loadVersions()[component]; ok &&
@@ -128,10 +128,7 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 		Running: true, Component: component, Stage: "extract",
 		Message: "正在解压" + label, Percent: 75,
 	})
-	directoryPattern := "." + targetName + "-install-*"
-	if component == "node_runtime" {
-		directoryPattern = "node-runtime-*"
-	}
+	directoryPattern := targetName + "-runtime-*"
 	stagingDir, err := os.MkdirTemp(m.runtimeDir, directoryPattern)
 	if err != nil {
 		return fmt.Errorf("创建%s临时目录失败：%w", label, err)
@@ -156,30 +153,29 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 		return fmt.Errorf("解压%s失败：%w", label, err)
 	}
 	sourceDir := installRoot(stagingDir, component)
-	targetDir := filepath.Join(m.runtimeDir, targetName)
-	executablePath := ""
-	if component == "node_runtime" {
-		m.setInstallProgress(InstallProgress{Running: true, Component: component, Stage: "check", Message: "正在检查刚安装的" + label, Percent: 95})
-		nodePath := findFile(sourceDir, nodeBinaryName())
-		if err = checkNodeExecutable(ctx, nodePath); err != nil {
-			return fmt.Errorf("检查刚安装的%s失败（路径：%s）：%w", label, nodePath, err)
-		}
-		executablePath, err = filepath.Rel(m.runtimeDir, nodePath)
-		if err != nil {
-			return fmt.Errorf("记录%s安装路径失败：%w", label, err)
-		}
-		executablePath = filepath.ToSlash(executablePath)
-	} else if err = replaceDirectory(sourceDir, targetDir); err != nil {
-		return fmt.Errorf("安装%s失败：%w", label, err)
+	m.setInstallProgress(InstallProgress{Running: true, Component: component, Stage: "check", Message: "正在检查刚安装的" + label, Percent: 95})
+	binaryPath, err := checkExtractedComponent(ctx, component, sourceDir)
+	if err != nil {
+		return fmt.Errorf("检查刚安装的%s失败（目录：%s）：%w", label, sourceDir, err)
+	}
+	executablePath, err := filepath.Rel(m.runtimeDir, binaryPath)
+	if err != nil {
+		return fmt.Errorf("记录%s可执行路径失败：%w", label, err)
+	}
+	directoryPath, err := filepath.Rel(m.runtimeDir, sourceDir)
+	if err != nil {
+		return fmt.Errorf("记录%s安装目录失败：%w", label, err)
 	}
 	if component == "camoufox" {
-		m.writeCamoufoxVersionFile(targetDir, asset.Version)
+		if err := m.writeCamoufoxVersionFile(sourceDir, asset.Version); err != nil {
+			return fmt.Errorf("保存浏览器版本信息失败：%w", err)
+		}
 	}
 	m.setInstallProgress(InstallProgress{Running: true, Component: component, Stage: "register", Message: "正在记录" + label + "安装结果", Percent: 95})
-	if err = m.saveVersion(component, asset, executablePath); err != nil {
+	if err = m.saveVersion(component, asset, filepath.ToSlash(executablePath), filepath.ToSlash(directoryPath)); err != nil {
 		return fmt.Errorf("保存%s版本记录失败：%w", label, err)
 	}
-	keepDirectory = component == "node_runtime"
+	keepDirectory = true
 	m.setInstallProgress(InstallProgress{
 		Running: true, Component: component, Stage: "installed",
 		Message: label + "安装完成", Percent: 95,
@@ -354,19 +350,16 @@ func (r *installProgressReader) Read(buffer []byte) (int, error) {
 }
 
 // writeCamoufoxVersionFile 按 camoufox-js 约定在组件根目录写入 version.json，缺失时才写入。
-func (m *Manager) writeCamoufoxVersionFile(targetDir string, version string) {
+func (m *Manager) writeCamoufoxVersionFile(targetDir string, version string) error {
 	content := camoufoxVersionJSON(version)
 	if content == "" {
-		return
+		return fmt.Errorf("浏览器版本号为空")
 	}
 	versionPath := filepath.Join(targetDir, "version.json")
 	if fileExists(versionPath) {
-		return
+		return nil
 	}
-	if err := os.WriteFile(versionPath, []byte(content), 0o644); err != nil {
-		// 写入失败只影响 camoufox-js 的版本校验提示，不阻断浏览器使用。
-		return
-	}
+	return os.WriteFile(versionPath, []byte(content), 0o644)
 }
 
 // camoufoxVersionJSON 把清单版本号转换为 camoufox-js version.json 内容，无法解析时返回空字符串。

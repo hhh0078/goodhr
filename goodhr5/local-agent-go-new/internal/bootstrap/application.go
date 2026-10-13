@@ -91,7 +91,7 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 		logger.WorkerLine(line)
 		incidents.WorkerLine(line)
 	})
-	ocrClient := ocr.New(cfg.OCRExecutable, runtimeLog)
+	ocrClient := ocr.NewWithExecutableResolver(runtimeManager.OCRPath, runtimeLog)
 	incidents.RecordLifecycle("agent.start", "本地程序已启动，版本 "+version.Value, false)
 	if previous != nil {
 		incidents.RecordLifecycleDetails("agent.previous_exit", "检测到上次异常退出："+previous.Reason, true, previous.Diagnostics())

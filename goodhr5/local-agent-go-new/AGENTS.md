@@ -66,7 +66,8 @@ POST /api/v1/page/open
 - 修改前说明此次涉及哪些系统差异，并查找现有平台适配方法。
 - Go 的 Windows 专属调用放入 `_windows.go` 并声明构建约束；macOS 与其他系统实现使用相应构建约束。公共代码不得无条件引用 `syscall.SysProcAttr` 的 Windows 字段或 Windows API。
 - Worker 系统调用与原生依赖必须按系统、架构选择；公共浏览器能力保持同一份流程，不用 Windows 专属命令处理 Mac。
-- Node 安装使用对应平台压缩包，保留包装目录与可执行权限；在原地验证 Node 能运行且主版本至少为 22 后记录相对路径。Windows 与 Mac 都不依赖移动整个 Node 文件夹来完成安装。
+- Node、Camoufox 和 OCR 安装均解压到独立永久目录；验证后原子记录相对组件根目录与可执行路径，禁止通过移动整个组件文件夹完成安装。Node 必须实际执行并确认至少为 22；浏览器须检查启动文件；Windows OCR 还须检查 ONNX 模型，Mac OCR 使用 Vision 并检查执行权限。
+- Camoufox 的 Worker、版本文件、语言包、原生资源与 UBO 必须统一使用 `Manager.CamoufoxDir()` 返回的实际根目录，不能把 `runtime/camoufox` 写死。Mac 必须保留 `.app/Contents/MacOS` 和 `.app/Contents/Resources` 结构。
 - 旧 `runtime/node` 目录和系统 Node 仍需兼容；Mac 的 `.app` 浏览器结构、Vision OCR 和双架构 Worker 依赖不可因 Windows 修复被破坏。
 - Windows 安装包使用 `scripts/package-windows.ps1`；macOS 包使用 `scripts/package-release.sh`，由 Mac 生成同时包含 Apple 与 Intel 主程序及对应原生依赖的产物。
 - 修改后必须验证 Windows x64、macOS arm64 和 macOS amd64 编译。改变安装或系统行为时，还应在对应系统执行回归；若当前没有 Mac，必须明确记录“仅完成交叉编译，Mac 真机运行尚未验证”。
