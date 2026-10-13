@@ -294,6 +294,7 @@ async function mockLayoutSession(page: Page) {
               status: "active",
               ai_balance: "12345.67",
               ai_balance_units: 123456700,
+              resume_count: 7,
               created_at: "2026-10-09T10:00:00+08:00",
               last_login_at: "2026-10-09T12:34:56+08:00",
               subscription: {
@@ -792,6 +793,9 @@ test("1390px 用户长邮箱、余额与日期保持横排，流程摘要 Toolti
     .filter({ hasText: longEmail });
   await expect(row).toBeVisible();
   const cells = row.locator("td");
+  await expect(page.getByRole("columnheader", { name: "简历数", exact: true })).toBeVisible();
+  await expect(cells.nth(6)).toHaveText("7");
+  await expect(cells.nth(6).getByRole("link")).toHaveCount(0);
   const table = page.locator(".ant-table-content table"),
     content = page.locator(".ant-table-content");
   await expect(table).toHaveCSS("table-layout", "fixed");
@@ -850,6 +854,7 @@ test("390px 用户卡片和长流程不溢出，Tooltip 全文仍可查看", asy
   const card = identity.locator("xpath=ancestor::div[.//button][1]");
   await expectWithinViewport(page, card);
   await expectWithinViewport(page, identity);
+  await expectWithinViewport(page, card.getByText("简历数 7", { exact: true }));
   await expectWithinViewport(
     page,
     card.getByText("￥12345.67", { exact: true }),

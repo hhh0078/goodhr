@@ -105,7 +105,7 @@ func NewServer() (*Server, error) {
 	notificationProfileStore := config.NotificationProfileStore(db)
 	emailCampaignStore := config.EmailCampaignStore(db)
 	paymentStore := config.PaymentStore(db)
-	adminUserStore := config.AdminUserStore(db, subscriptionStore, aiWalletStore, paymentStore)
+	adminUserStore := config.AdminUserStore(db, subscriptionStore, aiWalletStore, paymentStore, candidateStore)
 	positionLogs := NewPositionLogService(auth, positionStore, config.PositionLogStore(db), tenantStore)
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(systemConfigStore))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)

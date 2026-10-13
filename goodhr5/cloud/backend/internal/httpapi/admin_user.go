@@ -26,6 +26,7 @@ type AdminUser struct {
 	Subscription        Subscription        `json:"subscription"`
 	NotificationProfile NotificationProfile `json:"notification_profile"`
 	AIBalanceUnits      int64               `json:"ai_balance_units"`
+	ResumeCount         int64               `json:"resume_count"`
 	Flow                UserFlowState       `json:"flow"`
 	CreatedAt           time.Time           `json:"created_at"`
 	LastLoginAt         *time.Time          `json:"last_login_at,omitempty"`
@@ -562,6 +563,7 @@ func publicAdminUser(user AdminUser) map[string]any {
 		"ai_balance_units":     user.AIBalanceUnits,
 		"ai_balance_cents":     aiUnitsToCents(user.AIBalanceUnits),
 		"ai_balance":           aiUnitsToYuanString(user.AIBalanceUnits),
+		"resume_count":         user.ResumeCount,
 		"flow":                 user.Flow,
 		"created_at":           user.CreatedAt,
 		"last_login_at":        user.LastLoginAt,
@@ -631,11 +633,16 @@ type MemoryAdminUserStore struct {
 	subscriptions *MemorySubscriptionStore
 	aiWallet      AIWalletStore
 	payments      PaymentStore
+	candidates    *MemoryCandidateStore
 }
 
-// NewMemoryAdminUserStore 创建内存用户管理存储，复用同一用户订阅、钱包和支付订单用于全库统计。
-func NewMemoryAdminUserStore(subscriptions *MemorySubscriptionStore, aiWallet AIWalletStore, payments PaymentStore) *MemoryAdminUserStore {
-	return &MemoryAdminUserStore{subscriptions: subscriptions, aiWallet: aiWallet, payments: payments}
+// NewMemoryAdminUserStore 创建内存用户管理存储，复用订阅、钱包、支付和可选简历存储计算统计。
+func NewMemoryAdminUserStore(subscriptions *MemorySubscriptionStore, aiWallet AIWalletStore, payments PaymentStore, candidates ...CandidateStore) *MemoryAdminUserStore {
+	store := &MemoryAdminUserStore{subscriptions: subscriptions, aiWallet: aiWallet, payments: payments}
+	if len(candidates) > 0 {
+		store.candidates, _ = candidates[0].(*MemoryCandidateStore)
+	}
+	return store
 }
 
 // ListUsers 读取内存用户分页列表。
@@ -643,6 +650,7 @@ func (s *MemoryAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserLis
 	if s == nil || s.subscriptions == nil {
 		return AdminUserListResult{Users: []AdminUser{}, Page: 1, PageSize: 20}, nil
 	}
+	resumeCounts := s.resumeCounts()
 	users := make([]AdminUser, 0, len(s.subscriptions.items))
 	for email, subscription := range s.subscriptions.items {
 		users = append(users, AdminUser{
@@ -651,6 +659,7 @@ func (s *MemoryAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserLis
 			Role:         "user",
 			Status:       "active",
 			Subscription: subscription,
+			ResumeCount:  resumeCounts[email],
 			Flow:         defaultUserFlowState(),
 			CreatedAt:    s.subscriptions.now(),
 		})
@@ -670,6 +679,22 @@ func (s *MemoryAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserLis
 		end = total
 	}
 	return AdminUserListResult{Users: users[start:end], Total: total, Page: page, PageSize: pageSize}, nil
+}
+
+// resumeCounts 在同一锁内按首次创建账号汇总真实简历，不计共享、岗位关联和内置示例。
+func (s *MemoryAdminUserStore) resumeCounts() map[string]int64 {
+	counts := map[string]int64{}
+	if s.candidates == nil {
+		return counts
+	}
+	s.candidates.mu.Lock()
+	defer s.candidates.mu.Unlock()
+	for _, candidate := range s.candidates.profiles {
+		if candidate.ID != builtinCandidateID {
+			counts[candidate.UserEmail]++
+		}
+	}
+	return counts
 }
 
 // Stats 读取内存用户管理统计。
@@ -740,6 +765,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 			COALESCE(u.role, 'user'),
 			COALESCE(u.status, 'active'),
 			COALESCE(u.ai_balance_units, 0),
+			COALESCE(resume_stats.resume_count, 0),
 			u.subscription,
 			u.notification_profile,
 			u.created_at,
@@ -748,6 +774,12 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 			COALESCE(u.flow_state, '{}'::jsonb)
 		FROM users u
 		LEFT JOIN users inviter ON inviter.id = u.inviter_id
+		LEFT JOIN (
+			SELECT cp.created_by_user_id, COUNT(*) AS resume_count
+			FROM candidate_profiles cp
+			WHERE cp.id <> '`+builtinCandidateID+`'::uuid
+			GROUP BY cp.created_by_user_id
+		) resume_stats ON resume_stats.created_by_user_id = u.id
 		WHERE `+whereSQL+`
 		ORDER BY u.created_at DESC
 		LIMIT $`+intString(len(args)-1)+` OFFSET $`+intString(len(args))+`
@@ -764,7 +796,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 		var rawNotificationProfile []byte
 		var rawFlow []byte
 		var lastLoginAt sql.NullTime
-		if err := rows.Scan(&user.ID, &user.Email, &user.HasOpenID, &user.Role, &user.Status, &user.AIBalanceUnits, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail, &rawFlow); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.HasOpenID, &user.Role, &user.Status, &user.AIBalanceUnits, &user.ResumeCount, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail, &rawFlow); err != nil {
 			return AdminUserListResult{}, err
 		}
 		subscription, err := parseSubscription(rawSubscription)

@@ -52,6 +52,7 @@ type AdminUserItem = {
   ai_balance?: string;
   ai_balance_units?: number;
   ai_balance_cents?: number;
+  resume_count?: number;
   subscription?: {
     member_type?: string;
     member_name?: string;
@@ -314,7 +315,7 @@ export default function UsersPage() {
                 pagination={false}
                 size="small"
                 tableLayout="fixed"
-                scroll={{ x: 1390 }}
+                scroll={{ x: 1470 }}
                 columns={[
                   {
                     key: "identity",
@@ -351,6 +352,16 @@ export default function UsersPage() {
                     title: "流程卡点",
                     width: 240,
                     render: (_, item) => <FlowInfo item={item} />,
+                  },
+                  {
+                    key: "resume_count",
+                    title: "简历数",
+                    width: 80,
+                    render: (_, item) => (
+                      <Typography.Text style={{ fontSize: 13 }}>
+                        {item.resume_count ?? 0}
+                      </Typography.Text>
+                    ),
                   },
                   {
                     key: "actions",
@@ -620,6 +631,9 @@ function UserCard({
           <Tag color={item.has_openid ? "success" : undefined}>
             OpenID {item.has_openid ? "有" : "无"}
           </Tag>
+          <Typography.Text style={{ fontSize: 11 }}>
+            简历数 {item.resume_count ?? 0}
+          </Typography.Text>
           {profileTags(item.notification_profile)
             .slice(0, 4)
             .map((tag) => (
