@@ -8,6 +8,7 @@ import type { loadStableProfileFingerprint } from "./fingerprint.js";
 import { offlineAddonOptions } from "./bundled-addon.js";
 import { useAutomaticWindowSize } from "./window-size.js";
 import { useBackgroundWindowInput } from "./window-input.js";
+import { useMacOSFontRendering } from "./font-rendering.js";
 
 /** toPlaywrightLaunchOptions 校验外部启动配置，不把未知字段直接传入浏览器。 */
 export function toPlaywrightLaunchOptions(prepared: Record<string, unknown>): LaunchOptions {
@@ -70,6 +71,8 @@ export async function buildLaunchOptions(
     // 不传 executable_path：macOS 下 camoufox-js 会到错误目录找 properties.json；
     // 通过 CAMOUFOX_INSTALL_DIR 环境变量（Go 注入）让 camoufox-js 按官方逻辑解析启动文件。
     config: { timezone: request.timezone ?? "Asia/Shanghai" },
+    // SDK 会合并默认 OS 字体；补入组件已有的中文回退字体，不改变原指纹或移除默认字体。
+    ...(process.platform === "darwin" ? { fonts: ["Noto Sans SC"] } : {}),
     // 界面语言：Camoufox 只打包英文界面资源，中文界面依赖 Go 预装的 zh-CN 语言包；
     // 这里请求简体中文，语言包缺失时 Firefox 会自动回退英文，不影响启动。
     firefox_user_prefs: {
@@ -79,5 +82,5 @@ export async function buildLaunchOptions(
     },
     ...(fingerprint ? { fingerprint } : {}),
   });
-  return useBackgroundWindowInput(useAutomaticWindowSize(toPlaywrightLaunchOptions(prepared)));
+  return useMacOSFontRendering(useBackgroundWindowInput(useAutomaticWindowSize(toPlaywrightLaunchOptions(prepared))));
 }

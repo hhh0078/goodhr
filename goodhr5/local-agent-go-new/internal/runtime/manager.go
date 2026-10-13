@@ -48,13 +48,16 @@ func New(nodePath string, entryPath string, runtimeDir string, ocrPath string, w
 	return manager
 }
 
-// ensureCamoufoxInterface 在已有组件中补齐中文语言包、标签交互、书签栏与原生下载通道。
+// ensureCamoufoxInterface 在已有组件中补齐字体渲染、中文语言包、标签交互、书签栏与原生下载通道。
 func (m *Manager) ensureCamoufoxInterface() {
 	if !fileExists(m.CamoufoxPath()) {
 		m.setNativeInputSafetyStatus(NativeInputSafetyStatus{ExpectedVersion: nativeInputSafetyVersion, InstalledVersion: "missing", Error: "浏览器尚未安装"})
 		return
 	}
 	camoufoxDir := filepath.Join(m.runtimeDir, "camoufox")
+	if err := EnsureCamoufoxFontRendering(camoufoxDir); err != nil {
+		log.Printf("[运行组件] 浏览器中文字体渲染修正没有完成 err=%v", err)
+	}
 	patchErr := EnsureCamoufoxMouseSafety(m.CamoufoxPath())
 	if patchErr != nil {
 		log.Printf("[运行组件] 浏览器鼠标防卡死修正没有完成 err=%v", patchErr)
@@ -160,6 +163,9 @@ func (m *Manager) EnsureWorker(ctx context.Context) error {
 		return fmt.Errorf("%s", status.Message)
 	}
 	if fileExists(m.CamoufoxPath()) {
+		if err := EnsureCamoufoxFontRendering(filepath.Join(m.runtimeDir, "camoufox")); err != nil {
+			return fmt.Errorf("浏览器中文显示设置还没准备好，请重新安装运行组件后再试：%w", err)
+		}
 		if err := EnsureBundledUBO(filepath.Join(m.runtimeDir, "camoufox")); err != nil {
 			return fmt.Errorf("浏览器内置扩展没准备好，请重试：%w", err)
 		}
