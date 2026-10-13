@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 )
 
 // TestAdminUserResumeCountsAPI 验证真实添加后每个用户只返回自己的简历数量，内置示例不计入且普通用户不能读取。
@@ -113,6 +114,16 @@ func TestAdminUserResumeCountsMemory(t *testing.T) {
 
 // TestAdminUserResumeCountsPostgres 验证真实聚合 SQL 的创建人隔离、空库零值、示例排除与搜索分页，不使用任何生产数据。
 func TestAdminUserResumeCountsPostgres(t *testing.T) {
+	subscriptionJSON := toJSONB(Subscription{MemberType: memberTypePlus, ExpiresAt: time.Date(2030, time.January, 1, 0, 0, 0, 0, time.UTC)})
+	if _, err := parseSubscription(subscriptionJSON); err != nil {
+		t.Fatalf("fixture subscription must match the production parser: %v", err)
+	}
+	if _, err := decodeNotificationProfile([]byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseUserFlowState([]byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
 	db := candidatePostgresTestDB(t)
 	if _, err := db.Exec(`
 		ALTER TABLE users
@@ -146,7 +157,7 @@ func TestAdminUserResumeCountsPostgres(t *testing.T) {
 	ids := []string{}
 	for index := 0; index < 3; index++ {
 		var id string
-		if err := db.QueryRow(`INSERT INTO users(email,tenant_id,created_at) VALUES($1,$2,now()-$3*interval '1 day') RETURNING id::text`, fmt.Sprintf("pg-count-%d@example.test", index), tenantID, index).Scan(&id); err != nil {
+		if err := db.QueryRow(`INSERT INTO users(email,tenant_id,created_at,subscription) VALUES($1,$2,now()-$3*interval '1 day',$4::jsonb) RETURNING id::text`, fmt.Sprintf("pg-count-%d@example.test", index), tenantID, index, string(subscriptionJSON)).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
 		ids = append(ids, id)
