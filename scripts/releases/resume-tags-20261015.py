@@ -161,9 +161,14 @@ def build(hr, args):
         hr.run(['docker', 'build', '--network=none', '-f', str(backend / 'Dockerfile.tags'), '-t', tags['backend'], str(backend)], output=log, timeout=900)
         command = 'npm ci --include=dev --registry=https://registry.npmmirror.com --no-audit --no-fund && npm run build'
         hr.run(['docker', 'run', '--rm', '--memory=2048m', '--memory-swap=3072m', '--cpus=2', '--name', 'goodhr-tags-build-' + args.commit[:8], '--entrypoint', 'sh', '--mount', 'type=bind,src=' + str(frontend) + ',dst=/work', '-w', '/work', '-e', 'NODE_ENV=production', '-e', 'NODE_OPTIONS=--max-old-space-size=1536', '-e', 'CIRCLE_NODE_TOTAL=2', '-e', 'NEXT_PUBLIC_CLOUD_API_BASE=https://goodhr.58it.cn', '-e', 'CLOUD_API_BASE=https://goodhr.58it.cn', '-e', 'NEXT_PUBLIC_SITE_URL=https://goodhr.58it.cn', BASELINE['goodhr-production-frontend-1'][1], '-c', command], output=log, timeout=1800)
-        docker = ['FROM ' + BASELINE['goodhr-production-frontend-1'][1], 'LABEL org.opencontainers.image.revision=' + args.commit, 'COPY .next/standalone /app/', 'COPY .next/static /app/.next/static', 'COPY public /app/public']
-        (frontend / 'Dockerfile.tags').write_text('\n'.join(docker) + '\n')
-        hr.run(['docker', 'build', '--network=none', '-f', str(frontend / 'Dockerfile.tags'), '-t', tags['frontend'], str(frontend)], output=log, timeout=900)
+        runtime = ROOT / 'frontend-runtime'
+        runtime.mkdir(mode=0o700)
+        shutil.copytree(frontend / '.next/standalone', runtime / 'standalone')
+        shutil.copytree(frontend / '.next/static', runtime / 'static')
+        shutil.copytree(frontend / 'public', runtime / 'public')
+        docker = ['FROM ' + BASELINE['goodhr-production-frontend-1'][1], 'LABEL org.opencontainers.image.revision=' + args.commit, 'COPY standalone /app/', 'COPY static /app/.next/static', 'COPY public /app/public']
+        (runtime / 'Dockerfile').write_text('\n'.join(docker) + '\n')
+        hr.run(['docker', 'build', '--network=none', '-t', tags['frontend'], str(runtime)], output=log, timeout=900)
     images = {kind: {'id': hr.inspect(tag, image=True)['Id'], 'tag': tag} for kind, tag in tags.items()}
     proof = {'commit': args.commit, 'source_sha256': args.archive_sha256, 'binary_sha256': args.binary_sha256, 'images': images}
     hr.save(ROOT, 'build.private.json', proof)
