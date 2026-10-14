@@ -31,7 +31,7 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 			SELECT u.email, p.id, COALESCE(p.platform_id, 'boss'), p.name, p.keywords, p.exclude_keywords, p.description, p.greet_message, p.is_and_mode,
 			       p.common_config, p.ai_config, p.keyword_config, p.match_limit, p.status, p.scanned_count,
 			       p.daily_greeted_count, p.daily_greeted_date::text, p.skipped_count, p.failed_count, p.enable_sound, p.enable_thinking,
-			       p.created_at, p.updated_at, p.started_at, p.finished_at
+			       p.created_at, p.updated_at, p.started_at, p.finished_at, p.is_open
 			FROM positions p
 			INNER JOIN users u ON u.id = p.user_id
 			WHERE (
@@ -85,6 +85,7 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 			&item.UpdatedAt,
 			&item.StartedAt,
 			&item.FinishedAt,
+			&item.IsOpen,
 		); err != nil {
 			return nil, err
 		}
@@ -142,15 +143,23 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 	var saved Position
 	saved.UserEmail = position.UserEmail
 	var row *sql.Row
+	var openUpdate any
+	if position.IsOpenSet {
+		openUpdate = position.IsOpen
+	}
+	openCreate := true
+	if position.IsOpenSet {
+		openCreate = position.IsOpen
+	}
 	if position.ID == "" {
 		row = s.db.QueryRowContext(
 			ctx,
 			`
-			INSERT INTO positions (user_id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, match_limit, enable_sound, enable_thinking)
-			VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14)
+			INSERT INTO positions (user_id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, match_limit, enable_sound, enable_thinking,is_open)
+			VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14,$15)
 			RETURNING id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config,
 			          match_limit, status, scanned_count, daily_greeted_count, daily_greeted_date::text, skipped_count, failed_count, enable_sound, enable_thinking,
-			          created_at, updated_at, started_at, finished_at
+			          created_at, updated_at, started_at, finished_at,is_open
 			`,
 			userID,
 			position.PlatformID,
@@ -166,6 +175,7 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 			position.MatchLimit,
 			position.EnableSound,
 			position.EnableThinking,
+			openCreate,
 		)
 	} else {
 		row = s.db.QueryRowContext(
@@ -186,11 +196,12 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 				match_limit = $13,
 				enable_sound = $14,
 				enable_thinking = $15,
+				is_open = COALESCE($16,is_open),
 				updated_at = now()
 			WHERE id = $1 AND user_id = $2
 			RETURNING id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config,
 			          match_limit, status, scanned_count, daily_greeted_count, daily_greeted_date::text, skipped_count, failed_count, enable_sound, enable_thinking,
-			          created_at, updated_at, started_at, finished_at
+			          created_at, updated_at, started_at, finished_at,is_open
 			`,
 			position.ID,
 			userID,
@@ -207,6 +218,7 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 			position.MatchLimit,
 			position.EnableSound,
 			position.EnableThinking,
+			openUpdate,
 		)
 	}
 
@@ -240,6 +252,7 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 		&saved.UpdatedAt,
 		&saved.StartedAt,
 		&saved.FinishedAt,
+		&saved.IsOpen,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Position{}, ErrNotFound
@@ -280,7 +293,7 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 		SELECT p.id, COALESCE(p.platform_id, 'boss'), p.name, CAST(p.keywords AS text), CAST(p.exclude_keywords AS text),
 		       p.description, p.greet_message, p.is_and_mode, CAST(p.common_config AS text), CAST(p.ai_config AS text), CAST(p.keyword_config AS text),
 		       p.match_limit, p.status, p.scanned_count, p.daily_greeted_count, p.daily_greeted_date::text,
-		       p.skipped_count, p.failed_count, p.enable_sound, p.enable_thinking, p.created_at, p.updated_at, p.started_at, p.finished_at
+		       p.skipped_count, p.failed_count, p.enable_sound, p.enable_thinking, p.created_at, p.updated_at, p.started_at, p.finished_at,p.is_open
 		FROM positions p
 		JOIN users u ON p.user_id = u.id
 		WHERE u.email = $1 AND p.id = $2
@@ -293,6 +306,7 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 		&item.MatchLimit, &item.Status, &item.ScannedCount,
 		&item.DailyGreetedCount, &item.DailyGreetedDate, &item.SkippedCount, &item.FailedCount,
 		&item.EnableSound, &item.EnableThinking, &item.CreatedAt, &item.UpdatedAt, &item.StartedAt, &item.FinishedAt,
+		&item.IsOpen,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Position{}, ErrNotFound
@@ -347,6 +361,17 @@ func (s *PostgresPositionStore) ClaimPositionStart(userEmail, positionID string)
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, userEmail); err != nil {
 		return err
+	}
+	var open bool
+	err = tx.QueryRowContext(ctx, `SELECT p.is_open FROM positions p JOIN users u ON u.id=p.user_id WHERE p.id::text=$1 AND u.email=$2 FOR UPDATE OF p`, positionID, userEmail).Scan(&open)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !open {
+		return ErrCandidatePositionClosed
 	}
 	var runningID string
 	err = tx.QueryRowContext(ctx, `

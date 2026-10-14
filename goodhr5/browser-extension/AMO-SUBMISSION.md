@@ -14,7 +14,13 @@ npm test
 npm run lint:firefox
 ```
 
-提交文件为 `dist-firefox-unsigned/goodhr-resume-firefox-unsigned-1.0.7.zip`，也可以在只通过环境变量提供 `WEB_EXT_API_KEY` 和 `WEB_EXT_API_SECRET` 后执行 `npm run sign:firefox`。首次提交沿用固定扩展 ID `resume-assistant@goodhr.58it.cn`。如果 Mozilla 提示该版本已存在，必须同时提升 Chrome 和 Firefox 的统一版本号，不能只改单个平台。
+提交文件为 `dist-firefox-unsigned/goodhr-resume-firefox-unsigned-1.0.8.zip`，也可以在只通过环境变量提供 `WEB_EXT_API_KEY` 和 `WEB_EXT_API_SECRET` 后执行 `npm run sign:firefox`。首次提交沿用固定扩展 ID `resume-assistant@goodhr.58it.cn`。如果 Mozilla 提示该版本已存在，必须同时提升 Chrome 和 Firefox 的统一版本号，不能只改单个平台。
+
+## 1.0.8 本次更新
+
+本次新增已有标签的搜索与多选，说明团队和个人标签可见范围，并仅提交已有标签编号。推荐选择只展示开启岗位。浏览器权限、数据采集范围和固定扩展 ID 保持原样。此 ZIP 由用户自行上传 Mozilla，签名前不能作为正式 Firefox 安装包。
+
+公开发布配置可使用 `version_chrome` 和 `version_firefox` 分别记录已发布版本。Firefox 尚待 1.0.8 签名时继续保留已签名 1.0.7 下载和独立版本；Chrome 发布 1.0.8 不会要求现有 Firefox 用户安装尚未签名的更新。业务源码仍共用同一构建版本。
 
 ## 功能和审核说明
 

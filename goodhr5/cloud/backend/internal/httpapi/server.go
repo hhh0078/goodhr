@@ -255,6 +255,8 @@ func (s *Server) Routes() http.Handler {
 	// 注册简历库接口，用于查看当前团队或指定岗位运行下的候选人。
 	mux.HandleFunc("/api/candidates", s.candidates.Collection)
 	mux.HandleFunc("/api/candidates/", s.candidateRoute)
+	mux.HandleFunc("/api/candidate-recommendations", s.candidates.RecommendationCollection)
+	mux.HandleFunc("/api/candidate-recommendations/", s.candidates.RecommendationDetail)
 	// 企业招聘流程独立于猎头推荐和本地招聘平台运行，候选人仅通过受限邀请链接回应。
 	if s.recruitment != nil && s.recruitmentMail != nil {
 		mux.HandleFunc("/api/recruitment/", s.recruitmentRoute)

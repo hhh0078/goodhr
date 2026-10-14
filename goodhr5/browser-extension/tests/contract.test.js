@@ -13,16 +13,16 @@ function cloudFieldNames(variable) {
 }
 
 test("实际插件 CREATE fixture 与当前整理器一致，所有字段属于当前云端白名单", () => {
-  const payload = { ...shared.sanitizeResume(fixtureInput), idempotency_key: "plugin-cross-module-fixture-1" };
+  const payload = { ...shared.candidateWriteResume(fixtureInput), idempotency_key: "plugin-cross-module-fixture-1" };
   assert.deepEqual(payload, fixtureOutput);
   const text = cloudFieldNames("candidateTextColumns"), arrays = cloudFieldNames("candidateArrayColumns"), extras = cloudFieldNames("candidateExtraFields");
-  const allowed = new Set([...text, ...arrays, ...extras, "platform_id", "platform_candidate_id", "source_url", "expected_salary_min", "expected_salary_max", "idempotency_key"]);
+  const allowed = new Set([...text, ...arrays, ...extras, "platform_id", "platform_candidate_id", "source_url", "expected_salary_min", "expected_salary_max", "idempotency_key", "tag_ids"]);
   for (const [key, value] of Object.entries(payload)) {
     assert.ok(allowed.has(key), `${key} 会被云端忽略`);
     if ([...text, ...extras].includes(key) && !["tags", "age"].includes(key)) assert.equal(typeof value, "string", `${key} 后端要求文字`);
     if (arrays.includes(key)) assert.ok(Array.isArray(value) && value.every((item) => typeof item === "object" && item !== null), `${key} 后端要求对象数组`);
   }
-  assert.ok(Array.isArray(payload.tags) && payload.tags.every((tag) => typeof tag === "string"));
+  assert.deepEqual(payload.tag_ids, []); assert.equal(Object.hasOwn(payload, "tags"), false); assert.match(libraryCode, /"tag_ids"/);
   assert.equal(payload.expected_salary_min, 20); assert.equal(payload.expected_salary_max, 25); assert.equal(payload.expected_salary_text, "20-25K/月");
   assert.equal(payload.current_region, fixtureInput.current_region); assert.equal(payload.expected_region, fixtureInput.expected_region); assert.equal(payload.expected_city, undefined);
   assert.match(payload.birth_ym, /^\d{4}-(?:0[1-9]|1[0-2])$/);

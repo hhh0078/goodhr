@@ -106,15 +106,17 @@ export default async function DownloadPage() {
 /** BrowserExtensionDownloads 展示后台配置的 Chrome/Firefox 插件包与准确的安装方式。 */
 function BrowserExtensionDownloads({release}: {release: BrowserExtensionRelease | null}) {
   const firefoxAvailable = isSignedFirefoxDownload(release);
+  const chromeVersion = release?.version_chrome || release?.version;
+  const firefoxVersion = release?.version_firefox || release?.version;
   return <section id="browser-extension" className={`public-download-10 ${styles.downloadSection}`} aria-labelledby="browser-extension-heading">
-    <h2 id="browser-extension-heading" className="public-text public-download-11">浏览器插件下载{release?.version ? ` · v${release.version}` : ""}</h2>
+    <h2 id="browser-extension-heading" className="public-text public-download-11">浏览器插件下载</h2>
     <p className={`public-text public-download-18 ${styles.sectionDescription}`}><strong>当前支持：{BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}。</strong> 打开候选人详情后，插件会自动识别简历并打开助手。查重、补手机号、记备注和入库都在助手里完成。</p>
     <div className={`public-download-4 ${styles.cardGrid}`}>
-      <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note="下载前会先展示安装教程。打开开发者模式后，把下载记录里的安装包直接拖进扩展管理页，无需解压。" href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} browser="Chrome" />
-      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={firefoxAvailable ? "已签名安装包，下载前会先展示安装教程。" : "正在完成 Mozilla 签名，签名通过后开放下载。"} href={firefoxAvailable ? release?.url_firefox || "" : ""} available={firefoxAvailable} browser="Firefox" />
+      <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note={`${chromeVersion ? `当前版本 ${chromeVersion}。` : ""}下载前会先展示安装教程。打开开发者模式后，把下载记录里的安装包直接拖进扩展管理页，无需解压。`} href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} browser="Chrome" />
+      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={firefoxAvailable ? `${firefoxVersion ? `当前版本 ${firefoxVersion}。` : ""}已签名安装包，下载前会先展示安装教程。` : "正在完成 Mozilla 签名，签名通过后开放下载。"} href={firefoxAvailable ? release?.url_firefox || "" : ""} available={firefoxAvailable} browser="Firefox" />
     </div>
     {release?.note ? <p className="public-text public-download-18">{release.note}</p> : null}
-    <p className="public-text public-download-18">浏览器插件统一版本号，开放的版本以本页下载入口为准。插件仅读取可见候选人信息；悬浮界面独立显示，不自动点击或解锁手机号。</p>
+    <p className="public-text public-download-18">各浏览器开放的版本以对应下载入口为准。插件仅读取可见候选人信息；悬浮界面独立显示，不自动点击或解锁手机号。</p>
   </section>;
 }
 

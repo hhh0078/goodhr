@@ -68,6 +68,7 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := PositionCandidateQuery{
+		TagID: strings.TrimSpace(r.URL.Query().Get("tag_id")), ActorEmail: session.Email,
 		Phone: strings.TrimSpace(r.URL.Query().Get("phone")), SourceType: strings.TrimSpace(r.URL.Query().Get("source_type")), Region: strings.TrimSpace(r.URL.Query().Get("region")), Education: strings.TrimSpace(r.URL.Query().Get("education_level")), WorkYears: strings.TrimSpace(r.URL.Query().Get("work_years")), WorkStatus: strings.TrimSpace(r.URL.Query().Get("work_status")), Tag: firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("tag")), strings.TrimSpace(r.URL.Query().Get("tags"))), Creator: strings.TrimSpace(r.URL.Query().Get("creator")), CreatedFrom: r.URL.Query().Get("created_from"), CreatedTo: r.URL.Query().Get("created_to"),
 		PositionID: strings.TrimSpace(r.URL.Query().Get("position_id")),
 		Keyword:    firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("keyword")), strings.TrimSpace(r.URL.Query().Get("q"))),
@@ -282,6 +283,7 @@ func publicPositionCandidates(items []PositionCandidate) []map[string]any {
 // publicPositionCandidate 将候选人记录转换为前端响应结构。
 func publicPositionCandidate(item PositionCandidate) map[string]any {
 	response := map[string]any{
+		"tag_ids": safeSlice(item.TagIDs), "tag_details": safeSlice(item.TagDetails),
 		"row_version": item.RowVersion, "creator_name": item.CreatorName, "sources": safeSlice(item.Sources), "recommendations": safeSlice(item.Recommendations), "recommendation_count": len(item.Recommendations),
 		"id":                       item.ID,
 		"engagement_id":            item.EngagementID,

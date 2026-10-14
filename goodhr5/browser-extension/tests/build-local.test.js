@@ -99,7 +99,7 @@ test("实际本地后台登录、查重、新增仅请求测试API，配对默�
   const resume = { candidate_name: "合成本地候选人", phone: "13800000001", platform_id: "hliepin" };
   const duplicates = await value.message({ type: "DUPLICATES", payload: { resume } }); assert.equal(duplicates.ok, true);
   const created = await value.message({ type: "CREATE", payload: { resume, idempotency_key: "local-create" } }); assert.equal(created.ok, true);
-  assert.equal(value.requests.filter(({ url }) => !url.endsWith("/api/system/browser-extension")).length, 3);
+  assert.equal(value.requests.filter(({ url }) => new URL(url).pathname !== "/api/system/browser-extension").length, 3);
   assert.deepEqual(value.requests.map(({ url }) => new URL(url).origin), Array(value.requests.length).fill("http://127.0.0.1:8084"));
   const paired = await value.message({ type: "PAIR_START", payload: {} }); assert.equal(paired.ok, true);
   assert.equal(value.requests.at(-1).url, "http://127.0.0.1:43139/api/v1/extensions/pair/start");

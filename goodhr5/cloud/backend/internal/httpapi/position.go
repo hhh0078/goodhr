@@ -37,6 +37,7 @@ type PositionService struct {
 }
 
 type positionRequest struct {
+	IsOpen          *bool          `json:"is_open"`
 	ID              string         `json:"id"`
 	PlatformID      string         `json:"platform_id"`
 	Name            string         `json:"name"`
@@ -104,6 +105,15 @@ func (s *PositionService) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list positions")
 		return
 	}
+	visibility := strings.TrimSpace(r.URL.Query().Get("is_open"))
+	if visibility != "" && visibility != "true" && visibility != "false" && visibility != "all" {
+		writeError(w, http.StatusBadRequest, "岗位状态请使用 true、false 或 all")
+		return
+	}
+	if r.URL.Query().Get("purpose") == "recommendation" || session.Kind == extensionSessionKind {
+		visibility = "true"
+	}
+	items = filterOpenPositions(items, visibility)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,
 		"positions": publicPositionsForUser(items, session.Email),
@@ -263,6 +273,10 @@ func (s *PositionService) Delete(w http.ResponseWriter, r *http.Request) {
 
 // Detail 读取、更新或删除单个岗位，供前端和本地程序共用同一岗位快照。
 func (s *PositionService) Detail(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPatch {
+		s.SetOpen(w, r)
+		return
+	}
 	if r.Method == http.MethodDelete {
 		s.Delete(w, r)
 		return
@@ -388,6 +402,9 @@ func (r positionRequest) toPosition(w http.ResponseWriter, userEmail string) (Po
 		EnableSound:     r.EnableSound,
 		EnableThinking:  r.EnableThinking,
 	}
+	if r.IsOpen != nil {
+		position.IsOpen, position.IsOpenSet = *r.IsOpen, true
+	}
 
 	if position.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
@@ -463,6 +480,7 @@ func publicPositionsForUser(items []Position, currentEmail string) []map[string]
 // publicPosition 将岗位配置转换为前端响应结构。
 func publicPosition(item Position) map[string]any {
 	return map[string]any{
+		"is_open":             item.IsOpen,
 		"id":                  item.ID,
 		"creator_email":       item.UserEmail,
 		"platform_id":         normalizePositionPlatformID(item.PlatformID),

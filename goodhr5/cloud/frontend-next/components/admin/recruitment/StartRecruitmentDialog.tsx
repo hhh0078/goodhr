@@ -47,7 +47,7 @@ export default function StartRecruitmentDialog({ open, candidate, positions, ini
 
     if (!open) return;
     setCandidateID(candidate?.id || "");
-    setPositionID(initialPositionID);
+    setPositionID(positions.some((item) => item.id === initialPositionID) ? initialPositionID : "");
     setOwner(user?.email || "");
     void loadRecruitmentWorkflows().then((data) => {
 
@@ -76,7 +76,7 @@ export default function StartRecruitmentDialog({ open, candidate, positions, ini
 
   async function start() {
 
-    if (!candidateID || !positionID || !workflowID || saving.current || isReadOnlyResume(candidate || candidateID)) return;
+    if (!candidateID || !positionID || !positions.some((item) => item.id === positionID) || !workflowID || saving.current || isReadOnlyResume(candidate || candidateID)) return;
     saving.current = true;
     setBusy(true);
     try {
@@ -108,7 +108,7 @@ export default function StartRecruitmentDialog({ open, candidate, positions, ini
     onClose={onClose}
     onConfirm={() => void start()}
     confirmText="开启招聘"
-    confirmDisabled={!candidateID || !positionID || !workflowID}>
+    confirmDisabled={!candidateID || !positionID || !positions.some((item) => item.id === positionID) || !workflowID}>
 
     <Alert type="info" title="这是候选人在该岗位下的面试与录用进程，原来的猎头推荐和自动任务记录会保留。" style={{ marginBottom: 12 }} />
 

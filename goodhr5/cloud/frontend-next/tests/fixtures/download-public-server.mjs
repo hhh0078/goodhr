@@ -13,9 +13,11 @@ let firefoxReleaseMode = "signed";
 function browserExtensionRelease() {
   const firefoxSigned = firefoxReleaseMode === "signed";
   return {
-    version: "1.0.3",
+    version: "1.0.4",
+    version_chrome: "1.0.4",
+    version_firefox: "1.0.3",
     note: "合成插件更新说明",
-    url_chrome: "/downloads/goodhr-extension-chrome-1.0.3.zip",
+    url_chrome: "/downloads/goodhr-extension-chrome-1.0.4.zip",
     sha256_chrome: "",
     url_firefox: firefoxSigned ? "https://downloads.example.invalid/goodhr-extension-firefox-1.0.3.xpi" : "https://downloads.example.invalid/goodhr-extension-firefox-1.0.3.zip",
     sha256_firefox: firefoxSigned ? "a".repeat(64) : "",

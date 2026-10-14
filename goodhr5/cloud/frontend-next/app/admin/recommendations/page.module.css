@@ -1,0 +1,12 @@
+/* 文件作用说明：提供猎头推荐页面的小型筛选栏、紧凑记录表格和移动端分页布局。 */
+.filters { margin-bottom: 10px; min-width: 0; }
+.keyword.keyword { width: 290px; max-width: 100%; }
+.stage.stage { width: 145px; }
+.filters :global(.ant-btn) { flex: none; white-space: nowrap; }
+.records :global(.ant-table-cell) { vertical-align: top; overflow-wrap: anywhere; }
+.inline.inline { height: auto; padding: 0; justify-content: flex-start; font-size: 13px; }
+.meta.meta { font-size: 12px; line-height: 1.5; }
+.note.note { margin: 0; font-size: 12px; line-height: 1.5; }
+.pagination { padding: 10px 12px; }
+.pagination :global(.ant-pagination) { display: flex; flex-wrap: wrap; row-gap: 8px; }
+@media (max-width: 600px) { .keyword.keyword { width: 100%; } .stage.stage { flex: 1; min-width: 120px; } }

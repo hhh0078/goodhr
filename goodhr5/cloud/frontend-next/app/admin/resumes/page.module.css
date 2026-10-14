@@ -14,6 +14,14 @@
 .moreFilters { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; padding: 12px; margin-bottom: 12px; border: 1px solid var(--goodhr-border); border-radius: 8px; background: var(--goodhr-hover); min-width: 0; }
 .dateField { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--goodhr-text-secondary); white-space: nowrap; }
 .dateField :global(.ant-input) { min-width: 0; }
+.tagBar { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; }
+.tagScroller { display: flex; align-items: center; gap: 5px; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; padding-bottom: 2px; }
+.tagFilter.tagFilter { flex: none; height: 25px; padding-inline: 9px; font-size: 12px; gap: 5px; white-space: nowrap; }
+.tagCount { font-size: 11px; opacity: 0.8; }
+.tagStatus.tagStatus { flex: none; white-space: nowrap; font-size: 12px; }
+.manageTags.manageTags { flex: none; height: 25px; padding-inline: 8px; font-size: 12px; white-space: nowrap; color: var(--goodhr-primary); }
+.rowActions :global(.ant-btn) { height: 22px; width: fit-content; padding-inline: 0; font-size: 12px; }
+.resumeTable :global(.ant-table-tbody > tr) { cursor: default; }
 .resumeTable :global(.ant-table-cell) { vertical-align: top; overflow-wrap: anywhere; padding-top: 10px; padding-bottom: 10px; line-height: 1.5; }
 .cellText { min-width: 0; max-width: 100%; margin: 0 !important; overflow-wrap: anywhere; }
 .experienceCompany { font-weight: 600; }

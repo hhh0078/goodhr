@@ -64,7 +64,9 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
   await expect(macGuide.getByRole("link", { name: "下载 macOS 版", exact: true })).toHaveAttribute("href", "https://example.invalid/goodhr-mac.zip");
   await macGuide.getByRole("button", { name: "先不下载", exact: true }).click();
   await expect(macGuide).not.toBeVisible();
-  await expect(extension.getByRole("heading", { name: "浏览器插件下载 · v1.0.3", exact: true })).toBeVisible();
+  await expect(extension.getByRole("heading", { name: "浏览器插件下载", exact: true })).toBeVisible();
+  await expect(extension.locator(".public-panel").filter({ has: page.getByRole("heading", { name: "Chrome", exact: true }) })).toContainText("当前版本 1.0.4。");
+  await expect(extension.locator(".public-panel").filter({ has: page.getByRole("heading", { name: "Firefox", exact: true }) })).toContainText("当前版本 1.0.3。");
   await expect(extension.getByText(/当前支持：猎聘企业端、猎聘猎头端、智联招聘、前程无忧/)).toBeVisible();
   const chromeDownload = extension.getByRole("link", {
     name: "下载 Chrome 插件",
@@ -73,7 +75,7 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
   await expect(installGuide).not.toBeVisible();
   await expect(chromeDownload).toHaveAttribute(
     "href",
-    "/downloads/goodhr-extension-chrome-1.0.3.zip",
+    "/downloads/goodhr-extension-chrome-1.0.4.zip",
   );
   await chromeDownload.click();
   await expect(installGuide).toBeVisible();
@@ -96,7 +98,7 @@ test("下载入口分区，更新记录默认三条并可展开收起", async ({
       name: "前往插件下载",
       exact: true,
     }),
-  ).toHaveAttribute("href", "/downloads/goodhr-extension-chrome-1.0.3.zip");
+  ).toHaveAttribute("href", "/downloads/goodhr-extension-chrome-1.0.4.zip");
   await installGuide
     .getByRole("button", { name: "先不安装", exact: true })
     .click();
@@ -143,7 +145,7 @@ test("不启用JavaScript时下载入口和近期更新仍有服务端正文", a
   await expect(extension).toContainText("无需解压");
   await expect(
     extension.getByRole("link", { name: "下载 Chrome 插件", exact: true }),
-  ).toHaveAttribute("href", "/downloads/goodhr-extension-chrome-1.0.3.zip");
+  ).toHaveAttribute("href", "/downloads/goodhr-extension-chrome-1.0.4.zip");
   await expect(
     extension.getByRole("link", { name: "下载 Firefox 插件", exact: true }),
   ).toHaveAttribute("href", "https://downloads.example.invalid/goodhr-extension-firefox-1.0.3.xpi");

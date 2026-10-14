@@ -12,6 +12,7 @@ import {
   Image,
   Input,
   InputNumber,
+  Radio,
   Switch,
   Tooltip,
   Typography,
@@ -132,6 +133,8 @@ export default function PositionsPage() {
   const { user, subscription, notify, confirm, agentBase, onboardingConfig } =
     useAdmin();
   const [items, setItems] = useState<any[]>([]);
+  const [positionScope, setPositionScope] = useState("true");
+  const loadGeneration = useRef(0);
   const [loading, setLoading] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -175,28 +178,31 @@ export default function PositionsPage() {
   const aiMembership = canUseAI(subscription);
   /** load 读取岗位模板和系统默认提示词。 */
   async function load() {
+    const current = ++loadGeneration.current;
     setLoading(true);
     try {
       const [positions, prompts, platformData] = await Promise.all([
-        cloudRequest("/api/positions"),
+        cloudRequest(`/api/positions?is_open=${positionScope}`),
         cloudRequest("/api/system/default-prompts"),
         cloudRequest("/api/platforms/config/", { auth: false }),
       ]);
+      if (current !== loadGeneration.current) return;
       setItems(sortTeamPositions(positions.positions || [], user?.email));
       setDefaults(normalizePrompts(prompts.prompts || prompts || {}));
       setPlatformConfigs(platformData.platforms || platformData.configs || []);
     } catch (error) {
+      if (current !== loadGeneration.current) return;
       notify(
         error instanceof Error ? error.message : "岗位模板读取失败",
         "error",
       );
     } finally {
-      setLoading(false);
+      if (current === loadGeneration.current) setLoading(false);
     }
   }
   useEffect(() => {
     void load();
-  }, []);
+  }, [positionScope]);
   useEffect(() => {
     if (!agentBase || items.length === 0) return;
     void loadLatestTaskStats(items);
@@ -317,6 +323,7 @@ export default function PositionsPage() {
           id: form.id,
           platform_id: form.platform_id,
           name: form.name.trim(),
+          is_open: form.is_open,
           keywords: splitKeywords(form.keywords),
           exclude_keywords: splitKeywords(form.exclude_keywords),
           description: form.description.trim(),
@@ -959,6 +966,11 @@ export default function PositionsPage() {
           </>
         }
       />
+      <Flex gap={8} align="center" style={{ marginBottom: 10 }}>
+        <Radio.Group aria-label="岗位状态筛选" size="small" optionType="button" buttonStyle="solid" value={positionScope}
+          onChange={(event) => setPositionScope(event.target.value)} options={[{ value: "true", label: "开启" }, { value: "false", label: "关闭" }]} />
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>关闭的岗位会保留记录</Typography.Text>
+      </Flex>
       {items.length ? (
         <Flex className={styles.s1}>
           {items.map((item) => (
@@ -1016,7 +1028,7 @@ export default function PositionsPage() {
                         </Button>
                       ) : (
                         <Button
-                          disabled={busyPositionID === item.id}
+                          disabled={busyPositionID === item.id || item.is_open === false}
                           onClick={() => openStartPosition(item)}
                           type={"primary"}
                           icon={<PlayCircleOutlined aria-hidden="true" />}
@@ -1131,7 +1143,7 @@ export default function PositionsPage() {
         </Flex>
       ) : (
         <SectionPanel>
-          <EmptyState text="暂无岗位模板" />
+          <EmptyState text={loading ? "岗位读取中" : positionScope === "false" ? "暂时没有关闭的岗位" : "暂时没有开启的岗位，可以先新建一个。"} />
         </SectionPanel>
       )}
       <AdminDialog
@@ -1303,6 +1315,10 @@ export default function PositionsPage() {
             >
               基础信息
             </Typography.Title>
+            <Form.Item layout="vertical" label="岗位状态" style={{ marginBottom: 12 }}
+              extra="关闭后不再出现在推荐岗位选项里，岗位和已有推荐记录都会保留。">
+              <Switch aria-label="岗位开启状态" checked={form.is_open} checkedChildren="开启" unCheckedChildren="关闭" onChange={(checked) => setForm({ ...form, is_open: checked })} />
+            </Form.Item>
             <Form.Item
               layout="vertical"
               htmlFor="positions-field-1"
@@ -2267,6 +2283,7 @@ function createEmptyForm() {
   return {
     id: "",
     name: "",
+    is_open: true,
     platform_id: "boss",
     mode_default: "keyword",
     detail_mode: "ocr",
@@ -2312,6 +2329,7 @@ function formFromItem(
     {
       id: item.id || "",
       name: item.name || "",
+      is_open: item.is_open !== false,
       platform_id: item.platform_id || "boss",
       mode_default: common.mode_default || "keyword",
       detail_mode: normalizeDetailMode(

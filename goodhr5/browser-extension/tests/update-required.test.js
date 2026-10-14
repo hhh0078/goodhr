@@ -9,12 +9,12 @@ const officialMetadata = "https://goodhr.58it.cn/api/system/browser-extension", 
 function response(body = { ok: true }, status = 200) { return { ok: status >= 200 && status < 300, status, json: async () => body }; }
 
 /** updateFixture 保留私有存储并可重启真实后台，分别记录公开版本请求和个人资料请求。 */
-function updateFixture({ values = {}, currentVersion = "1.0.3", release = { version: "1.0.3" }, metadataReply, businessReply, clock = { now: Date.now() } } = {}) {
+function updateFixture({ values = {}, currentVersion = "1.0.3", browser = "chrome", release = { version: "1.0.3" }, metadataReply, businessReply, clock = { now: Date.now() } } = {}) {
   Object.assign(values, { ...(!Object.hasOwn(values, "session") ? { session: { token: "private-update-token", user: { id: "fixture", email: "fixture@example.test" }, expires_at: "2030-01-01" } } : {}), ...(!Object.hasOwn(values, "data_use_accepted") ? { data_use_accepted: true } : {}) });
   const requests = [], versionRequests = [];
   let listener;
   const extension = {
-    runtime: { id: "update-fixture", getURL: (name) => "chrome-extension://update-fixture/" + name, getManifest: () => ({ version: currentVersion }), onMessage: { addListener: (handler) => { listener = handler; } } },
+    runtime: { id: "update-fixture", getURL: (name) => "chrome-extension://update-fixture/" + name, getManifest: () => ({ version: currentVersion, ...(browser === "firefox" ? { browser_specific_settings: { gecko: { id: "resume-assistant@goodhr.58it.cn" } } } : {}) }), onMessage: { addListener: (handler) => { listener = handler; } } },
     storage: { local: { get: async (keys) => Object.fromEntries(keys.filter((key) => key in values).map((key) => [key, values[key]])), set: async (input) => Object.assign(values, input), remove: async (keys) => { for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key]; }, setAccessLevel: async () => {} } },
     tabs: { query: async () => [], create: async () => ({}), onRemoved: { addListener: () => {} }, onUpdated: { addListener: () => {} } },
     action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {}, setTitle: () => {} }
@@ -22,7 +22,7 @@ function updateFixture({ values = {}, currentVersion = "1.0.3", release = { vers
   /** FixtureDate 只替换后台缓存时钟，不等待真实一分钟。 */
   class FixtureDate extends Date { static now() { return clock.now; } }
   const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, TextEncoder, Date: FixtureDate, console, setTimeout, clearTimeout, fetch: async (url, options) => {
-    if (url === officialMetadata) { versionRequests.push({ url, options }); return metadataReply ? metadataReply(url, options) : response({ release }); }
+    if (new URL(url).origin + new URL(url).pathname === officialMetadata) { versionRequests.push({ url, options }); return metadataReply ? metadataReply(url, options) : response({ release }); }
     requests.push({ url, options });
     return businessReply ? businessReply(url, options) : response({ ok: true, candidate: { id: "synthetic-existing", row_version: 4 }, matches: [], notes: [], recommendations: [], data: url.includes("resume-summary") ? { task: { id: "synthetic-task", status: "cancelled" } } : undefined });
   } });
@@ -33,6 +33,16 @@ function updateFixture({ values = {}, currentVersion = "1.0.3", release = { vers
 /** writablePayload 为各类提交提供完整合成资料，不让缺字段校验冒充版本阻止。 */
 function writablePayload() { return { resume: { candidate_name: "合成版本候选人", phone: "13800000191", work_experiences: [{ company_name: "合成职业公司" }] }, idempotency_key: "synthetic-save", candidate_id: "synthetic-existing", row_version: 3, note: "合成备注", note_key: "synthetic-note", position_id: "synthetic-position", stage: "draft", recommendation_key: "synthetic-recommendation", request_key: "synthetic-ai", task_id: "synthetic-task", ai_summary: "合成职业摘要" }; }
 
+test("更新请求明确区分 Chrome 和 Firefox，Chrome 新版不会锁定已签名 Firefox 当前版本", async () => {
+  for (const browser of ["chrome", "firefox"]) {
+    const value = updateFixture({ browser, currentVersion: "1.0.7", metadataReply: async (url) => response({ release: { version: new URL(url).searchParams.get("browser") === "firefox" ? "1.0.7" : "1.0.8", version_chrome: "1.0.8", version_firefox: "1.0.7" } }) });
+    const result = await value.message("CREATE", writablePayload());
+    assert.equal(value.versionRequests[0].url, officialMetadata + "?browser=" + browser);
+    if (browser === "firefox") { assert.equal(result.ok, true); assert.equal(value.requests.length, 1); }
+    else assertBlocked(result, value);
+  }
+});
+
 /** assertBlocked 验证后台明确返回更新状态且没有任何个人资料网络提交。 */
 function assertBlocked(result, value) { assert.equal(result.ok, false); assert.equal(result.status, 426); assert.equal(result.code, "EXTENSION_UPDATE_REQUIRED"); assert.match(result.message, /更新/); assert.equal(value.requests.length, 0); }
 
@@ -42,7 +52,7 @@ test("新版要求在后台阻止所有候选人、头像、备注推荐和AI写
   let avatarReads = 0; value.context.GoodHRAvatar.fetchAvatar = async () => { avatarReads++; return "data:image/png;base64,YQ=="; };
   for (const type of ["CREATE", "UPDATE", "AVATAR_RETRY", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_RETRY", "SUMMARY_SAVE"]) assertBlocked(await value.message(type, writablePayload()), value);
   assert.equal(avatarReads, 0); assert.equal(value.versionRequests.length, 1);
-  const call = value.versionRequests[0]; assert.equal(call.url, officialMetadata); assert.equal(call.options.headers.Authorization, undefined); assert.equal(call.options.credentials, "omit"); assert.equal(call.options.redirect, "error"); assert.equal(call.options.body, undefined);
+  const call = value.versionRequests[0]; assert.equal(call.url, officialMetadata + "?browser=chrome"); assert.equal(call.options.headers.Authorization, undefined); assert.equal(call.options.credentials, "omit"); assert.equal(call.options.redirect, "error"); assert.equal(call.options.body, undefined);
 });
 
 test("强制更新仍允许本地预览、云端查重和记录读取，以及取消正在运行的AI任务", async () => {

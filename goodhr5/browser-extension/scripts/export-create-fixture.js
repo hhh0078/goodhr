@@ -6,7 +6,7 @@ const directory = path.resolve(__dirname, "..", "tests", "fixtures");
 /** exportCreateFixture 生成无真实个人资料的跨模块联调 JSON，并保留稳定幂等键。 */
 function exportCreateFixture() {
   const input = JSON.parse(fs.readFileSync(path.join(directory, "create-input.json"), "utf8"));
-  const payload = { ...shared.sanitizeResume(input), idempotency_key: "plugin-cross-module-fixture-1" };
+  const payload = { ...shared.candidateWriteResume(input), idempotency_key: "plugin-cross-module-fixture-1" };
   fs.writeFileSync(path.join(directory, "plugin-candidate-create.json"), JSON.stringify(payload, null, 2) + "\n");
   return payload;
 }

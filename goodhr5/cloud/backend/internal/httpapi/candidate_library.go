@@ -26,6 +26,7 @@ var (
 type CandidateLibraryScope struct {
 	TenantID, UserEmail, AuthorName string
 	IsAdmin                         bool
+	IsExtension                     bool
 }
 
 // CandidateSource 表示一条明确确认的候选人平台来源。
@@ -116,6 +117,13 @@ func normalizeCandidatePhone(value string) string {
 // candidateMutationFields 校验用户明确提交的字段，不把省略字段当作清空。
 func candidateMutationFields(input map[string]any, creating bool) (map[string]any, error) {
 	result := map[string]any{}
+	if value, present := input["tag_ids"]; present {
+		ids, err := candidateTagIDs(value)
+		if err != nil {
+			return nil, err
+		}
+		result["tag_ids"] = ids
+	}
 	for _, key := range append(append([]string{}, candidateTextColumns...), candidateExtraFields...) {
 		value, present := input[key]
 		if !present {

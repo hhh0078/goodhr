@@ -13,20 +13,23 @@ var ErrPositionAlreadyRunning = errors.New("position already running")
 
 // Position 表示一个用户可复用的岗位筛选配置。
 type Position struct {
-	ID                string
-	UserEmail         string
-	PlatformID        string
-	Name              string
-	Keywords          []string
-	ExcludeKeywords   []string
-	Description       string
-	GreetMessage      string
-	IsAndMode         bool
-	CommonConfig      map[string]any
-	AIConfig          map[string]any
-	KeywordConfig     map[string]any
-	MatchLimit        int
-	Status            string
+	ID              string
+	UserEmail       string
+	PlatformID      string
+	Name            string
+	Keywords        []string
+	ExcludeKeywords []string
+	Description     string
+	GreetMessage    string
+	IsAndMode       bool
+	CommonConfig    map[string]any
+	AIConfig        map[string]any
+	KeywordConfig   map[string]any
+	MatchLimit      int
+	Status          string
+	IsOpen          bool
+	// IsOpenSet 仅表示本次保存明确提交开启状态，旧客户端省略时保留原值。
+	IsOpenSet         bool
 	ScannedCount      int
 	DailyGreetedCount int
 	DailyGreetedDate  string
@@ -50,6 +53,7 @@ type UserFlowProgress struct {
 type PositionStore interface {
 	ListPositions(tenantID, userEmail string, isAdmin bool) ([]Position, error)
 	SavePosition(position Position) (Position, error)
+	SetPositionOpen(userEmail, positionID string, isOpen bool) (Position, error)
 	PositionByID(tenantID, userEmail, positionID string, isAdmin bool) (Position, error)
 	DeletePosition(userEmail string, positionID string) error
 	ClaimPositionStart(userEmail, positionID string) error
@@ -89,11 +93,20 @@ func (s *MemoryPositionStore) SavePosition(position Position) (Position, error) 
 
 	now := s.now()
 	if position.ID == "" {
+		if !position.IsOpenSet {
+			position.IsOpen = true
+		}
 		position.ID = s.nextID()
 		position.CreatedAt = now
 		position.Status = "created"
 		position.DailyGreetedDate = positionBusinessDate(now)
 	} else if existing, ok := s.positions[position.ID]; ok {
+		if existing.UserEmail != position.UserEmail {
+			return Position{}, ErrNotFound
+		}
+		if !position.IsOpenSet {
+			position.IsOpen = existing.IsOpen
+		}
 		position.Status = existing.Status
 		position.ScannedCount = existing.ScannedCount
 		position.DailyGreetedCount = existing.DailyGreetedCount
@@ -103,6 +116,8 @@ func (s *MemoryPositionStore) SavePosition(position Position) (Position, error) 
 		position.StartedAt = existing.StartedAt
 		position.FinishedAt = existing.FinishedAt
 		position.CreatedAt = existing.CreatedAt
+	} else {
+		return Position{}, ErrNotFound
 	}
 	position.UpdatedAt = now
 	s.positions[position.ID] = position
@@ -134,6 +149,9 @@ func (s *MemoryPositionStore) ClaimPositionStart(userEmail, positionID string) e
 	position, ok := s.positions[positionID]
 	if !ok || position.UserEmail != userEmail {
 		return ErrNotFound
+	}
+	if !position.IsOpen {
+		return ErrCandidatePositionClosed
 	}
 	for _, item := range s.positions {
 		if item.UserEmail == userEmail && item.Status == "running" {

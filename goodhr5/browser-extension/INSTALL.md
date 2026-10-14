@@ -1,5 +1,5 @@
 <!-- 文件作用：介绍 GoodHR 简历插件正式包的安装、只读采集、登录和失败重试方式。 -->
-# GoodHR 简历助手 1.0.7
+# GoodHR 简历助手 1.0.8
 
 Chrome 与 Firefox 使用统一版本号。Chrome 下载包直接拖入扩展管理页安装；Firefox 使用 Mozilla 审核签名的 XPI。
 
@@ -57,9 +57,13 @@ Chrome 与 Firefox 使用统一版本号。Chrome 下载包直接拖入扩展管
 
 ## 本地构建与测试
 
-无需安装依赖：在 `goodhr5/browser-extension` 运行 `npm test`、`npm run build:chrome`。本轮输出在 `dist/chrome` 和 `goodhr-resume-chrome-1.0.7.zip`；版本只取 `package.json`，与本地 Agent 版本相互独立。`dist/checksums.json` 记录 SHA256。默认 `npm run build` 仍保留双浏览器开发构建能力，不代表 Firefox 已发布。本地构建测试使用独立忽略目录，不改已有 `dist-local` 测试包。
+无需安装依赖：在 `goodhr5/browser-extension` 运行 `npm test`、`npm run build:chrome`。本轮输出在 `dist/chrome` 和 `goodhr-resume-chrome-1.0.8.zip`；版本只取 `package.json`，与本地 Agent 版本相互独立。`dist/checksums.json` 记录 SHA256。默认 `npm run build` 仍保留双浏览器开发构建能力，不代表 Firefox 已发布。本地构建测试使用独立忽略目录，不改已有 `dist-local` 测试包。
 
-`node scripts/export-create-fixture.js` 会从合成输入通过实际插件整理器导出 `tests/fixtures/plugin-candidate-create.json`，供云端 Go 路由测试直接验证。标签为文字数组，地区使用 `current_region` / `expected_region`；明确数值薪资单位为 K，页面原文字单独保存。该文件和企业端嵌套预览 fixture 均不包含真实个人资料。
+`node scripts/export-create-fixture.js` 会从合成输入通过实际插件整理器导出 `tests/fixtures/plugin-candidate-create.json`，供云端 Go 路由测试直接验证。库标签仅提交已有标签的 `tag_ids` 编号数组，采集技能保留本地预览和总结；地区使用 `current_region` / `expected_region`，明确数值薪资单位为 K，页面原文字单独保存。该文件和企业端嵌套预览 fixture 均不包含真实个人资料。
+
+## 标签选择
+
+在简历助手的“选择标签”输入名字后，可多选已有标签。团队标签同团队可见，个人标签仅自己可见；输入新名字不会创建标签，需要到简历库的“管理标签”新增。添加或更新简历时保存选中的标签，移除全部已选标签后更新，只解除自己可见的标签关联。推荐岗位列表仅显示开启的岗位。
 
 已有仓库前端 Playwright 和本机 Chrome 时，可运行 `npm run test:ui` 做插件本地界面假接口验证。该验证不访问招聘网站、不登录真实账号，截图写到忽略目录 `artifacts`。缺浏览器时不自动下载，请使用已经安装的 Chrome。
 

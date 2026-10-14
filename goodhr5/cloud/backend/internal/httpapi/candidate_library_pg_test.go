@@ -47,7 +47,7 @@ func candidatePostgresTestDB(t *testing.T, beforeNotes ...bool) *sql.DB {
 	if _, err = db.Exec(setup); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"0028_candidate_profile_engagement_events.sql", "0050_simplify_candidate_resume_schema.sql", "0084_candidate_library_upgrade.sql", "0086_candidate_notes.sql"} {
+	for _, name := range []string{"0028_candidate_profile_engagement_events.sql", "0050_simplify_candidate_resume_schema.sql", "0084_candidate_library_upgrade.sql", "0086_candidate_notes.sql", "0094_candidate_tags.sql", "0095_position_open.sql"} {
 		if name == "0086_candidate_notes.sql" && len(beforeNotes) > 0 && beforeNotes[0] {
 			continue
 		}

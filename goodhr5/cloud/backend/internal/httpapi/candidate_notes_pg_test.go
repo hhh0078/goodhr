@@ -230,5 +230,8 @@ func TestCandidatePostgresStructuredDuplicates(t *testing.T) {
 	query.PlatformID, query.PlatformCandidateID, query.Keyword = "", "", ""
 	query.Age = 0
 	query.BirthYM = fmt.Sprintf("%d-01", time.Now().Year()-34)
+	// 出生年月替代年龄后仍保留正确学校条件，必须优先严格组；显式缺失学校时才降级到公司组。
+	assertMatch([]string{"strict", "birth", "unknown-gender"}, "strict")
+	query.Educations[1].SchoolName = "不存在的学校"
 	assertMatch([]string{"strict", "birth", "unknown-gender", "wrong-year"}, "surname_gender_company")
 }

@@ -57,6 +57,10 @@ func (s *PostgresCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScop
 			return PositionCandidate{}, ErrCandidateVersion
 		}
 	}
+	selectedTags, tagsPresent, err := candidateResolveTagsTx(ctx, tx, scope, fields)
+	if err != nil {
+		return PositionCandidate{}, err
+	}
 	phone := candidateString(fields, "phone")
 	platform := candidateString(fields, "platform_id")
 	sourceID := candidateString(fields, "platform_candidate_id")
@@ -105,6 +109,11 @@ func (s *PostgresCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScop
 	if err = candidateSaveSourceTx(ctx, tx, scope.TenantID, id, fields); err != nil {
 		return PositionCandidate{}, err
 	}
+	if tagsPresent {
+		if err = candidateSaveTagsTx(ctx, tx, scope, id, selectedTags); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
 	if err = candidateRequestSave(ctx, tx, scope, operation, key, candidateRequestReceipt{fingerprint, id}); err != nil {
 		return PositionCandidate{}, err
 	}
@@ -134,7 +143,14 @@ func candidateReadTx(ctx context.Context, tx *sql.Tx, scope CandidateLibraryScop
 	if errors.Is(err, sql.ErrNoRows) {
 		return PositionCandidate{}, ErrNotFound
 	}
-	return item, err
+	if err != nil {
+		return item, err
+	}
+	items, err := hydrateCandidateTags(ctx, tx, scope, []PositionCandidate{item})
+	if err != nil {
+		return PositionCandidate{}, err
+	}
+	return items[0], nil
 }
 
 // candidateWriteTx 只处理白名单字段，保护自动采集不覆盖人工维护和有效历史值。
@@ -310,6 +326,11 @@ func (s *PostgresCandidateStore) FindCandidateDuplicates(scope CandidateLibraryS
 	if err = rows.Err(); err != nil {
 		return nil, false, err
 	}
+	rows.Close()
+	items, err = hydrateCandidateTags(ctx, s.db, scope, items)
+	if err != nil {
+		return nil, false, err
+	}
 	matches, hidden := selectCandidateDuplicateMatches(scope, query, items)
 	return matches, hidden, nil
 }
@@ -363,6 +384,17 @@ func (s *PostgresCandidateStore) SaveCandidateRecommendation(scope CandidateLibr
 			}
 		}
 		return CandidateRecommendation{}, ErrNotFound
+	}
+	var positionOpen bool
+	err = tx.QueryRowContext(ctx, `SELECT is_open FROM positions WHERE id::text=$1 FOR SHARE`, position.ID).Scan(&positionOpen)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CandidateRecommendation{}, ErrNotFound
+	}
+	if err != nil {
+		return CandidateRecommendation{}, err
+	}
+	if !positionOpen {
+		return CandidateRecommendation{}, ErrCandidatePositionClosed
 	}
 	var item CandidateRecommendation
 	for _, existing := range candidate.Recommendations {

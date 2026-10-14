@@ -248,6 +248,11 @@ func (s *PostgresCandidateStore) ListPositionCandidates(tenantID string, query P
 	if err != nil {
 		return PositionCandidateListResult{}, err
 	}
+	rows.Close()
+	items, err = hydrateCandidateTags(ctx, s.db, CandidateLibraryScope{TenantID: tenantID, UserEmail: firstNonEmpty(query.ActorEmail, query.UserEmail), IsAdmin: query.UserEmail == ""}, items)
+	if err != nil {
+		return PositionCandidateListResult{}, err
+	}
 	return PositionCandidateListResult{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
 
@@ -285,6 +290,11 @@ func (s *PostgresCandidateStore) GetPositionCandidate(tenantID string, candidate
 		return PositionCandidate{}, err
 	}
 	items[0].Events = events
+	rows.Close()
+	items, err = hydrateCandidateTags(ctx, s.db, CandidateLibraryScope{TenantID: tenantID, UserEmail: userEmail, IsAdmin: isAdmin}, items)
+	if err != nil {
+		return PositionCandidate{}, err
+	}
 	return items[0], nil
 }
 
@@ -561,7 +571,19 @@ func buildCandidateWhere(tenantID string, query PositionCandidateQuery) (string,
 	addFilter(query.Education, "cp.education_level ILIKE $%d")
 	addFilter(query.WorkYears, "cp.work_years ILIKE $%d")
 	addFilter(query.WorkStatus, "cp.work_status ILIKE $%d")
-	addFilter(query.Tag, "COALESCE(cp.library_fields->'tags','[]'::jsonb)::text ILIKE $%d")
+	if query.TagID != "" || query.Tag != "" {
+		args = append(args, firstNonEmpty(query.ActorEmail, query.UserEmail))
+		actorPlaceholder := len(args)
+		condition := ""
+		if query.TagID != "" {
+			args = append(args, query.TagID)
+			condition = fmt.Sprintf("t.id::text=$%d", len(args))
+		} else {
+			args = append(args, candidateLike(query.Tag))
+			condition = fmt.Sprintf("t.name ILIKE $%d", len(args))
+		}
+		clauses = append(clauses, fmt.Sprintf("EXISTS(SELECT 1 FROM candidate_tag_links l JOIN candidate_tags t ON t.tenant_id=l.tenant_id AND t.id=l.tag_id WHERE l.tenant_id=cp.tenant_id AND l.candidate_id=cp.id AND (t.scope='team' OR t.created_by_email=$%d) AND %s)", actorPlaceholder, condition))
+	}
 	addFilter(query.Creator, "EXISTS(SELECT 1 FROM users creator_filter WHERE creator_filter.id=cp.created_by_user_id AND creator_filter.email ILIKE $%d)")
 	if query.CreatedFrom != "" {
 		args = append(args, query.CreatedFrom)

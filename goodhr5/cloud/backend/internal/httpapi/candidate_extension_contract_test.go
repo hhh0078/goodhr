@@ -71,7 +71,7 @@ func TestPluginCandidateRequestContract(t *testing.T) {
 	}
 	candidate := response["candidate"].(map[string]any)
 	id := candidate["id"].(string)
-	if candidate["expected_region"] != "期望测试城市" || candidate["current_region"] != "合同测试城市" || len(candidate["tags"].([]any)) != 2 || candidate["expected_salary_min"] != 20.0 {
+	if candidate["expected_region"] != "期望测试城市" || candidate["current_region"] != "合同测试城市" || len(candidate["tag_ids"].([]any)) != 0 || candidate["expected_salary_min"] != 20.0 {
 		t.Fatalf("插件字段未正确保存: %v", candidate)
 	}
 	avatar := candidateString(candidate, "avatar_data_url")

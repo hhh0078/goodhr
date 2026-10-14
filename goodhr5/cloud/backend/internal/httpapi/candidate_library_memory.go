@@ -24,7 +24,7 @@ func (s *MemoryCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScope,
 		if !ok || !candidateVisible(scope, item) {
 			return PositionCandidate{}, ErrNotFound
 		}
-		return s.decorateLibraryCandidateLocked(item), nil
+		return s.decorateCandidateTagsLocked(scope, s.decorateLibraryCandidateLocked(item)), nil
 	}
 	item, exists := s.profiles[id]
 	if id != "" {
@@ -34,6 +34,10 @@ func (s *MemoryCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScope,
 		if item.RowVersion != version {
 			return PositionCandidate{}, ErrCandidateVersion
 		}
+	}
+	selectedTags, pendingTags, tagsPresent, err := s.candidateMutationTagsLocked(scope, fields)
+	if err != nil {
+		return PositionCandidate{}, err
 	}
 	phone := candidateString(fields, "phone")
 	platform := candidateString(fields, "platform_id")
@@ -85,10 +89,13 @@ func (s *MemoryCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScope,
 		}
 	}
 	s.profiles[id] = item
+	if tagsPresent {
+		s.saveCandidateTagsLocked(scope, id, selectedTags, pendingTags)
+	}
 	if requestID != "" {
 		s.requests[requestID] = candidateRequestReceipt{fingerprint, id}
 	}
-	return s.decorateLibraryCandidateLocked(item), nil
+	return s.decorateCandidateTagsLocked(scope, s.decorateLibraryCandidateLocked(item)), nil
 }
 
 // FindCandidateDuplicates 只返回可查看记录，不把无权限的姓名和手机号泄露给成员。
@@ -97,7 +104,7 @@ func (s *MemoryCandidateStore) FindCandidateDuplicates(scope CandidateLibrarySco
 	defer s.mu.Unlock()
 	items := []PositionCandidate{}
 	for _, item := range s.profiles {
-		items = append(items, s.decorateLibraryCandidateLocked(item))
+		items = append(items, s.decorateCandidateTagsLocked(scope, s.decorateLibraryCandidateLocked(item)))
 	}
 	matches, hidden := selectCandidateDuplicateMatches(scope, query, items)
 	return matches, hidden, nil
@@ -130,6 +137,9 @@ func (s *MemoryCandidateStore) SaveCandidateRecommendation(scope CandidateLibrar
 	if receipt, ok := s.requests[requestID]; requestID != "" && ok {
 		if receipt.Fingerprint != fingerprint {
 			return CandidateRecommendation{}, ErrCandidateRequest
+		}
+		if !exists || item.ID != receipt.ResultID {
+			return CandidateRecommendation{}, ErrNotFound
 		}
 		return item, nil
 	}
@@ -237,6 +247,18 @@ func candidateEmptyValue(value any) bool {
 
 // candidateMatchesFilters 在内存环境使用与数据库相同的紧凑筛选条件。
 func candidateMatchesFilters(item PositionCandidate, query PositionCandidateQuery) bool {
+	if query.TagID != "" {
+		found := false
+		for _, id := range item.TagIDs {
+			if id == query.TagID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
 	if !candidateMatchesSource(item, query.SourceType) {
 		return false
 	}

@@ -33,13 +33,14 @@ export type GuideVideo = {
 	enabled: boolean;
 };
 
-/** BrowserExtensionRelease 表示后台维护的统一插件版本和不同浏览器下载包。 */
+/** BrowserExtensionRelease 表示后台维护的插件兼容版本及各浏览器实际开放的安装包版本。 */
 export type BrowserExtensionRelease = {
   version: string; note: string; url_chrome: string; url_firefox: string;
+  version_chrome?: string; version_firefox?: string;
   sha256_chrome: string; sha256_firefox: string; firefox_signed: boolean;
 };
 
-/** getBrowserExtensionRelease 在服务端读取插件下载配置，保持官网和后台使用同一版本。 */
+/** getBrowserExtensionRelease 在服务端读取插件下载配置，按浏览器展示实际可下载的版本。 */
 export async function getBrowserExtensionRelease(): Promise<BrowserExtensionRelease | null> {
   if (process.env.GOODHR_STATIC_EXPORT === "1") return null;
   try {

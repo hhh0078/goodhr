@@ -13,6 +13,10 @@ import (
 // Route 分发候选人子资源，确保新增查重、备注和推荐路径不被详情接口误处理。
 func (s *CandidateService) Route(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/candidates/")
+	if path == "tags" || strings.HasPrefix(path, "tags/") {
+		s.Tags(w, r)
+		return
+	}
 	if s.handleBuiltinCandidate(w, r, path) {
 		return
 	}
@@ -55,7 +59,7 @@ func (s *CandidateService) libraryScope(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "权限暂时没读到")
 		return CandidateLibraryScope{}, false
 	}
-	return CandidateLibraryScope{TenantID: tenant.ID, UserEmail: session.Email, AuthorName: session.Email, IsAdmin: admin}, true
+	return CandidateLibraryScope{TenantID: tenant.ID, UserEmail: session.Email, AuthorName: session.Email, IsAdmin: admin, IsExtension: session.Kind == extensionSessionKind}, true
 }
 
 // readCandidateJSON 限制请求大小并拒绝拼接多个 JSON 对象。
@@ -89,6 +93,14 @@ func candidateHTTPKey(r *http.Request, input map[string]any) (string, error) {
 func writeCandidateError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
+	case errors.Is(err, ErrCandidatePositionClosed):
+		status = http.StatusConflict
+	case errors.Is(err, ErrCandidateTagInvalid):
+		status = http.StatusBadRequest
+	case errors.Is(err, ErrCandidateTagForbidden), errors.Is(err, ErrCandidateTagScopeForbidden), errors.Is(err, ErrCandidateRecommendationForbidden):
+		status = http.StatusForbidden
+	case errors.Is(err, ErrCandidateTagConflict):
+		status = http.StatusConflict
 	case errors.Is(err, ErrCandidateDuplicate), errors.Is(err, ErrCandidateVersion), errors.Is(err, ErrCandidateRequest):
 		status = http.StatusConflict
 	case errors.Is(err, ErrNotFound):
@@ -285,6 +297,10 @@ func (s *CandidateService) Recommendations(w http.ResponseWriter, r *http.Reques
 	}
 	if position.ID == "" {
 		writeError(w, http.StatusNotFound, "这个岗位暂时无法访问")
+		return
+	}
+	if !position.IsOpen {
+		writeError(w, http.StatusConflict, "这个岗位已经关闭了，换个开启的岗位试试")
 		return
 	}
 	key, err := candidateHTTPKey(r, input)

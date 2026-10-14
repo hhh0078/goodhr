@@ -77,6 +77,10 @@ func (s *PositionExecutionService) Start(w http.ResponseWriter, r *http.Request)
 		writePositionStartError(w, http.StatusInternalServerError, "POSITION_LOAD_FAILED", "岗位信息暂时没读出来，请稍后再试")
 		return
 	}
+	if !position.IsOpen {
+		writePositionStartError(w, http.StatusConflict, "POSITION_CLOSED", "这个岗位已经关闭，先开启岗位再开始任务")
+		return
+	}
 	if failure := s.verifyActiveDevice(session.Email, payload.MachineID); failure != nil {
 		writePositionStartError(w, failure.status, failure.code, failure.message)
 		return
@@ -250,6 +254,9 @@ func (s *PositionExecutionService) verifyActiveDevice(email string, machineID st
 // claimPositionStart 完成所有云端启动条件检查，并原子占用当前账号的运行岗位名额。
 // email 为当前账号，position 为岗位快照，taskType 为本地主流程类型。
 func (s *PositionExecutionService) claimPositionStart(email string, position Position, taskType string) *positionStartError {
+	if !position.IsOpen {
+		return &positionStartError{status: http.StatusConflict, code: "POSITION_CLOSED", message: "这个岗位已经关闭，先开启岗位再开始任务"}
+	}
 	autoReply := strings.EqualFold(strings.TrimSpace(taskType), "auto_reply")
 	usesAI := positionUsesAI(position) || autoReply
 	if usesAI {
@@ -279,6 +286,9 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 		}
 	}
 	if err := s.store.ClaimPositionStart(email, position.ID); err != nil {
+		if errors.Is(err, ErrCandidatePositionClosed) {
+			return &positionStartError{status: http.StatusConflict, code: "POSITION_CLOSED", message: "这个岗位已经关闭，先开启岗位再开始任务"}
+		}
 		if errors.Is(err, ErrPositionAlreadyRunning) {
 			return &positionStartError{status: http.StatusConflict, code: "POSITION_TASK_CONFLICT", message: "这个账号已经有岗位在运行，请先停掉当前任务再开始新的"}
 		}

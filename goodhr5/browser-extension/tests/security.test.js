@@ -12,7 +12,7 @@ function backgroundFixture(fetchReply) {
     tabs: { query: async () => [], create: async () => ({}), onRemoved: { addListener: () => {} }, onUpdated: { addListener: () => {} } },
     action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {}, setTitle: () => {} }
   };
-  const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, TextEncoder, console, setTimeout, clearTimeout, fetch: async (url, options) => { if (url.endsWith("/api/system/browser-extension")) { versionRequests.push({ url, options }); return response({ release: { version: extension.runtime.getManifest().version } }); } requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
+  const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, TextEncoder, console, setTimeout, clearTimeout, fetch: async (url, options) => { if (new URL(url).pathname === "/api/system/browser-extension") { versionRequests.push({ url, options }); return response({ release: { version: extension.runtime.getManifest().version } }); } requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
   vm.runInContext(fs.readFileSync(path.join(src, "shared.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "avatar.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "background.js"), "utf8"), context);
   return { values, requests, versionRequests, context, extension, message: (message, sender) => new Promise((resolve) => { const result = listener(message, sender, resolve); if (result === false) resolve(undefined); }) };
 }
@@ -21,6 +21,40 @@ function backgroundFixture(fetchReply) {
 function response(body = { ok: true }, status = 200) { return { ok: status >= 200 && status < 300, status, json: async () => body }; }
 const uiSender = { id: "test-extension", url: "chrome-extension://test-extension/src/ui.html" };
 const floatingSender = { id: "test-extension", url: "chrome-extension://test-extension/src/floating.html" };
+
+test("标签只由授权插件界面读取已有列表，招聘网页与旧账号不能请求标签管理", async () => {
+  const value = backgroundFixture(); value.values.data_use_accepted = true;
+  const result = await value.message({ type: "TAGS" }, floatingSender);
+  assert.equal(result.ok, true); assert.equal(value.requests.length, 1);
+  assert.equal(value.requests[0].url, "https://goodhr.58it.cn/api/candidates/tags"); assert.equal(value.requests[0].options.method, "GET");
+  const webSender = { id: "test-extension", frameId: 0, tab: { id: 11, url: "https://h.liepin.com/resume/show" }, url: "https://h.liepin.com/resume/show" };
+  assert.equal(await value.message({ type: "TAGS" }, webSender), undefined);
+  const stale = await value.message({ type: "TAGS", payload: { account_key: "old-account" } }, floatingSender);
+  assert.equal(stale.ok, false); assert.match(stale.message, /账号已经变化/);
+  assert.equal((await value.message({ type: "TAG_CREATE", payload: { name: "任意新增" } }, floatingSender)).ok, false);
+  assert.equal(value.requests.length, 1);
+  value.values.data_use_accepted = false;
+  assert.equal((await value.message({ type: "TAGS" }, floatingSender)).ok, false); assert.equal(value.requests.length, 1);
+});
+
+test("插件保存仅提交已选标签编号，不再把采集技能建成标签，更新可显式移除标签", async () => {
+  const tagID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", value = backgroundFixture(); value.values.data_use_accepted = true;
+  const resume = { candidate_name: "合成标签候选人", phone: "13800000001", tags: ["招聘页面技能", "不能自由新建"], tag_ids: [tagID, tagID, "任意输入"] };
+  assert.equal((await value.message({ type: "CREATE", payload: { resume, idempotency_key: "create-tags" } }, uiSender)).ok, true);
+  const create = JSON.parse(value.requests[0].options.body); assert.deepEqual(create.tag_ids, [tagID]); assert.equal(Object.hasOwn(create, "tags"), false);
+  assert.equal((await value.message({ type: "UPDATE", payload: { resume: { ...resume, tag_ids: [] }, candidate_id: "existing", row_version: 1, idempotency_key: "clear-tags" } }, uiSender)).ok, true);
+  const update = JSON.parse(value.requests[1].options.body); assert.deepEqual(update.tag_ids, []); assert.equal(Object.hasOwn(update, "tags"), false);
+  assert.equal((await value.message({ type: "POSITIONS" }, floatingSender)).ok, true); assert.equal(value.requests[2].url, "https://goodhr.58it.cn/api/positions?purpose=recommendation");
+});
+
+test("标签草稿只保存有限编号和人工选择标记，切账号不能恢复他人的标签", async () => {
+  const value = backgroundFixture(), account = JSON.stringify(["fixture", "fixture@example.test"]), tagID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const draft = { fields: { "tag-filter": "合成标签" }, tag_ids: [tagID, "搜索词"], tags_edited: true };
+  assert.equal((await value.message({ type: "DRAFT_SAVE", payload: { identity: "synthetic", account_key: account, draft } }, floatingSender)).ok, true);
+  const loaded = await value.message({ type: "DRAFT_GET", payload: { identity: "synthetic", account_key: account } }, floatingSender);
+  assert.deepEqual(Array.from(loaded.data.draft.tag_ids), [tagID]); assert.equal(loaded.data.draft.tags_edited, true); assert.equal(loaded.data.draft.fields["tag-filter"], "合成标签");
+  assert.equal((await value.message({ type: "DRAFT_GET", payload: { identity: "synthetic", account_key: "other" } }, floatingSender)).ok, false);
+});
 
 /** avatarScene 构造当前头像快照及稳定采集标识，图片处理由后台测试替身负责。 */
 async function avatarScene(value) {
