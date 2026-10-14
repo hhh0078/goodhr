@@ -68,7 +68,7 @@
   :global([data-admin-root][data-onboarding-active="true"]).activeLayout :global(.goodhr-admin-toolbar) { top: calc(var(--goodhr-onboarding-height, 0px) + 8px); }
   :global([data-admin-root][data-onboarding-active="true"]).activeLayout :global(.goodhr-admin-main) { padding-top: calc(65px + var(--goodhr-onboarding-height, 0px) + 8px); }
   .currentStep { font-size: 11px; max-width: calc(100vw - 140px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .progressBar :global(.ant-btn) { padding-inline: 5px; font-size: 11px; }
+  .progressBar :global(.ant-btn) { padding-inline: 5px; }
   .remaining { font-size: 11px; }
   .stageList { overflow-x: auto; gap: 14px; padding-bottom: 2px; }
   .stageList li { font-size: 11px; }

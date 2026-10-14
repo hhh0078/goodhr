@@ -4,6 +4,10 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 export const uniformOrigin = new URL(process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190").origin;
+// 默认保留独立 Agent 测试端口；教程联调显式指定 43130，云端与 Agent 同端口时仍按既有路径合同模拟。
+const uniformAgentPort = process.env.UI_UNIFORM_AGENT_PORT || "43129";
+if (!/^\d+$/.test(uniformAgentPort) || Number(uniformAgentPort) < 1 || Number(uniformAgentPort) > 65535) throw new Error("UI_UNIFORM_AGENT_PORT 必须是有效的本机测试端口");
+const uniformAPIOrigins = new Set([uniformOrigin, "http://127.0.0.1:8084", `http://127.0.0.1:${Number(uniformAgentPort)}`]);
 export const uniformLongPosition = "合成长岗位名称 · 企业招聘与猎头沟通协作工具产品负责人（搜索选择时仍须完整可读）";
 const auditFile = resolve(process.env.UI_UNIFORM_AUDIT_FILE || "../../../output/admin-uniform-20261015/api-fixture-audit.jsonl");
 const createdAt = "2026-10-15T08:00:00Z";
@@ -74,6 +78,10 @@ export async function mockUniformAdmin(page: Page, empty = false, withMessages =
     const api = path.startsWith("/api/") || path === "/health";
     if (url.origin === uniformOrigin && !api) return route.continue();
     if (!api) return route.abort();
+    if (!uniformAPIOrigins.has(url.origin)) {
+      state.unknown.push(`拒绝非本机测试接口：${url.origin}${path}`);
+      return route.abort("blockedbyclient");
+    }
     const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
     /** fulfillFixture 先完成模拟回包再追加审计，不记录token、密码或请求正文。 */
     async function fulfillFixture(status: number, json?: unknown) {

@@ -41,11 +41,14 @@ export function useOnboardingTarget(selector: string, enabled: boolean): HTMLEle
     /** inspect 只读取当前控制台元素的可见性，移动端菜单折叠时先突出打开菜单按钮。 */
     function inspect() {
       const candidates = Array.from(document.querySelectorAll<HTMLElement>(selector));
-      const visible = candidates.find((element) => {
+      const visible = candidates.map((candidate) => candidate.closest<HTMLElement>("[role='menuitem']") || candidate).find((element) => {
         const box = element.getBoundingClientRect();
         const modal = element.closest<HTMLElement>(".ant-modal");
-        const animating = modal?.getAnimations?.().some((animation) => animation.playState === "running") || Boolean(modal?.matches(".ant-zoom-appear-active, .ant-zoom-enter-active"));
-        if (animating) {
+        const drawer = element.closest<HTMLElement>(".ant-drawer-content-wrapper");
+        const animating = [modal, drawer].some((surface) => surface?.getAnimations?.().some((animation) => animation.playState === "running")) || Boolean(modal?.matches(".ant-zoom-appear-active, .ant-zoom-enter-active")) || Boolean(drawer?.matches(".ant-drawer-panel-motion-left-enter-active, .ant-drawer-panel-motion-left-appear-active, .ant-drawer-panel-motion-right-enter-active, .ant-drawer-panel-motion-right-appear-active"));
+        // 抽屉入场时元素已有宽高，但坐标仍在屏幕外；等动画真正结束再交给 Tour。
+        const outsideDrawer = Boolean(drawer && (box.left < 0 || box.right > window.innerWidth));
+        if (animating || outsideDrawer) {
           if (settleTimer !== undefined) window.clearTimeout(settleTimer);
           settleTimer = window.setTimeout(schedule, 60);
           return false;

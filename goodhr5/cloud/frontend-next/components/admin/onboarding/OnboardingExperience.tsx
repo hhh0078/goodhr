@@ -111,8 +111,8 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
             </div>
             <Flex gap={6} align="center" wrap>
               <Typography.Text type="secondary" className={styles.remaining}><ClockCircleOutlined aria-hidden="true" /> 预计还需 {remaining}</Typography.Text>
-              <Button size="small" type="text" icon={<QuestionCircleOutlined />} disabled={blocked} onClick={actions.openHelp}>遇到问题</Button>
-              <Button size="small" type="text" icon={<PauseOutlined />} onClick={actions.pause}>稍后继续</Button>
+              <Button type="text" icon={<QuestionCircleOutlined />} disabled={blocked} onClick={actions.openHelp}>遇到问题</Button>
+              <Button type="text" icon={<PauseOutlined />} onClick={actions.pause}>稍后继续</Button>
             </Flex>
           </Flex>
           <Progress percent={Math.max(0, Math.min(100, doneCount * 20))} showInfo={false} size="small" strokeColor="var(--goodhr-primary)" className={styles.progressLine} />
@@ -132,7 +132,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         <section className={`${styles.operationPanel} ${styles.passivePanel}`} data-testid="onboarding-target-loading" aria-live="polite">
           <Typography.Text strong>{blocked ? "先处理当前必要检查，进度已保存" : "正在定位操作位置"}</Typography.Text>
           <Typography.Paragraph type="secondary">{blocked ? "完成当前弹框里的检查后，我会从这一步继续带路。" : error || statusText || "当前页面准备好后，我会继续高亮操作位置。你也可以先按说明操作。"}</Typography.Paragraph>
-          <Flex gap={8} wrap><Button size="small" disabled={blocked} onClick={actions.openHelp}>遇到问题</Button><Button size="small" onClick={actions.pause}>稍后继续</Button></Flex>
+          <Flex gap={8} wrap><Button disabled={blocked} onClick={actions.openHelp}>遇到问题</Button><Button onClick={actions.pause}>稍后继续</Button></Flex>
         </section>
       ) : null}
 
@@ -157,7 +157,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         scrollIntoViewOptions={{ block: "center", behavior: "instant" }}
         onClose={actions.pause}
         indicatorsRender={() => null}
-        actionsRender={() => <Flex gap={6} wrap><Button size="small" type="text" onClick={actions.back}>上一步</Button><Button size="small" type="text" onClick={actions.pause}>稍后继续</Button><Button size="small" onClick={actions.openHelp}>遇到问题</Button></Flex>}
+        actionsRender={() => <Flex gap={6} wrap><Button type="text" onClick={actions.back}>上一步</Button><Button type="text" onClick={actions.pause}>稍后继续</Button><Button onClick={actions.openHelp}>遇到问题</Button></Flex>}
         styles={{ section: { maxWidth: "min(390px, calc(100vw - 28px))" }, title: { color: "var(--goodhr-text)" } }}
       />
 
@@ -202,7 +202,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       </Modal>
 
       {phase === "paused" || phase === "declined" ? (
-        <div className={styles.resumeEntry}><Typography.Text type="secondary">{phase === "paused" ? "教程进度给你留着了" : "需要带路时，我还在"}</Typography.Text><Button type="primary" size="small" onClick={actions.resume}>{phase === "paused" ? "继续教程" : "开启引导"}</Button></div>
+        <div className={styles.resumeEntry}><Typography.Text type="secondary">{phase === "paused" ? "教程进度给你留着了" : "需要带路时，我还在"}</Typography.Text><Button type="primary" onClick={actions.resume}>{phase === "paused" ? "继续教程" : "开启引导"}</Button></div>
       ) : null}
 
       {celebration && phase !== "completed" ? <div className={styles.celebrationToast} role="status" aria-live="polite"><CheckCircleFilled aria-hidden="true" /><div><strong>{celebration.title}</strong><span>{celebration.description}</span></div></div> : null}

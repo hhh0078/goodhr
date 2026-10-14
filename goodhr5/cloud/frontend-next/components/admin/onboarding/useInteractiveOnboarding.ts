@@ -44,12 +44,16 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   const [cloudConfirmed, setCloudConfirmed] = useState(false);
   const aliveRef = useRef(true);
   const openingRef = useRef(false);
+  const pendingStartBackRef = useRef("");
   const loginRequestRef = useRef<AbortController | null>(null);
   const environmentRef = useRef(false);
   const phaseBeforeSkip = useRef<OnboardingPhase>("invite");
 
   /** changePhase 立即更新运行保护，防止同一轮异步响应在暂停或换号后继续推进。 */
-  const changePhase = useCallback((next: OnboardingPhase) => { phaseRef.current = next; setPhase(next); }, []);
+  const changePhase = useCallback((next: OnboardingPhase) => {
+    if (next !== "active") pendingStartBackRef.current = "";
+    phaseRef.current = next; setPhase(next);
+  }, []);
   /** update 合并本机微步骤，真实业务字段只由事件或状态检查写入。 */
   const update = useCallback((transform: (current: OnboardingState) => OnboardingState) => {
     const next = { ...transform(stateRef.current), updatedAt: Date.now() };
@@ -116,6 +120,8 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     const current = stateRef.current;
     if (phaseRef.current !== "active" || !current.positionStarted || current.positionId !== positionId) return;
     if (result.phase !== "result" || result.terminal !== true || typeof result.accepted !== "boolean" || !result.reason.trim()) return;
+    // 旧本地程序会把混合模式的关键词通过提前标成终态；仍需 AI 详情时继续等待最终判断。
+    if (current.filterMode === "keyword" && current.detailMode === "ai" && result.kind === "keyword" && result.accepted) return;
     update((value) => ({ ...value, status: "completed", step: "complete", completionKind: result.kind }));
     setStatusText(result.accepted ? "第一条真实筛选结果已经出来了，后续按岗位设置继续运行。" : "第一条真实判断：这位候选人暂不符合要求。筛选流程已经跑通。 ");
     setError(""); changePhase("completed");
@@ -124,7 +130,16 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
 
   useEffect(() => subscribeOnboardingEvents((event: OnboardingEvent) => {
     if (event.type === "position-form-closed") setFormOpen(false);
-    if (event.type === "start-dialog-closed") setStartOpen(false);
+    if (event.type === "start-dialog-closed") {
+      setStartOpen(false);
+      if (pendingStartBackRef.current && event.positionId === pendingStartBackRef.current) {
+        pendingStartBackRef.current = "";
+        if (phaseRef.current === "active") {
+          update((value) => ({ ...value, step: "position-start" }));
+          setError("");
+        }
+      }
+    }
     if (event.type === "guide-requested") {
       update((current) => ({ ...current, status: "active", step: current.status === "completed" ? "platform-select" : current.step }));
       changePhase("active"); setError(""); return;
@@ -146,8 +161,9 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       celebrate("position", "岗位建好了，方向也有了", "接下来设置平台筛选条件，让小助手开始干活。");
     }
     if (event.type === "start-dialog-opened" && event.positionId === current.positionId) { setStartOpen(true); update((value) => ({ ...value, step: "platform-filter" })); }
-    if (event.type === "platform-opened" && event.positionId === current.positionId) update((value) => ({ ...value, step: "position-run" }));
+    if (event.type === "platform-opened" && event.positionId === current.positionId && !pendingStartBackRef.current) update((value) => ({ ...value, step: "position-run" }));
     if (event.type === "position-started" && event.positionId === current.positionId) {
+      pendingStartBackRef.current = "";
       setStartOpen(false); setTaskStopped(false); update((value) => ({ ...value, positionStarted: true, step: "first-result" }));
       celebrate("started", "小助手开工了", "先别关浏览器，咱们再看一条真实筛选结果。");
     }
@@ -274,7 +290,11 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     const current = stateRef.current;
     if (step === "first-result" && !taskStopped) { setHelpOpen(true); return; }
     if (step === "position-name" && formOpen) publishOnboardingEvent({ type: "position-form-close-requested" });
-    if (step === "platform-filter" && startOpen) { publishOnboardingEvent({ type: "position-start-close-requested" }); setStartOpen(false); }
+    if (step === "platform-filter" && startOpen) {
+      pendingStartBackRef.current = current.positionId;
+      publishOnboardingEvent({ type: "position-start-close-requested" });
+      return;
+    }
     const previous: Partial<Record<OnboardingStep, OnboardingStep>> = { "agent-connect": "agent-download", "platform-open": "platform-select", "platform-login": "platform-open", "position-create": "position-menu", "position-name": "position-create", "position-filter-mode": "position-name", "position-detail-mode": "position-filter-mode", "position-requirement": "position-detail-mode", "position-keywords": "position-detail-mode", "position-save": current.filterMode === "keyword" ? "position-keywords" : "position-requirement", "platform-filter": "position-start", "position-run": "platform-filter", "first-result": "position-start" };
     update((value) => ({ ...value, step: previous[step] || value.step })); setError("");
   }

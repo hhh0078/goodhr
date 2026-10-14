@@ -183,6 +183,7 @@ export default function PositionsPage() {
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
   const [startLoading, setStartLoading] = useState(false);
   const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
+  const pendingStartDialogClose = useRef(false);
   const [startStatus, setStartStatus] = useState("");
   const [startError, setStartError] = useState("");
   const [startRequiresUpdate, setStartRequiresUpdate] = useState(false);
@@ -231,6 +232,11 @@ export default function PositionsPage() {
     if (event.type === "position-form-close-requested" && dialogOpen) closePositionForm();
     if (event.type === "position-start-close-requested" && startPositionItem) closeStartDialog();
   }), [dialogOpen, startPositionItem, startLoading, startOpeningPlatform]);
+  useEffect(() => {
+    if (!pendingStartDialogClose.current || startLoading || startOpeningPlatform) return;
+    if (startPositionItem) closeStartDialog();
+    else pendingStartDialogClose.current = false;
+  }, [startPositionItem, startLoading, startOpeningPlatform]);
   useEffect(() => {
     if (!guideContext.active) {
       lastGuideActive.current = false;
@@ -583,6 +589,9 @@ export default function PositionsPage() {
       if (!form.id && saved.position?.id) {
         createdOnboardingPositionID.current = String(saved.position.id);
         clearOnboardingPositionDraft(draftIdentity);
+        // 平台切换可能自动规范详情方式，以保存成功的实际模式同步教程，避免把旧点击缓存当真。
+        reportOnboardingModeSelection("filter-mode", String(saved.position.common_config?.mode_default || form.mode_default));
+        reportOnboardingModeSelection("detail-mode", String(saved.position.common_config?.detail_mode || detailMode));
         publishOnboardingEvent({ type: "position-created", positionId: String(saved.position.id), platformId: form.platform_id });
       }
       setDialogOpen(false);
@@ -613,12 +622,17 @@ export default function PositionsPage() {
     setStartError("");
     setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
+    pendingStartDialogClose.current = false;
     setStartPositionItem(item);
     publishOnboardingEvent({ type: "start-dialog-opened", positionId: String(item.id), platformId: String(item.platform_id || "") });
   }
-  /** closeStartDialog 清理岗位启动弹框中的运行状态和错误信息。 */
+  /** closeStartDialog 等待正在进行的真实操作结束后关闭弹框，再通知教程回退，避免指向弹框背后。 */
   function closeStartDialog() {
-    if (startLoading || startOpeningPlatform) return;
+    if (startLoading || startOpeningPlatform) {
+      pendingStartDialogClose.current = true;
+      return;
+    }
+    pendingStartDialogClose.current = false;
     const closedPositionID = startPositionItem?.id;
     setStartPositionItem(null);
     setStartStatus("");
@@ -817,6 +831,7 @@ export default function PositionsPage() {
         },
       );
       started = true;
+      pendingStartDialogClose.current = false;
       if (getOnboardingGuideContext().active) {
         startedOnboardingPositionID.current = String(item.id);
         setOnboardingResult(null);

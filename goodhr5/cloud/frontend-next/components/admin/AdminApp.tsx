@@ -702,7 +702,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                     (user?.role === "super_admin" ? "超级管理员" : "用户")}
                 </Typography.Text>
               </div>
-              <Button type="text" size="small" onClick={() => publishOnboardingEvent({ type: "guide-requested" })}>新手引导</Button>
+              <Button type="text" onClick={() => publishOnboardingEvent({ type: "guide-requested" })}>新手引导</Button>
               <BrowserOpenControl
                 agentBase={agentBase}
                 notify={notify}

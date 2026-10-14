@@ -1,5 +1,5 @@
 /** 文件作用：在真实本地前后端与隔离协议模拟 Agent 上逐步验证新手遮罩，招聘平台、安装包和招呼均不实际操作。 */
-import { test as base, expect, type BrowserContext, type Page, type APIRequestContext } from "@playwright/test";
+import { test as base, expect, type BrowserContext, type Page, type APIRequestContext, type Locator } from "@playwright/test";
 import { CLOUD_URL, PREVIEW_URL, agentControl, openAdmin, protectNetwork, readAgentState, readUserFlow, registerUser, userStorageState, type TestUser } from "../fixtures/onboarding-helpers";
 
 type Scenario = { context: BrowserContext; page: Page; user: TestUser; forbidden: string[]; errors: string[] };
@@ -30,9 +30,10 @@ async function expectStep(page: Page, step: string) {
 }
 
 /** expectMaskAround 使用标准界面读取确认透明孔位围住当前目标，避免标题已更新但遮罩还停在上一项。 */
-async function expectMaskAround(page: Page, selector: string) {
+async function expectMaskAround(page: Page, selector: string | Locator) {
+  const target = typeof selector === "string" ? page.locator(selector) : selector;
   await expect.poll(async () => {
-    const box = await page.locator(selector).boundingBox();
+    const box = await target.boundingBox();
     const hole = page.locator('.ant-tour-mask defs rect[fill="black"]').last();
     if (!box || !await hole.count()) return Number.POSITIVE_INFINITY;
     const [x, y, width, height] = await Promise.all([hole.getAttribute("x"), hole.getAttribute("y"), hole.getAttribute("width"), hole.getAttribute("height")]);
@@ -128,7 +129,7 @@ async function startFirstPosition(page: Page, positionID: string) {
 }
 
 for (const [filterMode, detailMode] of [["ai", "ai"], ["keyword", "ocr"], ["keyword", "ai"]] as const) {
-  test(`完整教程 ${filterMode}+${detailMode}：扫描不算完成，不合适结果可以跑通`, async ({ scenario, request }) => {
+  test(`完整教程 ${filterMode}+${detailMode}：扫描不算完成，明确判断可以跑通`, async ({ scenario, request }) => {
     const { page, user } = scenario;
     const position = await fillFirstPosition(page, request, user, filterMode, detailMode);
     await startFirstPosition(page, position.id);
@@ -150,7 +151,16 @@ for (const [filterMode, detailMode] of [["ai", "ai"], ["keyword", "ocr"], ["keyw
     await agentControl(request, { positionID: position.id, analysis: { kind: filterMode, phase: "analyzing", terminal: false, accepted: false, candidate_name: "测试候选人", reason: "正在分析" } });
     await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toHaveCount(0);
     expect((await readUserFlow(request, user)).tutorial_completed).toBe(false);
-    await agentControl(request, { positionID: position.id, analysis: { kind: filterMode, phase: "result", terminal: true, accepted: false, candidate_name: "测试候选人", score: 40, threshold: 70, reason: "经验未达到要求，已跳过", keywords: ["Java"], matched_keywords: [] } });
+    if (filterMode === "keyword" && detailMode === "ai") {
+      const before = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/status`).length;
+      await agentControl(request, { positionID: position.id, analysis: { kind: "keyword", phase: "result", terminal: true, accepted: true, candidate_name: "测试候选人", reason: "基础关键词命中，仍需等待详情 AI", keywords: ["Java"], matched_keywords: ["Java"] } });
+      await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/status`).length).toBeGreaterThan(before + 1);
+      await expectStep(page, "first-result");
+      expect((await readUserFlow(request, user)).tutorial_completed).toBe(false);
+    }
+    const resultKind = filterMode === "keyword" && detailMode === "ai" ? "ai" : filterMode;
+    const accepted = filterMode === "keyword" && detailMode === "ocr";
+    await agentControl(request, { positionID: position.id, analysis: { kind: resultKind, phase: "result", terminal: true, accepted, candidate_name: "测试候选人", score: accepted ? 80 : 40, threshold: 70, reason: accepted ? "关键词命中，已经得到合适的筛选结果" : "经验未达到要求，已跳过", keywords: ["Java"], matched_keywords: accepted ? ["Java"] : [] } });
     await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toBeVisible({ timeout: 20_000 });
     await expect.poll(async () => (await readUserFlow(request, user)).tutorial_completed).toBe(true);
     await expect(page.locator("canvas").first(), "正常动态偏好下应播放礼炮").toBeVisible();
@@ -238,6 +248,72 @@ test("半填岗位刷新恢复草稿，暂停不会弹表单，字段上一步�
   await expect(page.locator('[data-onboarding="position-create"]')).toBeVisible();
 });
 
+test("要求和关键词半填刷新保留六项草稿，换号不会带入岗位", async ({ scenario, request, browser }) => {
+  const { page, context, user } = scenario;
+  await openFirstPositionForm(page);
+  await page.locator('[data-onboarding="position-name"]').fill("六项草稿测试岗位");
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-filter-mode");
+  await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选/ }).click();
+  await expectStep(page, "position-detail-mode");
+  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: /^AI 识别/ }).click();
+  await expectStep(page, "position-requirement");
+  await page.locator('[data-onboarding="position-requirement"]').fill("半填岗位要求：后端开发，熟悉 Java");
+  await expect.poll(async () => (await context.storageState()).origins.some((origin) => origin.localStorage.some((entry) => entry.name.startsWith("goodhr_onboarding_position_draft_v1_") && entry.value.includes("半填岗位要求")))).toBe(true);
+  await page.reload();
+  await expectStep(page, "position-requirement");
+  await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue("六项草稿测试岗位");
+  await expect(page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选/ })).toBeChecked();
+  await expect(page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: /^AI 识别/ })).toBeChecked();
+  await expect(page.locator('[data-onboarding="position-requirement"]')).toHaveValue("半填岗位要求：后端开发，熟悉 Java");
+  await page.locator('[data-onboarding="position-requirement"]').focus();
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-keywords");
+  await page.locator('[data-onboarding="position-keywords"]').fill("Java，Spring");
+  await expect.poll(async () => (await context.storageState()).origins.some((origin) => origin.localStorage.some((entry) => entry.name.startsWith("goodhr_onboarding_position_draft_v1_") && entry.value.includes("Java，Spring")))).toBe(true);
+  await page.reload();
+  await expectStep(page, "position-keywords");
+  await expect(page.locator('[data-onboarding="position-keywords"]')).toHaveValue("Java，Spring");
+  const cache = (await context.storageState()).origins.find((entry) => entry.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
+  const draft = cache.find((entry) => entry.name === `goodhr_onboarding_position_draft_v1_${encodeURIComponent(user.id)}`);
+  expect(draft, "当前账号应保存独立草稿").toBeTruthy();
+  expect(JSON.parse(draft!.value).draft).toEqual({ name: "六项草稿测试岗位", platform_id: "boss", mode_default: "keyword", detail_mode: "ai", position_requirement: "半填岗位要求：后端开发，熟悉 Java", keywords: "Java，Spring" });
+  const otherUser = await registerUser(request, "onboarding-draft-isolation");
+  const other = await browser.newContext({ storageState: userStorageState(otherUser, cache), viewport: { width: 1440, height: 1080 } });
+  const forbidden: string[] = [];
+  await protectNetwork(other, forbidden);
+  try {
+    const otherPage = await other.newPage();
+    await openFirstPositionForm(otherPage);
+    await expect(otherPage.locator('[data-onboarding="position-name"]')).toHaveValue("");
+    await expect(otherPage.locator('[data-onboarding="position-requirement"]')).toHaveValue("");
+  } finally { await other.close(); }
+  expect(forbidden).toEqual([]);
+});
+
+test("打开平台请求未返回时上一步不提前高亮背后的开始按钮", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
+  await page.locator(`[data-onboarding="position-start"][data-position-id="${position.id}"]`).click();
+  await expectStep(page, "platform-filter");
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  let intercepted = false;
+  await page.route("**/api/v1/page/open", async (route) => { intercepted = true; await pending; await route.continue(); });
+  try {
+    await page.locator('[data-onboarding="position-open-platform"]').click();
+    await expect.poll(() => intercepted).toBe(true);
+    await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+    const baseline = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length;
+    await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length).toBeGreaterThan(baseline);
+    await expect(page.getByTestId("onboarding-experience")).not.toHaveAttribute("data-step", "position-start");
+    await expect(page.getByRole("dialog", { name: "开始招聘岗位", exact: true })).toBeVisible();
+  } finally { release(); }
+  await expectStep(page, "position-start");
+  await page.locator(`[data-onboarding="position-start"][data-position-id="${position.id}"]`).click();
+  await expectStep(page, "platform-filter");
+});
+
 test("本地连接和组件安装只占一个必要弹框，公告更新不盖住教程", async ({ scenario, request }) => {
   const { page } = scenario;
   await agentControl(request, { available: false, runtimeReady: false });
@@ -323,6 +399,7 @@ test("390px手机能打开菜单并真实进入岗位管理", async ({ scenario 
   await page.locator('[data-onboarding="onboarding-platform-open"]').click();
   await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu", { timeout: 30_000 });
   await page.locator('[data-onboarding="mobile-menu"]').click();
+  await expectMaskAround(page, page.getByRole("menuitem", { name: "岗位管理", exact: true }));
   await page.getByRole("menuitem", { name: "岗位管理", exact: true }).click();
   await expectStep(page, "position-create");
   await expect(page.locator('[data-onboarding="position-create"]')).toBeVisible();
