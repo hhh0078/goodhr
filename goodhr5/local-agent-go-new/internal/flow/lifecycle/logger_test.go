@@ -25,6 +25,34 @@ func TestTaskLogMessageUsesChinese(t *testing.T) {
 	}
 }
 
+// TestCandidateTimeoutIsPersistedAsError 验证候选人总超时以错误级别保存姓名、明确原因和完整处理耗时。
+func TestCandidateTimeoutIsPersistedAsError(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SaveTask(ctx, storage.TaskRun{TaskID: "candidate-timeout", PositionID: "timeout-position", Status: "running", TaskType: "greeting"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := NewTaskLogger(store, nil)
+	logger.CandidateActivity("candidate-timeout", "合成候选人", "正在判断是否适合打招呼", "running", nil)
+	logger.Step("candidate-timeout", "greeting", "candidate_timeout", "failed", time.Now().Add(-5*time.Minute), errors.New("候选人处理超时（已达到5分钟上限）"))
+	logs, err := store.ListPositionLogs(ctx, "timeout-position", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) == 0 {
+		t.Fatal("候选人超时日志没有落库")
+	}
+	last := logs[len(logs)-1]
+	if !last.IsError || last.Level != "error" || last.Step != "candidate_timeout" || last.DurationMS < 300_000 ||
+		!strings.Contains(last.Message, "合成候选人") || !strings.Contains(last.ErrorMessage, "候选人处理超时") {
+		t.Fatalf("候选人超时未保存为明确错误：%+v", last)
+	}
+}
+
 // TestUploadPositionLogsKeepsCandidateName 验证分享日志仍能定位到发生动作的候选人。
 func TestUploadPositionLogsKeepsCandidateName(t *testing.T) {
 	ctx := context.Background()

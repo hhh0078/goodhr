@@ -383,6 +383,7 @@ func userStepLabel(step string) string {
 		"candidate_fingerprint":         "确认候选人身份",
 		"sync_processed_resumes":        "同步候选人数量",
 		"candidate_operation":           "处理当前候选人",
+		"candidate_timeout":             "候选人处理超时",
 		"scroll_to_candidate":           "滚动到当前候选人",
 		"open_detail":                   "打开候选人详情",
 		"read_detail_text":              "读取候选人详情",

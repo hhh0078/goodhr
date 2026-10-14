@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,35 @@ import (
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
+
+// TestAIRequestBudgetAllowsSlowThinking 验证慢思考请求不再在三分钟截断，同时仍遵守调用方更短的截止时间。
+func TestAIRequestBudgetAllowsSlowThinking(t *testing.T) {
+	for _, shortCaller := range []bool{false, true} {
+		t.Run(fmt.Sprintf("short_caller_%t", shortCaller), func(t *testing.T) {
+			ctx := context.Background()
+			if shortCaller {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, time.Second)
+				defer cancel()
+			}
+			client := New()
+			client.http.Transport = aiDiagnosticTransport(func(request *http.Request) (*http.Response, error) {
+				deadline, ok := request.Context().Deadline()
+				remaining := time.Until(deadline)
+				if !ok || (!shortCaller && (remaining < 4*time.Minute || remaining > 5*time.Minute)) ||
+					(shortCaller && (remaining <= 0 || remaining > time.Second)) {
+					t.Errorf("AI 请求预算不符合慢思考或调用方限制：deadline=%v remaining=%s", ok, remaining)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header),
+					Body: io.NopCloser(strings.NewReader(chatEnvelopeForTest(`{"score":0,"reason":"测试不发送"}`)))}, nil
+			})
+			_, err := client.EvaluateCandidatePreview(ctx, cloud.AIConfig{BaseURL: "http://fixture", APIKey: "fixture", Model: "fixture"}, cloud.PositionSnapshot{}, model.Candidate{})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 // TestEvaluateCandidateRetriesAndReadsStream 验证 5xx 后会重试并解析 SSE 评分。
 func TestEvaluateCandidateRetriesAndReadsStream(t *testing.T) {

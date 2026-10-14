@@ -21,8 +21,6 @@ import (
 	"goodhr5/local-agent-go-new/internal/system/notification"
 )
 
-const candidateTimeout = 180 * time.Second
-
 // Flow 组装主动打招呼流程依赖。
 type Flow struct {
 	Browser        *client.Client
@@ -226,7 +224,8 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 				reportAIError(f.Logger, prepared.Request.TaskID, candidate, item.Err)
 			}
 			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "正在查看候选人列表", "running", nil)
-			candidateCtx, cancelCandidate := context.WithTimeout(ctx, candidateTimeout)
+			candidateStartedAt := time.Now()
+			candidateCtx, cancelCandidate := context.WithTimeoutCause(ctx, candidateTimeout, errCandidateProcessingTimeout)
 			candidateErr := item.Err
 			if candidateErr == nil && item.Decision != nil && !item.Decision.Accepted {
 				stats.Processed++
@@ -264,6 +263,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 				}
 				candidateErr = f.processCandidate(candidateCtx, prepared, runtime, candidate, stats)
 			}
+			candidateErr = f.finishCandidateProcessing(candidateCtx, prepared.Request.TaskID, candidateStartedAt, candidateErr)
 			cancelCandidate()
 			if candidateErr != nil {
 				if errors.Is(candidateErr, model.ErrCandidateDetailUnavailable) {
@@ -522,6 +522,8 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		f.log(prepared.Request.TaskID, "ai_decision", "start", decisionStartedAt, nil)
 		evaluationCtx, cancelEvaluation := context.WithTimeout(context.WithoutCancel(ctx), candidateTimeout)
 		evaluationCancel = cancelEvaluation
+		// 等待评分时遵守候选人总时限；评分已返回后撤销关联，保留后台完整输出。
+		stopEvaluationOnCandidateEnd := context.AfterFunc(ctx, cancelEvaluation)
 		if detailMode == "ai" {
 			images := detailImages
 			var imageErr error
@@ -540,6 +542,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 				evaluationCtx, prepared.Position.AI, prepared.Position, candidate, detail,
 			)
 		}
+		stopEvaluationOnCandidateEnd()
 		if decisionErr != nil {
 			reportAIError(f.Logger, prepared.Request.TaskID, candidate, decisionErr)
 			evaluationCancel()

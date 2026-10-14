@@ -13,10 +13,10 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// TestCandidateTimeout 验证单个候选人处理上限保持三分钟。
+// TestCandidateTimeout 验证单个候选人处理上限为五分钟。
 func TestCandidateTimeout(t *testing.T) {
-	if candidateTimeout != 180*time.Second {
-		t.Fatalf("候选人处理上限应为三分钟，实际为 %s", candidateTimeout)
+	if candidateTimeout != 5*time.Minute {
+		t.Fatalf("候选人处理上限应为五分钟，实际为 %s", candidateTimeout)
 	}
 }
 

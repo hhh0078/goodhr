@@ -86,9 +86,9 @@ func IsPositionStoppingError(err error) bool {
 	return errors.As(err, &serviceErr) && serviceErr.Fatal
 }
 
-// New 创建 AI 客户端。
+// New 创建 AI 客户端，允许思考模式在五分钟内返回，实际等待仍受调用方上下文限制。
 func New() *Client {
-	return &Client{http: &http.Client{Timeout: 180 * time.Second}}
+	return &Client{http: &http.Client{Timeout: 5 * time.Minute}}
 }
 
 // Ready 检查当前任务 AI 配置是否完整。
