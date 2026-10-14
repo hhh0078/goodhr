@@ -1,39 +1,27 @@
-# 文件作用：从01afd88d后端基线重建仅修复原始标签混写的兼容安全回退版本；生产应用不得启动未修复的1.0.8后端。
+# 文件作用：从01afd88d后端基线重建标签安全回退版本；使用git apply --unidiff-zero应用本补丁。
 --- a/internal/httpapi/candidate_tags.go
 +++ b/internal/httpapi/candidate_tags.go
-@@ -83,22 +83,14 @@
- 	return result, nil
- }
- 
+@@ -86 +86 @@
 -// applyVisibleCandidateTags 复制扩展字段并用可见关联覆盖旧标签，防止管理员读到他人个人标签。
 +// applyVisibleCandidateTags 安全回退补丁：只补充可见分类编号和明细，绝不覆盖原简历技能标签。
- func applyVisibleCandidateTags(item PositionCandidate, tags []CandidateTag) PositionCandidate {
+@@ -88,5 +87,0 @@
 -	fields := map[string]any{}
 -	for key, value := range item.LibraryFields {
 -		fields[key] = value
 -	}
 -	item.LibraryFields = fields
- 	item.TagIDs = []string{}
- 	item.TagDetails = []CandidateTag{}
+@@ -95 +89,0 @@
 -	names := []string{}
- 	for _, tag := range tags {
- 		item.TagIDs = append(item.TagIDs, tag.ID)
- 		item.TagDetails = append(item.TagDetails, tag)
+@@ -99 +92,0 @@
 -		names = append(names, tag.Name)
- 	}
+@@ -101 +93,0 @@
 -	item.LibraryFields["tags"] = names
- 	return item
- }
- 
 --- a/internal/httpapi/candidate_tags_memory.go
 +++ b/internal/httpapi/candidate_tags_memory.go
-@@ -86,47 +86,22 @@
- 	return nil
- }
- 
+@@ -89 +89 @@
 -// candidateMutationTagsLocked 解析已选ID和兼容名称，先完整校验，避免失败时写入部分关联。
 +// candidateMutationTagsLocked 安全回退补丁：仅显式分类编号可以修改关联，原tags文本不会创建或加入分类。
- func (s *MemoryCandidateStore) candidateMutationTagsLocked(scope CandidateLibraryScope, fields map[string]any) ([]string, []CandidateTag, bool, error) {
+@@ -91,14 +91 @@
 -	ids, present := fields["tag_ids"]
 -	if present {
 -		selected, err := candidateTagIDs(ids)
@@ -49,14 +37,10 @@
 -	}
 -	legacy, present := fields["tags"]
 +	raw, present := fields["tag_ids"]
- 	if !present {
- 		return nil, nil, false, nil
- 	}
+@@ -108 +95 @@
 -	names, err := candidateTagIDs(legacy)
 +	ids, err := candidateTagIDs(raw)
- 	if err != nil {
- 		return nil, nil, true, err
- 	}
+@@ -112,7 +99,3 @@
 -	selected, pending := []string{}, []CandidateTag{}
 -	for _, name := range names {
 -		var found CandidateTag
@@ -67,7 +51,7 @@
 +	for _, id := range ids {
 +		if !candidateTagVisible(scope, s.tags[id]) {
 +			return nil, nil, true, ErrCandidateTagInvalid
- 		}
+@@ -120,8 +102,0 @@
 -		if found.ID == "" {
 -			if scope.IsExtension {
 -				return nil, nil, true, ErrCandidateTagInvalid
@@ -76,21 +60,15 @@
 -			pending = append(pending, found)
 -		}
 -		selected = append(selected, found.ID)
- 	}
+@@ -129 +104 @@
 -	return selected, pending, true, nil
 +	return ids, nil, true, nil
- }
- 
- // saveCandidateTagsLocked 只替换操作者可见标签，保留其他成员的个人标签关联。
 --- a/internal/httpapi/candidate_tags_pg.go
 +++ b/internal/httpapi/candidate_tags_pg.go
-@@ -172,46 +172,23 @@
- 	return items, nil
- }
- 
+@@ -175 +175 @@
 -// candidateResolveTagsTx 将已有ID或旧名称解析为可见标签，并锁定标签避免并发权限变化。
 +// candidateResolveTagsTx 安全回退补丁：只读取已有tag_ids，原始技能tags不创建或加入任何分类。
- func candidateResolveTagsTx(ctx context.Context, tx *sql.Tx, scope CandidateLibraryScope, fields map[string]any) ([]string, bool, error) {
+@@ -177,16 +177 @@
 -	if raw, present := fields["tag_ids"]; present {
 -		ids, err := candidateTagIDs(raw)
 -		if err != nil {
@@ -108,14 +86,10 @@
 -	}
 -	raw, present := fields["tags"]
 +	raw, present := fields["tag_ids"]
- 	if !present {
- 		return nil, false, nil
- 	}
+@@ -196 +181 @@
 -	names, err := candidateTagIDs(raw)
 +	ids, err := candidateTagIDs(raw)
- 	if err != nil {
- 		return nil, true, err
- 	}
+@@ -200,6 +185,3 @@
 -	ids := []string{}
 -	for _, name := range names {
 -		var id string
@@ -125,24 +99,16 @@
 +	for _, id := range ids {
 +		if _, err = readCandidateTagTx(ctx, tx, scope, id); err != nil {
 +			if errors.Is(err, ErrNotFound) {
- 				return nil, true, ErrCandidateTagInvalid
- 			}
+@@ -208,4 +189,0 @@
 -			// 同名个人标签可并发创建，通过索引冲突复用原标签，不影响其他成员。
 -			err = tx.QueryRowContext(ctx, `INSERT INTO candidate_tags(tenant_id,name,scope,created_by_email) VALUES($1,$2,'personal',$3) ON CONFLICT(tenant_id,created_by_email,lower(name)) WHERE scope='personal' DO UPDATE SET name=candidate_tags.name RETURNING id::text`, scope.TenantID, name, scope.UserEmail).Scan(&id)
 -		}
 -		if err != nil {
- 			return nil, true, err
- 		}
+@@ -214 +191,0 @@
 -		ids = append(ids, id)
- 	}
- 	return ids, true, nil
- }
 --- a/internal/httpapi/candidate_store_pg.go
 +++ b/internal/httpapi/candidate_store_pg.go
-@@ -571,18 +571,11 @@
- 	addFilter(query.Education, "cp.education_level ILIKE $%d")
- 	addFilter(query.WorkYears, "cp.work_years ILIKE $%d")
- 	addFilter(query.WorkStatus, "cp.work_status ILIKE $%d")
+@@ -574,12 +574,5 @@
 -	if query.TagID != "" || query.Tag != "" {
 -		args = append(args, firstNonEmpty(query.ActorEmail, query.UserEmail))
 -		actorPlaceholder := len(args)
@@ -160,6 +126,3 @@
 +	if query.TagID != "" {
 +		args = append(args, firstNonEmpty(query.ActorEmail, query.UserEmail), query.TagID)
 +		clauses = append(clauses, fmt.Sprintf("EXISTS(SELECT 1 FROM candidate_tag_links l JOIN candidate_tags t ON t.tenant_id=l.tenant_id AND t.id=l.tag_id WHERE l.tenant_id=cp.tenant_id AND l.candidate_id=cp.id AND (t.scope='team' OR t.created_by_email=$%d) AND t.id::text=$%d)", len(args)-1, len(args)))
- 	}
- 	addFilter(query.Creator, "EXISTS(SELECT 1 FROM users creator_filter WHERE creator_filter.id=cp.created_by_user_id AND creator_filter.email ILIKE $%d)")
- 	if query.CreatedFrom != "" {

@@ -35,7 +35,7 @@ Chrome ZIP SHA256：`fefe405c45bc61d6c4b5b656554375c085c1a895c0a0c8089c509afc463
 
 Firefox ZIP SHA256：`d05a0fcf568ac132501e08184d9c3eb3eecd7f0d2f16d0d44b209e8766b4eec6`。
 
-安全回退材料：源码包SHA256 `a95fe101b14b603fab692dbf27db4fc75fcadd1dc73abeee1cca6754e0a5dff3`，Linux二进制SHA256 `ade1c127b06fd06a36a51320b731611195afb16a2b227b5d54dedadab99f1b74`。最小运行补丁保存于 `scripts/releases/resume-folders-safe-rollback-20261015.patch`，从01afd88d的后端基线可重新构建。
+安全回退材料：源码包SHA256 `a95fe101b14b603fab692dbf27db4fc75fcadd1dc73abeee1cca6754e0a5dff3`，Linux二进制SHA256 `ade1c127b06fd06a36a51320b731611195afb16a2b227b5d54dedadab99f1b74`。最小运行补丁保存于 `scripts/releases/resume-folders-safe-rollback-20261015.patch`，从01afd88d的后端基线使用 `git apply --unidiff-zero` 应用后可重新构建；已在独立基线副本验证4个运行文件完全一致。
 
 ## 正式发布结果
 
