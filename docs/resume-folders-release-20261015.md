@@ -20,7 +20,7 @@
 
 ## 验证
 
-- 全量Go测试与go vet通过。
+- 全量Go测试与go vet通过；独立安全回退后端的完整测试、go vet及11项真实PG回归也通过。
 - 独立真实PostgreSQL：11项候选人、收藏夹、0096精确来源清理、岗位、推荐、备注、分享和头像回归通过；团队加入合并与完整迁移重放通过。
 - 插件97/97回归、UI冒烟、Chrome155实际临时加载通过；Firefox lint无错误。
 - 前端18项相关UI回归、36项单元测试和TypeScript检查通过；桌面个人配置、收藏夹、设置弹框与三页工具栏截图已核对。
@@ -34,3 +34,20 @@
 Chrome ZIP SHA256：`fefe405c45bc61d6c4b5b656554375c085c1a895c0a0c8089c509afc463107bd`。
 
 Firefox ZIP SHA256：`d05a0fcf568ac132501e08184d9c3eb3eecd7f0d2f16d0d44b209e8766b4eec6`。
+
+安全回退材料：源码包SHA256 `a95fe101b14b603fab692dbf27db4fc75fcadd1dc73abeee1cca6754e0a5dff3`，Linux二进制SHA256 `ade1c127b06fd06a36a51320b731611195afb16a2b227b5d54dedadab99f1b74`。最小运行补丁保存于 `scripts/releases/resume-folders-safe-rollback-20261015.patch`，从01afd88d的后端基线可重新构建。
+
+## 正式发布结果
+
+应用源码提交：`3a36f424c3bf43a5ee544cba8be78ff47ef90a1b`，已推送功能分支并合并主分支。
+
+- 完整数据库备份：104421828字节，SHA256 `cb730efaf5333413112657be4d7b58a3b4ad718f59aab760c518d61d3abe53e4`。
+- 正式迁移102→103；46张原业务表全部原字段行摘要不变，原简历标签不变，清理305个明确自动分类及其关联，没有人工收藏夹或关联被删除。
+- 后端镜像 `sha256:31df9fe839f4375e0bada14816c695662029e6575d44cbac01bc2d728ce4014b`；容器 `f308ae790c1e6daf43e3453dd27504f7871b2cf6f1da564d95d368836646130a`。
+- 前端镜像 `sha256:83ee8d4cbbe2a1a8ad850a8c5f165097986df63e7a23383c642e798fe6facbf0`；容器 `38d24aea6bc9f2542db1ef25b0de469e5e6f85310fde8d90c2ca497c498ad2ff`。
+- 安全回退镜像 `sha256:9eb514010a06a5adcb50cb7c4a843aa051e007dda96552ebdb8abe234b8f126c`，已在0096后的完整恢复库启动并验证。
+- 公网官网、登录、简历库、岗位、猎头推荐、企业招聘、个人配置、下载页均200；收藏夹、推荐、岗位接口匿名401；Chrome1.0.9下载87305字节及全文SHA256匹配。
+- Firefox签名1.0.7的版本、地址、摘要和签名标记均保留；旧Agent返回版本及两个下载包一致的1.0.7快照。
+- 四个本次演练容器均已清理，备份与恢复数据保留；正式PostgreSQL和Redis原容器ID、镜像和启动时间未变。
+
+上线后实际生产页面/静态资源三项UI回归通过（个人配置、企业设置弹框、原标签与收藏夹独立）。使用合成账号和模拟API；网络审计确认19个POST/PUT/PATCH请求全部fulfill模拟，没有修改任何真实账号或业务资料。
