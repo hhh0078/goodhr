@@ -54,6 +54,38 @@ python3 /opt/goodhr-release/admin-uniform-20261015/admin-uniform.py rollback --c
 
 脚本 stdout 只显示提交、镜像或容器 ID、阶段状态、数量、摘要和布尔结果，不显示 Env、SQL正文、账号、候选人或邮件内容。异常输出固定提示，详细现场留在私有材料。
 
-## 当前验证状态
+## 实际验证与发布进度
 
-此文档和脚本仅准备完成。Python 3.8 AST、21 个函数中文注释及禁止写 SQL / 原双应用切换调用的静态检查已通过。另有 3 项纯内存模拟通过：停止前配置漂移不触发 stop，create 成功但结果未知时按标签找回 ID 并恢复旧前端，成功切换只操作前端。模拟未执行子进程、HTTP或Docker，受保护三容器保持原状态；双人只读审查未发现阻塞。线上构建、备份、候选验收、切换和清理均由负责人明确执行；这里不声称已完成线上发布。
+发布源码提交 `9374fd0a8332d6d07273d622816b4f0979be516f` 已合并主分支。本地验证结果由负责人汇总确认：本次新增 17 项 UI 回归、既有 9 项 UI 回归、37 项单元测试以及 TypeScript 类型检查均通过。
+
+发布器的 Python 3.8 AST、21 个函数中文注释及禁止写 SQL / 原双应用切换调用的静态检查通过。3 项纯内存模拟通过：停止前配置漂移不触发 stop，create 成功但结果未知时按标签找回 ID 并恢复旧前端，成功切换只操作前端。模拟未执行子进程、HTTP或Docker，受保护三容器保持原状态；双人只读审查未发现阻塞。
+
+负责人已执行并确认 `build`、`prepare`、`rehearse`、`cutover` 四阶段均成功，退出码均为 0。正式前端已切换为本次镜像，实际材料如下。
+
+| 材料 | 实际值 |
+| --- | --- |
+| 源码提交 | `9374fd0a8332d6d07273d622816b4f0979be516f` |
+| Git 归档 SHA256 | `30b0ee1b054ab8d15f985ea72ce166815c6b18f42a4b5735e3851eb6be582ee1` |
+| 前端镜像 ID | `sha256:1243f405e9a4ccbc110d8a55f2ab5dd0863dd6ad175f7784849fee88b20cf59a` |
+| 前端镜像 tag | `goodhr-production-frontend:admin-uniform-9374fd0a` |
+| 正式新前端容器 ID | `8d291e59f0f9d6ba01783a492efa71bda17323954a13a462b5eba1eea1eee617` |
+| 正式前端启动时间（UTC） | `2026-10-14T18:47:26.95653031Z` |
+| 已清理的 5182 候选前端容器 ID | `8a4c48f06b077c5efa3c0c31249a7a3c1cd3334c34e8e52a14ad19d0d1480e82` |
+| 完整 PG dump 大小 | `104402130` bytes |
+| 完整 PG dump SHA256 | `00d55e12a32a782c84646012a2db1141123734b9c69d3c1462f43124707daf30` |
+
+候选与公网各 25 条页面匿名 GET 均返回 200；5 条私有 API 匿名检查均返回 401。Chrome ZIP 摘要、Chrome `1.0.9` 和 Firefox 已签名 `1.0.7` 的发布配置均保持不变；103 项迁移正文与正式 ledger 的只读检查通过。后端、PG、Redis 的精确容器 ID、镜像和启动时间保持原基线，未执行 SQL 写入、数据库恢复或后端重启。
+
+负责人已完成 `cleanup`，退出码为 0，仅移除本轮 5182 候选容器；完整 dump、旧前端备份容器及全部镜像保留。清理后后端、PG、Redis 的完整 ID、镜像和启动时间仍与固定基线一致。另从 Windows 复核公网 6 条页面，均返回 200；Chrome `1.0.9` ZIP 摘要、Firefox 已签名 `1.0.7` 均通过，`Go-http-client/1.1` 旧 Agent 默认响应仍为兼容版本 `1.0.7`。
+
+生产环境最终 17 项 UI 回归全部通过，日志记录 `17 passed (2.4m)`。浏览器 API 审计共 1430 条记录，其中 118 条非 GET；每条均为 `mocked=true`、`real_service_called=false`，UI 浏览器未调用真实业务 API、未写真实业务数据。发布器和负责人前述匿名 GET、只读 SQL 是另外执行的授权只读验收。
+
+负责人核看正式页面截图：岗位管理 1366 / 390 宽、猎头推荐 1366 第 2 页 / 390 宽，以及个人配置正常配置状态 1366 宽，均符合尺寸、工具栏对齐、内容间距及分页边距要求。首轮测试定位调整为完整 Tabs 可点击控件，并校正个人配置模拟数据的真实接口形状；31–33px 高度断言保持，修正后重跑 17 项全部通过。这些修正只涉及测试，业务源码和已上线镜像保持本次提交，不需要重新构建。
+
+实际证据（相对仓库根目录）：
+
+- UI 最终日志：[output/admin-uniform-20261015/prod-ui-final.log](../output/admin-uniform-20261015/prod-ui-final.log)。
+- 浏览器 API 审计：[output/admin-uniform-20261015/prod-api-fixture-audit-final.jsonl](../output/admin-uniform-20261015/prod-api-fixture-audit-final.jsonl)。
+- 正式页面截图：[output/admin-uniform-20261015/prod/output/admin-uniform-20261015/](../output/admin-uniform-20261015/prod/output/admin-uniform-20261015/)。
+
+构建、备份、候选验收、正式切换、候选清理和生产 UI 最终验收均已完成。线上各阶段由负责人执行，本文档编辑未操作生产环境。

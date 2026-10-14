@@ -55,7 +55,7 @@ async function checkToolbar(page: Page, route: string) {
   const box = await visibleBox(toolbar);
   await expect(toolbar).toHaveCSS("column-gap", "8px");
   if (route === "recruitment") {
-    const tab = await visibleBox(toolbar.getByRole("tab", { name: "岗位招聘进度", exact: true }));
+    const tab = await visibleBox(toolbar.locator(".ant-tabs-tab").filter({ hasText: "岗位招聘进度" }));
     expect(tab.height).toBeGreaterThanOrEqual(31);
     expect(tab.height).toBeLessThanOrEqual(33);
   }
@@ -216,10 +216,23 @@ test("后台所有菜单的普通刷新均移除，常规控件和输入按钮�
   const reports: Measurement[] = [];
   for (const route of menus) {
     await openUniform(page, route, state);
+    if (route === "personal-config") {
+      await expect(page.getByLabel("API 地址", { exact: true })).toHaveValue(`${uniformOrigin}/api/builtin-ai/v1/chat/completions`);
+      await expect(page.locator(".ant-select:has(#personal-config-field-2)")).toHaveText(/合成测试模型.*synthetic-model/);
+      await expect(page.getByLabel("模型名称", { exact: true })).toBeEnabled();
+      await expect(page.getByRole("main").getByText(/个人配置暂时没读完整|内置模型列表暂时没读到/)).toHaveCount(0);
+    }
     const report: Measurement = { route: route || "dashboard", viewport: 1366, state: "all-menus", controls: [] };
     await checkControls(page.locator(".goodhr-admin-content"), report);
     reports.push(report);
     await captureUniform(page, `menu-${route.replaceAll("/", "-") || "dashboard"}`, reports);
+    if (route === "personal-config") {
+      await page.setViewportSize({ width: 390, height: 960 });
+      const mobile: Measurement = { route, viewport: 390, state: "normal-ai-config", controls: [] };
+      await checkControls(page.locator(".goodhr-admin-content"), mobile);
+      await captureUniform(page, "menu-personal-config-390-normal", [mobile]);
+      await page.setViewportSize({ width: 1366, height: 960 });
+    }
     expectUniformNetwork(state);
   }
   writeFileSync(resolve(output, "all-menus.json"), JSON.stringify({ reports, calls: state.calls, unknown: state.unknown, writes: state.writes, errors: state.errors }, null, 2));

@@ -115,15 +115,15 @@ export async function mockUniformAdmin(page: Page, empty = false, withMessages =
     else if (path === "/api/wechat-official/status") data = { enabled: false, configured: false, bound: true, followed: true, gift_granted: true };
     else if (path === "/api/system/app-config" || path === "/api/runtime/config") data = { config: { builtin_ai: { models: [{ id: "synthetic-model", name: "合成测试模型", description: "仅界面模拟" }] } } };
     else if (path === "/api/system/default-prompts") data = { prompts: {} };
-    else if (path === "/api/config/user-ai") data = { config: { enabled: false, model: "synthetic-model", base_url: "https://example.invalid/synthetic", api_key_set: false } };
-    else if (path === "/api/config/user-preferences") data = { preferences: {} };
+    else if (path === "/api/config/user-ai") data = { config: { enabled: true, model: "synthetic-model", base_url: `${uniformOrigin}/api/builtin-ai/v1/chat/completions`, api_key: "synthetic-api-key-only", api_key_set: true } };
+    else if (path === "/api/config/user-preferences") data = { config: { ai_model: "synthetic-model", candidate_read_concurrency: 100 } };
     else if (path === "/api/user-flow" || path === "/api/user-flow/state") data = { state: "completed", steps: {}, flow: { version: 2, state: "completed", stage: "completed", steps: {} } };
     else if (path === "/api/tenants/invitations/pending" || path === "/api/tenants/invitations") data = { invitations: [] };
     else if (path === "/api/messages/summary") data = { unread_count: withMessages ? messages.length - state.readMessages.length : 0, version: state.readMessages.length + 1 };
     else if (path === "/api/messages") data = { messages: withMessages ? pageRows(messages, url).map((item) => ({ ...item, read_at: state.readMessages.includes(item.id) ? createdAt : undefined })) : [], total: withMessages ? messages.length : 0 };
     else if (path === "/api/tenants/members") data = { members: empty ? [] : members, can_manage: true, today_greeted_count: 0 };
     else if (path === "/api/team/stats") data = { totals: {}, members: empty ? [] : members, start_date: "2026-10-01", end_date: "2026-10-15" };
-    else if (path === "/api/ai-wallet") data = { balance: "12.3456", balance_units: 123456, bonus_balance: "0.0000", default_model: "synthetic-model", models: [{ id: "synthetic-model", name: "合成模型" }], wallet: { balance: "12.3456" } };
+    else if (path === "/api/ai-wallet") data = { balance: "12.3456", balance_units: 123456, bonus_balance: "0.0000", public_base_url: `${uniformOrigin}/api/builtin-ai/v1/chat/completions`, default_model: "synthetic-model", models: [{ id: "synthetic-model", name: "合成测试模型", description: "完整模型列表仅用于界面模拟", input_price_per_1m_cents: 10, output_price_per_1m_cents: 20 }] };
     else if (path === "/api/ai-wallet/records") data = { records: empty ? [] : pageRows(records, url), total: empty ? 0 : records.length };
     else if (path === "/api/subscription/plans") data = { plans: [] };
     else if (path === "/api/payment/orders") data = { orders: [] };
