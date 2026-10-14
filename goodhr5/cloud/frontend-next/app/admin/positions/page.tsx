@@ -32,7 +32,7 @@ import {
   StopOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import styles from "../heavy-ui.module.css";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
@@ -66,6 +66,18 @@ import {
 } from "@/lib/admin-api";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { reportUserFlow } from "@/lib/user-flow";
+import {
+  getOnboardingGuideContext,
+  publishOnboardingEvent,
+  subscribeOnboardingEvents,
+  subscribeOnboardingGuideContext,
+  type OnboardingGuideContext,
+} from "@/lib/onboarding-events";
+import {
+  clearOnboardingPositionDraft,
+  readOnboardingPositionDraft,
+  saveOnboardingPositionDraft,
+} from "@/lib/onboarding-position-draft";
 import { canUseAI, normalizeSubscription } from "@/lib/subscription";
 import {
   confirmPlatformLoggedInForPosition,
@@ -85,6 +97,10 @@ const PLATFORM_OPEN_ORDER = ["boss", "zhaopin", "hliepin", "liepin"];
 const LOG_REFRESH_MS = 3000;
 const LOG_LIMIT = 100;
 const ALL_LOG_LIMIT = 1000;
+const ONBOARDING_FORM_RESTORE_STEPS = new Set([
+  "position-name", "position-filter-mode", "position-detail-mode",
+  "position-requirement", "position-keywords", "position-save",
+]);
 /** truncatePositionCardText 按字符保留岗位卡片前 20 个字，超出时追加省略号。 */
 function truncatePositionCardText(value: unknown): string {
   const characters = Array.from(String(value ?? ""));
@@ -137,6 +153,21 @@ export default function PositionsPage() {
   const [loading, setLoading] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [guideContext, setGuideContext] = useState<OnboardingGuideContext>({
+    active: false,
+    platformId: "",
+  });
+  const [onboardingResult, setOnboardingResult] = useState<{
+    positionId: string;
+    analysis: PositionAnalysisStatus;
+  } | null>(null);
+  const reportedResultSignatures = useRef<Set<string>>(new Set());
+  const startedOnboardingPositionID = useRef("");
+  const createdOnboardingPositionID = useRef("");
+  const draftOwnerIdentity = useRef("");
+  const restorationBlockedStep = useRef("");
+  const lastGuideActive = useRef(false);
+  const lastDraftIdentity = useRef("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [busyPositionID, setBusyPositionID] = useState("");
   const [expandedLogPositionID, setExpandedLogPositionID] = useState("");
@@ -175,6 +206,80 @@ export default function PositionsPage() {
     review_prompt: "",
   });
   const aiMembership = canUseAI(subscription);
+  const simpleOnboardingForm = guideContext.active && !form.id;
+  const draftIdentity = String(user?.id || user?.email || "").trim();
+  useEffect(() => {
+    setGuideContext(getOnboardingGuideContext());
+    return subscribeOnboardingGuideContext(setGuideContext);
+  }, []);
+  useEffect(() => {
+    if (lastDraftIdentity.current === draftIdentity) return;
+    const hadIdentity = Boolean(lastDraftIdentity.current);
+    lastDraftIdentity.current = draftIdentity;
+    draftOwnerIdentity.current = "";
+    createdOnboardingPositionID.current = "";
+    startedOnboardingPositionID.current = "";
+    restorationBlockedStep.current = "";
+    if (hadIdentity) {
+      setDialogOpen(false);
+      setStartPositionItem(null);
+      setForm(createEmptyForm());
+      setOnboardingResult(null);
+    }
+  }, [draftIdentity]);
+  useEffect(() => subscribeOnboardingEvents((event) => {
+    if (event.type === "position-form-close-requested" && dialogOpen) closePositionForm();
+    if (event.type === "position-start-close-requested" && startPositionItem) closeStartDialog();
+  }), [dialogOpen, startPositionItem, startLoading, startOpeningPlatform]);
+  useEffect(() => {
+    if (!guideContext.active) {
+      lastGuideActive.current = false;
+      restorationBlockedStep.current = "";
+      return;
+    }
+    if (!lastGuideActive.current) restorationBlockedStep.current = "";
+    lastGuideActive.current = true;
+    const step = guideContext.step || "";
+    if (
+      !ONBOARDING_FORM_RESTORE_STEPS.has(step) || dialogOpen || loading || form.id ||
+      !draftIdentity || !platformConfigs.length || guideContext.positionId ||
+      createdOnboardingPositionID.current || restorationBlockedStep.current === step
+    ) return;
+    const stored = readOnboardingPositionDraft(draftIdentity);
+    const draft = stored && isPlatformOpen(platformConfigs, stored.platform_id) ? stored : null;
+    const platformID = draft?.platform_id || (
+      isPlatformOpen(platformConfigs, guideContext.platformId)
+        ? guideContext.platformId : firstOpenPlatformID(platformConfigs)
+    );
+    if (!platformID) return;
+    const next = {
+      ...createEmptyForm(),
+      ...(draft || {}),
+      platform_id: platformID,
+      mode_default: draft?.mode_default || defaultCreateMode(aiMembership),
+      detail_mode: normalizeDetailMode(platformID, draft?.detail_mode || defaultCreateDetailMode(platformID, aiMembership)),
+    };
+    draftOwnerIdentity.current = draftIdentity;
+    setForm(fillPrompts(next, defaults));
+    setAdvancedOpen(false);
+    setDialogOpen(true);
+    publishOnboardingEvent({ type: "position-form-opened", platformId: platformID, restored: true });
+    for (const [field, value] of [
+      ["name", next.name], ["position-requirement", next.position_requirement], ["keywords", next.keywords],
+    ] as const) {
+      if (!value.trim()) publishOnboardingEvent({ type: "form-field-completed", field, completed: false, platformId: platformID });
+    }
+    if (!draft) {
+      publishOnboardingEvent({ type: "form-field-completed", field: "filter-mode", completed: false, mode: next.mode_default, platformId: platformID });
+      publishOnboardingEvent({ type: "form-field-completed", field: "detail-mode", completed: false, mode: next.detail_mode, platformId: platformID });
+    }
+  }, [guideContext, dialogOpen, loading, form.id, draftIdentity, platformConfigs, defaults, aiMembership]);
+  useEffect(() => {
+    if (
+      guideContext.active && dialogOpen && !form.id && draftIdentity &&
+      draftOwnerIdentity.current === draftIdentity
+    ) saveOnboardingPositionDraft(draftIdentity, form);
+  }, [guideContext.active, dialogOpen, form.id, form.name, form.platform_id, form.mode_default, form.detail_mode, form.position_requirement, form.keywords, draftIdentity]);
   /** load 读取岗位模板和系统默认提示词。 */
   async function load() {
     const current = ++loadGeneration.current;
@@ -263,7 +368,11 @@ export default function PositionsPage() {
   }, [agentBase, floatingPositionTask?.followTask, floatingPositionTask?.id]);
   /** openCreate 使用免费版可用配置打开新增弹框。 */
   function openCreate() {
-    const openPlatformID = firstOpenPlatformID(platformConfigs);
+    const context = getOnboardingGuideContext();
+    const openPlatformID =
+      context.active && isPlatformOpen(platformConfigs, context.platformId)
+        ? context.platformId
+        : firstOpenPlatformID(platformConfigs);
     if (!openPlatformID) {
       notify("暂时没有可用招聘平台，请联系作者", "warning");
       return;
@@ -272,9 +381,100 @@ export default function PositionsPage() {
     next.platform_id = openPlatformID;
     next.mode_default = defaultCreateMode(aiMembership);
     next.detail_mode = defaultCreateDetailMode(next.platform_id, aiMembership);
+    draftOwnerIdentity.current = draftIdentity;
+    createdOnboardingPositionID.current = "";
+    restorationBlockedStep.current = "";
     setForm(fillPrompts(next, defaults));
     setAdvancedOpen(false);
     setDialogOpen(true);
+    publishOnboardingEvent({
+      type: "position-form-opened",
+      platformId: next.platform_id,
+      restored: false,
+    });
+  }
+  /** closePositionForm 关闭岗位弹框并让新手引导保留当前未完成步骤。 */
+  function closePositionForm() {
+    restorationBlockedStep.current = getOnboardingGuideContext().step || "";
+    setDialogOpen(false);
+    publishOnboardingEvent({ type: "position-form-closed" });
+  }
+  /** reportOnboardingField 在用户离开文本字段后上报真实填写状态，不上传输入内容。 */
+  function reportOnboardingField(
+    field: "name" | "position-requirement" | "keywords",
+    value: string,
+  ) {
+    if (!getOnboardingGuideContext().active || form.id) return;
+    publishOnboardingEvent({
+      type: "form-field-completed",
+      field,
+      completed: Boolean(value.trim()),
+      platformId: form.platform_id,
+    });
+  }
+  /** reportOnboardingModeClick 记录真实单选点击，点击已选默认项也能继续引导。 */
+  function reportOnboardingModeClick(
+    event: MouseEvent<HTMLDivElement>,
+    field: "filter-mode" | "detail-mode",
+  ) {
+    if (
+      !getOnboardingGuideContext().active ||
+      form.id ||
+      !(event.target instanceof Element)
+    ) return;
+    const input = event.target
+      .closest("label")
+      ?.querySelector<HTMLInputElement>('input[type="radio"]');
+    if (
+      !input || input.disabled || !input.value ||
+      (input.value === "ai" && !aiMembership)
+    ) return;
+    reportOnboardingModeSelection(field, input.value);
+  }
+  /** reportOnboardingModeSelection 统一记录鼠标或键盘成功选择的筛选方式，普通岗位表单不受影响。 */
+  function reportOnboardingModeSelection(
+    field: "filter-mode" | "detail-mode",
+    mode: string,
+  ) {
+    if (!getOnboardingGuideContext().active || form.id) return;
+    publishOnboardingEvent({
+      type: "form-field-completed",
+      field,
+      completed: true,
+      mode,
+      platformId: form.platform_id,
+    });
+  }
+  /** reportScreeningResult 仅发布本地程序已经完成的真实筛选结果，重复读取同一结果不重复上报。 */
+  function reportScreeningResult(positionId: string, task: any) {
+    if (
+      !getOnboardingGuideContext().active ||
+      startedOnboardingPositionID.current !== positionId
+    ) return;
+    const analysis = normalizeFloatingAnalysis(task?.analysis);
+    if (
+      !analysis || analysis.phase !== "result" || !analysis.terminal ||
+      typeof analysis.accepted !== "boolean"
+    ) return;
+    const signature = JSON.stringify([
+      positionId, task?.task_id, analysis.updated_at, analysis.candidate_name,
+      analysis.kind, analysis.accepted, analysis.score, analysis.reason,
+    ]);
+    if (reportedResultSignatures.current.has(signature)) return;
+    reportedResultSignatures.current.add(signature);
+    setOnboardingResult({ positionId, analysis });
+    publishOnboardingEvent({
+      type: "screening-result",
+      positionId,
+      result: {
+        kind: analysis.kind,
+        phase: "result",
+        terminal: true,
+        accepted: analysis.accepted,
+        reason: analysis.reason,
+        ...(analysis.score == null ? {} : { score: analysis.score }),
+      },
+    });
   }
   /** openEdit 将岗位完整字段写入弹框并校验会员功能。 */
   async function openEdit(item: any) {
@@ -296,6 +496,17 @@ export default function PositionsPage() {
   /** save 保存岗位模板并保留旧后端所需字段结构。 */
   async function save() {
     if (!form.name.trim()) return notify("请填写岗位名称", "warning");
+    if (
+      simpleOnboardingForm && form.mode_default === "keyword" &&
+      splitKeywords(form.keywords).length === 0
+    )
+      return notify("先填一个真正要筛选的关键词，我才能按你的要求找人。", "warning");
+    if (
+      simpleOnboardingForm &&
+      (form.mode_default === "ai" || form.detail_mode === "ai") &&
+      !form.position_requirement.trim()
+    )
+      return notify("把岗位要求粘贴进来，AI 才知道该找谁。", "warning");
     if (!Number.isInteger(form.match_limit) || form.match_limit < 1)
       return notify("每次打招呼上限请填写大于 0 的整数", "warning");
     if (
@@ -310,14 +521,12 @@ export default function PositionsPage() {
     if (!isPlatformOpen(platformConfigs, form.platform_id)) {
       return notify("该平台暂未开放，请联系作者", "warning");
     }
-    const detailMode = form.id
-      ? normalizeDetailMode(form.platform_id, form.detail_mode)
-      : defaultCreateDetailMode(form.platform_id, aiMembership);
+    const detailMode = normalizeDetailMode(form.platform_id, form.detail_mode);
     if (!aiMembership && (form.mode_default === "ai" || detailMode === "ai"))
       return requireMembership();
     setLoading(true);
     try {
-      await cloudRequest("/api/positions", {
+      const saved = await cloudRequest("/api/positions", {
         method: "POST",
         body: {
           id: form.id,
@@ -369,6 +578,11 @@ export default function PositionsPage() {
         },
       });
       notify(form.id ? "岗位模板已更新" : "岗位模板已创建", "success");
+      if (!form.id && saved.position?.id) {
+        createdOnboardingPositionID.current = String(saved.position.id);
+        clearOnboardingPositionDraft(draftIdentity);
+        publishOnboardingEvent({ type: "position-created", positionId: String(saved.position.id), platformId: form.platform_id });
+      }
       setDialogOpen(false);
       await load();
     } catch (error) {
@@ -398,15 +612,18 @@ export default function PositionsPage() {
     setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
     setStartPositionItem(item);
+    publishOnboardingEvent({ type: "start-dialog-opened", positionId: String(item.id), platformId: String(item.platform_id || "") });
   }
   /** closeStartDialog 清理岗位启动弹框中的运行状态和错误信息。 */
   function closeStartDialog() {
     if (startLoading || startOpeningPlatform) return;
+    const closedPositionID = startPositionItem?.id;
     setStartPositionItem(null);
     setStartStatus("");
     setStartError("");
     setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
+    if (closedPositionID) publishOnboardingEvent({ type: "start-dialog-closed", positionId: String(closedPositionID) });
   }
   /** openStartPlatformForFiltering 打开当前岗位对应的招聘平台页面，供用户先手动设置基础筛选条件。 */
   async function openStartPlatformForFiltering() {
@@ -421,6 +638,7 @@ export default function PositionsPage() {
     try {
       const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
       await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
+      publishOnboardingEvent({ type: "platform-opened", positionId: String(item.id), platformId: String(item.platform_id || "") });
       setStartStatus(
         "招聘平台已打开。请在平台页面筛选好基础条件，再回来点击“我已筛选好，立即开始”。",
       );
@@ -540,6 +758,7 @@ export default function PositionsPage() {
       const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
       setStartStatus("正在打开招聘平台，我先看看账号有没有登录。");
       await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
+      publishOnboardingEvent({ type: "platform-opened", positionId: String(item.id), platformId: String(item.platform_id || "") });
       try {
         await confirmPlatformLoggedInForPosition(agentBase, auth, (message) =>
           setStartStatus(message),
@@ -596,6 +815,11 @@ export default function PositionsPage() {
         },
       );
       started = true;
+      if (getOnboardingGuideContext().active) {
+        startedOnboardingPositionID.current = String(item.id);
+        setOnboardingResult(null);
+      }
+      publishOnboardingEvent({ type: "position-started", positionId: String(item.id), platformId: String(item.platform_id || "") });
       setFloatingPositionTask((current) =>
         current && current.id === item.id
           ? { ...current, status: "running", followTask: true }
@@ -708,6 +932,7 @@ export default function PositionsPage() {
       setLogs((current) => ({ ...current, [item.id]: data.logs || [] }));
       const task = data.task;
       if (task) {
+        reportScreeningResult(String(item.id), task);
         setLatestTaskStats((current) => ({
           ...current,
           [item.id]: normalizePositionTaskStats(task),
@@ -768,6 +993,7 @@ export default function PositionsPage() {
               `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`,
             );
             next[item.id] = normalizePositionTaskStats(task);
+            reportScreeningResult(String(item.id), task);
           } catch {
             // 没有本地任务记录时保留零值，不能影响岗位列表加载。
           }
@@ -900,6 +1126,7 @@ export default function PositionsPage() {
   async function selectMode(value: string) {
     if (value === "ai" && !aiMembership) return requireMembership();
     setForm((current) => ({ ...current, mode_default: value }));
+    reportOnboardingModeSelection("filter-mode", value);
   }
   /** selectDetailMode 选择详情模式并执行平台与会员联动。 */
   async function selectDetailMode(value: string) {
@@ -912,6 +1139,7 @@ export default function PositionsPage() {
       );
     if (value === "ai" && !aiMembership) return requireMembership();
     setForm((current) => ({ ...current, detail_mode: value }));
+    reportOnboardingModeSelection("detail-mode", value);
   }
   /** selectPlatform 切换平台并修正平台不支持的详情模式。 */
   function selectPlatform(value: string) {
@@ -954,6 +1182,7 @@ export default function PositionsPage() {
         <Radio.Group aria-label="岗位状态筛选" size="small" optionType="button" buttonStyle="solid" value={positionScope}
           onChange={(event) => setPositionScope(event.target.value)} options={[{ value: "true", label: "开启" }, { value: "false", label: "关闭" }]} />
             <Button
+              data-onboarding="position-create"
               disabled={loading}
               onClick={openCreate}
               type={"primary"}
@@ -968,6 +1197,7 @@ export default function PositionsPage() {
           {items.map((item) => (
             <Card
               key={item.id}
+              data-position-id={String(item.id)}
               styles={{
                 body: {
                   padding: 0,
@@ -1020,6 +1250,8 @@ export default function PositionsPage() {
                         </Button>
                       ) : (
                         <Button
+                          data-onboarding="position-start"
+                          data-position-id={String(item.id)}
                           disabled={busyPositionID === item.id || item.is_open === false}
                           onClick={() => openStartPosition(item)}
                           type={"primary"}
@@ -1118,7 +1350,19 @@ export default function PositionsPage() {
                 {isCurrentUserPosition(item, user?.email) &&
                 expandedLogPositionID === item.id ? (
                   <>
-                    <PositionLogPanel
+                    <div data-onboarding="position-result" data-position-id={String(item.id)}>
+                      {guideContext.active && onboardingResult?.positionId === String(item.id) ? (
+                        <Alert
+                          type={onboardingResult.analysis.accepted ? "success" : "info"}
+                          showIcon
+                          title={onboardingResult.analysis.accepted ? "这一位符合筛选条件" : "这一位已筛过，先跳过"}
+                          description={<>
+                            {onboardingResult.analysis.score == null ? "关键词判断" : `AI 分数：${onboardingResult.analysis.score}`} · {onboardingResult.analysis.reason || "筛选结果已收到，可以在日志里继续查看。"}
+                          </>}
+                          style={{ marginBottom: 12 }}
+                        />
+                      ) : null}
+                      <PositionLogPanel
                       logs={logs[item.id] || []}
                       loading={logLoadingPositionID === item.id}
                       sharing={logSharePositionID === item.id}
@@ -1127,6 +1371,7 @@ export default function PositionsPage() {
                       onShare={() => void copyPositionDiagnosticLink(item)}
                       onClear={() => void clearPositionLogs(item)}
                     />
+                    </div>
                   </>
                 ) : null}
               </>
@@ -1151,6 +1396,7 @@ export default function PositionsPage() {
         showCancel={!startError}
         loading={startLoading}
         loadingText="启动中"
+        confirmDataOnboarding="position-run-confirm"
         onClose={closeStartDialog}
         onConfirm={() =>
           startError ? closeStartDialog() : void confirmStartPosition()
@@ -1196,6 +1442,7 @@ export default function PositionsPage() {
               }
             />
             <Button
+              data-onboarding="position-open-platform"
               size="large"
               disabled={startLoading || startOpeningPlatform}
               onClick={() => void openStartPlatformForFiltering()}
@@ -1281,15 +1528,102 @@ export default function PositionsPage() {
       <AdminDialog
         open={dialogOpen}
         title={form.id ? "编辑岗位模板" : "新建岗位模板"}
-        description="按运行顺序填写。只有当前选择模式需要的字段会显示。"
+        description={simpleOnboardingForm ? "先把第一个岗位建好，我陪你继续跑下一步。" : "按运行顺序填写。只有当前选择模式需要的字段会显示。"}
         maxWidth="md"
         confirmText={form.id ? "保存修改" : "创建岗位"}
+        confirmDataOnboarding="position-save"
         loading={loading}
         confirmDisabled={!form.name.trim()}
-        onClose={() => setDialogOpen(false)}
+        onClose={closePositionForm}
         onConfirm={() => void save()}
       >
-        <Flex className={styles.s24}>
+        {simpleOnboardingForm ? (
+          <Flex vertical gap={16} data-onboarding="position-form">
+            <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+              先填这几项就能开始，其他参数我先按默认值安排，之后随时能改。
+            </Typography.Paragraph>
+            <Form.Item layout="vertical" label="岗位名称" extra="从招聘平台复制岗位名称，保持完全一致。" style={{ marginBottom: 0 }}>
+              <Input
+                data-onboarding="position-name"
+                aria-label="岗位名称"
+                value={form.name}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+                onBlur={(event) => reportOnboardingField("name", event.currentTarget.value)}
+                onPressEnter={(event) => event.currentTarget.blur()}
+                placeholder="粘贴招聘平台里的岗位名称"
+              />
+            </Form.Item>
+            <div data-onboarding="position-platform">
+              <ChoiceCards
+                label="招聘平台"
+                value={form.platform_id}
+                compact
+                columns={2}
+                onChange={(value) => selectPlatform(String(value))}
+                options={PLATFORM_OPEN_ORDER.map((platformID) => ({ value: platformID, label: platformLabel(platformID), description: isPlatformOpen(platformConfigs, platformID) ? "" : "暂未开放", disabled: !isPlatformOpen(platformConfigs, platformID), iconSrc: platformIconSrc(platformID) }))}
+              />
+            </div>
+            <div data-onboarding="position-filter-mode" onClick={(event) => reportOnboardingModeClick(event, "filter-mode")}>
+              <ChoiceCards
+                label="基础信息筛选方式"
+                value={form.mode_default}
+                compact
+                onChange={(value) => void selectMode(String(value))}
+                options={[
+                  { value: "keyword", label: "关键词筛选", description: "按关键词找人，这部分免费。" },
+                  { value: "ai", label: "AI 筛选", description: "AI 根据岗位要求判断，需要会员与 AI 余额。", memberOnly: true },
+                ]}
+              />
+            </div>
+            <div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
+              <ChoiceCards
+                label="详情识别方式"
+                value={form.detail_mode}
+                compact
+                columns={form.platform_id === "boss" ? 2 : 1}
+                onChange={(value) => void selectDetailMode(String(value))}
+                options={form.platform_id === "boss" ? [
+                  { value: "ocr", label: "本地识别（OCR）", description: "在电脑上识别简历文字，不花 AI 余额。" },
+                  { value: "ai", label: "AI 识别", description: "AI 理解简历详情，需要会员与 AI 余额。", memberOnly: true },
+                ] : [
+                  { value: "dom", label: "页面文字识别", description: "直接读取可见简历文字，不花 AI 余额。" },
+                ]}
+              />
+            </div>
+            {form.mode_default === "keyword" ? (
+              <Form.Item layout="vertical" label="关键词" extra="写真实要找的技能或经验，用逗号隔开；命中任意一个即可通过。" style={{ marginBottom: 0 }}>
+                <Input.TextArea
+                  data-onboarding="position-keywords"
+                  aria-label="关键词"
+                  value={form.keywords}
+                  onChange={(event) => setForm({ ...form, keywords: event.target.value })}
+                  onBlur={(event) => reportOnboardingField("keywords", event.currentTarget.value)}
+                  placeholder="例如：Java，Spring，后端开发"
+                  autoSize={{ minRows: 3, maxRows: 8 }}
+                />
+              </Form.Item>
+            ) : null}
+            {form.mode_default === "ai" || form.detail_mode === "ai" ? (
+              <>
+                <Form.Item layout="vertical" label="岗位要求" extra="粘贴岗位要求，写清必须具备的经验和技能，福利可以先不贴。" style={{ marginBottom: 0 }}>
+                  <Input.TextArea
+                    data-onboarding="position-requirement"
+                    aria-label="岗位要求"
+                    value={form.position_requirement}
+                    onChange={(event) => setForm({ ...form, position_requirement: event.target.value })}
+                    onBlur={(event) => reportOnboardingField("position-requirement", event.currentTarget.value)}
+                    placeholder="例如：3 年以上后端开发经验，熟悉 Java 和 Spring，必须有电商项目经验。"
+                    autoSize={{ minRows: 4, maxRows: 10 }}
+                  />
+                </Form.Item>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  选了 AI 就会使用 AI 余额，开始前会检查会员与余额。
+                </Typography.Text>
+              </>
+            ) : null}
+          </Flex>
+        ) : (
+        <Flex className={styles.s24} data-onboarding="position-form">
           <Alert
             type={"info"}
             showIcon
@@ -1328,11 +1662,13 @@ export default function PositionsPage() {
               style={{ marginBottom: 0 }}
             >
               <Input
+                data-onboarding="position-name"
                 value={form.name}
                 onChange={(event) =>
                   setForm({ ...form, name: event.target.value })
                 }
                 placeholder="例如：服装带货主播"
+                onBlur={(event) => reportOnboardingField("name", event.currentTarget.value)}
                 id="positions-field-1"
                 className={styles.s27}
               />
@@ -1377,6 +1713,7 @@ export default function PositionsPage() {
               />
             </Flex>
           </div>
+          <div data-onboarding="position-platform">
           <ChoiceCards
             label={form.id ? "招聘平台（编辑岗位时不可更换）" : "招聘平台"}
             value={form.platform_id}
@@ -1429,6 +1766,7 @@ export default function PositionsPage() {
               },
             ]}
           />
+          </div>
           <Card
             styles={{
               body: {
@@ -1479,6 +1817,7 @@ export default function PositionsPage() {
               ) : null}
             </div>
           </Card>
+          <div data-onboarding="position-filter-mode" onClick={(event) => reportOnboardingModeClick(event, "filter-mode")}>
           <ChoiceCards
             label="基础信息筛选模式   (决定是否打开查看详情)"
             value={form.mode_default}
@@ -1497,7 +1836,8 @@ export default function PositionsPage() {
               },
             ]}
           />
-          {form.id ? (
+          </div>
+          <div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
             <>
               <Typography.Paragraph className={`${styles.text} ${styles.s34}`}>
                 选择哪种详情方式就只使用哪一种：DOM 最快，OCR
@@ -1532,7 +1872,7 @@ export default function PositionsPage() {
                 ]}
               />
             </>
-          ) : null}
+          </div>
           {form.mode_default === "keyword" ? (
             <>
               <Divider />
@@ -1579,11 +1919,13 @@ export default function PositionsPage() {
                       style={{ marginBottom: 0 }}
                     >
                       <Input.TextArea
+                        data-onboarding="position-keywords"
                         value={form.keywords}
                         onChange={(event) =>
                           setForm({ ...form, keywords: event.target.value })
                         }
                         id="positions-field-3"
+                        onBlur={(event) => reportOnboardingField("keywords", event.currentTarget.value)}
                         autoSize={{ minRows: 3, maxRows: 16 }}
                         className={styles.s40}
                       />
@@ -1657,7 +1999,7 @@ export default function PositionsPage() {
               </div>
             </>
           ) : null}
-          {form.mode_default === "ai" ? (
+          {form.mode_default === "ai" || form.detail_mode === "ai" ? (
             <>
               <Divider />
               <div>
@@ -1711,6 +2053,7 @@ export default function PositionsPage() {
                     style={{ marginBottom: 0 }}
                   >
                     <Input.TextArea
+                      data-onboarding="position-requirement"
                       value={form.position_requirement}
                       onChange={(event) =>
                         setForm({
@@ -1720,6 +2063,7 @@ export default function PositionsPage() {
                       }
                       placeholder="必须有3年以上教学经验，必须有教师资格证，学历年龄 等基础条件可以在平台提前筛选好，更不要写跟岗位要求无关的 比如 岗位福利，工作环境等。"
                       id="positions-field-6"
+                      onBlur={(event) => reportOnboardingField("position-requirement", event.currentTarget.value)}
                       autoSize={{ minRows: 7, maxRows: 16 }}
                       className={styles.s53}
                     />
@@ -2063,8 +2407,7 @@ export default function PositionsPage() {
             </div>
           </div>
           {!aiMembership &&
-          (form.mode_default === "ai" ||
-            (form.id && form.detail_mode === "ai")) ? (
+           (form.mode_default === "ai" || form.detail_mode === "ai") ? (
             <Alert
               type={"warning"}
               showIcon
@@ -2078,6 +2421,7 @@ export default function PositionsPage() {
             />
           ) : null}
         </Flex>
+        )}
       </AdminDialog>
     </>
   );

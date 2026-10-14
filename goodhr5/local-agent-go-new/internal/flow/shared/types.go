@@ -33,10 +33,11 @@ type PreparedTask struct {
 
 // Stats 表示主流程不含敏感内容的运行统计。
 type Stats struct {
-	Processed int `json:"processed"`
-	Succeeded int `json:"succeeded"`
-	Failed    int `json:"failed"`
-	Skipped   int `json:"skipped"`
+	Processed           int                       `json:"processed"`
+	Succeeded           int                       `json:"succeeded"`
+	Failed              int                       `json:"failed"`
+	Skipped             int                       `json:"skipped"`
+	ScreeningResultSync *ScreeningResultSyncState `json:"-"` // 仅保存本任务教程事实同步状态，不参与招聘统计。
 }
 
 // AnalysisStatus 表示悬浮窗展示的 AI 或关键词判断状态。

@@ -265,6 +265,24 @@ func (c *Client) RequestPositionStop(ctx context.Context, token string, position
 	return nil
 }
 
+// ReportScreeningResult 通过已有流程接口同步真实终态筛选结果，供新手教程恢复完成状态。
+func (c *Client) ReportScreeningResult(ctx context.Context, token string, positionID string, evidence ScreeningResultEvidence) error {
+	if strings.TrimSpace(positionID) == "" {
+		return fmt.Errorf("岗位编号不能为空")
+	}
+	if (evidence.Kind != "ai" && evidence.Kind != "keyword") || evidence.Phase != "result" || !evidence.Terminal {
+		return fmt.Errorf("只有真实完成的 AI 或关键词筛选结果才能记录教程完成")
+	}
+	request := struct {
+		Step       string                  `json:"step"`
+		Status     string                  `json:"status"`
+		Source     string                  `json:"source"`
+		PositionID string                  `json:"position_id"`
+		Metadata   ScreeningResultEvidence `json:"metadata"`
+	}{Step: "first_screening_result", Status: "completed", Source: "local_agent_screening", PositionID: strings.TrimSpace(positionID), Metadata: evidence}
+	return c.do(ctx, http.MethodPost, "/api/user-flow", token, request, nil)
+}
+
 // SyncSummary 把不含候选人详情的任务统计同步给云端。
 func (c *Client) SyncSummary(ctx context.Context, token string, summary TaskSummary) error {
 	_, err := c.syncSummary(ctx, token, summary)

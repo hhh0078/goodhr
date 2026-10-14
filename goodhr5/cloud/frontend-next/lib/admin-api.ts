@@ -86,7 +86,7 @@ export async function cloudRequest(path: string, options: RequestOptions = {}) {
   } catch {
     throw new Error("无法连接云端服务，请检查网络后重试");
   }
-  return parseResponse(response, "云端请求失败", Boolean(token));
+  return parseResponse(response, "云端请求失败", token);
 }
 
 /** localRequest 统一请求本地程序接口。 */
@@ -329,7 +329,7 @@ function saveLocalAgentDetectCache(cache: {
 async function parseResponse(
   response: Response,
   fallback: string,
-  clearInvalidToken: boolean,
+  requestToken: string | false,
 ) {
   const text = await response.text();
   let data: any = {};
@@ -346,7 +346,8 @@ async function parseResponse(
     data.ok === false ||
     (data.code != null && code !== 200)
   ) {
-		if (response.status === 401 && clearInvalidToken) {
+		// 旧账号请求晚到的 401 不得清除用户刚刚登录的新账号凭证。
+		if (response.status === 401 && requestToken && getToken() === requestToken) {
 			localStorage.removeItem(TOKEN_KEY);
 			if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
 				const next = encodeURIComponent(window.location.pathname + window.location.search);

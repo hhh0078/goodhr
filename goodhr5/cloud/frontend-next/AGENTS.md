@@ -6,6 +6,14 @@ Before making substantial visual changes, use the Product Design plugin's `get-c
 
 When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
 
+## 新手引导约定
+
+- 首次先邀请参加教程；无需教程需输入 `让开，我不需要教程` 二次确认。文案短、有人味，可轻微幽默。
+- 使用可交互遮罩逐项教学，按当前路由和真实操作自动前进；不提供下一步，保留上一步、稍后继续和遇到问题。
+- 顶部显示五阶段进度及预计剩余时间；按账号在本机保存进度和核心岗位草稿，云端真实完成事实保持优先。
+- 教程及暂停待继续时不自动弹出公告、普通更新或推广；必要更新和强制安装沿用业务检查并协调遮罩。
+- 岗位教学仅展示核心字段及当前模式需要的要求或关键词；每一步有说明，真实终态筛选后给予鼓励和礼炮，兼容减少动态效果。
+
 ## GoodHR 新版前端设计约定
 
 - 企业招聘、猎头推荐、岗位管理三个页面不展示页面大标题或副标题说明；查询、筛选、状态切换、新增、刷新及页面内设置入口放在同一条紧凑工具栏。桌面不换行，宽度不足时缩短输入或横向滚动，所有操作保持可用。侧栏不展示招聘设置，企业招聘页内保留设置弹框入口，旧设置路由继续复用相同内容。

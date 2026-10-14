@@ -20,6 +20,8 @@ import {
 import { reportUserFlow } from "@/lib/user-flow";
 
 type RequiredRuntimeInstallerProps = {
+  /** 首次邀请和其他必要操作先处理，暂缓弹框但不跳过组件检查。 */
+  deferred?: boolean;
   agentBase: string;
   onboardingConfig: any;
   notify: (
@@ -33,6 +35,7 @@ export default function RequiredRuntimeInstaller({
   agentBase,
   onboardingConfig,
   notify,
+  deferred = false,
 }: RequiredRuntimeInstallerProps) {
   const [runtime, setRuntime] = useState<any>({});
   const [loadedAgentBase, setLoadedAgentBase] = useState("");
@@ -51,12 +54,12 @@ export default function RequiredRuntimeInstaller({
   );
   const missingDownloadable = hasMissingDownloadableRuntime(runtime);
   const visible = Boolean(
-    agentBase &&
+    !deferred && agentBase &&
       loadedAgentBase === agentBase &&
       components.some((item) => !item.installed),
   );
   const running = Boolean(installing || progress?.running);
-  useAdminOverlay(visible || running || checkingSystem);
+  useAdminOverlay(visible || (!deferred && (running || checkingSystem)));
   const percent = clampPercent(progress?.percent);
   const progressBytes = progress?.received
     ? progress.total > 0
@@ -265,6 +268,7 @@ export default function RequiredRuntimeInstaller({
                 </Button>
               ) : null}
               <Button
+                data-onboarding="runtime-system-check"
                 loading={checkingSystem}
                 onClick={() => void refreshSystemRuntime()}
               >
@@ -293,6 +297,7 @@ export default function RequiredRuntimeInstaller({
       ) : null}
       {missingDownloadable ? (
         <Button
+          data-onboarding="runtime-install"
           block
           type="primary"
           size="large"

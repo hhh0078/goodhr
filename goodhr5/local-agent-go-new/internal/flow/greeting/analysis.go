@@ -89,16 +89,22 @@ func cleanKeywords(values []string) []string {
 	return result
 }
 
-// reportKeywordMatch 把关键词判断结果发送给全平台共用悬浮窗。
-func reportKeywordMatch(logger shared.Logger, taskID string, candidate model.Candidate, result keywordMatchResult) {
+// reportKeywordMatch 发布关键词判断；仍需 AI 最终评分的通过结果只标为预分析，拒绝或纯关键词判断才是终态。
+func reportKeywordMatch(logger shared.Logger, taskID string, candidate model.Candidate, result keywordMatchResult, terminal bool) shared.AnalysisStatus {
 	accepted := result.Accepted
-	shared.ReportAnalysis(logger, taskID, shared.AnalysisStatus{
-		Kind: "keyword", Phase: "result", Stage: "final", Terminal: true,
+	stage := "preview"
+	if terminal {
+		stage = "final"
+	}
+	status := shared.AnalysisStatus{
+		Kind: "keyword", Phase: "result", Stage: stage, Terminal: terminal,
 		CandidateName: candidateDisplayName(candidate),
 		Accepted:      &accepted, Reason: result.Reason,
 		Keywords: result.Keywords, MatchedKeywords: result.MatchedKeywords,
 		ExcludeKeywords: result.ExcludeKeywords, MatchedExcludes: result.MatchedExcludes,
-	})
+	}
+	shared.ReportAnalysis(logger, taskID, status)
+	return status
 }
 
 // reportAILoading 把 AI 请求中的候选人和判断阶段发送给悬浮窗。
@@ -111,14 +117,16 @@ func reportAILoading(logger shared.Logger, taskID string, candidateName string, 
 }
 
 // reportAIResult 把已经完整返回的分数、阈值和原因发送给悬浮窗。
-func reportAIResult(logger shared.Logger, taskID string, candidate model.Candidate, decision ai.Decision, threshold float64, stage string, terminal bool) {
+func reportAIResult(logger shared.Logger, taskID string, candidate model.Candidate, decision ai.Decision, threshold float64, stage string, terminal bool) shared.AnalysisStatus {
 	score := decision.Score
 	accepted := decision.Accepted
-	shared.ReportAnalysis(logger, taskID, shared.AnalysisStatus{
+	status := shared.AnalysisStatus{
 		Kind: "ai", Phase: "result", Stage: strings.TrimSpace(stage), Terminal: terminal,
 		CandidateName: candidateDisplayName(candidate),
 		Score:         &score, Threshold: &threshold, Accepted: &accepted, Reason: decision.Reason,
-	})
+	}
+	shared.ReportAnalysis(logger, taskID, status)
+	return status
 }
 
 // reportAIError 把 AI 请求错误发送给悬浮窗，不伪造评分。

@@ -20,6 +20,7 @@ const (
 	userFlowPositionStarted      = "position_started"
 	userFlowFirstResumeProcessed = "first_resume_processed"
 	userFlowFirstGreetSuccess    = "first_greet_success"
+	userFlowFirstScreeningResult = "first_screening_result"
 )
 
 var userFlowStepOrder = []string{
@@ -53,15 +54,16 @@ type UserFlowStepState struct {
 
 // UserFlowState 表示用户首次跑通招聘岗位运行的流程快照。
 type UserFlowState struct {
-	Version        int                          `json:"version"`
-	Stage          string                       `json:"stage"`
-	StageName      string                       `json:"stage_name"`
-	State          string                       `json:"state"`
-	ReasonCode     string                       `json:"reason_code,omitempty"`
-	Message        string                       `json:"message,omitempty"`
-	LastActivityAt *time.Time                   `json:"last_activity_at,omitempty"`
-	CompletedAt    *time.Time                   `json:"completed_at,omitempty"`
-	Steps          map[string]UserFlowStepState `json:"steps"`
+	Version           int                          `json:"version"`
+	Stage             string                       `json:"stage"`
+	StageName         string                       `json:"stage_name"`
+	State             string                       `json:"state"`
+	ReasonCode        string                       `json:"reason_code,omitempty"`
+	Message           string                       `json:"message,omitempty"`
+	LastActivityAt    *time.Time                   `json:"last_activity_at,omitempty"`
+	CompletedAt       *time.Time                   `json:"completed_at,omitempty"`
+	TutorialCompleted bool                         `json:"tutorial_completed"`
+	Steps             map[string]UserFlowStepState `json:"steps"`
 }
 
 // UserFlowUpdate 表示一次流程节点变更。
@@ -264,6 +266,10 @@ func deriveUserFlowState(state UserFlowState) UserFlowState {
 		state.Steps = map[string]UserFlowStepState{}
 	}
 	state.CompletedAt = nil
+	// 教程完成事实独立于原招聘漏斗；扫描计数不能证明用户已经拿到筛选结果。
+	state.TutorialCompleted = state.TutorialCompleted || state.State == "completed" ||
+		state.Steps[userFlowFirstScreeningResult].Status == "completed" ||
+		state.Steps[userFlowFirstGreetSuccess].Status == "completed"
 	for _, key := range userFlowStepOrder {
 		step := state.Steps[key]
 		if step.Status == "completed" {
@@ -288,7 +294,7 @@ func deriveUserFlowState(state UserFlowState) UserFlowState {
 
 // validateUserFlowUpdate 校验流程节点上报参数。
 func validateUserFlowUpdate(update UserFlowUpdate) error {
-	if userFlowStepIndex(update.Step) < 0 {
+	if userFlowStepIndex(update.Step) < 0 && update.Step != userFlowFirstScreeningResult {
 		return errors.New("unsupported user flow step")
 	}
 	status := strings.TrimSpace(update.Status)
@@ -297,6 +303,14 @@ func validateUserFlowUpdate(update UserFlowUpdate) error {
 	}
 	if status != "completed" && status != "blocked" && status != "pending" {
 		return errors.New("unsupported user flow status")
+	}
+	if update.Step == userFlowFirstScreeningResult {
+		kind, _ := update.Metadata["kind"].(string)
+		phase, _ := update.Metadata["phase"].(string)
+		terminal, _ := update.Metadata["terminal"].(bool)
+		if status != "completed" || (kind != "ai" && kind != "keyword") || phase != "result" || !terminal {
+			return errors.New("first screening result requires a completed terminal AI or keyword result")
+		}
 	}
 	return nil
 }

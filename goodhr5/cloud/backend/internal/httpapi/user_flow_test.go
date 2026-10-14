@@ -84,6 +84,9 @@ func TestUserFlowReconcilesFirstResumeFromPositionStats(t *testing.T) {
 	if state.Steps[userFlowFirstResumeProcessed].Status != "completed" || state.Stage != userFlowFirstGreetSuccess {
 		t.Fatalf("首份简历节点没有按岗位统计补齐：%+v", state)
 	}
+	if state.TutorialCompleted {
+		t.Fatal("扫描统计不能伪造教程完成")
+	}
 }
 
 // TestUserFlowReconcilesGreetFromTodayCount 验证当前账号今日打招呼数可以一次补齐最后两个节点。
@@ -105,5 +108,59 @@ func TestUserFlowReconcilesGreetFromTodayCount(t *testing.T) {
 	if state.Stage != "completed" || state.Steps[userFlowFirstResumeProcessed].Status != "completed" ||
 		state.Steps[userFlowFirstGreetSuccess].Status != "completed" {
 		t.Fatalf("今日打招呼数没有补齐最后两个节点：%+v", state)
+	}
+	if !state.TutorialCompleted {
+		t.Fatal("已有成功打招呼事实的账号应保持教程完成")
+	}
+}
+
+// TestUserFlowScreeningResultIsIndependent 验证真实 AI 或关键词结果完成教程，但不伪造原招聘漏斗进度。
+func TestUserFlowScreeningResultIsIndependent(t *testing.T) {
+	for _, kind := range []string{"ai", "keyword"} {
+		t.Run(kind, func(t *testing.T) {
+			store := NewMemoryUserFlowStore()
+			state, err := store.Record("flow@example.com", UserFlowUpdate{
+				Step: userFlowFirstScreeningResult, Status: "completed",
+				Metadata: map[string]any{"kind": kind, "phase": "result", "terminal": true},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !state.TutorialCompleted || state.Steps[userFlowFirstScreeningResult].CompletedAt == nil {
+				t.Fatalf("真实结果没有保存教程完成事实：%+v", state)
+			}
+			if state.Stage != userFlowAgentDetected || state.State != "pending" || len(state.Steps) != 1 {
+				t.Fatalf("独立教程事件篡改了原漏斗：%+v", state)
+			}
+			restored, err := store.Get("flow@example.com")
+			if err != nil || !restored.TutorialCompleted {
+				t.Fatalf("教程完成事实无法恢复：%+v, %v", restored, err)
+			}
+		})
+	}
+}
+
+// TestUserFlowScreeningResultRejectsIncompleteEvidence 验证点击下一步、加载中和未结束预分析不能完成教程。
+func TestUserFlowScreeningResultRejectsIncompleteEvidence(t *testing.T) {
+	cases := []UserFlowUpdate{
+		{Step: userFlowFirstScreeningResult},
+		{Step: userFlowFirstScreeningResult, Metadata: map[string]any{"kind": "ai", "phase": "loading", "terminal": true}},
+		{Step: userFlowFirstScreeningResult, Metadata: map[string]any{"kind": "ai", "phase": "result", "terminal": false}},
+		{Step: userFlowFirstScreeningResult, Metadata: map[string]any{"kind": "ocr", "phase": "result", "terminal": true}},
+		{Step: userFlowFirstScreeningResult, Metadata: map[string]any{"kind": "keyword", "phase": "result", "terminal": "true"}},
+		{Step: userFlowFirstScreeningResult, Status: "pending", Metadata: map[string]any{"kind": "keyword", "phase": "result", "terminal": true}},
+	}
+	for index, update := range cases {
+		if _, err := applyUserFlowUpdate(defaultUserFlowState(), update); err == nil {
+			t.Fatalf("第 %d 个未完成结果被接受：%+v", index, update)
+		}
+	}
+}
+
+// TestUserFlowLegacyCompletedTutorialStaysCompleted 验证旧完成快照不会重新弹出新手教程。
+func TestUserFlowLegacyCompletedTutorialStaysCompleted(t *testing.T) {
+	state, err := parseUserFlowState([]byte(`{"version":2,"state":"completed","stage":"completed","steps":{}}`))
+	if err != nil || !state.TutorialCompleted {
+		t.Fatalf("旧完成快照没有保留教程完成事实：%+v, %v", state, err)
 	}
 }

@@ -84,3 +84,31 @@ test("未配置固定端口时保留原默认、preferred和端口缓存顺序",
     assert.deepEqual(calls, []);
   });
 });
+
+/** 验证切换账号后才返回的旧请求不会把新账号退出，教程等待期间也保持身份隔离。 */
+test("旧账号延迟返回401不会清掉新账号Token或跳转登录页", async () => {
+  await withFakeAgent("43139", { storage: { goodhr5_access_token: "old-local-test-token" } }, async (api, _calls, values) => {
+    let respond;
+    const redirected = [];
+    Object.assign(globalThis.window.location, { pathname: "/admin", replace: (url) => redirected.push(url) });
+    globalThis.fetch = () => new Promise((resolve) => { respond = resolve; });
+    const request = api.cloudRequest("/api/user-flow");
+    values.set("goodhr5_access_token", "new-local-test-token");
+    respond({ ok: false, status: 401, text: async () => JSON.stringify({ error: "session is invalid or expired" }) });
+    await assert.rejects(request, (error) => error.status === 401);
+    assert.equal(values.get("goodhr5_access_token"), "new-local-test-token");
+    assert.deepEqual(redirected, []);
+  });
+});
+
+/** 验证当前账号真正失效时仍清理凭证并引导重新登录，不能因修复竞态丢掉原行为。 */
+test("当前账号返回401仍清理自身Token并保留原来的返回地址", async () => {
+  await withFakeAgent("43139", { storage: { goodhr5_access_token: "current-local-test-token" } }, async (api, _calls, values) => {
+    const redirected = [];
+    Object.assign(globalThis.window.location, { pathname: "/admin/positions", search: "?local_port=43139", replace: (url) => redirected.push(url) });
+    globalThis.fetch = async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ error: "session is invalid or expired" }) });
+    await assert.rejects(api.cloudRequest("/api/user-flow"), (error) => error.status === 401);
+    assert.equal(values.has("goodhr5_access_token"), false);
+    assert.deepEqual(redirected, ["/login?next=%2Fadmin%2Fpositions%3Flocal_port%3D43139"]);
+  });
+});

@@ -53,7 +53,7 @@ import BrandMark from "@/components/BrandMark";
 import PasswordSetupDialog from "@/components/PasswordSetupDialog";
 import { useUserTheme } from "@/app/providers";
 import { normalizeThemePreset } from "@/app/theme";
-import { TOKEN_KEY } from "@/lib/api";
+import { TOKEN_KEY, SESSION_EMAIL_KEY } from "@/lib/api";
 import {
   bindDetectedLocalAgent,
   captureLocalAgentPortFromURL,
@@ -74,6 +74,9 @@ import AdminSystemDialogs from "./AdminSystemDialogs";
 import ChoiceCards from "./ChoiceCards";
 import ClickableImagePreview from "./ClickableImagePreview";
 import RequiredRuntimeInstaller from "./RequiredRuntimeInstaller";
+import InteractiveOnboarding from "./onboarding/InteractiveOnboarding";
+import type { OnboardingActivity } from "./onboarding/useInteractiveOnboarding";
+import { publishOnboardingEvent } from "@/lib/onboarding-events";
 import { AdminOverlayProvider, AdminOverlayActivity } from "./AdminOverlay";
 import {
   normalizeWechatStatus,
@@ -237,11 +240,18 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [teamInvitationLoading, setTeamInvitationLoading] = useState(false);
   const [localAgentInstallNoticeClosed, setLocalAgentInstallNoticeClosed] =
     useState(false);
+  const [onboardingActivity, setOnboardingActivity] = useState<OnboardingActivity>({ engaged: true, awaitingChoice: true });
+  const [criticalUpdateOpen, setCriticalUpdateOpen] = useState(false);
+  /** handleOnboardingActivity 统一协调教程与非必要弹框，邀请读取期间也避免抢先弹出公告。 */
+  const handleOnboardingActivity = useCallback((activity: OnboardingActivity) => {
+    setOnboardingActivity((current) => current.engaged === activity.engaged && current.awaitingChoice === activity.awaitingChoice ? current : activity);
+  }, []);
   const localAgentInstallNoticeOpen = Boolean(
     user &&
       !loading &&
       teamInvitations.length === 0 &&
       !trialWelcomeOpen &&
+      !onboardingActivity.engaged &&
       agentDetected &&
       !agentBase &&
       !localAgentInstallNoticeClosed,
@@ -478,6 +488,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     if (authResult.status === "rejected") throw authResult.reason;
     const authPayload = authResult.value;
     const nextUser = authPayload.user || authPayload;
+    try { localStorage.setItem(SESSION_EMAIL_KEY, String(nextUser?.email || "").trim().toLowerCase()); } catch { /* 邮箱缓存不可写时，流程记录仍会请求云端，不使用旧身份去重。 */ }
     setThemeAccount(String(nextUser?.email || nextUser?.id || ""));
     setUser(nextUser);
     const nextPasswordSetupRequired = Boolean(
@@ -590,6 +601,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     wechatStatusRequestRef.current = null;
     setWechatOfficialStatus(null);
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(SESSION_EMAIL_KEY);
     setThemeAccount("");
     router.replace("/login");
   }
@@ -625,7 +637,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           children: group.items.map(([href, label, Icon]) => ({
             key: href,
             icon: <Icon aria-hidden="true" />,
-            label,
+            label: <span data-onboarding={href === "/admin/positions" ? "menu-positions" : href === "/admin/agent-download" ? "menu-agent-download" : undefined}>{label}</span>,
           })),
         }))}
         onClick={({ key }) => {
@@ -674,6 +686,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 type="text"
                 icon={<MenuRoundedIcon aria-hidden="true" />}
                 aria-label="打开菜单"
+                data-onboarding="mobile-menu"
                 onClick={() => setMobileOpen(true)}
               />
               <div className="goodhr-toolbar-identity">
@@ -689,6 +702,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                     (user?.role === "super_admin" ? "超级管理员" : "用户")}
                 </Typography.Text>
               </div>
+              <Button type="text" size="small" onClick={() => publishOnboardingEvent({ type: "guide-requested" })}>新手引导</Button>
               <BrowserOpenControl
                 agentBase={agentBase}
                 notify={notify}
@@ -757,7 +771,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </Flex>
           </header>
           <Layout.Content className="goodhr-admin-main">
-            <AdminBanners appConfig={appConfig} />
+            {!onboardingActivity.engaged ? <AdminBanners appConfig={appConfig} /> : null}
             <Card
               className="goodhr-admin-content"
               styles={{ body: { padding: "clamp(16px, 2vw, 24px)" } }}
@@ -766,7 +780,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </Card>
           </Layout.Content>
           <AdminDialog
-            open={trialWelcomeOpen && teamInvitations.length === 0}
+            open={trialWelcomeOpen && teamInvitations.length === 0 && !onboardingActivity.engaged}
             title={`${subscription.member_name || "Max 全能体验版"}已到账`}
             confirmText="我知道了"
             showCancel={false}
@@ -856,6 +870,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             agentBase={agentBase}
             onboardingConfig={onboardingConfig}
             notify={notify}
+            deferred={onboardingActivity.awaitingChoice || passwordSetupRequired || teamInvitations.length > 0 || criticalUpdateOpen}
           />
           <AdminSystemDialogs
             appConfig={appConfig}
@@ -868,6 +883,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             onWechatStatus={setWechatOfficialStatus}
             refreshSession={refreshSession}
             notify={notify}
+            tutorialActive={onboardingActivity.engaged}
+            tutorialAwaitingChoice={onboardingActivity.awaitingChoice}
+            onCriticalUpdateChange={setCriticalUpdateOpen}
             promotionBlocked={
               passwordSetupRequired ||
               trialWelcomeOpen ||
@@ -875,6 +893,15 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               localAgentInstallNoticeOpen
             }
           />
+          {user ? <InteractiveOnboarding
+            key={String(user.id || user.email)}
+            identity={String(user.id || user.email)}
+            agentBase={agentBase}
+            agentDetected={agentDetected}
+            refreshAgent={refreshAgent}
+            blocked={passwordSetupRequired || teamInvitations.length > 0 || confirmState.open || themeOpen || criticalUpdateOpen}
+            onActivityChange={handleOnboardingActivity}
+          /> : null}
           <AdminDialog
             open={confirmState.open}
             title={confirmState.title}

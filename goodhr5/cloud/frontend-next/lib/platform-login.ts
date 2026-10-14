@@ -166,13 +166,15 @@ export async function waitForPlatformLoggedIn(
   agentBase: string,
   auth: PlatformAuthConfig,
   onStatus: (message: string) => void,
+  signal?: AbortSignal,
 ) {
   let loggedInHits = 0;
   onStatus("登录页面加载中，请稍等...");
-  await delay(URL_FIRST_CHECK_DELAY_MS);
+  await delay(URL_FIRST_CHECK_DELAY_MS, signal);
   for (let index = 0; index < 180; index += 1) {
-    await delay(URL_CHECK_INTERVAL_MS);
+    await delay(URL_CHECK_INTERVAL_MS, signal);
     const url = await currentLocalPageURL(agentBase);
+    signal?.throwIfAborted();
     if (isLoggedInURL(url, auth)) {
       loggedInHits += 1;
       onStatus(
@@ -214,8 +216,14 @@ function matchPageURL(currentURL: string, page: PlatformPageRule) {
 }
 
 /** delay 等待指定毫秒数。 */
-function delay(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) { reject(new DOMException("登录等待已暂停", "AbortError")); return; }
+    const timer = window.setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, ms);
+    /** abort 在教程暂停或离开页面时释放等待，避免旧登录轮询继续占用操作。 */
+    function abort() { window.clearTimeout(timer); reject(new DOMException("登录等待已暂停", "AbortError")); }
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 }
 
 /** shortURL 缩短页面地址用于状态提示。 */

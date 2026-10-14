@@ -211,7 +211,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 				candidateName = fmt.Sprintf("第 %d 位候选人", candidate.Index+1)
 			}
 			if item.Decision != nil {
-				reportAIResult(
+				result := reportAIResult(
 					f.Logger,
 					prepared.Request.TaskID,
 					candidate,
@@ -220,6 +220,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 					"preview",
 					!item.Decision.Accepted,
 				)
+				f.recordScreeningResult(ctx, prepared, stats, result)
 			} else if item.Err != nil {
 				reportAIError(f.Logger, prepared.Request.TaskID, candidate, item.Err)
 			}
@@ -361,7 +362,8 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	if !deferKeywordDecision {
 		keywordMatch := matchKeywords(candidate, "", prepared.Position)
 		if isKeywordMode(prepared.Position) {
-			reportKeywordMatch(f.Logger, prepared.Request.TaskID, candidate, keywordMatch)
+			result := reportKeywordMatch(f.Logger, prepared.Request.TaskID, candidate, keywordMatch, !keywordMatch.Accepted || !prepared.Position.RequiresAI)
+			f.recordScreeningResult(ctx, prepared, stats, result)
 		}
 		if !keywordMatch.Accepted {
 			stats.Skipped++
@@ -495,7 +497,8 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	}
 	if deferKeywordDecision {
 		keywordMatch := matchKeywords(candidate, detail.Text, prepared.Position)
-		reportKeywordMatch(f.Logger, prepared.Request.TaskID, candidate, keywordMatch)
+		result := reportKeywordMatch(f.Logger, prepared.Request.TaskID, candidate, keywordMatch, !keywordMatch.Accepted || !prepared.Position.RequiresAI)
+		f.recordScreeningResult(ctx, prepared, stats, result)
 		if !keywordMatch.Accepted {
 			stats.Skipped++
 			f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", keywordMatch.Reason)
@@ -567,7 +570,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			return fmt.Errorf("判断候选人匹配度失败：%w", decisionErr)
 		}
 		decision = evaluation.Decision
-		reportAIResult(
+		result := reportAIResult(
 			f.Logger,
 			prepared.Request.TaskID,
 			candidate,
@@ -576,6 +579,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			"final",
 			true,
 		)
+		f.recordScreeningResult(ctx, prepared, stats, result)
 		f.log(prepared.Request.TaskID, "ai_decision", "success", decisionStartedAt, nil)
 		accepted = decision.Accepted
 		score = decision.Score

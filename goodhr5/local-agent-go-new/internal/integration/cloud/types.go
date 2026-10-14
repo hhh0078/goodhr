@@ -252,6 +252,13 @@ type TaskSummary struct {
 	ErrorMessage    string `json:"error_message,omitempty"`
 }
 
+// ScreeningResultEvidence 仅保存真实筛选结果的类型和完成状态，不包含候选人资料。
+type ScreeningResultEvidence struct {
+	Kind     string `json:"kind"`
+	Phase    string `json:"phase"`
+	Terminal bool   `json:"terminal"`
+}
+
 // SummaryResult 表示云端状态同步和完成邮件结果。
 type SummaryResult struct {
 	Success    bool `json:"success"`

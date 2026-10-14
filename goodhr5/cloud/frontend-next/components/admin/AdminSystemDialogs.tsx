@@ -40,6 +40,9 @@ type AdminSystemDialogsProps = {
     severity?: "success" | "error" | "warning" | "info",
   ) => void;
   promotionBlocked: boolean;
+  tutorialActive?: boolean;
+  tutorialAwaitingChoice?: boolean;
+  onCriticalUpdateChange?: (open: boolean) => void;
 };
 
 /** AdminSystemDialogs 管理公告已读状态和本地程序更新流程。 */
@@ -55,6 +58,9 @@ export default function AdminSystemDialogs({
   refreshSession,
   notify,
   promotionBlocked,
+  tutorialActive = false,
+  tutorialAwaitingChoice = false,
+  onCriticalUpdateChange,
 }: AdminSystemDialogsProps) {
   const [announcementReady, setAnnouncementReady] = useState(false);
   const [dismissedAnnouncements, setDismissedAnnouncements] = useState<
@@ -98,10 +104,15 @@ export default function AdminSystemDialogs({
   const canIgnoreUpdate = versionMismatch && !mandatoryUpdate && !updateRunning;
   const updateOpen =
     updateRunning ||
-    (versionMismatch &&
+    (!tutorialAwaitingChoice && versionMismatch &&
       (mandatoryUpdate ||
-        (announcementReady &&
+        (!tutorialActive && announcementReady &&
           dismissedOptionalUpdate !== optionalUpdateIdentity)));
+
+  useEffect(() => {
+    onCriticalUpdateChange?.(Boolean(updateOpen && (mandatoryUpdate || updateRunning)));
+    return () => onCriticalUpdateChange?.(false);
+  }, [updateOpen, mandatoryUpdate, updateRunning, onCriticalUpdateChange]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -301,7 +312,7 @@ export default function AdminSystemDialogs({
   return (
     <>
       <AdminDialog
-        open={!updateOpen && visibleAnnouncements.length > 0}
+        open={!tutorialActive && !promotionBlocked && !updateOpen && visibleAnnouncements.length > 0}
         title="系统公告"
         description="请留意 GoodHR 的最新通知和功能变化。"
         cancelText="我知道了"
@@ -433,6 +444,7 @@ export default function AdminSystemDialogs({
           !updateOpen &&
           visibleAnnouncements.length === 0 &&
           !promotionBlocked
+          && !tutorialActive
         }
       />
     </>

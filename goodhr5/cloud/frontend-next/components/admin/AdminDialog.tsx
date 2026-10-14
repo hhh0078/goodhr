@@ -23,6 +23,8 @@ type AdminDialogProps = {
   onConfirm?: () => void;
   extraActions?: ReactNode;
   priority?: "normal" | "promotion";
+  /** 给真实确认按钮提供稳定的新手引导定位，不模拟点击或提交。 */
+  confirmDataOnboarding?: string;
 };
 const dialogWidths = { xs: 444, sm: 600, md: 900, lg: 1200, xl: 1536 };
 /** AdminDialog 在提交期间阻止关闭和重复提交，并让长表单只滚动内容区。 */
@@ -44,6 +46,7 @@ export default function AdminDialog({
   onConfirm,
   extraActions,
   priority = "normal",
+  confirmDataOnboarding,
 }: AdminDialogProps) {
   useAdminOverlay(open && priority === "normal");
   return (
@@ -77,6 +80,7 @@ export default function AdminDialog({
           ) : null}
           {onConfirm ? (
             <Button
+              data-onboarding={confirmDataOnboarding}
               type="primary"
               onClick={onConfirm}
               loading={

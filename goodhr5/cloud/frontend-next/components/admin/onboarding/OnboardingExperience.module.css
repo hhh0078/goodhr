@@ -1,0 +1,80 @@
+/* 本文件负责新手引导的固定进度、操作面板和轻量鼓励，沿用后台主题色并兼容手机。 */
+.progressBar {
+  position: fixed;
+  z-index: 1600;
+  top: 16px;
+  left: calc(var(--goodhr-sidebar-width, 200px) + 32px);
+  right: 16px;
+  padding: 12px 16px 10px;
+  background: #fff;
+  border: 1px solid var(--goodhr-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(20, 31, 25, .1);
+}
+:global([data-admin-root][data-onboarding-active="true"]).activeLayout :global(.goodhr-admin-toolbar) {
+  top: calc(16px + var(--goodhr-onboarding-height, 0px) + 8px);
+}
+:global([data-admin-root][data-onboarding-active="true"]).activeLayout :global(.goodhr-admin-main) {
+  padding-top: calc(72px + var(--goodhr-onboarding-height, 0px) + 8px);
+}
+.progressTitle { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.currentStep { font-size: 12px; color: var(--goodhr-text-secondary); }
+.remaining { font-size: 12px; white-space: nowrap; }
+.progressLine { margin: 4px 0 !important; display: block; }
+.stageList { display: flex; justify-content: space-between; gap: 10px; padding: 0; margin: 0; list-style: none; }
+.stageList li { display: flex; align-items: center; gap: 5px; color: var(--goodhr-text-secondary); font-size: 12px; white-space: nowrap; }
+.stageList .stageCompleted, .stageList .stageCurrent { color: var(--goodhr-primary); }
+.stageCurrent { font-weight: 600; }
+.stageNumber { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border: 1px solid currentColor; border-radius: 50%; font-size: 10px; }
+.operationPanel {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1450;
+  width: min(410px, calc(100vw - 32px));
+  max-height: calc(100dvh - 160px);
+  overflow-y: auto;
+  padding: 18px;
+  border: 1px solid var(--goodhr-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 30px rgba(20, 31, 25, .12);
+}
+.panelTitle { margin: 0 0 8px !important; }
+.panelDescription { font-size: 13px; margin: 0 0 12px !important; }
+.panelStatus { margin: 10px 0 0 !important; font-size: 12px; }
+.panelSecondaryButton { margin-top: 12px; }
+.connectHint { font-size: 12px; margin: 10px 0 0 !important; }
+.passivePanel { pointer-events: none; }
+.passivePanel button { pointer-events: auto; }
+.tourHint { font-size: 12px; margin-bottom: 8px !important; }
+.tourEstimate { font-size: 11px; display: block; line-height: 1.6; }
+.storageNotice { position: fixed; z-index: 1601; bottom: 8px; left: 240px; max-width: calc(100vw - 270px); background: #fff8e8; color: #856121; padding: 5px 10px; border-radius: 6px; font-size: 11px; pointer-events: none; }
+.welcomeCopy { font-size: 15px; line-height: 1.9; padding: 8px 0; }
+.welcomeFacts { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--goodhr-text-secondary); background: var(--goodhr-primary-soft); padding: 12px; border-radius: 8px; font-size: 12px; }
+.skipPhrase { padding: 10px 12px; border-radius: 6px; background: var(--goodhr-primary-soft); }
+.helpAlert { margin-bottom: 14px; }
+.resumeEntry { position: fixed; right: 24px; bottom: 24px; z-index: 55; display: flex; align-items: center; gap: 10px; background: #fff; padding: 10px 12px; border: 1px solid var(--goodhr-border); border-radius: 8px; box-shadow: 0 4px 16px rgba(20, 31, 25, .08); font-size: 12px; }
+.celebrationToast { position: fixed; top: 120px; left: 50%; transform: translateX(-50%); z-index: 1900; display: flex; align-items: center; gap: 10px; max-width: min(420px, calc(100vw - 28px)); padding: 14px 18px; background: #fff; border: 1px solid var(--goodhr-border); border-radius: 8px; box-shadow: 0 8px 26px rgba(20, 31, 25, .14); pointer-events: none; animation: arrive .2s ease-out; }
+.celebrationToast > :first-child { color: var(--goodhr-primary); font-size: 24px; }
+.celebrationToast strong, .celebrationToast span { display: block; }
+.celebrationToast strong { font-size: 14px; }
+.celebrationToast div > span { color: var(--goodhr-text-secondary); font-size: 12px; margin-top: 3px; }
+.trophy { color: #b18d39; font-size: 25px; }
+@keyframes arrive { from { opacity: 0; margin-top: -6px; } to { opacity: 1; margin-top: 0; } }
+@media (max-width: 899px) {
+  .tourPopup:global(.ant-tour) { width: min(390px, calc(100vw - 28px)); max-width: calc(100vw - 28px); }
+  .progressBar { top: 0; left: 0; right: 0; border-radius: 0; padding: 8px 10px; }
+  :global([data-admin-root][data-onboarding-active="true"]).activeLayout :global(.goodhr-admin-toolbar) { top: calc(var(--goodhr-onboarding-height, 0px) + 8px); }
+  :global([data-admin-root][data-onboarding-active="true"]).activeLayout :global(.goodhr-admin-main) { padding-top: calc(65px + var(--goodhr-onboarding-height, 0px) + 8px); }
+  .currentStep { font-size: 11px; max-width: calc(100vw - 140px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .progressBar :global(.ant-btn) { padding-inline: 5px; font-size: 11px; }
+  .remaining { font-size: 11px; }
+  .stageList { overflow-x: auto; gap: 14px; padding-bottom: 2px; }
+  .stageList li { font-size: 11px; }
+  .operationPanel { bottom: 12px; right: 12px; width: min(410px, calc(100vw - 24px)); padding: 14px; }
+  .resumeEntry { right: 12px; bottom: 12px; }
+  .storageNotice { left: 12px; max-width: calc(100vw - 24px); bottom: 0; }
+  .celebrationToast { top: 108px; width: max-content; }
+}
+@media (prefers-reduced-motion: reduce) { .celebrationToast { animation: none; } }

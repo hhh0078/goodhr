@@ -7,26 +7,21 @@ import {
   Flex,
   Form,
   Input,
-  Progress,
   Select,
   Tag,
   Typography,
 } from "antd";
 import {
-  CheckCircleOutlined,
   CreditCardOutlined,
   WechatOutlined,
-  DownloadOutlined,
   FileTextOutlined,
   LoadingOutlined,
-  PlayCircleOutlined,
   ReloadOutlined,
   SolutionOutlined,
 } from "@ant-design/icons";
 import type { CSSProperties } from "react";
 import styles from "./heavy-ui.module.css";
-import Link from "next/link";
-import { useEffect, useMemo, useState, type ElementType } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import AIRechargeDialog from "@/components/payment/AIRechargeDialog";
@@ -41,85 +36,8 @@ import {
   localRequest,
   requirePaymentLocalAgent,
 } from "@/lib/admin-api";
-import { type UserFlowState, type UserFlowStep } from "@/lib/user-flow";
-type GuideStep = {
-  key: UserFlowStep;
-  title: string;
-  description: string;
-  tips: string[];
-  href: string;
-  action: string;
-  icon: ElementType;
-};
-const guideSteps: GuideStep[] = [
-  {
-    key: "agent_detected",
-    title: "确认本地程序已启动",
-    description: "浏览器控制、截图和 OCR 都依赖本地 GoodHR 程序。",
-    tips: [
-      "启动本地 GoodHR 程序",
-      "连接成功后会自动完成",
-      "未安装时前往组件信息页面",
-    ],
-    href: "/admin/agent-download",
-    action: "检查本地程序",
-    icon: DownloadOutlined,
-  },
-  {
-    key: "runtime_ready",
-    title: "准备运行组件",
-    description: "确认 Node 和浏览器组件已经安装，可以稳定执行岗位运行。",
-    tips: ["启动本地程序", "按提示安装缺少的组件", "组件可用后会自动完成"],
-    href: "/admin/agent-download",
-    action: "检查运行组件",
-    icon: DownloadOutlined,
-  },
-  {
-    key: "position_created",
-    title: "创建岗位管理",
-    description: "岗位管理决定筛选条件、岗位要求和打招呼逻辑。",
-    tips: ["进入岗位管理", "点击新建岗位", "填写岗位要求或关键词后保存"],
-    href: "/admin/positions",
-    action: "创建岗位",
-    icon: SolutionOutlined,
-  },
-  {
-    key: "platform_login_verified",
-    title: "登录招聘平台",
-    description: "开始岗位运行时确认招聘平台账号处于登录状态。",
-    tips: ["点击开始岗位运行", "在打开的招聘平台完成登录", "回到 GoodHR 继续"],
-    href: "/admin/positions",
-    action: "检查平台登录",
-    icon: PlayCircleOutlined,
-  },
-  {
-    key: "position_started",
-    title: "启动第一条岗位运行",
-    description: "让本地程序成功接手并开始执行岗位运行。",
-    tips: ["确认启动条件", "点击开始", "看到运行中状态"],
-    href: "/admin/positions",
-    action: "启动岗位运行",
-    icon: PlayCircleOutlined,
-  },
-  {
-    key: "first_resume_processed",
-    title: "处理首份简历",
-    description: "成功读取并处理第一位候选人的简历。",
-    tips: ["保持岗位运行运行", "等待匹配到候选人", "处理成功后自动完成"],
-    href: "/admin/positions",
-    action: "查看岗位运行",
-    icon: FileTextOutlined,
-  },
-  {
-    key: "first_greet_success",
-    title: "首次打招呼成功",
-    description: "向第一位合适候选人成功发出招呼。",
-    tips: ["保持平台登录", "等待筛选完成", "成功打招呼后流程跑通"],
-    href: "/admin/positions",
-    action: "查看进度",
-    icon: SolutionOutlined,
-  },
-];
+import { type UserFlowState } from "@/lib/user-flow";
+import { publishOnboardingEvent } from "@/lib/onboarding-events";
 /** DashboardPage 展示用户当前最需要关注的招聘和本地运行状态。 */
 export default function DashboardPage() {
   const {
@@ -309,10 +227,9 @@ export default function DashboardPage() {
       setSavingModel(false);
     }
   }
-  const doneCount = guideSteps.filter(
-    (item) => guideProgress.steps[item.key]?.status === "completed",
-  ).length;
-  const showGuide = guideProgress.state !== "completed";
+  const showGuide =
+    guideProgress?.tutorial_completed !== true &&
+    guideProgress?.state !== "completed";
   return (
     <>
       <PageHeader
@@ -361,7 +278,7 @@ export default function DashboardPage() {
       />
 
       {showGuide ? (
-        <OnboardingGuide progress={guideProgress} doneCount={doneCount} />
+        <OnboardingGuideEntry />
       ) : null}
 
       <div
@@ -607,155 +524,34 @@ function AIWalletCard({
     </SectionPanel>
   );
 }
-/** OnboardingGuide 展示云端真实业务事件计算的新手引导。 */
-function OnboardingGuide({
-  progress,
-  doneCount,
-}: {
-  progress: UserFlowState;
-  doneCount: number;
-}) {
-  const activeKey =
-    guideSteps.find((item) => progress.steps[item.key]?.status !== "completed")
-      ?.key || "";
+/** OnboardingGuideEntry 提供紧凑的新手教程入口，真实操作和总进度交给全局引导器。 */
+function OnboardingGuideEntry() {
   return (
     <Card
-      styles={{
-        body: {
-          padding: 0,
-          height: "100%",
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-        },
-      }}
+      styles={{ body: { padding: 0 } }}
       className={styles.s304}
+      data-testid="onboarding-dashboard-entry"
     >
-      <Flex className={styles.s305}>
+      <Flex align="center" justify="space-between" gap={16} wrap>
         <div>
-          <Flex className={styles.s306}>
-            <Tag color={"var(--goodhr-primary)"} className={styles.s307}>
-              {"新手必看"}
-            </Tag>
-            <Typography.Title
-              level={2}
-              className={`${styles.title} ${styles.s308}`}
-            >
-              跑通第一条招聘岗位运行
-            </Typography.Title>
-          </Flex>
-          <Typography.Paragraph className={`${styles.text} ${styles.s309}`}>
-            每完成一步都会自动记录；全部完成后，这个教程会自动隐藏。
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            新手必看 · 跟我跑通第一轮招聘
+          </Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ margin: "6px 0 0" }}>
+            从登录平台到第一条筛选结果，我一步步带路，进度会自动保存。
+          </Typography.Paragraph>
+          <Typography.Paragraph type="secondary" style={{ margin: "4px 0 0", fontSize: 12 }}>
+            本地程序已准备好时约 5–10 分钟；首次安装时间另计。
           </Typography.Paragraph>
         </div>
-        <div className={styles.s310}>
-          <Flex className={styles.s311}>
-            <Typography.Paragraph className={`${styles.text} ${styles.s312}`}>
-              上手进度
-            </Typography.Paragraph>
-            <Typography.Paragraph className={`${styles.text} ${styles.s313}`}>
-              {doneCount}/{guideSteps.length}
-            </Typography.Paragraph>
-          </Flex>
-          <Progress
-            percent={(doneCount / guideSteps.length) * 100}
-            showInfo={false}
-            strokeWidth={9}
-            className={styles.s314}
-          />
-        </div>
-      </Flex>
-      <div className={styles.s315}>
-        {guideSteps.map((step, index) => (
-          <GuideCard
-            key={step.key}
-            step={step}
-            index={index + 1}
-            done={progress.steps[step.key]?.status === "completed"}
-            active={activeKey === step.key}
-          />
-        ))}
-      </div>
-    </Card>
-  );
-}
-/** GuideCard 展示一个新手步骤、完成状态和操作入口。 */
-function GuideCard({
-  step,
-  index,
-  done,
-  active,
-}: {
-  step: GuideStep;
-  index: number;
-  done: boolean;
-  active: boolean;
-}) {
-  const Icon = step.icon;
-  return (
-    <Card
-      styles={{
-        body: {
-          padding: 0,
-          height: "100%",
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-        },
-      }}
-      className={styles.s316}
-      style={
-        {
-          "--heavy-54": active
-            ? "var(--goodhr-primary)"
-            : "var(--goodhr-border)",
-          "--heavy-55": done ? "rgba(255,255,255,.58)" : "#fff",
-          "--heavy-56": active ? "0 10px 24px rgba(17, 17, 17, .11)" : "none",
-          "--heavy-57": done ? "0.76" : "1",
-        } as CSSProperties
-      }
-    >
-      <Flex className={styles.s317}>
-        <Flex className={styles.s318}>
-          <div className={styles.s319}>
-            <Icon aria-hidden="true" className={styles.s320} />
-          </div>
-          <Typography.Paragraph className={`${styles.text} ${styles.s321}`}>
-            第 {index}步
-          </Typography.Paragraph>
-        </Flex>
-        {done ? (
-          <Tag
-            icon={<CheckCircleOutlined aria-hidden="true" />}
-            color={"success"}
-          >
-            {"已完成"}
-          </Tag>
-        ) : active ? (
-          <Tag className={styles.s322}>{"当前需要"}</Tag>
-        ) : null}
-      </Flex>
-      <Typography.Title level={3} className={`${styles.title} ${styles.s323}`}>
-        {step.title}
-      </Typography.Title>
-      <Typography.Paragraph className={`${styles.text} ${styles.s324}`}>
-        {step.description}
-      </Typography.Paragraph>
-      <ol className={styles.s325}>
-        {step.tips.map((tip) => (
-          <li key={tip}>{tip}</li>
-        ))}
-      </ol>
-      {!done ? (
         <Button
-          href={step.href}
-          size="small"
-          type={active ? "primary" : "default"}
-          className={styles.s326}
+          type="primary"
+          data-onboarding="dashboard-guide-start"
+          onClick={() => publishOnboardingEvent({ type: "guide-requested" })}
         >
-          {step.action}
+          带我跑一遍
         </Button>
-      ) : null}
+      </Flex>
     </Card>
   );
 }
