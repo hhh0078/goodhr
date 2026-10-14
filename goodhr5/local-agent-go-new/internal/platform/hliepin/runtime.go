@@ -5,6 +5,7 @@ package hliepin
 type Runtime struct {
 	positionName    string
 	detailReturnURL string
+	detailURL       string // 本次打开的完整详情地址，仅用于确认补关对象，不输出到日志。
 }
 
 // NewRuntime 创建猎聘猎头端平台运行时。

@@ -4,6 +4,7 @@ package hliepin
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
@@ -37,6 +38,7 @@ func (r *Runtime) OpenCandidateDetail(ctx context.Context, browser model.Browser
 		return fmt.Errorf("猎聘候选人详情没有打开新页面")
 	}
 	r.detailReturnURL = currentURL
+	r.detailURL = strings.TrimSpace(result.NewPageURL)
 	return nil
 }
 
@@ -55,14 +57,57 @@ func (r *Runtime) BrowseCandidateDetail(ctx context.Context, browser model.Brows
 	return common.BrowseCandidateDetail(ctx, browser, cfg, 360, 8)
 }
 
-// CloseCandidateDetail 关闭当前猎聘猎头端候选人详情。
+// CloseCandidateDetail 只关闭确认过的猎聘详情页，失败时保留列表地址，重复补关不关闭列表。
 func (r *Runtime) CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, _ model.Candidate) error {
 	returnURL := r.detailReturnURL
-	r.detailReturnURL = ""
 	if returnURL == "" {
+		pages, err := browser.ListPages(ctx)
+		if err != nil {
+			return fmt.Errorf("读取猎聘标签页失败：%w", err)
+		}
+		currentURL, err := currentPageURL(pages)
+		if err != nil {
+			return err
+		}
+		if !isResumeDetailURL(currentURL) {
+			return nil
+		}
 		return fmt.Errorf("没有记住原猎聘候选人列表页地址，暂时不能安全返回")
 	}
-	return closeCurrentPageToURL(ctx, browser, returnURL)
+	if r.detailURL != "" {
+		pages, err := browser.ListPages(ctx)
+		if err != nil {
+			return fmt.Errorf("读取本次猎聘详情标签页失败：%w", err)
+		}
+		matches := 0
+		for _, page := range pages.Pages {
+			if strings.TrimSpace(page.URL) != r.detailURL {
+				continue
+			}
+			matches++
+			if !page.Current {
+				return fmt.Errorf("本次候选人详情仍在另一个标签页，暂时不能安全确认关闭")
+			}
+		}
+		if matches > 1 {
+			return fmt.Errorf("本次候选人详情匹配到多个标签页，暂时不能安全确认关闭")
+		}
+		if matches == 0 {
+			currentURL, err := currentPageURL(pages)
+			if err != nil {
+				return err
+			}
+			if isResumeDetailURL(currentURL) {
+				return fmt.Errorf("当前标签页属于另一份候选人详情，暂时不能安全返回")
+			}
+		}
+	}
+	if err := closeCurrentPageToURL(ctx, browser, returnURL); err != nil {
+		return err
+	}
+	r.detailReturnURL = ""
+	r.detailURL = ""
+	return nil
 }
 
 // currentPageURL 返回唯一活动标签页的完整地址。
@@ -85,14 +130,27 @@ func currentPageURL(pages contract.PageListResult) (string, error) {
 	return currentURL, nil
 }
 
-// closeCurrentPageToURL 关闭当前猎聘详情页，并按完整地址切回唯一的原标签页。
+// closeCurrentPageToURL 仅在当前地址属于同站详情时关闭标签，再按完整地址返回唯一的原列表。
 func closeCurrentPageToURL(ctx context.Context, browser model.Browser, returnURL string) error {
-	if err := browser.ClosePage(ctx); err != nil {
-		return fmt.Errorf("关闭猎聘候选人详情页失败：%w", err)
-	}
 	pages, err := browser.ListPages(ctx)
 	if err != nil {
-		return fmt.Errorf("关闭详情后读取猎聘标签页失败：%w", err)
+		return fmt.Errorf("读取猎聘标签页失败：%w", err)
+	}
+	currentURL, err := currentPageURL(pages)
+	if err != nil {
+		return err
+	}
+	currentAddress, currentErr := url.Parse(currentURL)
+	returnAddress, returnErr := url.Parse(returnURL)
+	if currentURL != returnURL && currentErr == nil && returnErr == nil &&
+		currentAddress.Host == returnAddress.Host && isResumeDetailURL(currentURL) {
+		if err := browser.ClosePage(ctx); err != nil {
+			return fmt.Errorf("关闭猎聘候选人详情页失败：%w", err)
+		}
+		pages, err = browser.ListPages(ctx)
+		if err != nil {
+			return fmt.Errorf("关闭详情后读取猎聘标签页失败：%w", err)
+		}
 	}
 	matches := make([]contract.PageInfo, 0, 1)
 	for _, page := range pages.Pages {
@@ -112,6 +170,12 @@ func closeCurrentPageToURL(ctx context.Context, browser model.Browser, returnURL
 	return nil
 }
 
+// isResumeDetailURL 根据实际路径识别猎聘简历详情，排除仅在查询参数中出现详情地址的列表页。
+func isResumeDetailURL(pageURL string) bool {
+	address, err := url.Parse(pageURL)
+	return err == nil && strings.HasPrefix(address.Path, "/resume/showresumedetail/")
+}
+
 // closeUnexpectedResumeDetail 关闭索要简历时意外打开的详情页，并切回原候选人列表页。
 func closeUnexpectedResumeDetail(ctx context.Context, browser model.Browser, returnURL string) error {
 	pages, err := browser.ListPages(ctx)
@@ -122,7 +186,7 @@ func closeUnexpectedResumeDetail(ctx context.Context, browser model.Browser, ret
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(currentURL, "/resume/showresumedetail/") {
+	if !isResumeDetailURL(currentURL) {
 		return nil
 	}
 	return closeCurrentPageToURL(ctx, browser, returnURL)

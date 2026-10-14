@@ -56,3 +56,8 @@ func requestScoreThreshold(position cloud.PositionSnapshot) float64 {
 func candidateInfoAllowed(hasScore bool, score float64, threshold float64) bool {
 	return hasScore && score > threshold
 }
+
+// candidateFavoriteAllowed 判断详情 AI 分数是否严格大于收藏阈值；零值和未获得详情评分都不收藏。
+func candidateFavoriteAllowed(hasDetailScore bool, score float64, threshold float64) bool {
+	return hasDetailScore && threshold > 0 && score > threshold
+}

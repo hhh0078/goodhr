@@ -258,6 +258,34 @@
       "timeout_ms": 5000,
       "description": "Boss候选人基础信息详情入口"
     },
+    "candidate.favorite": {
+      "_comment": "只操作当前可见详情右侧的未收藏按钮，不在候选人卡片里查找，不按序号猜测。",
+      "frames": [{ "_comment": "推荐列表框架，收藏按钮位于外层详情右侧。", "selectors": [{ "_comment": "通过唯一框架名称定位推荐区域。", "type": "css", "value": "iframe[name='recommendFrame']" }] }],
+      "frame_fallbacks": [[]],
+      "target": {
+        "_comment": "当前可见详情右侧的唯一未收藏状态。",
+        "selectors": [{ "_comment": "限定可见详情及其右侧操作区，排除列表收藏按钮。", "type": "css", "value": ".lib-standard-resume:visible .resume-right-side .communication .like-icon-and-text" }],
+        "text": "收藏",
+        "exact_text": true
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "Boss详情未收藏按钮"
+    },
+    "candidate.favorite_saved": {
+      "_comment": "唯一的已收藏状态用于重复操作保护及点击后的结果验证。",
+      "frames": [{ "_comment": "推荐列表框架，已收藏状态位于外层详情右侧。", "selectors": [{ "_comment": "通过唯一框架名称定位推荐区域。", "type": "css", "value": "iframe[name='recommendFrame']" }] }],
+      "frame_fallbacks": [[]],
+      "target": {
+        "_comment": "当前可见详情右侧的唯一已收藏状态。",
+        "selectors": [{ "_comment": "限定可见详情及其右侧操作区，排除列表收藏按钮。", "type": "css", "value": ".lib-standard-resume:visible .resume-right-side .communication .like-icon-and-text" }],
+        "text": "已收藏",
+        "exact_text": true
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "Boss详情已收藏状态"
+    },
     "candidate.detail": {
       "_comment": "候选人详情正文，同时兼容主页面并列详情框架和推荐列表内嵌详情框架。",
       "frames": [
@@ -705,7 +733,6 @@
   "_comment_conversation_fields": "自动回复字段暂未从旧版获得，接入消息流程前补 name、id、last_message。",
   "pending_selectors": {
     "_comment": "旧版没有稳定选择器、真实回归前必须补齐的能力。",
-    "candidate.favorite": "收藏候选人按钮",
     "candidate.reject": "不合适按钮",
     "message.unread_item": "未读会话列表项",
     "message.context": "会话上下文",

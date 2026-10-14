@@ -116,6 +116,63 @@
       "timeout_ms": 5000,
       "description": "猎聘猎头端详情入口"
     },
+    "candidate.favorite": {
+      "_comment": "按详情按钮的语义属性和精确文字定位，禁止点击列表中的同名操作。",
+      "target": {
+        "_comment": "候选人详情页的唯一未收藏按钮。",
+        "selectors": [{ "_comment": "同时识别正文和置顶收藏按钮，只允许当前可见且唯一的按钮。", "type": "css", "value": "button.resume-operation-btn:is([data-tlg-elem-id='h_pc_res_detail_favorite_btn'],[data-tlg-elem-id='h_pc_res_detail_top_favorite_btn']):visible" }],
+        "text": "收藏",
+        "exact_text": true
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "猎聘猎头详情未收藏按钮"
+    },
+    "candidate.favorite_saved": {
+      "_comment": "已收藏时不再点击，避免修改已有分组或取消收藏。",
+      "target": {
+        "_comment": "候选人详情页的唯一已收藏状态。",
+        "selectors": [{ "_comment": "同时识别正文和置顶收藏按钮，仅用当前唯一可见状态确认收藏结果。", "type": "css", "value": "button.resume-operation-btn:is([data-tlg-elem-id='h_pc_res_detail_favorite_btn'],[data-tlg-elem-id='h_pc_res_detail_top_favorite_btn']):visible" }],
+        "text": "已收藏",
+        "exact_text": true
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "猎聘猎头详情已收藏状态"
+    },
+    "candidate.favorite_panel": {
+      "_comment": "仅识别带收藏树的当前可见弹层，排除转发及其他浮层。",
+      "target": { "_comment": "唯一可见的收藏分组弹层。", "selectors": [{ "_comment": "限定包含收藏树的可见弹层。", "type": "css", "value": ".ant-popover:visible:has(.rd-collecting-wrap)" }] },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "猎聘猎头收藏分组弹层"
+    },
+    "candidate.favorite_group": {
+      "_comment": "收藏到平台默认未分组，直接点击单选框，避免标签中心点落在不可点击的空白处。",
+      "target": { "_comment": "可见收藏弹层中的默认未分组单选框。", "selectors": [{ "_comment": "通过默认分组标签定位真实单选输入框。", "type": "css", "value": ".ant-popover:visible .rd-collecting-wrap label.ant-radio-wrapper:has-text('未分组') input.ant-radio-input" }] },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "猎聘猎头默认未分组单选框"
+    },
+    "candidate.favorite_group_selected": {
+      "_comment": "确认默认分组的单选框已被选中，再允许保存。",
+      "target": {
+        "_comment": "默认未分组已经选中的唯一状态。",
+        "selectors": [{ "_comment": "限定收藏弹层中包含已选中单选状态的标签。", "type": "css", "value": ".ant-popover:visible .rd-collecting-wrap label.ant-radio-wrapper:has(.ant-radio-checked)" }],
+        "text": "未分组",
+        "exact_text": true
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "猎聘猎头默认收藏分组已选中"
+    },
+    "candidate.favorite_save": {
+      "_comment": "只点击收藏树下的唯一保存按钮，必须处于可用状态。",
+      "target": { "_comment": "当前收藏弹层内的唯一保存按钮。", "selectors": [{ "_comment": "限定收藏树按钮区中的主要保存操作。", "type": "css", "value": ".ant-popover:visible .rd-collecting-wrap .btn-box > button.ant-btn-primary" }] },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘猎头收藏保存按钮"
+    },
     "candidate.detail": {
       "_comment": "详情页正文。",
       "parents": [],
@@ -783,7 +840,6 @@
   "_comment_conversation_fields": "自动回复字段暂未从旧版获得。",
   "pending_selectors": {
     "_comment": "真实回归前仍需补齐的能力。",
-    "candidate.favorite": "收藏候选人按钮",
     "candidate.reject": "不合适按钮",
     "message.unread_item": "未读会话列表项",
     "message.context": "会话上下文",

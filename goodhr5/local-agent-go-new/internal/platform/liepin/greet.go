@@ -58,9 +58,9 @@ func verifyGreetingSent(ctx context.Context, browser model.Browser, cfg model.Co
 	}
 }
 
-// FavoriteCandidate 收藏指定猎聘企业端候选人。
-func (r *Runtime) FavoriteCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
-	return common.CandidateAction(ctx, browser, cfg, candidate, "candidate.favorite")
+// FavoriteCandidate 当前猎聘企业端暂不支持自动收藏，直接跳过。
+func (r *Runtime) FavoriteCandidate(context.Context, model.Browser, model.Config, model.Candidate) error {
+	return nil
 }
 
 // RejectCandidate 将指定猎聘企业端候选人标记为不合适。
