@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createGoodHRTheme,
+  createGoodHRAdminTheme,
   createGoodHRVariables,
   normalizeThemePreset,
   themePreferenceKey,
@@ -43,4 +44,25 @@ test("主题按规范化账号隔离，匿名状态没有可写保存键", () =>
   assert.equal(themePreferenceKey("  "), "");
   assert.equal(themePreferenceKey(" HR@Example.invalid "), themePreferenceKey("hr@example.invalid"));
   assert.notEqual(themePreferenceKey("first@example.invalid"), themePreferenceKey("second@example.invalid"));
+});
+
+test("创建后台紧凑主题不会改变公开页面尺寸，三种账号主题都保留业务状态色", () => {
+  for (const preset of ["green", "ink", "gold"]) {
+    const publicBefore = createGoodHRTheme(preset);
+    const snapshot = structuredClone(publicBefore);
+    const admin = createGoodHRAdminTheme(preset);
+    assert.notStrictEqual(admin.token, publicBefore.token);
+    assert.equal(admin.token.controlHeight, 32);
+    assert.equal(admin.token.fontSize, 13);
+    assert.equal(admin.token.colorPrimary, publicBefore.token.colorPrimary);
+    for (const key of ["colorSuccess", "colorWarning", "colorError"]) {
+      assert.equal(admin.token[key], publicBefore.token[key]);
+    }
+    assert.deepEqual(publicBefore, snapshot);
+    const publicAfter = createGoodHRTheme(preset);
+    assert.equal(publicAfter.token.controlHeight, 38);
+    assert.equal(publicAfter.token.controlHeightLG, 44);
+    assert.equal(publicAfter.token.controlHeightSM, 30);
+    assert.deepEqual(publicAfter, snapshot);
+  }
 });

@@ -21,7 +21,6 @@ import AdminDialog from "@/components/admin/AdminDialog";
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -223,9 +222,6 @@ export default function UsersPage() {
       <PageHeader
         title="用户管理"
         description="查看注册、登录、会员、用户画像和本地程序绑定情况。"
-        actions={
-          <RefreshButton loading={loading} onClick={() => void load()} />
-        }
       />
       <Typography.Text className={styles.statsLine}>
         <span>
@@ -258,7 +254,6 @@ export default function UsersPage() {
         >
           <Input
             id="goodhr-users-field-1"
-            size="small"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
@@ -281,7 +276,6 @@ export default function UsersPage() {
               void load(1, size);
             }}
             style={{ width: "100%" }}
-            size="small"
             value={pageSize}
           >
             <Select.Option value={10}>10</Select.Option>
@@ -403,10 +397,9 @@ export default function UsersPage() {
       </SectionPanel>
 
       <Flex
-        className={styles.layout17}
-        gap={2 * 8}
+        className={`goodhr-table-pagination ${styles.layout17}`}
+        gap={12}
         style={{
-          marginTop: 16,
           justifyContent: "space-between",
           alignItems: "center",
         }}

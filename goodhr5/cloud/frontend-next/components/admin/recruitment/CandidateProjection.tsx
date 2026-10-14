@@ -31,7 +31,7 @@ function ProjectionExperiences({ title, items }: { title: string; items?: Resume
 /** CandidateProjection 仅渲染授权接口已经返回的资料，不额外查询候选人库或内部备注。 */
 export default function CandidateProjection({ candidate }: { candidate?: Resume }) {
 
-  if (!candidate) return <Typography.Text type="secondary">这份招聘资料暂时没有读出来，可以刷新进度重试。</Typography.Text>;
+  if (!candidate) return <Typography.Text type="secondary">这份招聘资料暂时没有读出来，可以重新打开进度重试。</Typography.Text>;
   return <Flex vertical gap={4}>
     <Descriptions
       size="small"

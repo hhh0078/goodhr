@@ -8,7 +8,6 @@ import { CLOUD_API_BASE, cloudRequest, getToken } from "@/lib/admin-api";
 import {
   FormActionRow,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -30,7 +29,6 @@ export default function HelpPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [guideLoading, setGuideLoading] = useState(false);
   const chatBody = useRef<HTMLDivElement | null>(null);
   const cards = useMemo<GuideCard[]>(
     () => (Array.isArray(guide?.cards) ? guide.cards : []),
@@ -40,7 +38,6 @@ export default function HelpPage() {
   const cacheKey = `goodhr5_help_chat_${user?.email || "guest"}`;
   /** loadGuide 读取系统帮助指南。 */
   async function loadGuide() {
-    setGuideLoading(true);
     try {
       const data = await cloudRequest("/api/help/guide", { auth: false });
       setGuide(data.guide || data || {});
@@ -49,8 +46,6 @@ export default function HelpPage() {
         error instanceof Error ? error.message : "帮助指南读取失败",
         "error",
       );
-    } finally {
-      setGuideLoading(false);
     }
   }
   useEffect(() => {
@@ -138,12 +133,6 @@ export default function HelpPage() {
       <PageHeader
         title="常见问题"
         description="查看系统使用说明，或直接向帮助助手描述遇到的问题。"
-        actions={
-          <RefreshButton
-            loading={guideLoading}
-            onClick={() => void loadGuide()}
-          />
-        }
       />
       <div className={styles.layout18} style={{ display: "grid", gap: 16 }}>
         <Flex vertical={true} gap={2 * 8}>

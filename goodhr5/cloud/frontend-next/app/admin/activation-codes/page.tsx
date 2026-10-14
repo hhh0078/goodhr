@@ -17,7 +17,6 @@ import { cloudRequest, formatDate } from "@/lib/admin-api";
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -106,7 +105,7 @@ export default function ActivationCodesPage() {
             >
               生成激活码
             </Button>
-            <RefreshButton loading={loading} onClick={() => void load()} />
+
           </>
         }
       />

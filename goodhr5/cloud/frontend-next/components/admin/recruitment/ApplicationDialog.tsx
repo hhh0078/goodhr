@@ -300,7 +300,6 @@ export default function ApplicationDialog({ applicationID, onClose, onChanged }:
             setMailInterviewID("");
             setMailOpen(true);
           }}>预览并发送邮件</Button> : null}
-        <Button disabled={busy || loading} onClick={() => void load()}>刷新进度</Button>
       </Flex>
       {node ? <Alert
         type="info"

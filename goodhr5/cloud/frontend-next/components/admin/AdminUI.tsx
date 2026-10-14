@@ -1,6 +1,6 @@
 /** 本文件提供 Ant Design 后台复用的标题、内容卡片、空状态和操作行。 */
 "use client";
-import { Button, Card, Empty, Flex, Typography } from "antd";
+import { Card, Empty, Flex, Typography } from "antd";
 import type { CSSProperties, ReactNode } from "react";
 /** PageHeader 展示后台页面标题和可换行的操作按钮。 */
 export function PageHeader({
@@ -31,7 +31,7 @@ export function PageHeader({
         ) : null}
       </div>
       {actions ? (
-        <Flex gap={8} wrap>
+        <Flex className="goodhr-toolbar-actions" gap={8} wrap>
           {actions}
         </Flex>
       ) : null}
@@ -76,20 +76,6 @@ export function EmptyState({
     </Empty>
   );
 }
-/** RefreshButton 输出统一的刷新按钮并防止重复触发。 */
-export function RefreshButton({
-  loading,
-  onClick,
-}: {
-  loading?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <Button loading={loading} onClick={onClick}>
-      {loading ? "刷新中" : "刷新"}
-    </Button>
-  );
-}
 /** FormActionRow 保证输入框与操作按钮在窄屏下仍可使用。 */
 export function FormActionRow({
   field,
@@ -103,7 +89,7 @@ export function FormActionRow({
   return (
     <Flex
       className="admin-form-action-row"
-      gap={10}
+      gap={8}
       align="start"
       wrap
       style={{ width: "100%", maxWidth }}

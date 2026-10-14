@@ -7,7 +7,6 @@ import { formatDate, localRequest } from "@/lib/admin-api";
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -90,9 +89,6 @@ export default function LocalDataPage() {
       <PageHeader
         title="本地数据"
         description="数据来自当前电脑，不会上传到云端。"
-        actions={
-          <RefreshButton loading={loading} onClick={() => void load()} />
-        }
       />
       {!agentBase ? (
         <SectionPanel>

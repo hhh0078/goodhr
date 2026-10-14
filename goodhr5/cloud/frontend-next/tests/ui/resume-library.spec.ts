@@ -431,7 +431,7 @@ test("清空原始标签只清 tags，保留候选人已选收藏夹", async ({ 
   expect(state.errors).toEqual([]);
 });
 
-test("岗位与猎头推荐工具单行，无大标题且新增刷新筛选照常可用", async ({ page }) => {
+test("岗位与猎头推荐工具单行，无大标题和独立刷新，新增筛选照常可用", async ({ page }) => {
   const state = await mockResumeSession(page);
   state.positions[0] = { ...state.positions[0], platform_id: "boss", creator_email: state.user.email, is_open: true };
   await page.setViewportSize({ width: 1600, height: 900 });
@@ -444,14 +444,12 @@ test("岗位与猎头推荐工具单行，无大标题且新增刷新筛选照�
     const toolbar = page.getByTestId(current.toolbar);
     await expect(toolbar).toBeVisible();
     const create = toolbar.getByRole("button", { name: current.create, exact: true });
-    const refresh = toolbar.getByRole("button", { name: /刷新$/ });
-    const createBox = await create.boundingBox(); const refreshBox = await refresh.boundingBox();
-    expect(createBox).not.toBeNull(); expect(refreshBox).not.toBeNull();
-    expect(Math.abs(createBox!.y + createBox!.height / 2 - refreshBox!.y - refreshBox!.height / 2)).toBeLessThan(3);
+    await expect(toolbar.getByRole("button", { name: /刷新$/ })).toHaveCount(0);
+    const createBox = await create.boundingBox();
+    expect(createBox).not.toBeNull();
     const control = current.title === "岗位管理" ? toolbar.getByLabel("岗位状态筛选", { exact: true }) : toolbar.getByLabel("筛选推荐阶段", { exact: true });
     const controlBox = await control.boundingBox();
     expect(Math.abs(controlBox!.y + controlBox!.height / 2 - createBox!.y - createBox!.height / 2)).toBeLessThan(3);
-    await refresh.click();
     await create.click();
     const dialog = page.getByRole("dialog", { name: current.dialog, exact: true });
     await expect(dialog).toBeVisible();

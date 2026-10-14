@@ -295,7 +295,6 @@ export default function RequiredRuntimeInstaller({
         <Button
           block
           type="primary"
-          size="large"
           icon={<DownloadOutlined />}
           loading={running}
           onClick={() => void installRuntime()}

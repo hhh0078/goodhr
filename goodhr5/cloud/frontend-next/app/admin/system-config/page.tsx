@@ -18,7 +18,6 @@ import WechatOfficialConfigForm, {
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -150,7 +149,7 @@ export default function SystemConfigPage() {
         description="配置按业务用途分组。保存前会校验 JSON，错误内容不会提交。"
         actions={
           <>
-            <RefreshButton loading={loading} onClick={() => void load()} />
+
             <Button
               icon={<UndoOutlined aria-hidden="true" />}
               disabled={!dirty || loading}

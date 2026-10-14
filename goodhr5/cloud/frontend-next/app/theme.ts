@@ -104,6 +104,37 @@ export function createGoodHRTheme(
   };
 }
 
+/** createGoodHRAdminTheme 按简历库标准统一后台正文、表单和浮层尺寸，公开页面沿用原主题。 */
+export function createGoodHRAdminTheme(themePreset: ThemePreset = "green"): ThemeConfig {
+  const base = createGoodHRTheme(themePreset);
+  return {
+    ...base,
+    token: {
+      ...base.token,
+      fontSize: 13,
+      fontSizeSM: 12,
+      fontSizeLG: 14,
+      fontSizeHeading3: 20,
+      fontSizeHeading4: 16,
+      fontSizeHeading5: 14,
+      lineHeight: 1.5,
+      controlHeight: 32,
+      controlHeightLG: 36,
+      controlHeightSM: 26,
+    },
+    components: {
+      ...base.components,
+      Button: { ...base.components?.Button, paddingInline: 12, paddingInlineSM: 8 },
+      Table: {
+        cellFontSize: 13, cellFontSizeMD: 13, cellFontSizeSM: 13,
+        cellPaddingBlock: 10, cellPaddingBlockMD: 10, cellPaddingBlockSM: 10,
+        cellPaddingInline: 12, cellPaddingInlineMD: 12, cellPaddingInlineSM: 12,
+      },
+      Pagination: { itemSize: 32, itemSizeSM: 32, itemSizeLG: 32, controlHeightSM: 32 },
+    },
+  };
+}
+
 /** createGoodHRVariables 生成覆盖浮层和正文的全局主题变量。 */
 export function createGoodHRVariables(
   themePreset: ThemePreset = "green",

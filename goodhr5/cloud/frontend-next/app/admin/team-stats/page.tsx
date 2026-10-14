@@ -13,7 +13,6 @@ import {
   Table,
   Typography,
 } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
 import styles from "./page.module.css";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -78,26 +77,10 @@ export default function TeamStatsPage() {
       <PageHeader
         title="团队统计"
         description={`${data.start_date || ""} 至 ${data.end_date || ""}，我先把大家的关键数字摆齐。`}
-        actions={
-          <Button
-            icon={<ReloadOutlined aria-hidden="true" />}
-            disabled={loading}
-            onClick={() => void load()}
-          >
-            {loading ? "刷新中" : "刷新"}
-          </Button>
-        }
       />
       <SectionPanel style={{ marginBottom: 12 }}>
         <div
-          className={styles.layout2}
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              period === "custom" ? "180px 180px 180px auto" : "180px auto",
-            gap: 10,
-            alignItems: "center",
-          }}
+          className={`${styles.layout2} ${period === "custom" ? styles.customFilters : ""}`}
         >
           <Form.Item
             htmlFor="goodhr-team-stats-field-1"
@@ -109,7 +92,6 @@ export default function TeamStatsPage() {
               id="goodhr-team-stats-field-1"
               onChange={(value) => setPeriod(value)}
               style={{ width: "100%" }}
-              size="small"
               value={period}
             >
               {periodOptions.map((item) => (
@@ -130,7 +112,6 @@ export default function TeamStatsPage() {
                 <DatePicker
                   id="goodhr-team-stats-field-2"
                   style={{ width: "100%" }}
-                  size="small"
                   value={startDate ? dayjs(startDate) : null}
                   onChange={(date) =>
                     setStartDate(date ? date.format("YYYY-MM-DD") : "")
@@ -146,7 +127,6 @@ export default function TeamStatsPage() {
                 <DatePicker
                   id="goodhr-team-stats-field-3"
                   style={{ width: "100%" }}
-                  size="small"
                   value={endDate ? dayjs(endDate) : null}
                   onChange={(date) =>
                     setEndDate(date ? date.format("YYYY-MM-DD") : "")

@@ -18,7 +18,6 @@ import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extensi
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -43,7 +42,7 @@ const componentNames: Record<string, string> = {
 };
 /** AgentDownloadPage 展示组件状态、扩展安装方法并触发运行组件更新。 */
 export default function AgentDownloadPage() {
-  const { agentBase, onboardingConfig, refreshAgent, notify } = useAdmin();
+  const { agentBase, onboardingConfig, notify } = useAdmin();
   const [runtime, setRuntime] = useState<UnknownRecord>({});
   const [loading, setLoading] = useState(false);
   const [openingExtensions, setOpeningExtensions] = useState(false);
@@ -142,10 +141,7 @@ export default function AgentDownloadPage() {
         description="查看本机运行组件、安装状态、版本和浏览器扩展说明。"
         actions={
           <>
-            <RefreshButton
-              loading={loading}
-              onClick={() => void refreshAgent().then(load)}
-            />
+
             <Button
               type={"primary"}
               icon={<DownloadOutlined aria-hidden="true" />}
@@ -254,7 +250,7 @@ export default function AgentDownloadPage() {
                     fontSize: 12,
                   }}
                 >
-                  {extensionsDirectory || "扩展目录暂时没拿到，请先刷新"}
+                  {extensionsDirectory || "扩展目录暂时没拿到，请确认本地程序已连接"}
                 </div>
                 <Typography.Text
                   style={{

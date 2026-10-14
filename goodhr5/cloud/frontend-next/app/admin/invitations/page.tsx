@@ -14,7 +14,6 @@ import {
   EmptyState,
   FormActionRow,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -64,9 +63,6 @@ export default function InvitationsPage() {
       <PageHeader
         title="邀请奖励"
         description="把 GoodHR 分享给朋友，注册和订阅都能为你增加会员时间。"
-        actions={
-          <RefreshButton loading={loading} onClick={() => void load()} />
-        }
       />
 
       <div

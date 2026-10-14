@@ -16,6 +16,7 @@ import {
 } from "react";
 import {
   createGoodHRTheme,
+  createGoodHRAdminTheme,
   createGoodHRVariables,
   normalizeThemePreset,
   themePreferenceKey,
@@ -40,12 +41,11 @@ export default function Providers({ children }: ProvidersProps) {
   const pathname = usePathname();
   const accountKeyRef = useRef("");
   const [themePreset, setThemePresetState] = useState<ThemePreset>("green");
-  const activeTheme = pathname === "/admin" || pathname?.startsWith("/admin/")
-    ? themePreset
-    : "green";
+  const isAdminPage = pathname === "/admin" || Boolean(pathname?.startsWith("/admin/"));
+  const activeTheme = isAdminPage ? themePreset : "green";
   const theme = useMemo(
-    () => createGoodHRTheme(activeTheme),
-    [activeTheme],
+    () => isAdminPage ? createGoodHRAdminTheme(activeTheme) : createGoodHRTheme(activeTheme),
+    [activeTheme, isAdminPage],
   );
 
   /** setThemeAccount 只在账号变化时读取偏好，会员刷新不会覆盖正在使用的颜色。 */
@@ -96,6 +96,7 @@ export default function Providers({ children }: ProvidersProps) {
       select={{
         showSearch: { optionFilterProp: ["label", "children", "value"] },
       }}
+      pagination={isAdminPage ? { className: "goodhr-admin-pagination" } : undefined}
     >
       <UserThemeContext.Provider
         value={{ themePreset, setThemePreset, setThemeAccount }}

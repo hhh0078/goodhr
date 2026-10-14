@@ -23,7 +23,6 @@ import ChoiceCards from "@/components/admin/ChoiceCards";
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -161,7 +160,7 @@ export default function AccountsPage() {
             >
               新增账号
             </Button>
-            <RefreshButton loading={loading} onClick={() => void load()} />
+
           </>
         }
       />

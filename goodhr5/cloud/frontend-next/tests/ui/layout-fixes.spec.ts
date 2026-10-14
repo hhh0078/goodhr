@@ -754,7 +754,7 @@ test("用户金额统计保留负数和充值金额，搜索不改变全局统�
     remaining_ai_balance: "-90071992547409.9301",
     ai_recharge_amount: "90071992547409.93",
   };
-  await page.getByRole("main").getByRole("button", { name: /刷新$/ }).click();
+  await page.getByRole("main").getByRole("button", { name: /搜索$/ }).click();
   await expect(remaining).toHaveText("剩余余额 -90071992547409.9301元");
   await expect(recharge).toHaveText("充值金额 90071992547409.93元");
 });
@@ -770,11 +770,11 @@ test("用户金额统计在手机上可换行，缺失无效金额显示未知�
   await expectWithinViewport(page, remaining);
   await expectWithinViewport(page, recharge);
   state.userStats = { remaining_ai_balance: "not-a-number", ai_recharge_amount: "0x10" };
-  await page.getByRole("main").getByRole("button", { name: /刷新$/ }).click();
+  await page.getByRole("main").getByRole("button", { name: /搜索$/ }).click();
   await expect(remaining).toHaveText("剩余余额 --元");
   await expect(recharge).toHaveText("充值金额 --元");
   state.userStats = { remaining_ai_balance: "0.0000", ai_recharge_amount: 0 };
-  await page.getByRole("main").getByRole("button", { name: /刷新$/ }).click();
+  await page.getByRole("main").getByRole("button", { name: /搜索$/ }).click();
   await expect(remaining).toHaveText("剩余余额 0.0000元");
   await expect(recharge).toHaveText("充值金额 0.00元");
   await expectWithinViewport(page, remaining);

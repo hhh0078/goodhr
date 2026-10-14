@@ -123,7 +123,7 @@ export default function ResumesPage() {
       </Typography.Paragraph>
       <Link className={styles.extensionDownloadLink} href="/download#browser-extension" target="_blank" rel="noopener noreferrer">下载浏览器插件</Link>
     </div>
-    <div className={styles.toolbar} data-testid="resume-filters">
+    <div className={`goodhr-compact-toolbar ${styles.toolbar}`} data-testid="resume-filters">
       <Flex gap={8} wrap className={styles.searchControls}>
         <Input aria-label="简历关键词" prefix={<SearchOutlined />} placeholder="姓名、公司、学校、职位" value={filters.q} onChange={(event) => updateFilter("q", event.target.value)} onPressEnter={() => navigateQuery(filters)} className={styles.keyword} />
         <Input aria-label="手机号搜索" placeholder="手机号 / 手机尾号" value={filters.phone} onChange={(event) => updateFilter("phone", event.target.value)} onPressEnter={() => navigateQuery(filters)} className={styles.phone} />
@@ -132,7 +132,7 @@ export default function ResumesPage() {
         <Button type="primary" loading={loading} onClick={() => navigateQuery(filters)}>查询</Button><Button onClick={resetFilters}>重置</Button>
         <Button icon={<FilterOutlined />} type={moreFilters ? "text" : "default"} onClick={() => setMoreFilters((value) => !value)}>更多筛选</Button>
       </Flex>
-      <Flex gap={8} className={styles.toolbarActions}>
+      <Flex gap={8} className={`goodhr-toolbar-actions ${styles.toolbarActions}`}>
         <Button icon={<SettingOutlined aria-hidden="true" />} onClick={() => setSettingsOpen(true)}>设置</Button>
         <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={() => setChooserOpen(true)}>添加</Button>
       </Flex>
@@ -173,7 +173,7 @@ export default function ResumesPage() {
         { title: "创建时间", key: "created_at", width: 190, render: (_, item) => <Flex vertical gap={3}><Typography.Text className={styles.meta}>{recordTime(item.created_at)}</Typography.Text><Space wrap size={[2, 2]}><Tag>{sourceLabel(item.source_type, item.platform_id)}</Tag>{item.platform_id ? <Tag>{sourceLabel(item.platform_id)}</Tag> : null}{(item.sources?.length || 0) > 1 ? <Typography.Text className={styles.meta}>{item.sources!.length} 个来源</Typography.Text> : null}</Space><Typography.Text type="secondary" ellipsis={{ tooltip: item.creator_name || item.user_email }} className={styles.meta}>{item.creator_name || item.user_email || "创建人待补充"}</Typography.Text></Flex> },
         { title: "操作", key: "actions", width: 80, fixed: "right", render: (_, item) => isReadOnlyResume(item) ? <Typography.Text type="secondary" className={styles.meta}>只读示例</Typography.Text> : <Flex vertical gap={0} className={styles.rowActions}><Button type="link" size="small" onClick={() => openDetails(item, "notes")}>备注</Button><Button type="link" size="small" onClick={() => openDetails(item, "recommendations")}>推荐</Button><Button type="link" size="small" title="面试入口稍后安排">面试</Button></Flex> },
       ]} />
-      <Flex wrap gap={12} justify="space-between" align="center" className={styles.pagination}><Typography.Text type="secondary">共 {realTotal} 份简历{builtinTotal ? ` · 另有 ${builtinTotal} 份内置示例` : ""}</Typography.Text><Pagination current={page} total={total} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateQuery(appliedFilters, size !== pageSize ? 1 : next, size)} /></Flex>
+      <Flex wrap gap={12} justify="space-between" align="center" className={`goodhr-table-pagination ${styles.pagination}`}><Typography.Text type="secondary">共 {realTotal} 份简历{builtinTotal ? ` · 另有 ${builtinTotal} 份内置示例` : ""}</Typography.Text><Pagination current={page} total={total} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateQuery(appliedFilters, size !== pageSize ? 1 : next, size)} /></Flex>
     </SectionPanel>
     <ResumeAddDialog open={chooserOpen} initialTaskID={params.get("resume_import_id") || ""} positions={positions} onClose={closeAdd} onChanged={refreshLibrary} onSaved={(item) => { closeAdd(); refreshLibrary(); openDetails(item); }} />
     <ResumeFolderManager open={folderManagerOpen} onClose={() => setFolderManagerOpen(false)} onChanged={refreshLibrary} />
