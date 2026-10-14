@@ -213,7 +213,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
         {!readOnly ? <ResumeRecruitmentPanel key={candidate.id} candidate={candidate} positions={positions} positionID={positionID || historyRecommendation?.position_id || ""} /> : null}
       </aside>
     </div>
-    <ResumeEditor open={editing} candidate={candidate} positions={positions} onClose={() => setEditing(false)} onSaved={(saved) => { setEditing(false); setCandidate(saved); void reload(); onChanged?.(); }} />
+    <ResumeEditor open={editing} candidate={candidate} positions={positions} onClose={() => setEditing(false)} onFoldersChanged={onChanged} onSaved={(saved) => { setEditing(false); setCandidate(saved); void reload(); onChanged?.(); }} />
     <ResumeSummaryDialog open={summaryOpen} candidate={candidate} onClose={() => setSummaryOpen(false)} onSaved={(saved) => { setSummaryOpen(false); setCandidate(saved); void reload(); onChanged?.(); }} />
     {!readOnly ? <ResumeShareDialog key={`${accountIdentity}:${candidateID}`} open={shareOpen} candidateID={candidateID} onClose={() => setShareOpen(false)} /> : null}
   </>;

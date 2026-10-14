@@ -316,7 +316,7 @@ func mergeCandidateTenantData(ctx context.Context, tx *sql.Tx, sourceTenantID, t
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	if err = mergeCandidateTagTenantTx(ctx, tx, sourceTenantID, targetTenantID, pairs); err != nil {
+	if err = mergeCandidateFolderTenantTx(ctx, tx, sourceTenantID, targetTenantID, pairs); err != nil {
 		return err
 	}
 	for _, pair := range pairs {

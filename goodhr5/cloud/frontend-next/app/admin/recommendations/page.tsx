@@ -4,7 +4,7 @@ import { Alert, Button, Drawer, Flex, Input, Pagination, Select, Table, Tag, Typ
 import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
+import { RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
 import AdminDialog from "@/components/admin/AdminDialog";
 import { useAdmin } from "@/components/admin/AdminApp";
 import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
@@ -60,11 +60,11 @@ export default function RecommendationsPage() {
     finally { deleteInProgress.current = false; setDeleteBusy(false); }
   }
   return <>
-    <PageHeader title="猎头推荐" description="候选人、岗位和跟进放一起，少翻几次页面。" actions={<><Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={() => setCreateOpen(true)}>新增推荐</Button><RefreshButton loading={loading} onClick={() => { void loadList(); void reloadPositions(); }} /></>} />
-    <Flex gap={8} wrap className={styles.filters}>
+    <Flex gap={8} className={`goodhr-compact-toolbar ${styles.filters}`} data-testid="recommendations-toolbar">
       <Input aria-label="搜索猎头推荐" prefix={<SearchOutlined aria-hidden="true" />} placeholder="候选人、手机号或岗位" value={q} onChange={(event) => setQ(event.target.value)} onPressEnter={() => navigateFilters()} className={styles.keyword} />
       <Select aria-label="筛选推荐阶段" allowClear showSearch optionFilterProp="label" placeholder="全部阶段" value={stage || undefined} onChange={(value) => setStage(value || "")} options={recommendationStages} className={styles.stage} />
       <Button aria-label="查询" type="primary" loading={loading} onClick={() => navigateFilters()}>查询</Button><Button onClick={() => navigateFilters("", "")}>重置</Button>
+      <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={() => setCreateOpen(true)}>新增推荐</Button><RefreshButton loading={loading} onClick={() => { void loadList(); void reloadPositions(); }} />
     </Flex>
     {error ? <Alert type="warning" showIcon title={error} action={<Button size="small" onClick={() => void loadList()}>重试</Button>} style={{ marginBottom: 10 }} /> : null}
     <SectionPanel style={{ padding: 0, overflow: "hidden" }}>

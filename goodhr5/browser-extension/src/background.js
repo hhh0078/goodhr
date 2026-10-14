@@ -322,8 +322,8 @@ async function performDraftOperation(payload, saving) {
   const data = payload.draft || {}, fields = {};
   const frozenSource = data.summary_source ? shared.stripSummaryContacts(data.summary_source) : null;
   if (frozenSource && new TextEncoder().encode(JSON.stringify(frozenSource)).byteLength > 1024 * 1024) throw new Error("这份总结职业资料超过1MiB，本地草稿没保存，请先整理履历后再生成");
-  for (const name of ["name", "phone", "candidate-email", "city", "position", "expected-position", "duplicate-keyword", "job-filter", "job", "tag-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time"]) fields[name] = shared.cleanText(data.fields?.[name], name.includes("note") ? 12000 : 500);
-  drafts[key] = { updated_at: Date.now(), data: { fields, tag_ids: shared.sanitizeTagIDs(data.tag_ids), tags_edited: data.tags_edited === true, edited: Array.isArray(data.edited) ? data.edited.filter((item) => Object.hasOwn(fields, item)) : [], keys: Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((item) => [item, shared.cleanText(data.keys?.[item], 100)])), ai_summary: shared.cleanText(data.ai_summary, 12000), summary_task: data.summary_task?.id ? { id: shared.cleanText(data.summary_task.id, 100), status: shared.cleanText(data.summary_task.status, 40), possibly_charged: data.summary_task.possibly_charged === true } : null, summary_unknown: data.summary_unknown === true, summary_source: frozenSource } };
+  for (const name of ["name", "phone", "candidate-email", "city", "position", "expected-position", "duplicate-keyword", "job-filter", "job", "folder-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time"]) fields[name] = shared.cleanText(data.fields?.[name], name.includes("note") ? 12000 : 500);
+  drafts[key] = { updated_at: Date.now(), data: { fields, folder_ids: shared.sanitizeFolderIDs(data.folder_ids), folders_edited: data.folders_edited === true, edited: Array.isArray(data.edited) ? data.edited.filter((item) => Object.hasOwn(fields, item)) : [], keys: Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((item) => [item, shared.cleanText(data.keys?.[item], 100)])), ai_summary: shared.cleanText(data.ai_summary, 12000), summary_task: data.summary_task?.id ? { id: shared.cleanText(data.summary_task.id, 100), status: shared.cleanText(data.summary_task.status, 40), possibly_charged: data.summary_task.possibly_charged === true } : null, summary_unknown: data.summary_unknown === true, summary_source: frozenSource } };
   const entries = Object.entries(drafts).sort(([left, a], [right, b]) => left === key ? -1 : right === key ? 1 : b.updated_at - a.updated_at).slice(0, 30);
   while (entries.length > 1 && new TextEncoder().encode(JSON.stringify(Object.fromEntries(entries))).byteLength > 3 * 1024 * 1024) entries.pop();
   await extension.storage.local.set({ ui_drafts: Object.fromEntries(entries) }); return { ok: true };
@@ -395,7 +395,7 @@ async function retryAvatar(payload, sourceTab = null) {
 /** handleUIMessage 接收插件界面的明确操作，所有接口固定而非通用代理。 */
 async function handleUIMessage(message, sourceTab = null) {
   const generation = authGeneration, payload = { ...(message.payload || {}), expected_generation: generation };
-  if (["POSITIONS", "TAGS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE"].includes(message.type) && payload.account_key) { const generation = authGeneration, settings = await readSettings(); if (generation !== authGeneration || payload.account_key !== accountKey(settings)) throw new Error("账号已经变化，本次操作已停止，请确认账号后继续"); }
+  if (["POSITIONS", "FOLDERS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE"].includes(message.type) && payload.account_key) { const generation = authGeneration, settings = await readSettings(); if (generation !== authGeneration || payload.account_key !== accountKey(settings)) throw new Error("账号已经变化，本次操作已停止，请确认账号后继续"); }
   if (VERSION_WRITES.has(message.type)) { await requireConsent(); await requireActiveSession(); await requireCurrentVersion(); }
   switch (message.type) {
     case "STATE": return publicState(sourceTab);
@@ -416,7 +416,7 @@ async function handleUIMessage(message, sourceTab = null) {
     case "PAIR_CHECK": return checkPair();
     case "RESTORE": if ((await readSettings()).session?.token) return { ...(await publicState(sourceTab)), existing_session: true }; restoreAttempted = false; await tryRestore(); return publicState(sourceTab);
     case "POSITIONS": return cloudRequest("/api/positions?purpose=recommendation", null, "GET", true, generation);
-    case "TAGS": await requireConsent(); return cloudRequest("/api/candidates/tags", null, "GET", true, generation);
+    case "FOLDERS": await requireConsent(); return cloudRequest("/api/candidates/folders", null, "GET", true, generation);
     case "DUPLICATES": return checkDuplicates(payload);
     case "DRAFT_GET": return draftOperation(payload, false);
     case "DRAFT_SAVE": return draftOperation(payload, true);

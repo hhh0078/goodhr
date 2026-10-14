@@ -200,8 +200,8 @@ func (s *Server) extensionSessionGuard(next http.Handler) http.Handler {
 
 // extensionPathAllowed 返回插件可以使用的最小业务路由集合。
 func extensionPathAllowed(method, path string) bool {
-	if path == "/api/candidates/tags" || strings.HasPrefix(path, "/api/candidates/tags/") {
-		return method == http.MethodGet && path == "/api/candidates/tags"
+	if path == "/api/candidates/folders" || strings.HasPrefix(path, "/api/candidates/folders/") {
+		return method == http.MethodGet && path == "/api/candidates/folders"
 	}
 	// 分享会公开简历资料，只能由控制台登录会话明确创建或取消，插件会话不开放此入口。
 	if strings.HasPrefix(path, "/api/candidates/") && strings.HasSuffix(path, "/share") {

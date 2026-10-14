@@ -52,7 +52,7 @@ export default function ResumeAddDialog({ open, initialTab = "ai", initialTaskID
         },
         {
           key: "manual", label: "手动添加", forceRender: true, disabled: busy && tab !== "manual",
-          children: <ResumeEditor embedded open={open} active={tab === "manual"} positions={positions} onClose={onClose} onSaved={saved} onBusyChange={manualBusyChanged} />,
+          children: <ResumeEditor embedded open={open} active={tab === "manual"} positions={positions} onClose={onClose} onSaved={saved} onBusyChange={manualBusyChanged} onFoldersChanged={changed} />,
         },
         {
           key: "plugin", label: "浏览器插件一键导入", forceRender: true, disabled: busy && tab !== "plugin",

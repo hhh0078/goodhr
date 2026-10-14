@@ -2,16 +2,16 @@
 "use strict";
 const extension = globalThis.browser || globalThis.chrome, $ = (id) => document.getElementById(id), shared = GoodHRShared;
 const resumeFields = { name: "candidate_name", phone: "phone", "candidate-email": "email", city: "work_region", position: "current_position", "expected-position": "expected_position" };
-const draftFields = [...Object.keys(resumeFields), "duplicate-keyword", "job-filter", "job", "tag-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time"];
+const draftFields = [...Object.keys(resumeFields), "duplicate-keyword", "job-filter", "job", "folder-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time"];
 let currentResume = null, selectedCandidate = null, matches = [], groups = [], positions = [], loggedIn = false, dataUseAccepted = false, updateRequired = false, autoCloseAfterSave = true, busy = false, hiddenDuplicate = false;
 let accountKey = "", identity = "", uiEpoch = 0, querySequence = 0, stateSequence = 0, duplicateTimer, draftTimer, autoCloseTimer, lastQuery = "", duplicateState = "idle", edited = new Set();
 let keys = newKeys(), avatarWarning = "", aiSummary = "", summaryTask = null, summaryPolling = false, updateChecked = false, pendingJob = "", jobMenuOpen = false, summaryUnknown = false, summarySource = null;
-let tags = [], selectedTagIDs = [], tagsEdited = false, tagMenuOpen = false, tagLoading = false, tagLoadError = "", tagSequence = 0;
+let folders = [], selectedFolderIDs = [], foldersEdited = false, folderMenuOpen = false, folderLoading = false, folderLoadError = "", folderSequence = 0;
 
 /** newKeys 为独立写操作生成幂等键，失败重试沿用原标识。 */
 function newKeys() { return Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((key) => [key, shared.newKey()])); }
 /** send 请求固定后台操作，UI不接触凭证。 */
-async function send(type, payload = {}) { const guarded = ["POSITIONS", "TAGS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE"].includes(type); const result = await extension.runtime.sendMessage({ type, payload: { ...(guarded ? { account_key: accountKey } : {}), ...payload } }); if (!result?.ok) { const error = new Error(result?.message || "没有处理成功，请再试一次"); error.status = result?.status; error.code = result?.code; throw error; } return result.data; }
+async function send(type, payload = {}) { const guarded = ["POSITIONS", "FOLDERS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE"].includes(type); const result = await extension.runtime.sendMessage({ type, payload: { ...(guarded ? { account_key: accountKey } : {}), ...payload } }); if (!result?.ok) { const error = new Error(result?.message || "没有处理成功，请再试一次"); error.status = result?.status; error.code = result?.code; throw error; } return result.data; }
 /** showStatus 显示简短结果和下一步提示。 */
 function showStatus(text, error = false) { $("status").hidden = !text; $("status").textContent = text || ""; $("status").classList.toggle("error", error); }
 /** runAction 防止重复写入，失败保留表单。 */
@@ -24,15 +24,15 @@ function scheduleAutoClose(epoch, savedIdentity) {
 /** requireAccount 未登录或未授权时引导工具栏设置，旧版本禁止写入。 */
 function requireAccount() { if (!loggedIn || !dataUseAccepted) throw new Error("请点工具栏 GoodHR 图标登录并授权"); if (updateRequired) throw new Error("请先更新插件，再继续保存"); }
 /** formResume 合并人工填写与当前只读快照。 */
-function formResume() { const resume = shared.sanitizeResume({ ...currentResume, candidate_name: $("name").value, phone: $("phone").value, email: $("candidate-email").value, work_region: $("city").value, current_region: $("city").value, current_position: $("position").value, expected_position: $("expected-position").value, tag_ids: selectedTagIDs }); return resume; }
+function formResume() { const resume = shared.sanitizeResume({ ...currentResume, candidate_name: $("name").value, phone: $("phone").value, email: $("candidate-email").value, work_region: $("city").value, current_region: $("city").value, current_position: $("position").value, expected_position: $("expected-position").value, folder_ids: selectedFolderIDs }); return resume; }
 /** refreshActions 维护直接添加和独立记录权限，强制更新时禁用全部写按钮。 */
 function refreshActions() {
   const unavailable = busy || !loggedIn || !dataUseAccepted || updateRequired, existing = Boolean(selectedCandidate?.id), phone = shared.normalizePhone($("phone").value);
   $("save").hidden = existing; $("update").hidden = !existing; $("save-note").hidden = !existing; $("save-recommendation").hidden = !existing || !$("job").value;
-  for (const id of ["save-note", "save-recommendation", "retry-avatar", "job", "job-filter", "tag-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time", "summary", "summary-cancel", "summary-retry", "summary-save"]) $(id).disabled = unavailable;
+  for (const id of ["save-note", "save-recommendation", "retry-avatar", "job", "job-filter", "folder-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time", "summary", "summary-cancel", "summary-retry", "summary-save"]) $(id).disabled = unavailable;
   $("check").disabled = busy || !loggedIn || !dataUseAccepted;
   for (const node of $("job-options").querySelectorAll("button")) node.disabled = unavailable;
-  for (const node of document.querySelectorAll("#tag-options button, #selected-tags button")) node.disabled = unavailable;
+  for (const node of document.querySelectorAll("#folder-options button, #selected-folders button")) node.disabled = unavailable;
   $("save").disabled = unavailable || !currentResume || !phone || hiddenDuplicate || ["idle", "checking", "failed", "hidden"].includes(duplicateState) || matches.some((item) => item.match_type === "exact");
   $("update").disabled = unavailable || !phone || !selectedCandidate?.row_version; $("save-note").disabled ||= !$("note").value.trim(); $("save-recommendation").disabled ||= !$("job").value;
   const summaryMode = shared.summaryAction(summaryTask, summaryUnknown, summarySource, formResume());
@@ -44,7 +44,7 @@ function refreshActions() {
   $("recommendation-details").hidden = !$("job").value;
 }
 /** draftSnapshot 仅保留业务输入和幂等键，不包含凭证或密码。 */
-function draftSnapshot() { return { fields: Object.fromEntries(draftFields.map((id) => [id, id === "job" ? $(id).value || pendingJob : $(id).value])), tag_ids: selectedTagIDs, tags_edited: tagsEdited, edited: [...edited], keys, ai_summary: aiSummary, summary_task: summaryTask, summary_unknown: summaryUnknown, summary_source: summarySource }; }
+function draftSnapshot() { return { fields: Object.fromEntries(draftFields.map((id) => [id, id === "job" ? $(id).value || pendingJob : $(id).value])), folder_ids: selectedFolderIDs, folders_edited: foldersEdited, edited: [...edited], keys, ai_summary: aiSummary, summary_task: summaryTask, summary_unknown: summaryUnknown, summary_source: summarySource }; }
 /** persistDraft 保存当前人当前账号本地草稿，不请求云端。 */
 async function persistDraft() { if (!identity || !accountKey) return true; const payload = { identity, account_key: accountKey, draft: draftSnapshot() }; try { await send("DRAFT_SAVE", payload); return true; } catch (error) { if (payload.identity === identity && payload.account_key === accountKey && error.code !== "DRAFT_SCOPE_CHANGED") showStatus(`本地草稿没保存：${error.message}。输入暂时还在，先别关闭插件，修改后我会重试`, true); return false; } }
 /** queueDraft 输入后尽快保存，同一个人再次打开可恢复。 */
@@ -65,21 +65,21 @@ function renderCandidateInfo(resume) { $("candidate-info").textContent = [resume
 /** applySnapshot 同人补读只更新未手改字段，切人恢复专属草稿。 */
 async function applySnapshot(resume, switching = false) {
   if (switching) { await persistDraft(); uiEpoch++; querySequence++; clearTimeout(duplicateTimer); clearTimeout(autoCloseTimer); identity = shared.resumeIdentity(resume); currentResume = resume; selectedCandidate = null; matches = []; groups = []; hiddenDuplicate = false; lastQuery = ""; duplicateState = "idle"; edited = new Set(); keys = newKeys(); avatarWarning = ""; aiSummary = ""; summaryTask = null; pendingJob = ""; jobMenuOpen = false; $("job-filter").removeAttribute("data-selected-value"); $("duplicates").replaceChildren(); $("duplicate-criteria").replaceChildren(); $("records").hidden = true; $("candidate-link").hidden = true; for (const id of draftFields) $(id).value = id === "stage" ? "draft" : ""; }
-  if (switching) { selectedTagIDs = []; tagsEdited = false; tagMenuOpen = false; }
+  if (switching) { selectedFolderIDs = []; foldersEdited = false; folderMenuOpen = false; }
   currentResume = resume; for (const [id, field] of Object.entries(resumeFields)) if (!edited.has(id)) $(id).value = resume?.[field] || "";
   if (switching) { summaryUnknown = false; summarySource = null; pendingJob = ""; }
-  if (switching && identity) { const epoch = uiEpoch; try { const { draft } = await send("DRAFT_GET", { identity, account_key: accountKey }); if (epoch === uiEpoch && draft) { for (const id of draftFields) if (draft.fields && id in draft.fields) $(id).value = draft.fields[id]; pendingJob = draft.fields?.job || ""; selectedTagIDs = shared.sanitizeTagIDs(draft.tag_ids); tagsEdited = draft.tags_edited === true; edited = new Set(draft.edited || []); keys = { ...keys, ...Object.fromEntries(Object.entries(draft.keys || {}).filter(([, value]) => value)) }; aiSummary = draft.ai_summary || ""; summaryTask = draft.summary_task || null; summaryUnknown = Boolean(draft.summary_unknown); summarySource = draft.summary_source || null; } } catch { /* 草稿失效不阻碍本地预览。 */ } }
-  renderPreview(resume); renderAvatar(); renderCandidateInfo(resume); renderSummary(); renderPositions(); renderTags(); refreshActions(); scheduleDuplicates();
+  if (switching && identity) { const epoch = uiEpoch; try { const { draft } = await send("DRAFT_GET", { identity, account_key: accountKey }); if (epoch === uiEpoch && draft) { for (const id of draftFields) if (draft.fields && id in draft.fields) $(id).value = draft.fields[id]; pendingJob = draft.fields?.job || ""; selectedFolderIDs = shared.sanitizeFolderIDs(draft.folder_ids); foldersEdited = draft.folders_edited === true; edited = new Set(draft.edited || []); keys = { ...keys, ...Object.fromEntries(Object.entries(draft.keys || {}).filter(([, value]) => value)) }; aiSummary = draft.ai_summary || ""; summaryTask = draft.summary_task || null; summaryUnknown = Boolean(draft.summary_unknown); summarySource = draft.summary_source || null; } } catch { /* 草稿失效不阻碍本地预览。 */ } }
+  renderPreview(resume); renderAvatar(); renderCandidateInfo(resume); renderSummary(); renderPositions(); renderFolders(); refreshActions(); scheduleDuplicates();
 }
 /** loadState 同步账号授权与当前人，切换账号清空上一人的表单草稿。 */
 async function loadState() {
   const sequence = ++stateSequence, state = await send("STATE"); if (sequence !== stateSequence) return;
   const nextAccount = state.account_key || (state.logged_in ? JSON.stringify([state.user?.id || "", state.user?.email || ""]) : "preview"), changedAccount = nextAccount !== accountKey;
-  if (changedAccount) { identity = ""; accountKey = nextAccount; positions = []; tags = []; tagLoadError = ""; tagLoading = false; tagSequence++; }
+  if (changedAccount) { identity = ""; accountKey = nextAccount; positions = []; folders = []; folderLoadError = ""; folderLoading = false; folderSequence++; }
   const wasLoggedIn = loggedIn, wasAccepted = dataUseAccepted; loggedIn = Boolean(state.logged_in); dataUseAccepted = Boolean(state.data_use_accepted); autoCloseAfterSave = state.auto_close_after_save !== false; renderUpdate(state.update);
-  if (!dataUseAccepted || !loggedIn) { querySequence++; tagSequence++; clearTimeout(duplicateTimer); selectedCandidate = null; matches = []; groups = []; tags = []; tagLoading = false; lastQuery = ""; duplicateState = "idle"; $("records").hidden = true; $("duplicates").replaceChildren(); renderTags(); }
+  if (!dataUseAccepted || !loggedIn) { querySequence++; folderSequence++; clearTimeout(duplicateTimer); selectedCandidate = null; matches = []; groups = []; folders = []; folderLoading = false; lastQuery = ""; duplicateState = "idle"; $("records").hidden = true; $("duplicates").replaceChildren(); renderFolders(); }
   const switching = changedAccount || identity !== shared.resumeIdentity(state.resume); if (switching || JSON.stringify(state.resume) !== JSON.stringify(currentResume)) await applySnapshot(state.resume, switching);
-  if (loggedIn && dataUseAccepted && (!wasLoggedIn || !wasAccepted || changedAccount)) await Promise.all([loadPositions(), loadTags()]);
+  if (loggedIn && dataUseAccepted && (!wasLoggedIn || !wasAccepted || changedAccount)) await Promise.all([loadPositions(), loadFolders()]);
   if (!updateChecked) { updateChecked = true; checkUpdate().catch(() => {}); }
   if (!loggedIn || !dataUseAccepted) { $("duplicate-status").textContent = "简历预览"; showStatus("请点工具栏 GoodHR 图标登录并授权"); }
   else if (switching || !wasAccepted || !wasLoggedIn) { $("duplicate-status").textContent = state.resume ? "正在查重" : "等待简历"; showStatus(state.resume ? "" : "打开候选人详情后会自动读取"); }
@@ -93,31 +93,31 @@ function renderUpdate(update) { if (!update) return; updateRequired = Boolean(up
 async function checkUpdate() { const result = await send("CHECK_UPDATE"); renderUpdate(result); }
 /** loadPositions 读取完整岗位，旧账号返回值丢弃。 */
 async function loadPositions() { const epoch = uiEpoch; try { const result = await send("POSITIONS"); if (epoch !== uiEpoch) return; positions = result.positions || result.items || (Array.isArray(result) ? result : []); renderPositions(); } catch (error) { if (epoch === uiEpoch) showStatus(`岗位暂时没加载出来：${error.message}，可先只添加简历`, true); } }
-/** loadTags 读取当前账号可见的已有标签，旧账号响应不能污染当前候选人的选择。 */
-async function loadTags() {
+/** loadFolders 读取当前账号可见的已有收藏夹，旧账号响应不能污染当前候选人的选择。 */
+async function loadFolders() {
   if (!loggedIn || !dataUseAccepted) return;
-  const account = accountKey, sequence = ++tagSequence; tagLoading = true; tagLoadError = ""; renderTags();
-  try { const result = await send("TAGS"); if (account !== accountKey || sequence !== tagSequence) return; tags = (Array.isArray(result.tags) ? result.tags : []).filter((tag) => shared.sanitizeTagIDs([tag?.id]).length && typeof tag.name === "string" && tag.name.trim() && ["team", "personal"].includes(tag.scope)).map((tag) => ({ ...tag, id: tag.id.toLowerCase(), name: shared.cleanText(tag.name, 50) })); }
-  catch (error) { if (account !== accountKey || sequence !== tagSequence) return; tagLoadError = `标签没加载出来，点搜索框重试：${error.message}`; }
-  finally { if (account === accountKey && sequence === tagSequence) { tagLoading = false; renderTags(); refreshActions(); } }
+  const account = accountKey, sequence = ++folderSequence; folderLoading = true; folderLoadError = ""; renderFolders();
+  try { const result = await send("FOLDERS"); if (account !== accountKey || sequence !== folderSequence) return; folders = (Array.isArray(result.folders) ? result.folders : []).filter((folder) => shared.sanitizeFolderIDs([folder?.id]).length && typeof folder.name === "string" && folder.name.trim() && ["team", "personal"].includes(folder.scope)).map((folder) => ({ ...folder, id: folder.id.toLowerCase(), name: shared.cleanText(folder.name, 50) })); }
+  catch (error) { if (account !== accountKey || sequence !== folderSequence) return; folderLoadError = `收藏夹没加载出来，点搜索框重试：${error.message}`; }
+  finally { if (account === accountKey && sequence === folderSequence) { folderLoading = false; renderFolders(); refreshActions(); } }
 }
-/** syncCandidateTags 只在未手动改标签时回填已入库候选人的可见标签，避免覆盖尚未保存的选择。 */
-function syncCandidateTags() { if (!tagsEdited && selectedCandidate) selectedTagIDs = shared.sanitizeTagIDs(selectedCandidate.tag_ids || selectedCandidate.tag_details?.map((tag) => tag.id)); renderTags(); }
-/** toggleTag 多选已有标签或移除已选标签，搜索文字始终不会提交为标签。 */
-function toggleTag(id) {
+/** syncCandidateFolders 只回填候选人手动加入的收藏夹，不从原技能标签推断分类。 */
+function syncCandidateFolders() { if (!foldersEdited && selectedCandidate) selectedFolderIDs = shared.sanitizeFolderIDs(selectedCandidate.folder_ids || selectedCandidate.folder_details?.map((folder) => folder.id)); renderFolders(); }
+/** toggleFolder 多选已有收藏夹或移除已选分类，搜索文字始终不会创建收藏夹。 */
+function toggleFolder(id) {
   if (busy || !loggedIn || !dataUseAccepted || updateRequired) return;
-  if (selectedTagIDs.includes(id)) selectedTagIDs = selectedTagIDs.filter((value) => value !== id);
-  else { if (!tags.some((tag) => tag.id === id)) return; if (selectedTagIDs.length >= 30) { showStatus("最多选 30 个标签，先移除一个再选吧", true); return; } selectedTagIDs.push(id); }
-  tagsEdited = true; tagMenuOpen = false; $("tag-filter").value = ""; renderTags(); refreshActions(); queueDraft();
+  if (selectedFolderIDs.includes(id)) selectedFolderIDs = selectedFolderIDs.filter((value) => value !== id);
+  else { if (!folders.some((folder) => folder.id === id)) return; if (selectedFolderIDs.length >= 30) { showStatus("最多选 30 个收藏夹，先移除一个再选吧", true); return; } selectedFolderIDs.push(id); }
+  foldersEdited = true; folderMenuOpen = false; $("folder-filter").value = ""; renderFolders(); refreshActions(); queueDraft();
 }
-/** renderTags 在插件自身界面显示搜索候选和已选标签，明确团队与个人的可见范围。 */
-function renderTags() {
-  const filter = $("tag-filter"), options = $("tag-options"), selected = $("selected-tags"), keyword = filter.value.trim().toLowerCase(); options.replaceChildren(); selected.replaceChildren();
-  const shown = keyword && tagMenuOpen ? tags.filter((tag) => tag.name.toLowerCase().includes(keyword)).slice(0, 8) : [];
+/** renderFolders 在插件自身界面显示可搜索收藏夹和手动选择，明确团队与个人的可见范围。 */
+function renderFolders() {
+  const filter = $("folder-filter"), options = $("folder-options"), selected = $("selected-folders"), keyword = filter.value.trim().toLowerCase(); options.replaceChildren(); selected.replaceChildren();
+  const shown = keyword && folderMenuOpen ? folders.filter((folder) => folder.name.toLowerCase().includes(keyword)).slice(0, 8) : [];
   options.hidden = !shown.length; filter.setAttribute("aria-expanded", String(Boolean(shown.length)));
-  for (const tag of shown) { const option = document.createElement("button"), meta = document.createElement("small"); option.type = "button"; option.className = "position-option"; option.setAttribute("role", "option"); option.setAttribute("aria-selected", String(selectedTagIDs.includes(tag.id))); option.dataset.value = tag.id; option.append(document.createTextNode(`${selectedTagIDs.includes(tag.id) ? "✓ " : ""}${tag.name}`)); meta.textContent = `${tag.scope === "team" ? "团队可见" : "仅自己可见"} · ${Number(tag.candidate_count) || 0} 人`; option.append(meta); option.addEventListener("click", () => toggleTag(tag.id)); options.append(option); }
-  for (const id of selectedTagIDs) { const tag = tags.find((item) => item.id === id) || selectedCandidate?.tag_details?.find((item) => item.id === id), badge = document.createElement("button"); badge.type = "button"; badge.dataset.value = id; badge.className = "selected-tag"; badge.textContent = `${tag?.name || "标签已不可用"} ×`; badge.setAttribute("aria-label", `移除标签 ${tag?.name || "已不可用标签"}`); badge.title = tag?.scope === "team" ? "团队可见" : "仅自己可见"; badge.addEventListener("click", () => toggleTag(id)); selected.append(badge); }
-  $("tag-hint").textContent = tagLoading ? "正在加载标签……" : tagLoadError || (keyword && tagMenuOpen && !shown.length ? "没找到这个标签，请去简历库管理标签新增。" : "团队标签同团队可见，个人标签仅自己可见。新增请去简历库管理标签。");
+  for (const folder of shown) { const option = document.createElement("button"), meta = document.createElement("small"); option.type = "button"; option.className = "position-option"; option.setAttribute("role", "option"); option.setAttribute("aria-selected", String(selectedFolderIDs.includes(folder.id))); option.dataset.value = folder.id; option.append(document.createTextNode(`${selectedFolderIDs.includes(folder.id) ? "✓ " : ""}${folder.name}`)); meta.textContent = `${folder.scope === "team" ? "团队可见" : "仅自己可见"} · ${Number(folder.candidate_count) || 0} 人`; option.append(meta); option.addEventListener("click", () => toggleFolder(folder.id)); options.append(option); }
+  for (const id of selectedFolderIDs) { const folder = folders.find((item) => item.id === id) || selectedCandidate?.folder_details?.find((item) => item.id === id), badge = document.createElement("button"); badge.type = "button"; badge.dataset.value = id; badge.className = "selected-folder"; badge.textContent = `${folder?.name || "收藏夹已不可用"} ×`; badge.setAttribute("aria-label", `移出收藏夹 ${folder?.name || "已不可用收藏夹"}`); badge.title = folder?.scope === "team" ? "团队可见" : "仅自己可见"; badge.addEventListener("click", () => toggleFolder(id)); selected.append(badge); }
+  $("folder-hint").textContent = folderLoading ? "正在加载收藏夹……" : folderLoadError || (keyword && folderMenuOpen && !shown.length ? "没找到这个收藏夹，请去简历库管理收藏夹新增。" : "团队收藏夹同团队可见，个人收藏夹仅自己可见。新增请去简历库管理收藏夹。");
   refreshActions();
 }
 /** positionLabel 生成岗位搜索和选中后共用的短标签，保留公司和城市方便确认。 */
@@ -153,7 +153,7 @@ function scheduleDuplicates() { if (!loggedIn || !dataUseAccepted || !currentRes
 /** checkDuplicates 用账号候选人查询序号隔离结果，仅唯一exact自动选择。 */
 async function checkDuplicates(force = false) {
   if (!loggedIn || !dataUseAccepted) throw new Error("请点工具栏 GoodHR 图标登录并授权"); clearTimeout(duplicateTimer); const epoch = uiEpoch, sequence = ++querySequence, resume = formResume(), keyword = $("duplicate-keyword").value, signature = JSON.stringify(shared.duplicateInput(resume, keyword)); lastQuery = signature; duplicateState = "checking"; selectedCandidate = null; $("records").hidden = true; $("duplicate-status").textContent = resume.phone ? "正在查重……" : "手机号还没读到，先按已有资料找找……"; refreshActions();
-  try { const result = await send("DUPLICATES", { resume, keyword, force }); if (epoch !== uiEpoch || sequence !== querySequence || signature !== JSON.stringify(shared.duplicateInput(formResume(), $("duplicate-keyword").value))) return; matches = result.matches || []; groups = result.groups || []; hiddenDuplicate = Boolean(result.hidden_match); const state = shared.classifyDuplicates(result, resume.phone); duplicateState = state.state; selectedCandidate = state.selected; syncCandidateTags(); $("duplicate-status").textContent = { existing: "已入库", possible: "可能重复，请选择已有简历", hidden: "已有重复资料，无权查看", new: "未入库", "no-phone": "未入库，请补填手机号" }[state.state] || state.title; renderCriteria(result.criteria); renderMatches(); renderAvatar(); refreshActions(); if (selectedCandidate) await loadRecords(); }
+  try { const result = await send("DUPLICATES", { resume, keyword, force }); if (epoch !== uiEpoch || sequence !== querySequence || signature !== JSON.stringify(shared.duplicateInput(formResume(), $("duplicate-keyword").value))) return; matches = result.matches || []; groups = result.groups || []; hiddenDuplicate = Boolean(result.hidden_match); const state = shared.classifyDuplicates(result, resume.phone); duplicateState = state.state; selectedCandidate = state.selected; syncCandidateFolders(); $("duplicate-status").textContent = { existing: "已入库", possible: "可能重复，请选择已有简历", hidden: "已有重复资料，无权查看", new: "未入库", "no-phone": "未入库，请补填手机号" }[state.state] || state.title; renderCriteria(result.criteria); renderMatches(); renderAvatar(); refreshActions(); if (selectedCandidate) await loadRecords(); }
   catch (error) { if (epoch !== uiEpoch || sequence !== querySequence) return; duplicateState = "failed"; matches = []; groups = []; renderMatches(); $("duplicate-status").textContent = `查重没完成：${error.message}。输入保留了，点查重重试`; refreshActions(); throw error; }
 }
 /** renderCriteria 展示后端实际查询条件，不猜测缺失字段。 */
@@ -163,7 +163,7 @@ function candidateLink(id) { return `${shared.CLOUD_BASE}/admin/resumes/detail?c
 /** renderMatches 展示可读分组，多个或相似候选人必须用户选择。 */
 function renderMatches() { $("duplicates").replaceChildren(); const shown = new Set(); for (const group of groups) { if (!(group.matches || []).length) continue; const header = document.createElement("p"); header.className = "group-title"; header.textContent = [group.title, group.summary].filter(Boolean).join(" · "); $("duplicates").append(header); for (const match of group.matches) { shown.add(match.candidate?.id); renderMatch(match); } } for (const match of matches) if (!shown.has(match.candidate?.id)) renderMatch(match); }
 /** renderMatch 绑定人工选择，候选人内容全部安全文本显示。 */
-function renderMatch(match) { const candidate = match.candidate; if (!candidate?.id) return; const label = document.createElement("label"); label.className = "match" + (selectedCandidate?.id === candidate.id ? " selected" : ""); const radio = document.createElement("input"); radio.type = "radio"; radio.name = "match"; radio.checked = selectedCandidate?.id === candidate.id; radio.addEventListener("change", () => runAction(async () => { selectedCandidate = candidate; tagsEdited = false; syncCandidateTags(); avatarWarning = ""; renderMatches(); renderAvatar(); refreshActions(); await loadRecords(); $("duplicate-status").textContent = "已入库"; showStatus(""); })); const title = document.createElement("strong"); title.textContent = `${candidate.candidate_name || "未填写姓名"} · ${candidate.phone || "手机号待补充"}`; const info = document.createElement("span"); info.textContent = `${match.match_type === "exact" ? "精确线索" : "相似线索"}：${(match.reasons || []).join("、")}`; const link = document.createElement("a"); link.textContent = "查看完整简历"; link.href = candidateLink(candidate.id); link.target = "_blank"; link.rel = "noreferrer"; label.append(radio, title, document.createElement("br"), info, document.createElement("br"), link); $("duplicates").append(label); }
+function renderMatch(match) { const candidate = match.candidate; if (!candidate?.id) return; const label = document.createElement("label"); label.className = "match" + (selectedCandidate?.id === candidate.id ? " selected" : ""); const radio = document.createElement("input"); radio.type = "radio"; radio.name = "match"; radio.checked = selectedCandidate?.id === candidate.id; radio.addEventListener("change", () => runAction(async () => { selectedCandidate = candidate; foldersEdited = false; syncCandidateFolders(); avatarWarning = ""; renderMatches(); renderAvatar(); refreshActions(); await loadRecords(); $("duplicate-status").textContent = "已入库"; showStatus(""); })); const title = document.createElement("strong"); title.textContent = `${candidate.candidate_name || "未填写姓名"} · ${candidate.phone || "手机号待补充"}`; const info = document.createElement("span"); info.textContent = `${match.match_type === "exact" ? "精确线索" : "相似线索"}：${(match.reasons || []).join("、")}`; const link = document.createElement("a"); link.textContent = "查看完整简历"; link.href = candidateLink(candidate.id); link.target = "_blank"; link.rel = "noreferrer"; label.append(radio, title, document.createElement("br"), info, document.createElement("br"), link); $("duplicates").append(label); }
 /** loadRecords 分开展示备注和推荐事件，迟到旧人记录不显示。 */
 async function loadRecords() {
   if (!selectedCandidate?.id) return;
@@ -200,7 +200,7 @@ async function saveCandidate(updating = false) {
   if (!updating && (hiddenDuplicate || matches.some((item) => item.match_type === "exact") || selectedCandidate)) throw new Error("已有重复简历，请选择后更新");
   if (updating) { if (!selectedCandidate?.id || !selectedCandidate?.row_version) throw new Error("请先选择已有简历"); const changes = shared.describeResumeChanges(selectedCandidate, resume); if (!changes.length && !currentResume?.avatar_detected) { showStatus("资料没有变化"); return; } }
   const epoch = uiEpoch, result = await send(updating ? "UPDATE" : "CREATE", { resume: shared.candidateWriteResume(resume, updating), capture_id: currentResume?.capture_id, existing_avatar_data_url: selectedCandidate?.avatar_data_url, idempotency_key: keys.save, candidate_id: selectedCandidate?.id, row_version: selectedCandidate?.row_version }); if (epoch !== uiEpoch) return;
-  selectedCandidate = result.candidate || result; if (!selectedCandidate?.id) throw new Error("还没拿到简历编号，请先重读并查重"); tagsEdited = false; syncCandidateTags(); avatarWarning = result.avatar_warning || ""; keys.save = shared.newKey(); keys.avatar = shared.newKey(); duplicateState = "existing"; $("duplicate-status").textContent = "已入库"; if (!updating) { matches = []; groups = []; hiddenDuplicate = false; renderMatches(); } renderAvatar(); refreshActions();
+  selectedCandidate = result.candidate || result; if (!selectedCandidate?.id) throw new Error("还没拿到简历编号，请先重读并查重"); foldersEdited = false; syncCandidateFolders(); avatarWarning = result.avatar_warning || ""; keys.save = shared.newKey(); keys.avatar = shared.newKey(); duplicateState = "existing"; $("duplicate-status").textContent = "已入库"; if (!updating) { matches = []; groups = []; hiddenDuplicate = false; renderMatches(); } renderAvatar(); refreshActions();
   const followups = updating ? null : await saveFollowups(); if (epoch !== uiEpoch) return;
   if (updating) { await loadRecords(); showStatus("已更新"); }
   if (avatarWarning) showStatus(`${$("status").textContent}；${avatarWarning}`, true); const draftSaved = await persistDraft();
@@ -229,10 +229,10 @@ async function cancelSummary() { const epoch = uiEpoch, result = await send("SUM
 async function saveSummary() { requireAccount(); if (!selectedCandidate?.id || !aiSummary) return; const epoch = uiEpoch, result = await send("SUMMARY_SAVE", { candidate_id: selectedCandidate.id, row_version: selectedCandidate.row_version, ai_summary: aiSummary, idempotency_key: keys.summary }); if (epoch !== uiEpoch) return; selectedCandidate = result.candidate || result; keys.summary = shared.newKey(); showStatus("总结已保存"); refreshActions(); }
 $("reload").addEventListener("click", () => runAction(loadPreview).finally(scheduleDuplicates));
 $("check").addEventListener("click", () => runAction(() => checkDuplicates(true)));
-for (const id of draftFields) $(id).addEventListener("input", () => { edited.add(id); queueDraft(); if (["name", "phone", "duplicate-keyword"].includes(id)) { querySequence++; selectedCandidate = null; $("records").hidden = true; duplicateState = "idle"; lastQuery = ""; renderAvatar(); scheduleDuplicates(); } if (id === "job-filter") { const chosen = positions.find((job) => String(job.id) === $("job").value), label = chosen ? positionLabel(chosen) : ""; if ($("job").value && $("job-filter").value.trim() !== label) { $("job").value = ""; pendingJob = ""; $("job-filter").removeAttribute("data-selected-value"); } jobMenuOpen = Boolean($("job-filter").value.trim()); renderPositions(); } else if (id === "job") renderPositions(); else if (id === "tag-filter") { tagMenuOpen = Boolean($("tag-filter").value.trim()); renderTags(); } if (["name", "phone", "city", "position", "expected-position"].includes(id)) renderCandidateInfo(formResume()); refreshActions(); });
-document.addEventListener("pointerdown", (event) => { if (jobMenuOpen && !event.target.closest(".jobs")) { jobMenuOpen = false; renderPositions(); } if (tagMenuOpen && !event.target.closest(".tag-picker")) { tagMenuOpen = false; renderTags(); } });
-$("tag-filter").addEventListener("focus", () => { tagMenuOpen = Boolean($("tag-filter").value.trim()); loadTags(); });
-$("tag-filter").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); const first = $("tag-options").querySelector("button"); if (tagMenuOpen && first) toggleTag(first.dataset.value); } else if (event.key === "ArrowDown") { const first = $("tag-options").querySelector("button"); if (first) { event.preventDefault(); first.focus(); } } else if (event.key === "Escape") { tagMenuOpen = false; renderTags(); } });
+for (const id of draftFields) $(id).addEventListener("input", () => { edited.add(id); queueDraft(); if (["name", "phone", "duplicate-keyword"].includes(id)) { querySequence++; selectedCandidate = null; $("records").hidden = true; duplicateState = "idle"; lastQuery = ""; renderAvatar(); scheduleDuplicates(); } if (id === "job-filter") { const chosen = positions.find((job) => String(job.id) === $("job").value), label = chosen ? positionLabel(chosen) : ""; if ($("job").value && $("job-filter").value.trim() !== label) { $("job").value = ""; pendingJob = ""; $("job-filter").removeAttribute("data-selected-value"); } jobMenuOpen = Boolean($("job-filter").value.trim()); renderPositions(); } else if (id === "job") renderPositions(); else if (id === "folder-filter") { folderMenuOpen = Boolean($("folder-filter").value.trim()); renderFolders(); } if (["name", "phone", "city", "position", "expected-position"].includes(id)) renderCandidateInfo(formResume()); refreshActions(); });
+document.addEventListener("pointerdown", (event) => { if (jobMenuOpen && !event.target.closest(".jobs")) { jobMenuOpen = false; renderPositions(); } if (folderMenuOpen && !event.target.closest(".folder-picker")) { folderMenuOpen = false; renderFolders(); } });
+$("folder-filter").addEventListener("focus", () => { folderMenuOpen = Boolean($("folder-filter").value.trim()); loadFolders(); });
+$("folder-filter").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); const first = $("folder-options").querySelector("button"); if (folderMenuOpen && first) toggleFolder(first.dataset.value); } else if (event.key === "ArrowDown") { const first = $("folder-options").querySelector("button"); if (first) { event.preventDefault(); first.focus(); } } else if (event.key === "Escape") { folderMenuOpen = false; renderFolders(); } });
 $("candidate-form").addEventListener("submit", (event) => { event.preventDefault(); runAction(() => saveCandidate()); });
 $("update").addEventListener("click", () => runAction(() => saveCandidate(true)));
 $("save-note").addEventListener("click", () => runAction(() => saveFollowups("note")));

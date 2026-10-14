@@ -8,18 +8,18 @@ import { useEffect, useRef, useState } from "react";
 import { SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import ExtensionPairApproval from "@/components/admin/ExtensionPairApproval";
-import ResumeTagManager from "@/components/admin/resumes/ResumeTagManager";
+import ResumeFolderManager from "@/components/admin/resumes/ResumeFolderManager";
 import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
 import ResumeAddDialog from "@/components/admin/resumes/ResumeAddDialog";
 import ResumeLibrarySettingsDialog from "@/components/admin/resumes/ResumeLibrarySettingsDialog";
 import { cloudRequest } from "@/lib/admin-api";
 import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
-import { loadResumePositions, loadResumeTags } from "@/lib/resume-api";
-import { orderResumeTags, parseResumeTagOrder, rememberResumeTag, resumeTagPreferenceKey } from "@/lib/resume-tag-preferences";
-import { experienceLabel, genderLabel, isReadOnlyResume, recordTime, resumeAge, resumeAvatarSource, salaryLabel, sourceLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume, type ResumeTag } from "@/lib/resume-types";
+import { loadResumePositions, loadResumeFolders } from "@/lib/resume-api";
+import { orderResumeFolders, parseResumeFolderOrder, rememberResumeFolder, resumeFolderPreferenceKey } from "@/lib/resume-folder-preferences";
+import { experienceLabel, genderLabel, isReadOnlyResume, recordTime, resumeAge, resumeAvatarSource, salaryLabel, sourceLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume, type ResumeFolder } from "@/lib/resume-types";
 import styles from "./page.module.css";
 
-const filterKeys = ["q", "phone", "position_id", "source_type", "region", "education_level", "work_years", "work_status", "tag", "tag_id", "creator", "created_from", "created_to"] as const;
+const filterKeys = ["q", "phone", "position_id", "source_type", "region", "education_level", "work_years", "work_status", "tag", "folder_id", "creator", "created_from", "created_to"] as const;
 type Filters = Record<(typeof filterKeys)[number], string>;
 /** readFilters 恢复 URL 中的搜索条件，返回列表仍保留原查询。 */
 function readFilters(params: URLSearchParams): Filters { return Object.fromEntries(filterKeys.map((key) => [key, params.get(key) || ""])) as Filters; }
@@ -27,7 +27,7 @@ function readFilters(params: URLSearchParams): Filters { return Object.fromEntri
 export default function ResumesPage() {
   const router = useRouter(); const params = useSearchParams(); const queryText = params.toString();
   const { notify, user } = useAdmin();
-  const tagPreferenceKey = resumeTagPreferenceKey(String(user?.id || user?.email || ""));
+  const folderPreferenceKey = resumeFolderPreferenceKey(String(user?.id || user?.email || ""));
   const [filters, setFilters] = useState<Filters>(() => readFilters(new URLSearchParams(queryText)));
   const [moreFilters, setMoreFilters] = useState(filterKeys.slice(4).some((key) => Boolean(params.get(key))));
   const [items, setItems] = useState<Resume[]>([]);
@@ -38,28 +38,28 @@ export default function ResumesPage() {
   const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20);
   const [loadError, setLoadError] = useState("");
   const [chooserOpen, setChooserOpen] = useState(false);
-  const [tags, setTags] = useState<ResumeTag[]>([]); const [tagOrder, setTagOrder] = useState<string[]>([]);
-  const [tagsLoading, setTagsLoading] = useState(false); const [tagsError, setTagsError] = useState("");
-  const [tagManagerOpen, setTagManagerOpen] = useState(false);
+  const [folders, setFolders] = useState<ResumeFolder[]>([]); const [folderOrder, setFolderOrder] = useState<string[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(false); const [foldersError, setFoldersError] = useState("");
+  const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detail, setDetail] = useState<{ id: string; name: string; engagementID?: string; tab: string } | null>(null);
   const generation = useRef(0);
-  const tagGeneration = useRef(0);
-  /** reloadTags 刷新当前账号可见标签及人数，删除当前筛选标签后恢复全部简历。 */
-  async function reloadTags() {
-    const current = ++tagGeneration.current;
-    setTagsLoading(true); setTagsError("");
+  const folderGeneration = useRef(0);
+  /** reloadFolders 刷新当前账号可见收藏夹及人数，删除当前筛选收藏夹后恢复全部简历。 */
+  async function reloadFolders() {
+    const current = ++folderGeneration.current;
+    setFoldersLoading(true); setFoldersError("");
     try {
-      const next = await loadResumeTags();
-      if (current !== tagGeneration.current) return;
-      setTags(next);
-      const selectedID = new URLSearchParams(queryText).get("tag_id");
-      if (selectedID && !next.some((tag) => tag.id === selectedID)) navigateQuery({ ...readFilters(new URLSearchParams(queryText)), tag_id: "" });
-    } catch (cause) { if (current === tagGeneration.current) setTagsError(cause instanceof Error ? cause.message : "标签没读出来，请重试。"); }
-    finally { if (current === tagGeneration.current) setTagsLoading(false); }
+      const next = await loadResumeFolders();
+      if (current !== folderGeneration.current) return;
+      setFolders(next);
+      const selectedID = new URLSearchParams(queryText).get("folder_id");
+      if (selectedID && !next.some((folder) => folder.id === selectedID)) navigateQuery({ ...readFilters(new URLSearchParams(queryText)), folder_id: "" });
+    } catch (cause) { if (current === folderGeneration.current) setFoldersError(cause instanceof Error ? cause.message : "收藏夹没读出来，请重试。"); }
+    finally { if (current === folderGeneration.current) setFoldersLoading(false); }
   }
-  /** refreshLibrary 简历或标签变动后同时更新列表和标签人数。 */
-  function refreshLibrary() { void load(); void reloadTags(); }
+  /** refreshLibrary 简历或收藏夹变动后同时更新列表和收藏夹人数。 */
+  function refreshLibrary() { void load(); void reloadFolders(); }
   /** load 读取当前 URL 对应的分页，并忽略晚返回的旧搜索结果。 */
   async function load(search = queryText) {
     const current = ++generation.current;
@@ -80,11 +80,11 @@ export default function ResumesPage() {
   }
   useEffect(() => { void loadResumePositions().then(setPositions).catch((cause) => notify(cause.message || "岗位没读出来，可稍后刷新。", "warning")); }, []);
   useEffect(() => {
-    try { setTagOrder(tagPreferenceKey ? parseResumeTagOrder(localStorage.getItem(tagPreferenceKey)) : []); }
-    catch { setTagOrder([]); }
-    setTags([]); void reloadTags();
-    return () => { tagGeneration.current += 1; };
-  }, [tagPreferenceKey]);
+    try { setFolderOrder(folderPreferenceKey ? parseResumeFolderOrder(localStorage.getItem(folderPreferenceKey)) : []); }
+    catch { setFolderOrder([]); }
+    setFolders([]); void reloadFolders();
+    return () => { folderGeneration.current += 1; };
+  }, [folderPreferenceKey]);
   useEffect(() => { setFilters(readFilters(new URLSearchParams(queryText))); void load(queryText); }, [queryText]);
   useEffect(() => { if (params.get("resume_import_id")) setChooserOpen(true); }, [queryText]);
   /** updateFilter 只修改输入草稿，点击查询或回车才请求搜索。 */
@@ -101,13 +101,13 @@ export default function ResumesPage() {
   function resetFilters() { const empty = readFilters(new URLSearchParams()); setFilters(empty); navigateQuery(empty); }
   /** openDetails 在抽屉中阅读，保留当前查询和分页。 */
   function openDetails(item: Resume, tab = "notes") { setDetail({ id: item.id, name: item.candidate_name, engagementID: item.engagement_id, tab }); }
-  /** selectTag 立即筛选并按账号记录最近点击顺序，关闭缓存时仍可正常筛选。 */
-  function selectTag(id: string) {
+  /** selectFolder 立即筛选并按账号记录最近点击顺序，关闭缓存时仍可正常筛选。 */
+  function selectFolder(id: string) {
     if (id) {
-      const nextOrder = rememberResumeTag(id, tagOrder, tags); setTagOrder(nextOrder);
-      try { if (tagPreferenceKey) localStorage.setItem(tagPreferenceKey, JSON.stringify(nextOrder)); } catch { /* 隐私模式禁用缓存时保留本次页面顺序。 */ }
+      const nextOrder = rememberResumeFolder(id, folderOrder, folders); setFolderOrder(nextOrder);
+      try { if (folderPreferenceKey) localStorage.setItem(folderPreferenceKey, JSON.stringify(nextOrder)); } catch { /* 隐私模式禁用缓存时保留本次页面顺序。 */ }
     }
-    const next = { ...appliedFilters, tag_id: id, tag: "" }; setFilters(next); navigateQuery(next);
+    const next = { ...appliedFilters, folder_id: id }; setFilters(next); navigateQuery(next);
   }
   /** closeAdd 清除消息携带的草稿入口，避免之后切换筛选时重复打开添加弹框。 */
   function closeAdd() {
@@ -148,17 +148,17 @@ export default function ResumesPage() {
       <label className={styles.dateField}>入库截止<Input aria-label="入库截止日期" type="date" value={filters.created_to} onChange={(event) => updateFilter("created_to", event.target.value)} /></label>
     </div> : null}
     {loadError ? <Flex gap={8} style={{ marginBottom: 10 }}><Typography.Text type="danger">{loadError}</Typography.Text><Button size="small" onClick={() => void load()}>重试</Button></Flex> : null}
-    <div className={styles.tagBar} data-testid="resume-tag-bar">
-      <div className={styles.tagScroller} aria-label="简历标签筛选">
-        <Button size="small" className={styles.tagFilter} type={!appliedFilters.tag_id && !appliedFilters.tag ? "primary" : "default"} aria-pressed={!appliedFilters.tag_id && !appliedFilters.tag} onClick={() => selectTag("")}>全部</Button>
-        {orderResumeTags(tags, tagOrder).map((tag) => <Button key={tag.id} size="small" className={styles.tagFilter} type={appliedFilters.tag_id === tag.id ? "primary" : "default"} aria-pressed={appliedFilters.tag_id === tag.id} title={`${tag.name} · ${tag.scope === "team" ? "团队可见" : "仅自己可见"}`} onClick={() => selectTag(tag.id)}>{tag.name}<span className={styles.tagCount}>{Number(tag.candidate_count) || 0}</span></Button>)}
-        {tagsLoading ? <Typography.Text type="secondary" className={styles.tagStatus}>标签读取中</Typography.Text> : !tags.length && !tagsError ? <Typography.Text type="secondary" className={styles.tagStatus}>还没标签，右边可以加</Typography.Text> : null}
-        {tagsError ? <Button size="small" type="text" onClick={() => void reloadTags()} title={tagsError}>标签重试</Button> : null}
+    <div className={styles.folderBar} data-testid="resume-folder-bar">
+      <div className={styles.folderScroller} aria-label="简历收藏夹筛选">
+        <Button size="small" className={styles.folderFilter} type={!appliedFilters.folder_id ? "primary" : "default"} aria-pressed={!appliedFilters.folder_id} onClick={() => selectFolder("")}>全部</Button>
+        {orderResumeFolders(folders, folderOrder).map((folder) => <Button key={folder.id} size="small" className={styles.folderFilter} type={appliedFilters.folder_id === folder.id ? "primary" : "default"} aria-pressed={appliedFilters.folder_id === folder.id} title={`${folder.name} · ${folder.scope === "team" ? "团队可见" : "仅自己可见"}`} onClick={() => selectFolder(folder.id)}>{folder.name}<span className={styles.folderCount}>{Number(folder.candidate_count) || 0}</span></Button>)}
+        {foldersLoading ? <Typography.Text type="secondary" className={styles.folderStatus}>收藏夹读取中</Typography.Text> : !folders.length && !foldersError ? <Typography.Text type="secondary" className={styles.folderStatus}>还没收藏夹，右边可以加</Typography.Text> : null}
+        {foldersError ? <Button size="small" type="text" onClick={() => void reloadFolders()} title={foldersError}>收藏夹重试</Button> : null}
       </div>
-      <Button size="small" type="text" className={styles.manageTags} onClick={() => setTagManagerOpen(true)}>管理标签</Button>
+      <Button size="small" type="text" className={styles.manageFolders} onClick={() => setFolderManagerOpen(true)}>管理收藏夹</Button>
     </div>
     <SectionPanel style={{ padding: 0, overflow: "hidden" }}>
-      <Table<Resume> size="small" rowKey={(item) => item.id + (item.engagement_id || "")} dataSource={items} loading={loading} pagination={false} tableLayout="fixed" className={styles.resumeTable} scroll={{ x: 1290 }} onRow={(item) => ({ title: "双击打开简历", onDoubleClick: (event) => { if (event.target instanceof Element && event.target.closest("button,a,input,textarea,select,[role='button'],[role='checkbox'],[role='combobox'],.ant-select")) return; openDetails(item); } })} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里暂时空空的，先加一份简历，我来认真记账。"><Button type="primary" onClick={() => setChooserOpen(true)}>添加简历</Button></Empty> }} columns={[
+      <Table<Resume> size="small" rowKey={(item) => item.id + (item.engagement_id || "")} dataSource={items} loading={loading} pagination={false} tableLayout="fixed" className={styles.resumeTable} scroll={{ x: 1450 }} onRow={(item) => ({ title: "双击打开简历", onDoubleClick: (event) => { if (event.target instanceof Element && event.target.closest("button,a,input,textarea,select,[role='button'],[role='checkbox'],[role='combobox'],.ant-select")) return; openDetails(item); } })} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里暂时空空的，先加一份简历，我来认真记账。"><Button type="primary" onClick={() => setChooserOpen(true)}>添加简历</Button></Empty> }} columns={[
         { title: "候选人", key: "candidate", width: 300, render: (_, item) => {
           const attributes = [resumeAge(item), genderLabel(item.gender), item.education_level, workYearsLabel(item), item.expected_position || "期望职位待补充", item.expected_region || item.work_region || "地区待补充", salaryLabel(item), item.work_status || "求职状态待补充", ...(item.tags || []).slice(0, 3)].filter(Boolean);
           return <Flex gap={8} align="center"><Avatar size={32} src={resumeAvatarSource(item)} alt={`${item.candidate_name || "候选人"}头像`} style={{ flexShrink: 0 }}>{item.candidate_name?.slice(0, 1) || "人"}</Avatar><Flex vertical gap={2} className={styles.candidateSummary}>
@@ -166,6 +166,7 @@ export default function ResumesPage() {
             <div className={styles.candidateAttributes}>{attributes.map((attribute, index) => <Typography.Text key={index} className={styles.candidateAttribute}>{attribute}</Typography.Text>)}</div>
           </Flex></Flex>;
         } },
+        { title: "收藏夹", key: "folders", width: 160, render: (_, item) => <Space wrap size={[3, 3]}>{item.folder_details?.length ? item.folder_details.map((folder) => <Tag key={folder.id} title={folder.scope === "team" ? "团队可见" : "仅自己可见"}>{folder.name}</Tag>) : <Typography.Text type="secondary" className={styles.meta}>未加入收藏夹</Typography.Text>}</Space> },
         { title: "最近经历", key: "experience", width: 300, render: (_, item) => <Flex vertical gap={4}>{[...(item.work_experiences || []), ...(item.educations || [])].slice(0, 2).map((experience, index) => <Typography.Paragraph key={index} ellipsis={{ rows: 2, tooltip: experienceLabel(experience) }} className={styles.cellText}>{experience.company_name ? <strong className={styles.experienceCompany}>{experience.company_name}</strong> : null}{experience.company_name ? experienceLabel(experience).slice(experience.company_name.length) : experienceLabel(experience)}</Typography.Paragraph>)}{!item.work_experiences?.length && !item.educations?.length ? <Typography.Text type="secondary">经历待补充</Typography.Text> : null}</Flex> },
         { title: "岗位 / 推荐", key: "recommendation", width: 160, render: (_, item) => <Flex vertical gap={3}>{item.recommendations?.[0] ? <><Button type="link" className={styles.inlineButton} onClick={() => openDetails(item, "recommendations")}>{item.recommendations[0].position_name || "历史岗位"}</Button><Typography.Text type="secondary" className={styles.meta}>{stageLabel(item.recommendations[0].stage)}</Typography.Text></> : item.position_name ? <Typography.Text type="secondary" className={styles.meta}>自动任务 · {item.position_name}</Typography.Text> : <Typography.Text type="secondary" className={styles.meta}>还未推荐</Typography.Text>}</Flex> },
         { title: "最新备注", key: "note", width: 240, render: (_, item) => { const note = item.latest_note || item.notes?.[0]; return <Button type="text" className={styles.noteButton} onClick={() => openDetails(item, "notes")}><Flex vertical gap={3}><Typography.Paragraph ellipsis={{ rows: 2, tooltip: note?.content }} className={styles.cellText}>{note?.content || "还没备注，点这里记一条"}</Typography.Paragraph>{note ? <Typography.Text type="secondary" className={styles.meta} title={note.created_at ? `保存于 ${recordTime(note.created_at)}` : undefined}>{note.author_name || note.author_email || "未记录操作人"} · {(note.occurred_at || note.created_at) ? recordTime(note.occurred_at || note.created_at) : ""}</Typography.Text> : null}</Flex></Button>; } },
@@ -175,7 +176,7 @@ export default function ResumesPage() {
       <Flex wrap gap={12} justify="space-between" align="center" className={styles.pagination}><Typography.Text type="secondary">共 {realTotal} 份简历{builtinTotal ? ` · 另有 ${builtinTotal} 份内置示例` : ""}</Typography.Text><Pagination current={page} total={total} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateQuery(appliedFilters, size !== pageSize ? 1 : next, size)} /></Flex>
     </SectionPanel>
     <ResumeAddDialog open={chooserOpen} initialTaskID={params.get("resume_import_id") || ""} positions={positions} onClose={closeAdd} onChanged={refreshLibrary} onSaved={(item) => { closeAdd(); refreshLibrary(); openDetails(item); }} />
-    <ResumeTagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} onChanged={refreshLibrary} />
+    <ResumeFolderManager open={folderManagerOpen} onClose={() => setFolderManagerOpen(false)} onChanged={refreshLibrary} />
     <ResumeLibrarySettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     <Drawer open={Boolean(detail)} onClose={() => setDetail(null)} size="large" title={detail?.name || "简历详情"} destroyOnHidden extra={detail ? <Link href={`/admin/resumes/detail?candidate_id=${encodeURIComponent(detail.id)}${detail.engagementID ? `&engagement_id=${encodeURIComponent(detail.engagementID)}` : ""}&return_to=${encodeURIComponent(`/admin/resumes?${queryText}`)}`}>单独打开</Link> : null} styles={{ wrapper: { width: "min(1280px, 96vw)" } }}>
       {detail ? <ResumeWorkspace candidateID={detail.id} engagementID={detail.engagementID} initialTab={detail.tab} positions={positions} onChanged={refreshLibrary} /> : null}

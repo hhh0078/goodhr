@@ -338,7 +338,7 @@ test("小补丁忽略后刷新记忆，新补丁重新提醒", async ({ page }) 
   await expect(dialog).toBeHidden();
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "岗位管理", exact: true }),
+    page.getByTestId("positions-toolbar"),
   ).toBeVisible();
   await expect(dialog).toBeHidden();
   state.target = "6.2.10.3";
@@ -602,7 +602,7 @@ test("状态响应未完成时 SPA 退出后台，不恢复旧弹框或继续轮
   const state = await mockUpdate(page, { statusGate: gate });
   await page.goto("/admin/positions");
   await expect(
-    page.getByRole("heading", { name: "岗位管理", exact: true }),
+    page.getByTestId("positions-toolbar"),
   ).toBeVisible();
   await expect.poll(() => state.pendingStatus).toBe(1);
   await page

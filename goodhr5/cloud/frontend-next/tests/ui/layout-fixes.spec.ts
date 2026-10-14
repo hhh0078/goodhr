@@ -1079,17 +1079,14 @@ for (const entry of [
         .getByRole("menuitem", { name: "岗位管理", exact: true })
         .click();
       await expect(
-        page.getByRole("heading", { name: "岗位管理", exact: true }),
+        page.getByTestId("positions-toolbar"),
       ).toBeVisible();
       for (const path of ["/admin/users", "/admin/positions"]) {
         mocks.get(page)!.phase = `邮件编辑后访问${path}`;
         const response = await page.goto(path);
         expect(response?.status()).toBe(200);
         await expect(
-          page.getByRole("heading", {
-            name: path.endsWith("users") ? "用户管理" : "岗位管理",
-            exact: true,
-          }),
+          path.endsWith("users") ? page.getByRole("heading", { name: "用户管理", exact: true }) : page.getByTestId("positions-toolbar"),
         ).toBeVisible();
       }
       expect(businessMutations(page)).toHaveLength(mutationsBefore);

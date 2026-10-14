@@ -19,8 +19,8 @@ type PositionCandidate struct {
 	RowVersion          int64
 	Sources             []CandidateSource
 	Recommendations     []CandidateRecommendation
-	TagIDs              []string
-	TagDetails          []CandidateTag
+	FolderIDs           []string
+	FolderDetails       []CandidateFolder
 	ID                  string
 	EngagementID        string
 	EngagementStatus    string
@@ -72,6 +72,8 @@ type PositionCandidate struct {
 
 // CandidateProfileInput 表示候选人主体保存参数。
 type CandidateProfileInput struct {
+	// Tags 仅保存平台或AI提供的原始简历技能标签，不参与收藏夹创建和关联。
+	Tags                []string
 	TenantID            string
 	UserEmail           string
 	PlatformID          string
@@ -173,7 +175,7 @@ type CandidateStore interface {
 
 // PositionCandidateQuery 表示候选人列表查询条件。
 type PositionCandidateQuery struct {
-	TagID, ActorEmail                                                                                 string
+	FolderID, ActorEmail                                                                              string
 	Phone, SourceType, Region, Education, WorkYears, WorkStatus, Tag, Creator, CreatedFrom, CreatedTo string
 	PositionID                                                                                        string
 	Keyword                                                                                           string
@@ -201,8 +203,8 @@ type MemoryCandidateStore struct {
 	notes           map[string][]CandidateNote
 	requests        map[string]candidateRequestReceipt
 	recommendations map[string]CandidateRecommendation
-	tags            map[string]CandidateTag
-	tagLinks        map[string]map[string]bool
+	folders         map[string]CandidateFolder
+	folderLinks     map[string]map[string]bool
 	now             func() time.Time
 	nextID          func(prefix string) string
 }
@@ -212,8 +214,8 @@ func NewMemoryCandidateStore() *MemoryCandidateStore {
 	seq := 0
 	return &MemoryCandidateStore{
 		profiles:        map[string]PositionCandidate{},
-		tags:            map[string]CandidateTag{},
-		tagLinks:        map[string]map[string]bool{},
+		folders:         map[string]CandidateFolder{},
+		folderLinks:     map[string]map[string]bool{},
 		engagements:     map[string]CandidateEngagement{},
 		events:          map[string][]CandidateEvent{},
 		notes:           map[string][]CandidateNote{},
@@ -277,7 +279,10 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
-	return s.decorateCandidateTagsLocked(CandidateLibraryScope{TenantID: item.TenantID, UserEmail: item.UserEmail, IsAdmin: true}, s.saveAutomaticProfileLocked(profile)), nil
+	if item.Tags != nil {
+		profile.LibraryFields["tags"] = append([]string{}, item.Tags...)
+	}
+	return s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: item.TenantID, UserEmail: item.UserEmail, IsAdmin: true}, s.saveAutomaticProfileLocked(profile)), nil
 }
 
 // UpsertCandidateEngagement 新增或更新触达上下文。
@@ -381,7 +386,7 @@ func (s *MemoryCandidateStore) ListPositionCandidates(tenantID string, query Pos
 		if query.UserEmail != "" && item.UserEmail != query.UserEmail {
 			continue
 		}
-		item = s.decorateCandidateTagsLocked(CandidateLibraryScope{TenantID: tenantID, UserEmail: firstNonEmpty(query.ActorEmail, query.UserEmail), IsAdmin: query.UserEmail == ""}, s.decorateLibraryCandidateLocked(item))
+		item = s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: tenantID, UserEmail: firstNonEmpty(query.ActorEmail, query.UserEmail), IsAdmin: query.UserEmail == ""}, s.decorateLibraryCandidateLocked(item))
 		if !candidateMatchesFilters(item, query) {
 			continue
 		}
@@ -438,7 +443,7 @@ func (s *MemoryCandidateStore) GetPositionCandidate(tenantID string, candidateID
 		}
 	}
 	item.Events = append([]CandidateEvent{}, events...)
-	return s.decorateCandidateTagsLocked(CandidateLibraryScope{TenantID: tenantID, UserEmail: userEmail, IsAdmin: isAdmin}, s.decorateLibraryCandidateLocked(item)), nil
+	return s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: tenantID, UserEmail: userEmail, IsAdmin: isAdmin}, s.decorateLibraryCandidateLocked(item)), nil
 }
 
 // DeleteTeamCandidates 清空团队候选人数据。
@@ -453,7 +458,7 @@ func (s *MemoryCandidateStore) DeleteTeamCandidates(tenantID string) (int, error
 			delete(s.profiles, id)
 			delete(s.events, id)
 			delete(s.notes, id)
-			delete(s.tagLinks, id)
+			delete(s.folderLinks, id)
 			deleted++
 			for key, rec := range s.recommendations {
 				if rec.CandidateID == id {

@@ -1,12 +1,12 @@
 /** 文件作用说明：提供岗位招聘进度、个人待办与抄送入口，支持从真实候选人开启企业招聘。 */
 "use client";
 import { Alert, Button, Flex, Input, Select, Space, Table, Tabs, Tag, Typography } from "antd";
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
+import { RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
 import ApplicationDialog from "@/components/admin/recruitment/ApplicationDialog";
 import StartRecruitmentDialog from "@/components/admin/recruitment/StartRecruitmentDialog";
+import RecruitmentSettingsDialog from "@/components/admin/recruitment/RecruitmentSettingsDialog";
 import { loadResumePositions } from "@/lib/resume-api";
 import { type PositionOption } from "@/lib/resume-types";
 import { loadRecruitmentApplications, recruitmentStatusLabel, type RecruitmentApplication } from "@/lib/recruitment-api";
@@ -24,6 +24,7 @@ export default function RecruitmentPage() {
   const [error, setError] = useState("");
   const [detailID, setDetailID] = useState(params.get("application_id") || "");
   const [startOpen, setStartOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const generation = useRef(0);
   /** load 查询当前岗位和待办，旧筛选回包不能替换新的查询。 */
 
@@ -61,21 +62,11 @@ export default function RecruitmentPage() {
 
   const visible = items.filter((item) => `${item.candidate_name} ${item.position_name} ${item.owner_email}`.toLowerCase().includes(query.trim().toLowerCase()));
 
-  return <><PageHeader
-    title="企业招聘"
-    description="从岗位看进度，从待办找自己；面试、审核和邮件都在这里。"
-    actions={<><Link href="/admin/recruitment/settings">
-      <Button>招聘设置</Button>
-    </Link><Button type="primary" onClick={() => setStartOpen(true)}>开启招聘</Button><RefreshButton loading={loading} onClick={() => void load()} /></>} />{error ? <Alert
-      type="warning"
-      title={error}
-      action={<Button onClick={() => void load()}>重试</Button>}
-      style={{ marginBottom: 12 }} /> : null}<SectionPanel>
+  return <><Flex gap={8} className="goodhr-compact-toolbar" data-testid="recruitment-toolbar">
       <Tabs
         activeKey={tab}
         onChange={setTab}
         items={[{ key: "all", label: "岗位招聘进度" }, { key: "mine", label: "我的待办与抄送" }]} />
-      <Flex wrap gap={8} style={{ marginBottom: 16 }}>
         <Select
           aria-label="筛选招聘岗位"
           showSearch
@@ -85,15 +76,16 @@ export default function RecruitmentPage() {
           value={positionID || undefined}
           onChange={(value) => setPositionID(value || "")}
           options={positions.map((item) => ({ value: item.id, label: item.name }))}
-          style={{ width: 240, maxWidth: "100%" }} />
+          style={{ width: 180 }} />
         <Input
           aria-label="搜索招聘进度"
           allowClear
           placeholder="姓名、岗位或负责人"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          style={{ width: 260, maxWidth: "100%" }} />
-      </Flex>
+          style={{ width: 220 }} />
+      <Button onClick={() => setSettingsOpen(true)}>招聘设置</Button><Button type="primary" onClick={() => setStartOpen(true)}>开启招聘</Button><RefreshButton loading={loading} onClick={() => void load()} />
+    </Flex>{error ? <Alert type="warning" title={error} action={<Button onClick={() => void load()}>重试</Button>} style={{ marginBottom: 12 }} /> : null}<SectionPanel>
       {tab === "mine" ? <Typography.Paragraph type="secondary">面试、审核和负责人待办，以及抄送给你的进度记录。抄送只供查看。</Typography.Paragraph> : null}
       <Table
         size="small"
@@ -147,7 +139,7 @@ export default function RecruitmentPage() {
             render: (_, row) => <Button size="small" onClick={() => setDetailID(row.id)}>查看进度</Button>
           }
         ]} />
-    </SectionPanel><StartRecruitmentDialog
+    </SectionPanel><RecruitmentSettingsDialog open={settingsOpen} onClose={() => { setSettingsOpen(false); void load(); }} onChanged={() => void load()} /><StartRecruitmentDialog
       open={startOpen}
       positions={positions}
       initialPositionID={positionID}

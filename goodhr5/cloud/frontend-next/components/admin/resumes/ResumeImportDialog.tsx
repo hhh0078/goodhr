@@ -195,7 +195,7 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
   }
   /** newBatch 清除任务界面指针，已完成的本地任务记录仍保留。 */
   function newBatch() { generation.current += 1; if (timer.current) clearTimeout(timer.current); setTask(null); setFiles([]); setText(""); setDuplicateHints({}); localStorage.removeItem(taskCache); setError(""); }
-  const itemEditor = <ResumeEditor open={open && Boolean(editingItem)} embedded={embedded} active={active} draft={editingItem?.candidate} persistedID={task?.items.find((item) => item.id === editingItem?.id)?.candidate_id} positions={positions} onBusyChange={setEditorBusy} onClose={() => setEditingItem(null)} onConfirmDraft={confirmOne} onSaved={() => { setEditingItem(null); onChanged(); }} />;
+  const itemEditor = <ResumeEditor open={open && Boolean(editingItem)} embedded={embedded} active={active} draft={editingItem?.candidate} persistedID={task?.items.find((item) => item.id === editingItem?.id)?.candidate_id} positions={positions} onBusyChange={setEditorBusy} onFoldersChanged={onChanged} onClose={() => setEditingItem(null)} onConfirmDraft={confirmOne} onSaved={() => { setEditingItem(null); onChanged(); }} />;
   return <>
     <ResumeImportFrame embedded={embedded} open={open} busy={busy || editorBusy} onClose={onClose}>
       {embedded && editingItem ? <>

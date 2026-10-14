@@ -22,37 +22,47 @@ function response(body = { ok: true }, status = 200) { return { ok: status >= 20
 const uiSender = { id: "test-extension", url: "chrome-extension://test-extension/src/ui.html" };
 const floatingSender = { id: "test-extension", url: "chrome-extension://test-extension/src/floating.html" };
 
-test("标签只由授权插件界面读取已有列表，招聘网页与旧账号不能请求标签管理", async () => {
+test("收藏夹只由授权插件界面读取已有列表，招聘网页与旧账号不能请求分类管理", async () => {
   const value = backgroundFixture(); value.values.data_use_accepted = true;
-  const result = await value.message({ type: "TAGS" }, floatingSender);
+  const result = await value.message({ type: "FOLDERS" }, floatingSender);
   assert.equal(result.ok, true); assert.equal(value.requests.length, 1);
-  assert.equal(value.requests[0].url, "https://goodhr.58it.cn/api/candidates/tags"); assert.equal(value.requests[0].options.method, "GET");
+  assert.equal(value.requests[0].url, "https://goodhr.58it.cn/api/candidates/folders"); assert.equal(value.requests[0].options.method, "GET");
   const webSender = { id: "test-extension", frameId: 0, tab: { id: 11, url: "https://h.liepin.com/resume/show" }, url: "https://h.liepin.com/resume/show" };
-  assert.equal(await value.message({ type: "TAGS" }, webSender), undefined);
-  const stale = await value.message({ type: "TAGS", payload: { account_key: "old-account" } }, floatingSender);
+  assert.equal(await value.message({ type: "FOLDERS" }, webSender), undefined);
+  const stale = await value.message({ type: "FOLDERS", payload: { account_key: "old-account" } }, floatingSender);
   assert.equal(stale.ok, false); assert.match(stale.message, /账号已经变化/);
-  assert.equal((await value.message({ type: "TAG_CREATE", payload: { name: "任意新增" } }, floatingSender)).ok, false);
+  assert.equal((await value.message({ type: "FOLDER_CREATE", payload: { name: "任意新增" } }, floatingSender)).ok, false);
   assert.equal(value.requests.length, 1);
   value.values.data_use_accepted = false;
-  assert.equal((await value.message({ type: "TAGS" }, floatingSender)).ok, false); assert.equal(value.requests.length, 1);
+  assert.equal((await value.message({ type: "FOLDERS" }, floatingSender)).ok, false); assert.equal(value.requests.length, 1);
 });
 
-test("插件保存仅提交已选标签编号，不再把采集技能建成标签，更新可显式移除标签", async () => {
+test("原技能标签正常保存，收藏夹仅提交手动编号，清空分类不会清空原技能", async () => {
   const tagID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", value = backgroundFixture(); value.values.data_use_accepted = true;
-  const resume = { candidate_name: "合成标签候选人", phone: "13800000001", tags: ["招聘页面技能", "不能自由新建"], tag_ids: [tagID, tagID, "任意输入"] };
+  const resume = { candidate_name: "合成标签候选人", phone: "13800000001", tags: ["招聘页面技能", "不能自由新建"], folder_ids: [tagID, tagID, "任意输入"] };
   assert.equal((await value.message({ type: "CREATE", payload: { resume, idempotency_key: "create-tags" } }, uiSender)).ok, true);
-  const create = JSON.parse(value.requests[0].options.body); assert.deepEqual(create.tag_ids, [tagID]); assert.equal(Object.hasOwn(create, "tags"), false);
-  assert.equal((await value.message({ type: "UPDATE", payload: { resume: { ...resume, tag_ids: [] }, candidate_id: "existing", row_version: 1, idempotency_key: "clear-tags" } }, uiSender)).ok, true);
-  const update = JSON.parse(value.requests[1].options.body); assert.deepEqual(update.tag_ids, []); assert.equal(Object.hasOwn(update, "tags"), false);
+  const create = JSON.parse(value.requests[0].options.body); assert.deepEqual(create.folder_ids, [tagID]); assert.deepEqual(create.tags, resume.tags);
+  assert.equal((await value.message({ type: "UPDATE", payload: { resume: { ...resume, folder_ids: [] }, candidate_id: "existing", row_version: 1, idempotency_key: "clear-tags" } }, uiSender)).ok, true);
+  const update = JSON.parse(value.requests[1].options.body); assert.deepEqual(update.folder_ids, []); assert.deepEqual(update.tags, resume.tags);
   assert.equal((await value.message({ type: "POSITIONS" }, floatingSender)).ok, true); assert.equal(value.requests[2].url, "https://goodhr.58it.cn/api/positions?purpose=recommendation");
 });
 
-test("标签草稿只保存有限编号和人工选择标记，切账号不能恢复他人的标签", async () => {
+test("未选择收藏夹的采集技能不会形成分类，空采集标签更新保留原库技能", async () => {
+  const value = backgroundFixture(); value.values.data_use_accepted = true;
+  const resume = { candidate_name: "合成技能候选人", phone: "13800000001", tags: ["Java", "招聘流程"] };
+  assert.equal((await value.message({ type: "CREATE", payload: { resume, idempotency_key: "skills-only" } }, uiSender)).ok, true);
+  const create = JSON.parse(value.requests[0].options.body); assert.deepEqual(create.tags, resume.tags); assert.deepEqual(create.folder_ids, []);
+  assert.equal((await value.message({ type: "UPDATE", payload: { resume: { ...resume, tags: [], folder_ids: [] }, candidate_id: "existing", row_version: 1, idempotency_key: "folders-clear-only" } }, uiSender)).ok, true);
+  const update = JSON.parse(value.requests[1].options.body); assert.deepEqual(update.folder_ids, []); assert.equal(Object.hasOwn(update, "tags"), false);
+  assert.equal(value.requests.some((item) => item.url.includes("/folders")), false, "保存技能不能调用收藏夹管理接口");
+});
+
+test("收藏夹草稿只保存有限编号和人工选择标记，切账号不能恢复他人的分类", async () => {
   const value = backgroundFixture(), account = JSON.stringify(["fixture", "fixture@example.test"]), tagID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-  const draft = { fields: { "tag-filter": "合成标签" }, tag_ids: [tagID, "搜索词"], tags_edited: true };
+  const draft = { fields: { "folder-filter": "合成标签" }, folder_ids: [tagID, "搜索词"], folders_edited: true };
   assert.equal((await value.message({ type: "DRAFT_SAVE", payload: { identity: "synthetic", account_key: account, draft } }, floatingSender)).ok, true);
   const loaded = await value.message({ type: "DRAFT_GET", payload: { identity: "synthetic", account_key: account } }, floatingSender);
-  assert.deepEqual(Array.from(loaded.data.draft.tag_ids), [tagID]); assert.equal(loaded.data.draft.tags_edited, true); assert.equal(loaded.data.draft.fields["tag-filter"], "合成标签");
+  assert.deepEqual(Array.from(loaded.data.draft.folder_ids), [tagID]); assert.equal(loaded.data.draft.folders_edited, true); assert.equal(loaded.data.draft.fields["folder-filter"], "合成标签");
   assert.equal((await value.message({ type: "DRAFT_GET", payload: { identity: "synthetic", account_key: "other" } }, floatingSender)).ok, false);
 });
 
@@ -198,11 +208,12 @@ test("冻结摘要单份不超过1MiB，总草稿UTF8不超过3MiB且优先保�
 
 test("本地AI仅配对授权且去联系方式，任务不执行云AI；摘要单独带版本PATCH", async () => {
   const value = backgroundFixture((url) => response(url.includes("resume-summary") ? { ok: true, data: { task: { id: "synthetic-task", status: "completed", ai_summary: "合成总结" } } } : { ok: true, candidate: { id: "synthetic" } })); value.values.data_use_accepted = true;
-  const payload = { resume: { candidate_name: "合成姓名", phone: "13800000001", email: "fake@example.test", work_experiences: [{ company_name: "合成履历公司" }] }, request_key: "same-ai" };
+  const payload = { resume: { candidate_name: "合成姓名", phone: "13800000001", email: "fake@example.test", tags: ["原始技能"], folder_ids: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"], work_experiences: [{ company_name: "合成履历公司" }] }, request_key: "same-ai" };
   const unavailable = await value.message({ type: "SUMMARY_START", payload }, uiSender); assert.equal(unavailable.ok, false); assert.match(unavailable.message, /配对/); assert.equal(value.requests.length, 0);
   value.values.installation_id = "fixture-installation"; value.values.pairing_token = "private-grant"; value.values.pairing_account_key = JSON.stringify(["fixture", "fixture@example.test"]);
   const result = await value.message({ type: "SUMMARY_START", payload }, uiSender); assert.equal(result.data.task.ai_summary, "合成总结"); assert.equal(value.requests[0].url, "http://127.0.0.1:43129/api/v1/extensions/resume-summary");
   const body = JSON.parse(value.requests[0].options.body); assert.equal(body.pairing_token, "private-grant"); assert.equal(body.candidate.phone, undefined); assert.equal(body.candidate.candidate_name, undefined); assert.equal(body.candidate.work_experiences[0].company_name, "合成履历公司");
+  assert.deepEqual(body.candidate.tags, ["原始技能"]); assert.equal(Object.hasOwn(body.candidate, "folder_ids"), false, "人工收藏分类不进入AI职业资料");
   await value.message({ type: "SUMMARY_SAVE", payload: { candidate_id: "synthetic", row_version: 8, ai_summary: "合成总结", idempotency_key: "summary-save" } }, uiSender);
   assert.equal(value.requests[1].options.method, "PATCH"); assert.deepEqual(JSON.parse(value.requests[1].options.body), { ai_summary: "合成总结", row_version: 8, idempotency_key: "summary-save" });
   value.values.session.user = { id: "new-account", email: "other@example.test" }; const stalePair = await value.message({ type: "SUMMARY_START", payload }, uiSender); assert.equal(stalePair.ok, false); assert.match(stalePair.message, /同账号/); assert.equal(value.requests.length, 2);

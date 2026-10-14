@@ -64,19 +64,19 @@ func TestPostgresTenantInvitationMigrationFlow(t *testing.T) {
 	// 加入团队时同名团队标签合并，个人标签随原作者保留，关联不能被删除旧简历时级联丢失。
 	sourceScope := CandidateLibraryScope{TenantID: sourceTenant.ID, UserEmail: memberEmail, IsAdmin: true}
 	targetScope := CandidateLibraryScope{TenantID: targetTenant.ID, UserEmail: ownerEmail, IsAdmin: true}
-	sourcePersonal, err := candidateStore.SaveCandidateTag(sourceScope, "", "个人迁移标签", "personal")
+	sourcePersonal, err := candidateStore.SaveCandidateFolder(sourceScope, "", "个人迁移标签", "personal")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sourceTeamTag, err := candidateStore.SaveCandidateTag(sourceScope, "", "同名迁移团队标签", "team")
+	sourceTeamTag, err := candidateStore.SaveCandidateFolder(sourceScope, "", "同名迁移团队标签", "team")
 	if err != nil {
 		t.Fatal(err)
 	}
-	targetTeamTag, err := candidateStore.SaveCandidateTag(targetScope, "", "同名迁移团队标签", "team")
+	targetTeamTag, err := candidateStore.SaveCandidateFolder(targetScope, "", "同名迁移团队标签", "team")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = candidateStore.SaveLibraryCandidate(sourceScope, sourceCandidate.ID, map[string]any{"tag_ids": []string{sourcePersonal.ID, sourceTeamTag.ID}}, sourceCandidate.RowVersion, ""); err != nil {
+	if _, err = candidateStore.SaveLibraryCandidate(sourceScope, sourceCandidate.ID, map[string]any{"folder_ids": []string{sourcePersonal.ID, sourceTeamTag.ID}}, sourceCandidate.RowVersion, ""); err != nil {
 		t.Fatal(err)
 	}
 	engagement, err := candidateStore.UpsertCandidateEngagement(CandidateEngagement{CandidateID: sourceCandidate.ID, UserEmail: memberEmail, PositionID: memberPosition.ID, PlatformID: "boss", Status: "greeted"})
@@ -127,11 +127,11 @@ func TestPostgresTenantInvitationMigrationFlow(t *testing.T) {
 	if err = db.QueryRow(`SELECT count(*) FROM candidate_tag_links WHERE tenant_id=$1 AND candidate_id=$2 AND tag_id IN ($3,$4)`, targetTenant.ID, targetCandidate.ID, sourcePersonal.ID, targetTeamTag.ID).Scan(&migratedLinks); err != nil || migratedLinks != 2 {
 		t.Fatalf("tag merge links=%d err=%v", migratedLinks, err)
 	}
-	memberTags, err := candidateStore.ListCandidateTags(CandidateLibraryScope{TenantID: targetTenant.ID, UserEmail: memberEmail})
+	memberTags, err := candidateStore.ListCandidateFolders(CandidateLibraryScope{TenantID: targetTenant.ID, UserEmail: memberEmail})
 	if err != nil || len(memberTags) != 2 {
 		t.Fatalf("joined member tags=%v err=%v", memberTags, err)
 	}
-	ownerTags, err := candidateStore.ListCandidateTags(targetScope)
+	ownerTags, err := candidateStore.ListCandidateFolders(targetScope)
 	if err != nil || len(ownerTags) != 1 || ownerTags[0].ID != targetTeamTag.ID {
 		t.Fatal("join exposed private tag", ownerTags, err)
 	}

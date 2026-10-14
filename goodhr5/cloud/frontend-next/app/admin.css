@@ -235,3 +235,10 @@ a.goodhr-admin-banner-text:hover {
     max-height: calc(100dvh - 160px) !important;
   }
 }
+/* 三个招聘业务页面共用单行小工具栏，窄屏横向滚动仍可访问末尾操作。 */
+.goodhr-compact-toolbar { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; min-width: 0; max-width: 100%; margin-bottom: 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; padding-block: 2px; }
+.goodhr-compact-toolbar > * { flex: 0 0 auto; }
+.goodhr-compact-toolbar .ant-btn { white-space: nowrap; }
+.goodhr-compact-toolbar .ant-tabs-nav { margin: 0; }
+.goodhr-compact-toolbar .ant-tabs-tab { padding-block: 6px; }
+.goodhr-compact-toolbar .ant-tabs-content-holder { display: none; }

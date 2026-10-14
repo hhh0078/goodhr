@@ -6,9 +6,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import AdminDialog from "../AdminDialog";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, checkResumeDuplicates, loadResume, saveResume } from "@/lib/resume-api";
-import { avatarSource, isReadOnlyResume, nonEmptyChanges, normalizePhone, validPhone, type DuplicateResult, type PositionOption, type Resume, type ResumeDraft, type ResumeTag } from "@/lib/resume-types";
+import { avatarSource, isReadOnlyResume, nonEmptyChanges, normalizePhone, validPhone, type DuplicateResult, type PositionOption, type Resume, type ResumeDraft, type ResumeFolder } from "@/lib/resume-types";
 import styles from "./resumes.module.css";
-import ResumeTagSelect from "./ResumeTagSelect";
+import ResumeFolderSelect from "./ResumeFolderSelect";
 
 export type ResumeDraftSubmission = { candidate: ResumeDraft; candidate_id?: string; note: string; position_ids: string[] };
 type Props = {
@@ -21,24 +21,26 @@ type Props = {
   /** 标签隐藏时保留草稿，只暂停显示确认窗口。 */
   active?: boolean;
   onBusyChange?: (busy: boolean) => void;
+  /** 收藏夹创建立即刷新分类栏，取消简历编辑时也能看到已经创建的收藏夹。 */
+  onFoldersChanged?: () => void;
 };
 const fieldLabels: Record<string, string> = {
   candidate_name: "姓名", phone: "手机号", email: "邮箱", gender: "性别", birth_ym: "出生年月", avatar_data_url: "头像",
   current_region: "当前地区", expected_region: "期望地区", work_years: "工作年限", education_level: "学历",
   work_status: "求职状态", expected_position: "期望职位", expected_salary_min: "最低月薪（K）",
-  expected_salary_max: "最高月薪（K）", expected_salary_text: "期望薪资原文", current_salary_text: "当前薪资原文", personal_description: "个人优势", raw_text: "简历正文", tags: "标签", tag_ids: "标签",
+  expected_salary_max: "最高月薪（K）", expected_salary_text: "期望薪资原文", current_salary_text: "当前薪资原文", personal_description: "个人优势", raw_text: "简历正文", tags: "标签", folder_ids: "收藏夹",
   work_experiences: "工作经历", educations: "教育经历", project_experiences: "项目经历", certificates: "证书", honors: "荣誉",
 };
 /** clearableFields 只包含手动表单可维护的非身份字段，防止清空来源、版本或姓名手机号。 */
-const clearableFields = ["email", "gender", "birth_ym", "education_level", "current_region", "expected_region", "work_years", "work_status", "expected_position", "tag_ids", "expected_salary_min", "expected_salary_max", "work_experiences", "educations", "project_experiences", "certificates", "honors", "personal_description", "raw_text"] as const;
+const clearableFields = ["email", "gender", "birth_ym", "education_level", "current_region", "expected_region", "work_years", "work_status", "expected_position", "tags", "folder_ids", "expected_salary_min", "expected_salary_max", "work_experiences", "educations", "project_experiences", "certificates", "honors", "personal_description", "raw_text"] as const;
 
 /** ResumeEditor 保留已创建简历 ID，使备注或关联失败后的重试不会再次创建简历。 */
-export default function ResumeEditor({ open, candidate, draft, positions, onClose, onSaved, onConfirmDraft, persistedID = "", embedded = false, active = true, onBusyChange }: Props) {
+export default function ResumeEditor({ open, candidate, draft, positions, onClose, onSaved, onConfirmDraft, persistedID = "", embedded = false, active = true, onBusyChange, onFoldersChanged }: Props) {
   const { notify } = useAdmin();
   const [form] = Form.useForm<ResumeDraft & { first_note?: string; position_ids?: string[] }>();
   const [busy, setBusy] = useState(false);
-  const [tagPending, setTagPending] = useState(false);
-  const [availableTags, setAvailableTags] = useState<ResumeTag[]>([]);
+  const [folderPending, setFolderPending] = useState(false);
+  const [availableFolders, setAvailableFolders] = useState<ResumeFolder[]>([]);
   const [checking, setChecking] = useState(false);
   const [duplicates, setDuplicates] = useState<DuplicateResult | null>(null);
   const [target, setTarget] = useState<Resume | null>(candidate || null);
@@ -61,8 +63,8 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
     if (!open) return;
     form.resetFields();
     const initial = candidate || draft || { candidate_name: "", phone: "" };
-    form.setFieldsValue({ source_type: "manual", ...initial, tag_ids: initial.tag_ids || [] });
-    setTagPending(false);
+    form.setFieldsValue({ source_type: "manual", ...initial, folder_ids: candidate?.folder_ids || [] });
+    setFolderPending(false);
     setTarget(candidate || null); setDuplicates(null); setAllowPossible(false); setSubmission(null); setClearFields([]); setError(""); setPreviewOpen(false); setChecking(false);
     savedCandidate.current = null; noteDone.current = false; linkedPositions.current = new Set(); duplicateGeneration.current += 1;
     saveKey.current = crypto.randomUUID();
@@ -72,7 +74,7 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
   async function collectDraft(): Promise<ResumeDraftSubmission> {
     const validated = await form.validateFields();
     const values = { ...form.getFieldsValue(true), ...validated };
-    const { first_note, position_ids, tags: _legacyTags, tag_details: _tagDetails, ...fields } = values;
+    const { first_note, position_ids, folder_details: _folderDetails, ...fields } = values;
     const normalized = { ...fields, candidate_name: fields.candidate_name.trim(), phone: normalizePhone(fields.phone) };
     for (const key of ["work_experiences", "educations", "project_experiences", "certificates", "honors"] as const) {
       const rows = normalized[key];
@@ -105,7 +107,7 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
   }
   /** previewSubmission 在保存前检查重复并展示实际将修改的字段。 */
   async function previewSubmission() {
-    if (tagPending) return;
+    if (folderPending) return;
     if (readOnly) { setError("这份是内置示例，只能阅读，不能修改或复制入库。"); return; }
     setError("");
     try {
@@ -162,18 +164,18 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
   const clearCandidates = submission && candidate && target?.id === candidate.id && !onConfirmDraft
     ? clearableFields.filter((field) => !isBlankMaintenanceValue(target[field]) && isBlankMaintenanceValue(submission.candidate[field]))
     : [];
-  /** previewValue 将标签编号转换成名称和范围，便于确认时核对。 */
+  /** previewValue 将收藏夹编号转换成名称和范围，原始标签仍按原文呈现。 */
   function previewValue(field: string, value: unknown, imageDescription = "头像") {
-    if (field === "tag_ids" && Array.isArray(value)) return value.map((id) => {
-      const tag = availableTags.find((item) => item.id === id) || target?.tag_details?.find((item) => item.id === id);
-      return tag ? `${tag.name}（${tag.scope === "team" ? "团队" : "个人"}）` : "已选标签";
+    if (field === "folder_ids" && Array.isArray(value)) return value.map((id) => {
+      const folder = availableFolders.find((item) => item.id === id) || target?.folder_details?.find((item) => item.id === id);
+      return folder ? `${folder.name}（${folder.scope === "team" ? "团队" : "个人"}）` : "已选收藏夹";
     }).join("、") || "未选择";
     return previewFieldValue(field, value, imageDescription);
   }
   return <>
     <ResumeEditorFrame embedded={embedded} open={open} title={target ? `维护简历 · ${target.candidate_name}` : onConfirmDraft ? "确认解析草稿" : "手动添加简历"}
       description="姓名和手机号填好就能入库，其它信息可以慢慢补。选择岗位只建立关联。"
-      onClose={onClose} onConfirm={() => void (savedCandidate.current ? persistSubmission() : previewSubmission())} loading={busy} confirmDisabled={readOnly || tagPending} confirmText={savedCandidate.current ? "重试剩余记录" : "检查并保存"}>
+      onClose={onClose} onConfirm={() => void (savedCandidate.current ? persistSubmission() : previewSubmission())} loading={busy} confirmDisabled={readOnly || folderPending} confirmText={savedCandidate.current ? "重试剩余记录" : "检查并保存"}>
       <Flex vertical gap={14}>
         {readOnly ? <Alert type="info" title="这份是管理员内置的只读示例，不能修改、合并或复制入库。" showIcon /> : null}
         {error ? <Alert type="warning" title={error} showIcon /> : null}
@@ -193,7 +195,8 @@ export default function ResumeEditor({ open, candidate, draft, positions, onClos
             <Form.Item name="work_years" label="工作年限"><Input placeholder="例如 5年 / 应届生" /></Form.Item>
             <Form.Item name="work_status" label="求职状态"><Select allowClear showSearch options={["在职，考虑机会", "离职，可随时到岗", "暂不考虑", "应届毕业生"].map((value) => ({ value, label: value }))} /></Form.Item>
             <Form.Item name="expected_position" label="期望职位"><Input /></Form.Item>
-            <Form.Item name="tag_ids" label="标签"><ResumeTagSelect active={open && active} disabled={readOnly || busy || Boolean(savedCandidate.current) || Boolean(persistedID)} initialTags={candidate?.tag_details || draft?.tag_details} onPendingChange={setTagPending} onTagsLoaded={setAvailableTags} /></Form.Item>
+            <Form.Item name="tags" label="标签"><Select mode="tags" tokenSeparators={[",", "，"]} options={[]} placeholder="简历原始标签，可直接填写" /></Form.Item>
+            <Form.Item name="folder_ids" label="收藏夹"><ResumeFolderSelect active={open && active} disabled={readOnly || busy || Boolean(savedCandidate.current) || Boolean(persistedID)} initialFolders={candidate?.folder_details} onPendingChange={setFolderPending} onFoldersLoaded={setAvailableFolders} onCreated={onFoldersChanged} /></Form.Item>
             <Form.Item name="expected_salary_min" label="最低月薪（K）"><InputNumber min={0} precision={2} style={{ width: "100%" }} /></Form.Item>
             <Form.Item name="expected_salary_max" label="最高月薪（K）" dependencies={["expected_salary_min"]} rules={[({ getFieldValue }) => ({ validator(_, value) { const low = getFieldValue("expected_salary_min"); return value == null || low == null || value >= low ? Promise.resolve() : Promise.reject(new Error("最高月薪应不小于最低月薪。")); } })]}><InputNumber min={0} precision={2} style={{ width: "100%" }} /></Form.Item>
             {!candidate ? <Form.Item name="position_ids" label="关联岗位" className={styles.wideField}><Select mode="multiple" showSearch optionFilterProp="label" options={positions.map((item) => ({ value: item.id, label: item.name }))} placeholder="可选多个，只关联、不启动任务" /></Form.Item> : null}

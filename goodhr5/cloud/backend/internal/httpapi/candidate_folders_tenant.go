@@ -1,4 +1,4 @@
-// 本文件在个人账号加入团队时同步迁移标签和关联，保留个人范围并安全合并同名标签。
+// 本文件在个人账号加入团队时同步迁移收藏夹和关联，保留个人范围并安全合并同名收藏夹。
 package httpapi
 
 import (
@@ -7,8 +7,8 @@ import (
 	"errors"
 )
 
-// mergeCandidateTagTenantTx 在现有团队合并事务中迁移标签，先保留关联再合并重复候选人。
-func mergeCandidateTagTenantTx(ctx context.Context, tx *sql.Tx, sourceTenantID, targetTenantID string, candidatePairs [][2]string) error {
+// mergeCandidateFolderTenantTx 在现有团队合并事务中迁移收藏夹，先保留关联再合并重复候选人。
+func mergeCandidateFolderTenantTx(ctx context.Context, tx *sql.Tx, sourceTenantID, targetTenantID string, candidatePairs [][2]string) error {
 	mappedCandidates := map[string]string{}
 	for _, pair := range candidatePairs {
 		mappedCandidates[pair[0]] = pair[1]
@@ -17,9 +17,9 @@ func mergeCandidateTagTenantTx(ctx context.Context, tx *sql.Tx, sourceTenantID, 
 	if err != nil {
 		return err
 	}
-	tags := []CandidateTag{}
+	tags := []CandidateFolder{}
 	for rows.Next() {
-		var tag CandidateTag
+		var tag CandidateFolder
 		if err = rows.Scan(&tag.ID, &tag.Name, &tag.Scope, &tag.CreatedByEmail); err != nil {
 			rows.Close()
 			return err

@@ -1,4 +1,6 @@
-/* 本文件仅负责个人 AI 配置卡片标题操作区和模型价格列表的布局。 */
+/* 本文件负责个人配置同一面板内的分类、白色内容区域和 AI 模型价格列表布局。 */
+.configPanel.configPanel { min-width: 0; }
+.configSection { min-width: 0; }
 .aiHeader {
   display: flex;
   align-items: flex-start;

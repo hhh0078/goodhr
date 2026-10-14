@@ -119,7 +119,6 @@ const menuGroups: MenuGroup[] = [
       ["/admin/resumes", "简历库", ArticleRoundedIcon],
       ["/admin/recruitment", "企业招聘", WorkRoundedIcon],
       ["/admin/recommendations", "猎头推荐", GroupRoundedIcon],
-      ["/admin/recruitment/settings", "招聘设置", SettingsRoundedIcon],
     ],
   },
   {

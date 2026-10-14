@@ -1,5 +1,7 @@
 /** 本文件使用隔离接口验证个人 AI 配置整合、站内模型选择和外部模型自由输入。 */
 import { test, expect, type Page } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 
 const previewOrigin = new URL(
   process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190",
@@ -105,6 +107,43 @@ async function mockPersonalAI(
   else await expect(page.getByRole("button", { name: "保存配置", exact: true })).toBeEnabled();
   return calls;
 }
+
+test("个人配置分类和内容同一白色面板，无顶部标题且通知保存及所有分类可用", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  const calls = await mockPersonalAI(page);
+  await expect(page.getByRole("heading", { name: "个人配置", exact: true })).toHaveCount(0);
+  const panel = page.locator(".goodhr-admin-content .goodhr-section-panel");
+  await expect(panel).toHaveCount(1);
+  await expect(panel).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(panel.getByRole("tab", { name: "AI配置", exact: true })).toBeVisible();
+  await expect(panel.getByLabel("API 地址", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "使用内置 AI", exact: true })).toBeEnabled();
+  await panel.getByRole("button", { name: "先测试 AI", exact: true }).click();
+  expect(calls.some((call) => call.path.includes("test"))).toBe(true);
+  for (const category of [
+    { tab: "随机时间", title: "操作节奏" }, { tab: "其他配置", title: "候选人读取" }, { tab: "账号安全", title: "修改登录密码" },
+  ]) {
+    await panel.getByRole("tab", { name: category.tab, exact: true }).click();
+    await expect(panel.getByText(category.title, { exact: true })).toBeVisible();
+    await expect(page.locator(".goodhr-admin-content .goodhr-section-panel")).toHaveCount(1);
+  }
+  await panel.getByRole("tab", { name: "AI配置", exact: true }).click();
+  await page.getByRole("button", { name: "通知偏好", exact: true }).click();
+  const notification = page.getByRole("dialog", { name: "小小打扰一下", exact: true });
+  await expect(notification).toBeVisible();
+  await notification.locator("button.ant-modal-close").click();
+  await expect(notification).toBeHidden();
+  await page.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(page.getByText("个人配置已保存", { exact: true })).toBeVisible();
+  while (await page.locator(".ant-notification-notice").count()) {
+    const previousCount = await page.locator(".ant-notification-notice").count();
+    await page.locator(".ant-notification-notice-close").first().click();
+    await expect(page.locator(".ant-notification-notice")).toHaveCount(previousCount - 1);
+  }
+  const screenshotDirectory = resolve("../../../output/resume-folders");
+  mkdirSync(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: resolve(screenshotDirectory, "personal-config-neutral.png"), fullPage: true, animations: "disabled", mask: [page.getByLabel("API Key", { exact: true })], maskColor: "#eef1ef" });
+});
 
 test("合并 AI 页面，站内模型显示价格与提示并保存选项", async ({ page }, testInfo) => {
   const calls = await mockPersonalAI(page);

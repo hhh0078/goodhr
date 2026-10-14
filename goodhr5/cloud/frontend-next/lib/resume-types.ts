@@ -6,7 +6,7 @@ export type ResumeExperience = {
 };
 export type ResumeNote = { id: string; content: string; author_email?: string; author_name?: string; occurred_at?: string; created_at?: string };
 export type ResumeSource = { platform_id?: string; platform_candidate_id?: string; source_type?: string; source_url?: string; created_at?: string };
-export type ResumeTag = {
+export type ResumeFolder = {
   id: string; name: string; scope: "personal" | "team"; candidate_count: number; can_edit: boolean;
   created_by_email?: string; created_at?: string; updated_at?: string;
 };
@@ -19,7 +19,7 @@ export type Resume = {
   expected_salary_text?: string; current_salary_text?: string; salary_text?: string; personal_description?: string; basic_info?: string; raw_text?: string; ai_summary?: string;
   work_experiences?: ResumeExperience[]; educations?: ResumeExperience[]; project_experiences?: ResumeExperience[];
   certificates?: Array<Record<string, unknown>>; honors?: Array<Record<string, unknown>>;
-  tags?: string[]; tag_ids?: string[]; tag_details?: ResumeTag[]; library_status?: string; source_type?: string; sources?: ResumeSource[];
+  tags?: string[]; folder_ids?: string[]; folder_details?: ResumeFolder[]; library_status?: string; source_type?: string; sources?: ResumeSource[];
   platform_id?: string; platform_candidate_id?: string; user_email?: string; user_name?: string;
   created_at?: string; updated_at?: string; row_version?: number; creator_name?: string; notes?: ResumeNote[]; latest_note?: ResumeNote;
   recommendation_count?: number; recommendations?: Recommendation[]; position_name?: string;
@@ -150,7 +150,7 @@ export function resumeAge(resume: Resume) {
 export function nonEmptyChanges(draft: ResumeDraft, previous?: Resume | null, clearFields: string[] = []) {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(draft)) {
-    if (["id", "is_builtin", "readonly", "builtin_notice", "row_version", "creator_name", "notes", "sources", "recommendations", "created_at", "updated_at", "user_email", "user_name", "ai", "events", "platform_id", "platform_candidate_id", "engagement_id", "engagement_status", "recommendation_count", "position_name", "tag_details"].includes(key)) continue;
+    if (["id", "is_builtin", "readonly", "builtin_notice", "row_version", "creator_name", "notes", "sources", "recommendations", "created_at", "updated_at", "user_email", "user_name", "ai", "events", "platform_id", "platform_candidate_id", "engagement_id", "engagement_status", "recommendation_count", "position_name", "folder_details"].includes(key)) continue;
     if (clearFields.includes(key)) continue;
     if (value == null || (typeof value === "string" && !value.trim()) || (Array.isArray(value) && value.length === 0)) continue;
     if (!previous || JSON.stringify(value) !== JSON.stringify(previous[key as keyof Resume])) result[key] = value;

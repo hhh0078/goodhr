@@ -1,5 +1,7 @@
 /** 文件作用说明：完全模拟云端和本地接口，验证团队招聘设置、面试动作、抄送权限与候选人邀请闭环。 */
 import { test, expect, type Page } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 
 const previewOrigin = new URL(process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190").origin;
 test.use({
@@ -347,6 +349,64 @@ async function mockRecruitment(page: Page, readOnly = false) {
   });
   return state;
 }
+
+test("企业招聘单行工具栏设置弹框共用旧内容，保存公司流程邮件后关闭仍留在列表", async ({ page }) => {
+  const state = await mockRecruitment(page);
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  await page.goto("/admin/recruitment");
+  await expect(page.getByRole("menuitem", { name: "招聘设置", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "企业招聘", exact: true })).toHaveCount(0);
+  const toolbar = page.getByTestId("recruitment-toolbar");
+  const create = toolbar.getByRole("button", { name: "开启招聘", exact: true });
+  const refresh = toolbar.getByRole("button", { name: /刷新$/ });
+  const settingsButton = toolbar.getByRole("button", { name: "招聘设置", exact: true });
+  const createBox = await create.boundingBox();
+  for (const control of [refresh, settingsButton, toolbar.getByLabel("搜索招聘进度", { exact: true }), toolbar.getByLabel("筛选招聘岗位", { exact: true }), toolbar.getByRole("tablist")]) {
+    const controlBox = await control.boundingBox();
+    expect(controlBox).not.toBeNull();
+    expect(Math.abs(controlBox!.y + controlBox!.height / 2 - createBox!.y - createBox!.height / 2)).toBeLessThan(12);
+  }
+  await refresh.click();
+  const screenshotDirectory = resolve("../../../output/resume-folders");
+  mkdirSync(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: resolve(screenshotDirectory, "recruitment-toolbar.png"), fullPage: true, animations: "disabled" });
+  await settingsButton.click();
+  const settings = page.getByRole("dialog", { name: "招聘设置", exact: true });
+  await expect(settings).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/recruitment$/);
+  await settings.getByLabel("公司名称", { exact: true }).fill("弹框合成公司");
+  await settings.getByRole("button", { name: "保存公司信息", exact: true }).click();
+  await expect.poll(() => state.company.company_name).toBe("弹框合成公司");
+  await expect(page.locator(".ant-notification-notice")).toHaveCount(0);
+  await page.screenshot({ path: resolve(screenshotDirectory, "recruitment-settings-dialog.png"), fullPage: true, animations: "disabled" });
+  await settings.getByRole("tab", { name: "流程模板", exact: true }).click();
+  await settings.getByRole("button", { name: "新建流程", exact: true }).click();
+  const workflow = page.getByRole("dialog", { name: "新建招聘流程", exact: true });
+  await workflow.getByLabel("流程名称", { exact: true }).fill("弹框两轮面试");
+  await workflow.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(workflow).toBeHidden();
+  await expect.poll(() => state.workflows.length).toBe(2);
+  await settings.getByRole("tab", { name: "邮件模板", exact: true }).click();
+  await settings.getByRole("button", { name: "编辑", exact: true }).click();
+  const mail = page.getByRole("dialog", { name: "编辑邮件模板", exact: true });
+  await mail.getByLabel("邮件模板正文", { exact: true }).fill("弹框邀请：{简历姓名}");
+  await mail.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(mail).toBeHidden();
+  await expect.poll(() => state.templates[0].body).toBe("弹框邀请：{简历姓名}");
+  await settings.locator(".ant-modal-footer").getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(settings).toBeHidden();
+  await expect(page).toHaveURL(/\/admin\/recruitment$/);
+  await create.click();
+  const start = page.getByRole("dialog", { name: "开启企业招聘", exact: true });
+  await start.getByLabel("招聘流程模板", { exact: true }).click();
+  await expect(page.locator(".ant-select-item-option").filter({ hasText: "弹框两轮面试" })).toBeVisible();
+  await start.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(start).toBeHidden();
+  await page.goto("/admin/recruitment/settings");
+  await expect(page.getByRole("heading", { name: "招聘设置", exact: true })).toBeVisible();
+  await expect(page.getByLabel("公司名称", { exact: true })).toHaveValue("弹框合成公司");
+  expect(state.errors).toEqual([]);
+});
 
 test("团队可另存多套流程，并修改预置邮件、插入中文变量、实时预览", async ({ page }) => {
 

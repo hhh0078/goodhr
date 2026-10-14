@@ -9,4 +9,4 @@
 .note.note { margin: 0; font-size: 12px; line-height: 1.5; }
 .pagination { padding: 10px 12px; }
 .pagination :global(.ant-pagination) { display: flex; flex-wrap: wrap; row-gap: 8px; }
-@media (max-width: 600px) { .keyword.keyword { width: 100%; } .stage.stage { flex: 1; min-width: 120px; } }
+@media (max-width: 600px) { .keyword.keyword { width: 180px; } .stage.stage { width: 125px; } }

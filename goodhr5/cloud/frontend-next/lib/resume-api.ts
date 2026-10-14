@@ -1,7 +1,7 @@
 /** 文件作用说明：封装简历库云端查询、维护、查重和人工推荐接口，避免复用自动任务入库接口。 */
 "use client";
 import { cloudRequest } from "./admin-api";
-import type { DuplicateMatch, DuplicateResult, PositionOption, Recommendation, RecommendationRecord, Resume, ResumeDraft, ResumeNote, ResumeTag } from "./resume-types";
+import type { DuplicateMatch, DuplicateResult, PositionOption, Recommendation, RecommendationRecord, Resume, ResumeDraft, ResumeNote, ResumeFolder } from "./resume-types";
 import { isReadOnlyResume } from "./resume-types";
 
 /** loadResume 读取候选人详情，可保留旧自动任务详情参数。 */
@@ -38,7 +38,7 @@ export async function checkResumeDuplicates(draft: ResumeDraft, excludeID = ""):
 export async function saveResume(id: string, fields: Record<string, unknown>, idempotencyKey: string, version?: number, clearFields: string[] = []): Promise<Resume> {
   if (isReadOnlyResume(id) || fields.is_builtin || fields.readonly) throw new Error("内置示例只能查看，不能修改或复制入库。");
   // 显式清空按云端合同保持字段类型，经历和标签使用空数组，薪资数字使用null。
-  const arrayFields = ["tags", "tag_ids", "work_experiences", "educations", "project_experiences", "certificates", "honors", "colleague_communications"];
+  const arrayFields = ["tags", "folder_ids", "work_experiences", "educations", "project_experiences", "certificates", "honors", "colleague_communications"];
   const cleared = Object.fromEntries(clearFields.map((field) => [field, arrayFields.includes(field) ? [] : ["expected_salary_min", "expected_salary_max"].includes(field) ? null : ""]));
   const data = await cloudRequest(id ? `/api/candidates/${encodeURIComponent(id)}` : "/api/candidates", {
     method: id ? "PATCH" : "POST", body: { ...fields, ...cleared, idempotency_key: idempotencyKey, ...(id ? { row_version: version } : {}) },
@@ -71,20 +71,20 @@ export async function addRecommendation(id: string, positionID: string, stage: s
 export async function advanceRecommendation(id: string, positionID: string, stage: string, note: string, idempotencyKey: string): Promise<Recommendation> {
   return addRecommendation(id, positionID, stage, note, idempotencyKey);
 }
-/** loadResumeTags 读取本人可用的个人标签和团队标签，以及有权查看的候选人数。 */
-export async function loadResumeTags(): Promise<ResumeTag[]> {
-  const data = await cloudRequest("/api/candidates/tags");
-  return Array.isArray(data.tags) ? data.tags : [];
+/** loadResumeFolders 读取本人可用的个人和团队收藏夹，以及有权查看的候选人数。 */
+export async function loadResumeFolders(): Promise<ResumeFolder[]> {
+  const data = await cloudRequest("/api/candidates/folders");
+  return Array.isArray(data.folders) ? data.folders : [];
 }
-/** saveResumeTag 明确按个人或团队范围新增、维护标签，不在选择时自动创建。 */
-export async function saveResumeTag(id: string, name: string, scope: ResumeTag["scope"]): Promise<ResumeTag> {
-  const data = await cloudRequest(`/api/candidates/tags${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PATCH" : "POST", body: { name: name.trim(), scope } });
-  if (!data.tag?.id) throw new Error("标签保存结果没读出来，请刷新后核对。");
-  return data.tag;
+/** saveResumeFolder 明确按个人或团队范围新增、维护收藏夹，不从原始标签自动生成。 */
+export async function saveResumeFolder(id: string, name: string, scope: ResumeFolder["scope"]): Promise<ResumeFolder> {
+  const data = await cloudRequest(`/api/candidates/folders${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PATCH" : "POST", body: { name: name.trim(), scope } });
+  if (!data.folder?.id) throw new Error("收藏夹保存结果没读出来，请刷新后核对。");
+  return data.folder;
 }
-/** deleteResumeTag 仅删除标签及关联，候选人简历仍保留在简历库。 */
-export async function deleteResumeTag(id: string): Promise<void> {
-  await cloudRequest(`/api/candidates/tags/${encodeURIComponent(id)}`, { method: "DELETE" });
+/** deleteResumeFolder 仅删除收藏夹及关联，候选人简历和原始标签仍保留。 */
+export async function deleteResumeFolder(id: string): Promise<void> {
+  await cloudRequest(`/api/candidates/folders/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 /** loadRecommendationRecords 读取本人有权查看的全局推荐记录，保留关闭岗位的历史及服务端操作权限。 */
 export async function loadRecommendationRecords(query: URLSearchParams): Promise<{ items: RecommendationRecord[]; total: number }> {

@@ -44,7 +44,6 @@ import AIResponseDiagnosticDetails, {
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
   EmptyState,
-  PageHeader,
   RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
@@ -951,11 +950,9 @@ export default function PositionsPage() {
           setFloatingPositionTask(null);
         }}
       />
-      <PageHeader
-        title="岗位管理"
-        description="岗位模板决定首次筛选、详情识别和最终打招呼判断。"
-        actions={
-          <>
+      <Flex gap={8} className="goodhr-compact-toolbar" data-testid="positions-toolbar">
+        <Radio.Group aria-label="岗位状态筛选" size="small" optionType="button" buttonStyle="solid" value={positionScope}
+          onChange={(event) => setPositionScope(event.target.value)} options={[{ value: "true", label: "开启" }, { value: "false", label: "关闭" }]} />
             <Button
               disabled={loading}
               onClick={openCreate}
@@ -965,13 +962,6 @@ export default function PositionsPage() {
               新建岗位
             </Button>
             <RefreshButton loading={loading} onClick={() => void load()} />
-          </>
-        }
-      />
-      <Flex gap={8} align="center" style={{ marginBottom: 10 }}>
-        <Radio.Group aria-label="岗位状态筛选" size="small" optionType="button" buttonStyle="solid" value={positionScope}
-          onChange={(event) => setPositionScope(event.target.value)} options={[{ value: "true", label: "开启" }, { value: "false", label: "关闭" }]} />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>关闭的岗位会保留记录</Typography.Text>
       </Flex>
       {items.length ? (
         <Flex className={styles.s1}>

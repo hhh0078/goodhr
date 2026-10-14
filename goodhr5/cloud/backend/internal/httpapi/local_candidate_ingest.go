@@ -63,6 +63,7 @@ func (s *PositionExecutionService) SaveLocalCandidate(w http.ResponseWriter, r *
 	s.writeCandidateIngestLog(position.ID, position.UserEmail, "info", "云端收到候选人入库请求："+candidateName)
 	now := time.Now().UTC()
 	profile, err := s.candidateStore.SaveCandidateProfile(CandidateProfileInput{
+		Tags:                localCandidateJSONList[string](payload, "tags"),
 		TenantID:            tenantID,
 		UserEmail:           position.UserEmail,
 		PlatformID:          firstNonEmpty(localCandidateString(payload, "platform_id"), position.PlatformID),

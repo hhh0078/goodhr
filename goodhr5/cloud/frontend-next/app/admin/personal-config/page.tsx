@@ -26,7 +26,7 @@ import styles from "../heavy-ui.module.css";
 import pageStyles from "./page.module.css";
 import { useEffect, useId, useRef, useState } from "react";
 import { cloudRequest } from "@/lib/admin-api";
-import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
+import { SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import NotificationProfileDialog from "@/components/admin/NotificationProfileDialog";
 import {
@@ -336,11 +336,7 @@ export default function PersonalConfigPage() {
   return (
     <>
       <NotificationProfileDialog openSignal={profileOpenSignal} />
-      <PageHeader
-        title="个人配置"
-        description="设置 AI 接口和岗位运行操作节奏，保存后会用于本地岗位运行。"
-        actions={
-          <>
+      <Flex justify="flex-end" gap={8} style={{ marginBottom: 10 }}>
             <Button
               onClick={() => setProfileOpenSignal((value) => value + 1)}
               type={"default"}
@@ -356,11 +352,9 @@ export default function PersonalConfigPage() {
             >
               {loading ? "处理中" : "保存配置"}
             </Button>
-          </>
-        }
-      />
+      </Flex>
 
-      <SectionPanel className={styles.s207}>
+      <SectionPanel className={pageStyles.configPanel}>
         <Tabs
           activeKey={activeTab}
           onChange={(value) => setActiveTab(String(value))}
@@ -373,7 +367,6 @@ export default function PersonalConfigPage() {
           ]}
           className={styles.s208}
         />
-      </SectionPanel>
 
       {configError ? (
         <Alert
@@ -386,7 +379,7 @@ export default function PersonalConfigPage() {
       ) : null}
 
       {activeTab === "ai" ? (
-          <SectionPanel className={styles.s215}>
+          <section className={pageStyles.configSection}>
             <div className={pageStyles.aiHeader}>
               <SectionTitle
                 icon={<ApiOutlined aria-hidden="true" />}
@@ -534,12 +527,12 @@ export default function PersonalConfigPage() {
                 测试成功后，请点击页面右上角保存配置。
               </Typography.Paragraph>
             </Flex>
-          </SectionPanel>
+          </section>
       ) : null}
 
       {activeTab === "timing" ? (
         <div className={styles.s227}>
-          <SectionPanel>
+          <section className={pageStyles.configSection}>
             <SectionTitle
               icon={<ClockCircleOutlined aria-hidden="true" />}
               title="操作节奏"
@@ -590,8 +583,8 @@ export default function PersonalConfigPage() {
                 onMax={(value) => setNumber("greet_before_delay_max", value)}
               />
             </Flex>
-          </SectionPanel>
-          <SectionPanel>
+          </section>
+          <section className={pageStyles.configSection}>
             <SectionTitle
               icon={<RobotOutlined aria-hidden="true" />}
               title="模拟休息"
@@ -626,12 +619,12 @@ export default function PersonalConfigPage() {
                 onMax={(value) => setNumber("rest_duration_max", value)}
               />
             </Flex>
-          </SectionPanel>
+          </section>
         </div>
       ) : null}
 
       {activeTab === "other" ? (
-        <SectionPanel className={styles.s230}>
+        <section className={pageStyles.configSection}>
           <SectionTitle
             icon={<SlidersOutlined aria-hidden="true" />}
             title="候选人读取"
@@ -662,12 +655,12 @@ export default function PersonalConfigPage() {
               }
             />
           </Flex>
-        </SectionPanel>
+        </section>
       ) : null}
 
       {activeTab === "account" ? (
         <div className={styles.s233}>
-          <SectionPanel>
+          <section className={pageStyles.configSection}>
             <SectionTitle
               icon={<LockOutlined aria-hidden="true" />}
               title="修改登录密码"
@@ -741,8 +734,8 @@ export default function PersonalConfigPage() {
                 {passwordSaving ? "处理中" : "确认修改"}
               </Button>
             </Flex>
-          </SectionPanel>
-          <SectionPanel>
+          </section>
+          <section className={pageStyles.configSection}>
             <SectionTitle
               icon={<LockOutlined aria-hidden="true" />}
               title="密码忘了怎么办"
@@ -756,9 +749,10 @@ export default function PersonalConfigPage() {
               }
               className={styles.s242}
             />
-          </SectionPanel>
+          </section>
         </div>
       ) : null}
+      </SectionPanel>
     </>
   );
 }

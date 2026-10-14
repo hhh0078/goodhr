@@ -5,12 +5,12 @@ import { resolve } from "node:path";
 
 const previewOrigin = new URL(process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190").origin;
 const cloudOrigin = new URL(process.env.NEXT_PUBLIC_CLOUD_API_BASE || "http://127.0.0.1:8084").origin;
-const screenshotDirectory = resolve("artifacts/resume-library");
+const screenshotDirectory = resolve("../../../output/resume-folders");
 // 合成16px纯色PNG只用于界面验证，不含任何真实候选人的照片。
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 type Call = { origin: string; path: string; method: string; body: any; query: URLSearchParams };
 type PairApprovalReply = { gate?: Promise<void>; status?: number; error?: string };
-type State = { calls: Call[]; notes: any[]; recommendations: any[]; tags?: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string; is_open?: boolean; [key: string]: any }>; user: { id: string; email: string }; candidates: any[]; appConfig?: any; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; taskPlain404?: boolean; taskListEmpty?: boolean; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void>; pairApprovals?: Record<string, PairApprovalReply>; pairApprovalReplies?: string[] };
+type State = { calls: Call[]; notes: any[]; recommendations: any[]; folders?: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string; is_open?: boolean; [key: string]: any }>; user: { id: string; email: string }; candidates: any[]; appConfig?: any; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; taskPlain404?: boolean; taskListEmpty?: boolean; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void>; pairApprovals?: Record<string, PairApprovalReply>; pairApprovalReplies?: string[] };
 const existing = { id: "resume-existing", candidate_name: "原有候选人", phone: "13800138000", row_version: 3, source_type: "automatic", education_level: "本科", expected_salary_min: null, expected_salary_max: null, work_experiences: [{ company_name: "原有公司", position_name: "产品经理", start_ym: "2021-01", content: "已有工作经历保留" }], user_email: "test@example.invalid", created_at: "2026-10-10T10:00:00+08:00", ai: { detail: { score: null, reason: "" } } };
 test.use({ storageState: { cookies: [], origins: [{ origin: previewOrigin, localStorage: [{ name: "goodhr5_access_token", value: "resume-test-only" }] }] } });
 
@@ -107,13 +107,13 @@ async function mockResumeSession(page: Page): Promise<State> {
         data = { positions, total: positions.length };
       }
     }
-    else if (url.pathname === "/api/candidates/tags" || url.pathname.startsWith("/api/candidates/tags/")) {
-      state.tags ||= [];
+    else if (url.pathname === "/api/candidates/folders" || url.pathname.startsWith("/api/candidates/folders/")) {
+      state.folders ||= [];
       const id = url.pathname.split("/")[4];
-      if (method === "POST") { const tag = { ...body, id: `tag-created-${state.tags.length}`, candidate_count: 0, can_edit: true, created_by_email: state.user.email }; state.tags.push(tag); data = { ok: true, tag }; }
-      else if (method === "PATCH") { const tag = state.tags.find((item) => item.id === id); Object.assign(tag, body); data = { ok: true, tag }; }
-      else if (method === "DELETE") { state.tags = state.tags.filter((tag) => tag.id !== id); state.candidates.forEach((candidate) => { candidate.tag_ids = (candidate.tag_ids || []).filter((value: string) => value !== id); }); }
-      else data = { ok: true, tags: state.tags.map((tag) => ({ ...tag, candidate_count: state.candidates.filter((candidate) => candidate.tag_ids?.includes(tag.id)).length })) };
+      if (method === "POST") { const tag = { ...body, id: `tag-created-${state.folders.length}`, candidate_count: 0, can_edit: true, created_by_email: state.user.email }; state.folders.push(tag); data = { ok: true, folder: tag }; }
+      else if (method === "PATCH") { const tag = state.folders.find((item) => item.id === id); Object.assign(tag, body); data = { ok: true, folder: tag }; }
+      else if (method === "DELETE") { state.folders = state.folders.filter((tag) => tag.id !== id); state.candidates.forEach((candidate) => { candidate.folder_ids = (candidate.folder_ids || []).filter((value: string) => value !== id); }); }
+      else data = { ok: true, folders: state.folders.map((tag) => ({ ...tag, candidate_count: state.candidates.filter((candidate) => candidate.folder_ids?.includes(tag.id)).length })) };
     }
     else if (url.pathname === "/api/candidate-recommendations") {
       const records = state.recommendations.map((item) => {
@@ -131,8 +131,8 @@ async function mockResumeSession(page: Page): Promise<State> {
     else if (url.pathname === "/api/candidates") {
       if (method === "POST") { const candidate = { ...body, id: "resume-new", row_version: 1 }; state.candidates.push(candidate); data = { ok: true, candidate }; }
       else {
-        const candidates = state.candidates.filter((candidate) => !url.searchParams.get("tag_id") || candidate.tag_ids?.includes(url.searchParams.get("tag_id")));
-        data = { candidates: candidates.map((candidate) => ({ ...candidate, notes: state.notes, recommendations: state.recommendations, recommendation_count: state.recommendations.length })), total: candidates.length, real_total: candidates.filter((candidate) => !candidate.is_builtin && candidate.id !== "00000000-0000-4000-8000-000000000001").length, builtin_total: candidates.filter((candidate) => candidate.is_builtin || candidate.id === "00000000-0000-4000-8000-000000000001").length, page: Number(url.searchParams.get("page")) || 1 };
+        const candidates = state.candidates.filter((candidate) => (!url.searchParams.get("folder_id") || candidate.folder_ids?.includes(url.searchParams.get("folder_id"))) && (!url.searchParams.get("tag") || candidate.tags?.some((tag: string) => tag.includes(url.searchParams.get("tag")!))));
+        data = { candidates: candidates.map((candidate) => ({ ...candidate, folder_details: (state.folders || []).filter((folder) => candidate.folder_ids?.includes(folder.id)), notes: state.notes, recommendations: state.recommendations, recommendation_count: state.recommendations.length })), total: candidates.length, real_total: candidates.filter((candidate) => !candidate.is_builtin && candidate.id !== "00000000-0000-4000-8000-000000000001").length, builtin_total: candidates.filter((candidate) => candidate.is_builtin || candidate.id === "00000000-0000-4000-8000-000000000001").length, page: Number(url.searchParams.get("page")) || 1 };
       }
     } else if (url.pathname.endsWith("/notes")) {
       if (method === "POST") {
@@ -151,7 +151,7 @@ async function mockResumeSession(page: Page): Promise<State> {
     } else if (url.pathname.startsWith("/api/candidates/")) {
       const id = url.pathname.split("/").pop(); const candidate = state.candidates.find((item) => item.id === id);
       if (method === "PATCH") Object.assign(candidate, body, { row_version: candidate.row_version + 1 });
-      data = { candidate };
+      data = { candidate: candidate ? { ...candidate, folder_details: (state.folders || []).filter((folder) => candidate.folder_ids?.includes(folder.id)) } : candidate };
     }
     return route.fulfill({ status: 200, headers, json: data });
   });
@@ -174,64 +174,64 @@ async function dismissNotices(page: Page) {
 const pairApprovePath = "/api/v1/extensions/pair/approve";
 const pairDialogTitle = "连接 GoodHR 浏览器插件";
 
-test("标签栏紧凑可滚动，筛选按编号并按账号记住最近点击顺序", async ({ page }) => {
+test("收藏夹栏紧凑可滚动，筛选按编号并按账号记住最近点击顺序", async ({ page }) => {
   const state = await mockResumeSession(page);
-  state.tags = Array.from({ length: 18 }, (_, index) => ({ id: `tag-${index}`, name: `合成标签${index}`, scope: index % 2 ? "personal" : "team", can_edit: true }));
-  state.candidates[0].tag_ids = ["tag-1", "tag-5"];
+  state.folders = Array.from({ length: 18 }, (_, index) => ({ id: `folder-${index}`, name: `合成收藏夹${index}`, scope: index % 2 ? "personal" : "team", can_edit: true }));
+  state.candidates[0].folder_ids = ["folder-1", "folder-5"];
   await page.setViewportSize({ width: 980, height: 820 });
   await page.goto("/admin/resumes");
-  const bar = page.getByTestId("resume-tag-bar");
-  await expect(bar.getByTitle("合成标签1 · 仅自己可见", { exact: true })).toHaveText("合成标签11");
-  await expect(bar.getByRole("button", { name: "管理标签", exact: true })).toBeInViewport();
-  await bar.getByTitle("合成标签5 · 仅自己可见", { exact: true }).click();
-  await expect(page).toHaveURL(/tag_id=tag-5/);
-  await bar.getByTitle("合成标签1 · 仅自己可见", { exact: true }).click();
-  await expect(page).toHaveURL(/tag_id=tag-1/);
-  await expect(bar.getByRole("button").nth(1)).toHaveAttribute("title", "合成标签1 · 仅自己可见");
+  const bar = page.getByTestId("resume-folder-bar");
+  await expect(bar.getByTitle("合成收藏夹1 · 仅自己可见", { exact: true })).toHaveText("合成收藏夹11");
+  await expect(bar.getByRole("button", { name: "管理收藏夹", exact: true })).toBeInViewport();
+  await bar.getByTitle("合成收藏夹5 · 仅自己可见", { exact: true }).click();
+  await expect(page).toHaveURL(/folder_id=folder-5/);
+  await bar.getByTitle("合成收藏夹1 · 仅自己可见", { exact: true }).click();
+  await expect(page).toHaveURL(/folder_id=folder-1/);
+  await expect(bar.getByRole("button").nth(1)).toHaveAttribute("title", "合成收藏夹1 · 仅自己可见");
   await page.reload();
-  await expect(bar.getByRole("button").nth(1)).toHaveAttribute("title", "合成标签1 · 仅自己可见");
-  await expect(bar.getByRole("button").nth(2)).toHaveAttribute("title", "合成标签5 · 仅自己可见");
-  expect(state.calls.some((call) => call.path === "/api/candidates" && call.query.get("tag_id") === "tag-1")).toBe(true);
+  await expect(bar.getByRole("button").nth(1)).toHaveAttribute("title", "合成收藏夹1 · 仅自己可见");
+  await expect(bar.getByRole("button").nth(2)).toHaveAttribute("title", "合成收藏夹5 · 仅自己可见");
+  expect(state.calls.some((call) => call.path === "/api/candidates" && call.query.get("folder_id") === "folder-1")).toBe(true);
   state.user.id = "another-resume-user";
   await page.goto("/admin/resumes");
-  await expect(bar.getByRole("button").nth(1)).toHaveAttribute("title", "合成标签0 · 团队可见");
+  await expect(bar.getByRole("button").nth(1)).toHaveAttribute("title", "合成收藏夹0 · 团队可见");
   mkdirSync(screenshotDirectory, { recursive: true });
-  await page.screenshot({ path: resolve(screenshotDirectory, "tag-bar.png"), fullPage: true, animations: "disabled" });
+  await page.screenshot({ path: resolve(screenshotDirectory, "folder-bar.png"), fullPage: true, animations: "disabled" });
   expect(state.errors).toEqual([]);
 });
 
-test("管理标签默认个人，编辑可改团队，删除标签保留全部简历", async ({ page }) => {
+test("管理收藏夹默认个人，编辑可改团队，删除收藏夹保留全部简历", async ({ page }) => {
   const state = await mockResumeSession(page);
   await page.goto("/admin/resumes");
-  await page.getByRole("button", { name: "管理标签", exact: true }).click();
-  const manager = page.getByRole("dialog", { name: "管理标签", exact: true });
-  await manager.getByRole("button", { name: "新增标签", exact: true }).click();
-  const create = page.getByRole("dialog", { name: "新增标签", exact: true });
-  await expect(create.getByRole("radio", { name: "个人标签", exact: true })).toBeChecked();
-  await create.getByLabel("标签名称", { exact: true }).fill("合成待联系");
+  await page.getByRole("button", { name: "管理收藏夹", exact: true }).click();
+  const manager = page.getByRole("dialog", { name: "管理收藏夹", exact: true });
+  await manager.getByRole("button", { name: "新增收藏夹", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "新增收藏夹", exact: true });
+  await expect(create.getByRole("radio", { name: "个人收藏夹", exact: true })).toBeChecked();
+  await create.getByLabel("收藏夹名称", { exact: true }).fill("合成待联系");
   await create.getByRole("button", { name: "保存", exact: true }).click();
   await expect(create).toBeHidden();
   const row = manager.getByRole("row").filter({ hasText: "合成待联系" });
   await expect(row).toContainText("仅自己");
   await row.getByRole("button", { name: "编辑", exact: true }).click();
-  const edit = page.getByRole("dialog", { name: "编辑标签", exact: true });
-  await edit.getByRole("radio", { name: "团队标签", exact: true }).check();
+  const edit = page.getByRole("dialog", { name: "编辑收藏夹", exact: true });
+  await edit.getByRole("radio", { name: "团队收藏夹", exact: true }).check();
   await edit.getByRole("button", { name: "保存", exact: true }).click();
   await expect(row).toContainText("团队可见");
   await dismissNotices(page);
   mkdirSync(screenshotDirectory, { recursive: true });
-  await page.screenshot({ path: resolve(screenshotDirectory, "tag-manager.png"), fullPage: true, animations: "disabled" });
+  await page.screenshot({ path: resolve(screenshotDirectory, "folder-manager.png"), fullPage: true, animations: "disabled" });
   const originalID = state.candidates[0].id;
-  state.candidates[0].tag_ids = [state.tags![0].id];
+  state.candidates[0].folder_ids = [state.folders![0].id];
   await row.getByRole("button", { name: "删除", exact: true }).click();
-  const remove = page.getByRole("dialog", { name: "确认删除标签", exact: true });
+  const remove = page.getByRole("dialog", { name: "确认删除收藏夹", exact: true });
   await expect(remove).toContainText("对应简历会保留");
-  await remove.getByRole("button", { name: "删除标签", exact: true }).click();
+  await remove.getByRole("button", { name: "删除收藏夹", exact: true }).click();
   await expect(row).toHaveCount(0);
   expect(state.candidates.map((candidate) => candidate.id)).toEqual([originalID]);
   expect(state.calls.some((call) => call.method === "DELETE" && call.path === `/api/candidates/${originalID}`)).toBe(false);
-  expect(state.calls.find((call) => call.method === "POST" && call.path === "/api/candidates/tags")?.body.scope).toBe("personal");
-  expect(state.calls.find((call) => call.method === "PATCH" && call.path.startsWith("/api/candidates/tags/"))?.body.scope).toBe("team");
+  expect(state.calls.find((call) => call.method === "POST" && call.path === "/api/candidates/folders")?.body.scope).toBe("personal");
+  expect(state.calls.find((call) => call.method === "PATCH" && call.path.startsWith("/api/candidates/folders/"))?.body.scope).toBe("team");
   expect(state.errors).toEqual([]);
 });
 
@@ -253,33 +253,34 @@ test("整行双击打开详情，操作竖排且面试暂不提交请求", async
   expect(state.errors).toEqual([]);
 });
 
-test("候选人选择已有标签，未知名称失焦确认，创建默认个人并保存编号", async ({ page }) => {
+test("候选人选择已有收藏夹，未知名称失焦确认，创建默认个人并保存编号", async ({ page }) => {
   const state = await mockResumeSession(page);
-  state.tags = [{ id: "tag-existing", name: "团队已有", scope: "team", can_edit: false }];
+  state.folders = [{ id: "folder-existing", name: "团队已有", scope: "team", can_edit: false }];
   await page.goto("/admin/resumes");
   await page.getByRole("button", { name: "原有候选人", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
   await drawer.getByRole("button", { name: /编辑$/ }).click();
   const editor = page.getByRole("dialog", { name: "维护简历 · 原有候选人", exact: true });
-  const tags = editor.getByLabel("标签", { exact: true });
+  const tags = editor.getByLabel("收藏夹", { exact: true });
   await tags.fill("团队已有");
   await page.locator(".ant-select-item-option").filter({ hasText: "团队已有 · 团队" }).click();
-  await tags.fill("合成个人新标签");
+  await tags.fill("合成个人新收藏夹");
   await editor.getByLabel("姓名", { exact: true }).click();
-  const confirm = page.getByRole("dialog", { name: "创建新标签", exact: true });
-  await expect(confirm).toContainText("这个标签还不存在");
-  await expect(confirm.getByRole("radio", { name: "个人标签", exact: true })).toBeChecked();
+  const confirm = page.getByRole("dialog", { name: "创建新收藏夹", exact: true });
+  await expect(confirm).toContainText("这个收藏夹还不存在");
+  await expect(confirm.getByRole("radio", { name: "个人收藏夹", exact: true })).toBeChecked();
   await confirm.getByRole("button", { name: "创建并选择", exact: true }).click();
   await expect(confirm).toBeHidden();
+  await expect(page.getByTestId("resume-folder-bar")).toContainText("合成个人新收藏夹");
   await editor.getByRole("button", { name: "检查并保存", exact: true }).click();
   const preview = page.getByRole("dialog", { name: "确认更新内容", exact: true });
-  await expect(preview).toContainText("合成个人新标签（个人）");
+  await expect(preview).toContainText("合成个人新收藏夹（个人）");
   await preview.getByRole("button", { name: "确认保存", exact: true }).click();
   await expect(editor).toBeHidden();
   const patch = state.calls.find((call) => call.method === "PATCH" && call.path === `/api/candidates/${existing.id}`);
-  expect(patch?.body.tag_ids).toEqual(["tag-existing", state.tags![1].id]);
+  expect(patch?.body.folder_ids).toEqual(["folder-existing", state.folders![1].id]);
   expect(patch?.body).not.toHaveProperty("tags");
-  expect(state.calls.filter((call) => call.method === "POST" && call.path === "/api/candidates/tags")).toHaveLength(1);
+  expect(state.calls.filter((call) => call.method === "POST" && call.path === "/api/candidates/folders")).toHaveLength(1);
   expect(state.errors).toEqual([]);
 });
 
@@ -321,43 +322,144 @@ test("岗位默认筛选开启，编辑关闭保留岗位，推荐选择只读�
   expect(state.errors).toEqual([]);
 });
 
-test("管理员编辑他人团队标签可改名，不能转为他人个人标签", async ({ page }) => {
+test("管理员编辑他人团队收藏夹可改名，不能转为他人个人收藏夹", async ({ page }) => {
   const state = await mockResumeSession(page);
-  state.tags = [{ id: "tag-other-team", name: "他人团队标签", scope: "team", can_edit: true, created_by_email: "someone@example.invalid" }];
+  state.folders = [{ id: "folder-other-team", name: "他人团队收藏夹", scope: "team", can_edit: true, created_by_email: "someone@example.invalid" }];
   await page.goto("/admin/resumes");
-  await page.getByRole("button", { name: "管理标签", exact: true }).click();
-  const manager = page.getByRole("dialog", { name: "管理标签", exact: true });
+  await page.getByRole("button", { name: "管理收藏夹", exact: true }).click();
+  const manager = page.getByRole("dialog", { name: "管理收藏夹", exact: true });
   await manager.getByRole("button", { name: "编辑", exact: true }).click();
-  const edit = page.getByRole("dialog", { name: "编辑标签", exact: true });
-  await expect(edit.getByRole("radio", { name: "个人标签", exact: true })).toBeDisabled();
-  await expect(edit).toContainText("只有创建者能改为个人标签");
-  await edit.getByLabel("标签名称", { exact: true }).fill("管理员改名后");
+  const edit = page.getByRole("dialog", { name: "编辑收藏夹", exact: true });
+  await expect(edit.getByRole("radio", { name: "个人收藏夹", exact: true })).toBeDisabled();
+  await expect(edit).toContainText("只有创建者能改为个人收藏夹");
+  await edit.getByLabel("收藏夹名称", { exact: true }).fill("管理员改名后");
   await edit.getByRole("button", { name: "保存", exact: true }).click();
   await expect(manager).toContainText("管理员改名后");
-  expect(state.tags[0].scope).toBe("team");
+  expect(state.folders[0].scope).toBe("team");
   expect(state.errors).toEqual([]);
 });
 
-test("候选人清空全部标签须明确确认，发送空编号数组而保留简历", async ({ page }) => {
+test("候选人清空全部收藏夹须明确确认，发送空编号数组而保留简历", async ({ page }) => {
   const state = await mockResumeSession(page);
-  state.tags = [{ id: "tag-clear", name: "可清空标签", scope: "personal", can_edit: true }];
-  Object.assign(state.candidates[0], { tag_ids: ["tag-clear"], tag_details: state.tags, tags: ["可清空标签"] });
+  state.folders = [{ id: "folder-clear", name: "可清空收藏夹", scope: "personal", can_edit: true }];
+  Object.assign(state.candidates[0], { folder_ids: ["folder-clear"], folder_details: state.folders, tags: ["原始Java技能"] });
   await page.goto("/admin/resumes");
   await page.getByRole("button", { name: "原有候选人", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
   await drawer.getByRole("button", { name: /编辑$/ }).click();
   const editor = page.getByRole("dialog", { name: "维护简历 · 原有候选人", exact: true });
-  await editor.locator(".ant-select-selection-item-remove").click();
+  await editor.locator(".ant-form-item").filter({ has: page.getByText("收藏夹", { exact: true }) }).locator(".ant-select-selection-item-remove").click();
   await editor.getByRole("button", { name: "检查并保存", exact: true }).click();
   const preview = page.getByRole("dialog", { name: "确认更新内容", exact: true });
-  const clear = preview.getByRole("checkbox", { name: "确认清空标签", exact: true });
+  const clear = preview.getByRole("checkbox", { name: "确认清空收藏夹", exact: true });
   await expect(clear).not.toBeChecked();
   await clear.check();
   await preview.getByRole("button", { name: "确认保存", exact: true }).click();
   await expect(editor).toBeHidden();
   expect(state.candidates).toHaveLength(1);
-  expect(state.candidates[0].tag_ids).toEqual([]);
-  expect(state.calls.find((call) => call.method === "PATCH" && call.path === `/api/candidates/${existing.id}`)?.body.tag_ids).toEqual([]);
+  expect(state.candidates[0].folder_ids).toEqual([]);
+  expect(state.candidates[0].tags).toEqual(["原始Java技能"]);
+  expect(state.calls.find((call) => call.method === "PATCH" && call.path === `/api/candidates/${existing.id}`)?.body.folder_ids).toEqual([]);
+  expect(state.errors).toEqual([]);
+});
+
+test("原始标签自由输入和收藏夹独立，原有标签不会自动创建或加入收藏夹", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.candidates[0].tags = ["Java", "原始项目管理"];
+  await page.goto("/admin/resumes");
+  const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: "原有候选人", exact: true }) });
+  await expect(row).toContainText("Java");
+  await expect(row).toContainText("原始项目管理");
+  await expect(row).toContainText("未加入收藏夹");
+  await expect(page.getByTestId("resume-folder-bar")).toContainText("还没收藏夹");
+  await row.getByRole("button", { name: "原有候选人", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
+  await drawer.getByRole("button", { name: /编辑$/ }).click();
+  const editor = page.getByRole("dialog", { name: "维护简历 · 原有候选人", exact: true });
+  const rawTags = editor.locator(".ant-form-item").filter({ has: page.getByText("标签", { exact: true }) });
+  const folders = editor.locator(".ant-form-item").filter({ has: page.getByText("收藏夹", { exact: true }) });
+  await expect(rawTags).toContainText("Java");
+  await expect(folders.locator(".ant-select-selection-item")).toHaveCount(0);
+  await editor.getByLabel("标签", { exact: true }).fill("Node.js");
+  await editor.getByLabel("标签", { exact: true }).press("Enter");
+  await editor.getByLabel("姓名", { exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "创建新收藏夹", exact: true })).toHaveCount(0);
+  await editor.getByRole("button", { name: "检查并保存", exact: true }).click();
+  const preview = page.getByRole("dialog", { name: "确认更新内容", exact: true });
+  await expect(preview).toContainText("Node.js");
+  await preview.getByRole("button", { name: "确认保存", exact: true }).click();
+  await expect(editor).toBeHidden();
+  expect(state.candidates[0].tags).toEqual(["Java", "原始项目管理", "Node.js"]);
+  expect(state.candidates[0].folder_ids || []).toEqual([]);
+  expect(state.folders || []).toEqual([]);
+  const patch = state.calls.find((call) => call.method === "PATCH" && call.path === `/api/candidates/${existing.id}`);
+  expect(patch?.body.tags).toEqual(["Java", "原始项目管理", "Node.js"]);
+  expect(patch?.body).not.toHaveProperty("folder_ids");
+  expect(state.calls.some((call) => call.method === "POST" && call.path === "/api/candidates/folders")).toBe(false);
+  expect(state.errors).toEqual([]);
+});
+
+test("清空原始标签只清 tags，保留候选人已选收藏夹", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.folders = [{ id: "folder-keep", name: "手动收藏夹保留", scope: "personal", can_edit: true }];
+  Object.assign(state.candidates[0], { tags: ["Java", "原始技能"], folder_ids: ["folder-keep"] });
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  await page.goto("/admin/resumes");
+  const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: "原有候选人", exact: true }) });
+  await expect(row).toContainText("手动收藏夹保留");
+  mkdirSync(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: resolve(screenshotDirectory, "resume-tags-and-folders.png"), fullPage: true, animations: "disabled" });
+  await row.getByRole("button", { name: "原有候选人", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
+  await drawer.getByRole("button", { name: /编辑$/ }).click();
+  const editor = page.getByRole("dialog", { name: "维护简历 · 原有候选人", exact: true });
+  const rawTags = editor.locator(".ant-form-item").filter({ has: page.getByText("标签", { exact: true }) });
+  await rawTags.locator(".ant-select-selection-item-remove").first().click();
+  await rawTags.locator(".ant-select-selection-item-remove").first().click();
+  await editor.getByRole("button", { name: "检查并保存", exact: true }).click();
+  const preview = page.getByRole("dialog", { name: "确认更新内容", exact: true });
+  await expect(preview.getByRole("checkbox", { name: "确认清空标签", exact: true })).not.toBeChecked();
+  await expect(preview.getByRole("checkbox", { name: "确认清空收藏夹", exact: true })).toHaveCount(0);
+  await preview.getByRole("checkbox", { name: "确认清空标签", exact: true }).check();
+  await preview.getByRole("button", { name: "确认保存", exact: true }).click();
+  await expect(editor).toBeHidden();
+  expect(state.candidates[0].tags).toEqual([]);
+  expect(state.candidates[0].folder_ids).toEqual(["folder-keep"]);
+  const patch = state.calls.find((call) => call.method === "PATCH" && call.path === `/api/candidates/${existing.id}`);
+  expect(patch?.body.tags).toEqual([]);
+  expect(patch?.body).not.toHaveProperty("folder_ids");
+  expect(state.errors).toEqual([]);
+});
+
+test("岗位与猎头推荐工具单行，无大标题且新增刷新筛选照常可用", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.positions[0] = { ...state.positions[0], platform_id: "boss", creator_email: state.user.email, is_open: true };
+  await page.setViewportSize({ width: 1600, height: 900 });
+  for (const current of [
+    { path: "/admin/positions", title: "岗位管理", toolbar: "positions-toolbar", create: "新建岗位", dialog: "新建岗位模板" },
+    { path: "/admin/recommendations", title: "猎头推荐", toolbar: "recommendations-toolbar", create: "新增推荐", dialog: "新增猎头推荐" },
+  ]) {
+    await page.goto(current.path);
+    await expect(page.getByRole("heading", { name: current.title, exact: true })).toHaveCount(0);
+    const toolbar = page.getByTestId(current.toolbar);
+    await expect(toolbar).toBeVisible();
+    const create = toolbar.getByRole("button", { name: current.create, exact: true });
+    const refresh = toolbar.getByRole("button", { name: /刷新$/ });
+    const createBox = await create.boundingBox(); const refreshBox = await refresh.boundingBox();
+    expect(createBox).not.toBeNull(); expect(refreshBox).not.toBeNull();
+    expect(Math.abs(createBox!.y + createBox!.height / 2 - refreshBox!.y - refreshBox!.height / 2)).toBeLessThan(3);
+    const control = current.title === "岗位管理" ? toolbar.getByLabel("岗位状态筛选", { exact: true }) : toolbar.getByLabel("筛选推荐阶段", { exact: true });
+    const controlBox = await control.boundingBox();
+    expect(Math.abs(controlBox!.y + controlBox!.height / 2 - createBox!.y - createBox!.height / 2)).toBeLessThan(3);
+    await refresh.click();
+    await create.click();
+    const dialog = page.getByRole("dialog", { name: current.dialog, exact: true });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    mkdirSync(screenshotDirectory, { recursive: true });
+    await page.screenshot({ path: resolve(screenshotDirectory, `${current.toolbar}.png`), fullPage: true, animations: "disabled" });
+  }
   expect(state.errors).toEqual([]);
 });
 
@@ -367,7 +469,7 @@ test("猎头推荐独立菜单分页搜索，新增与管理复用原推荐接�
   state.recommendations = [{ id: "closed-rec", candidate_id: existing.id, position_id: "position-closed", position_name: "关闭顾问岗位", stage: "paused", updated_at: "2026-10-11T10:00:00+08:00", events: [{ id: "closed-event", content: "历史备注继续保留", to_stage: "paused", occurred_at: "2026-10-12T10:00:00+08:00" }, { id: "older-event", content: "最早的旧跟进备注", to_stage: "recommended", occurred_at: "2026-10-08T10:00:00+08:00" }] }];
   await page.goto("/admin/recommendations");
   await expect(page.getByRole("menuitem", { name: "猎头推荐", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "猎头推荐", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "猎头推荐", exact: true })).toHaveCount(0);
   await expect(page.getByText("历史备注继续保留", { exact: true })).toBeVisible();
   const initialClosedRow = page.getByRole("row").filter({ hasText: "关闭顾问岗位" });
   await expect(initialClosedRow).not.toContainText("最早的旧跟进备注");
@@ -1475,7 +1577,7 @@ test("重新打开恢复本地草稿，缺手机号只能补齐后逐份确认",
 test("AI草稿比较更新只提交预览中的有效改动，空邮箱和空经历保留已有内容", async ({ page }) => {
   const state = await mockResumeSession(page);
   state.candidates[0].email = "preserved@example.invalid";
-  state.task.items[0] = { id: "import-item", file_name: "比较更新.txt", status: "ready", candidate: { candidate_name: "解析候选人", phone: existing.phone, email: "", work_experiences: [], expected_salary_min: null, source_type: "ai_import", avatar_data_url: syntheticAvatar } };
+  state.task.items[0] = { id: "import-item", file_name: "比较更新.txt", status: "ready", candidate: { candidate_name: "解析候选人", phone: existing.phone, email: "", work_experiences: [], expected_salary_min: null, source_type: "ai_import", avatar_data_url: syntheticAvatar, tags: ["AI原始Java", "AI原始产品经验"] } };
   await page.goto("/admin/resumes");
   await page.evaluate(() => localStorage.setItem("goodhr5_resume_import:resume-user", "import-test"));
   await page.getByRole("button", { name: "添加", exact: true }).click();
@@ -1502,13 +1604,16 @@ test("AI草稿比较更新只提交预览中的有效改动，空邮箱和空经
   expect(confirms).toHaveLength(1);
   const submitted = confirms[0].body.items[0];
   expect(submitted.candidate_id).toBe(existing.id);
-  expect(submitted.candidate).toEqual({ candidate_name: "解析候选人", phone: existing.phone, row_version: 3, avatar_data_url: syntheticAvatar });
+  expect(submitted.candidate).toEqual({ candidate_name: "解析候选人", phone: existing.phone, row_version: 3, avatar_data_url: syntheticAvatar, tags: ["AI原始Java", "AI原始产品经验"] });
   expect(submitted.candidate).not.toHaveProperty("email");
   expect(submitted.candidate).not.toHaveProperty("work_experiences");
   expect(state.candidates).toHaveLength(1);
   expect(state.candidates[0].email).toBe("preserved@example.invalid");
   expect(state.candidates[0].work_experiences).toEqual(existing.work_experiences);
   expect(state.candidates[0].source_type).toBe("automatic");
+  expect(state.candidates[0].tags).toEqual(["AI原始Java", "AI原始产品经验"]);
+  expect(submitted.candidate).not.toHaveProperty("folder_ids");
+  expect(state.folders || []).toEqual([]);
   expect(state.errors).toEqual([]);
 });
 

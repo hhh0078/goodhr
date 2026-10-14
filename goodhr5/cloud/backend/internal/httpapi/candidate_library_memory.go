@@ -24,7 +24,7 @@ func (s *MemoryCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScope,
 		if !ok || !candidateVisible(scope, item) {
 			return PositionCandidate{}, ErrNotFound
 		}
-		return s.decorateCandidateTagsLocked(scope, s.decorateLibraryCandidateLocked(item)), nil
+		return s.decorateCandidateFoldersLocked(scope, s.decorateLibraryCandidateLocked(item)), nil
 	}
 	item, exists := s.profiles[id]
 	if id != "" {
@@ -35,7 +35,7 @@ func (s *MemoryCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScope,
 			return PositionCandidate{}, ErrCandidateVersion
 		}
 	}
-	selectedTags, pendingTags, tagsPresent, err := s.candidateMutationTagsLocked(scope, fields)
+	selectedFolders, foldersPresent, err := s.candidateMutationFoldersLocked(scope, fields)
 	if err != nil {
 		return PositionCandidate{}, err
 	}
@@ -89,13 +89,13 @@ func (s *MemoryCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScope,
 		}
 	}
 	s.profiles[id] = item
-	if tagsPresent {
-		s.saveCandidateTagsLocked(scope, id, selectedTags, pendingTags)
+	if foldersPresent {
+		s.saveCandidateFoldersLocked(scope, id, selectedFolders)
 	}
 	if requestID != "" {
 		s.requests[requestID] = candidateRequestReceipt{fingerprint, id}
 	}
-	return s.decorateCandidateTagsLocked(scope, s.decorateLibraryCandidateLocked(item)), nil
+	return s.decorateCandidateFoldersLocked(scope, s.decorateLibraryCandidateLocked(item)), nil
 }
 
 // FindCandidateDuplicates 只返回可查看记录，不把无权限的姓名和手机号泄露给成员。
@@ -104,7 +104,7 @@ func (s *MemoryCandidateStore) FindCandidateDuplicates(scope CandidateLibrarySco
 	defer s.mu.Unlock()
 	items := []PositionCandidate{}
 	for _, item := range s.profiles {
-		items = append(items, s.decorateCandidateTagsLocked(scope, s.decorateLibraryCandidateLocked(item)))
+		items = append(items, s.decorateCandidateFoldersLocked(scope, s.decorateLibraryCandidateLocked(item)))
 	}
 	matches, hidden := selectCandidateDuplicateMatches(scope, query, items)
 	return matches, hidden, nil
@@ -247,10 +247,10 @@ func candidateEmptyValue(value any) bool {
 
 // candidateMatchesFilters 在内存环境使用与数据库相同的紧凑筛选条件。
 func candidateMatchesFilters(item PositionCandidate, query PositionCandidateQuery) bool {
-	if query.TagID != "" {
+	if query.FolderID != "" {
 		found := false
-		for _, id := range item.TagIDs {
-			if id == query.TagID {
+		for _, id := range item.FolderIDs {
+			if id == query.FolderID {
 				found = true
 				break
 			}

@@ -57,7 +57,7 @@ func (s *PostgresCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScop
 			return PositionCandidate{}, ErrCandidateVersion
 		}
 	}
-	selectedTags, tagsPresent, err := candidateResolveTagsTx(ctx, tx, scope, fields)
+	selectedFolders, foldersPresent, err := candidateResolveFoldersTx(ctx, tx, scope, fields)
 	if err != nil {
 		return PositionCandidate{}, err
 	}
@@ -109,8 +109,8 @@ func (s *PostgresCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScop
 	if err = candidateSaveSourceTx(ctx, tx, scope.TenantID, id, fields); err != nil {
 		return PositionCandidate{}, err
 	}
-	if tagsPresent {
-		if err = candidateSaveTagsTx(ctx, tx, scope, id, selectedTags); err != nil {
+	if foldersPresent {
+		if err = candidateSaveFoldersTx(ctx, tx, scope, id, selectedFolders); err != nil {
 			return PositionCandidate{}, err
 		}
 	}
@@ -146,7 +146,7 @@ func candidateReadTx(ctx context.Context, tx *sql.Tx, scope CandidateLibraryScop
 	if err != nil {
 		return item, err
 	}
-	items, err := hydrateCandidateTags(ctx, tx, scope, []PositionCandidate{item})
+	items, err := hydrateCandidateFolders(ctx, tx, scope, []PositionCandidate{item})
 	if err != nil {
 		return PositionCandidate{}, err
 	}
@@ -327,7 +327,7 @@ func (s *PostgresCandidateStore) FindCandidateDuplicates(scope CandidateLibraryS
 		return nil, false, err
 	}
 	rows.Close()
-	items, err = hydrateCandidateTags(ctx, s.db, scope, items)
+	items, err = hydrateCandidateFolders(ctx, s.db, scope, items)
 	if err != nil {
 		return nil, false, err
 	}
@@ -479,6 +479,9 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 		}
 	}
 	fields := candidateProfileFields(PositionCandidate{CandidateName: input.CandidateName, BirthYM: input.BirthYM, Phone: input.Phone, Email: input.Email, WorkRegion: input.WorkRegion, WorkYears: input.WorkYears, ExpectedSalaryMin: input.ExpectedSalaryMin, ExpectedSalaryMax: input.ExpectedSalaryMax, BasicInfo: input.BasicInfo, EducationLevel: input.EducationLevel, ExpectedPosition: input.ExpectedPosition, OnlineStatus: input.OnlineStatus, PersonalDescription: input.PersonalDescription, WorkStatus: input.WorkStatus, RawText: input.RawText, WorkExperiences: input.WorkExperiences, Educations: input.Educations, Certificates: input.Certificates, Honors: input.Honors, ProjectExperiences: input.ProjectExperiences, Communications: input.Communications})
+	if input.Tags != nil {
+		fields["tags"] = append([]string{}, input.Tags...)
+	}
 	// 自动同步的薪资指针转为 SQL 标量，JSON 数组始终为有效数组。
 	for _, key := range []string{"expected_salary_min", "expected_salary_max"} {
 		if ptr, ok := fields[key].(*float64); ok {

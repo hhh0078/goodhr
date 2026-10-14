@@ -46,7 +46,7 @@
 
 ## 字段合同与外发范围
 
-候选人资料使用当前云端白名单。1.0.8 起库标签通过 tag_ids 选择当前账号可见的已有标签，最多30个；采集 tags 技能文字保留本地预览和总结，不提交云端创建标签。current_region/expected_region为地区，数值薪资仅明确的expected_salary_min/max，单位K，原文字另保留current_salary_text/expected_salary_text；日期YYYY-MM。经历使用work_experiences、educations、project_experiences、certificates、honors。头像只允许规范化PNG/JPEG完整dataURL≤131072字符。UPDATE过滤空采集字段、空经历数组和null，保留主库资料；显式 tag_ids:[] 仅清除当前用户可见的标签关联。
+候选人资料使用当前云端白名单。1.0.9 起原始技能标签 tags 恢复正常保存、预览及总结，最多30项，每项50字。手动分类通过 folder_ids 独立选择已有收藏夹，最多30个，采集标签不会自动创建或加入收藏夹。current_region/expected_region为地区，数值薪资仅明确的expected_salary_min/max，单位K，原文字另保留current_salary_text/expected_salary_text；日期YYYY-MM。经历使用work_experiences、educations、project_experiences、certificates、honors。头像只允许规范化PNG/JPEG完整dataURL≤131072字符。UPDATE过滤空采集字段、空技能标签、空经历数组和null，保留主库资料；显式 folder_ids:[] 仅清除当前用户可见的收藏关系，不清空原技能标签。
 
 查重发送有限身份依据，不发送完整履历和头像。AI通过配对grant调用127.0.0.1的本地任务接口，移除姓名、联系方式字段、头像和来源编号，再由本地程序按配置调用AI服务，职业事实会交给该服务处理。没有云端执行AI或完整网页登录Token读取回退。失败不自动重新生成；possible charge显示并要求显式重试。
 
