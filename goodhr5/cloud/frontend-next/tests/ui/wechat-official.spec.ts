@@ -617,7 +617,7 @@ test("手动打开后公众号被停用，旧绑定码停止轮询并可取消",
   await expect(dialog).toBeHidden();
 });
 
-test("同账号解绑后重开再次绑定，每个绑定周期都关闭并只刷新一次", async ({
+test("同账号解绑后重新进入再次绑定，每个绑定周期都关闭并只刷新一次", async ({
   page,
 }) => {
   const state = await mockWechat(page);
@@ -630,10 +630,10 @@ test("同账号解绑后重开再次绑定，每个绑定周期都关闭并只�
   await expect(first).toBeHidden();
   await expect.poll(() => authCalls(state).length).toBe(firstAuthCount + 1);
   state.bound = false;
-  await page.getByRole("button", { name: "刷新状态", exact: true }).click();
+  await expect(page.getByRole("button", { name: "刷新状态", exact: true })).toHaveCount(0);
+  await page.reload();
   const entry = page.getByRole("button", { name: "关注公众号", exact: true });
   await expect(entry).toBeVisible();
-  await entry.click();
   const second = await followDialog(page, "关注公众号");
   await expect(second.getByLabel("公众号绑定码")).toHaveValue("1235");
   const secondAuthCount = authCalls(state).length;

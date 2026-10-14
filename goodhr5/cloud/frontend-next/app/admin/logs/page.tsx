@@ -307,8 +307,8 @@ export default function LogsPage() {
           筛选日志
         </Typography.Title>
         <Flex
-          className={styles.layout19}
-          gap={1.5 * 8}
+          className={`goodhr-compact-toolbar ${styles.layout19}`}
+          gap={8}
           style={{ flexWrap: "wrap" }}
         >
           <Form.Item
@@ -322,7 +322,6 @@ export default function LogsPage() {
               onChange={(value) => setFilters({ ...filters, category: value })}
               style={{ minWidth: 155, width: "100%" }}
               value={filters.category}
-              size="small"
             >
               <Select.Option value="">全部</Select.Option>
               <Select.Option value="运行">运行</Select.Option>
@@ -343,7 +342,6 @@ export default function LogsPage() {
               onChange={(event) =>
                 setFilters({ ...filters, account: event.target.value })
               }
-              size="small"
             />
           </Form.Item>
           <Form.Item
@@ -358,7 +356,6 @@ export default function LogsPage() {
               onChange={(event) =>
                 setFilters({ ...filters, position: event.target.value })
               }
-              size="small"
             />
           </Form.Item>
           <Form.Item
@@ -379,7 +376,6 @@ export default function LogsPage() {
                   from: date ? date.format("YYYY-MM-DDTHH:mm") : "",
                 })
               }
-              size="small"
             />
           </Form.Item>
           <Form.Item
@@ -400,7 +396,6 @@ export default function LogsPage() {
                   to: date ? date.format("YYYY-MM-DDTHH:mm") : "",
                 })
               }
-              size="small"
             />
           </Form.Item>
           <Button type={"primary"} onClick={applyFilters} disabled={loading}>
@@ -501,14 +496,15 @@ export default function LogsPage() {
           />
         )}
         {total > 50 && (
-          <Pagination
-            current={page}
-            total={total}
-            pageSize={50}
-            onChange={(nextPage) => void load(nextPage, applied)}
-            showSizeChanger={false}
-            style={{ marginTop: 16 }}
-          />
+          <Flex className="goodhr-table-pagination">
+            <Pagination
+              current={page}
+              total={total}
+              pageSize={50}
+              onChange={(nextPage) => void load(nextPage, applied)}
+              showSizeChanger={false}
+            />
+          </Flex>
         )}
       </SectionPanel>
     </Flex>

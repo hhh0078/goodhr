@@ -4,7 +4,7 @@ import { Alert, Button, Flex, Form, Input, Space, Table, Tabs, Tag, Typography }
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAdmin } from "@/components/admin/AdminApp";
-import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
+import { EmptyState, PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import WorkflowEditor from "@/components/admin/recruitment/WorkflowEditor";
 import MailTemplateEditor from "@/components/admin/recruitment/MailTemplateEditor";
 import { loadRecruitmentWorkflows, recruitmentMailCategories, recruitmentRequest, type RecruitmentCompany, type RecruitmentMailTemplate, type RecruitmentMember, type RecruitmentPlaceholder, type RecruitmentWorkflow } from "@/lib/recruitment-api";
@@ -162,12 +162,12 @@ export default function RecruitmentSettingsContent({ embedded = false, onChanged
     }
   }
 
-  return <>{embedded ? <Flex justify="flex-end" style={{ marginBottom: 8 }}><RefreshButton loading={loading} onClick={() => void load()} /></Flex> : <PageHeader
+  return <>{!embedded ? <PageHeader
     title="招聘设置"
     description="公司信息先填一次，流程和邮件可各存多套。"
     actions={<><Link href="/admin/recruitment">
       <Button>返回招聘进度</Button>
-    </Link><RefreshButton loading={loading} onClick={() => void load()} /></>} />}{error ? <Alert type="warning" title={error} style={{ marginBottom: 12 }} /> : null}{!loading && !canManage ? <Alert type="info" title="你可以查看设置，修改由团队管理员处理。" style={{ marginBottom: 12 }} /> : null}<SectionPanel>
+    </Link></>} /> : null}{error ? <Alert type="warning" title={error} action={<Button loading={loading} onClick={() => void load()}>重试</Button>} style={{ marginBottom: 12 }} /> : null}{!loading && !canManage ? <Alert type="info" title="你可以查看设置，修改由团队管理员处理。" style={{ marginBottom: 12 }} /> : null}<SectionPanel>
       <Tabs
         items={[
 

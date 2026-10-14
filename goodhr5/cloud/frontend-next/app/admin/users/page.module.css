@@ -19,9 +19,9 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 110px max-content max-content;
   align-items: end;
-  gap: 10px;
+  gap: 8px;
   max-width: 770px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .searchButton.searchButton {
   width: auto;

@@ -1,7 +1,7 @@
 /** 文件作用说明：通过本地程序上传和批量解析简历，恢复导入任务并让用户逐项补号、查重与确认入库。 */
 "use client";
 import { Alert, Button, Flex, Input, Progress, Space, Table, Tag, Typography, Upload, type UploadFile } from "antd";
-import { ArrowLeftOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, InboxOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import AdminDialog from "../AdminDialog";
 import { useAdmin } from "../AdminApp";
@@ -216,7 +216,7 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
           <Input.TextArea value={text} onChange={(event) => setText(event.target.value)} disabled={busy} autoSize={{ minRows: 3, maxRows: 8 }} placeholder="也可以粘贴一份简历文本。" />
           <Flex justify="flex-end"><Button type="primary" disabled={!agentBase || (!files.length && !text.trim())} loading={busy} onClick={() => void startImport()}>开始解析</Button></Flex>
         </> : <>
-          <Flex align="center" justify="space-between" gap={12} wrap><Typography.Text strong>{task.status === "running" ? "正在认真读简历" : task.status === "cancelled" ? "已暂停解析，完成结果仍保留" : "解析结果等你确认"} · {task.processed || 0}/{task.total || task.items.length}</Typography.Text><Button icon={<ReloadOutlined />} disabled={!agentBase} onClick={() => { generation.current += 1; if (timer.current) clearTimeout(timer.current); void readTask(task.id); }}>重新读取</Button></Flex>
+          <Flex align="center" justify="space-between" gap={12} wrap><Typography.Text strong>{task.status === "running" ? "正在认真读简历" : task.status === "cancelled" ? "已暂停解析，完成结果仍保留" : "解析结果等你确认"} · {task.processed || 0}/{task.total || task.items.length}</Typography.Text></Flex>
           <Progress percent={task.total ? Math.round((task.processed || 0) / task.total * 100) : 0} status={task.status === "running" ? "active" : "normal"} />
           <Table<ImportItem> size="small" className={styles.importTable} rowKey="id" dataSource={task.items} pagination={false} scroll={{ x: 560 }} columns={[
             { title: "简历文件", dataIndex: "file_name", width: 180 },

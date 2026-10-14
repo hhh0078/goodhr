@@ -8,7 +8,6 @@ import { cloudRequest, formatDate } from "@/lib/admin-api";
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -189,7 +188,7 @@ export default function TeamPage() {
                 邀请成员
               </Button>
             ) : null}
-            <RefreshButton loading={loading} onClick={() => void load()} />
+
           </>
         }
       />

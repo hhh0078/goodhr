@@ -300,7 +300,6 @@ export default function RequiredRuntimeInstaller({
           data-onboarding="runtime-install"
           block
           type="primary"
-          size="large"
           icon={<DownloadOutlined />}
           loading={running}
           onClick={() => void installRuntime()}

@@ -3,7 +3,7 @@
 import { Alert, Button, Flex, Input, Select, Space, Table, Tabs, Tag, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
+import { SectionPanel } from "@/components/admin/AdminUI";
 import ApplicationDialog from "@/components/admin/recruitment/ApplicationDialog";
 import StartRecruitmentDialog from "@/components/admin/recruitment/StartRecruitmentDialog";
 import RecruitmentSettingsDialog from "@/components/admin/recruitment/RecruitmentSettingsDialog";
@@ -84,7 +84,10 @@ export default function RecruitmentPage() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           style={{ width: 220 }} />
-      <Button onClick={() => setSettingsOpen(true)}>招聘设置</Button><Button type="primary" onClick={() => setStartOpen(true)}>开启招聘</Button><RefreshButton loading={loading} onClick={() => void load()} />
+      <Flex gap={8} className="goodhr-toolbar-actions">
+        <Button onClick={() => setSettingsOpen(true)}>招聘设置</Button>
+        <Button type="primary" onClick={() => setStartOpen(true)}>开启招聘</Button>
+      </Flex>
     </Flex>{error ? <Alert type="warning" title={error} action={<Button onClick={() => void load()}>重试</Button>} style={{ marginBottom: 12 }} /> : null}<SectionPanel>
       {tab === "mine" ? <Typography.Paragraph type="secondary">面试、审核和负责人待办，以及抄送给你的进度记录。抄送只供查看。</Typography.Paragraph> : null}
       <Table
@@ -120,7 +123,7 @@ export default function RecruitmentPage() {
               {recruitmentStatusLabel(value)}
             </Tag>
           },
-          { title: "招聘负责人", dataIndex: "owner_email", ellipsis: true },
+          { title: "招聘负责人", dataIndex: "owner_email" },
           {
 
             title: "我的角色",

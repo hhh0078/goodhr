@@ -23,7 +23,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -261,11 +260,6 @@ export default function AdminMailPage() {
       <PageHeader
         title="邮件与批量调整"
         description="发邮件，或批量调整会员天数和 AI 余额。该通知的我都会认真通知。"
-        actions={
-          operation === "mail" ? (
-            <RefreshButton loading={loading} onClick={() => void load()} />
-          ) : undefined
-        }
       />
       <Radio.Group
         value={operation}
@@ -382,15 +376,16 @@ export default function AdminMailPage() {
                 toolbarConfig={toolbarConfig}
                 onChange={setMailHtml}
               />
-              <Button
-                type={"primary"}
-                icon={<SendOutlined aria-hidden="true" />}
-                size="large"
-                disabled={sending}
-                onClick={() => void send()}
-              >
-                {sending ? "正在创建批次" : "发送邮件"}
-              </Button>
+              <Flex className="goodhr-toolbar-actions">
+                <Button
+                  type={"primary"}
+                  icon={<SendOutlined aria-hidden="true" />}
+                  disabled={sending}
+                  onClick={() => void send()}
+                >
+                  {sending ? "正在创建批次" : "发送邮件"}
+                </Button>
+              </Flex>
             </Flex>
           </SectionPanel>
           <Flex vertical={true} gap={2 * 8}>
@@ -603,15 +598,16 @@ export default function AdminMailPage() {
                   placeholder="例如：活动赠送、服务补偿"
                 />
               </Form.Item>
-              <Button
-                type={"primary"}
-                icon={<SettingOutlined aria-hidden="true" />}
-                size="large"
-                disabled={adjusting}
-                onClick={() => void adjustBatch()}
-              >
-                {adjusting ? "正在逐个处理，请稍等" : "开始批量调整"}
-              </Button>
+              <Flex className="goodhr-toolbar-actions">
+                <Button
+                  type={"primary"}
+                  icon={<SettingOutlined aria-hidden="true" />}
+                  disabled={adjusting}
+                  onClick={() => void adjustBatch()}
+                >
+                  {adjusting ? "正在逐个处理，请稍等" : "开始批量调整"}
+                </Button>
+              </Flex>
             </Flex>
           </SectionPanel>
           <SectionPanel>

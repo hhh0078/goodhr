@@ -1,7 +1,7 @@
 /** 文件作用说明：在后台右上角显示个人消息，串行检查未读状态，展开正文后标记已读。 */
 "use client";
 import { Alert, Badge, Button, Collapse, Empty, Flex, Pagination, Popover, Spin, Typography } from "antd";
-import { BellOutlined, ReloadOutlined } from "@ant-design/icons";
+import { BellOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
@@ -66,7 +66,7 @@ export default function MessageCenter({ userKey }: { userKey: string }) {
       if (controller.signal.aborted || current !== generation.current || requestVersion < acceptedVersion.current) return;
       setMessages(Array.isArray(result.messages) ? result.messages : []); setTotal(Number(result.total) || 0);
     }).catch((cause) => {
-      if (!controller.signal.aborted && current === generation.current) setError(cause instanceof Error ? cause.message : "消息没读出来，点刷新再试一次。");
+      if (!controller.signal.aborted && current === generation.current) setError(cause instanceof Error ? cause.message : "消息没读出来，可以重试读取。");
     }).finally(() => { if (!controller.signal.aborted && current === generation.current) setLoading(false); });
     return () => controller.abort();
   }, [open, page, version, refresh, userKey]);
@@ -94,8 +94,8 @@ export default function MessageCenter({ userKey }: { userKey: string }) {
     next.forEach((id) => void readMessage(id));
   }
   const content = <div style={{ width: "min(380px, calc(100vw - 48px))" }} data-testid="message-center-panel">
-    <Flex justify="space-between" align="center" style={{ marginBottom: 10 }}><Typography.Text strong>消息中心{count ? ` · ${count} 条未读` : ""}</Typography.Text><Button type="text" icon={<ReloadOutlined />} aria-label="刷新消息" onClick={() => setRefresh((value) => value + 1)} /></Flex>
-    {error ? <Alert type="warning" title={error} style={{ marginBottom: 8 }} /> : null}
+    <Flex justify="space-between" align="center" style={{ marginBottom: 10 }}><Typography.Text strong>消息中心{count ? ` · ${count} 条未读` : ""}</Typography.Text></Flex>
+    {error ? <Alert type="warning" title={error} action={<Button onClick={() => setRefresh((value) => value + 1)}>重试读取</Button>} style={{ marginBottom: 8 }} /> : null}
     <Spin spinning={loading}>
       <div style={{ maxHeight: "min(480px, 65vh)", overflowY: "auto" }}>
         {!messages.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里暂时空空的，有进展我会来报信。" /> : <Collapse ghost activeKey={expanded} onChange={expandMessages} items={messages.map((item) => {
@@ -108,9 +108,9 @@ export default function MessageCenter({ userKey }: { userKey: string }) {
         })} />}
       </div>
     </Spin>
-    {total > 20 ? <Pagination size="small" current={page} total={total} pageSize={20} showSizeChanger={false} style={{ marginTop: 10 }} onChange={setPage} /> : null}
+    {total > 20 ? <Flex className="goodhr-table-pagination"><Pagination current={page} total={total} pageSize={20} showSizeChanger={false} onChange={setPage} /></Flex> : null}
   </div>;
-  return <Popover placement="bottomRight" trigger="click" open={open} onOpenChange={setOpen} content={content}>
+  return <Popover placement="bottom" trigger="click" open={open} onOpenChange={setOpen} content={content}>
     <Badge count={count} overflowCount={99} size="small"><Button type="text" icon={<BellOutlined />} aria-label="消息中心" title={count ? `${count} 条未读消息` : "消息中心"} /></Badge>
   </Popover>;
 }

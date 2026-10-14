@@ -358,15 +358,14 @@ test("企业招聘单行工具栏设置弹框共用旧内容，保存公司流�
   await expect(page.getByRole("heading", { name: "企业招聘", exact: true })).toHaveCount(0);
   const toolbar = page.getByTestId("recruitment-toolbar");
   const create = toolbar.getByRole("button", { name: "开启招聘", exact: true });
-  const refresh = toolbar.getByRole("button", { name: /刷新$/ });
+  await expect(toolbar.getByRole("button", { name: /刷新$/ })).toHaveCount(0);
   const settingsButton = toolbar.getByRole("button", { name: "招聘设置", exact: true });
   const createBox = await create.boundingBox();
-  for (const control of [refresh, settingsButton, toolbar.getByLabel("搜索招聘进度", { exact: true }), toolbar.getByLabel("筛选招聘岗位", { exact: true }), toolbar.getByRole("tablist")]) {
+  for (const control of [settingsButton, toolbar.getByLabel("搜索招聘进度", { exact: true }), toolbar.getByLabel("筛选招聘岗位", { exact: true }), toolbar.getByRole("tablist")]) {
     const controlBox = await control.boundingBox();
     expect(controlBox).not.toBeNull();
     expect(Math.abs(controlBox!.y + controlBox!.height / 2 - createBox!.y - createBox!.height / 2)).toBeLessThan(12);
   }
-  await refresh.click();
   const screenshotDirectory = resolve("../../../output/resume-folders");
   mkdirSync(screenshotDirectory, { recursive: true });
   await page.screenshot({ path: resolve(screenshotDirectory, "recruitment-toolbar.png"), fullPage: true, animations: "disabled" });
@@ -464,7 +463,11 @@ test("面试排期和独立面评提交准确字段，邮件缺资料不能发�
   });
 
   state.app.interviews[0].starts_at = new Date(Date.now() - 60000).toISOString();
-  await detail.getByRole("button", { name: "刷新进度", exact: true }).click();
+  await expect(detail.getByRole("button", { name: "刷新进度", exact: true })).toHaveCount(0);
+  await detail.locator(".ant-modal-footer").getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(detail).toBeHidden();
+  await page.getByRole("button", { name: "查看进度", exact: true }).click();
+  await expect(detail).toBeVisible();
   await detail.getByRole("button", { name: "写面试评价", exact: true }).click();
   const feedback = page.getByRole("dialog", { name: "面试评价", exact: true });
   await feedback.getByLabel("招聘操作说明", { exact: true }).fill("需求表达清晰，建议业务复试。");

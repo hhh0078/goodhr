@@ -7,7 +7,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -62,9 +61,6 @@ export default function AIRecordsPage() {
       <PageHeader
         title={title}
         description={description}
-        actions={
-          <RefreshButton loading={loading} onClick={() => void load()} />
-        }
       />
       <SectionPanel>
         {records.length ? (
@@ -126,18 +122,15 @@ export default function AIRecordsPage() {
                 />
               ))}
             </Flex>
-            <Pagination
-              current={page}
-              total={total}
-              pageSize={pageSize}
-              onChange={(value) => setPage(value)}
-              showSizeChanger={false}
-              style={{
-                marginTop: 16,
-                display: "flex",
-                justifyContent: "center",
-              }}
-            />
+            <Flex className="goodhr-table-pagination">
+              <Pagination
+                current={page}
+                total={total}
+                pageSize={pageSize}
+                onChange={(value) => setPage(value)}
+                showSizeChanger={false}
+              />
+            </Flex>
           </>
         ) : (
           <EmptyState

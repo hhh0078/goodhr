@@ -336,7 +336,7 @@ export default function PersonalConfigPage() {
   return (
     <>
       <NotificationProfileDialog openSignal={profileOpenSignal} />
-      <Flex justify="flex-end" gap={8} style={{ marginBottom: 10 }}>
+      <Flex className="goodhr-toolbar-actions" justify="flex-end" gap={8} style={{ marginBottom: 12 }}>
             <Button
               onClick={() => setProfileOpenSignal((value) => value + 1)}
               type={"default"}

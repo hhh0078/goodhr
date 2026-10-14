@@ -42,4 +42,4 @@ npm run lint:firefox
 6. 后台配置只在以上检查全部通过后填写 XPI 地址、摘要并设置 `firefox_signed=true`。
 7. Chrome 地址和摘要必须保持不变。
 
-Mozilla 签名或审核未完成时，公开接口和下载页必须隐藏 Firefox 下载入口。
+Firefox 新版本签名或审核未完成时，继续提供已经验证的旧签名版；只有没有有效签名包时，公开接口和下载页才隐藏 Firefox 下载入口。

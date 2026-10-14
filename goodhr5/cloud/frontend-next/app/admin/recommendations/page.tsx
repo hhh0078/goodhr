@@ -4,7 +4,7 @@ import { Alert, Button, Drawer, Flex, Input, Pagination, Select, Table, Tag, Typ
 import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
+import { SectionPanel } from "@/components/admin/AdminUI";
 import AdminDialog from "@/components/admin/AdminDialog";
 import { useAdmin } from "@/components/admin/AdminApp";
 import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
@@ -38,7 +38,7 @@ export default function RecommendationsPage() {
   /** reloadPositions 刷新开启岗位，关闭后的推荐历史仍独立保留在列表。 */
   async function reloadPositions() {
     try { setPositions(await loadResumePositions()); }
-    catch (cause) { notify(cause instanceof Error ? cause.message : "岗位没读出来，请刷新后再试。", "warning"); }
+    catch (cause) { notify(cause instanceof Error ? cause.message : "岗位没读出来，请稍后再试。", "warning"); }
   }
   useEffect(() => { void reloadPositions(); }, []);
   useEffect(() => { setQ(params.get("q") || ""); setStage(params.get("stage") || ""); void loadList(); return () => { generation.current += 1; }; }, [queryText]);
@@ -60,11 +60,13 @@ export default function RecommendationsPage() {
     finally { deleteInProgress.current = false; setDeleteBusy(false); }
   }
   return <>
-    <Flex gap={8} className={`goodhr-compact-toolbar ${styles.filters}`} data-testid="recommendations-toolbar">
+    <Flex gap={8} className="goodhr-compact-toolbar" data-testid="recommendations-toolbar">
       <Input aria-label="搜索猎头推荐" prefix={<SearchOutlined aria-hidden="true" />} placeholder="候选人、手机号或岗位" value={q} onChange={(event) => setQ(event.target.value)} onPressEnter={() => navigateFilters()} className={styles.keyword} />
       <Select aria-label="筛选推荐阶段" allowClear showSearch optionFilterProp="label" placeholder="全部阶段" value={stage || undefined} onChange={(value) => setStage(value || "")} options={recommendationStages} className={styles.stage} />
       <Button aria-label="查询" type="primary" loading={loading} onClick={() => navigateFilters()}>查询</Button><Button onClick={() => navigateFilters("", "")}>重置</Button>
-      <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={() => setCreateOpen(true)}>新增推荐</Button><RefreshButton loading={loading} onClick={() => { void loadList(); void reloadPositions(); }} />
+      <Flex gap={8} className="goodhr-toolbar-actions">
+        <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={() => setCreateOpen(true)}>新增推荐</Button>
+      </Flex>
     </Flex>
     {error ? <Alert type="warning" showIcon title={error} action={<Button size="small" onClick={() => void loadList()}>重试</Button>} style={{ marginBottom: 10 }} /> : null}
     <SectionPanel style={{ padding: 0, overflow: "hidden" }}>
@@ -76,10 +78,10 @@ export default function RecommendationsPage() {
           { title: "阶段", width: 95, render: (_, record) => <Tag>{stageLabel(record.stage)}</Tag> },
           { title: "最新跟进", width: 250, render: (_, record) => { const latest = latestRecommendationEvent(record.events); return <Typography.Paragraph ellipsis={{ rows: 2, tooltip: true }} className={styles.note}>{latest?.content || latest?.note || record.note || "还没备注"}</Typography.Paragraph>; } },
           { title: "跟进时间", width: 155, render: (_, record) => { const latest = latestRecommendationEvent(record.events); return <Typography.Text className={styles.meta}>{recordTime(latest?.occurred_at || latest?.created_at || record.updated_at || record.recommended_at || record.created_at)}</Typography.Text>; } },
-          { title: "推荐人", width: 135, render: (_, record) => <Typography.Text ellipsis={{ tooltip: true }} className={styles.meta}>{record.author_name || record.author_email || "未记录"}</Typography.Text> },
+          { title: "推荐人", width: 135, render: (_, record) => <Typography.Text className={styles.meta}>{record.author_name || record.author_email || "未记录"}</Typography.Text> },
           { title: "操作", width: 125, fixed: "right", render: (_, record) => <Flex gap={4}><Button type="link" size="small" onClick={() => openRecord(record)}>{record.can_edit ? "管理" : "查看"}</Button>{record.can_delete ? <Button type="link" size="small" danger onClick={() => { setDeleting(record); setDeleteError(""); }}>删除</Button> : null}</Flex> },
         ]} />
-      <Flex justify="space-between" align="center" gap={10} wrap className={styles.pagination}><Typography.Text type="secondary">共 {total} 条推荐</Typography.Text><Pagination current={page} pageSize={pageSize} total={total} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateFilters(params.get("q") || "", params.get("stage") || "", size !== pageSize ? 1 : next, size)} /></Flex>
+      <Flex justify="space-between" align="center" gap={10} wrap className="goodhr-table-pagination"><Typography.Text type="secondary">共 {total} 条推荐</Typography.Text><Pagination current={page} pageSize={pageSize} total={total} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateFilters(params.get("q") || "", params.get("stage") || "", size !== pageSize ? 1 : next, size)} /></Flex>
     </SectionPanel>
     <RecommendationCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} onSaved={() => { void loadList(); void reloadPositions(); }} />
     <AdminDialog open={Boolean(deleting)} title="删除推荐记录" maxWidth="xs" loading={deleteBusy} onClose={() => setDeleting(null)} onConfirm={() => void removeRecord()} confirmText="删除记录">

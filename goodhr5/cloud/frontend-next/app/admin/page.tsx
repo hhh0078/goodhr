@@ -16,7 +16,6 @@ import {
   WechatOutlined,
   FileTextOutlined,
   LoadingOutlined,
-  ReloadOutlined,
   SolutionOutlined,
 } from "@ant-design/icons";
 import type { CSSProperties } from "react";
@@ -45,9 +44,7 @@ export default function DashboardPage() {
     user,
     wechatOfficialStatus,
     openWechatOfficial,
-    refreshWechatOfficialStatus,
     subscription,
-    refreshAgent,
     refreshSession,
     notify,
     confirm,
@@ -251,28 +248,7 @@ export default function DashboardPage() {
                   : "关注领会员"}
               </Button>
             ) : null}
-            <Button
-              disabled={loading}
-              onClick={() =>
-                void Promise.all([
-                  refreshAgent(),
-                  load(),
-                  loadRuntime(),
-                  refreshWechatOfficialStatus(),
-                ]).catch((error) =>
-                  notify(
-                    error instanceof Error
-                      ? error.message
-                      : "状态暂时没同步，再刷新一次就好",
-                    "warning",
-                  ),
-                )
-              }
-              type={"default"}
-              icon={<ReloadOutlined aria-hidden="true" />}
-            >
-              刷新状态
-            </Button>
+
           </>
         }
       />

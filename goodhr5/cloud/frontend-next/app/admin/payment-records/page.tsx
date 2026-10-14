@@ -6,7 +6,6 @@ import { cloudRequest, formatDate } from "@/lib/admin-api";
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -48,9 +47,6 @@ export default function PaymentRecordsPage() {
       <PageHeader
         title="支付记录"
         description={`查看全部用户的会员和 AI 余额支付订单，实付与赠送分开记账。本月 AI 消费 ${loading ? "读取中" : monthlyAIConsumption === null ? "暂未读取" : `¥${monthlyAIConsumption}`}（北京时间）。`}
-        actions={
-          <RefreshButton loading={loading} onClick={() => void load()} />
-        }
       />
       <SectionPanel style={{ padding: 0, overflow: "hidden" }}>
         <Table

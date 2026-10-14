@@ -3,7 +3,7 @@
 .privacyNotice.privacyNotice { flex: 1; min-width: 0; margin: 0; overflow: hidden; color: var(--goodhr-text-secondary); font-size: 12px; line-height: 1.6; text-overflow: ellipsis; white-space: nowrap; }
 .privacyTail { display: inline-block; }
 .extensionDownloadLink { flex: none; font-size: 12px; line-height: 1.6; white-space: nowrap; }
-.toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; min-width: 0; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
 .searchControls { flex: 1; min-width: 0; }
 .keyword.keyword { width: 230px; flex: 0 1 230px; }
 .phone.phone { width: 158px; flex: 0 1 158px; }
@@ -41,7 +41,6 @@
 /* 最新备注保持正文外观，悬停和按下不显示按钮底色；键盘焦点轮廓保留。 */
 .noteButton.noteButton:not(:disabled):not(:global(.ant-btn-disabled)):hover,
 .noteButton.noteButton:not(:disabled):not(:global(.ant-btn-disabled)):active { background: transparent; box-shadow: none; color: inherit; }
-.pagination { padding: 10px 12px; }
 .pagination :global(.ant-pagination) { display: flex; flex-wrap: wrap; row-gap: 8px; }
 @media (max-width: 1200px) { .toolbar { flex-wrap: wrap; } .toolbarActions { margin-left: auto; } .moreFilters { grid-template-columns: repeat(3, minmax(120px, 1fr)); } }
 @media (max-width: 700px) { .moreFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .keyword.keyword { flex: 1 1 100%; width: auto; } .phone.phone, .position.position, .source.source { flex: 1 1 140px; width: auto; } }

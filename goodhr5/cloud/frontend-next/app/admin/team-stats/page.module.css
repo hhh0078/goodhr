@@ -3,7 +3,10 @@
   width: 100%;
 }
 .layout2.layout2 {
-  grid-template-columns: 1fr;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: end;
+  gap: 8px;
 }
 .layout4.layout4 {
   grid-template-columns: 1fr 1fr;
@@ -21,5 +24,15 @@
 @media (min-width: 900px) {
   .layout4.layout4 {
     grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
+/* 桌面按条件排成一行；窄屏由上面的单列布局承接，不使用内联固定列宽。 */
+@media (min-width: 900px) {
+  .layout2.layout2 {
+    grid-template-columns: minmax(0, 180px) max-content;
+  }
+  .layout2.customFilters {
+    grid-template-columns: repeat(3, minmax(0, 180px)) max-content;
   }
 }

@@ -244,9 +244,8 @@ export default function RecruitmentMailDialog({ open, application, templates, hi
             <Typography.Text strong>真实预览</Typography.Text>
             <Spin size="small" spinning={previewBusy} />
           </Space>
-          <Button size="small" disabled={busy || previewBusy} onClick={refreshPreview}>刷新预览</Button>
         </Flex>
-        {previewError ? <Alert type="warning" title={previewError} /> : null}
+        {previewError ? <Alert type="warning" title={previewError} action={<Button disabled={busy || previewBusy} onClick={refreshPreview}>重试</Button>} /> : null}
         {missing.length ? <Alert type="warning" title={`先补上：${missing.join("、")}`} style={{ marginBottom: 12 }} /> : null}
         {preview?.warnings?.length ? <Alert type="warning" title={preview.warnings.join("；")} style={{ marginBottom: 12 }} /> : null}
         {preview && !preview.can_send && !missing.length && !preview.warnings?.length ? <Alert type="warning" title="这份邮件暂时不能发送，请检查公司信息、候选人邮箱和面试安排。" style={{ marginBottom: 12 }} /> : null}

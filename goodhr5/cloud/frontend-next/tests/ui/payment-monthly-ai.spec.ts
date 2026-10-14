@@ -1,4 +1,4 @@
-/** 本文件通过模拟接口验证支付记录月消费的四位小数、刷新和查询失败显示，不访问真实账号或支付服务。 */
+/** 本文件通过模拟接口验证支付记录月消费的四位小数、重新进入页面和查询失败显示，不访问真实账号或支付服务。 */
 import { test, expect, type Page } from "@playwright/test";
 
 const previewOrigin = new URL(process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190").origin;
@@ -37,7 +37,7 @@ async function mockMonthlyPayments(page: Page) {
 }
 
 for (const width of [1440, 390]) {
-  test(`支付记录 ${width}px 显示四位小数月消费并在刷新时更新`, async ({ page }, testInfo) => {
+  test(`支付记录 ${width}px 显示四位小数月消费，重新进入时更新且无独立刷新`, async ({ page }, testInfo) => {
     const state = await mockMonthlyPayments(page);
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/admin/payment-records", { waitUntil: "domcontentloaded" });
@@ -45,23 +45,24 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole("columnheader", { name: "实付金额", exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`monthly-ai-${width}.png`), animations: "disabled" });
     state.amount = "127.5432";
-    await page.getByRole("button", { name: /刷新/ }).click();
+    await expect(page.getByRole("main").getByRole("button", { name: /刷新/ })).toHaveCount(0);
+    await page.reload();
     await expect(page.getByText(/本月 AI 消费 ¥127\.5432（北京时间）/)).toBeVisible();
     expect(state.errors).toEqual([]);
   });
 }
 
-test("月消费读取失败时明确提示并清除过期金额，恢复后可以显示零消费", async ({ page }) => {
+test("月消费读取失败时明确提示，重新进入后可以显示零消费", async ({ page }) => {
   const state = await mockMonthlyPayments(page);
   await page.goto("/admin/payment-records", { waitUntil: "domcontentloaded" });
   await expect(page.getByText(/本月 AI 消费 ¥127\.5328（北京时间）/)).toBeVisible();
   state.fail = true;
-  await page.getByRole("button", { name: /刷新/ }).click();
+  await page.reload();
   await expect(page.getByText(/本月 AI 消费 暂未读取/)).toBeVisible();
   await expect(page.getByText(/本月 AI 消费 ¥0\.0000/)).toHaveCount(0);
   state.fail = false;
   state.amount = "0.0000";
-  await page.getByRole("button", { name: /刷新/ }).click();
+  await page.reload();
   await expect(page.getByText(/本月 AI 消费 ¥0\.0000（北京时间）/)).toBeVisible();
   expect(state.errors).toEqual([]);
 });

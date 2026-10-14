@@ -44,7 +44,6 @@ import AIResponseDiagnosticDetails, {
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
   EmptyState,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -151,6 +150,7 @@ export default function PositionsPage() {
   const [positionScope, setPositionScope] = useState("true");
   const loadGeneration = useRef(0);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [optimizing, setOptimizing] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [guideContext, setGuideContext] = useState<OnboardingGuideContext>({
@@ -284,6 +284,7 @@ export default function PositionsPage() {
   async function load() {
     const current = ++loadGeneration.current;
     setLoading(true);
+    setLoadError("");
     try {
       const [positions, prompts, platformData] = await Promise.all([
         cloudRequest(`/api/positions?is_open=${positionScope}`),
@@ -296,6 +297,7 @@ export default function PositionsPage() {
       setPlatformConfigs(platformData.platforms || platformData.configs || []);
     } catch (error) {
       if (current !== loadGeneration.current) return;
+      setLoadError(error instanceof Error ? error.message : "岗位模板读取失败");
       notify(
         error instanceof Error ? error.message : "岗位模板读取失败",
         "error",
@@ -697,8 +699,8 @@ export default function PositionsPage() {
     } catch (error) {
       const message =
         error instanceof Error
-          ? `启动条件检查没跑完：${error.message}。这次我先不乱启动，你刷新后再试一次。`
-          : "启动条件检查没跑完，这次我先不乱启动，你刷新后再试一次。";
+          ? `启动条件检查没跑完：${error.message}。这次我先不乱启动，你稍后再试一次。`
+          : "启动条件检查没跑完，这次我先不乱启动，你稍后再试一次。";
       setStartStatus(message);
       setStartError(message);
       setStartRequiresUpdate(false);
@@ -1179,19 +1181,21 @@ export default function PositionsPage() {
         }}
       />
       <Flex gap={8} className="goodhr-compact-toolbar" data-testid="positions-toolbar">
-        <Radio.Group aria-label="岗位状态筛选" size="small" optionType="button" buttonStyle="solid" value={positionScope}
+        <Radio.Group aria-label="岗位状态筛选" optionType="button" buttonStyle="solid" value={positionScope}
           onChange={(event) => setPositionScope(event.target.value)} options={[{ value: "true", label: "开启" }, { value: "false", label: "关闭" }]} />
-            <Button
-              data-onboarding="position-create"
-              disabled={loading}
-              onClick={openCreate}
-              type={"primary"}
-              icon={<PlusOutlined aria-hidden="true" />}
-            >
-              新建岗位
-            </Button>
-            <RefreshButton loading={loading} onClick={() => void load()} />
+        <Flex gap={8} className="goodhr-toolbar-actions">
+          <Button
+            data-onboarding="position-create"
+            disabled={loading}
+            onClick={openCreate}
+            type={"primary"}
+            icon={<PlusOutlined aria-hidden="true" />}
+          >
+            新建岗位
+          </Button>
+        </Flex>
       </Flex>
+      {loadError ? <Alert type="warning" showIcon title={loadError} action={<Button loading={loading} onClick={() => void load()}>重试</Button>} style={{ marginBottom: 12 }} /> : null}
       {items.length ? (
         <Flex className={styles.s1}>
           {items.map((item) => (
@@ -1366,7 +1370,6 @@ export default function PositionsPage() {
                       logs={logs[item.id] || []}
                       loading={logLoadingPositionID === item.id}
                       sharing={logSharePositionID === item.id}
-                      onRefresh={() => void loadPositionLogs(item)}
                       onViewAll={() => void loadAllPositionLogs(item)}
                       onShare={() => void copyPositionDiagnosticLink(item)}
                       onClear={() => void clearPositionLogs(item)}
@@ -2958,19 +2961,18 @@ function PositionLogPanel(props: {
   logs: any[];
   loading: boolean;
   sharing: boolean;
-  onRefresh: () => void;
   onViewAll: () => void;
   onShare: () => void;
   onClear: () => void;
 }) {
-  const { logs, loading, sharing, onRefresh, onViewAll, onShare, onClear } =
+  const { logs, loading, sharing, onViewAll, onShare, onClear } =
     props;
   return (
     <div className={styles.s106}>
       <Flex className={styles.s107}>
         <Flex className={styles.s108}>
           <Typography.Paragraph className={`${styles.text} ${styles.s109}`}>
-            本地岗位日志（最近 {LOG_LIMIT}条）
+            本地岗位日志（最近 {LOG_LIMIT}条）{loading ? " · 读取中" : ""}
           </Typography.Paragraph>
           <Button size="small" onClick={onViewAll} type={"text"}>
             查看全部日志
@@ -2985,14 +2987,6 @@ function PositionLogPanel(props: {
             icon={<CopyOutlined aria-hidden="true" />}
           >
             {sharing ? "生成中" : "复制错误日志发送给作者"}
-          </Button>
-          <Button
-            size="small"
-            onClick={onRefresh}
-            disabled={loading}
-            type={"text"}
-          >
-            {loading ? "刷新中" : "刷新"}
           </Button>
           <Button size="small" onClick={onClear} type={"text"} danger>
             清空
