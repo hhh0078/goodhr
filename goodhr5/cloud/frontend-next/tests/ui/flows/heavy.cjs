@@ -179,6 +179,7 @@ async function runHeavyChecks(baseURL = "http://127.0.0.1:5190") {
           data = { positions };
         else if (url.pathname === "/api/positions" && method === "POST") {
           await pause(saveDelay);
+          Object.assign(positions[0], body);
           data = { ok: true };
         } else if (url.pathname === "/api/system/default-prompts")
           data = {
@@ -336,6 +337,17 @@ async function runHeavyChecks(baseURL = "http://127.0.0.1:5190") {
       "0",
     );
     checks.push("打招呼分数调整时索要分数随原值同步");
+    assert.equal(
+      await edit.getByLabel("收藏分数", { exact: true }).inputValue(),
+      "0",
+    );
+    checks.push("旧岗位没有收藏配置时默认关闭");
+    await fillNumber(edit, "收藏分数", 80);
+    await page.screenshot({
+      path: output + "/positions-favorite-score.png",
+      fullPage: true,
+      animations: "disabled",
+    });
     saveDelay = 900;
     await edit.getByRole("button", { name: "保存修改", exact: true }).click();
     await expectVisible(edit, "保存中弹框保持可见");
@@ -353,13 +365,38 @@ async function runHeavyChecks(baseURL = "http://127.0.0.1:5190") {
     assert.equal(save.body.ai_config.detail_score_threshold, 0);
     assert.equal(save.body.ai_config.greet_score_threshold, 0);
     assert.equal(save.body.ai_config.request_score_threshold, 0);
+    assert.equal(save.body.ai_config.favorite_score_threshold, 80);
     checks.push("0 分阈值准确提交");
+    checks.push("收藏分数独立保存，不随索要和打招呼分数变化");
+    await page.getByRole("button", { name: "编辑", exact: true }).click();
+    await expectVisible(edit, "保存后重新打开岗位弹框");
+    await edit.getByRole("button", { name: "高级设置", exact: false }).click();
+    assert.equal(
+      await edit.getByLabel("收藏分数", { exact: true }).inputValue(),
+      "80",
+    );
+    checks.push("收藏分数保存后回填原值");
+    await fillNumber(edit, "收藏分数", 0);
+    await edit.getByRole("button", { name: "保存修改", exact: true }).click();
+    await expectHidden(edit, "关闭自动收藏后保存成功");
+    assert.equal(
+      requests.findLast((x) => x.path === "/api/positions" && x.method === "POST")
+        .body.ai_config.favorite_score_threshold,
+      0,
+    );
+    checks.push("收藏分数填零能够重新关闭");
     await page.getByRole("button", { name: "新建岗位", exact: true }).click();
     const create = page.getByRole("dialog", {
       name: "新建岗位模板",
       exact: true,
     });
     await expectVisible(create, "打开新增岗位弹框");
+    await create.getByRole("button", { name: "高级设置", exact: false }).click();
+    assert.equal(
+      await create.getByLabel("收藏分数", { exact: true }).inputValue(),
+      "0",
+    );
+    checks.push("新建岗位收藏默认关闭");
     await create.getByLabel("岗位名称", { exact: true }).fill("待取消的草稿");
     await page.keyboard.press("Escape");
     await expectHidden(create, "Escape 关闭新增弹框");

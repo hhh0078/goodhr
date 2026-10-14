@@ -13,11 +13,6 @@ func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg
 	return common.GreetCandidate(ctx, browser, cfg, candidate, request)
 }
 
-// FavoriteCandidate 收藏指定 Boss 候选人。
-func (r *Runtime) FavoriteCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
-	return common.CandidateAction(ctx, browser, cfg, candidate, "candidate.favorite")
-}
-
 // RejectCandidate 将指定 Boss 候选人标记为不合适。
 func (r *Runtime) RejectCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
 	return common.CandidateAction(ctx, browser, cfg, candidate, "candidate.reject")

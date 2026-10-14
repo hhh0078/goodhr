@@ -345,8 +345,8 @@ func candidateBatchLimitReached(maxBatches int, completedBatches int) bool {
 	return maxBatches > 0 && completedBatches >= maxBatches
 }
 
-// processCandidate 平铺执行基础过滤、详情、OCR、AI、打招呼、关闭详情和保存结果。
-func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, candidate model.Candidate, stats *shared.Stats) error {
+// processCandidate 平铺执行基础过滤、详情、OCR、AI、收藏、关闭详情、打招呼和保存结果。
+func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, candidate model.Candidate, stats *shared.Stats) (candidateErr error) {
 	stats.Processed++
 	if reason := strings.TrimSpace(candidate.SkipReason); reason != "" {
 		stats.Skipped++
@@ -387,7 +387,21 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	detailOpened := false
 	defer func() {
 		if detailOpened {
-			_ = runtime.CloseCandidateDetail(context.WithoutCancel(ctx), f.Browser, prepared.Platform, candidate)
+			// 收藏或其他详情步骤失败时仍补关；独立预算避免候选人超时让清理直接取消。
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+			defer cleanupCancel()
+			startedAt := time.Now()
+			f.log(prepared.Request.TaskID, "cleanup_candidate_detail", "start", startedAt, nil)
+			if err := runtime.CloseCandidateDetail(cleanupCtx, f.Browser, prepared.Platform, candidate); err != nil {
+				f.log(prepared.Request.TaskID, "cleanup_candidate_detail", "failed", startedAt, err)
+				f.saveCandidate(cleanupCtx, prepared, candidate, "close_detail", "failed", err.Error())
+				if candidateErr == nil {
+					stats.Failed++
+				}
+				candidateErr = errors.Join(candidateErr, fmt.Errorf("%w：%w", model.ErrCandidateDetailCleanupFailed, err))
+			} else {
+				f.log(prepared.Request.TaskID, "cleanup_candidate_detail", "success", startedAt, nil)
+			}
 		}
 	}()
 	if needsDetail {
@@ -567,6 +581,22 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		score = decision.Score
 		hasScore = true
 		reason = decision.Reason
+	}
+	// 收藏只使用已经打开详情后的 AI 分数，与招呼开关及招呼是否达标分别判断。
+	if candidateFavoriteAllowed(detailOpened && hasScore && !isKeywordMode(prepared.Position), score, prepared.Position.AIOptions.FavoriteScoreThreshold) {
+		startedAt := time.Now()
+		f.log(prepared.Request.TaskID, "favorite_candidate", "start", startedAt, nil)
+		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "正在收藏候选人", "running", nil)
+		if err := runtime.FavoriteCandidate(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+			f.log(prepared.Request.TaskID, "favorite_candidate", "failed", startedAt, err)
+			stats.Failed++
+			f.saveCandidate(ctx, prepared, candidate, "favorite", "failed", err.Error())
+			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "收藏没成功，详情先收好", "failed", err)
+			return fmt.Errorf("收藏候选人失败：%w", err)
+		}
+		f.log(prepared.Request.TaskID, "favorite_candidate", "success", startedAt, nil)
+		f.saveCandidate(ctx, prepared, candidate, "favorite", "success", fmt.Sprintf("收藏步骤已处理，详情 AI 评分 %.1f 严格大于收藏阈值 %.1f", score, prepared.Position.AIOptions.FavoriteScoreThreshold))
+		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "收藏步骤已处理", "success", nil)
 	}
 	if detailOpened {
 		if err := waitRandomSeconds(

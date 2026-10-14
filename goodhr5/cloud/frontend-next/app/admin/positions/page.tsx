@@ -298,6 +298,7 @@ export default function PositionsPage() {
         form.detail_score_threshold,
         form.greet_score_threshold,
         form.request_score_threshold,
+        form.favorite_score_threshold,
       ].some((value) => !Number.isFinite(value) || value < 0 || value > 100)
     )
       return notify("筛选分数请填写 0 到 100 之间的数值", "warning");
@@ -353,6 +354,7 @@ export default function PositionsPage() {
             request_score_threshold: Number(
               form.request_score_threshold ?? form.greet_score_threshold ?? 70,
             ),
+            favorite_score_threshold: Number(form.favorite_score_threshold ?? 0),
           },
           keyword_config: {},
           match_limit: Number(form.match_limit || 50),
@@ -1996,6 +1998,29 @@ export default function PositionsPage() {
                     className={styles.s78}
                   />
                 </Form.Item>
+                <Form.Item
+                  layout="vertical"
+                  htmlFor="positions-favorite-score"
+                  label={"收藏分数"}
+                  extra="填 0 就先不收藏；详情 AI 分数大于这个值时，我会自动收藏。目前支持 BOSS 和猎聘猎头端。"
+                  className={styles.s77}
+                  style={{ marginTop: 12, marginBottom: 0 }}
+                >
+                  <InputNumber
+                    precision={0}
+                    value={form.favorite_score_threshold}
+                    onChange={(value) =>
+                      setForm({
+                        ...form,
+                        favorite_score_threshold: Number(value ?? 0),
+                      })
+                    }
+                    id="positions-favorite-score"
+                    min={0}
+                    max={100}
+                    className={styles.s78}
+                  />
+                </Form.Item>
               </div>
               <Form.Item
                 layout="vertical"
@@ -2284,6 +2309,7 @@ function createEmptyForm() {
     detail_score_threshold: 60,
     greet_score_threshold: 70,
     request_score_threshold: 70,
+    favorite_score_threshold: 0,
     output_structured_resume: false,
     request_phone: false,
     request_wechat: false,
@@ -2341,6 +2367,7 @@ function formFromItem(
       request_score_threshold: Number(
         ai.request_score_threshold ?? ai.greet_score_threshold ?? 70,
       ),
+      favorite_score_threshold: Number(ai.favorite_score_threshold ?? 0),
       greet_message: item.greet_message || "",
       description: item.description || "",
       match_limit: Number(item.match_limit ?? 50),

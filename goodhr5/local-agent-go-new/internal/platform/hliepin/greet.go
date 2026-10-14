@@ -91,11 +91,6 @@ func finishGreetingConversation(
 	return nil
 }
 
-// FavoriteCandidate 收藏指定猎聘猎头端候选人。
-func (r *Runtime) FavoriteCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
-	return common.CandidateAction(ctx, browser, cfg, candidate, "candidate.favorite")
-}
-
 // RejectCandidate 将指定猎聘猎头端候选人标记为不合适。
 func (r *Runtime) RejectCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
 	return common.CandidateAction(ctx, browser, cfg, candidate, "candidate.reject")

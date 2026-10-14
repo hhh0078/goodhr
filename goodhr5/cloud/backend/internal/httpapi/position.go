@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -396,8 +397,26 @@ func (r positionRequest) toPosition(w http.ResponseWriter, userEmail string) (Po
 	if position.MatchLimit <= 0 {
 		position.MatchLimit = 50
 	}
+	if err := normalizePositionFavoriteScore(position.AIConfig); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return Position{}, false
+	}
 	applyPositionPlatformRules(&position)
 	return position, true
+}
+
+// normalizePositionFavoriteScore 校验收藏分数为 0 到 100 的数值，缺省或空值按 0 关闭收藏。
+func normalizePositionFavoriteScore(config map[string]any) error {
+	value := config["favorite_score_threshold"]
+	if value == nil {
+		config["favorite_score_threshold"] = 0
+		return nil
+	}
+	score, ok := value.(float64)
+	if !ok || math.IsNaN(score) || math.IsInf(score, 0) || score < 0 || score > 100 {
+		return errors.New("收藏分数请填写 0 到 100 之间的数值，填 0 就先不收藏")
+	}
+	return nil
 }
 
 // normalizePositionPlatformID 标准化岗位模板所属平台。

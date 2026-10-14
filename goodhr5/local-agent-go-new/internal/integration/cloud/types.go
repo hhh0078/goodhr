@@ -82,13 +82,14 @@ type PositionCommonConfig struct {
 
 // PositionAIOptions 表示岗位级 AI 阈值和提示词。
 type PositionAIOptions struct {
-	PositionRequirement   string  `json:"position_requirement"`
-	OpenDetailPrompt      string  `json:"open_detail_prompt"`
-	DetailScoreThreshold  float64 `json:"detail_score_threshold"`
-	GreetScoreThreshold   float64 `json:"greet_score_threshold"`
-	RequestScoreThreshold float64 `json:"request_score_threshold"`
-	GreetPrompt           string  `json:"greet_prompt"`
-	ReplyPrompt           string  `json:"reply_prompt"`
+	PositionRequirement    string  `json:"position_requirement"`
+	OpenDetailPrompt       string  `json:"open_detail_prompt"`
+	DetailScoreThreshold   float64 `json:"detail_score_threshold"`
+	GreetScoreThreshold    float64 `json:"greet_score_threshold"`
+	RequestScoreThreshold  float64 `json:"request_score_threshold"`
+	FavoriteScoreThreshold float64 `json:"favorite_score_threshold"` // 默认 0 不收藏；详情 AI 分数严格大于此值时收藏。
+	GreetPrompt            string  `json:"greet_prompt"`
+	ReplyPrompt            string  `json:"reply_prompt"`
 }
 
 // UserPreferences 表示云端个人配置中的拟人等待和休息参数。
