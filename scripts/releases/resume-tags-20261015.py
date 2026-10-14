@@ -20,8 +20,8 @@ ROOT = pathlib.Path('/opt/goodhr-release/resume-tags-20261015')
 MIGRATIONS = {'0094_candidate_tags.sql', '0095_position_open.sql'}
 NEW_TABLES = {'candidate_tags', 'candidate_tag_links'}
 BASELINE = {
-    'goodhr-production-backend-1': ('5598824e483ce4c64f1f5870c29a819f2fb20bcf27e4cdc6503737b4ad94798d', 'sha256:a675e52fa75af2ed11717437f6a489d3f4f73f0e4ff464b92e773b9fb7fc8b95', '2026-10-13T12:20:13.243969263Z'),
-    'goodhr-production-frontend-1': ('02a0d0f98929811a2d3577d6f97300203cc8069a09cdd61d07c8226d9e47e766', 'sha256:f75a0b99a5d86edc62763281f8a154a0d7a98174b7ddbfa150ead939a9b80a66', '2026-10-13T12:20:15.024285788Z'),
+    'goodhr-production-backend-1': ('a298df5989c357d538f0089db9de2fa7c767d419eb3bf0aa295e75574f8d65f8', 'sha256:b5c137a51bc0ec8fc8586dbd10d72dee47dbec8c4db06102bfe4e0cc37cc90f3', '2026-10-14T16:52:20.35632474Z'),
+    'goodhr-production-frontend-1': ('f1cb42105172a64d0176ce6877cdee796038ee325911549a3308b6a5ad7844d7', 'sha256:92c174e899a46404fdb0edc681b0ca0bd5a1a414c02816208d40b7eff7496823', '2026-10-14T16:52:22.286412332Z'),
     'postgres': ('7ae7305d3a222272d23cf4a68ae302cf877fc71d2ce1fab9ad3a97b3fe02d89d', 'sha256:413d57cb67bb3585acae8769a48661aa1dcac66076e3a5f88ea6c5be55f8916e', '2026-09-20T12:25:51.09539213Z'),
     'redis': ('78a704cd2eb89019c62bfb6ab2ceef603bf2cd293fe3d522ca7c132a1da72025', 'sha256:646a47c903c5c45f99081094d8c3ba51ec2a1091babf42dc5a928cef024e6fcd', '2026-09-20T12:28:59.032970342Z'),
 }
