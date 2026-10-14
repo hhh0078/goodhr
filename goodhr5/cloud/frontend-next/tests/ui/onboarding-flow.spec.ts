@@ -41,6 +41,25 @@ async function expectMaskAround(page: Page, selector: string | Locator) {
   }, { message: "当前遮罩透明区域必须准确圈住当前按钮或输入框", timeout: 10_000 }).toBeLessThan(2);
 }
 
+/** expectModalFieldVisible 确认真实字段没有被滚动弹框裁切，且透明孔随内部滚动保持同步。 */
+async function expectModalFieldVisible(page: Page, selector: string) {
+  const target = page.locator(selector);
+  const body = page.getByRole("dialog", { name: "新建岗位模板", exact: true }).locator(".ant-modal-body");
+  await expect.poll(async () => {
+    const [fieldBox, bodyBox] = await Promise.all([target.boundingBox(), body.boundingBox()]);
+    if (!fieldBox || !bodyBox) return Number.NEGATIVE_INFINITY;
+    return Math.min(fieldBox.x - bodyBox.x, fieldBox.y - bodyBox.y, bodyBox.x + bodyBox.width - fieldBox.x - fieldBox.width, bodyBox.y + bodyBox.height - fieldBox.y - fieldBox.height);
+  }, { message: "当前字段必须完整处于 Modal body 可视范围，不能只在视口中却被内部裁切", timeout: 10_000 }).toBeGreaterThanOrEqual(-1);
+  try {
+    await expectMaskAround(page, target);
+  } catch (error) {
+    const geometry = { target: selector, field: await target.boundingBox(), body: await body.boundingBox(), holes: await page.locator('.ant-tour-mask defs rect[fill="black"]').count(), tour: await page.getByTestId("onboarding-tour").count(), step: await page.getByTestId("onboarding-experience").getAttribute("data-step") };
+    await test.info().attach("modal-field-geometry.json", { body: JSON.stringify(geometry), contentType: "application/json" });
+    console.log(`遮罩实测几何：${JSON.stringify(geometry)}`);
+    throw error;
+  }
+}
+
 /** acceptTutorial 从欢迎弹框进入教程，已有组件应自动跳过准备阶段。 */
 async function acceptTutorial(page: Page) {
   await openAdmin(page);
@@ -404,6 +423,68 @@ test("390px手机能打开菜单并真实进入岗位管理", async ({ scenario 
   await expectStep(page, "position-create");
   await expect(page.locator('[data-onboarding="position-create"]')).toBeVisible();
   await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/mobile-390-position-menu.png", fullPage: true });
+});
+
+test("1280x720弹框真实滚轮和Tab后字段不被裁切，遮罩同步且完整跑到结果", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openFirstPositionForm(page);
+  const name = page.locator('[data-onboarding="position-name"]');
+  await expectModalFieldVisible(page, '[data-onboarding="position-name"]');
+  const beforeWheel = await name.boundingBox();
+  expect(beforeWheel).toBeTruthy();
+  await page.mouse.move(beforeWheel!.x + beforeWheel!.width / 2, beforeWheel!.y + beforeWheel!.height / 2);
+  await page.mouse.wheel(0, 480);
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-name-wheel.png", fullPage: true });
+  await expectModalFieldVisible(page, '[data-onboarding="position-name"]');
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-name-wheel.png", fullPage: true });
+  await name.click();
+  await name.fill("低窗口滚动联调岗位");
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-filter-mode");
+  await expectModalFieldVisible(page, '[data-onboarding="position-filter-mode"]');
+  await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选/ }).click();
+  await expectStep(page, "position-detail-mode");
+  await expectModalFieldVisible(page, '[data-onboarding="position-detail-mode"]');
+  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: /^AI 识别/ }).click();
+  await expectStep(page, "position-requirement");
+  await expectModalFieldVisible(page, '[data-onboarding="position-requirement"]');
+  const requirement = page.locator('[data-onboarding="position-requirement"]');
+  const requirementBox = await requirement.boundingBox();
+  await page.mouse.move(requirementBox!.x + requirementBox!.width / 2, requirementBox!.y + requirementBox!.height / 2);
+  await page.mouse.wheel(0, -280);
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-requirement-wheel.png", fullPage: true });
+  await expectModalFieldVisible(page, '[data-onboarding="position-requirement"]');
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-requirement-wheel.png", fullPage: true });
+  await requirement.click();
+  await requirement.fill("后端开发 3 年以上。\n熟悉 Java 与 Spring。\n有电商项目经验。\n熟悉关系型数据库。\n能独立完成接口设计。\n有团队协作经验。\n具备问题排查能力。");
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-requirement");
+  await expect(requirement, "文本框增高导致遮罩重测时仍应保留输入焦点").toBeFocused();
+  await expectModalFieldVisible(page, '[data-onboarding="position-requirement"]');
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-keywords");
+  await expectModalFieldVisible(page, '[data-onboarding="position-keywords"]');
+  await page.locator('[data-onboarding="position-keywords"]').click();
+  await page.locator('[data-onboarding="position-keywords"]').fill("Java，Spring");
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-save");
+  await expectMaskAround(page, '[data-onboarding="position-save"]');
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-save.png", fullPage: true });
+  await page.locator('[data-onboarding="position-save"]').click();
+  await expectStep(page, "position-start");
+  const response = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${user.token}` } });
+  expect(response.ok()).toBeTruthy();
+  const position = (await response.json()).positions.find((item: { name: string }) => item.name === "低窗口滚动联调岗位");
+  expect(position).toBeTruthy();
+  expect(position.common_config.mode_default).toBe("keyword");
+  expect(position.common_config.detail_mode).toBe("ai");
+  await startFirstPosition(page, position.id);
+  await agentControl(request, { positionID: position.id, analysis: { kind: "ai", phase: "result", terminal: true, accepted: false, candidate_name: "测试候选人", reason: "本机联调：经验不符合要求，已跳过" } });
+  await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect.poll(async () => (await readUserFlow(request, user)).tutorial_completed).toBe(true);
+  expect((await readAgentState(request)).tasks[position.id].greeted_count).toBe(0);
+  await expect(page.getByRole("dialog", { name: /首轮跑通/ })).toHaveCSS("animation-name", "none");
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-complete.png", fullPage: true });
 });
 
 test("减少动态效果时保留鼓励文字并禁用礼炮", async ({ scenario, request }) => {

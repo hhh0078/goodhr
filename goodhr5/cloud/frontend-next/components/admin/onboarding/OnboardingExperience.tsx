@@ -22,7 +22,7 @@ const operationSteps = ["platform-select", "platform-open", "platform-login", "a
 
 /** OnboardingExperience 只展示控制器状态，推进步骤必须由真实操作结果决定。 */
 export default function OnboardingExperience(props: OnboardingExperienceProps) {
-  const { phase, state, step, target, title, description, hint, estimate, remaining, doneCount, statusText, error, busy, helpOpen, blocked, storageUnavailable, celebration, actions } = props;
+  const { phase, state, step, target, targetGeometry, title, description, hint, estimate, remaining, doneCount, statusText, error, busy, helpOpen, blocked, storageUnavailable, celebration, actions } = props;
   const [skipText, setSkipText] = useState("");
   const [mobileMenuPlacement, setMobileMenuPlacement] = useState<"top" | "bottom" | null>(null);
   const actionsRef = useRef(actions);
@@ -139,7 +139,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       {active && storageUnavailable ? <div className={styles.storageNotice} role="status">这次浏览器没存住进度，当前页面可以继续；刷新后可能需要重新带路。</div> : null}
 
       <Tour
-        key={step}
+        key={`${step}:${targetGeometry}`}
         rootClassName={styles.tourPopup}
         open={active && Boolean(target) && !helpOpen && !blocked}
         current={0}
@@ -154,7 +154,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         mask={{ color: "rgba(20, 31, 25, .4)" }}
         gap={{ offset: 7, radius: 8 }}
         zIndex={1500}
-        scrollIntoViewOptions={{ block: "center", behavior: "instant" }}
+        scrollIntoViewOptions={{ block: "nearest", inline: "nearest", behavior: "instant" }}
         onClose={actions.pause}
         indicatorsRender={() => null}
         actionsRender={() => <Flex gap={6} wrap><Button type="text" onClick={actions.back}>上一步</Button><Button type="text" onClick={actions.pause}>稍后继续</Button><Button onClick={actions.openHelp}>遇到问题</Button></Flex>}

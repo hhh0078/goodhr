@@ -25,6 +25,7 @@ export type OnboardingExperienceProps = {
   state: OnboardingState;
   step: OnboardingStep;
   target: HTMLElement | null;
+  targetGeometry: string;
   title: string;
   description: string;
   hint: string;

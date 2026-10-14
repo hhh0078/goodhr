@@ -244,7 +244,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     }
   }
   const selector = onboardingTargetSelector(step, state.positionId);
-  const target = useOnboardingTarget(selector, phase === "active" && !blocked && !helpOpen);
+  const { target, targetGeometry } = useOnboardingTarget(selector, phase === "active" && !blocked && !helpOpen);
   const copy = onboardingStepCopy(step);
 
   /** openPlatform 打开用户选择的平台并复用已有登录确认，暂停或换号时取消后续推进。 */
@@ -304,7 +304,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     try { await refreshAgent(); } catch { setError("还没连上。确认本地 GoodHR 已启动，再检查浏览器的设备应用权限。"); }
     finally { if (aliveRef.current) setBusy(false); }
   }
-  return { phase, state, step, target, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, helpOpen, blocked, storageUnavailable, celebration, actions: {
+  return { phase, state, step, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, helpOpen, blocked, storageUnavailable, celebration, actions: {
     accept, pause, resume, back, choosePlatform, openPlatform: () => void openPlatform(), checkAgent: () => void checkAgent(),
     requestSkip: () => { phaseBeforeSkip.current = phaseRef.current; changePhase("skip"); },
     cancelSkip: () => changePhase(phaseBeforeSkip.current),

@@ -32,8 +32,8 @@ export function onboardingTargetSelector(step: OnboardingStep, positionId: strin
 }
 
 /** useOnboardingTarget 在路由切换和弹框动画结束后再显示遮罩，丢失目标时安全解除遮挡。 */
-export function useOnboardingTarget(selector: string, enabled: boolean): HTMLElement | null {
-  const [located, setLocated] = useState<{ selector: string; element: HTMLElement | null }>({ selector: "", element: null });
+export function useOnboardingTarget(selector: string, enabled: boolean): { target: HTMLElement | null; targetGeometry: string } {
+  const [located, setLocated] = useState<{ selector: string; element: HTMLElement | null; geometry: string }>({ selector: "", element: null, geometry: "" });
   useEffect(() => {
     if (!enabled || !selector) return;
     let frame = 0;
@@ -53,23 +53,39 @@ export function useOnboardingTarget(selector: string, enabled: boolean): HTMLEle
           settleTimer = window.setTimeout(schedule, 60);
           return false;
         }
+        const body = element.closest<HTMLElement>(".ant-modal-body");
+        const bodyBox = body?.getBoundingClientRect();
+        // 浏览器滚动边界可能保留半像素差，不能因肉眼不可见的小数反复隐藏目标。
+        const tolerance = 1;
+        const clippedInBody = bodyBox && box.height <= bodyBox.height + tolerance && box.width <= bodyBox.width + tolerance && (box.top < bodyBox.top - tolerance || box.bottom > bodyBox.bottom + tolerance || box.left < bodyBox.left - tolerance || box.right > bodyBox.right + tolerance);
+        if (clippedInBody) {
+          // 只调整控制台自己的滚动容器；被正文裁切的输入框不能交给 Tour 充当可见目标。
+          element.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+          if (settleTimer !== undefined) window.clearTimeout(settleTimer);
+          settleTimer = window.setTimeout(schedule, 60);
+          return false;
+        }
         return box.width > 0 && box.height > 0 && !element.closest(".ant-modal-hidden");
       });
       const mobileMenu = selector.includes("menu-") ? document.querySelector<HTMLElement>("[data-onboarding='mobile-menu']") : null;
       const fallback = mobileMenu && mobileMenu.getBoundingClientRect().width > 0 ? mobileMenu : null;
       const element = visible || fallback;
-      setLocated((current) => current.selector === selector && current.element === element ? current : { selector, element });
+      const box = element?.getBoundingClientRect();
+      const geometry = box ? [box.left, box.top, box.width, box.height].map(Math.round).join(",") : "";
+      // 同一元素在内部滚动后会换坐标，用明确的几何签名让展示层重新测量，避免依赖中间帧提交。
+      setLocated((current) => current.selector === selector && current.element === element && current.geometry === geometry ? current : { selector, element, geometry });
     }
     /** schedule 合并大量 React/弹框挂载通知，避免每次 DOM 变动都重复刷新状态。 */
     function schedule() { cancelAnimationFrame(frame); frame = requestAnimationFrame(inspect); }
     const observer = new MutationObserver(schedule);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
     window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
     window.addEventListener("transitionend", schedule, true);
     window.addEventListener("animationend", schedule, true);
     inspect();
-    return () => { observer.disconnect(); cancelAnimationFrame(frame); if (settleTimer !== undefined) window.clearTimeout(settleTimer); window.removeEventListener("resize", schedule); window.removeEventListener("transitionend", schedule, true); window.removeEventListener("animationend", schedule, true); };
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); if (settleTimer !== undefined) window.clearTimeout(settleTimer); window.removeEventListener("resize", schedule); window.removeEventListener("scroll", schedule, true); window.removeEventListener("transitionend", schedule, true); window.removeEventListener("animationend", schedule, true); };
   }, [selector, enabled]);
   // 新步骤不能暂借上一步的孔位，否则提示“保存”时会把真实保存按钮挡住。
-  return enabled && located.selector === selector ? located.element : null;
+  return enabled && located.selector === selector ? { target: located.element, targetGeometry: located.geometry } : { target: null, targetGeometry: "" };
 }
