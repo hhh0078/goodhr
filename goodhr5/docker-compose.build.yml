@@ -2,9 +2,16 @@
 name: ${COMPOSE_PROJECT_NAME:?必须通过环境部署脚本执行}
 services:
   backend:
+    image: ${COMPOSE_PROJECT_NAME}-backend:${GOODHR_RELEASE_IMAGE_TAG:?必须由发布脚本生成版本标签}
+    pull_policy: never
     build:
       context: ./cloud/backend
       dockerfile: Dockerfile.release
+      labels:
+        goodhr.release.id: ${GOODHR_RELEASE_IMAGE_TAG}
+        goodhr.source_commit: ${GOODHR_SOURCE_COMMIT:?必须指定源码提交}
+        goodhr.release_kind: backend
+        goodhr.dockerfile_sha256: ${GOODHR_BACKEND_DOCKERFILE_SHA:?必须先通过镜像来源检查}
     network_mode: host
     env_file: ${GOODHR_BACKEND_ENV:-./cloud/backend/.env}
     environment:
@@ -17,8 +24,15 @@ services:
       - "${GOODHR_WECHAT_SECRET_DIR:?必须指定支付密钥目录}:/run/secrets/wechat:ro"
     restart: unless-stopped
   frontend:
+    image: ${COMPOSE_PROJECT_NAME}-frontend:${GOODHR_RELEASE_IMAGE_TAG:?必须由发布脚本生成版本标签}
+    pull_policy: never
     build:
       context: ./cloud/frontend-next
+      labels:
+        goodhr.release.id: ${GOODHR_RELEASE_IMAGE_TAG}
+        goodhr.source_commit: ${GOODHR_SOURCE_COMMIT:?必须指定源码提交}
+        goodhr.release_kind: frontend
+        goodhr.dockerfile_sha256: ${GOODHR_FRONTEND_DOCKERFILE_SHA:?必须先通过镜像来源检查}
       args:
         NEXT_PUBLIC_CLOUD_API_BASE: ${NEXT_PUBLIC_CLOUD_API_BASE:?必须指定 API 域名}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?必须指定网站域名}

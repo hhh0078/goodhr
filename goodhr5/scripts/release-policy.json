@@ -1,0 +1,12 @@
+{
+  "_说明": "GoodHR生产发布策略：只允许已核验的干净运行基础；回退版本须验证当前数据库兼容性；原始数据库备份不自动删除。固定镜像ID已在2026-10-15核对运行版本和无业务文件，普通构建仍可使用正式Dockerfile里的官方基础标签。",
+  "schema_version": 1,
+  "trusted_runtime_images": {
+    "backend": ["sha256:41b4b007b867b7b5ef341b0457d00d5103cb2810f48caa1526decb5b8d39651f"],
+    "frontend": ["sha256:7c3b093add7c43400ee83b815ab2cda98794a10045bcf76ce9bb2f89b97cbc5c"]
+  },
+  "rollback_keep_per_service": 2,
+  "minimum_compatible_rollback_per_service": 1,
+  "delete_original_database_backups": false,
+  "release_workspace_root": "/opt/goodhr-release"
+}

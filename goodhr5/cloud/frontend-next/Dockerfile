@@ -1,11 +1,14 @@
 # 本文件负责构建并运行 GoodHR 新版 Next.js 前端。
 FROM node:22-alpine AS dependencies
+LABEL goodhr.project="goodhr" goodhr.build.stage="frontend-dependencies"
 RUN npm config set registry https://registry.npmmirror.com
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
+LABEL goodhr.build.finished="true"
 
 FROM node:22-alpine AS builder
+LABEL goodhr.project="goodhr" goodhr.build.stage="frontend-builder"
 WORKDIR /app
 # 允许部署时限制构建堆内存和 Next.js 构建核数，参数不进入生产运行阶段。
 ARG NODE_OPTIONS
@@ -23,6 +26,7 @@ ENV CLOUD_API_BASE=$CLOUD_API_BASE
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
+LABEL goodhr.build.finished="true"
 
 FROM node:22-alpine AS runner
 WORKDIR /app
