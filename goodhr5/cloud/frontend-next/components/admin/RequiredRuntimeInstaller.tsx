@@ -9,6 +9,7 @@ import { DownloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Flex, Progress, Tag, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
+import { subscribeOnboardingEvents } from "@/lib/onboarding-events";
 import {
   buildRuntimeInstallPayload,
   formatRuntimeBytes,
@@ -43,6 +44,7 @@ export default function RequiredRuntimeInstaller({
   const [checkingSystem, setCheckingSystem] = useState(false);
   const [error, setError] = useState("");
   const timerRef = useRef<number | null>(null);
+  const runtimeReadEpochRef = useRef(0);
   const components = useMemo(
     () => requiredRuntimeComponents(runtime),
     [runtime],
@@ -70,6 +72,7 @@ export default function RequiredRuntimeInstaller({
 
   /** loadStatus 读取本地运行组件状态。 */
   const loadStatus = useCallback(async () => {
+    const epoch = runtimeReadEpochRef.current;
     if (!agentBase) {
       setRuntime({});
       setLoadedAgentBase("");
@@ -78,9 +81,11 @@ export default function RequiredRuntimeInstaller({
     try {
       const status =
         (await localRequest(agentBase, "/api/v1/runtime/status")) || {};
+      if (epoch !== runtimeReadEpochRef.current) return;
       setRuntime(status);
       setLoadedAgentBase(agentBase);
     } catch (loadError) {
+      if (epoch !== runtimeReadEpochRef.current) return;
       setError(
         loadError instanceof Error ? loadError.message : "运行组件状态读取失败",
       );
@@ -204,7 +209,15 @@ export default function RequiredRuntimeInstaller({
 
   useEffect(() => {
     void loadStatus();
-  }, [loadStatus]);
+    return () => { runtimeReadEpochRef.current += 1; };
+  }, [loadStatus, deferred]);
+  useEffect(() => subscribeOnboardingEvents((event) => {
+    if (event.type !== "runtime-status-changed" || !agentBase || event.agentBase !== agentBase || !event.runtimeStatus) return;
+    // 教程已有检测读到的新事实优先，旧请求不能把组件缺失重新覆盖成“已就绪”。
+    runtimeReadEpochRef.current += 1;
+    setRuntime(event.runtimeStatus);
+    setLoadedAgentBase(agentBase);
+  }), [agentBase]);
   useEffect(() => {
     if (visible || running) startPolling();
     else stopPolling();

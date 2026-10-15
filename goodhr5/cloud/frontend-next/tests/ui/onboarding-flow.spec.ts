@@ -414,6 +414,38 @@ test("本地连接和组件安装只占一个必要弹框，公告更新不盖�
   await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/after-runtime-install.png", fullPage: true });
 });
 
+for (const changeDuring of ["welcome", "active"] as const) {
+  test(`${changeDuring === "welcome" ? "欢迎阶段" : "教程活动中"}组件从就绪变为缺失，无需刷新就能高亮安装并恢复原进度`, async ({ scenario, request }) => {
+    const { page, user } = scenario;
+    await openAdmin(page);
+    await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
+    await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length).toBeGreaterThanOrEqual(3);
+    if (changeDuring === "active") {
+      await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
+      await expectStep(page, "platform-select");
+      await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
+      await expectStep(page, "platform-open");
+    }
+    const currentURL = page.url();
+    await agentControl(request, { runtimeReady: false });
+    if (changeDuring === "welcome") await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
+    await expectStep(page, "runtime-install");
+    const installer = page.getByRole("dialog", { name: "准备必要组件", exact: true });
+    await expect(installer).toBeVisible();
+    await expectMaskAround(page, '[data-onboarding="runtime-install"]');
+    await expect(page.getByTestId("onboarding-target-loading")).toHaveCount(0);
+    await expectNoCompletion(page, request, user);
+    await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/runtime-became-missing-${changeDuring}.png`, fullPage: true });
+    await installer.getByRole("button", { name: /安装必要组件$/ }).click();
+    await expectStep(page, changeDuring === "active" ? "platform-open" : "platform-select");
+    await expect(installer).not.toBeVisible();
+    expect(page.url(), "组件修复和恢复教程不能依赖刷新页面").toBe(currentURL);
+    const calls = (await readAgentState(request)).calls as { path: string }[];
+    expect(calls.filter((call) => call.path === "/api/v1/runtime/install")).toHaveLength(1);
+    expect(calls.filter((call) => call.path === "/api/v1/page/open")).toHaveLength(0);
+  });
+}
+
 test("微软运行库缺失时先圈下载和重新检查，再引导安装浏览器组件", async ({ scenario, request }) => {
   const { page, context, user } = scenario;
   await agentControl(request, { systemReady: false, runtimeReady: false });

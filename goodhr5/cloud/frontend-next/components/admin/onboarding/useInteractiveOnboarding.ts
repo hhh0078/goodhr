@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { clearLocalAgentDetectCache, cloudRequest, localRequest } from "@/lib/admin-api";
-import { hasMissingRequiredRuntime } from "@/lib/admin-runtime";
+import { hasMissingRequiredRuntime, requiredRuntimeComponents } from "@/lib/admin-runtime";
 import { openPlatformPositionBrowser, pickPlatformAuthConfig, waitForPlatformLoggedIn } from "@/lib/platform-login";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { loadUserFlow } from "@/lib/user-flow";
@@ -318,7 +318,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
 
   useEffect(() => {
     if (phase !== "active") return;
-    let active = true; let timer: number | undefined;
+    let active = true; let timer: number | undefined; let runtimeSignature = "";
     /** pollEnvironment 串行检查本地健康与真实结果，断线不删历史里程碑、不叠加慢请求。 */
     async function pollEnvironment() {
       try {
@@ -330,6 +330,12 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
         if (!active) return;
         const ready = !hasMissingRequiredRuntime(runtime);
         const system = runtime?.system_runtime || runtime?.runtime?.system_runtime || {};
+        const signature = JSON.stringify([requiredRuntimeComponents(runtime).map((item) => [item.key, item.installed]), runtime?.platform || "", system.download_url || ""]);
+        if (signature !== runtimeSignature) {
+          runtimeSignature = signature;
+          // 复用本轮真实检测结果，让强制安装弹框和教程看到同一份组件事实；不新增就绪用户轮询。
+          publishOnboardingEvent({ type: "runtime-status-changed", agentBase, runtimeStatus: runtime || {} });
+        }
         setSystemRuntimeMissing(Boolean(system.required && !system.ready));
         setSystemDownloadAvailable(Boolean(String(system.download_url || "").trim()));
         setConnectionAlive(true); setRuntimeReady(ready); setEnvironmentChecked(true); environmentRef.current = ready;

@@ -10,7 +10,9 @@ export type OnboardingScreeningResult = {
   score?: number;
 };
 export type OnboardingEvent = {
-  type: "guide-requested" | "platform-browser-open-requested" | "platform-unavailable" | "position-form-close-requested" | "position-start-close-requested" | "position-form-opened" | "position-form-closed" | "form-field-completed" | "position-created" | "start-dialog-opened" | "start-dialog-closed" | "start-dialog-status" | "position-recover-requested" | "position-recovered" | "platform-opened" | "position-started" | "screening-result";
+  type: "guide-requested" | "runtime-status-changed" | "platform-browser-open-requested" | "platform-unavailable" | "position-form-close-requested" | "position-start-close-requested" | "position-form-opened" | "position-form-closed" | "form-field-completed" | "position-created" | "start-dialog-opened" | "start-dialog-closed" | "start-dialog-status" | "position-recover-requested" | "position-recovered" | "platform-opened" | "position-started" | "screening-result";
+  agentBase?: string;
+  runtimeStatus?: Record<string, unknown>;
   recovered?: boolean;
   startStatus?: "ready" | "checking" | "error" | "update";
   message?: string;
@@ -26,7 +28,7 @@ const eventListeners = new Set<(event: OnboardingEvent) => void>();
 const contextListeners = new Set<(context: OnboardingGuideContext) => void>();
 let currentContext: OnboardingGuideContext = { active: false, platformId: "boss" };
 
-/** publishOnboardingEvent 将已发生的岗位操作通知当前控制台的引导器。 */
+/** publishOnboardingEvent 在当前控制台同步已经读取的组件状态和已经发生的业务操作。 */
 export function publishOnboardingEvent(event: OnboardingEvent): void {
   for (const listener of eventListeners) {
     try { listener(event); } catch { /* 教程监听器异常不能改变已经成功的岗位操作。 */ }
