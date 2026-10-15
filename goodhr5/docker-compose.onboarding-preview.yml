@@ -1,0 +1,106 @@
+# 文件作用：启动独立、可重启的新手教程本机验收环境，持久保存账号与岗位，避免占用简历库测试端口。
+name: goodhr-onboarding-preview
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: goodhr_onboarding_preview
+      POSTGRES_USER: goodhr_onboarding_preview
+      POSTGRES_PASSWORD: onboarding_local_only
+    volumes:
+      - onboarding_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goodhr_onboarding_preview -d goodhr_onboarding_preview"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - onboarding_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    image: goodhr-onboarding-backend:local
+    build:
+      context: ./cloud/backend
+      dockerfile: Dockerfile.release
+    environment:
+      GOODHR_CLOUD_ADDR: ":8084"
+      GOODHR_PG_DSN: "postgres://goodhr_onboarding_preview:onboarding_local_only@postgres:5432/goodhr_onboarding_preview?sslmode=disable"
+      GOODHR_REDIS_ADDR: "redis:6379"
+      GOODHR_SUPER_ADMINS: "onboarding-admin-preview@qq.com"
+      GOODHR_PUBLIC_BASE_URL: "http://127.0.0.1:5174"
+      GOODHR_DISABLE_EMAIL_SCHEDULER: "true"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:8085:8084"
+      # 模拟 Agent 与后端共享网络，固定回环云端地址不会误接其他测试后端。
+      - "127.0.0.1:43130:43130"
+    volumes:
+      - onboarding_uploads:/app/uploads
+      - onboarding_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8084/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  agent:
+    image: node:22-bookworm-slim
+    network_mode: "service:backend"
+    working_dir: /preview
+    command: ["node", "/preview/onboarding-agent.mjs"]
+    environment:
+      ONBOARDING_AGENT_HOST: "0.0.0.0"
+      ONBOARDING_AGENT_PORT: "43130"
+      ONBOARDING_CLOUD_BASE: "http://127.0.0.1:8084"
+      TZ: Asia/Shanghai
+    volumes:
+      - ./cloud/frontend-next/tests/fixtures/onboarding-agent.mjs:/preview/onboarding-agent.mjs:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    image: goodhr-onboarding-frontend:local
+    build:
+      context: ./cloud/frontend-next
+      args:
+        NEXT_PUBLIC_CLOUD_API_BASE: "http://127.0.0.1:43130"
+        NEXT_PUBLIC_SITE_URL: "http://127.0.0.1:5174"
+        NEXT_PUBLIC_LOCAL_AGENT_PORT: "43130"
+        CLOUD_API_BASE: "http://backend:8084"
+        NODE_OPTIONS: "--max-old-space-size=4096"
+        CIRCLE_NODE_TOTAL: "2"
+    environment:
+      HOSTNAME: "0.0.0.0"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:5174:3000"
+    depends_on:
+      - agent
+    restart: unless-stopped
+
+volumes:
+  # 所有卷均只属于本机教程预览；重启容器不删除账号、密码、岗位和教程完成记录。
+  onboarding_postgres:
+  onboarding_redis:
+  onboarding_uploads:
+  onboarding_logs:

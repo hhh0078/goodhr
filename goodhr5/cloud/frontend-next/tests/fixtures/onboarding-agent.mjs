@@ -2,6 +2,8 @@
 import http from "node:http";
 
 const port = Number(process.env.ONBOARDING_AGENT_PORT || 43130);
+// 容器预览只通过回环端口发布；普通本机测试继续仅监听回环地址。
+const host = process.env.ONBOARDING_AGENT_HOST || "127.0.0.1";
 const cloudBase = process.env.ONBOARDING_CLOUD_BASE || "http://127.0.0.1:8084";
 const machineID = `goodhr-device-v1-${"e".repeat(64)}`;
 if (new URL(cloudBase).hostname !== "127.0.0.1" || new URL(cloudBase).port !== "8084") throw new Error("教程模拟只允许使用本机 8084 后端");
@@ -158,4 +160,4 @@ async function handleRequest(request, response) {
 }
 
 const server = http.createServer((request, response) => { handleRequest(request, response).catch((error) => { state.errors.push(error.message); json(response, error.status || 500, error.payload || { error: { code: "TEST_PROTOCOL_ERROR", message: error.message } }, false); }); });
-server.listen(port, "127.0.0.1", () => process.stdout.write(`教程测试协议模拟 Agent http://127.0.0.1:${port}；仅访问云端 ${cloudBase}\n`));
+server.listen(port, host, () => process.stdout.write(`教程测试协议模拟 Agent http://${host}:${port}；仅访问云端 ${cloudBase}\n`));

@@ -1,9 +1,11 @@
 /** 文件作用：为教程端到端测试注册实际本机后端用户、控制隔离 Agent，并阻断全部外部业务请求。 */
 import { expect, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
 
-export const CLOUD_URL = "http://127.0.0.1:8084";
+export const CLOUD_URL = process.env.UI_TEST_CLOUD_URL || "http://127.0.0.1:8084";
 export const AGENT_URL = "http://127.0.0.1:43130";
 export const PREVIEW_URL = process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5173";
+// Docker 教程预览使用独立端口 8085；拒绝将测试账号注册到非本机云端。
+if (!["http://127.0.0.1:8084", "http://127.0.0.1:8085"].includes(CLOUD_URL)) throw new Error("教程测试只允许使用本机 8084 或 8085 后端");
 export type TestUser = { email: string; password: string; token: string; id: string };
 
 /** registerUser 通过实际 Go 验证码登录创建独立账号，开发发信器不会发送真实邮件。 */
