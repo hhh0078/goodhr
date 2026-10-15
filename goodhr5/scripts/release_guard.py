@@ -134,7 +134,8 @@ class DockerReader:
     def inspect(self, reference):
         """inspect 只读取镜像身份、父镜像、标签及RootFS，不读取Config.Env。"""
         require(isinstance(reference, str) and reference and not reference.startswith("-") and not any(x.isspace() for x in reference), "镜像引用格式异常")
-        template = '{"Id":{{json .Id}},"Parent":{{json .Parent}},"RepoTags":{{json .RepoTags}},"Layers":{{json .RootFS.Layers}},"DockerfileSHA":{{if .Config.Labels}}{{json (index .Config.Labels "goodhr.dockerfile_sha256")}}{{else}}null{{end}},"Release":{{if .Config.Labels}}{{json (index .Config.Labels "goodhr.release")}}{{else}}null{{end}},"ReleaseID":{{if .Config.Labels}}{{json (index .Config.Labels "goodhr.release.id")}}{{else}}null{{end}}}'
+        # 新版 Docker 的 OCI 镜像可能省略 Parent，按无父链处理，仍执行后续文件层与历史镜像检查。
+        template = '{"Id":{{json .Id}},"Parent":{{json (or (index . "Parent") "")}},"RepoTags":{{json .RepoTags}},"Layers":{{json .RootFS.Layers}},"DockerfileSHA":{{if .Config.Labels}}{{json (index .Config.Labels "goodhr.dockerfile_sha256")}}{{else}}null{{end}},"Release":{{if .Config.Labels}}{{json (index .Config.Labels "goodhr.release")}}{{else}}null{{end}},"ReleaseID":{{if .Config.Labels}}{{json (index .Config.Labels "goodhr.release.id")}}{{else}}null{{end}}}'
         try:
             value = json.loads(self.query(["image", "inspect", "--format", template, reference]))
             require(isinstance(value, dict) and DIGEST.fullmatch(value.get("Id", "")), "镜像身份数据异常")

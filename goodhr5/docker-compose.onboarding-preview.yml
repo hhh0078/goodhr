@@ -1,4 +1,4 @@
-# 文件作用：启动独立、可重启的新手教程本机验收环境，持久保存账号与岗位，避免占用简历库测试端口。
+# 文件作用：启动持久化的新手教程真实本机验收入口5174；模拟前端5175及Agent仅在simulation配置中启用。
 name: goodhr-onboarding-preview
 
 services:
@@ -62,6 +62,7 @@ services:
     restart: unless-stopped
 
   agent:
+    profiles: ["simulation"]
     image: node:22-bookworm-slim
     network_mode: "service:backend"
     working_dir: /preview
@@ -82,10 +83,13 @@ services:
     image: goodhr-onboarding-frontend:local
     build:
       context: ./cloud/frontend-next
+      labels:
+        goodhr.dockerfile_sha256: "${ONBOARDING_FRONTEND_DOCKERFILE_SHA256:-unset}"
       args:
-        NEXT_PUBLIC_CLOUD_API_BASE: "http://127.0.0.1:43130"
+        NEXT_PUBLIC_CLOUD_API_BASE: "http://127.0.0.1:8085"
         NEXT_PUBLIC_SITE_URL: "http://127.0.0.1:5174"
-        NEXT_PUBLIC_LOCAL_AGENT_PORT: "43130"
+        NEXT_PUBLIC_LOCAL_AGENT_PORT: "43131"
+        NEXT_PUBLIC_ONBOARDING_PREVIEW_MODE: "real"
         CLOUD_API_BASE: "http://backend:8084"
         NODE_OPTIONS: "--max-old-space-size=4096"
         CIRCLE_NODE_TOTAL: "2"
@@ -94,6 +98,32 @@ services:
       TZ: Asia/Shanghai
     ports:
       - "127.0.0.1:5174:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 自动化模拟入口单独占用5175，不能作为真实浏览器验收通过的证据。
+  frontend-simulation:
+    profiles: ["simulation"]
+    image: goodhr-onboarding-frontend-simulation:local
+    build:
+      context: ./cloud/frontend-next
+      labels:
+        goodhr.dockerfile_sha256: "${ONBOARDING_FRONTEND_DOCKERFILE_SHA256:-unset}"
+      args:
+        NEXT_PUBLIC_CLOUD_API_BASE: "http://127.0.0.1:43130"
+        NEXT_PUBLIC_SITE_URL: "http://127.0.0.1:5175"
+        NEXT_PUBLIC_LOCAL_AGENT_PORT: "43130"
+        NEXT_PUBLIC_ONBOARDING_PREVIEW_MODE: "simulation"
+        CLOUD_API_BASE: "http://backend:8084"
+        NODE_OPTIONS: "--max-old-space-size=4096"
+        CIRCLE_NODE_TOTAL: "2"
+    environment:
+      HOSTNAME: "0.0.0.0"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:5175:3000"
     depends_on:
       - agent
     restart: unless-stopped

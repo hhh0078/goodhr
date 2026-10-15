@@ -765,7 +765,7 @@ test("顶部浏览器按钮打开所选平台，等待登录和刷新恢复都�
   await expectStep(page, "platform-login");
   await expectMaskAround(page, browserButton);
   const tour = page.locator(".ant-tour");
-  await expect(tour).toContainText(/刚.*打开.{0,12}浏览器/);
+  await expect(tour).toContainText("请切到招聘浏览器，在里面登录你的招聘平台账号");
   await expect(tour).toContainText("狐狸");
   await expect(tour).toContainText("任务栏");
   await expect(tour).toContainText("程序坞");
@@ -793,6 +793,63 @@ test("顶部浏览器按钮打开所选平台，等待登录和刷新恢复都�
   await agentControl(request, { loggedIn: true });
   await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu", { timeout: 25_000 });
   expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(2);
+});
+
+for (const missingPage of ["", "https://www.bing.com/"]) {
+  test(`登录检测遇到${missingPage ? "其他网站" : "空白页面"}时提示顶部重开，实际登录后才继续`, async ({ scenario, request }) => {
+    const { page, user } = scenario;
+    await acceptTutorial(page);
+    await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
+    await headerBrowserButton(page).click();
+    await expectStep(page, "platform-login");
+    await agentControl(request, { opened: true, loggedIn: true, pageURL: missingPage });
+    const tour = page.locator(".ant-tour");
+    await expect(tour).toContainText("暂未找到所选招聘平台页面", { timeout: 20_000 });
+    await expect(tour).toContainText("请再点顶部“打开浏览器”");
+    await expectStep(page, "platform-login");
+    expect((await readUserFlow(request, user)).tutorial_completed).not.toBe(true);
+    await expectMaskAround(page, headerBrowserButton(page));
+    await headerBrowserButton(page).click();
+    await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu", { timeout: 25_000 });
+    const opened = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open");
+    expect(opened).toHaveLength(2);
+    expect(opened[1].body.url).not.toContain("bing.com");
+  });
+}
+
+test("登录检测报错后停止转圈，顶部真实入口仍能重开恢复", async ({ scenario, request }) => {
+  const { page } = scenario;
+  await agentControl(request, { loggedIn: false });
+  await page.route("**/api/v1/page/url", (route) => route.fulfill({ status: 500, json: { error: "招聘浏览器暂时没连上" } }));
+  await acceptTutorial(page);
+  await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
+  await headerBrowserButton(page).click();
+  await expectStep(page, "platform-login");
+  const tour = page.locator(".ant-tour");
+  await expect(tour.getByRole("alert").filter({ hasText: "招聘浏览器暂时没连上" })).toBeVisible({ timeout: 20_000 });
+  await expect(tour.locator(".ant-spin")).toHaveCount(0);
+  await expect(headerBrowserButton(page)).toBeEnabled();
+  await expectMaskAround(page, headerBrowserButton(page));
+  await page.unroute("**/api/v1/page/url");
+  await agentControl(request, { loggedIn: true });
+  await headerBrowserButton(page).click();
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu", { timeout: 25_000 });
+});
+
+test("模拟预览在欢迎和平台登录明确标注不会打开真实浏览器", async ({ scenario, request }) => {
+  test.skip(process.env.UI_TEST_EXPECT_SIMULATION !== "true", "仅在明确配置模拟构建时检查环境标记");
+  const { page } = scenario;
+  await agentControl(request, { loggedIn: false });
+  await openAdmin(page);
+  const welcome = page.getByRole("dialog", { name: "新同事，欢迎上岗。", exact: true });
+  await expect(welcome.getByTestId("onboarding-simulation-notice")).toContainText("不会打开真实招聘浏览器");
+  await expect(welcome.getByRole("link", { name: "打开真实浏览器验收" })).toHaveAttribute("href", "http://127.0.0.1:5174/admin");
+  await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
+  await expectStep(page, "platform-select");
+  await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
+  await headerBrowserButton(page).click();
+  await expectStep(page, "platform-login");
+  await expect(page.locator(".ant-tour").getByTestId("onboarding-simulation-notice")).toContainText("不会打开真实招聘浏览器");
 });
 
 test("390px手机浏览器入口的遮罩圈住真实顶部图标，登录等待时仍可点击", async ({ scenario, request }) => {

@@ -169,7 +169,7 @@ export async function waitForPlatformLoggedIn(
   signal?: AbortSignal,
 ) {
   let loggedInHits = 0;
-  onStatus("登录页面加载中，请稍等...");
+  onStatus("正在确认招聘平台页面；没看到窗口时，请重新打开本次招聘登录窗口。");
   await delay(URL_FIRST_CHECK_DELAY_MS, signal);
   for (let index = 0; index < 180; index += 1) {
     await delay(URL_CHECK_INTERVAL_MS, signal);
@@ -184,13 +184,34 @@ export async function waitForPlatformLoggedIn(
       continue;
     }
     loggedInHits = 0;
-    onStatus(
-      isLoginURL(url, auth)
-        ? "请在浏览器中完成扫码或验证码登录"
-        : `等待登录页面跳转：${shortURL(url)}`,
-    );
+    if (isLoginURL(url, auth)) {
+      onStatus("请在招聘浏览器中完成扫码或验证码登录");
+    } else if (isPlatformPageHost(url, auth)) {
+      onStatus("招聘平台页面正在跳转；请在招聘浏览器中完成登录，我会继续确认。");
+    } else {
+      onStatus("暂未找到所选招聘平台页面。请重新打开本次招聘登录窗口，完成账号登录。");
+    }
   }
-  throw new Error("登录确认超时，请确认浏览器仍处于登录状态");
+  throw new Error("这次还没确认到平台登录。请重新打开本次招聘登录窗口，完成登录后再回来");
+}
+
+/** isPlatformPageHost 区分平台内正常跳转与空白、其他网站，只用于提示，不作为登录成功依据。 */
+function isPlatformPageHost(url: string, auth: PlatformAuthConfig) {
+  try {
+    const current = new URL(url);
+    if (!current.hostname) return false;
+    return [...(auth.pages || []), ...(auth.public_pages || [])].some((page) => {
+      try {
+        const target = String(page?.url || "");
+        const configured = new URL(target.startsWith("http") ? target : `https://${target}`);
+        return current.hostname === configured.hostname;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
 }
 
 /** isLoggedInURL 判断当前地址是否命中平台已登录页面。 */

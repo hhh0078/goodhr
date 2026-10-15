@@ -107,6 +107,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
 
   if (phase === "loading" || phase === "silent") return null;
   const operationPanel = active && !blocked && operationSteps.includes(step) ? <OperationPanel {...props} /> : null;
+  const simulationNotice = process.env.NEXT_PUBLIC_ONBOARDING_PREVIEW_MODE === "simulation" ? <Alert data-testid="onboarding-simulation-notice" type="warning" showIcon title="这是自动化模拟环境，不会打开真实招聘浏览器。" description={<Typography.Link href="http://127.0.0.1:5174/admin">打开真实浏览器验收</Typography.Link>} className={styles.helpAlert} /> : null;
 
   return (
     <div data-testid="onboarding-experience" data-step={step}>
@@ -154,7 +155,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         steps={[{
           target,
           title: <span data-testid="onboarding-tour" data-step={step}>{title}</span>,
-          description: <div><Typography.Paragraph>{description}</Typography.Paragraph>{step === "platform-login" ? <Flex gap={8} align="center" className={styles.loginStatus} role="status"><Image src="/assets/platforms/camoufox.png" alt="橙色狐狸浏览器图标" width={28} height={28} preview={false} /><Typography.Text type="secondary"><Spin size="small" /> {statusText || "我在等你完成平台登录。"}</Typography.Text></Flex> : null}<Typography.Paragraph type="secondary" className={styles.tourHint}>{hint}</Typography.Paragraph>{error && !["position-start-error", "position-start-update"].includes(step) ? <Alert type="warning" showIcon title={error} className={styles.helpAlert} /> : null}<Typography.Text type="secondary" className={styles.tourEstimate}>{estimate} · 完成操作后，我会自动接着带路。</Typography.Text></div>,
+          description: <div>{step === "platform-login" ? simulationNotice : null}<Typography.Paragraph>{description}</Typography.Paragraph>{step === "platform-login" && !error ? <Flex gap={8} align="center" className={styles.loginStatus} role="status"><Image src="/assets/platforms/camoufox.png" alt="橙色狐狸浏览器图标" width={28} height={28} preview={false} /><Typography.Text type="secondary"><Spin size="small" /> {statusText || "我在等你完成平台登录。"}</Typography.Text></Flex> : null}<Typography.Paragraph type="secondary" className={styles.tourHint}>{hint}</Typography.Paragraph>{error && !["position-start-error", "position-start-update"].includes(step) ? <Alert type="warning" showIcon title={error} className={styles.helpAlert} /> : null}<Typography.Text type="secondary" className={styles.tourEstimate}>{estimate} · 完成操作后，我会自动接着带路。</Typography.Text></div>,
           placement: operationPanel ? "top" : step.endsWith("menu") ? mobileMenuPlacement || "right" : "bottom",
         }]}
         disabledInteraction={false}
@@ -178,6 +179,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         mask={{ closable: false }}
         footer={<Flex justify="flex-end" gap={8} wrap><Button onClick={actions.requestSkip}>我非新用户，无需教程</Button><Button type="primary" onClick={actions.accept}>好，带我跑一遍</Button></Flex>}
       >
+        {simulationNotice}
         <Typography.Paragraph className={styles.welcomeCopy}>强烈建议跟我跑一遍：从打开浏览器到筛完第一位候选人，有我带路，少一点“接下来点哪儿”。</Typography.Paragraph>
         <div className={styles.welcomeFacts}><span>5 个阶段 · 进度自动保存</span><span>预计 {remaining}</span></div>
       </Modal>
