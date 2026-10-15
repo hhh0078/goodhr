@@ -10,7 +10,8 @@ export function onboardingTargetSelector(step: OnboardingStep, positionId: strin
     "agent-menu": "[data-onboarding='menu-agent-download']",
     "agent-download": "[data-onboarding='onboarding-agent-download']",
     "agent-connect": "[data-onboarding='onboarding-agent-connect']",
-    "runtime-install": "[data-onboarding='runtime-install'], [data-onboarding='runtime-system-check']",
+    "runtime-install": "[data-onboarding='runtime-install']",
+    "runtime-system": "[data-onboarding='runtime-system-actions']",
     "platform-select": "[data-onboarding='onboarding-platform-choice']",
     "platform-open": "[data-onboarding='browser-open']",
     "platform-login": "[data-onboarding='browser-open']",
@@ -25,6 +26,9 @@ export function onboardingTargetSelector(step: OnboardingStep, positionId: strin
     "position-start": `[data-onboarding='position-start'][data-position-id='${position}']`,
     "platform-filter": "[data-onboarding='position-open-platform']",
     "position-run": "[data-onboarding='position-run-confirm']",
+    "position-start-check": "[data-onboarding='position-start-feedback']",
+    "position-start-error": "[data-onboarding='position-start-feedback']",
+    "position-start-update": "[data-onboarding='position-start-feedback']",
     "first-result": "[data-onboarding='onboarding-result-wait']",
     "complete": "",
   };
@@ -43,7 +47,7 @@ export function useOnboardingTarget(selector: string, enabled: boolean): { targe
     /** inspect 只读取当前控制台元素的可见性，移动端菜单折叠时先突出打开菜单按钮。 */
     function inspect() {
       const candidates = Array.from(document.querySelectorAll<HTMLElement>(selector));
-      const visible = candidates.map((candidate) => candidate.closest<HTMLElement>("[role='menuitem']") || candidate).find((element) => {
+      const visible = candidates.map((candidate) => candidate.dataset.onboarding === "position-start-feedback" ? candidate.closest<HTMLElement>(".ant-modal-container, .ant-modal-content") || candidate : candidate.closest<HTMLElement>("[role='menuitem']") || candidate).find((element) => {
         const box = element.getBoundingClientRect();
         const modal = element.closest<HTMLElement>(".ant-modal");
         const drawer = element.closest<HTMLElement>(".ant-drawer-content-wrapper");

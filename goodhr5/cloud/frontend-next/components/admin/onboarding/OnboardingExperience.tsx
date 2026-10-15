@@ -61,11 +61,16 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
     const previousActive = root.getAttribute("data-onboarding-active");
     const previousHeight = root.style.getPropertyValue("--goodhr-onboarding-height");
     const hadLayoutClass = root.classList.contains(styles.activeLayout);
+    const overlayRoot = document.body;
+    const previousOverlayTop = overlayRoot.style.getPropertyValue("--goodhr-onboarding-overlay-top");
+    const hadOverlayClass = overlayRoot.classList.contains(styles.activeOverlayLayout);
     root.setAttribute("data-onboarding-active", "true");
     root.classList.add(styles.activeLayout);
+    overlayRoot.classList.add(styles.activeOverlayLayout);
     /** measureProgressHeight 只测量当前控制台进度条，让菜单工具栏和正文避让真实高度。 */
     function measureProgressHeight() {
       root!.style.setProperty("--goodhr-onboarding-height", `${Math.ceil(progress!.getBoundingClientRect().height)}px`);
+      overlayRoot.style.setProperty("--goodhr-onboarding-overlay-top", `${Math.ceil(progress!.getBoundingClientRect().bottom) + 12}px`);
     }
     measureProgressHeight();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measureProgressHeight);
@@ -79,6 +84,9 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       if (previousHeight) root.style.setProperty("--goodhr-onboarding-height", previousHeight);
       else root.style.removeProperty("--goodhr-onboarding-height");
       if (!hadLayoutClass) root.classList.remove(styles.activeLayout);
+      if (previousOverlayTop) overlayRoot.style.setProperty("--goodhr-onboarding-overlay-top", previousOverlayTop);
+      else overlayRoot.style.removeProperty("--goodhr-onboarding-overlay-top");
+      if (!hadOverlayClass) overlayRoot.classList.remove(styles.activeOverlayLayout);
     };
   }, [active]);
 
@@ -103,7 +111,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
   return (
     <div data-testid="onboarding-experience" data-step={step}>
       {active ? (
-        <section ref={progressBarRef} className={styles.progressBar} aria-label="新手教程总进度">
+        <section ref={progressBarRef} className={styles.progressBar} style={blocked ? { zIndex: 900 } : undefined} aria-label="新手教程总进度">
           <Flex gap={10} align="center" justify="space-between" wrap>
             <div className={styles.progressTitle}>
               <Typography.Text strong>上手进度 {doneCount}/5</Typography.Text>
@@ -146,7 +154,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         steps={[{
           target,
           title: <span data-testid="onboarding-tour" data-step={step}>{title}</span>,
-          description: <div><Typography.Paragraph>{description}</Typography.Paragraph>{step === "platform-login" ? <Flex gap={8} align="center" className={styles.loginStatus} role="status"><Image src="/assets/platforms/camoufox.png" alt="橙色狐狸浏览器图标" width={28} height={28} preview={false} /><Typography.Text type="secondary"><Spin size="small" /> {statusText || "我在等你完成平台登录。"}</Typography.Text></Flex> : null}<Typography.Paragraph type="secondary" className={styles.tourHint}>{hint}</Typography.Paragraph>{error && ["platform-open", "platform-login"].includes(step) ? <Alert type="warning" showIcon title={error} className={styles.helpAlert} /> : null}<Typography.Text type="secondary" className={styles.tourEstimate}>{estimate} · 完成操作后，我会自动接着带路。</Typography.Text></div>,
+          description: <div><Typography.Paragraph>{description}</Typography.Paragraph>{step === "platform-login" ? <Flex gap={8} align="center" className={styles.loginStatus} role="status"><Image src="/assets/platforms/camoufox.png" alt="橙色狐狸浏览器图标" width={28} height={28} preview={false} /><Typography.Text type="secondary"><Spin size="small" /> {statusText || "我在等你完成平台登录。"}</Typography.Text></Flex> : null}<Typography.Paragraph type="secondary" className={styles.tourHint}>{hint}</Typography.Paragraph>{error && !["position-start-error", "position-start-update"].includes(step) ? <Alert type="warning" showIcon title={error} className={styles.helpAlert} /> : null}<Typography.Text type="secondary" className={styles.tourEstimate}>{estimate} · 完成操作后，我会自动接着带路。</Typography.Text></div>,
           placement: operationPanel ? "top" : step.endsWith("menu") ? mobileMenuPlacement || "right" : "bottom",
         }]}
         disabledInteraction={false}
@@ -219,18 +227,18 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
 }
 
 /** OperationPanel 展示当前步骤需要的真实操作按钮，不提供跳过业务判断的下一步按钮。 */
-function OperationPanel({ step, state, title, description, statusText, error, busy, actions }: OnboardingExperienceProps) {
+function OperationPanel({ step, state, title, description, statusText, error, busy, availablePlatforms, platformsLoading, actions }: OnboardingExperienceProps) {
   if (!operationSteps.includes(step)) return null;
   return (
     <section className={styles.operationPanel} aria-label="当前教程操作" aria-live="polite">
       <Typography.Title level={5} className={styles.panelTitle}>{title}</Typography.Title>
       <Typography.Paragraph type="secondary" className={styles.panelDescription}>{description}</Typography.Paragraph>
-      {step === "platform-select" ? <div data-onboarding="onboarding-platform-choice"><ChoiceCards label="请选择你使用的平台" value="" options={platformChoices} compact columns={2} onChange={(value) => actions.choosePlatform(String(value))} /></div> : null}
+      {step === "platform-select" ? <div data-onboarding="onboarding-platform-choice"><ChoiceCards label="请选择你使用的平台" value="" options={platformChoices.map((choice) => ({ ...choice, disabled: platformsLoading || !availablePlatforms.includes(choice.value), description: platformsLoading ? "正在读取开放状态" : availablePlatforms.includes(choice.value) ? choice.description : "暂未开放，请选择其他可用平台" }))} compact columns={2} onChange={(value) => actions.choosePlatform(String(value))} />{error ? <Alert type="warning" showIcon title={error} className={styles.panelStatus} /> : null}{error || (!platformsLoading && availablePlatforms.length === 0) ? <Button loading={platformsLoading} onClick={actions.refreshPlatforms} style={{ marginTop: 8 }}>重新读取平台</Button> : null}</div> : null}
       {step === "agent-download" ? <Button data-onboarding="onboarding-agent-download" type="primary" onClick={actions.downloadAgent}>下载本地程序</Button> : null}
       {step === "agent-connect" ? <div><Button data-onboarding="onboarding-agent-connect" type="primary" loading={busy} onClick={actions.checkAgent}>检查连接</Button><Typography.Paragraph type="secondary" className={styles.connectHint}>程序已经启动仍连不上？点击“遇到问题”查看浏览器权限图。</Typography.Paragraph></div> : null}
       {step === "first-result" ? <div data-onboarding="onboarding-result-wait"><Flex gap={8} align="center"><Spin size="small" /><Typography.Text>{statusText || "等待第一条真实筛选判断"}</Typography.Text></Flex><Typography.Paragraph type="secondary" className={styles.connectHint}>筛掉不合适的人也算正常结果，进度会按真实判断更新。</Typography.Paragraph></div> : null}
       {statusText && !["platform-login", "first-result"].includes(step) ? <Typography.Paragraph type="secondary" className={styles.panelStatus}>{statusText}</Typography.Paragraph> : null}
-      {error ? <Alert type="warning" showIcon title={error} className={styles.panelStatus} /> : null}
+      {error && step !== "platform-select" ? <Alert type="warning" showIcon title={error} className={styles.panelStatus} /> : null}
     </section>
   );
 }

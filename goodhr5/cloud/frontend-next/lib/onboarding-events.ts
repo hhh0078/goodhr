@@ -10,7 +10,10 @@ export type OnboardingScreeningResult = {
   score?: number;
 };
 export type OnboardingEvent = {
-  type: "guide-requested" | "platform-browser-open-requested" | "position-form-close-requested" | "position-start-close-requested" | "position-form-opened" | "position-form-closed" | "form-field-completed" | "position-created" | "start-dialog-opened" | "start-dialog-closed" | "platform-opened" | "position-started" | "screening-result";
+  type: "guide-requested" | "platform-browser-open-requested" | "platform-unavailable" | "position-form-close-requested" | "position-start-close-requested" | "position-form-opened" | "position-form-closed" | "form-field-completed" | "position-created" | "start-dialog-opened" | "start-dialog-closed" | "start-dialog-status" | "position-recover-requested" | "position-recovered" | "platform-opened" | "position-started" | "screening-result";
+  recovered?: boolean;
+  startStatus?: "ready" | "checking" | "error" | "update";
+  message?: string;
   restored?: boolean;
   field?: OnboardingFormField;
   completed?: boolean;

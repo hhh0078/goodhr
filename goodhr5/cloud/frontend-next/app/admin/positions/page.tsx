@@ -168,6 +168,9 @@ export default function PositionsPage() {
   const restorationBlockedStep = useRef("");
   const lastGuideActive = useRef(false);
   const lastDraftIdentity = useRef("");
+  const pageMountedRef = useRef(true);
+  const queuedTutorialRecovery = useRef("");
+  const recoveringTutorialPosition = useRef("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [busyPositionID, setBusyPositionID] = useState("");
   const [expandedLogPositionID, setExpandedLogPositionID] = useState("");
@@ -210,6 +213,10 @@ export default function PositionsPage() {
   const simpleOnboardingForm = guideContext.active && !form.id;
   const draftIdentity = String(user?.id || user?.email || "").trim();
   useEffect(() => {
+    pageMountedRef.current = true;
+    return () => { pageMountedRef.current = false; };
+  }, []);
+  useEffect(() => {
     setGuideContext(getOnboardingGuideContext());
     return subscribeOnboardingGuideContext(setGuideContext);
   }, []);
@@ -221,17 +228,46 @@ export default function PositionsPage() {
     createdOnboardingPositionID.current = "";
     startedOnboardingPositionID.current = "";
     restorationBlockedStep.current = "";
+    queuedTutorialRecovery.current = "";
     if (hadIdentity) {
       setDialogOpen(false);
       setStartPositionItem(null);
       setForm(createEmptyForm());
       setOnboardingResult(null);
+      setBusyPositionID("");
+      setItems([]);
+      setLatestTaskStats({});
+      setLogs({});
+      void load();
     }
   }, [draftIdentity]);
   useEffect(() => subscribeOnboardingEvents((event) => {
     if (event.type === "position-form-close-requested" && dialogOpen) closePositionForm();
     if (event.type === "position-start-close-requested" && startPositionItem) closeStartDialog();
-  }), [dialogOpen, startPositionItem, startLoading, startOpeningPlatform]);
+    if (event.type === "position-recover-requested" && event.positionId) {
+      if (loading) { queuedTutorialRecovery.current = event.positionId; return; }
+      const item = items.find((position) => String(position.id) === event.positionId);
+      if (item) void recoverTutorialPosition(item);
+      else publishOnboardingEvent({ type: "position-recovered", positionId: event.positionId, recovered: false, message: "这个教程岗位暂时没读到。可以稍后继续重新检查，或刷新后恢复教程。" });
+    }
+  }), [dialogOpen, startPositionItem, startLoading, startOpeningPlatform, items, agentBase, loading]);
+  useEffect(() => {
+    if (loading || !queuedTutorialRecovery.current) return;
+    const positionId = queuedTutorialRecovery.current;
+    queuedTutorialRecovery.current = "";
+    const item = items.find((position) => String(position.id) === positionId);
+    if (item) void recoverTutorialPosition(item);
+    else publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "这个教程岗位暂时没读到。可以稍后继续重新检查，或刷新后恢复教程。" });
+  }, [loading, items]);
+  useEffect(() => {
+    if (!startPositionItem) return;
+    publishOnboardingEvent({
+      type: "start-dialog-status",
+      positionId: String(startPositionItem.id),
+      startStatus: startError ? "error" : startRequiresUpdate ? "update" : startLoading || startOpeningPlatform ? "checking" : "ready",
+      message: startError || startStatus,
+    });
+  }, [startPositionItem, startError, startRequiresUpdate, startLoading, startOpeningPlatform, startStatus]);
   useEffect(() => {
     if (!pendingStartDialogClose.current || startLoading || startOpeningPlatform) return;
     if (startPositionItem) closeStartDialog();
@@ -251,12 +287,13 @@ export default function PositionsPage() {
       !draftIdentity || !platformConfigs.length || guideContext.positionId ||
       createdOnboardingPositionID.current || restorationBlockedStep.current === step
     ) return;
+    if (!isPlatformOpen(platformConfigs, guideContext.platformId)) {
+      publishOnboardingEvent({ type: "platform-unavailable", platformId: guideContext.platformId, message: "上次选择的平台暂未开放，请重新选择可用平台。我不会把岗位悄悄换到别的平台。" });
+      return;
+    }
     const stored = readOnboardingPositionDraft(draftIdentity);
-    const draft = stored && isPlatformOpen(platformConfigs, stored.platform_id) ? stored : null;
-    const platformID = draft?.platform_id || (
-      isPlatformOpen(platformConfigs, guideContext.platformId)
-        ? guideContext.platformId : firstOpenPlatformID(platformConfigs)
-    );
+    const draft = stored && stored.platform_id === guideContext.platformId && isPlatformOpen(platformConfigs, stored.platform_id) ? stored : null;
+    const platformID = guideContext.platformId;
     if (!platformID) return;
     const next = {
       ...createEmptyForm(),
@@ -377,6 +414,10 @@ export default function PositionsPage() {
   /** openCreate 使用免费版可用配置打开新增弹框。 */
   function openCreate() {
     const context = getOnboardingGuideContext();
+    if (context.active && !isPlatformOpen(platformConfigs, context.platformId)) {
+      publishOnboardingEvent({ type: "platform-unavailable", platformId: context.platformId, message: "你选的平台暂未开放，请重新选择可用平台。我不会替你换个平台创建岗位。" });
+      return;
+    }
     const openPlatformID =
       context.active && isPlatformOpen(platformConfigs, context.platformId)
         ? context.platformId
@@ -532,6 +573,8 @@ export default function PositionsPage() {
     const detailMode = normalizeDetailMode(form.platform_id, form.detail_mode);
     if (!aiMembership && (form.mode_default === "ai" || detailMode === "ai"))
       return requireMembership();
+    const saveToken = getToken();
+    const ownerIdentity = draftIdentity;
     setLoading(true);
     try {
       const saved = await cloudRequest("/api/positions", {
@@ -585,6 +628,7 @@ export default function PositionsPage() {
           enable_thinking: form.enable_thinking,
         },
       });
+      if (!pageMountedRef.current || getToken() !== saveToken || lastDraftIdentity.current !== ownerIdentity) return;
       notify(form.id ? "岗位模板已更新" : "岗位模板已创建", "success");
       if (!form.id && saved.position?.id) {
         createdOnboardingPositionID.current = String(saved.position.id);
@@ -597,9 +641,9 @@ export default function PositionsPage() {
       setDialogOpen(false);
       await load();
     } catch (error) {
-      notify(error instanceof Error ? error.message : "保存岗位失败", "error");
+      if (pageMountedRef.current && getToken() === saveToken && lastDraftIdentity.current === ownerIdentity) notify(error instanceof Error ? error.message : "保存岗位失败", "error");
     } finally {
-      setLoading(false);
+      if (pageMountedRef.current && getToken() === saveToken && lastDraftIdentity.current === ownerIdentity) setLoading(false);
     }
   }
   /** remove 删除指定岗位模板。 */
@@ -616,6 +660,10 @@ export default function PositionsPage() {
   /** openStartPosition 展开岗位日志并打开启动确认弹框。 */
   function openStartPosition(item: any) {
     if (!agentBase) return notify("请先启动本地程序", "warning");
+    if (getOnboardingGuideContext().active && !isPlatformOpen(platformConfigs, item.platform_id)) {
+      publishOnboardingEvent({ type: "platform-unavailable", platformId: String(item.platform_id || ""), message: "这个岗位的平台暂未开放，请重新选择可用平台。岗位会保留，我不会替你换平台开跑。" });
+      return;
+    }
     setExpandedLogPositionID(item.id);
     void loadPositionLogs(item);
     setStartStatus("");
@@ -647,6 +695,7 @@ export default function PositionsPage() {
     if (!item || !agentBase || startOpeningPlatform) return;
     if (!isPlatformOpen(platformConfigs, item.platform_id)) {
       setStartStatus("这个招聘平台暂时还没开放，请联系作者确认。");
+      setStartError("这个招聘平台暂时还没开放。请返回后重新选择可用平台，再继续教程。");
       return;
     }
     setStartOpeningPlatform(true);
@@ -877,8 +926,9 @@ export default function PositionsPage() {
     }
   }
   /** stopPosition 停止本地岗位运行，但保持浏览器打开。 */
-  async function stopPosition(item: any) {
-    if (!agentBase) return notify("本地程序还没连上", "warning");
+  async function stopPosition(item: any, options: { onError?: (message: string) => void } = {}) {
+    if (!agentBase) { notify("本地程序还没连上", "warning"); return false; }
+    const ownerIdentity = draftIdentity;
     setExpandedLogPositionID("");
     setBusyPositionID(item.id);
     try {
@@ -893,6 +943,7 @@ export default function PositionsPage() {
           },
         );
       } catch (error) {
+        if (lastDraftIdentity.current !== ownerIdentity) return false;
         // 旧版本地程序没有这个岗位的任务记录时，由云端核对归属并收尾，避免升级前仍停不下来。
         if (
           !(error instanceof APIRequestError) ||
@@ -909,17 +960,63 @@ export default function PositionsPage() {
           throw new Error("还没确认这个岗位已经停下，请稍后再试");
         }
       }
+      if (lastDraftIdentity.current !== ownerIdentity) return false;
       setFloatingPositionTask((current) =>
         current && current.id === item.id
           ? { ...current, status: "stopped", followTask: false }
           : current,
       );
+      setItems((current) => current.map((position) => position.id === item.id ? { ...position, status: "stopped" } : position));
       notify("岗位已停下，浏览器先给你留着", "success");
       await load();
+      return true;
     } catch (error) {
-      notify(error instanceof Error ? error.message : "停止岗位失败", "error");
+      if (lastDraftIdentity.current === ownerIdentity) {
+        const message = error instanceof Error ? error.message : "停止岗位失败";
+        options.onError?.(message);
+        notify(message, "error");
+      }
+      return false;
     } finally {
-      setBusyPositionID("");
+      if (lastDraftIdentity.current === ownerIdentity) setBusyPositionID("");
+    }
+  }
+  /** recoverTutorialPosition 只恢复当前教程岗位，重新核对本地终态并复用安全停止确认，避免旧云端 running 阻断重试。 */
+  async function recoverTutorialPosition(item: any) {
+    const positionId = String(item.id);
+    if (recoveringTutorialPosition.current) return;
+    const ownerIdentity = draftIdentity;
+    const context = getOnboardingGuideContext();
+    if (!context.active || context.positionId !== positionId) {
+      publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "教程已经暂停，这次先不重复启动。恢复后可以再检查。" });
+      return;
+    }
+    recoveringTutorialPosition.current = positionId;
+    try {
+      const task = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(positionId)}/status`);
+      const latestContext = getOnboardingGuideContext();
+      if (lastDraftIdentity.current !== ownerIdentity || !latestContext.active || latestContext.positionId !== positionId) {
+        publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "教程已经暂停或切换账号，这次先不重复启动。恢复后可以再检查。" });
+        return;
+      }
+      if (!["failed", "stopped", "completed"].includes(String(task.status)) || (task.position_id && String(task.position_id) !== positionId)) {
+        publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "当前岗位还在运行或状态已经变化，这次先不重复启动。可以继续等结果，或稍后继续查看岗位日志。" });
+        return;
+      }
+      let stopError = "";
+      let recovered = await stopPosition(item, { onError: (message) => { stopError = message; } });
+      if (lastDraftIdentity.current !== ownerIdentity) return;
+      if (recovered) {
+        const confirmed = await cloudRequest(`/api/positions/${encodeURIComponent(positionId)}`);
+        if (lastDraftIdentity.current !== ownerIdentity) return;
+        recovered = String(confirmed.position?.id || "") === positionId && String(confirmed.position?.status || "") === "stopped";
+      }
+      publishOnboardingEvent({ type: "position-recovered", positionId, recovered, message: recovered ? "" : `${stopError ? `${stopError}。` : ""}停止状态还没确认，这次先不重复启动。可以再点“上一步”重试，或稍后继续查看岗位日志。` });
+    } catch (error) {
+      if (lastDraftIdentity.current !== ownerIdentity) return;
+      publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: `停止状态还没确认：${error instanceof Error ? error.message : "本地记录暂时没读到"}。可以再点“上一步”重试，或稍后继续。` });
+    } finally {
+      if (recoveringTutorialPosition.current === positionId) recoveringTutorialPosition.current = "";
     }
   }
   /** togglePositionLogs 展开或收起岗位累计日志，不主动清空历史日志。 */
@@ -1403,7 +1500,7 @@ export default function PositionsPage() {
       )}
       <AdminDialog
         open={Boolean(startPositionItem)}
-        title={startError ? "岗位还没启动成功" : "开始招聘岗位"}
+        title={<span data-onboarding="position-start-feedback">{startError ? "岗位还没启动成功" : "开始招聘岗位"}</span>}
         confirmText={
           startError
             ? "我知道了"

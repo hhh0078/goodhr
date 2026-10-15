@@ -17,6 +17,12 @@
 :global([data-admin-root][data-onboarding-active="true"]).activeLayout :global(.goodhr-admin-main) {
   padding-top: calc(72px + var(--goodhr-onboarding-height, 0px) + 8px);
 }
+/* 启动弹框渲染在 body portal；只在教程期间给它让出进度条和下方说明卡的位置。 */
+:global(body).activeOverlayLayout :global(.ant-modal:has([data-onboarding="position-start-feedback"])) {
+  top: var(--goodhr-onboarding-overlay-top, 120px);
+  padding-bottom: 0;
+  --goodhr-onboarding-modal-body-height: max(80px, calc(100dvh - var(--goodhr-onboarding-overlay-top, 120px) - 430px));
+}
 .progressTitle { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .currentStep { font-size: 12px; color: var(--goodhr-text-secondary); }
 .remaining { font-size: 12px; white-space: nowrap; }

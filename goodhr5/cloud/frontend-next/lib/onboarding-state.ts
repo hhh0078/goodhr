@@ -2,9 +2,9 @@
 export const ONBOARDING_VERSION = 2;
 export const ONBOARDING_SKIP_PHRASE = "让开，我不需要教程";
 export const ONBOARDING_STEPS = [
-  "agent-menu", "agent-download", "agent-connect", "runtime-install", "platform-select", "platform-open", "platform-login",
+  "agent-menu", "agent-download", "agent-connect", "runtime-install", "runtime-system", "platform-select", "platform-open", "platform-login",
   "position-menu", "position-create", "position-name", "position-filter-mode", "position-detail-mode", "position-requirement", "position-keywords", "position-save",
-  "position-start", "platform-filter", "position-run", "first-result", "complete",
+  "position-start", "platform-filter", "position-run", "position-start-check", "position-start-error", "position-start-update", "first-result", "complete",
 ] as const;
 export type OnboardingStep = typeof ONBOARDING_STEPS[number];
 export type OnboardingStatus = "invited" | "active" | "paused" | "declined" | "completed";
@@ -65,9 +65,9 @@ export function saveOnboardingState(identity: string, state: OnboardingState, st
 
 /** onboardingStage 返回当前操作所属的大阶段，字段教学不会额外增加总步数。 */
 export function onboardingStage(step: OnboardingStep): number {
-  if (step.startsWith("agent-") || step === "runtime-install") return 0;
+  if (step.startsWith("agent-") || step.startsWith("runtime-")) return 0;
   if (step.startsWith("platform-") && step !== "platform-filter") return 1;
-  if (["position-start", "platform-filter", "position-run"].includes(step)) return 3;
+  if (step.startsWith("position-start") || ["platform-filter", "position-run"].includes(step)) return 3;
   if (step === "first-result" || step === "complete") return 4;
   return 2;
 }

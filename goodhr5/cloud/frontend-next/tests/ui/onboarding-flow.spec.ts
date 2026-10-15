@@ -88,15 +88,19 @@ async function openFirstPositionForm(page: Page) {
   await expectStep(page, "platform-open");
   await headerBrowserButton(page).click();
   await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", /position-menu|position-create/, { timeout: 30_000 });
-  if (await page.getByTestId("onboarding-experience").getAttribute("data-step") === "position-menu") await page.getByRole("menuitem", { name: "岗位管理", exact: true }).click();
+  if (await page.getByTestId("onboarding-experience").getAttribute("data-step") === "position-menu") {
+    const positionsMenu = page.getByRole("menuitem", { name: "岗位管理", exact: true });
+    if (!await positionsMenu.isVisible() && await page.locator('[data-onboarding="mobile-menu"]').isVisible()) await page.locator('[data-onboarding="mobile-menu"]').click();
+    await positionsMenu.click();
+  }
   await expectStep(page, "position-create");
   await page.locator('[data-onboarding="position-create"]').click();
   await expectStep(page, "position-name");
   await expectMaskAround(page, '[data-onboarding="position-name"]');
 }
 
-/** fillFirstPosition 逐字段执行输入和失焦，再通过实际后端确认保存内容。 */
-async function fillFirstPosition(page: Page, request: APIRequestContext, user: TestUser, filterMode: "ai" | "keyword", detailMode: "ai" | "ocr") {
+/** fillFirstPosition 逐字段执行输入和失焦；可停在保存前，正常保存时用实际后端核对内容。 */
+async function fillFirstPosition(page: Page, request: APIRequestContext, user: TestUser, filterMode: "ai" | "keyword", detailMode: "ai" | "ocr", savePosition = true) {
   await openFirstPositionForm(page);
   const nameInput = page.locator('[data-onboarding="position-name"]');
   await nameInput.focus();
@@ -132,6 +136,7 @@ async function fillFirstPosition(page: Page, request: APIRequestContext, user: T
   await expectStep(page, "position-save");
   await expectMaskAround(page, '[data-onboarding="position-save"]');
   await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/${filterMode}-${detailMode}-position.png`, fullPage: true });
+  if (!savePosition) return { name };
   await page.locator('[data-onboarding="position-save"]').click();
   await expectStep(page, "position-start");
   const response = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${user.token}` } });
@@ -158,6 +163,43 @@ async function startFirstPosition(page: Page, positionID: string) {
   await expectStep(page, "position-run");
   await page.locator('[data-onboarding="position-run-confirm"]').click();
   await expectStep(page, "first-result");
+}
+
+/** openRunConfirmation 通过真实岗位入口打开筛选确认，便于验证启动检查失败后的恢复操作。 */
+async function openRunConfirmation(page: Page, positionID: string) {
+  await page.locator(`[data-onboarding="position-start"][data-position-id="${positionID}"]`).click();
+  await expectStep(page, "platform-filter");
+  await page.locator('[data-onboarding="position-open-platform"]').click();
+  await expectStep(page, "position-run");
+}
+
+/** expectNoCompletion 同时核对界面和真实后端，阻止失败、扫描和缓存被误当作完成。 */
+async function expectNoCompletion(page: Page, request: APIRequestContext, user: TestUser) {
+  await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toHaveCount(0);
+  expect((await readUserFlow(request, user)).tutorial_completed).toBe(false);
+}
+
+/** platformConfig 为关闭平台回归构造公开配置，浏览器操作仍由隔离 Agent 协议接收。 */
+function platformConfig(id: string, open: boolean) {
+  const entry = id === "boss" ? "https://www.zhipin.com/web/chat/recommend" : "https://tutorial-zhaopin.example.invalid/recruiting";
+  return { config_key: `platform.${id}`, enabled: true, config_value: JSON.stringify({ id, open, auth: { pages: [{ url: entry, match: "prefix", entry: true }] }, public: { pages: [{ url: "https://tutorial-login.example.invalid/login", match: "prefix", code: "login" }] } }) };
+}
+
+/** expectTourClearOfButton 核对说明卡没有压住真实恢复按钮，后续标准点击还会验证按钮可操作。 */
+async function expectTourClearOfButton(page: Page, button: Locator) {
+  await expect.poll(async () => {
+    const [tour, target] = await Promise.all([page.locator(".ant-tour").boundingBox(), button.boundingBox()]);
+    return Boolean(tour && target && (tour.x + tour.width <= target.x || target.x + target.width <= tour.x || tour.y + tour.height <= target.y || target.y + target.height <= tour.y));
+  }, { message: "教程说明不能压住真实恢复按钮" }).toBe(true);
+}
+
+/** expectFeedbackBelowProgress 检查必要弹框完整避让固定进度条，避免手机上标题和错误前半句被盖住。 */
+async function expectFeedbackBelowProgress(page: Page, feedback: Locator) {
+  await expect.poll(async () => {
+    const [modalBox, progressBox] = await Promise.all([feedback.boundingBox(), page.getByRole("region", { name: "新手教程总进度" }).boundingBox()]);
+    if (!modalBox || !progressBox) return Number.NEGATIVE_INFINITY;
+    return Math.min(modalBox.y - progressBox.y - progressBox.height, (page.viewportSize()?.height || 0) - modalBox.y - modalBox.height);
+  }, { message: "必要弹框的标题、原因和按钮应完整位于教程进度条下方的可视范围" }).toBeGreaterThanOrEqual(-1);
 }
 
 for (const [filterMode, detailMode] of [["ai", "ai"], ["keyword", "ocr"], ["keyword", "ai"]] as const) {
@@ -372,6 +414,283 @@ test("本地连接和组件安装只占一个必要弹框，公告更新不盖�
   await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/after-runtime-install.png", fullPage: true });
 });
 
+test("微软运行库缺失时先圈下载和重新检查，再引导安装浏览器组件", async ({ scenario, request }) => {
+  const { page, context, user } = scenario;
+  await agentControl(request, { systemReady: false, runtimeReady: false });
+  const attemptedDownloads: string[] = [];
+  await context.route("https://example.invalid/test-only-runtime.exe", async (route) => {
+    attemptedDownloads.push(route.request().url());
+    await route.abort("blockedbyclient");
+  });
+  await openAdmin(page);
+  await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
+  await expectStep(page, "runtime-system");
+  const installer = page.getByRole("dialog", { name: "准备必要组件", exact: true });
+  await expect(installer).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  const actions = page.locator('[data-onboarding="runtime-system-actions"]');
+  await expectMaskAround(page, actions);
+  await expect(page.locator(".ant-tour")).toContainText(/运行库/);
+  await expect(page.locator(".ant-tour")).toContainText(/检查/);
+  const download = actions.getByRole("link", { name: /下载微软运行库/ });
+  await expect(download).toHaveAttribute("href", "https://example.invalid/test-only-runtime.exe");
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/11-system-runtime-guide.png", fullPage: true });
+  const popupPromise = context.waitForEvent("page");
+  await download.click();
+  const popup = await popupPromise;
+  await expect.poll(() => attemptedDownloads.length).toBe(1);
+  await popup.close();
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/install")).toHaveLength(0);
+  await expectNoCompletion(page, request, user);
+  await actions.getByRole("button", { name: "安装或修复后重新检查", exact: true }).click();
+  await expectStep(page, "runtime-install");
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expectMaskAround(page, '[data-onboarding="runtime-install"]');
+  await installer.getByRole("button", { name: /安装必要组件$/ }).click();
+  await expectStep(page, "platform-select");
+  const calls = (await readAgentState(request)).calls as { path: string }[];
+  expect(calls.filter((call) => call.path === "/api/v1/runtime/system-check")).toHaveLength(1);
+  expect(calls.filter((call) => call.path === "/api/v1/runtime/install")).toHaveLength(1);
+  expect(calls.findIndex((call) => call.path === "/api/v1/runtime/system-check")).toBeLessThan(calls.findIndex((call) => call.path === "/api/v1/runtime/install"));
+});
+
+test("关闭的平台不可选，缓存平台关闭后必须重新选择且不能偷换平台", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  let bossOpen = true;
+  await page.route("**/api/platforms/config/**", async (route) => {
+    await route.fulfill({ json: { ok: true, configs: [platformConfig("boss", bossOpen), platformConfig("zhaopin", true), platformConfig("liepin", false)] } });
+  });
+  await acceptTutorial(page);
+  const choices = page.locator('[data-onboarding="onboarding-platform-choice"]');
+  await expect(choices.getByRole("radio", { name: /猎聘企业端/ })).toBeDisabled();
+  await choices.getByRole("radio", { name: /BOSS 直聘/ }).click();
+  await expectStep(page, "platform-open");
+  bossOpen = false;
+  await page.reload();
+  await expectStep(page, "platform-select");
+  await expect(choices.getByRole("radio", { name: /BOSS 直聘/ })).toBeDisabled();
+  await expect(choices.getByRole("radio", { name: /智联招聘/ })).not.toBeChecked();
+  await expect(page.getByTestId("onboarding-experience")).toContainText(/暂未开放|暂时.*开放|重新选择|换一个/);
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(0);
+  await expectNoCompletion(page, request, user);
+  await choices.getByRole("radio", { name: /智联招聘/ }).click();
+  await expectStep(page, "platform-open");
+  await headerBrowserButton(page).click();
+  await expectStep(page, "platform-login");
+  const calls = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toMatchObject({ platform_id: "zhaopin" });
+});
+
+for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+test(`${viewport.width}px启动检查失败展示真实原因与恢复按钮，回退修复后才能重新开跑`, async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  await page.setViewportSize(viewport);
+  const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
+  await openRunConfirmation(page, position.id);
+  let failNextHealth = true;
+  let releaseGuard!: () => void;
+  const guardPending = new Promise<void>((resolve) => { releaseGuard = resolve; });
+  await page.route("**/health", async (route) => {
+    if (!failNextHealth) return route.continue();
+    failNextHealth = false;
+    await guardPending;
+    await route.fulfill({ status: 503, json: { error: { code: "TEST_GUARD_UNAVAILABLE", message: "本机验收：启动检查暂时不可用" } } });
+  });
+  try {
+    await page.locator('[data-onboarding="position-run-confirm"]').click();
+    await expectStep(page, "position-start-check");
+    await expectMaskAround(page, '.ant-modal-container:has([data-onboarding="position-start-feedback"])');
+    await expect(page.locator(".ant-tour")).toContainText(/检查|确认/);
+    await expectNoCompletion(page, request, user);
+  } finally { releaseGuard(); }
+  await expectStep(page, "position-start-error");
+  const feedback = page.locator('.ant-modal-container:has([data-onboarding="position-start-feedback"])');
+  await expectMaskAround(page, feedback);
+  await expectFeedbackBelowProgress(page, feedback);
+  await expect(feedback).toContainText("本机验收：启动检查暂时不可用");
+  const acknowledge = feedback.getByRole("button", { name: "我知道了", exact: true });
+  await expect(acknowledge).toBeEnabled();
+  await expectTourClearOfButton(page, acknowledge);
+  await expect(page.locator(".ant-tour")).toContainText(/我知道了|处理|修复/);
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/run`)).toHaveLength(0);
+  await expectNoCompletion(page, request, user);
+  await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/12-start-error-recovery-${viewport.width}.png`, fullPage: true });
+  if (viewport.width === 390) await acknowledge.click();
+  else await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+  await expectStep(page, "position-start");
+  await expect(page.getByRole("dialog", { name: "岗位还没启动成功", exact: true })).toHaveCount(0);
+  await openRunConfirmation(page, position.id);
+  await page.locator('[data-onboarding="position-run-confirm"]').click();
+  await expectStep(page, "first-result");
+  await expectNoCompletion(page, request, user);
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/run`)).toHaveLength(1);
+});
+}
+
+test("启动发现必要升级时遮罩和立即更新按钮相符，回退不会误启动", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
+  await openRunConfirmation(page, position.id);
+  let reportOldVersion = true;
+  await page.route("**/health", async (route) => {
+    if (!reportOldVersion) return route.continue();
+    reportOldVersion = false;
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.data = { ...(payload.data || {}), version: "6.2.0.0", agent_version: "6.2.0.0" };
+    await route.fulfill({ response, json: payload });
+  });
+  await page.locator('[data-onboarding="position-run-confirm"]').click();
+  await expectStep(page, "position-start-update");
+  const feedback = page.locator('.ant-modal-container:has([data-onboarding="position-start-feedback"])');
+  await expectMaskAround(page, feedback);
+  await expectFeedbackBelowProgress(page, feedback);
+  await expect(feedback.getByRole("button", { name: "立即更新", exact: true })).toBeEnabled();
+  await expect(page.locator(".ant-tour")).toContainText(/更新/);
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expectNoCompletion(page, request, user);
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(0);
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/13-start-update-guide.png", fullPage: true });
+  await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+  await expectStep(page, "position-start");
+  await openRunConfirmation(page, position.id);
+  await page.locator('[data-onboarding="position-run-confirm"]').click();
+  await expectStep(page, "first-result");
+  await expectNoCompletion(page, request, user);
+});
+
+for (const endedStatus of ["failed", "stopped"] as const) {
+  test(`没有候选结果就${endedStatus}不能算完成，上一步能够重新运行`, async ({ scenario, request }) => {
+    const { page, user } = scenario;
+    const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
+    await startFirstPosition(page, position.id);
+    await agentControl(request, { positionID: position.id, status: endedStatus, analysis: null, scannedCount: 12 });
+    await expect(page.getByTestId("onboarding-experience")).toContainText(/这一轮已经结束/);
+    await expectStep(page, "first-result");
+    await expectNoCompletion(page, request, user);
+    await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/14-task-${endedStatus}-recovery.png`, fullPage: true });
+    if (endedStatus === "failed") {
+      await page.locator(".ant-tour").getByRole("button", { name: "稍后继续", exact: true }).click();
+      await page.getByRole("menuitem", { name: "控制台", exact: true }).click();
+      await expect(page).toHaveURL(/\/admin(?:\?|$)/);
+      await page.getByRole("button", { name: "继续教程", exact: true }).click();
+      await expectStep(page, "position-menu");
+      await page.getByRole("menuitem", { name: "岗位管理", exact: true }).click();
+      await expectStep(page, "first-result");
+      await expect(page.getByTestId("onboarding-experience")).toContainText(/这一轮已经结束/);
+      let rejectRecovery = true;
+      await page.route(`**/api/v1/local/positions/${position.id}/stop`, async (route) => {
+        if (!rejectRecovery) return route.continue();
+        rejectRecovery = false;
+        await route.fulfill({ status: 503, json: { error: { code: "TEST_RECOVERY_UNAVAILABLE", message: "本机验收：恢复前停止检查暂时不可用" } } });
+      });
+      await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+      await expect(page.getByTestId("onboarding-experience")).toContainText("本机验收：恢复前停止检查暂时不可用");
+      await expect(page.getByTestId("onboarding-experience")).toContainText(/重试|再点|再试/);
+      await expectStep(page, "first-result");
+      await expect(page.locator(`[data-onboarding="position-start"][data-position-id="${position.id}"]`)).toHaveCount(0);
+      expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/run`)).toHaveLength(1);
+      await expectNoCompletion(page, request, user);
+    }
+    await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+    await expectStep(page, "position-start");
+    await openRunConfirmation(page, position.id);
+    await page.locator('[data-onboarding="position-run-confirm"]').click();
+    await expectStep(page, "first-result");
+    const state = await readAgentState(request);
+    expect(state.calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/run`)).toHaveLength(2);
+    expect(state.tasks[position.id].analysis).toBeNull();
+    await expectNoCompletion(page, request, user);
+    await agentControl(request, { positionID: position.id, analysis: { kind: "keyword", phase: "result", terminal: true, accepted: false, reason: "本机验收：重新运行后关键词未命中，已跳过" } });
+    await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect.poll(async () => (await readUserFlow(request, user)).tutorial_completed).toBe(true);
+  });
+}
+
+for (const invalidatedBy of ["删除", "关闭"] as const) {
+  test(`暂停期间${invalidatedBy}教程岗位，继续时恢复合法的新建入口`, async ({ scenario, request }) => {
+    const { page, user } = scenario;
+    const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
+    await page.locator(".ant-tour").getByRole("button", { name: "稍后继续", exact: true }).click();
+    await expect(page.getByRole("button", { name: "继续教程", exact: true })).toBeVisible();
+    const headers = { authorization: `Bearer ${user.token}` };
+    const changed = invalidatedBy === "删除"
+      ? await request.delete(`${CLOUD_URL}/api/positions/${position.id}`, { headers })
+      : await request.post(`${CLOUD_URL}/api/positions`, { headers, data: { id: position.id, platform_id: position.platform_id, name: position.name, is_open: false, keywords: position.keywords, common_config: position.common_config, ai_config: position.ai_config, keyword_config: position.keyword_config } });
+    expect(changed.ok(), await changed.text()).toBe(true);
+    await page.getByRole("button", { name: "继续教程", exact: true }).click();
+    await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", /position-menu|position-create/);
+    if (await page.getByTestId("onboarding-experience").getAttribute("data-step") === "position-menu") await page.getByRole("menuitem", { name: "岗位管理", exact: true }).click();
+    await expectStep(page, "position-create");
+    await expectMaskAround(page, '[data-onboarding="position-create"]');
+    await expectNoCompletion(page, request, user);
+    await page.locator('[data-onboarding="position-create"]').click();
+    await expectStep(page, "position-name");
+    await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue("");
+  });
+}
+
+test("岗位保存迟到响应遇到实际退出换号，不得把旧账号岗位交给新账号教程", async ({ scenario, request }) => {
+  const { page, context, user } = scenario;
+  const otherUser = await registerUser(request, "onboarding-save-isolation");
+  await fillFirstPosition(page, request, user, "keyword", "ocr", false);
+  let releaseSave!: () => void;
+  const savePending = new Promise<void>((resolve) => { releaseSave = resolve; });
+  let capturedPositionID = "";
+  let responseSettled = false;
+  await page.route("**/api/positions", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    const payload = await response.json();
+    capturedPositionID = String(payload.position?.id || "");
+    await savePending;
+    try {
+      await route.fulfill({ response, json: payload });
+    } catch (error) {
+      // 真实登录会整页跳转；浏览器取消旧文档请求属于合法结果，不能靠注入事件维持旧页面。
+      expect(route.request().failure()?.errorText || String(error)).toMatch(/ABORTED|CANCEL|closed|navigation|request.*finished/i);
+    } finally { responseSettled = true; }
+  });
+  try {
+    await page.locator('[data-onboarding="position-save"]').click();
+    await expect.poll(() => capturedPositionID).not.toBe("");
+    await page.locator(".ant-tour").getByRole("button", { name: "稍后继续", exact: true }).click();
+    const form = page.getByRole("dialog", { name: "新建岗位模板", exact: true });
+    await page.goBack();
+    await expect(page).toHaveURL(/\/admin(?:\?|$)/);
+    await expect(form).not.toBeVisible();
+    await page.getByRole("button", { name: "退出登录", exact: true }).click();
+    await expect(page).toHaveURL(/\/login(?:\?|$)/);
+    await page.locator(".public-login-tabs").getByRole("button", { name: "密码登录", exact: true }).click();
+    await page.getByLabel("邮箱", { exact: true }).fill(otherUser.email);
+    await page.getByLabel("密码", { exact: true }).fill(otherUser.password);
+    await page.locator('.public-login-form button[type="submit"]').click();
+    await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
+    await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
+    await expectStep(page, "platform-select");
+    await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
+    await expectStep(page, "platform-open");
+    const previousPolls = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length;
+    releaseSave();
+    await expect.poll(() => responseSettled).toBe(true);
+    await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length).toBeGreaterThan(previousPolls);
+    await expectStep(page, "platform-open");
+    const cache = (await context.storageState()).origins.find((entry) => entry.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
+    const newUserProgress = cache.find((entry) => entry.name === `goodhr_onboarding_v2_${encodeURIComponent(otherUser.id)}`);
+    expect(newUserProgress).toBeTruthy();
+    expect(JSON.parse(newUserProgress!.value).positionId).toBe("");
+    const originalPositions = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${user.token}` } });
+    const newUserPositions = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${otherUser.token}` } });
+    expect(originalPositions.ok()).toBe(true);
+    expect(newUserPositions.ok()).toBe(true);
+    expect((await originalPositions.json()).positions.some((position: { id: string }) => position.id === capturedPositionID)).toBe(true);
+    expect((await newUserPositions.json()).positions).toHaveLength(0);
+    await expectNoCompletion(page, request, otherUser);
+    await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/15-late-save-account-isolation.png", fullPage: true });
+  } finally { releaseSave(); }
+});
+
 test("有公告和可选更新时，欢迎弹框与教程遮罩仍然独占引导", async ({ scenario, request }) => {
   const { page } = scenario;
   await page.route("**/api/runtime/config", async (route) => {
@@ -394,6 +713,7 @@ test("有公告和可选更新时，欢迎弹框与教程遮罩仍然独占引�
 
 test("必要升级优先完成，组件安装与教程不会叠加弹框", async ({ scenario, request }) => {
   const { page } = scenario;
+  await page.setViewportSize({ width: 390, height: 844 });
   await agentControl(request, { runtimeReady: false, targetVersion: "6.2.11.0" });
   await page.route("**/api/runtime/config", async (route) => {
     const response = await route.fetch();
@@ -409,6 +729,8 @@ test("必要升级优先完成，组件安装与教程不会叠加弹框", async
   await expect(update).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(1);
   await expect(page.getByTestId("onboarding-tour")).toHaveCount(0);
+  await update.getByText("更新本地程序", { exact: true }).click({ trial: true });
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/16-mobile-required-update.png", fullPage: true });
   await update.getByRole("button", { name: "立即更新", exact: true }).click();
   await expect(update).not.toBeVisible({ timeout: 20_000 });
   const installer = page.getByRole("dialog", { name: "准备必要组件", exact: true });

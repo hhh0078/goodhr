@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { clearLocalAgentDetectCache, cloudRequest, localRequest } from "@/lib/admin-api";
 import { hasMissingRequiredRuntime } from "@/lib/admin-runtime";
 import { openPlatformPositionBrowser, pickPlatformAuthConfig, waitForPlatformLoggedIn } from "@/lib/platform-login";
+import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { loadUserFlow } from "@/lib/user-flow";
 import { publishOnboardingEvent, setOnboardingGuideContext, subscribeOnboardingEvents, type OnboardingEvent, type OnboardingScreeningResult } from "@/lib/onboarding-events";
 import { createOnboardingState, nextOnboardingFormStep, onboardingDoneCount, onboardingRemainingTime, readOnboardingState, saveOnboardingState, type OnboardingState, type OnboardingStep } from "@/lib/onboarding-state";
@@ -32,8 +33,15 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   const [environmentChecked, setEnvironmentChecked] = useState(false);
   const [connectionAlive, setConnectionAlive] = useState(Boolean(agentBase));
   const [runtimeReady, setRuntimeReady] = useState(false);
+  const [systemRuntimeMissing, setSystemRuntimeMissing] = useState(false);
+  const [systemDownloadAvailable, setSystemDownloadAvailable] = useState(true);
+  const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>([]);
+  const [platformsLoading, setPlatformsLoading] = useState(true);
+  const platformConfigsRef = useRef<PlatformConfigLike[]>([]);
+  const platformReadRef = useRef<Promise<PlatformConfigLike[] | null> | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
+  const [startDialogStatus, setStartDialogStatus] = useState<"ready" | "checking" | "error" | "update">("ready");
   const [taskStopped, setTaskStopped] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -45,6 +53,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   const aliveRef = useRef(true);
   const openingRef = useRef(false);
   const pendingStartBackRef = useRef("");
+  const pendingRecoveryRef = useRef("");
   const loginRequestRef = useRef<AbortController | null>(null);
   const environmentRef = useRef(false);
   const phaseBeforeSkip = useRef<OnboardingPhase>("invite");
@@ -66,6 +75,43 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     setCelebration({ id, title, description });
   }, [update]);
 
+  /** returnToPlatformChoice 保留实际岗位数据，在所选平台关闭时明确返回选择，绝不静默换平台。 */
+  const returnToPlatformChoice = useCallback((message: string) => {
+    loginRequestRef.current?.abort();
+    publishOnboardingEvent({ type: "position-form-close-requested" });
+    publishOnboardingEvent({ type: "position-start-close-requested" });
+    update((value) => ({ ...value, step: "platform-select", platformLoggedIn: false, positionId: "", positionStarted: false, completedFields: [], completionKind: undefined }));
+    setError(message); setStatusText("");
+  }, [update]);
+
+  /** readPlatformAvailability 复用现有平台开放配置，合并重复读取并允许失败后重新检查。 */
+  const readPlatformAvailability = useCallback((): Promise<PlatformConfigLike[] | null> => {
+    if (platformReadRef.current) return platformReadRef.current;
+    setPlatformsLoading(true);
+    const request = (async () => {
+      try {
+        const data = await cloudRequest("/api/platforms/config/");
+        const source = data.configs || data.configurations;
+        const configs: PlatformConfigLike[] = Array.isArray(source) ? source : [];
+        if (!aliveRef.current) return null;
+        platformConfigsRef.current = configs; setPlatformConfigs(configs);
+        const current = stateRef.current;
+        if (phaseRef.current === "active" && !isPlatformOpen(configs, current.platformId) && !current.step.startsWith("agent-") && !current.step.startsWith("runtime-") && current.step !== "platform-select") {
+          returnToPlatformChoice("上次选择的招聘平台暂未开放，请重新选择可用平台。已经保存的岗位会保留，我不会替你换平台。");
+        }
+        return configs;
+      } catch {
+        if (aliveRef.current) setError("招聘平台的开放状态暂时没读到。点“重新读取平台”再试一次，我先不替你乱选。");
+        return null;
+      } finally {
+        platformReadRef.current = null;
+        if (aliveRef.current) setPlatformsLoading(false);
+      }
+    })();
+    platformReadRef.current = request;
+    return request;
+  }, [returnToPlatformChoice]);
+
   useEffect(() => {
     aliveRef.current = true;
     const cached = readOnboardingState(identity);
@@ -86,7 +132,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
         }
         if (runtimeRequest.status === "fulfilled" && runtimeRequest.value && !hasMissingRequiredRuntime(runtimeRequest.value)) {
           setConnectionAlive(true); setRuntimeReady(true); setEnvironmentChecked(true); environmentRef.current = true;
-          update((current) => ({ ...current, environmentReady: true, step: current.step.startsWith("agent-") || current.step === "runtime-install" ? "platform-select" : current.step }));
+          update((current) => ({ ...current, environmentReady: true, step: current.step.startsWith("agent-") || current.step.startsWith("runtime-") ? "platform-select" : current.step }));
         }
         if (cached.positionId) {
           const data = await cloudRequest("/api/positions");
@@ -102,6 +148,30 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     void initialize();
     return () => { active = false; aliveRef.current = false; loginRequestRef.current?.abort(); setOnboardingGuideContext({ active: false, platformId: "boss" }); };
   }, [identity, changePhase, update]);
+
+  useEffect(() => {
+    if (phase !== "active") return;
+    let active = true;
+    void readPlatformAvailability();
+    const positionId = stateRef.current.positionId;
+    /** validateTutorialPosition 恢复教程时核对岗位仍存在且开启，避免暂停期间删除后留下无法点击的目标。 */
+    async function validateTutorialPosition() {
+      if (!positionId) return;
+      try {
+        const data = await cloudRequest("/api/positions");
+        if (!active || phaseRef.current !== "active" || stateRef.current.positionId !== positionId) return;
+        const position = Array.isArray(data.positions) ? data.positions.find((item: { id?: string }) => item.id === positionId) : undefined;
+        if (!position || position.is_open === false) {
+          update((value) => ({ ...value, positionId: "", positionStarted: false, completedFields: [], step: "position-menu", completionKind: undefined }));
+          setError(position ? "教程岗位已经关闭。请新建一个开启的岗位继续，原岗位会保留。" : "教程岗位已经删除。我们从新建岗位继续，其他进度会留着。");
+        }
+      } catch {
+        if (active) setError("教程岗位暂时没读到。可以稍后继续再试，已保存的进度会留着。");
+      }
+    }
+    void validateTutorialPosition();
+    return () => { active = false; };
+  }, [phase, readPlatformAvailability, update]);
 
   useEffect(() => {
     if (phase === "loading") return;
@@ -138,7 +208,10 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     try {
       const data = await cloudRequest("/api/platforms/config/");
       if (request.signal.aborted || !aliveRef.current || phaseRef.current !== "active") return;
-      const auth = pickPlatformAuthConfig(data.configs || data.configurations || [], platformId);
+      const configs = data.configs || data.configurations || [];
+      platformConfigsRef.current = configs; setPlatformConfigs(configs);
+      if (!isPlatformOpen(configs, platformId)) { returnToPlatformChoice("刚选的平台暂未开放，请换一个可用平台。我不会打开别的平台来凑数。"); return; }
+      const auth = pickPlatformAuthConfig(configs, platformId);
       await openPlatformPositionBrowser(agentBase, platformId, auth);
       if (request.signal.aborted || !aliveRef.current || phaseRef.current !== "active" || stateRef.current.platformId !== platformId) return;
       setStatusText("浏览器已经打开，请切过去登录招聘平台账号。");
@@ -151,7 +224,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       if (loginRequestRef.current === request) loginRequestRef.current = null;
       if (aliveRef.current) setBusy(false);
     }
-  }, [agentBase, blocked, helpOpen, update]);
+  }, [agentBase, blocked, helpOpen, update, returnToPlatformChoice]);
 
   useEffect(() => {
     if (phase !== "active" || state.step !== "platform-login" || busy || blocked || helpOpen || !connectionAlive || !runtimeReady || !agentBase) return;
@@ -163,7 +236,10 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       try {
         const data = await cloudRequest("/api/platforms/config/");
         if (!active || request.signal.aborted) return;
-        const auth = pickPlatformAuthConfig(data.configs || data.configurations || [], platformId);
+        const configs = data.configs || data.configurations || [];
+        platformConfigsRef.current = configs; setPlatformConfigs(configs);
+        if (!isPlatformOpen(configs, platformId)) { returnToPlatformChoice("这个招聘平台暂未开放，请重新选择可用平台。当前登录窗口不用关闭，已保存的岗位也会保留。"); return; }
+        const auth = pickPlatformAuthConfig(configs, platformId);
         await waitForPlatformLoggedIn(agentBase, auth, (message) => {
           if (active && !request.signal.aborted) setStatusText(message);
         }, request.signal);
@@ -178,12 +254,22 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     }
     void checkPlatformLogin();
     return () => { active = false; request.abort(); if (loginRequestRef.current === request) loginRequestRef.current = null; };
-  }, [identity, phase, state.step, state.platformId, agentBase, connectionAlive, runtimeReady, busy, blocked, helpOpen, update, celebrate]);
+  }, [identity, phase, state.step, state.platformId, agentBase, connectionAlive, runtimeReady, busy, blocked, helpOpen, update, celebrate, returnToPlatformChoice]);
 
   useEffect(() => subscribeOnboardingEvents((event: OnboardingEvent) => {
+    if (event.type === "position-recovered" && event.positionId === pendingRecoveryRef.current) {
+      pendingRecoveryRef.current = ""; setBusy(false);
+      if (phaseRef.current === "active" && stateRef.current.positionId === event.positionId) {
+        if (event.recovered) {
+          setTaskStopped(false); setError(""); setStatusText("上一轮已经确认停好，可以重新开始。");
+          update((value) => ({ ...value, step: "position-start" }));
+        } else setError(event.message || "停止状态还没确认，这次先不重复启动。可以再点“上一步”重试，或稍后继续查看岗位日志。");
+      }
+      return;
+    }
     if (event.type === "position-form-closed") setFormOpen(false);
     if (event.type === "start-dialog-closed") {
-      setStartOpen(false);
+      setStartOpen(false); setStartDialogStatus("ready");
       if (pendingStartBackRef.current && event.positionId === pendingStartBackRef.current) {
         pendingStartBackRef.current = "";
         if (phaseRef.current === "active") {
@@ -198,6 +284,13 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     }
     if (phaseRef.current !== "active") return;
     const current = stateRef.current;
+    if (event.type === "platform-unavailable") { returnToPlatformChoice(event.message || "这个招聘平台暂未开放，请重新选择可用平台。我不会替你换平台。"); void readPlatformAvailability(); return; }
+    if (event.type === "start-dialog-status" && event.positionId === current.positionId) {
+      setStartDialogStatus(event.startStatus || "ready");
+      if (event.startStatus === "error" || event.startStatus === "update") setError(event.message || "请先按启动弹框里的提示处理，再继续。");
+      else if (event.startStatus === "checking") { setError(""); setStatusText(event.message || "正在检查启动条件"); }
+      return;
+    }
     if (event.type === "platform-browser-open-requested" && event.platformId === current.platformId && ["platform-open", "platform-login"].includes(current.step)) { void openPlatform(); return; }
     if (event.type === "position-form-opened") { setFormOpen(true); update((value) => ({ ...value, completedFields: event.restored ? value.completedFields : [], step: event.restored ? nextOnboardingFormStep(value) : "position-name" })); }
     if (event.type === "position-form-closed") { setFormOpen(false); if (!current.positionId) update((value) => ({ ...value, step: "position-create" })); }
@@ -213,7 +306,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       setFormOpen(false); update((value) => ({ ...value, positionId: event.positionId!, platformId: event.platformId || value.platformId, step: "position-start" }));
       celebrate("position", "岗位建好了，方向也有了", "接下来设置平台筛选条件，让小助手开始干活。");
     }
-    if (event.type === "start-dialog-opened" && event.positionId === current.positionId) { setStartOpen(true); update((value) => ({ ...value, step: "platform-filter" })); }
+    if (event.type === "start-dialog-opened" && event.positionId === current.positionId) { setStartOpen(true); setStartDialogStatus("ready"); setError(""); update((value) => ({ ...value, step: "platform-filter" })); }
     if (event.type === "platform-opened" && event.positionId === current.positionId && !pendingStartBackRef.current) update((value) => ({ ...value, step: "position-run" }));
     if (event.type === "position-started" && event.positionId === current.positionId) {
       pendingStartBackRef.current = "";
@@ -221,7 +314,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       celebrate("started", "小助手开工了", "先别关浏览器，咱们再看一条真实筛选结果。");
     }
     if (event.type === "screening-result" && event.positionId && event.result) finishResult(event.result, event.positionId);
-  }), [update, changePhase, celebrate, finishResult, openPlatform]);
+  }), [update, changePhase, celebrate, finishResult, openPlatform, returnToPlatformChoice, readPlatformAvailability]);
 
   useEffect(() => {
     if (phase !== "active") return;
@@ -236,9 +329,12 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
         const runtime = await localRequest(agentBase, "/api/v1/runtime/status", { timeoutMS: 3500 });
         if (!active) return;
         const ready = !hasMissingRequiredRuntime(runtime);
+        const system = runtime?.system_runtime || runtime?.runtime?.system_runtime || {};
+        setSystemRuntimeMissing(Boolean(system.required && !system.ready));
+        setSystemDownloadAvailable(Boolean(String(system.download_url || "").trim()));
         setConnectionAlive(true); setRuntimeReady(ready); setEnvironmentChecked(true); environmentRef.current = ready;
         if (ready && !stateRef.current.environmentReady) {
-          update((value) => ({ ...value, environmentReady: true, step: value.step.startsWith("agent-") || value.step === "runtime-install" ? "platform-select" : value.step }));
+          update((value) => ({ ...value, environmentReady: true, step: value.step.startsWith("agent-") || value.step.startsWith("runtime-") ? "platform-select" : value.step }));
           celebrate("environment", "本地小助手已到岗", "安装和连接都准备好了，现在去打开招聘平台。");
         }
         const current = stateRef.current;
@@ -249,10 +345,11 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
           const result = parseScreeningResult(task.analysis);
           const ended = ["failed", "stopped", "completed"].includes(String(task.status));
           setTaskStopped(ended);
+          if (pendingRecoveryRef.current === current.positionId) return;
           if (result) finishResult(result, current.positionId);
           else {
             setStatusText(String(task.current_step || task.message || "正在等待第一条真实筛选结果"));
-            if (ended) setError("这一轮已经结束，还没有真实筛选结果。可能暂时没有候选人，可以点“上一步”重新开始，或查看岗位日志。");
+            if (ended) setError((currentError) => currentError || "这一轮已经结束，还没有真实筛选结果。可能暂时没有候选人，可以点“上一步”重新开始，或查看岗位日志。");
           }
           } catch {
             if (active) setError("本地程序已经连上，但运行记录暂时没读到。我会继续重试，你也可以暂停教程查看岗位日志。");
@@ -287,23 +384,36 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   let step = state.step;
   if (phase === "active") {
     if (environmentChecked && !connectionAlive) step = pathname.startsWith("/admin/agent-download") ? state.step === "agent-connect" ? "agent-connect" : "agent-download" : "agent-menu";
-    else if (connectionAlive && !runtimeReady) step = "runtime-install";
-    else if (step.startsWith("agent-") || step === "runtime-install") step = "platform-select";
+    else if (connectionAlive && !runtimeReady) step = systemRuntimeMissing ? "runtime-system" : "runtime-install";
+    else if (step.startsWith("agent-") || step.startsWith("runtime-")) step = "platform-select";
+    else if (step === "first-result" && taskStopped && !pathname.startsWith("/admin/positions")) step = "position-menu";
     else if (step.startsWith("position-") || step === "platform-filter") {
       if (!pathname.startsWith("/admin/positions")) step = "position-menu";
       else if (step === "position-menu") step = state.positionId ? "position-start" : "position-create";
       else if (["position-name", "position-filter-mode", "position-detail-mode", "position-requirement", "position-keywords", "position-save"].includes(step) && !formOpen) step = "position-create";
       else if ((step === "platform-filter" || step === "position-run") && !startOpen) step = "position-start";
+      else if (startOpen && ["platform-filter", "position-run"].includes(step)) {
+        if (startDialogStatus === "error") step = "position-start-error";
+        else if (startDialogStatus === "update") step = "position-start-update";
+        else if (startDialogStatus === "checking") step = "position-start-check";
+      }
     }
   }
   const selector = onboardingTargetSelector(step, state.positionId);
   const { target, targetGeometry } = useOnboardingTarget(selector, phase === "active" && !blocked && !helpOpen);
-  const copy = onboardingStepCopy(step);
+  const copy = { ...onboardingStepCopy(step) };
+  if (step === "position-menu" && state.step === "first-result") {
+    copy.title = "先回岗位管理，接着处理这一轮";
+    copy.description = "点击左侧“岗位管理”，回到教程岗位。上一轮已经结束但还没有筛选结果，回去后点“上一步”，我会先确认岗位停好，再带你重新开始。";
+    copy.hint = "已经保存的岗位和教程进度都会留着，不需要重新创建。";
+  }
+  if (step === "runtime-system" && !systemDownloadAvailable) copy.description = "当前没有运行库下载地址。请到微软官网下载 Microsoft Visual C++ x64 运行库，或联系作者确认安装包。安装或修复完成后，回来点击“安装或修复后重新检查”。";
 
   /** choosePlatform 选择已经使用的平台，并等待用户亲自打开招聘浏览器。 */
   function choosePlatform(platformId: string) {
     if (!["boss", "zhaopin", "liepin", "hliepin"].includes(platformId)) return;
-    update((value) => ({ ...value, platformId, platformLoggedIn: value.platformId === platformId && value.platformLoggedIn, step: "platform-open" }));
+    if (platformsLoading || !isPlatformOpen(platformConfigsRef.current, platformId)) { setError("这个招聘平台暂未开放，请选择当前可用的平台。"); return; }
+    update((value) => ({ ...value, platformId, platformLoggedIn: value.platformId === platformId && value.platformLoggedIn, ...(value.platformId !== platformId ? { positionId: "", positionStarted: false, completedFields: [] } : {}), step: "platform-open" }));
     setError("");
   }
   /** accept 接受引导邀请；保留当前真实事实，不把跳过当成已完成。 */
@@ -316,9 +426,16 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   function back() {
     loginRequestRef.current?.abort();
     const current = stateRef.current;
-    if (step === "first-result" && !taskStopped) { setHelpOpen(true); return; }
+    if (step === "first-result") {
+      if (!taskStopped) { setHelpOpen(true); return; }
+      if (pendingRecoveryRef.current) return;
+      pendingRecoveryRef.current = current.positionId;
+      setBusy(true); setError(""); setStatusText("上一轮已经结束，正在确认本地和云端都已停好，确认后再重新开始。");
+      publishOnboardingEvent({ type: "position-recover-requested", positionId: current.positionId });
+      return;
+    }
     if (step === "position-name" && formOpen) publishOnboardingEvent({ type: "position-form-close-requested" });
-    if (step === "platform-filter" && startOpen) {
+    if (["platform-filter", "position-start-check", "position-start-error", "position-start-update"].includes(step) && startOpen) {
       pendingStartBackRef.current = current.positionId;
       publishOnboardingEvent({ type: "position-start-close-requested" });
       return;
@@ -332,7 +449,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     try { await refreshAgent(); } catch { setError("还没连上。确认本地 GoodHR 已启动，再检查浏览器的设备应用权限。"); }
     finally { if (aliveRef.current) setBusy(false); }
   }
-  return { phase, state, step, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, helpOpen, blocked, storageUnavailable, celebration, actions: {
+  return { phase, state, step, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, helpOpen, blocked, storageUnavailable, availablePlatforms: ["boss", "zhaopin", "liepin", "hliepin"].filter((platformId) => isPlatformOpen(platformConfigs, platformId)), platformsLoading, celebration, actions: {
     accept, pause, resume, back, choosePlatform, openPlatform: () => void openPlatform(), checkAgent: () => void checkAgent(),
     requestSkip: () => { phaseBeforeSkip.current = phaseRef.current; changePhase("skip"); },
     cancelSkip: () => changePhase(phaseBeforeSkip.current),
@@ -340,6 +457,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     openHelp: () => setHelpOpen(true), closeHelp: () => setHelpOpen(false),
     downloadAgent: () => { window.open("/download", "_blank", "noopener,noreferrer"); update((value) => ({ ...value, step: "agent-connect" })); },
     finishClose: () => changePhase("silent"), dismissCelebration: () => setCelebration(null),
+    refreshPlatforms: () => void readPlatformAvailability(),
   } };
 }
 

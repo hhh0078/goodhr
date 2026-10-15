@@ -251,10 +251,13 @@ export default function RequiredRuntimeInstaller({
         ))}
       </Flex>
       {systemRuntimeMissing ? (
+        <div data-onboarding="runtime-system-actions">
         <Alert
           type="warning"
           title={String(systemRuntime?.message || "Windows 运行库还没准备好")}
           description={
+            <>
+            {!systemDownloadURL ? <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>当前没拿到运行库下载地址。可以先到微软官网下载 Microsoft Visual C++ x64 运行库，或联系作者确认安装包；安装或修复后回来重新检查。</Typography.Paragraph> : <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>下载后打开安装包，选择安装；已经装过就选择修复，然后回来重新检查。</Typography.Paragraph>}
             <Flex gap={8} wrap style={{ marginTop: 12 }}>
               {systemDownloadURL ? (
                 <Button
@@ -275,8 +278,10 @@ export default function RequiredRuntimeInstaller({
                 {checkingSystem ? "正在检查..." : "安装或修复后重新检查"}
               </Button>
             </Flex>
+            </>
           }
         />
+        </div>
       ) : null}
       {running || progress?.message ? (
         <Card size="small" style={{ marginTop: 16 }}>

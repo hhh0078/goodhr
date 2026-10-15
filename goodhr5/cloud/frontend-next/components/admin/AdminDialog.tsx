@@ -64,7 +64,7 @@ export default function AdminDialog({
       }}
       styles={{
         body: {
-          maxHeight: "calc(100dvh - 200px)",
+          maxHeight: "min(calc(100dvh - 200px), var(--goodhr-onboarding-modal-body-height, 100dvh))",
           overflowY: "auto",
           overflowX: "hidden",
           paddingBlock: 8,

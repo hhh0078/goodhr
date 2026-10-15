@@ -19,6 +19,7 @@ export type OnboardingActions = {
   resume: () => void;
   finishClose: () => void;
   dismissCelebration: () => void;
+  refreshPlatforms: () => void;
 };
 export type OnboardingExperienceProps = {
   phase: OnboardingPhase;
@@ -38,6 +39,8 @@ export type OnboardingExperienceProps = {
   helpOpen: boolean;
   blocked: boolean;
   storageUnavailable: boolean;
+  availablePlatforms: string[];
+  platformsLoading: boolean;
   celebration: OnboardingCelebration | null;
   actions: OnboardingActions;
 };
@@ -48,6 +51,7 @@ const stepCopy: Record<OnboardingStep, StepCopy> = {
   "agent-download": { title: "下载并安装本地程序", description: "点击“下载本地程序”，在下载页选择你的电脑系统。安装完成后，双击 GoodHR 图标启动，再回到这里。", hint: "下载页会另外打开，这里的教程进度会留着。", estimate: "约 3–8 分钟，取决于网络" },
   "agent-connect": { title: "我在等本地小助手打卡", description: "安装好了就双击 GoodHR 图标。点击“检查连接”，连接好后会自动往下走，不需要重新注册。", hint: "程序开着仍连不上？看看浏览器是否允许“设备上的应用”。", estimate: "启动后通常约 10–30 秒" },
   "runtime-install": { title: "把必要组件准备好", description: "点击现有弹框的“安装必要组件”。组件负责打开浏览器和读取页面，安装结束后我会自动接着带路。", hint: "如果还有 Windows 运行库提示，按弹框安装或修复后重新检查。", estimate: "约 2–8 分钟，取决于网络" },
+  "runtime-system": { title: "先把 Windows 运行库补齐", description: "点击“下载微软运行库”，打开安装包并选择安装；如果已经装过，就选择修复。完成后回来点击“安装或修复后重新检查”。", hint: "运行库检查通过后，再安装剩余必要组件。我会接着带路，进度不用重来。", estimate: "约 1–3 分钟，取决于安装情况" },
   "platform-select": { title: "今天在哪个平台招人？", description: "选择你正在使用的招聘平台。我会直接打开对应平台，不用你在浏览器里到处找入口。", hint: "选择与你的招聘账号对应的平台端。", estimate: "约 10 秒" },
   "platform-open": { title: "点顶部，打开招聘浏览器", description: "点击顶部橙色狐狸图标的“打开浏览器”。我会在这个浏览器里打开你刚选的招聘平台。", hint: "接下来要在刚打开的招聘浏览器里登录平台账号，先别用平时另开的浏览器。", estimate: "约 10–30 秒" },
   "platform-login": { title: "浏览器打开啦，去里面登录账号", description: "请切到刚打开的招聘浏览器，在里面登录你的招聘平台账号。完成登录后再回到 GoodHR，我确认通过后就接着带路。", hint: "扫码、验证码需要你亲自完成。没看到窗口？在任务栏或程序坞找橙色狐狸图标，或再点顶部“打开浏览器”。", estimate: "约 1–2 分钟，平台验证可能更久" },
@@ -62,6 +66,9 @@ const stepCopy: Record<OnboardingStep, StepCopy> = {
   "position-start": { title: "准备第一次运行", description: "点击刚创建岗位的“开始”。先查看启动确认，再到招聘平台设置基础筛选条件。", hint: "只会突出你的教程岗位，不会替你启动其他岗位。", estimate: "约 5 秒" },
   "platform-filter": { title: "先在平台选好筛选条件", description: "点击“打开平台，并筛选条件”，到招聘浏览器里设置地区、学历、经验等条件，再回到这里。", hint: "这些条件是在招聘平台中设置，我不会往平台页面添加遮罩或脚本。", estimate: "约 1–2 分钟" },
   "position-run": { title: "确认筛选后，开始运行", description: "确认你已经在招聘平台设置好条件，再点击“我已筛选好，立即开始”。开始后会按岗位设置筛选，匹配时会打招呼。", hint: "如果启动检查没通过，我会留在这里；按提示修复后可以再试。", estimate: "约 10–30 秒" },
+  "position-start-check": { title: "启动前，先让我检查一下", description: "正在打开平台或检查登录、会员、余额和本地程序。请留意当前弹框里的进度，检查通过且岗位启动成功后，我才会继续。", hint: "这会儿不用重复点击。想返回的话，点“上一步”，当前检查结束后会安全返回。", estimate: "约 10–30 秒，平台响应可能更久" },
+  "position-start-error": { title: "先处理这个提示，再继续开工", description: "岗位还没启动，具体原因就在高亮弹框里。先读提示，再点“我知道了”返回；处理好后可以重新点岗位的“开始”。", hint: "教程进度和已经创建的岗位都会留着。也可以点“稍后继续”，先去处理余额、登录或其他提示。", estimate: "处理好提示后即可重试" },
+  "position-start-update": { title: "本地程序得先更新一下", description: "当前版本还不能启动这个岗位。请按高亮弹框提示点击“立即更新”，页面会重新检查版本，并接上现有更新流程。", hint: "岗位还没开跑，进度已经保存；更新并重新连接成功后，再点岗位的“开始”。", estimate: "更新约 1–3 分钟，取决于网络" },
   "first-result": { title: "等第一条真实筛选结果", description: "保持浏览器开着。我会展示当前执行步骤，等到 AI 或关键词真正给出判断，再庆祝跑通。", hint: "判定“不合适”也是正常结果；只有扫描数量增加还不算完成。", estimate: "通常约 1–3 分钟，平台或 AI 可能更久" },
   "complete": { title: "首轮跑通，今天你赢了", description: "从安装、登录到真实筛选，关键流程你已经走过一遍。接下来可以调整岗位条件，继续使用。", hint: "教程结束不会自动停止正在运行的岗位。", estimate: "已完成" },
 };

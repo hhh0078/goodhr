@@ -232,7 +232,7 @@ a.goodhr-admin-banner-text:hover {
     padding: 16px;
   }
   .goodhr-admin-modal .ant-modal-body {
-    max-height: calc(100dvh - 160px) !important;
+    max-height: var(--goodhr-onboarding-modal-body-height, calc(100dvh - 160px)) !important;
   }
 }
 /* 后台工具栏左侧筛选、右侧新增，常规控件共用32px主题尺寸，窄屏保留横向访问。 */
