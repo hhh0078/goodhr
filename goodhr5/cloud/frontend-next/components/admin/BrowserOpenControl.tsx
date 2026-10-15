@@ -1,9 +1,10 @@
 /** 本文件提供顶部浏览器打开入口、等待反馈和只需确认一次的浏览器图标提示。 */
 "use client";
 
-import { Button, Flex, Image, Tooltip, Typography } from "antd";
-import { useRef, useState } from "react";
+import { Button, Flex, Image, Spin, Tooltip, Typography } from "antd";
+import { useEffect, useRef, useState } from "react";
 import { detectLocalAgent, openLocalPage } from "@/lib/admin-api";
+import { getOnboardingGuideContext, publishOnboardingEvent, subscribeOnboardingGuideContext } from "@/lib/onboarding-events";
 import AdminDialog from "./AdminDialog";
 
 const BROWSER_ICON = "/assets/platforms/camoufox.png";
@@ -26,11 +27,22 @@ export default function BrowserOpenControl({
 }: Props) {
   const [opening, setOpening] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
+  const [guide, setGuide] = useState(getOnboardingGuideContext);
   const inFlight = useRef(false);
   const acknowledged = useRef(false);
+  const guidedOpening = guide.active && ["platform-open", "platform-login"].includes(guide.step || "") && Boolean(guide.browserOpening);
+  const showingOpening = opening || guidedOpening;
+
+  useEffect(() => subscribeOnboardingGuideContext(setGuide), []);
+  useEffect(() => { if (guide.active) setNoticeOpen(false); }, [guide.active]);
 
   /** openBrowser 等待本地程序真正打开页面后再提示成功，失败时允许重新点击。 */
   async function openBrowser() {
+    const currentGuide = getOnboardingGuideContext();
+    if (currentGuide.active && ["platform-open", "platform-login"].includes(currentGuide.step || "")) {
+      if (!currentGuide.browserOpening) publishOnboardingEvent({ type: "platform-browser-open-requested", platformId: currentGuide.platformId });
+      return;
+    }
     if (inFlight.current) return;
     inFlight.current = true;
     setOpening(true);
@@ -48,6 +60,7 @@ export default function BrowserOpenControl({
         humanize: true,
         url: "https://www.bing.com",
       });
+      if (getOnboardingGuideContext().active) return;
       let seen = acknowledged.current;
       try {
         seen = seen || localStorage.getItem(NOTICE_KEY) === "1";
@@ -81,24 +94,29 @@ export default function BrowserOpenControl({
   }
 
   const icon = (
-    <Image src={BROWSER_ICON} alt="" width={22} height={22} preview={false} />
+    // 教程加载时保留图标占位和按钮文案，避免转圈结束后按钮变宽、遮罩沿用中途尺寸。
+    <span style={{ width: 22, height: 22, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+      {guidedOpening ? <Spin size="small" /> : <Image src={BROWSER_ICON} alt="" width={22} height={22} preview={false} />}
+    </span>
   );
   return (
     <>
       <Button
         className="goodhr-desktop-sm"
+        data-onboarding="browser-open"
         icon={icon}
         loading={opening}
-        aria-busy={opening}
+        aria-busy={showingOpening}
         onClick={() => void openBrowser()}
       >
         {opening ? "正在打开" : "打开浏览器"}
       </Button>
-      <Tooltip title={opening ? "正在打开浏览器" : "打开浏览器"}>
+      <Tooltip title={showingOpening ? "正在打开浏览器" : "打开浏览器"}>
         <Button
           className="goodhr-mobile-sm"
+          data-onboarding="browser-open"
           aria-label="打开浏览器"
-          aria-busy={opening}
+          aria-busy={showingOpening}
           icon={icon}
           loading={opening}
           onClick={() => void openBrowser()}

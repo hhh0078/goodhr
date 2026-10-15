@@ -111,8 +111,8 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     // 暂停仍属于尚未结束的教程，普通欢迎、公告和小补丁不能挡住“继续教程”入口。
     const engaged = ["loading", "invite", "skip", "active", "paused", "completed"].includes(phase);
     onActivityChange({ engaged, awaitingChoice: ["loading", "invite", "skip"].includes(phase) });
-    setOnboardingGuideContext({ active: phase === "active", platformId: state.platformId, positionId: state.positionId, step: state.step });
-  }, [phase, state.platformId, state.positionId, state.step, onActivityChange]);
+    setOnboardingGuideContext({ active: phase === "active", platformId: state.platformId, positionId: state.positionId, step: state.step, browserOpening: busy && ["platform-open", "platform-login"].includes(state.step) });
+  }, [phase, state.platformId, state.positionId, state.step, busy, onActivityChange]);
   useEffect(() => { if (phase !== "active" || blocked) loginRequestRef.current?.abort(); }, [phase, blocked]);
 
   /** finishResult 只有已启动教程岗位的终态筛选结果才结束教学，跳过和扫描数均不计。 */
@@ -127,6 +127,58 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     setError(""); changePhase("completed");
     celebrate("complete", "首轮跑通，今天你赢了", "不是只点完按钮，是已经得到一条真实筛选结果。招聘小助手正式到岗。");
   }, [update, changePhase, celebrate]);
+
+  /** openPlatform 只处理顶部入口的实际打开请求，登录等待由独立检测负责。 */
+  const openPlatform = useCallback(async () => {
+    if (openingRef.current || !agentBase || !environmentRef.current || phaseRef.current !== "active" || blocked || helpOpen) return;
+    loginRequestRef.current?.abort();
+    openingRef.current = true; setBusy(true); setError("");
+    const request = new AbortController(); loginRequestRef.current = request;
+    const platformId = stateRef.current.platformId;
+    try {
+      const data = await cloudRequest("/api/platforms/config/");
+      if (request.signal.aborted || !aliveRef.current || phaseRef.current !== "active") return;
+      const auth = pickPlatformAuthConfig(data.configs || data.configurations || [], platformId);
+      await openPlatformPositionBrowser(agentBase, platformId, auth);
+      if (request.signal.aborted || !aliveRef.current || phaseRef.current !== "active" || stateRef.current.platformId !== platformId) return;
+      setStatusText("浏览器已经打开，请切过去登录招聘平台账号。");
+      update((value) => ({ ...value, step: "platform-login" }));
+    } catch (failure) {
+      if (request.signal.aborted) return;
+      if (aliveRef.current && phaseRef.current === "active") setError(failure instanceof Error ? failure.message : "浏览器暂时没打开，再点顶部按钮试试。");
+    } finally {
+      openingRef.current = false;
+      if (loginRequestRef.current === request) loginRequestRef.current = null;
+      if (aliveRef.current) setBusy(false);
+    }
+  }, [agentBase, blocked, helpOpen, update]);
+
+  useEffect(() => {
+    if (phase !== "active" || state.step !== "platform-login" || busy || blocked || helpOpen || !connectionAlive || !runtimeReady || !agentBase) return;
+    const request = new AbortController(); loginRequestRef.current = request;
+    let active = true;
+    const platformId = state.platformId;
+    /** checkPlatformLogin 刷新或恢复后只继续检测，不重复打开窗口；旧请求不能推进新账号。 */
+    async function checkPlatformLogin() {
+      try {
+        const data = await cloudRequest("/api/platforms/config/");
+        if (!active || request.signal.aborted) return;
+        const auth = pickPlatformAuthConfig(data.configs || data.configurations || [], platformId);
+        await waitForPlatformLoggedIn(agentBase, auth, (message) => {
+          if (active && !request.signal.aborted) setStatusText(message);
+        }, request.signal);
+        if (!active || request.signal.aborted || phaseRef.current !== "active" || stateRef.current.platformId !== platformId) return;
+        update((value) => ({ ...value, platformLoggedIn: true, step: value.positionId ? "position-start" : "position-menu" }));
+        setError("");
+        celebrate("platform", "平台登录好了，开工路又近一步", "现在复制平台岗位名称，建立你的第一个招聘岗位。");
+      } catch (failure) {
+        if (!active || request.signal.aborted) return;
+        setError(`${failure instanceof Error ? failure.message : "平台登录暂时没确认"}。可以再点顶部“打开浏览器”，回到招聘窗口继续登录。`);
+      }
+    }
+    void checkPlatformLogin();
+    return () => { active = false; request.abort(); if (loginRequestRef.current === request) loginRequestRef.current = null; };
+  }, [identity, phase, state.step, state.platformId, agentBase, connectionAlive, runtimeReady, busy, blocked, helpOpen, update, celebrate]);
 
   useEffect(() => subscribeOnboardingEvents((event: OnboardingEvent) => {
     if (event.type === "position-form-closed") setFormOpen(false);
@@ -146,6 +198,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     }
     if (phaseRef.current !== "active") return;
     const current = stateRef.current;
+    if (event.type === "platform-browser-open-requested" && event.platformId === current.platformId && ["platform-open", "platform-login"].includes(current.step)) { void openPlatform(); return; }
     if (event.type === "position-form-opened") { setFormOpen(true); update((value) => ({ ...value, completedFields: event.restored ? value.completedFields : [], step: event.restored ? nextOnboardingFormStep(value) : "position-name" })); }
     if (event.type === "position-form-closed") { setFormOpen(false); if (!current.positionId) update((value) => ({ ...value, step: "position-create" })); }
     if (event.type === "form-field-completed" && event.field) {
@@ -168,7 +221,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       celebrate("started", "小助手开工了", "先别关浏览器，咱们再看一条真实筛选结果。");
     }
     if (event.type === "screening-result" && event.positionId && event.result) finishResult(event.result, event.positionId);
-  }), [update, changePhase, celebrate, finishResult]);
+  }), [update, changePhase, celebrate, finishResult, openPlatform]);
 
   useEffect(() => {
     if (phase !== "active") return;
@@ -246,31 +299,6 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   const selector = onboardingTargetSelector(step, state.positionId);
   const { target, targetGeometry } = useOnboardingTarget(selector, phase === "active" && !blocked && !helpOpen);
   const copy = onboardingStepCopy(step);
-
-  /** openPlatform 打开用户选择的平台并复用已有登录确认，暂停或换号时取消后续推进。 */
-  const openPlatform = useCallback(async () => {
-    if (openingRef.current || !agentBase || !environmentRef.current) return;
-    openingRef.current = true; setBusy(true); setError("");
-    const request = new AbortController(); loginRequestRef.current = request;
-    const platformId = stateRef.current.platformId;
-    try {
-      const data = await cloudRequest("/api/platforms/config/");
-      if (request.signal.aborted || !aliveRef.current || phaseRef.current !== "active") return;
-      const auth = pickPlatformAuthConfig(data.configs || data.configurations || [], platformId);
-      await openPlatformPositionBrowser(agentBase, platformId, auth);
-      if (request.signal.aborted || !aliveRef.current || phaseRef.current !== "active") return;
-      update((value) => ({ ...value, step: "platform-login" }));
-      await waitForPlatformLoggedIn(agentBase, auth, (message) => {
-        if (!request.signal.aborted && aliveRef.current && phaseRef.current === "active" && stateRef.current.platformId === platformId) setStatusText(message);
-      }, request.signal);
-      if (request.signal.aborted || !aliveRef.current || phaseRef.current !== "active" || stateRef.current.platformId !== platformId) return;
-      update((value) => ({ ...value, platformLoggedIn: true, step: value.positionId ? "position-start" : "position-menu" }));
-      celebrate("platform", "平台登录好了，开工路又近一步", "现在复制平台岗位名称，建立你的第一个招聘岗位。");
-    } catch (failure) {
-      if (failure instanceof Error && failure.name === "AbortError") return;
-      if (aliveRef.current && phaseRef.current === "active") setError(failure instanceof Error ? failure.message : "平台暂时没打开，请再试一次。");
-    } finally { openingRef.current = false; if (loginRequestRef.current === request) loginRequestRef.current = null; if (aliveRef.current) setBusy(false); }
-  }, [agentBase, update, celebrate]);
 
   /** choosePlatform 选择已经使用的平台，并等待用户亲自打开招聘浏览器。 */
   function choosePlatform(platformId: string) {

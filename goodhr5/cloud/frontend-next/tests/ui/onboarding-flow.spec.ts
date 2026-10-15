@@ -32,13 +32,21 @@ async function expectStep(page: Page, step: string) {
 /** expectMaskAround 使用标准界面读取确认透明孔位围住当前目标，避免标题已更新但遮罩还停在上一项。 */
 async function expectMaskAround(page: Page, selector: string | Locator) {
   const target = typeof selector === "string" ? page.locator(selector) : selector;
-  await expect.poll(async () => {
-    const box = await target.boundingBox();
-    const hole = page.locator('.ant-tour-mask defs rect[fill="black"]').last();
-    if (!box || !await hole.count()) return Number.POSITIVE_INFINITY;
-    const [x, y, width, height] = await Promise.all([hole.getAttribute("x"), hole.getAttribute("y"), hole.getAttribute("width"), hole.getAttribute("height")]);
-    return Math.max(Math.abs(Number(x) - box.x + 7), Math.abs(Number(y) - box.y + 7), Math.abs(Number(width) - box.width - 14), Math.abs(Number(height) - box.height - 14));
-  }, { message: "当前遮罩透明区域必须准确圈住当前按钮或输入框", timeout: 10_000 }).toBeLessThan(2);
+  let measured: unknown = null;
+  try {
+    await expect.poll(async () => {
+      const box = await target.boundingBox();
+      const hole = page.locator('.ant-tour-mask defs rect[fill="black"]').last();
+      if (!box || !await hole.count()) return Number.POSITIVE_INFINITY;
+      const [x, y, width, height] = await Promise.all([hole.getAttribute("x"), hole.getAttribute("y"), hole.getAttribute("width"), hole.getAttribute("height")]);
+      measured = { step: await page.getByTestId("onboarding-experience").getAttribute("data-step"), target: box, hole: { x: Number(x), y: Number(y), width: Number(width), height: Number(height) } };
+      return Math.max(Math.abs(Number(x) - box.x + 7), Math.abs(Number(y) - box.y + 7), Math.abs(Number(width) - box.width - 14), Math.abs(Number(height) - box.height - 14));
+    }, { message: "当前遮罩透明区域必须准确圈住当前按钮或输入框", timeout: 10_000 }).toBeLessThan(2);
+  } catch (error) {
+    await test.info().attach("mask-target-geometry.json", { body: JSON.stringify(measured), contentType: "application/json" });
+    console.log(`遮罩目标几何：${JSON.stringify(measured)}`);
+    throw error;
+  }
 }
 
 /** expectModalFieldVisible 确认真实字段没有被滚动弹框裁切，且透明孔随内部滚动保持同步。 */
@@ -68,12 +76,17 @@ async function acceptTutorial(page: Page) {
   await expectStep(page, "platform-select");
 }
 
+/** headerBrowserButton 只选择顶部当前屏幕可见的真实浏览器按钮，兼容桌面文字按钮和手机图标。 */
+function headerBrowserButton(page: Page) {
+  return page.locator('header.goodhr-admin-toolbar [data-onboarding="browser-open"]:visible');
+}
+
 /** openFirstPositionForm 真实点击平台、岗位菜单与新建入口，不调用内部教程事件。 */
 async function openFirstPositionForm(page: Page) {
   await acceptTutorial(page);
   await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
   await expectStep(page, "platform-open");
-  await page.locator('[data-onboarding="onboarding-platform-open"]').click();
+  await headerBrowserButton(page).click();
   await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", /position-menu|position-create/, { timeout: 30_000 });
   if (await page.getByTestId("onboarding-experience").getAttribute("data-step") === "position-menu") await page.getByRole("menuitem", { name: "岗位管理", exact: true }).click();
   await expectStep(page, "position-create");
@@ -409,13 +422,117 @@ test("必要升级优先完成，组件安装与教程不会叠加弹框", async
   expect(state.calls.filter((item: { path: string }) => item.path === "/api/v1/runtime/install")).toHaveLength(1);
 });
 
+test("顶部浏览器按钮打开所选平台，等待登录和刷新恢复都不再指向教程自造入口", async ({ scenario, request }) => {
+  const { page } = scenario;
+  await agentControl(request, { loggedIn: false });
+  const platformURL = "https://tutorial-zhaopin.example.invalid/recruiting";
+  await page.route("**/api/platforms/config/**", async (route) => {
+    await route.fulfill({ json: { ok: true, configs: [{ config_key: "platform.zhaopin", enabled: true, config_value: JSON.stringify({ id: "zhaopin", open: true, auth: { pages: [{ url: platformURL, match: "prefix", entry: true }] }, public: { pages: [{ url: "https://tutorial-zhaopin.example.invalid/login", match: "prefix", code: "login" }] } }) }] } });
+  });
+  await acceptTutorial(page);
+  await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /智联招聘/ }).click();
+  await expectStep(page, "platform-open");
+  const browserButton = headerBrowserButton(page);
+  await expect(browserButton).toHaveCount(1);
+  await expect(browserButton).toBeVisible();
+  await expectMaskAround(page, browserButton);
+  await expect(page.locator('[data-onboarding="onboarding-platform-open"], [data-onboarding="onboarding-platform-wait"]')).toHaveCount(0);
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(0);
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-browser-open-mask.png", fullPage: true });
+  await browserButton.click();
+  await expectStep(page, "platform-login");
+  await expectMaskAround(page, browserButton);
+  const tour = page.locator(".ant-tour");
+  await expect(tour).toContainText(/刚.*打开.{0,12}浏览器/);
+  await expect(tour).toContainText("狐狸");
+  await expect(tour).toContainText("任务栏");
+  await expect(tour).toContainText("程序坞");
+  await expect(page.getByRole("dialog", { name: "浏览器已经打开啦", exact: true })).toHaveCount(0);
+  await expect(page.locator('[aria-label="当前教程操作"]')).toHaveCount(0);
+  const firstOpen = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open");
+  expect(firstOpen).toHaveLength(1);
+  expect(firstOpen[0].body).toMatchObject({ platform_id: "zhaopin", user_data_dir: "default", url: platformURL });
+  expect(firstOpen[0].body.url).not.toContain("bing.com");
+  await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/url").length, { message: "未登录时应持续检测，并停在外部浏览器登录说明", timeout: 20_000 }).toBeGreaterThanOrEqual(2);
+  await expectStep(page, "platform-login");
+  await expect(browserButton, "登录等待期间顶部按钮仍能重新打开招聘浏览器").toBeEnabled();
+  await browserButton.click();
+  await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open").length).toBe(2);
+  await expectStep(page, "platform-login");
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-platform-login-top.png", fullPage: true });
+  const beforeRefresh = await readAgentState(request);
+  const checksBeforeRefresh = beforeRefresh.calls.filter((call: { path: string }) => call.path === "/api/v1/page/url").length;
+  await page.reload();
+  await expectStep(page, "platform-login");
+  await expectMaskAround(page, headerBrowserButton(page));
+  await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/url").length, { message: "刷新必须自动恢复登录检测，不需要再次点击打开", timeout: 20_000 }).toBeGreaterThan(checksBeforeRefresh + 1);
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(2);
+  await expectStep(page, "platform-login");
+  await agentControl(request, { loggedIn: true });
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu", { timeout: 25_000 });
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(2);
+});
+
+test("390px手机浏览器入口的遮罩圈住真实顶部图标，登录等待时仍可点击", async ({ scenario, request }) => {
+  const { page } = scenario;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await agentControl(request, { loggedIn: false });
+  await acceptTutorial(page);
+  await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
+  await expectStep(page, "platform-open");
+  const browserButton = headerBrowserButton(page);
+  await expect(browserButton).toHaveCount(1);
+  await expect(browserButton).toHaveAttribute("aria-label", "打开浏览器");
+  const buttonBox = await browserButton.boundingBox();
+  const headerBox = await page.locator("header.goodhr-admin-toolbar").boundingBox();
+  expect(buttonBox).toBeTruthy();
+  expect(headerBox).toBeTruthy();
+  expect(buttonBox!.x).toBeGreaterThanOrEqual(0);
+  expect(buttonBox!.x + buttonBox!.width).toBeLessThanOrEqual(390);
+  expect(buttonBox!.y).toBeGreaterThanOrEqual(headerBox!.y);
+  expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
+  await expectMaskAround(page, browserButton);
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/mobile-390-browser-open-mask.png", fullPage: true });
+  await browserButton.click();
+  await expectStep(page, "platform-login");
+  await expectMaskAround(page, browserButton);
+  await expect(browserButton).toBeEnabled();
+  await expect(page.locator('[data-onboarding="onboarding-platform-open"], [data-onboarding="onboarding-platform-wait"]')).toHaveCount(0);
+  await expect(page.locator('[aria-label="当前教程操作"]')).toHaveCount(0);
+  const calls = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toMatchObject({ platform_id: "boss", user_data_dir: "default" });
+  expect(calls[0].body.url).toContain("zhipin.com");
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/mobile-390-platform-login-top.png", fullPage: true });
+});
+
+test("暂停教程后顶部按钮保留普通打开Bing和首次浏览器图标提醒", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  await acceptTutorial(page);
+  await page.locator(".ant-tour").getByRole("button", { name: "稍后继续", exact: true }).click();
+  await expect(page.getByRole("button", { name: "继续教程", exact: true })).toBeVisible();
+  await expect(page.getByTestId("onboarding-tour")).toHaveCount(0);
+  await headerBrowserButton(page).click();
+  const notice = page.getByRole("dialog", { name: "浏览器已经打开啦", exact: true });
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("任务栏或程序坞");
+  const calls = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toMatchObject({ user_data_dir: "default", url: "https://www.bing.com" });
+  expect(calls[0].body.platform_id).toBeUndefined();
+  expect((await readUserFlow(request, user)).tutorial_completed).toBe(false);
+  await notice.getByRole("button", { name: "知道了", exact: true }).click();
+  await expect(notice).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "继续教程", exact: true })).toBeVisible();
+});
+
 test("390px手机能打开菜单并真实进入岗位管理", async ({ scenario }) => {
   const { page } = scenario;
   await page.setViewportSize({ width: 390, height: 844 });
   await acceptTutorial(page);
   await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
   await expectStep(page, "platform-open");
-  await page.locator('[data-onboarding="onboarding-platform-open"]').click();
+  await headerBrowserButton(page).click();
   await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu", { timeout: 30_000 });
   await page.locator('[data-onboarding="mobile-menu"]').click();
   await expectMaskAround(page, page.getByRole("menuitem", { name: "岗位管理", exact: true }));

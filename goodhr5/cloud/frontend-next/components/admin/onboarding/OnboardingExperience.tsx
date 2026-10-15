@@ -1,7 +1,7 @@
 /** 本文件负责新手邀请、真实操作遮罩、阶段进度、针对性帮助和轻量完成鼓励。 */
 "use client";
 
-import { Alert, Button, Flex, Input, Modal, Progress, Spin, Tour, Typography } from "antd";
+import { Alert, Button, Flex, Image, Input, Modal, Progress, Spin, Tour, Typography } from "antd";
 import { CheckCircleFilled, ClockCircleOutlined, PauseOutlined, QuestionCircleOutlined, TrophyOutlined } from "@ant-design/icons";
 import confetti from "canvas-confetti";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -18,7 +18,7 @@ const platformChoices = [
   { value: "hliepin", label: "猎聘猎头端", description: "使用猎聘猎头账号" },
 ];
 const permissionImage = "/assets/help/local-agent-device-app-permission.png";
-const operationSteps = ["platform-select", "platform-open", "platform-login", "agent-download", "agent-connect", "first-result"];
+const operationSteps = ["platform-select", "agent-download", "agent-connect", "first-result"];
 
 /** OnboardingExperience 只展示控制器状态，推进步骤必须由真实操作结果决定。 */
 export default function OnboardingExperience(props: OnboardingExperienceProps) {
@@ -146,7 +146,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         steps={[{
           target,
           title: <span data-testid="onboarding-tour" data-step={step}>{title}</span>,
-          description: <div><Typography.Paragraph>{description}</Typography.Paragraph><Typography.Paragraph type="secondary" className={styles.tourHint}>{hint}</Typography.Paragraph><Typography.Text type="secondary" className={styles.tourEstimate}>{estimate} · 完成操作后，我会自动接着带路。</Typography.Text></div>,
+          description: <div><Typography.Paragraph>{description}</Typography.Paragraph>{step === "platform-login" ? <Flex gap={8} align="center" className={styles.loginStatus} role="status"><Image src="/assets/platforms/camoufox.png" alt="橙色狐狸浏览器图标" width={28} height={28} preview={false} /><Typography.Text type="secondary"><Spin size="small" /> {statusText || "我在等你完成平台登录。"}</Typography.Text></Flex> : null}<Typography.Paragraph type="secondary" className={styles.tourHint}>{hint}</Typography.Paragraph>{error && ["platform-open", "platform-login"].includes(step) ? <Alert type="warning" showIcon title={error} className={styles.helpAlert} /> : null}<Typography.Text type="secondary" className={styles.tourEstimate}>{estimate} · 完成操作后，我会自动接着带路。</Typography.Text></div>,
           placement: operationPanel ? "top" : step.endsWith("menu") ? mobileMenuPlacement || "right" : "bottom",
         }]}
         disabledInteraction={false}
@@ -226,8 +226,6 @@ function OperationPanel({ step, state, title, description, statusText, error, bu
       <Typography.Title level={5} className={styles.panelTitle}>{title}</Typography.Title>
       <Typography.Paragraph type="secondary" className={styles.panelDescription}>{description}</Typography.Paragraph>
       {step === "platform-select" ? <div data-onboarding="onboarding-platform-choice"><ChoiceCards label="请选择你使用的平台" value="" options={platformChoices} compact columns={2} onChange={(value) => actions.choosePlatform(String(value))} /></div> : null}
-      {step === "platform-open" ? <Button data-onboarding="onboarding-platform-open" type="primary" loading={busy} onClick={actions.openPlatform}>打开招聘平台</Button> : null}
-      {step === "platform-login" ? <div data-onboarding="onboarding-platform-wait"><Flex gap={8} align="center"><Spin size="small" /><Typography.Text>{statusText || "请在招聘浏览器完成登录，我在这里等你。"}</Typography.Text></Flex><Button className={styles.panelSecondaryButton} onClick={actions.openPlatform} loading={busy}>重新打开招聘平台</Button></div> : null}
       {step === "agent-download" ? <Button data-onboarding="onboarding-agent-download" type="primary" onClick={actions.downloadAgent}>下载本地程序</Button> : null}
       {step === "agent-connect" ? <div><Button data-onboarding="onboarding-agent-connect" type="primary" loading={busy} onClick={actions.checkAgent}>检查连接</Button><Typography.Paragraph type="secondary" className={styles.connectHint}>程序已经启动仍连不上？点击“遇到问题”查看浏览器权限图。</Typography.Paragraph></div> : null}
       {step === "first-result" ? <div data-onboarding="onboarding-result-wait"><Flex gap={8} align="center"><Spin size="small" /><Typography.Text>{statusText || "等待第一条真实筛选判断"}</Typography.Text></Flex><Typography.Paragraph type="secondary" className={styles.connectHint}>筛掉不合适的人也算正常结果，进度会按真实判断更新。</Typography.Paragraph></div> : null}

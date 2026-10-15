@@ -48,6 +48,7 @@
 .passivePanel { pointer-events: none; }
 .passivePanel button { pointer-events: auto; }
 .tourHint { font-size: 12px; margin-bottom: 8px !important; }
+.loginStatus { margin-bottom: 12px; font-size: 12px; }
 .tourEstimate { font-size: 11px; display: block; line-height: 1.6; }
 .storageNotice { position: fixed; z-index: 1601; bottom: 8px; left: 240px; max-width: calc(100vw - 270px); background: #fff8e8; color: #856121; padding: 5px 10px; border-radius: 6px; font-size: 11px; pointer-events: none; }
 .welcomeCopy { font-size: 15px; line-height: 1.9; padding: 8px 0; }

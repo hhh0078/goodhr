@@ -1,6 +1,6 @@
 /** 本文件在 GoodHR 控制台内同步新手引导上下文和真实业务操作，不接触招聘平台页面。 */
 export type OnboardingFormField = "name" | "filter-mode" | "detail-mode" | "position-requirement" | "keywords";
-export type OnboardingGuideContext = { active: boolean; platformId: string; positionId?: string; step?: import("./onboarding-state").OnboardingStep };
+export type OnboardingGuideContext = { active: boolean; platformId: string; positionId?: string; step?: import("./onboarding-state").OnboardingStep; browserOpening?: boolean };
 export type OnboardingScreeningResult = {
   kind: "ai" | "keyword";
   phase: "result";
@@ -10,7 +10,7 @@ export type OnboardingScreeningResult = {
   score?: number;
 };
 export type OnboardingEvent = {
-  type: "guide-requested" | "position-form-close-requested" | "position-start-close-requested" | "position-form-opened" | "position-form-closed" | "form-field-completed" | "position-created" | "start-dialog-opened" | "start-dialog-closed" | "platform-opened" | "position-started" | "screening-result";
+  type: "guide-requested" | "platform-browser-open-requested" | "position-form-close-requested" | "position-start-close-requested" | "position-form-opened" | "position-form-closed" | "form-field-completed" | "position-created" | "start-dialog-opened" | "start-dialog-closed" | "platform-opened" | "position-started" | "screening-result";
   restored?: boolean;
   field?: OnboardingFormField;
   completed?: boolean;
@@ -43,7 +43,7 @@ export function getOnboardingGuideContext(): OnboardingGuideContext {
 
 /** setOnboardingGuideContext 切换当前账号的引导上下文，仅由全局引导器调用。 */
 export function setOnboardingGuideContext(context: OnboardingGuideContext): void {
-  if (currentContext.active === context.active && currentContext.platformId === context.platformId && currentContext.step === context.step && currentContext.positionId === context.positionId) return;
+  if (currentContext.active === context.active && currentContext.platformId === context.platformId && currentContext.step === context.step && currentContext.positionId === context.positionId && currentContext.browserOpening === context.browserOpening) return;
   currentContext = context;
   for (const listener of contextListeners) {
     try { listener(context); } catch { /* 某个页面卸载或异常时，其他页面仍可使用真实业务。 */ }

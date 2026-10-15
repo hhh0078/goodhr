@@ -12,8 +12,8 @@ export function onboardingTargetSelector(step: OnboardingStep, positionId: strin
     "agent-connect": "[data-onboarding='onboarding-agent-connect']",
     "runtime-install": "[data-onboarding='runtime-install'], [data-onboarding='runtime-system-check']",
     "platform-select": "[data-onboarding='onboarding-platform-choice']",
-    "platform-open": "[data-onboarding='onboarding-platform-open']",
-    "platform-login": "[data-onboarding='onboarding-platform-wait']",
+    "platform-open": "[data-onboarding='browser-open']",
+    "platform-login": "[data-onboarding='browser-open']",
     "position-menu": "[data-onboarding='menu-positions']",
     "position-create": "[data-onboarding='position-create']",
     "position-name": "[data-onboarding='position-name']",
@@ -38,6 +38,8 @@ export function useOnboardingTarget(selector: string, enabled: boolean): { targe
     if (!enabled || !selector) return;
     let frame = 0;
     let settleTimer: number | undefined;
+    let observedTarget: HTMLElement | null = null;
+    const targetResizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     /** inspect 只读取当前控制台元素的可见性，移动端菜单折叠时先突出打开菜单按钮。 */
     function inspect() {
       const candidates = Array.from(document.querySelectorAll<HTMLElement>(selector));
@@ -70,6 +72,12 @@ export function useOnboardingTarget(selector: string, enabled: boolean): { targe
       const mobileMenu = selector.includes("menu-") ? document.querySelector<HTMLElement>("[data-onboarding='mobile-menu']") : null;
       const fallback = mobileMenu && mobileMenu.getBoundingClientRect().width > 0 ? mobileMenu : null;
       const element = visible || fallback;
+      if (observedTarget !== element) {
+        targetResizeObserver?.disconnect();
+        observedTarget = element;
+        // 加载图标收起会通过连续尺寸动画改变按钮宽度；只看 class 变化会留下旧孔位。
+        if (element) targetResizeObserver?.observe(element);
+      }
       const box = element?.getBoundingClientRect();
       const geometry = box ? [box.left, box.top, box.width, box.height].map(Math.round).join(",") : "";
       // 同一元素在内部滚动后会换坐标，用明确的几何签名让展示层重新测量，避免依赖中间帧提交。
@@ -84,7 +92,7 @@ export function useOnboardingTarget(selector: string, enabled: boolean): { targe
     window.addEventListener("transitionend", schedule, true);
     window.addEventListener("animationend", schedule, true);
     inspect();
-    return () => { observer.disconnect(); cancelAnimationFrame(frame); if (settleTimer !== undefined) window.clearTimeout(settleTimer); window.removeEventListener("resize", schedule); window.removeEventListener("scroll", schedule, true); window.removeEventListener("transitionend", schedule, true); window.removeEventListener("animationend", schedule, true); };
+    return () => { observer.disconnect(); targetResizeObserver?.disconnect(); cancelAnimationFrame(frame); if (settleTimer !== undefined) window.clearTimeout(settleTimer); window.removeEventListener("resize", schedule); window.removeEventListener("scroll", schedule, true); window.removeEventListener("transitionend", schedule, true); window.removeEventListener("animationend", schedule, true); };
   }, [selector, enabled]);
   // 新步骤不能暂借上一步的孔位，否则提示“保存”时会把真实保存按钮挡住。
   return enabled && located.selector === selector ? { target: located.element, targetGeometry: located.geometry } : { target: null, targetGeometry: "" };
