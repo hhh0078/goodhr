@@ -234,12 +234,15 @@ def validate_bindings(value):
 
 
 def environment(value):
-    """environment 只在内存比较环境键值，并拒绝有重复键的模糊设置。"""
+    """environment 按原始完整顺序比较环境，仅保留已核验的既存监听地址覆盖，禁止其他冲突键。"""
     rows = value or []
     require(all(isinstance(row, str) and '=' in row for row in rows), '原环境配置格式不明确')
-    result = dict(row.split('=', 1) for row in rows)
-    require(len(result) == len(rows), '原环境存在重复键，需人工审查')
-    return result
+    seen = {}
+    for row in rows:
+        key, content = row.split('=', 1)
+        require(key not in seen or seen[key] == content or key == 'GOODHR_CLOUD_ADDR', '原环境存在未核验的冲突键')
+        seen.setdefault(key, content)
+    return tuple(rows)
 
 
 def endpoints(value):
