@@ -216,6 +216,33 @@ class CutoverTests(unittest.TestCase):
         self.assertEqual(engine.mutations, [])
         self.assertNotIn(SECRET, json.dumps(audits))
 
+    def test_existing_address_override_keeps_complete_environment_order(self):
+        """已核验的监听地址覆盖按原始数组复制，不取末项、不改其他环境。"""
+        runner, engine, _ = self.runner()
+        old = engine.rows[cutover.BASELINES['backend'][0]]
+        old['Config']['Env'] += ['GOODHR_CLOUD_ADDR=127.0.0.1:8086', 'GOODHR_CLOUD_ADDR=:8080']
+        runner.private['originals']['backend'] = copy.deepcopy(old)
+        expected = copy.deepcopy(old['Config']['Env'])
+        self.assertTrue(runner.activate()['success'])
+        self.assertEqual(engine.inspect('goodhr-production-backend-1')['Config']['Env'], expected)
+
+    def test_reordered_or_other_conflicting_environment_is_rejected(self):
+        """端口重复项顺序变化或新增未核验冲突键必须拒绝，不泄漏原环境值。"""
+        old = original('backend')
+        old['Config']['Env'] += ['GOODHR_CLOUD_ADDR=127.0.0.1:8086', 'GOODHR_CLOUD_ADDR=:8080']
+        item = spec()['services']['backend']
+        payload = cutover.payload_for(old, item, cutover.RELEASE)
+        engine = FakeEngine()
+        identifier = engine.create(item['name'] + '-probe', payload)
+        created = engine.inspect(identifier)
+        created['Config']['Env'][-2:] = list(reversed(created['Config']['Env'][-2:]))
+        with self.assertRaises(cutover.CutoverError):
+            cutover.verify_created(created, old, payload, item)
+        old['Config']['Env'] += ['DATABASE_SECRET=' + SECRET, 'DATABASE_SECRET=conflicting']
+        with self.assertRaises(cutover.CutoverError) as failure:
+            cutover.payload_for(old, item, cutover.RELEASE)
+        self.assertNotIn(SECRET, str(failure.exception))
+
     def test_missing_evidence_and_wrong_ledger_never_mutate(self):
         """证据缺失或实时迁移变动在第一项Docker变更之前拦住。"""
         def reject(value):
