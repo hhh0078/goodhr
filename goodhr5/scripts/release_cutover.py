@@ -20,7 +20,7 @@ import urllib.parse
 import urllib.request
 
 
-ROOT = Path('/opt/goodhr-release/clean-runtime-20261015')
+ROOT = Path('/opt/goodhr-release/clean-runtime-20261015/recovery-20261015')
 CHECKOUT = Path('/www/wwwroot/goodhr-production/good-hr-ai-js')
 HOST = 'ldclouda31539'
 RELEASE = 'clean-runtime-20261015'
@@ -31,7 +31,7 @@ BASELINES = {
     'backend': ('f308ae790c1e6daf43e3453dd27504f7871b2cf6f1da564d95d368836646130a', 'sha256:31df9fe839f4375e0bada14816c695662029e6575d44cbac01bc2d728ce4014b'),
     'frontend': ('8d291e59f0f9d6ba01783a492efa71bda17323954a13a462b5eba1eea1eee617', 'sha256:1243f405e9a4ccbc110d8a55f2ab5dd0863dd6ad175f7784849fee88b20cf59a'),
 }
-TARGETS = {'backend': 'sha256:c40e79cc463b641e746d3aac3866471d02d2a0ae8e2ab2f7dcb29c451bd25102', 'frontend': 'sha256:eea3fcfadfc1ee9ec81162132d87107d2896f52445fba2b51de6028515535084'}
+TARGETS = {'backend': 'sha256:d6cd24eedf2db943df556c4aafcbb1c68df25d23503f8db7b9743004f26889c3', 'frontend': 'sha256:88acdbd8a461375e2939cf42e3eccd5585af4b8f91b5222f9471efefce004fb8'}
 ORIGINS = {'backend': '3a36f424c3bf43a5ee544cba8be78ff47ef90a1b', 'frontend': '9374fd0a8332d6d07273d622816b4f0979be516f'}
 HEX = re.compile(r'[0-9a-f]{64}\Z')
 COMMIT = re.compile(r'[0-9a-f]{40}\Z')
