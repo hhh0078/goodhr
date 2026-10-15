@@ -35,8 +35,8 @@ cd "$PROJECT_DIR"
 # 与正式构建共用源码锁，禁止在另一轮构建或激活中快进同一工作区。
 SOURCE_LOCK="$PROJECT_DIR/.release-source.lock"
 [ ! -L "$SOURCE_LOCK" ] || { log "源码锁路径异常，已停止"; exit 1; }
-exec 11>>"$SOURCE_LOCK"
-flock -n 11 || { log "源码正在使用，本次跳过"; exit 0; }
+exec 6>>"$SOURCE_LOCK"
+flock -n 6 || { log "源码正在使用，本次跳过"; exit 0; }
 git rev-parse --is-inside-work-tree >/dev/null
 if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
   log "源码有未提交改动，候选准备已停止"
@@ -62,7 +62,7 @@ fi
 export GOODHR_SOURCE_COMMIT="$REMOTE_COMMIT"
 log "经正式入口准备候选 source=$REMOTE_COMMIT"
 # 子入口自行重新持有同一把锁，并重新核对提交；避免父子进程重复持锁。
-flock -u 11
-exec 11>&-
+flock -u 6
+exec 6>&-
 bash "$PROJECT_DIR/scripts/deploy-build.sh" --build-only >> "$LOG_FILE" 2>&1
 log "候选已准备，线上未切换；完成隔离及回退验证后，用同一标签执行deploy-build.sh --activate-only"

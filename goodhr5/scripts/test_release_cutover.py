@@ -4,6 +4,8 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+import stat
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -163,6 +165,46 @@ class CutoverTests(unittest.TestCase):
         with self.assertRaises(cutover.CutoverError):
             runner.activate()
         self.assertEqual(engine.mutations, [])
+
+    def test_old_checkout_refuses_activation_before_any_stop(self):
+        """尚未快进治理源码的旧checkout不能借用成功隔离证据开始停机。"""
+        runner, engine, _ = self.runner()
+        runner.source = cutover.source_baseline
+
+        def command(args, timeout=60):
+            """command 只模拟主机匹配但HEAD仍为旧9023的只读结果。"""
+            return b'43.228.79.108\n' if args[0] == 'hostname' else b'9023e70cf54f1ce9deb8216e80ae6c3786ef1616\n'
+
+        with mock.patch.object(cutover.socket, 'gethostname', return_value=cutover.HOST), mock.patch.object(cutover, 'command', side_effect=command):
+            with self.assertRaises(cutover.CutoverError):
+                runner.activate()
+        self.assertEqual(engine.mutations, [])
+
+    def test_source_lock_contention_blocks_entry_and_releases_container_locks(self):
+        """自动更新持有同一路径源码锁时切换不能进入检查，已经取得的容器锁也会释放。"""
+        descriptors, closed, entered = {}, [], []
+        source_path = cutover.CHECKOUT / 'goodhr5/.release-source.lock'
+        self.assertIn(source_path, cutover.LOCKS)
+        fake_fcntl = SimpleNamespace(LOCK_EX=2, LOCK_NB=4)
+
+        def opened(path, flags):
+            """opened 为每个真实锁路径分配假fd，不触碰本机文件。"""
+            descriptor = len(descriptors) + 20
+            descriptors[descriptor] = str(path)
+            return descriptor
+
+        def flock(descriptor, flags):
+            """flock 仅让共用源码锁冲突，模拟另一任务正在快进。"""
+            if descriptors[descriptor] == str(source_path):
+                raise BlockingIOError('synthetic source update in progress')
+
+        fake_fcntl.flock = flock
+        with mock.patch.dict('sys.modules', {'fcntl': fake_fcntl}), mock.patch.object(cutover.os, 'name', 'posix'), mock.patch.object(Path, 'resolve', lambda value: value), mock.patch.object(Path, 'is_file', return_value=True), mock.patch.object(Path, 'is_symlink', return_value=False), mock.patch.object(cutover.os, 'O_NOFOLLOW', 0, create=True), mock.patch.object(cutover.os, 'O_CLOEXEC', 0, create=True), mock.patch.object(cutover.os, 'open', side_effect=opened), mock.patch.object(cutover.os, 'fstat', return_value=SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_uid=0)), mock.patch.object(cutover.os, 'close', side_effect=closed.append):
+            with self.assertRaises(BlockingIOError):
+                with cutover.deployment_locks():
+                    entered.append(True)
+        self.assertEqual(entered, [])
+        self.assertEqual(closed, list(reversed(descriptors)))
 
     def test_private_environment_drift_aborts_before_any_stop(self):
         """原环境与0600备份不一致时不开始停机，也不输出变化值。"""

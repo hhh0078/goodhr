@@ -26,7 +26,7 @@ HOST = 'ldclouda31539'
 RELEASE = 'clean-runtime-20261015'
 FINGERPRINT = '4ed4cdafe3af54d1f4ee178294148039dd07163c37dff7e791231db1bd409d4e'
 ROLES = ('backend', 'frontend')
-LOCKS = (Path('/opt/goodhr-release/.backend-deploy.lock'), Path('/opt/goodhr-release/.frontend-deploy.lock'), Path('/www/wwwroot/goodhr-production/backups/.goodhr-container-deploy.lock'))
+LOCKS = (Path('/opt/goodhr-release/.backend-deploy.lock'), Path('/opt/goodhr-release/.frontend-deploy.lock'), Path('/www/wwwroot/goodhr-production/backups/.goodhr-container-deploy.lock'), CHECKOUT / 'goodhr5/.release-source.lock')
 BASELINES = {
     'backend': ('f308ae790c1e6daf43e3453dd27504f7871b2cf6f1da564d95d368836646130a', 'sha256:31df9fe839f4375e0bada14816c695662029e6575d44cbac01bc2d728ce4014b'),
     'frontend': ('8d291e59f0f9d6ba01783a492efa71bda17323954a13a462b5eba1eea1eee617', 'sha256:1243f405e9a4ccbc110d8a55f2ab5dd0863dd6ad175f7784849fee88b20cf59a'),
@@ -98,7 +98,7 @@ def command(args, timeout=60):
 
 @contextmanager
 def deployment_locks():
-    """deployment_locks 同时持有三把已有root普通锁，禁止创建新锁或跟随链接。"""
+    """deployment_locks 同时持有三把容器锁和共用源码锁，防止验收后工具被自动快进；禁止创建新锁或跟随链接。"""
     require(os.name == 'posix', '实际切换只允许在指定Linux服务器执行')
     import fcntl
     descriptors = []
