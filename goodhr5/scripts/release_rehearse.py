@@ -264,6 +264,9 @@ class Rehearsal:
         require(len(volumes) == 1 and volumes[0].startswith("/var/lib/postgresql"), "PostgreSQL镜像挂载形态需单独审阅")
         data_path = self.directory / "pgdata"
         data_path.mkdir(mode=0o700)
+        # PG18的真实PGDATA位于挂载根下面；显式chmod避免umask077阻断降权后的目录穿越，真实数据目录仍由官方入口保护为0700。
+        data_path.chmod(0o755)
+        require(stat.S_IMODE(data_path.stat().st_mode) == 0o755 and all(stat.S_IMODE(path.stat().st_mode) == 0o700 for path in (self.directory, self.root)), "隔离挂载根必须为0755，外层隔离和发布目录必须保持0700")
         self.pg = self.own(self.prefix + "-pg", {"Image": self.pg_image["Id"], "Env": ["POSTGRES_USER=postgres", "POSTGRES_DB=" + self.args.database, "POSTGRES_PASSWORD=" + self.password], "HostConfig": {"NetworkMode": self.prefix, "Memory": 384 * 1024**2, "Binds": [str(data_path) + ":" + volumes[0]]}})
         self.engine.start(self.pg)
         for attempt in range(40):
