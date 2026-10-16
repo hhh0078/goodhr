@@ -42,6 +42,93 @@ async function clickOwnButton(page, selector) { const target = await point(page,
 /** sampleResume 提供同名不同平台编号的合成简历，用于验证候选人身份隔离。 */
 function sampleResume(id = "candidate-a", phone = "13800000151") { return { candidate_name: "合成悬浮候选人", phone, platform_id: "hliepin", platform_candidate_id: id, source_url: "https://h.liepin.com/resume/show", work_experiences: [{ company_name: "合成悬浮公司", position_name: "合成岗位", start_ym: "2021-01", content: "仅用于本地测试" }] }; }
 
+test("Chrome真实浮窗BOSS：核对页数才基本识别，保存才完整解析，两个阶段都保留手改并复用原保存", async () => {
+  const { server, origin } = await localServer(true), browser = await chromium.launch({ channel: "chrome", headless: true }), calls = [], drafts = new Map(), errors = [];
+  const hash = "a".repeat(64), snapshot = { platform_id: "boss", source_url: "https://www.zhipin.com/web/chat/index", capture_id: "boss-" + hash, attachment: { text_hash: hash, page_count: 1, total_pages: 0, complete: false, blocked: false, warning: "已读到1页，总页数请核对" } };
+  let releaseBasic, releaseFull;
+  try {
+    const { page } = await preparePage(browser, origin, async ({ type, payload = {} }) => {
+      calls.push({ type, payload });
+      if (type === "STATE") return { ok: true, data: { logged_in: true, data_use_accepted: true, auto_close_after_save: false, account_key: "boss-fixture", resume: snapshot, version } };
+      if (type === "DRAFT_GET") return { ok: true, data: { draft: drafts.get(payload.identity) || null } };
+      if (type === "DRAFT_SAVE") { drafts.set(payload.identity, payload.draft); return { ok: true, data: {} }; }
+      if (type === "ATTACHMENT_START") {
+        const task = { id: "task-" + payload.phase, phase: payload.phase, capture_id: snapshot.capture_id, text_hash: hash, request_key: payload.request_key };
+        if (payload.phase === "basic") { await new Promise((resolve) => { releaseBasic = resolve; }); return { ok: true, data: { task: { ...task, status: "completed", resume: { candidate_name: "AI识别姓名", phone: "13800000991", gender: "女", work_experiences: [{ company_name: "最早合成公司", start_ym: "2017-01", end_ym: "2019-01" }], educations: [{ school_name: "最早合成学校", start_ym: "2010-09", end_ym: "2014-06" }] } } } }; }
+        return { ok: true, data: { task: { ...task, status: "running" } } };
+      }
+      if (type === "ATTACHMENT_POLL") { await new Promise((resolve) => { releaseFull = resolve; }); return { ok: true, data: { task: { id: "task-full", phase: "full", status: "completed", capture_id: snapshot.capture_id, text_hash: hash, resume: { candidate_name: "完整AI旧姓名", phone: "13800000999", gender: "male", email: "full-synthetic@example.test", ai_summary: "合成忠实摘要", work_experiences: [{ company_name: "最新合成公司", start_ym: "2022-01", content: "最新完整内容" }, { company_name: "最早合成公司", start_ym: "2017-01", end_ym: "2019-01", content: "最早完整内容" }], educations: [{ school_name: "最新合成学校", start_ym: "2014-09" }, { school_name: "最早合成学校", start_ym: "2010-09", end_ym: "2014-06" }] } } } }; }
+      if (type === "DUPLICATES") return { ok: true, data: { matches: [], groups: [] } };
+      if (type === "CREATE") return { ok: true, data: { candidate: { id: "created-boss-fixture", ...payload.resume, row_version: 1 } } };
+      if (type === "FOLLOWUPS") return { ok: true, data: { notes_saved: true, recommendation_saved: true, errors: [] } };
+      if (type === "DETAIL") return { ok: true, data: { notes: [], recommendations: [] } };
+      return { ok: true, data: {} };
+    });
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
+    await page.evaluate((resume) => GoodHRFloating.update(resume), snapshot);
+    await page.waitForFunction(() => window.fixtureShadow?.querySelector("iframe")?.contentDocument?.getElementById("attachment-panel"));
+    const frame = page.frames().find((item) => item.url().includes("/src/floating.html"));
+    await frame.locator("#attachment-panel").waitFor({ state: "visible" }); await page.waitForTimeout(550);
+    assert.equal(calls.filter((item) => item.type === "ATTACHMENT_START").length, 0); assert.equal(await frame.locator("#save").isDisabled(), true);
+    await frame.locator("#attachment-check").check(); while (!releaseBasic) await page.waitForTimeout(10);
+    await frame.locator("#name").fill("基本识别前手改姓名"); releaseBasic();
+    await frame.waitForFunction(() => document.getElementById("phone").value === "13800000991");
+    assert.equal(await frame.locator("#name").inputValue(), "基本识别前手改姓名"); assert.equal(await frame.locator("#gender").inputValue(), "female");
+    assert.equal(await frame.locator("#first-company").inputValue(), "最早合成公司"); assert.equal(await frame.locator("#first-school").inputValue(), "最早合成学校");
+    assert.equal(calls.some((item) => item.type === "ATTACHMENT_START" && item.payload.phase === "full"), false); assert.equal(calls.some((item) => item.type === "CREATE"), false);
+    fs.mkdirSync(ARTIFACTS, { recursive: true }); await page.locator("#goodhr-resume-assistant").screenshot({ path: path.join(ARTIFACTS, `plugin-boss-attachment-synthetic-${version}.png`), caret: "initial" });
+    await frame.locator("#attachment-review>summary").click(); await frame.locator("#first-company").fill("人工核对首份公司"); await frame.locator("#first-work-end").fill("");
+    await frame.waitForFunction(() => !document.getElementById("save").disabled); await frame.locator("#save").click();
+    while (!releaseFull) await page.waitForTimeout(10);
+    await frame.locator("#name").fill("完整识别期间手改姓名"); releaseFull();
+    await frame.waitForFunction(() => document.getElementById("status").textContent === "已添加");
+    const saved = calls.find((item) => item.type === "CREATE").payload.resume;
+    assert.equal(saved.candidate_name, "完整识别期间手改姓名"); assert.equal(saved.phone, "13800000991"); assert.equal(saved.gender, "female"); assert.equal(saved.email, "full-synthetic@example.test"); assert.equal(saved.ai_summary, "合成忠实摘要");
+    assert.equal(saved.work_experiences.length, 2); assert.equal(saved.work_experiences[0].content, "最新完整内容"); assert.equal(saved.work_experiences[1].company_name, "人工核对首份公司"); assert.equal(saved.work_experiences[1].end_ym, ""); assert.equal(saved.work_experiences[1].content, "最早完整内容");
+    assert.equal(saved.educations.length, 2); assert.equal(saved.educations[1].school_name, "最早合成学校");
+    assert.equal(calls.filter((item) => item.type === "ATTACHMENT_START" && item.payload.phase === "basic").length, 1); assert.equal(calls.filter((item) => item.type === "ATTACHMENT_START" && item.payload.phase === "full").length, 1);
+    assert.equal(calls.filter((item) => ["ATTACHMENT_START", "ATTACHMENT_POLL", "CREATE"].includes(item.type)).some((item) => Object.hasOwn(item.payload, "text") || Object.hasOwn(item.payload, "html")), false);
+    assert.deepEqual(errors, []);
+  } finally { releaseBasic?.(); releaseFull?.(); await browser.close(); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("Chrome真实浮窗BOSS：当前 AI 未配置只提示，轮询状态不重复发起收费请求", async () => {
+  const { server, origin } = await localServer(true), browser = await chromium.launch({ channel: "chrome", headless: true }), calls = [];
+  const hash = "b".repeat(64), snapshot = { platform_id: "boss", source_url: "https://www.zhipin.com/web/chat/index", capture_id: "boss-" + hash, attachment: { text_hash: hash, page_count: 1, total_pages: 0, complete: false, blocked: false } };
+  try {
+    const { page } = await preparePage(browser, origin, async ({ type, payload = {} }) => { calls.push({ type, payload }); if (type === "STATE") return { ok: true, data: { logged_in: true, data_use_accepted: true, account_key: "no-ai-fixture", resume: snapshot, version } }; if (type === "ATTACHMENT_START") return { ok: false, status: 422, code: "AI_NOT_CONFIGURED", message: "当前账号没有配置 AI" }; return { ok: true, data: {} }; });
+    await page.goto(origin + "/src/floating.html"); await page.locator("#attachment-panel").waitFor({ state: "visible" }); await page.locator("#attachment-check").check();
+    await page.waitForFunction(() => document.getElementById("attachment-status").textContent.includes("还没配置 AI")); await page.waitForTimeout(2800);
+    assert.equal(calls.filter((item) => item.type === "ATTACHMENT_START").length, 1); assert.equal(calls.some((item) => item.type === "CREATE"), false); assert.equal(await page.locator("#save").isDisabled(), true); assert.equal(await page.locator("#attachment-start").isDisabled(), false);
+  } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("Chrome合成BOSS附件：同源可见框架只读呈现叶子文字，多页缺失、隐藏框架和多附件均受保护", async () => {
+  const { server, origin } = await localServer(), browser = await chromium.launch({ channel: "chrome", headless: true });
+  try {
+    const { page, network } = await preparePage(browser, origin, async () => ({ ok: true }));
+    await page.evaluate(() => {
+      const fixture = '<style>.page{position:relative;width:747px;height:1056px}.textLayer{position:absolute;inset:0}.textLayer span[role=presentation]{position:absolute;font:14px sans-serif}</style><div class="bzl-office-pdf" data-page-count="2"><div class="page" data-page-number="1"><div class="textLayer"><span><span><span role="presentation" style="left:70px;top:60px">合成学校</span></span></span><span role="presentation" style="left:70px;top:20px">合成姓名 13800000991</span><span role="presentation" style="left:70px;top:90px;display:none">隐藏资料不能读取</span></div></div><div class="page" data-page-number="2"></div></div>';
+      const frame = document.createElement("iframe"); frame.id = "pdf-fixture"; frame.style.cssText = "width:800px;height:500px"; frame.srcdoc = fixture; document.getElementById("business").append(frame);
+      const hidden = document.createElement("iframe"); hidden.hidden = true; hidden.srcdoc = fixture.replaceAll("合成姓名", "隐藏框架"); document.getElementById("business").append(hidden);
+      const isolated = document.createElement("iframe"); isolated.sandbox = "allow-scripts"; isolated.srcdoc = fixture.replaceAll("合成姓名", "隔离框架"); document.getElementById("business").append(isolated);
+    });
+    await page.waitForFunction(() => document.getElementById("pdf-fixture")?.contentDocument?.querySelector(".textLayer"));
+    const before = await page.locator("#business").innerHTML();
+    await page.addScriptTag({ path: path.join(ROOT, "src", "boss-attachment.js") });
+    const first = await page.evaluate(() => GoodHRBossAttachment.extract(document, "https://www.zhipin.com/web/chat/index"));
+    assert.equal(first.attachment.text, "合成姓名 13800000991\n合成学校"); assert.equal(first.attachment.page_count, 1); assert.equal(first.attachment.total_pages, 2); assert.equal(first.attachment.blocked, true); assert.equal(first.attachment.complete, false); assert.match(first.attachment.warning, /1\/2/);
+    assert.equal(await page.locator("#business").innerHTML(), before, "提取不得修改网站 DOM");
+    await page.evaluate(() => { const frameDoc = document.getElementById("pdf-fixture").contentDocument, layer = frameDoc.createElement("div"), span = frameDoc.createElement("span"); layer.className = "textLayer"; span.setAttribute("role", "presentation"); span.style.cssText = "left:70px;top:20px"; span.textContent = "第二页合成工作经历"; layer.append(span); frameDoc.querySelector('[data-page-number="2"]').append(layer); });
+    const full = await page.evaluate(() => GoodHRBossAttachment.extract(document, "https://www.zhipin.com/web/chat/index")); assert.equal(full.attachment.complete, true); assert.equal(full.attachment.blocked, false); assert.ok(full.attachment.text.endsWith("第二页合成工作经历"));
+    await page.evaluate(() => { const frame = document.createElement("iframe"); frame.srcdoc = document.getElementById("pdf-fixture").srcdoc; document.getElementById("business").append(frame); });
+    await page.waitForFunction(() => [...document.querySelectorAll("#business>iframe")].filter((frame) => !frame.hidden && frame.contentDocument?.querySelector(".bzl-office-pdf")).length === 2);
+    const ambiguous = await page.evaluate(() => GoodHRBossAttachment.extract(document, "https://www.zhipin.com/web/chat/index")); assert.equal(ambiguous.attachment.text, ""); assert.equal(ambiguous.attachment.blocked, true);
+    assert.equal(network.some((url) => !url.startsWith(origin + "/")), false);
+  } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
+});
+
 /** floatingFrame 查找宿主创建的独立简历页，不等待已经发生过的导航事件。 */
 async function floatingFrame(page) { await page.waitForFunction(() => window.fixtureShadow?.querySelector("iframe")?.contentDocument?.body?.dataset.ready === "true"); return page.frames().find((item) => item.url().includes("/src/floating.html")); }
 

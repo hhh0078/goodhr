@@ -20,6 +20,7 @@ type Server struct {
 	userFlow              *UserFlowService
 	agentWS               *AgentWSHub
 	ai                    *AIConfigService
+	attachmentParses      *AttachmentParseService
 	aiWallet              *AIWalletService
 	userPreferences       *UserPreferencesService
 	notificationProfile   *NotificationProfileService
@@ -119,12 +120,19 @@ func NewServer() (*Server, error) {
 	recruitmentMail := NewRecruitmentMailService(auth, recruitmentMailStore, tenantStore, mailer, recruitment)
 	messages := NewMessageService(auth, config.MessageStore(db))
 	messages.StartCleanup(context.Background())
+	aiService := NewAIConfigService(auth, aiConfigStore, systemConfigStore)
+	attachmentService := NewAttachmentParseService(auth, aiService)
+	// 正式数据库环境必须有 Redis 付费回执；缺少持久幂等能力时只关闭附件解析，不冒险重复调用模型。
+	if db != nil && config.RedisAddr == "" {
+		attachmentService.store = nil
+	}
 	return &Server{
 		auth:                  auth,
 		agent:                 NewAgentService(auth, agentStore, systemConfigStore),
 		userFlow:              NewUserFlowService(auth, userFlowStore, positionStore),
 		agentWS:               agentWS,
-		ai:                    NewAIConfigService(auth, aiConfigStore, systemConfigStore),
+		ai:                    aiService,
+		attachmentParses:      attachmentService,
 		aiWallet:              aiWalletService,
 		userPreferences:       NewUserPreferencesService(auth, userPreferencesStore),
 		notificationProfile:   NewNotificationProfileService(auth, notificationProfileStore),
@@ -200,6 +208,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/config/user-ai", s.ai.User)
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
 	mux.HandleFunc("/api/config/test-ai", s.ai.Test)
+	if s.attachmentParses != nil {
+		mux.Handle(attachmentParsePath, s.attachmentParses)
+		mux.Handle(attachmentParsePath+"/", s.attachmentParses)
+	}
 	mux.HandleFunc("/api/ai-wallet", s.aiWallet.Summary)
 	mux.HandleFunc("/api/ai-wallet/records", s.aiWallet.Records)
 	mux.HandleFunc("/api/ai-wallet/use-builtin", s.aiWallet.UseBuiltin)

@@ -2,7 +2,7 @@
 (function (root) {
   "use strict";
   const CLOUD_BASE = "https://goodhr.58it.cn";
-  const PLATFORM_HOSTS = ["lpt.liepin.com", "h.liepin.com", "rd6.zhaopin.com", "ehire.51job.com"];
+  const PLATFORM_HOSTS = ["lpt.liepin.com", "h.liepin.com", "rd6.zhaopin.com", "ehire.51job.com", "www.zhipin.com"];
   const STAGES = { draft: "已关联", recommended: "已推荐", contacting: "沟通中", interview: "面试中", offer: "Offer", hired: "已入职", paused: "暂停" };
 
   /** cleanText 将不可信文本限制长度并去除空白首尾。 */
@@ -23,7 +23,7 @@
     try {
       const url = new URL(value);
       if (url.protocol !== "https:" || url.port || !PLATFORM_HOSTS.includes(url.hostname)) return "";
-      return { "lpt.liepin.com": "liepin", "h.liepin.com": "hliepin", "rd6.zhaopin.com": "zhaopin", "ehire.51job.com": "51job" }[url.hostname];
+      return { "lpt.liepin.com": "liepin", "h.liepin.com": "hliepin", "rd6.zhaopin.com": "zhaopin", "ehire.51job.com": "51job", "www.zhipin.com": "boss" }[url.hostname];
     } catch { return ""; }
   }
 
@@ -54,14 +54,43 @@
 
   /** resumeIdentity 使用平台编号或明确姓名线索隔离草稿，人工补手机号不会切换候选人。 */
   function resumeIdentity(resume) {
+    if (resume?.platform_id === "boss" && resume.attachment?.text_hash) return JSON.stringify(["boss-attachment", resume.source_url || "", resume.attachment.text_hash, resume.attachment.blocked === true]);
     if (!resume?.candidate_name) return "";
     return JSON.stringify([resume.platform_id || "", resume.platform_candidate_id || "", resume.source_url || "", resume.candidate_name, ...(resume.platform_candidate_id ? [] : [resume.birth_ym || "", resume.educations?.[0]?.school_name || ""])]);
   }
 
+  /** hashText 为本机清洗后的原样纯文本计算 SHA256，供任务幂等和迟到结果校验。 */
+  async function hashText(text) { return [...new Uint8Array(await root.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((byte) => byte.toString(16).padStart(2, "0")).join(""); }
+
+  /** sanitizeAttachment 限制附件文本与公开统计，附件全文只保留在可信后台内存中。 */
+  function sanitizeAttachment(input) {
+    if (!input || typeof input.text !== "string" || Array.from(input.text).length > 200000 || !/^[a-f0-9]{64}$/.test(input.text_hash || "")) return null;
+    return { text: input.text, text_hash: input.text_hash, page_count: Math.max(0, Math.min(1000, Number(input.page_count) || 0)), total_pages: Math.max(0, Math.min(1000, Number(input.total_pages) || 0)), complete: input.complete === true, blocked: input.blocked === true, warning: cleanText(input.warning, 500) };
+  }
+
+  /** earliestExperience 以最早有效开始年月选取经历，未知日期排在最后。 */
+  function earliestExperience(items) { return (Array.isArray(items) ? items : []).map((item, index) => ({ item, index })).sort((a, b) => { const left = /^\d{4}(?:-\d{2})?$/.test(a.item?.start_ym || "") ? a.item.start_ym : "9999", right = /^\d{4}(?:-\d{2})?$/.test(b.item?.start_ym || "") ? b.item.start_ym : "9999"; return left.localeCompare(right) || a.index - b.index; })[0]?.item || {}; }
+
+  /** attachmentReviewFields 将识别资料映射到可人工核对的首份工作、首所学校字段。 */
+  function attachmentReviewFields(resume = {}) { const work = earliestExperience(resume.work_experiences), school = earliestExperience(resume.educations), gender = { "男": "male", "女": "female", male: "male", female: "female" }[resume.gender] || ""; return { gender, "first-company": work.company_name || "", "first-work-start": work.start_ym || "", "first-work-end": work.end_ym || "", "first-school": school.school_name || "", "first-school-start": school.start_ym || "", "first-school-end": school.end_ym || "" }; }
+
+  /** mergeAttachmentReview 合并完整解析与人工核对值，人工明确修改的空值也保留，不抹掉其它完整经历。 */
+  function mergeAttachmentReview(parsed, reviewed, fields, editedFields, preserveAll = false) {
+    const result = sanitizeResume(parsed, true), edits = new Set(editedFields || []), scalar = { name: "candidate_name", phone: "phone", "candidate-email": "email", city: "work_region", position: "current_position", "expected-position": "expected_position", gender: "gender" };
+    for (const [id, key] of Object.entries(scalar)) if ((preserveAll && ["name", "phone", "gender"].includes(id)) || edits.has(id)) result[key] = reviewed?.[key] ?? "";
+    if (edits.has("city")) result.current_region = result.work_region;
+    for (const [key, mapping] of Object.entries({ work_experiences: { "first-company": "company_name", "first-work-start": "start_ym", "first-work-end": "end_ym" }, educations: { "first-school": "school_name", "first-school-start": "start_ym", "first-school-end": "end_ym" } })) {
+      const earliest = earliestExperience(result[key]), index = result[key].indexOf(earliest), patch = {};
+      for (const [id, field] of Object.entries(mapping)) if (preserveAll || edits.has(id)) patch[field] = cleanText(fields?.[id], 500);
+      if (Object.keys(patch).length && (index >= 0 || Object.values(patch).some(Boolean))) { if (index >= 0) result[key][index] = { ...earliest, ...patch }; else result[key].push(patch); }
+    }
+    return result;
+  }
+
   /** duplicateInput 只向查重接口提交手机号与结构化身份依据，不上传头像或全文。 */
   function duplicateInput(input, keyword = "", excludeID = "") {
-    const resume = sanitizeResume(input);
-    return { phone: resume.phone, candidate_name: resume.candidate_name, platform_id: resume.platform_id, platform_candidate_id: resume.platform_candidate_id, gender: resume.gender, age: resume.age, birth_ym: resume.birth_ym, work_experiences: resume.work_experiences.map(({ company_name, start_ym }) => ({ company_name, start_ym })), educations: resume.educations.map(({ school_name, start_ym }) => ({ school_name, start_ym })), keyword: cleanText(keyword, 200), exclude_id: cleanText(excludeID, 100) };
+    const boss = input?.platform_id === "boss", resume = sanitizeResume(input, boss), works = boss ? [earliestExperience(resume.work_experiences)].filter((item) => item.company_name) : resume.work_experiences, schools = boss ? [earliestExperience(resume.educations)].filter((item) => item.school_name) : resume.educations;
+    return { phone: resume.phone, candidate_name: resume.candidate_name, platform_id: resume.platform_id, platform_candidate_id: resume.platform_candidate_id, gender: resume.gender, age: resume.age, birth_ym: resume.birth_ym, work_experiences: works.map(({ company_name, start_ym }) => ({ company_name, start_ym })), educations: schools.map(({ school_name, start_ym }) => ({ school_name, start_ym })), keyword: cleanText(keyword, 200), exclude_id: cleanText(excludeID, 100) };
   }
 
   /** classifyDuplicates 仅唯一精确命中允许自动选择，相似和多条命中都留给用户确认。 */
@@ -83,17 +112,23 @@
   function summaryAction(task, unknown, original, current) { if (unknown) return "recover"; if (["queued", "running"].includes(task?.status)) return "wait"; const changed = original && JSON.stringify(stripSummaryContacts(original)) !== JSON.stringify(stripSummaryContacts(current)); if (["failed", "cancelled"].includes(task?.status)) return changed ? "changed" : "retry"; return task?.status === "completed" ? "new" : "start"; }
 
   /** sanitizeResume 只接受候选人资料白名单，拒绝运行态、Cookie 和页面未知数据。 */
-  function sanitizeResume(input = {}) {
+  function sanitizeResume(input = {}, attachmentFull = false) {
     const fields = ["candidate_name", "phone", "email", "birth_ym", "gender", "work_region", "current_region", "expected_region", "work_years", "education_level", "current_position", "expected_position", "current_salary_text", "expected_salary_text", "personal_description", "work_status", "online_status", "platform_id", "platform_candidate_id", "source_url", "basic_info"];
-    const result = Object.fromEntries(fields.map((field) => [field, cleanText(input[field], field === "personal_description" ? 6000 : 500)]));
+    const result = Object.fromEntries(fields.map((field) => [field, attachmentFull ? Array.from(String(input[field] ?? "").trim()).slice(0, 20000).join("") : cleanText(input[field], field === "personal_description" ? 6000 : 500)]));
+    if (Object.hasOwn(input, "ai_summary")) result.ai_summary = attachmentFull ? Array.from(String(input.ai_summary ?? "").trim()).slice(0, 20000).join("") : cleanText(input.ai_summary, 12000);
     result.phone = normalizePhone(input.phone);
     result.age = Number.isInteger(input.age) && input.age > 0 && input.age <= 120 ? input.age : null;
     result.source_url = safeSourceURL(input.source_url);
     result.source_type = "browser_extension";
     if (validStoredAvatar(input.avatar_data_url)) result.avatar_data_url = input.avatar_data_url;
+    if (attachmentFull && /^(?:19|20)\d{2}$/.test(result.birth_ym)) {
+      const fact = "出生年份：" + result.birth_ym, info = [fact, result.basic_info].filter(Boolean).join("\n");
+      if (Array.from(info).length > 20000) throw new Error("基本资料太长，出生年份无法完整放入；请缩短附件后重新识别，原文仍在当前页面");
+      result.basic_info = info;
+    }
     result.birth_ym = /^(?:19|20)\d{2}-(?:0[1-9]|1[0-2])$/.test(result.birth_ym) ? result.birth_ym : "";
-    result.current_region = cleanText(input.current_region || input.work_region, 500);
-    result.expected_region = cleanText(input.expected_region || input.expected_city, 500);
+    result.current_region = attachmentFull ? result.current_region || result.work_region : cleanText(input.current_region || input.work_region, 500);
+    result.expected_region = attachmentFull ? result.expected_region : cleanText(input.expected_region || input.expected_city, 500);
     const tags = Array.isArray(input.tags) ? input.tags : String(input.tags || "").split(/[,，;；\n]/);
     result.tags = [...new Set(tags.map((tag) => Array.from(cleanText(tag, 200)).slice(0, 50).join("")).filter(Boolean))].slice(0, 30);
     if (Object.hasOwn(input, "folder_ids")) result.folder_ids = sanitizeFolderIDs(input.folder_ids);
@@ -107,15 +142,15 @@
       honors: ["honor_name", "issued_by", "issued_ym", "description"]
     };
     for (const [field, keys] of Object.entries(arrays)) {
-      result[field] = (Array.isArray(input[field]) ? input[field] : []).slice(0, 40).map((item) => Object.fromEntries(keys.map((key) => [key, cleanText(item?.[key], key === "content" ? 6000 : 500)])));
+      result[field] = (Array.isArray(input[field]) ? input[field] : []).slice(0, attachmentFull ? 100 : 40).map((item) => Object.fromEntries(keys.map((key) => [key, attachmentFull ? Array.from(String(item?.[key] ?? "").trim()).slice(0, 20000).join("") : cleanText(item?.[key], key === "content" ? 6000 : 500)])));
     }
     return result;
   }
 
   /** nonEmptyResumePatch 保留原技能标签的非空更新规则；显式收藏夹选择只清空可见分类，不清空采集资料。 */
-  function nonEmptyResumePatch(input = {}) {
+  function nonEmptyResumePatch(input = {}, attachmentFull = false) {
     const result = {};
-    for (const [key, original] of Object.entries(sanitizeResume(input))) {
+    for (const [key, original] of Object.entries(sanitizeResume(input, attachmentFull))) {
       if (key === "folder_ids") { result[key] = original; continue; }
       const value = Array.isArray(original) ? original.filter((item) => typeof item === "string" ? item.trim() : item && Object.values(item).some((field) => field !== null && field !== undefined && String(field).trim())) : original;
       if (value === null || value === undefined || (typeof value === "string" && !value.trim()) || (Array.isArray(value) && !value.length)) continue;
@@ -125,7 +160,7 @@
   }
 
   /** candidateWriteResume 正常保存原技能标签；收藏夹只提交手动选中的已有编号，两类数据互不转换。 */
-  function candidateWriteResume(input = {}, updating = false) { const result = updating ? nonEmptyResumePatch(input) : sanitizeResume(input); if (!updating && !Object.hasOwn(result, "folder_ids")) result.folder_ids = []; return result; }
+  function candidateWriteResume(input = {}, updating = false, attachmentFull = false) { const result = updating ? nonEmptyResumePatch(input, attachmentFull) : sanitizeResume(input, attachmentFull); if (!updating && !Object.hasOwn(result, "folder_ids")) result.folder_ids = []; return result; }
 
   /** comparableValue 将字段顺序标准化，避免 JSON 对象排列和数字字符串产生假差异。 */
   function comparableValue(value) {
@@ -148,7 +183,7 @@
   /** describeResumeChanges 比较非空字段，返回确认更新前可阅读的具体差异。 */
   function describeResumeChanges(existing = {}, input = {}) {
     const labels = { candidate_name: "姓名", phone: "手机号", email: "邮箱", birth_ym: "出生年月", gender: "性别", age: "年龄", work_region: "所在城市", current_region: "当前地区", expected_region: "期望地区", work_years: "工作年限", education_level: "学历", current_position: "当前职位", expected_position: "期望职位", current_salary_text: "当前薪资", expected_salary_text: "期望薪资", expected_salary_min: "期望最低薪资(K)", expected_salary_max: "期望最高薪资(K)", personal_description: "个人简介", work_status: "求职状态", online_status: "活跃情况", basic_info: "基本资料", source_type: "资料来源", platform_id: "招聘平台", platform_candidate_id: "平台简历编号", source_url: "来源页面", tags: "技能标签", work_experiences: "工作经历", educations: "教育经历", project_experiences: "项目经历", certificates: "证书", honors: "荣誉" };
-    return Object.entries(nonEmptyResumePatch(input)).filter(([key, value]) => JSON.stringify(comparableValue(key === "folder_ids" ? sanitizeFolderIDs(existing[key]).sort() : existing[key])) !== JSON.stringify(comparableValue(key === "folder_ids" ? [...value].sort() : value))).map(([key, value]) => `${key === "avatar_data_url" ? "头像" : key === "folder_ids" ? "收藏夹" : labels[key] || "其他资料"}：${readableFieldValue(existing[key])} → ${readableFieldValue(value)}`);
+    return Object.entries(nonEmptyResumePatch(input, input?.platform_id === "boss")).filter(([key, value]) => JSON.stringify(comparableValue(key === "folder_ids" ? sanitizeFolderIDs(existing[key]).sort() : existing[key])) !== JSON.stringify(comparableValue(key === "folder_ids" ? [...value].sort() : value))).map(([key, value]) => `${key === "avatar_data_url" ? "头像" : key === "folder_ids" ? "收藏夹" : labels[key] || "其他资料"}：${readableFieldValue(existing[key])} → ${readableFieldValue(value)}`);
   }
 
   /** saveFollowups 分别保存备注和岗位关联，保留失败项的幂等键供安全重试。 */
@@ -174,7 +209,7 @@
     return result;
   }
 
-  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, sanitizeFolderIDs, normalizePhone, platformForURL, safeSourceURL, safeAvatarSource, validStoredAvatar, newKey, resumeIdentity, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, candidateWriteResume, describeResumeChanges, saveFollowups };
+  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, sanitizeFolderIDs, normalizePhone, platformForURL, safeSourceURL, safeAvatarSource, validStoredAvatar, newKey, resumeIdentity, hashText, sanitizeAttachment, earliestExperience, attachmentReviewFields, mergeAttachmentReview, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, candidateWriteResume, describeResumeChanges, saveFollowups };
   root.GoodHRShared = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

@@ -270,6 +270,7 @@
   /** extractCurrentCandidate 采集一个当前可见候选人，白名单外和未打开详情返回空值。 */
   function extractCurrentCandidate(doc, href) {
     const platform = shared.platformForURL(href), adapter = ADAPTERS[platform];
+    if (platform === "boss") { const reader = root.GoodHRBossAttachment || (typeof require === "function" ? require("./boss-attachment.js") : null); return reader?.extract(doc, href) || null; }
     if (!adapter || (platform === "hliepin" && !new URL(href).pathname.startsWith("/resume/"))) return null;
     const url = new URL(href);
     let scope = findRoot(doc, adapter);

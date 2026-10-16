@@ -69,10 +69,10 @@
 
   /** update 自动显示新候选人的简历面板，同一人主动收起后保持收起，资料消失只隐藏自己的容器。 */
   function update(resume) {
-    if (!resume?.candidate_name) { if (host && !host.hidden) host.hidden = true; currentIdentity = ""; currentPhone = ""; return; }
+    if (!resume?.candidate_name && !resume?.attachment) { if (host && !host.hidden) host.hidden = true; currentIdentity = ""; currentPhone = ""; return; }
     const identity = identityOf(resume), phone = root.GoodHRShared ? root.GoodHRShared.normalizePhone(resume.phone) : resume.phone || "";
     const changed = identity !== currentIdentity || Boolean(phone && currentPhone && phone !== currentPhone);
-    mount(); host.setAttribute("aria-label", `${resume.candidate_name} 的 GoodHR 简历助手`);
+    mount(); host.setAttribute("aria-label", `${resume.candidate_name || "BOSS 附件"} 的 GoodHR 简历助手`);
     currentIdentity = identity; currentPhone = changed ? phone : phone || currentPhone;
     if (changed) setOpen(true);
   }

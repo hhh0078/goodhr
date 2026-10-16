@@ -22,6 +22,71 @@ function response(body = { ok: true }, status = 200) { return { ok: status >= 20
 const uiSender = { id: "test-extension", url: "chrome-extension://test-extension/src/ui.html" };
 const floatingSender = { id: "test-extension", url: "chrome-extension://test-extension/src/floating.html" };
 
+/** attachmentScene 创建可变的合成 BOSS 页面，后台只从受信内容脚本取得原文。 */
+async function attachmentScene(value) {
+  const tab = { id: 57, url: "https://www.zhipin.com/web/chat/index?token=must-not-upload" }, account = JSON.stringify(["fixture", "fixture@example.test"]), sender = { ...floatingSender, frameId: 2, tab };
+  const scene = { tab, sender, account, raw: null };
+  /** replaceText 用新的合成附件替换页面，验证迟到任务与当前捕获隔离。 */
+  scene.replaceText = async (text = "合成附件正文\n姓名和联系方式仅用于测试", overrides = {}) => { const text_hash = await crypto.webcrypto.subtle.digest("SHA-256", new TextEncoder().encode(text)); scene.raw = { platform_id: "boss", source_url: tab.url, attachment: { text, text_hash: Buffer.from(text_hash).toString("hex"), page_count: 1, total_pages: 0, complete: false, blocked: false, ...overrides } }; };
+  await scene.replaceText(); value.values.data_use_accepted = true;
+  value.extension.tabs.query = async () => [tab]; value.extension.tabs.get = async () => tab;
+  value.extension.tabs.sendMessage = async () => value.message({ type: "CANDIDATE_SNAPSHOT", resume: scene.raw }, { id: "test-extension", frameId: 0, tab });
+  const state = await value.message({ type: "PREVIEW" }, uiSender); scene.capture = state.data.resume;
+  scene.payload = (phase = "basic") => ({ account_key: account, capture_id: scene.capture.capture_id, phase, acknowledged: true, request_key: "synthetic-" + phase + "-request" });
+  return scene;
+}
+
+test("BOSS 基本识别只传可信快照纯文本，去参数来源；UI/磁盘回执不复制原文，未核对页数不能提交", async () => {
+  const value = backgroundFixture((url, options) => {
+    const body = JSON.parse(options.body); return response({ ok: true, task: { ...body, id: "parse-basic", status: "completed", resume: { candidate_name: "合成候选人", phone: "13800000991" } } });
+  }), scene = await attachmentScene(value), payload = scene.payload();
+  assert.equal(Object.hasOwn(scene.capture.attachment, "text"), false); assert.equal(value.requests.length, 0);
+  const rejected = await value.message({ type: "ATTACHMENT_START", payload: { ...payload, acknowledged: false } }, scene.sender); assert.equal(rejected.ok, false); assert.equal(value.requests.length, 0);
+  const result = await value.message({ type: "ATTACHMENT_START", payload: { ...payload, text: "UI 伪造正文", html: "<html>拒绝</html>" } }, scene.sender);
+  assert.equal(result.ok, true); assert.equal(result.data.task.resume.phone, "13800000991"); assert.equal(JSON.stringify(result).includes(scene.raw.attachment.text), false);
+  const body = JSON.parse(value.requests[0].options.body); assert.equal(body.text, scene.raw.attachment.text); assert.equal(body.phase, "basic"); assert.equal(body.source.source_url, "https://www.zhipin.com/web/chat/index"); assert.equal(Object.hasOwn(body, "html"), false); assert.equal(Object.hasOwn(body, "cookies"), false);
+  assert.equal(value.requests[0].options.headers.Authorization, "Bearer private-background-token"); assert.equal(value.requests[0].options.credentials, "omit");
+  assert.equal((await value.message({ type: "ATTACHMENT_START", payload: { ...payload, account_key: "other" } }, scene.sender)).ok, false);
+  assert.equal((await value.message({ type: "CREATE", payload: { ...payload, resume: { candidate_name: "合成候选人", phone: "13800000991" }, idempotency_key: "no-full-yet" } }, scene.sender)).ok, false);
+  assert.equal((await value.message({ type: "CREATE", payload: { ...payload, resume: { candidate_name: "合成候选人", phone: "13800000991" }, idempotency_key: "toolbar-no-full-yet" } }, uiSender)).ok, false, "无 sender.tab 的工具栏不能绕过完整解析检查");
+});
+
+test("BOSS 完整解析完成才允许原保存，正文从后台快照补入而非 UI；忠实摘要保留", async () => {
+  let task;
+  const value = backgroundFixture((url, options) => {
+    if (url.includes("attachment-parses")) { const body = options.body ? JSON.parse(options.body) : task; task = { ...body, id: "parse-full", status: "completed", resume: { candidate_name: "合成候选人", phone: "13800000991", ai_summary: "合成忠实摘要", birth_ym: "1990", basic_info: "基".repeat(900), personal_description: "介".repeat(7000), work_experiences: Array.from({ length: 41 }, (_, index) => ({ company_name: "合成完整公司" + index, start_ym: "2017-01", content: "经".repeat(7000) })) } }; return response({ ok: true, task }); }
+    return response({ candidate: { id: "created-synthetic", row_version: 1 } });
+  }), scene = await attachmentScene(value), payload = scene.payload("full");
+  const parsed = await value.message({ type: "ATTACHMENT_START", payload }, scene.sender); assert.equal(parsed.ok, true); assert.equal(parsed.data.task.resume.ai_summary, "合成忠实摘要");
+  const saved = await value.message({ type: "CREATE", payload: { ...payload, resume: { ...parsed.data.task.resume, raw_text: "伪造原文" }, idempotency_key: "save-full-synthetic" } }, scene.sender);
+  assert.equal(saved.ok, true); const body = JSON.parse(value.requests.find((item) => item.url.endsWith("/api/candidates")).options.body);
+  assert.equal(body.raw_text, scene.raw.attachment.text); assert.equal(body.ai_summary, "合成忠实摘要"); assert.equal(body.platform_id, "boss"); assert.equal(body.source_url.includes("?"), false);
+  assert.equal(body.basic_info, "出生年份：1990\n" + "基".repeat(900)); assert.equal(body.personal_description.length, 7000); assert.equal(body.work_experiences.length, 41); assert.equal(body.work_experiences[40].content.length, 7000); assert.equal(body.birth_ym, "");
+  const savedDraft = await value.message({ type: "DRAFT_SAVE", payload: { identity: "synthetic-attachment", account_key: scene.account, draft: { attachment: { capture_id: payload.capture_id, full_task: parsed.data.task } } } }, scene.sender); assert.equal(savedDraft.ok, true);
+  const draft = Object.values(value.values.ui_drafts)[0].data.attachment; assert.equal(Object.hasOwn(draft.full_task, "resume"), false, "完整结果从任务恢复，不复制大段原文到磁盘草稿");
+});
+
+test("BOSS 切人后迟到结果拒绝展示，可信任务仍可取消；别人的任务编号不能代取消", async () => {
+  let release, original;
+  const value = backgroundFixture(async (url, options) => {
+    if (url.endsWith("/cancel")) return response({ task: { ...original, status: "cancelled" } });
+    original = { ...JSON.parse(options.body), id: "late-basic", status: "running" }; await new Promise((resolve) => { release = resolve; }); return response({ task: original });
+  }), scene = await attachmentScene(value), payload = scene.payload();
+  const pending = value.message({ type: "ATTACHMENT_START", payload }, scene.sender);
+  while (!release) await new Promise((resolve) => setTimeout(resolve, 1));
+  await scene.replaceText("另一份合成附件，不能被旧结果填入"); release();
+  const late = await pending; assert.equal(late.ok, false); assert.equal(late.code, "CAPTURE_SCOPE_CHANGED");
+  const cancelled = await value.message({ type: "ATTACHMENT_CANCEL", payload: { ...payload, task_id: "late-basic" } }, scene.sender); assert.equal(cancelled.ok, true); assert.equal(cancelled.data.task.status, "cancelled");
+  assert.equal((await value.message({ type: "ATTACHMENT_CANCEL", payload: { ...payload, task_id: "unknown-other-task" } }, scene.sender)).ok, false);
+});
+
+test("BOSS 未配置 AI 返回明确错误码；文本哈希与任务内容不符均停止且不自动重发", async () => {
+  const value = backgroundFixture(() => response({ ok: false, error: "请先配置当前 AI", error_code: "AI_NOT_CONFIGURED" }, 422)), scene = await attachmentScene(value);
+  const result = await value.message({ type: "ATTACHMENT_START", payload: scene.payload() }, scene.sender); assert.equal(result.ok, false); assert.equal(result.code, "AI_NOT_CONFIGURED"); assert.equal(value.requests.length, 1);
+  scene.raw.attachment.text_hash = "a".repeat(64); const preview = await value.message({ type: "PREVIEW" }, uiSender); scene.capture = preview.data.resume;
+  const mismatch = await value.message({ type: "ATTACHMENT_START", payload: scene.payload() }, scene.sender); assert.equal(mismatch.ok, false); assert.match(mismatch.message, /校验/); assert.equal(value.requests.length, 1);
+});
+
 test("收藏夹只由授权插件界面读取已有列表，招聘网页与旧账号不能请求分类管理", async () => {
   const value = backgroundFixture(); value.values.data_use_accepted = true;
   const result = await value.message({ type: "FOLDERS" }, floatingSender);
@@ -74,7 +139,7 @@ async function avatarScene(value) {
 }
 
 test("招聘页面只读脚本不写 DOM、不发请求、不读网站缓存、不模拟操作", () => {
-  const code = ["content.js", "extraction.js"].map((name) => fs.readFileSync(path.join(src, name), "utf8")).join("\n");
+  const code = ["content.js", "extraction.js", "boss-attachment.js"].map((name) => fs.readFileSync(path.join(src, name), "utf8")).join("\n");
   for (const forbidden of [/\.click\s*\(/, /\.focus\s*\(/, /\.scroll(?:To|By|IntoView)\s*\(/, /dispatchEvent\s*\(/, /createElement\s*\(/, /appendChild\s*\(/, /insertAdjacentHTML\s*\(/, /(?:innerHTML|textContent|outerHTML)\s*=/, /(?:fetch|XMLHttpRequest|WebSocket)\s*\(/, /localStorage|sessionStorage|document\.cookie/, /storage\.(?:local|sync)/, /\beval\s*\(/, /new\s+Function\s*\(/]) assert.equal(forbidden.test(code), false, String(forbidden));
 });
 

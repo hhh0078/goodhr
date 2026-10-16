@@ -37,11 +37,11 @@ function manifest(browser, local = false) {
     manifest_version: 3, name: "GoodHR 简历助手", version,
     description: "识别可见简历后自动展开，补号、查重并一键添加或更新；只读招聘页面。",
     permissions: ["storage"],
-    host_permissions: ["https://goodhr.58it.cn/*", "http://127.0.0.1/*", "https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://*.lietou-static.com/*", "https://mypics.zhaopin.cn/*"],
+    host_permissions: ["https://goodhr.58it.cn/*", "http://127.0.0.1/*", "https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://www.zhipin.com/*", "https://*.lietou-static.com/*", "https://mypics.zhaopin.cn/*"],
     icons: { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "64": "icons/64.png", "128": "icons/128.png" },
     action: { default_title: "GoodHR 简历助手", default_popup: "src/ui.html", default_icon: { "16": "icons/16.png", "32": "icons/32.png" } },
-    content_scripts: [{ matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"], js: ["src/shared.js", "src/extraction.js", "src/floating.js", "src/content.js"], run_at: "document_idle", all_frames: false }],
-    web_accessible_resources: [{ resources: ["src/floating.html", "src/ui.css", "src/candidate-ui.js", "src/shared.js", "icons/32.png"], matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*"] }],
+    content_scripts: [{ matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://www.zhipin.com/*"], js: ["src/shared.js", "src/boss-attachment.js", "src/extraction.js", "src/floating.js", "src/content.js"], run_at: "document_idle", all_frames: false }],
+    web_accessible_resources: [{ resources: ["src/floating.html", "src/ui.css", "src/candidate-ui.js", "src/shared.js", "icons/32.png"], matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://www.zhipin.com/*"] }],
     content_security_policy: { extension_pages: "script-src 'self'; object-src 'none';" }
   };
   if (local) {

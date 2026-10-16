@@ -2,16 +2,18 @@
 "use strict";
 const extension = globalThis.browser || globalThis.chrome, $ = (id) => document.getElementById(id), shared = GoodHRShared;
 const resumeFields = { name: "candidate_name", phone: "phone", "candidate-email": "email", city: "work_region", position: "current_position", "expected-position": "expected_position" };
-const draftFields = [...Object.keys(resumeFields), "duplicate-keyword", "job-filter", "job", "folder-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time"];
+const attachmentFields = ["gender", "first-company", "first-work-start", "first-work-end", "first-school", "first-school-start", "first-school-end"];
+const draftFields = [...Object.keys(resumeFields), ...attachmentFields, "duplicate-keyword", "job-filter", "job", "folder-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time"];
 let currentResume = null, selectedCandidate = null, matches = [], groups = [], positions = [], loggedIn = false, dataUseAccepted = false, updateRequired = false, autoCloseAfterSave = true, busy = false, hiddenDuplicate = false;
 let accountKey = "", identity = "", uiEpoch = 0, querySequence = 0, stateSequence = 0, duplicateTimer, draftTimer, autoCloseTimer, lastQuery = "", duplicateState = "idle", edited = new Set();
 let keys = newKeys(), avatarWarning = "", aiSummary = "", summaryTask = null, summaryPolling = false, updateChecked = false, pendingJob = "", jobMenuOpen = false, summaryUnknown = false, summarySource = null;
 let folders = [], selectedFolderIDs = [], foldersEdited = false, folderMenuOpen = false, folderLoading = false, folderLoadError = "", folderSequence = 0;
+let attachmentState = null, attachmentPolling = false;
 
 /** newKeys 为独立写操作生成幂等键，失败重试沿用原标识。 */
 function newKeys() { return Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((key) => [key, shared.newKey()])); }
 /** send 请求固定后台操作，UI不接触凭证。 */
-async function send(type, payload = {}) { const guarded = ["POSITIONS", "FOLDERS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE"].includes(type); const result = await extension.runtime.sendMessage({ type, payload: { ...(guarded ? { account_key: accountKey } : {}), ...payload } }); if (!result?.ok) { const error = new Error(result?.message || "没有处理成功，请再试一次"); error.status = result?.status; error.code = result?.code; throw error; } return result.data; }
+async function send(type, payload = {}) { const guarded = ["POSITIONS", "FOLDERS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE", "ATTACHMENT_START", "ATTACHMENT_POLL", "ATTACHMENT_CANCEL"].includes(type); const result = await extension.runtime.sendMessage({ type, payload: { ...(guarded ? { account_key: accountKey } : {}), ...payload } }); if (!result?.ok) { const error = new Error(result?.message || "没有处理成功，请再试一次"); error.status = result?.status; error.code = result?.code; throw error; } return result.data; }
 /** showStatus 显示简短结果和下一步提示。 */
 function showStatus(text, error = false) { $("status").hidden = !text; $("status").textContent = text || ""; $("status").classList.toggle("error", error); }
 /** runAction 防止重复写入，失败保留表单。 */
@@ -24,7 +26,12 @@ function scheduleAutoClose(epoch, savedIdentity) {
 /** requireAccount 未登录或未授权时引导工具栏设置，旧版本禁止写入。 */
 function requireAccount() { if (!loggedIn || !dataUseAccepted) throw new Error("请点工具栏 GoodHR 图标登录并授权"); if (updateRequired) throw new Error("请先更新插件，再继续保存"); }
 /** formResume 合并人工填写与当前只读快照。 */
-function formResume() { const resume = shared.sanitizeResume({ ...currentResume, candidate_name: $("name").value, phone: $("phone").value, email: $("candidate-email").value, work_region: $("city").value, current_region: $("city").value, current_position: $("position").value, expected_position: $("expected-position").value, folder_ids: selectedFolderIDs }); return resume; }
+function formResume() {
+  const parsed = currentResume?.attachment ? attachmentState?.full_task?.resume || attachmentState?.basic_task?.resume : null;
+  const resume = shared.sanitizeResume({ ...currentResume, ...parsed, platform_id: currentResume?.platform_id, source_url: currentResume?.source_url, candidate_name: $("name").value, phone: $("phone").value, email: $("candidate-email").value, gender: currentResume?.attachment ? $("gender").value : currentResume?.gender, work_region: $("city").value, current_region: $("city").value, current_position: $("position").value, expected_position: $("expected-position").value, folder_ids: selectedFolderIDs }, Boolean(currentResume?.attachment));
+  if (!currentResume?.attachment) return resume;
+  const result = shared.mergeAttachmentReview(resume, resume, attachmentFieldValues(), edited, true); result.folder_ids = selectedFolderIDs; return result;
+}
 /** refreshActions 维护直接添加和独立记录权限，强制更新时禁用全部写按钮。 */
 function refreshActions() {
   const unavailable = busy || !loggedIn || !dataUseAccepted || updateRequired, existing = Boolean(selectedCandidate?.id), phone = shared.normalizePhone($("phone").value);
@@ -42,9 +49,17 @@ function refreshActions() {
   $("summary-retry").textContent = summaryMode === "changed" ? "按原资料重试" : "重试总结"; $("reload").disabled = busy;
   $("state-dot").classList.toggle("existing", existing); $("note").placeholder = existing ? "备注（填写后点备注按钮）" : "可选备注，添加后保存";
   $("recommendation-details").hidden = !$("job").value;
+  if (currentResume?.attachment) {
+    const ready = attachmentState?.basic_task?.status === "completed", waiting = ["queued", "running"].includes(attachmentState?.basic_task?.status) || attachmentPolling;
+    const unconfirmed = currentResume.attachment.blocked || (!currentResume.attachment.complete && !attachmentState?.acknowledged);
+    $("save").disabled ||= !ready || unconfirmed; $("update").disabled ||= !ready || unconfirmed;
+    $("attachment-start").disabled = unavailable || waiting || currentResume.attachment.blocked || (!currentResume.attachment.complete && !attachmentState?.acknowledged);
+    $("attachment-cancel").disabled = !loggedIn || !dataUseAccepted;
+    $("summary").disabled ||= !ready;
+  }
 }
 /** draftSnapshot 仅保留业务输入和幂等键，不包含凭证或密码。 */
-function draftSnapshot() { return { fields: Object.fromEntries(draftFields.map((id) => [id, id === "job" ? $(id).value || pendingJob : $(id).value])), folder_ids: selectedFolderIDs, folders_edited: foldersEdited, edited: [...edited], keys, ai_summary: aiSummary, summary_task: summaryTask, summary_unknown: summaryUnknown, summary_source: summarySource }; }
+function draftSnapshot() { return { fields: Object.fromEntries(draftFields.map((id) => [id, id === "job" ? $(id).value || pendingJob : $(id).value])), folder_ids: selectedFolderIDs, folders_edited: foldersEdited, edited: [...edited], keys, ai_summary: aiSummary, summary_task: summaryTask, summary_unknown: summaryUnknown, summary_source: summarySource, attachment: attachmentState }; }
 /** persistDraft 保存当前人当前账号本地草稿，不请求云端。 */
 async function persistDraft() { if (!identity || !accountKey) return true; const payload = { identity, account_key: accountKey, draft: draftSnapshot() }; try { await send("DRAFT_SAVE", payload); return true; } catch (error) { if (payload.identity === identity && payload.account_key === accountKey && error.code !== "DRAFT_SCOPE_CHANGED") showStatus(`本地草稿没保存：${error.message}。输入暂时还在，先别关闭插件，修改后我会重试`, true); return false; } }
 /** queueDraft 输入后尽快保存，同一个人再次打开可恢复。 */
@@ -62,14 +77,119 @@ function renderPreview(resume) {
 function renderAvatar() { const saved = shared.validStoredAvatar(selectedCandidate?.avatar_data_url), image = $("candidate-avatar"); image.hidden = !saved; if (saved) image.src = selectedCandidate.avatar_data_url; else image.removeAttribute("src"); $("retry-avatar").hidden = !avatarWarning || !selectedCandidate?.id || !currentResume?.avatar_detected; }
 /** renderCandidateInfo 将候选人的简短职业资料集中展示。 */
 function renderCandidateInfo(resume) { $("candidate-info").textContent = [resume?.age ? `${resume.age}岁` : "", { male: "男", female: "女" }[resume?.gender] || resume?.gender, resume?.education_level, resume?.current_position || resume?.expected_position, resume?.work_region || resume?.current_region].filter(Boolean).join(" · "); }
+
+/** attachmentFieldValues 读取已展示的查重线索，不触碰招聘页或隐藏数据。 */
+function attachmentFieldValues() { return Object.fromEntries(attachmentFields.map((id) => [id, $(id).value])); }
+/** newAttachmentState 为同一份原文冻结两个阶段的独立请求编号。 */
+function newAttachmentState(captureID) { return { capture_id: captureID, acknowledged: false, basic_key: shared.newKey(), full_key: shared.newKey(), basic_task: null, full_task: null, basic_unknown: false, full_unknown: false, basic_error: "" }; }
+/** applyBasicAttachment 只填未手改的字段；姓名、手机号和最早经历随后交给现有查重流程。 */
+function applyBasicAttachment() {
+  const parsed = attachmentState?.basic_task?.resume;
+  if (!parsed || attachmentState.basic_task.status !== "completed") return;
+  for (const [id, key] of Object.entries(resumeFields)) if (!edited.has(id)) $(id).value = parsed[key] || "";
+  for (const [id, value] of Object.entries(shared.attachmentReviewFields(parsed))) if (!edited.has(id)) $(id).value = value;
+  renderCandidateInfo(formResume()); renderPreview(formResume()); scheduleDuplicates();
+}
+/** renderAttachment 说明阶段、页数和可能计费结果，失败不会自动重新请求 AI。 */
+function renderAttachment() {
+  const attachment = currentResume?.attachment; $("attachment-panel").hidden = !attachment;
+  if (!attachment) return;
+  const task = attachmentState?.full_task || attachmentState?.basic_task, unknown = attachmentState?.full_unknown || attachmentState?.basic_unknown;
+  const labels = { queued: "识别已排队", running: task?.phase === "full" ? "正在完整解析，完成后保存" : "正在识别查重线索", completed: task?.phase === "full" ? "完整解析已完成" : "基本资料已读到，请核对后添加或更新", failed: "识别没完成，输入已保留", cancelled: "已取消识别", uncertain: "上次结果待确认，请先查询" };
+  $("attachment-status").textContent = [attachment.warning, unknown ? "上次请求结果待确认，恢复时沿用原编号" : labels[task?.status], attachmentState?.basic_error, task?.message, task?.possibly_charged && ["failed", "cancelled", "uncertain"].includes(task.status) ? "上次可能已计费，重新识别前会再确认" : ""].filter(Boolean).join("；") || "已读到附件纯文本";
+  $("attachment-check-label").hidden = attachment.complete || attachment.blocked;
+  $("attachment-check").checked = attachmentState?.acknowledged === true;
+  const running = [attachmentState?.basic_task, attachmentState?.full_task].find((item) => ["queued", "running"].includes(item?.status));
+  $("attachment-cancel").hidden = !running;
+  $("attachment-start").textContent = attachmentState?.basic_unknown ? "恢复上次识别" : ["failed", "cancelled", "uncertain"].includes(attachmentState?.basic_task?.status) ? "重新识别基本资料" : attachmentState?.basic_task?.status === "completed" ? "重新识别基本资料" : "识别基本资料";
+  refreshActions();
+}
+/** attachmentPayload 固定当前捕获、阶段及请求标识，界面不持有附件全文。 */
+function attachmentPayload(phase) { return { phase, capture_id: currentResume?.capture_id, acknowledged: attachmentState?.acknowledged, request_key: attachmentState?.[phase + "_key"], task_id: attachmentState?.[phase + "_task"]?.id }; }
+/** startAttachmentPhase 先落盘请求编号再发出一次识别，网络未知时只允许用户恢复原请求。 */
+async function startAttachmentPhase(phase, explicit = false) {
+  requireAccount(); if (!currentResume?.attachment || !attachmentState) return null;
+  const taskKey = phase + "_task", unknownKey = phase + "_unknown", prior = attachmentState[taskKey], epoch = uiEpoch;
+  if (prior && ["queued", "running"].includes(prior.status)) return prior;
+  if (prior && ["completed", "failed", "cancelled", "uncertain"].includes(prior.status)) {
+    if (!explicit) return prior;
+    if (!confirm("会再次调用你当前的 AI，上次请求可能已计费。确认重新识别吗？")) return prior;
+    attachmentState[phase + "_key"] = shared.newKey(); attachmentState[taskKey] = null;
+  }
+  attachmentState[unknownKey] = true; attachmentState.basic_error = ""; renderAttachment();
+  if (!await persistDraft()) { attachmentState[unknownKey] = false; renderAttachment(); throw new Error("识别编号没保存，请先别关闭插件，稍后再试"); }
+  if (epoch !== uiEpoch) return null;
+  try {
+    const result = await send("ATTACHMENT_START", attachmentPayload(phase));
+    if (epoch !== uiEpoch) return null;
+    attachmentState[taskKey] = result.task; attachmentState[unknownKey] = false;
+    if (phase === "basic") applyBasicAttachment();
+    return result.task;
+  } catch (error) {
+    if (epoch === uiEpoch) {
+      if (error.code === "AI_NOT_CONFIGURED") { attachmentState[unknownKey] = false; attachmentState.basic_error = "你当前还没配置 AI。先到 GoodHR 的 AI 设置配好，再回来点识别"; }
+      else if (error.status >= 400 && error.status < 500) { attachmentState[unknownKey] = false; attachmentState.basic_error = error.message; }
+      else attachmentState.basic_error = `${error.message}；先恢复上次请求，避免重复计费`;
+    }
+    throw error;
+  } finally { if (epoch === uiEpoch) { renderAttachment(); await persistDraft(); } }
+}
+/** pollAttachmentPhase 只查询已创建任务，响应必须属于当前账号和捕获；不自动重试收费调用。 */
+async function pollAttachmentPhase(phase) {
+  const epoch = uiEpoch, id = attachmentState?.[phase + "_task"]?.id;
+  if (!id) return null;
+  const result = await send("ATTACHMENT_POLL", attachmentPayload(phase));
+  if (epoch !== uiEpoch || attachmentState?.[phase + "_task"]?.id !== id) return null;
+  attachmentState[phase + "_task"] = result.task;
+  if (phase === "basic") applyBasicAttachment();
+  renderAttachment(); queueDraft(); return result.task;
+}
+/** maintainAttachment 只自动发出首次基本识别；未确认页数、未配 AI、失败和未知结果均等待明确操作。 */
+async function maintainAttachment() {
+  if (!currentResume?.attachment || !attachmentState || attachmentPolling || busy || !loggedIn || !dataUseAccepted || updateRequired) return;
+  const attachment = currentResume.attachment;
+  if (attachment.blocked || (!attachment.complete && !attachmentState.acknowledged)) return;
+  const epoch = uiEpoch; attachmentPolling = true; refreshActions();
+  try {
+    if (["queued", "running"].includes(attachmentState.basic_task?.status)) await pollAttachmentPhase("basic");
+    else if (!attachmentState.basic_task && !attachmentState.basic_unknown && !attachmentState.basic_error) await startAttachmentPhase("basic");
+  } catch (error) { if (epoch === uiEpoch) showStatus(error.code === "AI_NOT_CONFIGURED" ? attachmentState.basic_error : error.message, true); }
+  finally { attachmentPolling = false; if (epoch === uiEpoch) renderAttachment(); }
+}
+/** completeAttachment 仅由添加或更新点击调用完整解析，等待结束后仍以当前人工核对值覆盖识别结果。 */
+async function completeAttachment() {
+  if (!currentResume?.attachment) return formResume();
+  const epoch = uiEpoch;
+  let task = attachmentState?.full_task;
+  if (task?.status === "completed") task = await pollAttachmentPhase("full");
+  else if (!task || attachmentState?.full_unknown) task = await startAttachmentPhase("full");
+  else if (["failed", "cancelled", "uncertain"].includes(task.status)) task = await startAttachmentPhase("full", true);
+  const deadline = Date.now() + 120000;
+  while (task && ["queued", "running"].includes(task.status) && epoch === uiEpoch && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1000)); if (epoch !== uiEpoch) return null;
+    task = await pollAttachmentPhase("full");
+  }
+  if (epoch !== uiEpoch || !task) return null;
+  if (task.status !== "completed" || !task.resume) throw new Error([task.message || (task.status === "queued" || task.status === "running" ? "完整解析还在进行，稍后再点添加会继续查询" : "完整解析没完成，请查看识别提示后重试"), task.possibly_charged ? "上次可能已计费" : ""].filter(Boolean).join("；"));
+  const reviewed = formResume(), merged = shared.mergeAttachmentReview(task.resume, reviewed, attachmentFieldValues(), edited, true);
+  merged.platform_id = "boss"; merged.source_url = currentResume.source_url; merged.folder_ids = selectedFolderIDs;
+  return merged;
+}
+/** cancelAttachment 取消当前活动识别，不清空人工填写，也不自动发起替代任务。 */
+async function cancelAttachment() {
+  const phase = ["queued", "running"].includes(attachmentState?.full_task?.status) ? "full" : "basic", epoch = uiEpoch;
+  const result = await send("ATTACHMENT_CANCEL", attachmentPayload(phase)); if (epoch !== uiEpoch) return;
+  attachmentState[phase + "_task"] = result.task; renderAttachment(); await persistDraft();
+}
 /** applySnapshot 同人补读只更新未手改字段，切人恢复专属草稿。 */
 async function applySnapshot(resume, switching = false) {
   if (switching) { await persistDraft(); uiEpoch++; querySequence++; clearTimeout(duplicateTimer); clearTimeout(autoCloseTimer); identity = shared.resumeIdentity(resume); currentResume = resume; selectedCandidate = null; matches = []; groups = []; hiddenDuplicate = false; lastQuery = ""; duplicateState = "idle"; edited = new Set(); keys = newKeys(); avatarWarning = ""; aiSummary = ""; summaryTask = null; pendingJob = ""; jobMenuOpen = false; $("job-filter").removeAttribute("data-selected-value"); $("duplicates").replaceChildren(); $("duplicate-criteria").replaceChildren(); $("records").hidden = true; $("candidate-link").hidden = true; for (const id of draftFields) $(id).value = id === "stage" ? "draft" : ""; }
-  if (switching) { selectedFolderIDs = []; foldersEdited = false; folderMenuOpen = false; }
+  if (switching) { selectedFolderIDs = []; foldersEdited = false; folderMenuOpen = false; attachmentState = resume?.attachment ? newAttachmentState(resume.capture_id) : null; }
   currentResume = resume; for (const [id, field] of Object.entries(resumeFields)) if (!edited.has(id)) $(id).value = resume?.[field] || "";
   if (switching) { summaryUnknown = false; summarySource = null; pendingJob = ""; }
-  if (switching && identity) { const epoch = uiEpoch; try { const { draft } = await send("DRAFT_GET", { identity, account_key: accountKey }); if (epoch === uiEpoch && draft) { for (const id of draftFields) if (draft.fields && id in draft.fields) $(id).value = draft.fields[id]; pendingJob = draft.fields?.job || ""; selectedFolderIDs = shared.sanitizeFolderIDs(draft.folder_ids); foldersEdited = draft.folders_edited === true; edited = new Set(draft.edited || []); keys = { ...keys, ...Object.fromEntries(Object.entries(draft.keys || {}).filter(([, value]) => value)) }; aiSummary = draft.ai_summary || ""; summaryTask = draft.summary_task || null; summaryUnknown = Boolean(draft.summary_unknown); summarySource = draft.summary_source || null; } } catch { /* 草稿失效不阻碍本地预览。 */ } }
-  renderPreview(resume); renderAvatar(); renderCandidateInfo(resume); renderSummary(); renderPositions(); renderFolders(); refreshActions(); scheduleDuplicates();
+  if (switching && identity) { const epoch = uiEpoch; try { const { draft } = await send("DRAFT_GET", { identity, account_key: accountKey }); if (epoch === uiEpoch && draft) { for (const id of draftFields) if (draft.fields && id in draft.fields) $(id).value = draft.fields[id]; pendingJob = draft.fields?.job || ""; selectedFolderIDs = shared.sanitizeFolderIDs(draft.folder_ids); foldersEdited = draft.folders_edited === true; edited = new Set(draft.edited || []); keys = { ...keys, ...Object.fromEntries(Object.entries(draft.keys || {}).filter(([, value]) => value)) }; aiSummary = draft.ai_summary || ""; summaryTask = draft.summary_task || null; summaryUnknown = Boolean(draft.summary_unknown); summarySource = draft.summary_source || null; if (resume?.attachment && draft.attachment?.capture_id === resume.capture_id) attachmentState = { ...newAttachmentState(resume.capture_id), ...draft.attachment }; } } catch { /* 草稿失效不阻碍本地预览。 */ } }
+  if (resume?.attachment) applyBasicAttachment();
+  renderPreview(resume?.attachment ? formResume() : resume); renderAvatar(); renderCandidateInfo(resume?.attachment ? formResume() : resume); renderSummary(); renderAttachment(); renderPositions(); renderFolders(); refreshActions(); scheduleDuplicates();
 }
 /** loadState 同步账号授权与当前人，切换账号清空上一人的表单草稿。 */
 async function loadState() {
@@ -83,7 +203,7 @@ async function loadState() {
   if (!updateChecked) { updateChecked = true; checkUpdate().catch(() => {}); }
   if (!loggedIn || !dataUseAccepted) { $("duplicate-status").textContent = "简历预览"; showStatus("请点工具栏 GoodHR 图标登录并授权"); }
   else if (switching || !wasAccepted || !wasLoggedIn) { $("duplicate-status").textContent = state.resume ? "正在查重" : "等待简历"; showStatus(state.resume ? "" : "打开候选人详情后会自动读取"); }
-  scheduleDuplicates(); refreshActions();
+  scheduleDuplicates(); refreshActions(); maintainAttachment();
 }
 /** loadPreview 只重读当前可见资料，不提交简历到云端。 */
 async function loadPreview() { const result = await send("PREVIEW"); await applySnapshot(result.resume, identity !== shared.resumeIdentity(result.resume)); showStatus(result.resume ? "已重新读取" : "还没看到简历，请打开候选人详情"); }
@@ -149,7 +269,7 @@ function renderPositions() {
   }
 }
 /** scheduleDuplicates 对身份与手机变更防抖，未登录未同意不查询。 */
-function scheduleDuplicates() { if (!loggedIn || !dataUseAccepted || !currentResume || busy) return; const signature = JSON.stringify(shared.duplicateInput(formResume(), $("duplicate-keyword").value)); if (signature === lastQuery) return; clearTimeout(duplicateTimer); const epoch = uiEpoch; duplicateTimer = setTimeout(() => { if (epoch === uiEpoch && !busy) checkDuplicates().catch(() => {}); }, 450); }
+function scheduleDuplicates() { if (!loggedIn || !dataUseAccepted || !currentResume || busy || (currentResume.attachment && attachmentState?.basic_task?.status !== "completed")) return; const signature = JSON.stringify(shared.duplicateInput(formResume(), $("duplicate-keyword").value)); if (signature === lastQuery) return; clearTimeout(duplicateTimer); const epoch = uiEpoch; duplicateTimer = setTimeout(() => { if (epoch === uiEpoch && !busy) checkDuplicates().catch(() => {}); }, 450); }
 /** checkDuplicates 用账号候选人查询序号隔离结果，仅唯一exact自动选择。 */
 async function checkDuplicates(force = false) {
   if (!loggedIn || !dataUseAccepted) throw new Error("请点工具栏 GoodHR 图标登录并授权"); clearTimeout(duplicateTimer); const epoch = uiEpoch, sequence = ++querySequence, resume = formResume(), keyword = $("duplicate-keyword").value, signature = JSON.stringify(shared.duplicateInput(resume, keyword)); lastQuery = signature; duplicateState = "checking"; selectedCandidate = null; $("records").hidden = true; $("duplicate-status").textContent = resume.phone ? "正在查重……" : "手机号还没读到，先按已有资料找找……"; refreshActions();
@@ -195,11 +315,20 @@ async function saveFollowups(kind = "both") {
 }
 /** saveCandidate 一次点击直接提交，保留查重保护、幂等键和更新版本检查。 */
 async function saveCandidate(updating = false) {
-  requireAccount(); const resume = formResume(); if (!resume.candidate_name || !resume.phone) throw new Error("请补齐姓名和完整手机号，国际号码请带 + 区号");
+  requireAccount(); let resume = formResume(); if (!resume.candidate_name || !resume.phone) throw new Error("请补齐姓名和完整手机号，国际号码请带 + 区号");
   if (!updating && ["idle", "checking", "failed"].includes(duplicateState)) await checkDuplicates(true);
   if (!updating && (hiddenDuplicate || matches.some((item) => item.match_type === "exact") || selectedCandidate)) throw new Error("已有重复简历，请选择后更新");
+  if (currentResume?.attachment) {
+    if (currentResume.attachment.blocked || (!currentResume.attachment.complete && !attachmentState?.acknowledged)) throw new Error("先核对附件所有页的正文已经载入，再添加或更新");
+    if (attachmentState?.basic_task?.status !== "completed") throw new Error("先识别并核对基本资料，再添加或更新");
+    const parseEpoch = uiEpoch, chosenID = selectedCandidate?.id;
+    resume = await completeAttachment(); if (!resume || parseEpoch !== uiEpoch) return;
+    if (updating && (!chosenID || chosenID !== selectedCandidate?.id)) throw new Error("核对信息有变化，请重新查重并选择要更新的简历");
+    if (!updating && JSON.stringify(shared.duplicateInput(formResume(), $("duplicate-keyword").value)) !== lastQuery) await checkDuplicates(true);
+    if (!updating && (hiddenDuplicate || matches.some((item) => item.match_type === "exact") || selectedCandidate)) throw new Error("完整资料发现已有重复简历，请选择后更新");
+  }
   if (updating) { if (!selectedCandidate?.id || !selectedCandidate?.row_version) throw new Error("请先选择已有简历"); const changes = shared.describeResumeChanges(selectedCandidate, resume); if (!changes.length && !currentResume?.avatar_detected) { showStatus("资料没有变化"); return; } }
-  const epoch = uiEpoch, result = await send(updating ? "UPDATE" : "CREATE", { resume: shared.candidateWriteResume(resume, updating), capture_id: currentResume?.capture_id, existing_avatar_data_url: selectedCandidate?.avatar_data_url, idempotency_key: keys.save, candidate_id: selectedCandidate?.id, row_version: selectedCandidate?.row_version }); if (epoch !== uiEpoch) return;
+  const epoch = uiEpoch, result = await send(updating ? "UPDATE" : "CREATE", { resume: shared.candidateWriteResume(resume, updating, Boolean(currentResume?.attachment)), capture_id: currentResume?.capture_id, existing_avatar_data_url: selectedCandidate?.avatar_data_url, idempotency_key: keys.save, candidate_id: selectedCandidate?.id, row_version: selectedCandidate?.row_version }); if (epoch !== uiEpoch) return;
   selectedCandidate = result.candidate || result; if (!selectedCandidate?.id) throw new Error("还没拿到简历编号，请先重读并查重"); foldersEdited = false; syncCandidateFolders(); avatarWarning = result.avatar_warning || ""; keys.save = shared.newKey(); keys.avatar = shared.newKey(); duplicateState = "existing"; $("duplicate-status").textContent = "已入库"; if (!updating) { matches = []; groups = []; hiddenDuplicate = false; renderMatches(); } renderAvatar(); refreshActions();
   const followups = updating ? null : await saveFollowups(); if (epoch !== uiEpoch) return;
   if (updating) { await loadRecords(); showStatus("已更新"); }
@@ -229,7 +358,10 @@ async function cancelSummary() { const epoch = uiEpoch, result = await send("SUM
 async function saveSummary() { requireAccount(); if (!selectedCandidate?.id || !aiSummary) return; const epoch = uiEpoch, result = await send("SUMMARY_SAVE", { candidate_id: selectedCandidate.id, row_version: selectedCandidate.row_version, ai_summary: aiSummary, idempotency_key: keys.summary }); if (epoch !== uiEpoch) return; selectedCandidate = result.candidate || result; keys.summary = shared.newKey(); showStatus("总结已保存"); refreshActions(); }
 $("reload").addEventListener("click", () => runAction(loadPreview).finally(scheduleDuplicates));
 $("check").addEventListener("click", () => runAction(() => checkDuplicates(true)));
-for (const id of draftFields) $(id).addEventListener("input", () => { edited.add(id); queueDraft(); if (["name", "phone", "duplicate-keyword"].includes(id)) { querySequence++; selectedCandidate = null; $("records").hidden = true; duplicateState = "idle"; lastQuery = ""; renderAvatar(); scheduleDuplicates(); } if (id === "job-filter") { const chosen = positions.find((job) => String(job.id) === $("job").value), label = chosen ? positionLabel(chosen) : ""; if ($("job").value && $("job-filter").value.trim() !== label) { $("job").value = ""; pendingJob = ""; $("job-filter").removeAttribute("data-selected-value"); } jobMenuOpen = Boolean($("job-filter").value.trim()); renderPositions(); } else if (id === "job") renderPositions(); else if (id === "folder-filter") { folderMenuOpen = Boolean($("folder-filter").value.trim()); renderFolders(); } if (["name", "phone", "city", "position", "expected-position"].includes(id)) renderCandidateInfo(formResume()); refreshActions(); });
+for (const id of draftFields) $(id).addEventListener("input", () => { edited.add(id); queueDraft(); if (["name", "phone", "duplicate-keyword", ...attachmentFields].includes(id)) { querySequence++; selectedCandidate = null; $("records").hidden = true; duplicateState = "idle"; lastQuery = ""; renderAvatar(); scheduleDuplicates(); } if (id === "job-filter") { const chosen = positions.find((job) => String(job.id) === $("job").value), label = chosen ? positionLabel(chosen) : ""; if ($("job").value && $("job-filter").value.trim() !== label) { $("job").value = ""; pendingJob = ""; $("job-filter").removeAttribute("data-selected-value"); } jobMenuOpen = Boolean($("job-filter").value.trim()); renderPositions(); } else if (id === "job") renderPositions(); else if (id === "folder-filter") { folderMenuOpen = Boolean($("folder-filter").value.trim()); renderFolders(); } if (["name", "phone", "city", "position", "expected-position", "gender"].includes(id)) renderCandidateInfo(formResume()); refreshActions(); });
+$("attachment-check").addEventListener("change", () => { if (!attachmentState) return; attachmentState.acknowledged = $("attachment-check").checked; queueDraft(); renderAttachment(); maintainAttachment(); });
+$("attachment-start").addEventListener("click", () => runAction(() => startAttachmentPhase("basic", true)));
+$("attachment-cancel").addEventListener("click", () => cancelAttachment().catch((error) => showStatus(error.message, true)));
 document.addEventListener("pointerdown", (event) => { if (jobMenuOpen && !event.target.closest(".jobs")) { jobMenuOpen = false; renderPositions(); } if (folderMenuOpen && !event.target.closest(".folder-picker")) { folderMenuOpen = false; renderFolders(); } });
 $("folder-filter").addEventListener("focus", () => { folderMenuOpen = Boolean($("folder-filter").value.trim()); loadFolders(); });
 $("folder-filter").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); const first = $("folder-options").querySelector("button"); if (folderMenuOpen && first) toggleFolder(first.dataset.value); } else if (event.key === "ArrowDown") { const first = $("folder-options").querySelector("button"); if (first) { event.preventDefault(); first.focus(); } } else if (event.key === "Escape") { folderMenuOpen = false; renderFolders(); } });
