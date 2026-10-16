@@ -1,0 +1,98 @@
+/* 文件作用说明：候选人招聘详情的主内容、流程侧栏和面试时间线布局，使用共享品牌与紧凑控件标准。 */
+.detailLayout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 29%); height: 100%; min-height: 0; color: var(--ant-color-text, #303735); font-size: 13px; background: #f5f7f8; }
+.detailMain { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #fff; overflow: hidden; }
+.candidateHeader { flex: 0 0 auto; padding: 22px 28px 18px; }
+.detailError { flex: 0 0 auto; margin: 0 24px 12px; }
+.positionBar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; padding-right: 20px; }
+.positionBar > :global(.ant-typography) { font-size: 12px; }
+.positionBar :global(.ant-tag) { margin: 0; max-width: 100%; white-space: normal; }
+.detailTabs { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
+.detailTabs .tabsHeader.tabsHeader { margin: 0 28px; flex: 0 0 auto; }
+.tabsBody.tabsBody { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 22px 28px 28px; }
+.detailTabs :global(.ant-tabs-tab) { padding-block: 12px; }
+.detailAside { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 16px 12px; display: flex; flex-direction: column; gap: 12px; }
+.sideCard { background: #fff; border-radius: 8px; padding: 20px 18px; }
+.sectionHeading { font-weight: 600; padding-left: 9px; border-left: 3px solid var(--goodhr-primary); margin-bottom: 20px; }
+.flowSteps { overflow-x: auto; padding-block: 4px; }
+.flowSteps :global(.ant-steps) { min-width: 0; }
+.flowSteps :global(.ant-steps-item-content), .flowSteps :global(.ant-steps-item-title) { display: none; }
+.flowSteps :global(.ant-steps-item) { min-width: 0; padding-inline-start: 0; }
+.currentStage { display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 14px 0 20px; }
+.currentStage > :global(.ant-typography-secondary) { font-size: 12px; }
+.flowActions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.flowActions > :global(.ant-btn-primary) { grid-column: 1 / -1; }
+.flowActions > :global(.ant-btn) { min-width: 0; padding-inline: 8px; }
+.flowActions > :global(.ant-btn):last-child:nth-child(odd) { grid-column: 1 / -1; }
+.ownerDetails { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--ant-color-border-secondary, #ecefed); }
+.ownerDetails :global(.ant-descriptions-item-label), .ownerDetails :global(.ant-descriptions-item-content) { font-size: 12px; overflow-wrap: anywhere; }
+.ownerDetails :global(.ant-descriptions-row > td) { padding-bottom: 8px; }
+.sideCard > :global(.ant-tabs) > :global(.ant-tabs-nav) { margin-bottom: 16px; }
+.interviewTimeline { padding: 0 0 0 28px; }
+.interviewGroup { position: relative; padding-bottom: 26px; }
+.interviewGroup::before { content: ""; position: absolute; top: 16px; bottom: -5px; left: -24px; width: 1px; background: var(--ant-color-border, #dfe5e1); }
+.interviewGroup:last-child::before { bottom: 20px; }
+.timelineDot { position: absolute; top: 1px; left: -33px; width: 20px; height: 20px; display: grid; place-items: center; background: #fff; color: var(--goodhr-primary); font-size: 19px; }
+.timelineComplete { color: #a8b4ad; }
+.interviewGroup .groupTitle { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+.interviewCard { border: 1px solid var(--ant-color-border-secondary, #e4e8e5); border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
+.interviewCard:last-child { margin-bottom: 0; }
+.interviewArrangement { background: #f7f9f8; padding: 16px 18px; }
+.arrangementHeading { display: flex; gap: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.interviewTime { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.interviewTime > :global(.ant-typography) { font-size: 14px; }
+.interviewTime :global(.ant-tag), .interviewControls :global(.ant-tag) { margin: 0; }
+.interviewTime :global(.ant-tag) { color: var(--ant-color-text-secondary, #6f7973); background: transparent; }
+.interviewControls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.arrangementFacts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); column-gap: 20px; row-gap: 10px; font-size: 12px; }
+.arrangementFacts > div { display: flex; gap: 10px; min-width: 0; }
+.arrangementFacts > div > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.factLabel { color: var(--ant-color-text-tertiary, #8a938d); flex: 0 0 52px; }
+.feedbackList { padding: 4px 18px; }
+.feedbackEntry { padding: 16px 0 12px; border-bottom: 1px solid var(--ant-color-border-secondary, #edf0ed); }
+.feedbackEntry:last-child { border-bottom: 0; }
+.feedbackHeading, .pendingFeedback { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.feedbackHeading { margin-bottom: 6px; }
+.feedbackHeading > :global(.ant-typography), .pendingFeedback > :global(.ant-typography) { min-width: 0; overflow-wrap: anywhere; }
+.feedbackHeading :global(.ant-tag), .pendingFeedback :global(.ant-tag) { margin: 0; }
+.feedbackContent { white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0 0; }
+.pendingFeedback { padding: 16px 0; border-bottom: 1px solid var(--ant-color-border-secondary, #edf0ed); }
+.pendingFeedback:last-child { border-bottom: 0; }
+.feedbackActions { display: flex; justify-content: flex-end; padding-block: 6px; }
+.feedbackActions :global(.ant-btn) { padding-inline: 0; }
+.meta { color: var(--ant-color-text-tertiary, #8a938d); font-size: 12px; overflow-wrap: anywhere; }
+.preWrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.noteError { margin-bottom: 12px; }
+.noteSubmit { display: flex; justify-content: flex-end; margin-top: 16px; }
+.noteHistory, .notificationHistory { max-height: 270px; overflow: auto; margin-top: 16px; }
+.noteEntry { border-top: 1px solid var(--ant-color-border-secondary, #edf0ed); padding-block: 12px; }
+.noteEntry > :global(.ant-typography) { margin-bottom: 6px; }
+
+@media (max-width: 1100px) {
+  .detailLayout { grid-template-columns: minmax(0, 1fr) 300px; }
+  .candidateHeader { padding-inline: 20px; }
+  .detailTabs > :global(.ant-tabs-nav) { margin-inline: 20px; }
+  .tabsBody.tabsBody { padding-inline: 20px; }
+  .arrangementFacts { grid-template-columns: minmax(0, 1fr); }
+  .sideCard { padding-inline: 14px; }
+}
+@media (max-width: 760px) {
+  .detailLayout { display: block; overflow: auto; height: 100%; }
+  .detailMain { display: block; overflow: visible; }
+  .candidateHeader { padding: 18px 16px 14px; }
+  .positionBar { margin-bottom: 18px; padding-right: 24px; }
+  .detailTabs { display: block; }
+  .detailTabs .tabsHeader.tabsHeader { margin-inline: 16px; }
+  .tabsBody.tabsBody { overflow: visible; padding: 18px 16px; }
+  .detailAside { display: flex; overflow: visible; padding: 12px; }
+  .flowSteps :global(.ant-steps) { flex-direction: row; }
+  .interviewTimeline { padding-left: 22px; }
+  .interviewGroup::before { left: -18px; }
+  .timelineDot { left: -27px; }
+  .interviewArrangement { padding: 14px 12px; }
+  .arrangementHeading { gap: 12px; margin-bottom: 12px; }
+  .interviewTime { gap: 6px; }
+  .interviewTime > :global(.ant-typography) { font-size: 13px; }
+  .feedbackList { padding-inline: 12px; }
+  .flowActions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .noteHistory, .notificationHistory { max-height: none; overflow: visible; }
+}

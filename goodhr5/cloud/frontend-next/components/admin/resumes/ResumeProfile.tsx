@@ -5,8 +5,8 @@ import type { ReactNode } from "react";
 import { experienceLabel, genderLabel, resumeAge, resumeAvatarSource, salaryLabel, workYearsLabel, type Resume, type ResumeExperience } from "@/lib/resume-types";
 import styles from "./resumes.module.css";
 
-/** ResumeProfile 保留现有紧凑资料布局，维护按钮由后台调用者传入，公开页只展示资料。 */
-export default function ResumeProfile({ candidate, headerActions, showTags = false }: { candidate: Resume; headerActions?: ReactNode; showTags?: boolean }) {
+/** ResumeCandidateHeader 共用头像、姓名、联系方式与原始标签，不读取任何内部业务记录。 */
+export function ResumeCandidateHeader({ candidate, headerActions, showTags = false }: { candidate: Resume; headerActions?: ReactNode; showTags?: boolean }) {
   const facts = [resumeAge(candidate), genderLabel(candidate.gender), candidate.education_level, workYearsLabel(candidate)].filter(Boolean);
   return <>
     <Flex gap={12} align="center" className={styles.candidateHeader}>
@@ -14,11 +14,18 @@ export default function ResumeProfile({ candidate, headerActions, showTags = fal
       <Flex vertical gap={4} style={{ minWidth: 0, flex: 1 }}>
         <Flex wrap gap={10} align="center"><Typography.Title level={3} style={{ margin: 0 }}>{candidate.candidate_name || "未命名候选人"}</Typography.Title><Typography.Text copyable={candidate.phone ? { text: candidate.phone } : false}>{candidate.phone || "手机号待补充"}</Typography.Text></Flex>
         <Typography.Text type="secondary">{facts.join(" · ") || "基础信息待补充"}</Typography.Text>
-        {candidate.email ? <Typography.Text copyable={{ text: candidate.email }}>{candidate.email}</Typography.Text> : null}
+        {candidate.email ? <Typography.Text ellipsis={{ tooltip: candidate.email }} copyable={{ text: candidate.email }}>{candidate.email}</Typography.Text> : null}
       </Flex>
       {headerActions}
     </Flex>
     {showTags && candidate.tags?.length ? <Space wrap style={{ marginTop: 6 }}>{candidate.tags.map((item) => <Tag key={item}>{item}</Tag>)}</Space> : null}
+  </>;
+}
+
+/** ResumeProfile 展示简历正文，详情标签页可隐藏已在顶部展示的候选人信息。 */
+export default function ResumeProfile({ candidate, headerActions, showTags = false, hideHeader = false }: { candidate: Resume; headerActions?: ReactNode; showTags?: boolean; hideHeader?: boolean }) {
+  return <>
+    {!hideHeader ? <ResumeCandidateHeader candidate={candidate} headerActions={headerActions} showTags={showTags} /> : null}
     <section className={styles.resumeSection}><Typography.Title level={5}>求职意向</Typography.Title><Descriptions size="small" column={{ xs: 1, sm: 2 }} items={[
       { key: "current", label: "当前地区", children: candidate.current_region || "未填写" },
       { key: "expected", label: "期望地区", children: candidate.expected_region || candidate.work_region || "未填写" },

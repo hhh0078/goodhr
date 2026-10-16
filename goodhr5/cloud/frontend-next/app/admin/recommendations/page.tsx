@@ -1,6 +1,6 @@
 /** 文件作用说明：集中查看和维护猎头推荐，复用候选人详情推进历史，保留关闭岗位记录。 */
 "use client";
-import { Alert, Button, Drawer, Flex, Input, Pagination, Select, Table, Tag, Typography } from "antd";
+import { Alert, Button, Flex, Input, Pagination, Select, Table, Tag, Typography } from "antd";
 import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -88,8 +88,8 @@ export default function RecommendationsPage() {
       {deleteError ? <Alert type="warning" showIcon title={deleteError} style={{ marginBottom: 10 }} /> : null}
       <Typography.Paragraph>删除“{deleting?.candidate_name} → {deleting?.position_name}”的推荐及跟进记录？简历和岗位会保留。</Typography.Paragraph>
     </AdminDialog>
-    <Drawer open={Boolean(detail)} onClose={() => setDetail(null)} title={detail?.record.candidate_name || "候选人详情"} destroyOnHidden styles={{ wrapper: { width: "min(1280px, 96vw)" } }}>
+    <AdminDialog variant="detail" open={Boolean(detail)} onClose={() => setDetail(null)} title={detail?.record.candidate_name || "候选人详情"} showCancel={false}>
       {detail ? <ResumeWorkspace key={`${detail.record.id}:${detail.tab}`} candidateID={detail.record.candidate_id} initialPositionID={detail.record.position_id} initialTab={detail.tab} positions={positions} onChanged={() => void loadList()} /> : null}
-    </Drawer>
+    </AdminDialog>
   </>;
 }

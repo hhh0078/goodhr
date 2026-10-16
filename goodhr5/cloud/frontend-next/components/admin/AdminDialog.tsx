@@ -19,6 +19,8 @@ type AdminDialogProps = {
   hideClose?: boolean;
   showCancel?: boolean;
   maxWidth?: "xs" | "sm" | "md" | "lg" | "xl";
+  /** 详情使用接近全屏的双栏容器，表单继续沿用默认布局。 */
+  variant?: "form" | "detail";
   onClose: () => void;
   onConfirm?: () => void;
   extraActions?: ReactNode;
@@ -42,6 +44,7 @@ export default function AdminDialog({
   hideClose = false,
   showCancel = true,
   maxWidth = "sm",
+  variant = "form",
   onClose,
   onConfirm,
   extraActions,
@@ -53,8 +56,11 @@ export default function AdminDialog({
     <Modal
       open={open}
       title={title}
-      width={dialogWidths[maxWidth]}
-      className="goodhr-admin-modal"
+      width={variant === "detail" ? "min(1480px, calc(100vw - 32px))" : dialogWidths[maxWidth]}
+      className={`goodhr-admin-modal${variant === "detail" ? " goodhr-detail-dialog" : ""}`}
+      style={variant === "detail" ? { top: 16, paddingBottom: 0 } : undefined}
+      destroyOnHidden={variant === "detail"}
+      zIndex={/* 详情低于编辑与确认弹框，避免复用的子弹框被详情门户盖住。 */ variant === "detail" ? 900 : undefined}
       closable={!hideClose && !loading}
       keyboard={!loading}
       focusable={{ focusTriggerAfterClose: priority !== "promotion" }}
@@ -63,7 +69,12 @@ export default function AdminDialog({
         if (!loading) onClose();
       }}
       styles={{
-        body: {
+        body: variant === "detail" ? {
+          height: "calc(100dvh - 32px)",
+          maxHeight: "calc(100dvh - 32px)",
+          overflow: "hidden",
+          padding: 0,
+        } : {
           maxHeight: "min(calc(100dvh - 200px), var(--goodhr-onboarding-modal-body-height, 100dvh))",
           overflowY: "auto",
           overflowX: "hidden",
@@ -71,7 +82,7 @@ export default function AdminDialog({
         },
       }}
       footer={
-        <Flex justify="flex-end" gap={8} wrap>
+        !showCancel && !onConfirm && !extraActions ? null : <Flex justify="flex-end" gap={8} wrap>
           {extraActions}
           {showCancel ? (
             <Button onClick={onClose} disabled={loading}>

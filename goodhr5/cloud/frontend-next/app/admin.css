@@ -95,6 +95,16 @@ a.goodhr-admin-banner-text:hover {
 .goodhr-admin-modal .ant-input-number {
   max-width: 100%;
 }
+/* 候选人、面试和推荐详情共用大弹层，普通编辑表单保持原尺寸。 */
+.goodhr-admin-modal.goodhr-detail-dialog .ant-modal-container,
+.goodhr-admin-modal.goodhr-detail-dialog .ant-modal-content { padding: 0; overflow: hidden; border-radius: 8px; }
+.goodhr-detail-dialog .ant-modal-header { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+.goodhr-detail-dialog .ant-modal-close { top: 10px; inset-inline-end: 10px; z-index: 3; background: #fff; }
+.goodhr-admin-modal.goodhr-detail-dialog .ant-modal-body { min-height: 0; max-height: calc(100dvh - 32px) !important; }
+@media (max-width: 760px) {
+  .goodhr-admin-modal.goodhr-detail-dialog.ant-modal { width: calc(100vw - 16px); max-width: calc(100vw - 16px); margin: 0 auto; }
+  .goodhr-admin-modal.goodhr-detail-dialog .ant-modal-body { overflow-y: auto !important; }
+}
 .goodhr-choice-grid.ant-radio-group {
   display: grid;
   grid-template-columns: repeat(var(--choice-columns, 2), minmax(0, 1fr));

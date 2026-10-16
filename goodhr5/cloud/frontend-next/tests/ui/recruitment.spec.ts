@@ -464,7 +464,7 @@ test("面试排期和独立面评提交准确字段，邮件缺资料不能发�
 
   state.app.interviews[0].starts_at = new Date(Date.now() - 60000).toISOString();
   await expect(detail.getByRole("button", { name: "刷新进度", exact: true })).toHaveCount(0);
-  await detail.locator(".ant-modal-footer").getByRole("button", { name: "关闭", exact: true }).click();
+  await detail.locator(".ant-modal-close").click();
   await expect(detail).toBeHidden();
   await page.getByRole("button", { name: "查看进度", exact: true }).click();
   await expect(detail).toBeVisible();
@@ -504,10 +504,10 @@ test("抄送成员只读查看并标记通知已读，不能推进或发信", as
   await expect.poll(() => state.app.events[0].read_by.includes("cc@example.invalid")).toBe(true);
 
   expect(state.calls.filter((call) => call.path === "/api/recruitment/mail-history")).toHaveLength(0);
-  await detail.getByRole("button", { name: "招聘资料", exact: true }).click();
+  await detail.getByRole("tab", { name: "简历", exact: true }).click();
   await expect(detail.getByText("合成原公司 · 产品经理", { exact: true })).toBeVisible();
   await expect(detail.getByRole("link", { name: "查看完整简历", exact: true })).toHaveCount(0);
-  await detail.getByRole("button", { name: "关闭", exact: true }).last().click();
+  await detail.locator(".ant-modal-close").click();
   await page.goto("/admin/recruitment/settings");
   await expect(page.getByLabel("公司名称", { exact: true })).toBeDisabled();
   await page.getByRole("tab", { name: "流程模板", exact: true }).click();

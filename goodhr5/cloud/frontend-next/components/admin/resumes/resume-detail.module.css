@@ -1,0 +1,43 @@
+/* 文件作用说明：候选人和猎头推荐详情共用的双栏、标签页和时间线布局，不影响公开简历。 */
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 29%); min-width: 0; height: calc(100dvh - 32px); background: #f4f6f8; gap: 12px; padding: 12px; overflow: hidden; }
+.main { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; background: #fff; border-radius: 8px; padding: 20px 28px 28px; }
+.main > :global(.ant-alert) { margin-bottom: 12px; }
+.candidateTop { padding: 0 0 16px; }
+.candidateTop :global(.ant-avatar) { width: 64px; height: 64px; line-height: 64px; }
+.candidateTop :global(h3.ant-typography) { font-size: 24px; line-height: 1.35; }
+.context.context { margin-bottom: 20px; }
+.tabs :global(.ant-tabs-nav) { margin-bottom: 22px; }
+.tabs :global(.ant-tabs-tab) { padding: 12px 0; }
+.tabs :global(.ant-tabs-tab-btn) { font-size: 14px; }
+.aside { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: 32px; }
+.sideCard { min-width: 0; padding: 20px; margin-bottom: 12px; background: #fff; border-radius: 8px; }
+.sideCard :global(.ant-typography) { overflow-wrap: anywhere; }
+.cardTitle.cardTitle { margin: 0 0 16px; font-size: 15px; }
+.actionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.actionGrid :global(.ant-btn) { padding-inline: 8px; }
+.progress { margin-bottom: 20px; }
+.progress :global(.ant-steps) { margin-bottom: 16px; }
+.progress :global(.ant-steps-item-title), .progress :global(.ant-steps-item-content) { display: none; }
+.progress :global(.ant-steps-item) { padding-inline-start: 0; }
+.sectionHeading.sectionHeading { margin-bottom: 16px; }
+.sectionHeading :global(h5.ant-typography) { margin: 0; }
+.recommendationHistory { margin: 20px 0 0 12px; padding-left: 24px; border-left: 1px solid var(--goodhr-border); }
+.recommendationHistory > article { position: relative; margin-bottom: 24px; padding: 18px 20px; }
+.recommendationHistory > article::before { position: absolute; top: 22px; left: -31px; width: 10px; height: 10px; border: 2px solid #fff; border-radius: 50%; background: var(--goodhr-primary); box-shadow: 0 0 0 1px var(--goodhr-border); content: ""; }
+@media (max-width: 1000px) {
+  .workspace { grid-template-columns: minmax(0, 1fr) 300px; }
+  .main { padding: 20px; }
+  .sideCard { padding: 16px; }
+}
+@media (max-width: 760px) {
+  .workspace { display: block; height: auto; min-height: 100%; overflow: visible; padding: 8px; }
+  .main { overflow: visible; padding: 20px 16px; }
+  .context.context { padding-right: 24px; }
+  .aside { overflow: visible; padding-top: 12px; }
+  .candidateTop :global(.ant-avatar) { width: 52px; height: 52px; line-height: 52px; }
+  .candidateTop :global(h3.ant-typography) { font-size: 21px; }
+  .tabs :global(.ant-tabs-nav) { margin-bottom: 16px; }
+  .recommendationHistory { margin-left: 4px; padding-left: 18px; }
+  .recommendationHistory > article { padding: 14px; }
+  .recommendationHistory > article::before { left: -25px; }
+}

@@ -45,3 +45,6 @@
 @media (max-width: 1200px) { .toolbar { flex-wrap: wrap; } .toolbarActions { margin-left: auto; } .moreFilters { grid-template-columns: repeat(3, minmax(120px, 1fr)); } }
 @media (max-width: 700px) { .moreFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .keyword.keyword { flex: 1 1 100%; width: auto; } .phone.phone, .position.position, .source.source { flex: 1 1 140px; width: auto; } }
 @media (max-width: 450px) { .moreFilters { grid-template-columns: minmax(0, 1fr); } .toolbarActions { flex-wrap: wrap; width: 100%; justify-content: flex-end; } }
+
+/* 候选人详情的大弹层中保留独立打开入口，不占用正文布局。 */
+.standaloneLink { position: absolute; top: 18px; right: 62px; z-index: 2; font-size: 12px; }

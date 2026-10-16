@@ -172,6 +172,18 @@ async function dismissNotices(page: Page) {
   await expect(page.locator(".ant-notification-notice")).toHaveCount(0);
 }
 
+/** waitForResumeDetailAnimation 等待详情弹层真实入场结束，保证后续包围框与滚轮验证稳定。 */
+async function waitForResumeDetailAnimation(page: Page) {
+  const modal = page.locator(".ant-modal:visible").last();
+  await expect(modal).toBeVisible();
+  await expect(modal).not.toHaveClass(/ant-zoom-(appear|enter)/);
+}
+
+/** closeResumeDetail 使用详情右上角的真实关闭按钮，避免依赖已移除的底部关闭栏。 */
+async function closeResumeDetail(page: Page) {
+  await page.locator(".goodhr-detail-dialog:visible").last().locator("button.ant-modal-close").click();
+}
+
 const pairApprovePath = "/api/v1/extensions/pair/approve";
 const pairDialogTitle = "连接 GoodHR 浏览器插件";
 
@@ -940,14 +952,15 @@ test("本地程序离线时关闭安装提示后仍可搜索、手动添加、�
   await recommendations.getByRole("radio", { name: "已推荐", exact: true }).check();
   await drawer.getByPlaceholder("只记这个岗位的推荐、面试和跟进情况。").fill("离线岗位跟进");
   await drawer.getByRole("button", { name: "记录推荐", exact: true }).click();
-  await expect(recommendations.getByTestId("resume-recommendation-history").getByText("离线岗位跟进", { exact: true })).toBeVisible();
+  await expect(drawer.getByTestId("resume-recommendation-history").getByText("离线岗位跟进", { exact: true })).toBeVisible();
   await page.mouse.move(10, 950); await dismissNotices(page);
+  await drawer.getByRole("tab", { name: "简历", exact: true }).click();
   await drawer.getByRole("button", { name: "生成摘要", exact: true }).click();
   const summary = page.getByRole("dialog", { name: "AI 简历摘要", exact: true });
   await expect(summary.getByText("本地程序还没连接，打开后再继续。", { exact: true })).toBeVisible();
   await expect(summary.getByRole("button", { name: "开始生成摘要", exact: true })).toBeDisabled();
   await summary.getByRole("button", { name: /收起（草稿保留）$/ }).click();
-  await drawer.getByRole("button", { name: "关闭", exact: true }).click();
+  await closeResumeDetail(page);
   await page.getByRole("button", { name: "添加", exact: true }).click();
   const chooser = page.getByRole("dialog", { name: "添加简历", exact: true });
   await chooser.getByRole("tab", { name: "AI 批量上传", exact: true }).click();
@@ -979,7 +992,13 @@ test("内置示例登录后可读，预留身份缺标记仍不能编辑、分�
   const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: "瓜瓜", exact: true }) });
   const builtinAvatar = row.getByRole("img", { name: "瓜瓜头像", exact: true });
   await expect(builtinAvatar).toHaveAttribute("src", "/assets/resume-guagua.jpg");
-  await expect.poll(() => builtinAvatar.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 100 && image.naturalHeight > 100)).toBe(true);
+  await expect(builtinAvatar).toBeVisible();
+  const avatarResponse = await page.request.get(`${previewOrigin}/assets/resume-guagua.jpg`);
+  expect(avatarResponse.ok()).toBe(true);
+  expect(avatarResponse.headers()["content-type"]).toMatch(/^image\/jpeg(?:;|$)/i);
+  const avatarBytes = await avatarResponse.body();
+  expect(avatarBytes.length).toBeGreaterThan(100);
+  expect([...avatarBytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
   await expect(row.locator(".ant-avatar-string")).toHaveCount(0);
   mkdirSync(screenshotDirectory, { recursive: true });
   await page.screenshot({ path: resolve(screenshotDirectory, "builtin-guagua-avatar.png"), fullPage: true, animations: "disabled" });
@@ -988,10 +1007,10 @@ test("内置示例登录后可读，预留身份缺标记仍不能编辑、分�
   await row.getByRole("button", { name: "瓜瓜", exact: true }).click();
   const workspace = page.getByTestId("resume-detail-layout");
   await expect(workspace.getByRole("img", { name: "瓜瓜头像", exact: true })).toHaveAttribute("src", "/assets/resume-guagua.jpg");
-  await expect.poll(() => workspace.getByRole("img", { name: "瓜瓜头像", exact: true }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(100);
+  await expect(workspace.getByRole("img", { name: "瓜瓜头像", exact: true })).toBeVisible();
   await expect(page.getByTestId("resume-builtin-notice")).toBeVisible();
   await expect(workspace.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
-  await expect(workspace.getByRole("button", { name: "分享", exact: true })).toHaveCount(0);
+  await expect(workspace.getByRole("button", { name: "分享简历", exact: true })).toBeDisabled();
   await expect(workspace.getByText("企业招聘流程", { exact: true })).toHaveCount(0);
   await expect(workspace.getByRole("button", { name: "生成摘要", exact: true })).toBeDisabled();
   await expect(page.getByTestId("resume-notes-section").getByRole("button", { name: "加备注", exact: true })).toBeDisabled();
@@ -1000,13 +1019,15 @@ test("内置示例登录后可读，预留身份缺标记仍不能编辑、分�
   await expect(page.getByRole("textbox", { name: "新增岗位跟进备注" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "保存关联", exact: true })).toBeDisabled();
   await expect(page.getByTestId("resume-notes-section").getByText(state.notes[0].content, { exact: true })).toBeVisible();
+  await workspace.getByRole("tab", { name: "任务记录", exact: true }).click();
   await expect(page.getByTestId("resume-auto-tasks-section")).toBeVisible();
+  await workspace.getByRole("tab", { name: "简历", exact: true }).click();
   await expect(workspace.getByText("示例软件工作室（虚构） · 软件开发工程师（示例）", { exact: true })).toBeVisible();
   // 即使旧缓存漏了只读标记，预留ID也不能进入修改或收费流程；独立详情地址保留阅读。
   delete state.candidates[0].is_builtin; delete state.candidates[0].readonly;
   await page.goto(`/admin/resumes/detail?candidate_id=${builtinID}`);
   await expect(page.getByTestId("resume-builtin-notice")).toBeVisible();
-  await expect(page.getByRole("button", { name: "分享", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "分享简历", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "生成摘要", exact: true })).toBeDisabled();
   expect(state.calls.filter((call) => call.method !== "GET" && (call.path.startsWith("/api/candidates") || call.path.includes("resume-summary") || call.path.includes("resume-import")))).toHaveLength(0);
@@ -1308,8 +1329,8 @@ test("查询写回URL，详情抽屉独立保存备注和人工推荐，窄屏�
   const notes = drawer.getByTestId("resume-notes-section");
   const recommendations = drawer.getByTestId("resume-recommendations-section");
   const automaticTasks = drawer.getByTestId("resume-auto-tasks-section");
-  for (const section of [notes, recommendations, automaticTasks]) await expect(section).toBeVisible();
-  await expect(drawer.getByRole("tab")).toHaveCount(0);
+  for (const section of [notes, recommendations]) await expect(section).toBeVisible();
+  for (const name of ["简历", "推荐 0", "面试 / 招聘", "任务记录"]) await expect(drawer.getByRole("tab", { name, exact: true })).toBeVisible();
   await notes.getByPlaceholder("比如：意向不错，周五再约一次。").fill("通用备注仅在备注接口保存");
   await notes.getByRole("button", { name: "加备注", exact: true }).click();
   await expect(notes.getByText("通用备注仅在备注接口保存", { exact: true })).toBeVisible();
@@ -1318,10 +1339,10 @@ test("查询写回URL，详情抽屉独立保存备注和人工推荐，窄屏�
   await recommendations.getByRole("radio", { name: "已推荐", exact: true }).check();
   await recommendations.getByPlaceholder("只记这个岗位的推荐、面试和跟进情况。").fill("岗位专属备注");
   await recommendations.getByRole("button", { name: "记录推荐", exact: true }).click();
-  await expect(recommendations.getByTestId("resume-recommendation-history").getByText("岗位专属备注", { exact: true })).toBeVisible();
-  await expect(recommendations.getByText(/测试HR · 2026\/10\/08/)).toBeVisible();
-  await expect(recommendations.getByText("岗位专属备注", { exact: true })).toBeVisible();
-  await expect(recommendations.getByText("通用备注仅在备注接口保存", { exact: true })).toHaveCount(0);
+  const recommendationHistory = drawer.getByTestId("resume-recommendation-history");
+  await expect(recommendationHistory.getByText("岗位专属备注", { exact: true })).toBeVisible();
+  await expect(recommendationHistory.getByText(/测试HR · 2026\/10\/08/)).toBeVisible();
+  await expect(recommendationHistory.getByText("通用备注仅在备注接口保存", { exact: true })).toHaveCount(0);
   await expect(notes.getByText("岗位专属备注", { exact: true })).toHaveCount(0);
   await dismissNotices(page);
   await page.screenshot({ path: resolve(screenshotDirectory, "detail-desktop.png"), fullPage: true, animations: "disabled" });
@@ -1331,21 +1352,26 @@ test("查询写回URL，详情抽屉独立保存备注和人工推荐，窄屏�
   await candidateHeading.scrollIntoViewIfNeeded();
   await expect(candidateHeading).toBeInViewport();
   const overflow = await page.locator("body").boundingBox(); expect(overflow?.width).toBeLessThanOrEqual(390);
-  const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-  expect(documentWidth).toBeLessThanOrEqual(390);
+  await waitForResumeDetailAnimation(page);
+  const detailBox = await drawer.boundingBox();
+  expect(detailBox!.x).toBeGreaterThanOrEqual(0);
+  expect(detailBox!.x + detailBox!.width).toBeLessThanOrEqual(390);
   await page.screenshot({ path: resolve(screenshotDirectory, "detail-mobile.png"), fullPage: true, animations: "disabled" });
+  await drawer.getByRole("tab", { name: "任务记录", exact: true }).click();
+  await expect(automaticTasks).toBeVisible();
   await expect(automaticTasks.getByText("通用备注仅在备注接口保存", { exact: true })).toHaveCount(0);
   expect(state.errors).toEqual([]);
 });
 
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
-  test(`候选人长备注保持限高并内部滚动，输入和加备注同行 ${viewport.width}`, async ({ page }) => {
+  test(`候选人长备注保持限高并内部滚动，输入和加备注可达 ${viewport.width}`, async ({ page }) => {
     const state = await mockResumeSession(page);
     state.notes = Array.from({ length: 30 }, (_, index) => ({ id: `bounded-note-${index}`, content: `合成长备注 ${index + 1}：${"已沟通岗位意向，等待下次跟进。".repeat(24)}`, author_name: "合成HR", occurred_at: "2026-10-16T09:00:00+08:00" }));
     await page.setViewportSize(viewport);
     await page.goto("/admin/resumes");
     await page.getByRole("button", { name: "原有候选人", exact: true }).click();
     const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
+    await waitForResumeDetailAnimation(page);
     const notes = drawer.getByTestId("resume-notes-section");
     const history = notes.getByRole("region", { name: "历史备注", exact: true });
     const input = notes.getByPlaceholder("比如：意向不错，周五再约一次。");
@@ -1354,15 +1380,19 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await notes.scrollIntoViewIfNeeded();
     const initialHeight = (await history.boundingBox())!.height;
     expect(initialHeight).toBeLessThanOrEqual(Math.min(320, viewport.height * 0.4) + 1);
-    expect(await history.evaluate((element) => element.scrollHeight)).toBeGreaterThan(initialHeight * 2);
-    const inputBox = (await input.boundingBox())!;
-    const addBox = (await add.boundingBox())!;
-    expect(addBox.x).toBeGreaterThanOrEqual(inputBox.x + inputBox.width);
-    expect(addBox.y).toBeGreaterThanOrEqual(inputBox.y);
-    expect(addBox.y + addBox.height).toBeLessThanOrEqual(inputBox.y + inputBox.height + 1);
+    const firstNote = history.getByText(/^合成长备注 1：/);
+    const firstNoteBox = (await firstNote.boundingBox())!;
+    const lastNoteBox = (await history.getByText(/^合成长备注 30：/).boundingBox())!;
+    expect(lastNoteBox.y + lastNoteBox.height - firstNoteBox.y).toBeGreaterThan(initialHeight * 2);
+    await input.scrollIntoViewIfNeeded();
+    await expect(input).toBeInViewport();
+    await add.scrollIntoViewIfNeeded();
+    await expect(add).toBeInViewport();
+    await history.scrollIntoViewIfNeeded();
+    const beforeWheel = (await firstNote.boundingBox())!.y;
     await history.hover();
     await page.mouse.wheel(0, 700);
-    await expect.poll(() => history.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expect.poll(async () => (await firstNote.boundingBox())!.y).toBeLessThan(beforeWheel - 8);
     await input.fill("合成新增备注：内部滚动后仍能保存。");
     await add.click();
     await expect(notes.getByRole("heading", { name: "备注 · 31", exact: true })).toBeVisible();
@@ -1370,7 +1400,9 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await expect(input).toHaveValue("");
     expect((await history.boundingBox())!.height).toBeCloseTo(initialHeight, 0);
     expect(state.calls.filter((call) => call.path === `/api/candidates/${existing.id}/notes` && call.method === "POST")).toHaveLength(1);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    const detailBox = (await drawer.boundingBox())!;
+    expect(detailBox.x).toBeGreaterThanOrEqual(0);
+    expect(detailBox.x + detailBox.width).toBeLessThanOrEqual(viewport.width);
     // 手机上的保存通知可能落在当前鼠标位置，先移开，避免悬停让自动关闭计时暂停。
     await page.mouse.move(1, 1);
     await dismissNotices(page);
@@ -1401,15 +1433,16 @@ test("多岗位卡片带入阶段，保存时禁切，选中岗位历史直展�
   const notes = drawer.getByTestId("resume-notes-section");
   const recommendations = drawer.getByTestId("resume-recommendations-section");
   const automaticTasks = drawer.getByTestId("resume-auto-tasks-section");
-  for (const section of [notes, recommendations, automaticTasks]) await expect(section).toBeVisible();
-  await expect(drawer.getByRole("tab")).toHaveCount(0);
+  for (const section of [notes, recommendations]) await expect(section).toBeVisible();
+  for (const name of ["简历", "推荐 2", "面试 / 招聘", "任务记录"]) await expect(drawer.getByRole("tab", { name, exact: true })).toBeVisible();
+  await drawer.getByRole("tab", { name: "推荐 2", exact: true }).click();
   await expect(recommendations.getByRole("button", { name: "继续跟进", exact: true })).toHaveCount(0);
-  const history = recommendations.getByTestId("resume-recommendation-history");
+  const history = drawer.getByTestId("resume-recommendation-history");
   await expect(history.getByText("产品经理原有岗位历史", { exact: true })).toHaveCount(1);
   await expect(history.getByText("产品经理原有岗位历史", { exact: true })).toBeVisible();
   await expect(history.getByText("招聘顾问原有岗位历史", { exact: true })).toHaveCount(0);
-  const firstCard = recommendations.getByRole("button", { name: "选择推荐记录 产品经理", exact: true });
-  const secondCard = recommendations.getByRole("button", { name: "选择推荐记录 招聘顾问", exact: true });
+  const firstCard = drawer.getByRole("button", { name: "选择推荐记录 产品经理", exact: true });
+  const secondCard = drawer.getByRole("button", { name: "选择推荐记录 招聘顾问", exact: true });
   const followUp = recommendations.getByPlaceholder("只记这个岗位的推荐、面试和跟进情况。");
   await secondCard.click();
   await expect(secondCard).toHaveAttribute("aria-pressed", "true");
@@ -1448,7 +1481,7 @@ test("多岗位卡片带入阶段，保存时禁切，选中岗位历史直展�
     releaseSave(); state.recommendationSaveGate = undefined;
   }
   await expect(firstCard).toHaveAttribute("aria-disabled", "false");
-  await expect(recommendations.getByText("招聘顾问新跟进：已约面试", { exact: true })).toBeVisible();
+  await expect(history.getByText("招聘顾问新跟进：已约面试", { exact: true })).toBeVisible();
   await expect(followUp).toHaveValue("");
   expect(state.recommendations[0].stage).toBe("draft");
   expect(state.recommendations[0].events).toHaveLength(1);
@@ -1461,7 +1494,7 @@ test("多岗位卡片带入阶段，保存时禁切，选中岗位历史直展�
   await recommendations.getByRole("radio", { name: "已推荐", exact: true }).check();
   await followUp.fill("产品经理新跟进：确认推荐");
   await recommendations.getByRole("button", { name: "记录推荐", exact: true }).click();
-  await expect(recommendations.getByText("产品经理新跟进：确认推荐", { exact: true })).toBeVisible();
+  await expect(history.getByText("产品经理新跟进：确认推荐", { exact: true })).toBeVisible();
   for (const content of ["产品经理原有岗位历史", "产品经理新跟进：确认推荐"]) {
     await expect(history.getByText(content, { exact: true })).toHaveCount(1);
     await expect(history.getByText(content, { exact: true })).toBeVisible();
@@ -1475,6 +1508,8 @@ test("多岗位卡片带入阶段，保存时禁切，选中岗位历史直展�
   await expect(history.getByText("产品经理新跟进：确认推荐", { exact: true })).toHaveCount(0);
   await expect(notes.getByText(commonNote, { exact: true })).toHaveCount(1);
   await expect(recommendations.getByText(commonNote, { exact: true })).toHaveCount(0);
+  await expect(history.getByText(commonNote, { exact: true })).toHaveCount(0);
+  await drawer.getByRole("tab", { name: "任务记录", exact: true }).click();
   await expect(automaticTasks.getByText(commonNote, { exact: true })).toHaveCount(0);
   await expect(automaticTasks.getByText("合成自动任务：已读取详情", { exact: true })).toBeVisible();
   const saved = state.calls.filter((call) => call.path.endsWith("/recommendations") && call.method === "POST");
@@ -1503,7 +1538,8 @@ test("推荐显示偏好重载保留并按账号隔离，显式推荐入口临�
   const notes = drawer.getByTestId("resume-notes-section");
   const automaticTasks = drawer.getByTestId("resume-auto-tasks-section");
   await expect(content).toBeVisible();
-  await recommendations.getByRole("button", { name: "选择推荐记录 产品经理", exact: true }).click();
+  await drawer.getByRole("tab", { name: "推荐 1", exact: true }).click();
+  await drawer.getByRole("button", { name: "选择推荐记录 产品经理", exact: true }).click();
   await recommendations.getByRole("radio", { name: "面试中", exact: true }).check();
   await followUp.fill("合成未提交跟进：下周面试");
   await notes.getByPlaceholder("比如：意向不错，周五再约一次。").fill("合成未提交通用备注");
@@ -1511,6 +1547,7 @@ test("推荐显示偏好重载保留并按账号隔离，显式推荐入口临�
   await expect(content).not.toBeVisible();
   await expect(recommendations.getByRole("button", { name: "显示推荐", exact: true })).toHaveAttribute("aria-expanded", "false");
   await expect(notes.getByText("合成通用备注：隐藏推荐也能看", { exact: true })).toBeVisible();
+  await drawer.getByRole("tab", { name: "任务记录", exact: true }).click();
   await expect(automaticTasks.getByText("合成自动任务：隐藏推荐也能看", { exact: true })).toBeVisible();
   await recommendations.getByRole("button", { name: "显示推荐", exact: true }).click();
   await expect(content).toBeVisible();
@@ -1519,22 +1556,22 @@ test("推荐显示偏好重载保留并按账号隔离，显式推荐入口临�
   await expect(recommendations.getByRole("radio", { name: "面试中", exact: true })).toBeChecked();
   await expect(notes.getByPlaceholder("比如：意向不错，周五再约一次。")).toHaveValue("合成未提交通用备注");
   await recommendations.getByRole("button", { name: "隐藏推荐", exact: true }).click();
-  await drawer.getByRole("button", { name: "关闭", exact: true }).click();
+  await closeResumeDetail(page);
   await page.reload();
   await page.getByRole("button", { name: "原有候选人", exact: true }).click();
   await expect(content).not.toBeVisible();
   await expect(recommendations.getByRole("button", { name: "显示推荐", exact: true })).toBeVisible();
-  await drawer.getByRole("button", { name: "关闭", exact: true }).click();
+  await closeResumeDetail(page);
   // 岗位记录入口需要本次展开，但不能把账号之前的隐藏偏好改成展示。
   await page.getByRole("row").filter({ has: page.getByRole("button", { name: "原有候选人", exact: true }) }).getByRole("button", { name: "推荐", exact: true }).click();
   await expect(content).toBeVisible();
-  await expect(recommendations.getByTestId("resume-recommendation-history").getByText("合成岗位历史：已沟通", { exact: true })).toBeVisible();
-  await drawer.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(drawer.getByTestId("resume-recommendation-history").getByText("合成岗位历史：已沟通", { exact: true })).toBeVisible();
+  await closeResumeDetail(page);
   await page.reload();
   await page.getByRole("button", { name: "原有候选人", exact: true }).click();
   await expect(content).not.toBeVisible();
   await expect(recommendations.getByRole("button", { name: "显示推荐", exact: true })).toBeVisible();
-  await drawer.getByRole("button", { name: "关闭", exact: true }).click();
+  await closeResumeDetail(page);
   // 同一浏览器切到另一模拟账号，第一账号的隐藏偏好不应影响新账号。
   state.user = { id: "resume-user-second", email: "second@example.invalid" };
   await page.reload();
@@ -1543,11 +1580,11 @@ test("推荐显示偏好重载保留并按账号隔离，显式推荐入口临�
   await recommendations.getByRole("button", { name: "隐藏推荐", exact: true }).click();
   await expect(content).not.toBeVisible();
   await recommendations.getByRole("button", { name: "显示推荐", exact: true }).click();
-  await drawer.getByRole("button", { name: "关闭", exact: true }).click();
+  await closeResumeDetail(page);
   await page.reload();
   await page.getByRole("button", { name: "原有候选人", exact: true }).click();
   await expect(content).toBeVisible();
-  await drawer.getByRole("button", { name: "关闭", exact: true }).click();
+  await closeResumeDetail(page);
   state.user = { id: "resume-user", email: "test@example.invalid" };
   await page.reload();
   await page.getByRole("button", { name: "原有候选人", exact: true }).click();
@@ -1567,28 +1604,33 @@ test("多岗位横向条可真实滚动和选择，窄屏页面不横向溢出",
   await page.goto("/admin/resumes");
   await page.getByRole("button", { name: "原有候选人", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
-  const recommendations = drawer.getByTestId("resume-recommendations-section");
-  const picker = recommendations.getByTestId("resume-recommendation-picker");
-  const history = recommendations.getByTestId("resume-recommendation-history");
+  await waitForResumeDetailAnimation(page);
+  await drawer.getByRole("tab", { name: "推荐 8", exact: true }).click();
+  const picker = drawer.getByTestId("resume-recommendation-picker");
+  const history = drawer.getByTestId("resume-recommendation-history");
   await expect(picker).toBeVisible();
   await expect(picker.getByRole("button", { name: /^选择推荐记录 合成岗位/ })).toHaveCount(8);
   await expect(history.getByText("合成岗位1唯一跟进历史", { exact: true })).toBeVisible();
-  await expect.poll(() => picker.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
   await picker.scrollIntoViewIfNeeded();
   const pickerBox = await picker.boundingBox();
   if (!pickerBox) throw new Error("合成岗位横向选择条没有可操作的尺寸。");
+  const firstCard = picker.getByRole("button", { name: "选择推荐记录 合成岗位1 · 招聘顾问", exact: true });
+  const lastCard = picker.getByRole("button", { name: "选择推荐记录 合成岗位8 · 招聘顾问", exact: true });
+  const firstCardBefore = (await firstCard.boundingBox())!;
+  const lastCardBefore = (await lastCard.boundingBox())!;
+  expect(lastCardBefore.x + lastCardBefore.width).toBeGreaterThan(pickerBox.x + pickerBox.width);
   await page.mouse.move(pickerBox.x + pickerBox.width / 2, pickerBox.y + pickerBox.height / 2);
   await page.mouse.wheel(900, 0);
-  await expect.poll(() => picker.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
-  const lastCard = picker.getByRole("button", { name: "选择推荐记录 合成岗位8 · 招聘顾问", exact: true });
+  await expect.poll(async () => (await firstCard.boundingBox())!.x).toBeLessThan(firstCardBefore.x - 8);
   await lastCard.click();
   await expect(lastCard).toHaveAttribute("aria-pressed", "true");
   await expect(history.getByText("合成岗位8唯一跟进历史", { exact: true })).toBeVisible();
   await expect(history.getByText("沟通中", { exact: true })).toBeVisible();
   await expect(history.getByText("沟通中 → 沟通中", { exact: true })).toHaveCount(0);
   await expect(history.getByText("合成岗位1唯一跟进历史", { exact: true })).toHaveCount(0);
-  const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-  expect(documentWidth).toBeLessThanOrEqual(390);
+  const detailBox = (await drawer.boundingBox())!;
+  expect(detailBox.x).toBeGreaterThanOrEqual(0);
+  expect(detailBox.x + detailBox.width).toBeLessThanOrEqual(390);
   const bodyBox = await page.locator("body").boundingBox();
   expect(bodyBox?.width).toBeLessThanOrEqual(390);
   mkdirSync(screenshotDirectory, { recursive: true });

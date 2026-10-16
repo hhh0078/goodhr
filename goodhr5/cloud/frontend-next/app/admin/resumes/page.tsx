@@ -1,12 +1,13 @@
 /** 文件作用说明：提供紧凑候选人简历库，支持多条件查询、手动维护、本地 AI 导入、备注及人工推荐。 */
 "use client";
-import { Avatar, Button, Drawer, Empty, Flex, Input, Pagination, Select, Space, Table, Tag, Typography } from "antd";
+import { Avatar, Button, Empty, Flex, Input, Pagination, Select, Space, Table, Tag, Typography } from "antd";
 import { FilterOutlined, PlusOutlined, SafetyCertificateOutlined, SearchOutlined, SettingOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import AdminDialog from "@/components/admin/AdminDialog";
 import ExtensionPairApproval from "@/components/admin/ExtensionPairApproval";
 import ResumeFolderManager from "@/components/admin/resumes/ResumeFolderManager";
 import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
@@ -100,7 +101,7 @@ export default function ResumesPage() {
   /** resetFilters 清空筛选，恢复第一页，不清空任何简历。 */
   function resetFilters() { const empty = readFilters(new URLSearchParams()); setFilters(empty); navigateQuery(empty); }
   /** openDetails 在抽屉中阅读，保留当前查询和分页。 */
-  function openDetails(item: Resume, tab = "notes") { setDetail({ id: item.id, name: item.candidate_name, engagementID: item.engagement_id, tab }); }
+  function openDetails(item: Resume, tab = "resume") { setDetail({ id: item.id, name: item.candidate_name, engagementID: item.engagement_id, tab }); }
   /** selectFolder 立即筛选并按账号记录最近点击顺序，关闭缓存时仍可正常筛选。 */
   function selectFolder(id: string) {
     if (id) {
@@ -171,15 +172,15 @@ export default function ResumesPage() {
         { title: "岗位 / 推荐", key: "recommendation", width: 160, render: (_, item) => <Flex vertical gap={3}>{item.recommendations?.[0] ? <><Button type="link" className={styles.inlineButton} onClick={() => openDetails(item, "recommendations")}>{item.recommendations[0].position_name || "历史岗位"}</Button><Typography.Text type="secondary" className={styles.meta}>{stageLabel(item.recommendations[0].stage)}</Typography.Text></> : item.position_name ? <Typography.Text type="secondary" className={styles.meta}>自动任务 · {item.position_name}</Typography.Text> : <Typography.Text type="secondary" className={styles.meta}>还未推荐</Typography.Text>}</Flex> },
         { title: "最新备注", key: "note", width: 240, render: (_, item) => { const note = item.latest_note || item.notes?.[0]; return <Button type="text" className={styles.noteButton} onClick={() => openDetails(item, "notes")}><Flex vertical gap={3}><Typography.Paragraph ellipsis={{ rows: 2, tooltip: note?.content }} className={styles.cellText}>{note?.content || "还没备注，点这里记一条"}</Typography.Paragraph>{note ? <Typography.Text type="secondary" className={styles.meta} title={note.created_at ? `保存于 ${recordTime(note.created_at)}` : undefined}>{note.author_name || note.author_email || "未记录操作人"} · {(note.occurred_at || note.created_at) ? recordTime(note.occurred_at || note.created_at) : ""}</Typography.Text> : null}</Flex></Button>; } },
         { title: "创建时间", key: "created_at", width: 190, render: (_, item) => <Flex vertical gap={3}><Typography.Text className={styles.meta}>{recordTime(item.created_at)}</Typography.Text><Space wrap size={[2, 2]}><Tag>{sourceLabel(item.source_type, item.platform_id)}</Tag>{item.platform_id ? <Tag>{sourceLabel(item.platform_id)}</Tag> : null}{(item.sources?.length || 0) > 1 ? <Typography.Text className={styles.meta}>{item.sources!.length} 个来源</Typography.Text> : null}</Space><Typography.Text type="secondary" ellipsis={{ tooltip: item.creator_name || item.user_email }} className={styles.meta}>{item.creator_name || item.user_email || "创建人待补充"}</Typography.Text></Flex> },
-        { title: "操作", key: "actions", width: 80, fixed: "right", render: (_, item) => isReadOnlyResume(item) ? <Typography.Text type="secondary" className={styles.meta}>只读示例</Typography.Text> : <Flex vertical gap={0} className={styles.rowActions}><Button type="link" size="small" onClick={() => openDetails(item, "notes")}>备注</Button><Button type="link" size="small" onClick={() => openDetails(item, "recommendations")}>推荐</Button><Button type="link" size="small" title="面试入口稍后安排">面试</Button></Flex> },
+        { title: "操作", key: "actions", width: 80, fixed: "right", render: (_, item) => isReadOnlyResume(item) ? <Typography.Text type="secondary" className={styles.meta}>只读示例</Typography.Text> : <Flex vertical gap={0} className={styles.rowActions}><Button type="link" size="small" onClick={() => openDetails(item, "notes")}>备注</Button><Button type="link" size="small" onClick={() => openDetails(item, "recommendations")}>推荐</Button><Button type="link" size="small" onClick={() => openDetails(item, "recruitment")}>面试</Button></Flex> },
       ]} />
       <Flex wrap gap={12} justify="space-between" align="center" className={`goodhr-table-pagination ${styles.pagination}`}><Typography.Text type="secondary">共 {realTotal} 份简历{builtinTotal ? ` · 另有 ${builtinTotal} 份内置示例` : ""}</Typography.Text><Pagination current={page} total={total} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateQuery(appliedFilters, size !== pageSize ? 1 : next, size)} /></Flex>
     </SectionPanel>
     <ResumeAddDialog open={chooserOpen} initialTaskID={params.get("resume_import_id") || ""} positions={positions} onClose={closeAdd} onChanged={refreshLibrary} onSaved={(item) => { closeAdd(); refreshLibrary(); openDetails(item); }} />
     <ResumeFolderManager open={folderManagerOpen} onClose={() => setFolderManagerOpen(false)} onChanged={refreshLibrary} />
     <ResumeLibrarySettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-    <Drawer open={Boolean(detail)} onClose={() => setDetail(null)} size="large" title={detail?.name || "简历详情"} destroyOnHidden extra={detail ? <Link href={`/admin/resumes/detail?candidate_id=${encodeURIComponent(detail.id)}${detail.engagementID ? `&engagement_id=${encodeURIComponent(detail.engagementID)}` : ""}&return_to=${encodeURIComponent(`/admin/resumes?${queryText}`)}`}>单独打开</Link> : null} styles={{ wrapper: { width: "min(1280px, 96vw)" } }}>
-      {detail ? <ResumeWorkspace candidateID={detail.id} engagementID={detail.engagementID} initialTab={detail.tab} positions={positions} onChanged={refreshLibrary} /> : null}
-    </Drawer>
+    <AdminDialog variant="detail" open={Boolean(detail)} onClose={() => setDetail(null)} title={detail?.name || "简历详情"} showCancel={false}>
+      {detail ? <><Link className={styles.standaloneLink} href={`/admin/resumes/detail?candidate_id=${encodeURIComponent(detail.id)}${detail.engagementID ? `&engagement_id=${encodeURIComponent(detail.engagementID)}` : ""}&return_to=${encodeURIComponent(`/admin/resumes?${queryText}`)}`}>单独打开</Link><ResumeWorkspace candidateID={detail.id} engagementID={detail.engagementID} initialTab={detail.tab} positions={positions} onChanged={refreshLibrary} /></> : null}
+    </AdminDialog>
   </>;
 }

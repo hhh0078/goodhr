@@ -9,10 +9,10 @@ import ApplicationDialog from "./ApplicationDialog";
 import StartRecruitmentDialog from "./StartRecruitmentDialog";
 
 /** ResumeRecruitmentPanel 仅展开后读取进程，不干扰已有备注、推荐显示偏好和自动任务。 */
-export default function ResumeRecruitmentPanel({ candidate, positions, positionID = "" }: { candidate: Resume; positions: PositionOption[]; positionID?: string }) {
+export default function ResumeRecruitmentPanel({ candidate, positions, positionID = "", initiallyExpanded = false }: { candidate: Resume; positions: PositionOption[]; positionID?: string; initiallyExpanded?: boolean }) {
 
   const { notify } = useAdmin();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const [applications, setApplications] = useState<RecruitmentApplication[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

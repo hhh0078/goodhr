@@ -1,6 +1,6 @@
 /** 文件作用说明：展示候选人针对岗位的独立招聘进度，安排面试、收集评价、审核、推进和发送邮件。 */
 "use client";
-import { Alert, Button, Collapse, Descriptions, Empty, Flex, Form, Input, InputNumber, Select, Space, Steps, Table, Tag, Timeline, Typography } from "antd";
+import { Alert, Button, Descriptions, Flex, Form, Input, InputNumber, Select, Space, Steps, Table, Tabs, Tag, Timeline, Typography } from "antd";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import AdminDialog from "../AdminDialog";
@@ -9,6 +9,11 @@ import { formatDate } from "@/lib/admin-api";
 import { actRecruitmentApplication, loadRecruitmentApplication, loadRecruitmentWorkflows, recruitmentMemberOptions, recruitmentEventText, recruitmentRequest, recruitmentStatusLabel, type RecruitmentApplication, type RecruitmentDelivery, type RecruitmentInterview, type RecruitmentMailTemplate, type RecruitmentMember, type RecruitmentNode } from "@/lib/recruitment-api";
 import RecruitmentMailDialog from "./RecruitmentMailDialog";
 import CandidateProjection from "./CandidateProjection";
+import RecruitmentInterviewTimeline from "./RecruitmentInterviewTimeline";
+import { ResumeCandidateHeader } from "../resumes/ResumeProfile";
+import { addResumeNote, loadResumeNotes } from "@/lib/resume-api";
+import { recordTime, type ResumeNote } from "@/lib/resume-types";
+import styles from "./recruitment-detail.module.css";
 
 /** localInputDate 将有效日期换成当前浏览器可编辑的本地时间，坏值安全回退为空。 */
 function localInputDate(value?: string) {
@@ -44,6 +49,13 @@ export default function ApplicationDialog({ applicationID, onClose, onChanged }:
   const [assignment, setAssignment] = useState<RecruitmentNode | null>(null);
   const [mailOpen, setMailOpen] = useState(false);
   const [mailInterviewID, setMailInterviewID] = useState("");
+  const [tab, setTab] = useState("interviews");
+  const [notes, setNotes] = useState<ResumeNote[]>([]);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteError, setNoteError] = useState("");
+  const noteSaving = useRef(false);
+  const noteKey = useRef("");
   const generation = useRef(0);
   const saving = useRef(false);
   /** load 获取最新流程、人员和邮件结果，旧候选人的晚回包不会落到新对话中。 */
@@ -75,6 +87,14 @@ export default function ApplicationDialog({ applicationID, onClose, onChanged }:
         if (current === generation.current) notify(cause instanceof Error ? cause.message : "邮件记录没读出来", "warning");
       }
     } else setHistory([]);
+    if (detail.status === "fulfilled" && detail.value.permissions?.can_manage && detail.value.permissions?.can_view_resume) {
+      try {
+        const entries = await loadResumeNotes(detail.value.candidate_id);
+        if (current === generation.current) { setNotes(entries); setNoteError(""); }
+      } catch (cause) {
+        if (current === generation.current) setNoteError(cause instanceof Error ? cause.message : "备注暂时没读出来，可以重新打开重试。");
+      }
+    } else if (current === generation.current) { setNotes([]); setNoteError(""); }
     if (current === generation.current) setLoading(false);
   }
 
@@ -83,6 +103,13 @@ export default function ApplicationDialog({ applicationID, onClose, onChanged }:
     setApplication(null);
     setEditor("");
     setMailOpen(false);
+    setTab("interviews");
+    setNotes([]);
+    setNoteDraft("");
+    setNoteError("");
+    setNoteBusy(false);
+    noteSaving.current = false;
+    noteKey.current = crypto.randomUUID();
     void load();
     return () => {
 
@@ -93,7 +120,7 @@ export default function ApplicationDialog({ applicationID, onClose, onChanged }:
 
   async function act(action: string, payload: Record<string, unknown> = {}) {
 
-    if (!application || saving.current) return false;
+    if (!application || saving.current || noteSaving.current) return false;
     saving.current = true;
     setBusy(true);
     try {
@@ -207,179 +234,50 @@ export default function ApplicationDialog({ applicationID, onClose, onChanged }:
     if (await confirm(title, description)) await act(action, payload);
   }
 
-  return <><AdminDialog
-    open={Boolean(applicationID)}
-    title={application ? `${application.candidate_name} · ${application.position_name}` : "招聘进度"}
-    maxWidth="lg"
-    loading={loading}
-    onClose={onClose}
-    cancelText="关闭">
-    {error ? <Alert type="warning" title={error} action={<Button onClick={() => void load()}>重试</Button>} /> : null}
-    {application ? <><Descriptions
-      size="small"
-      column={{ xs: 1, sm: 2, lg: 3 }}
-      items={[
-        {
-
-          key: "status",
-          label: "状态",
-          children: <Tag>
-            {recruitmentStatusLabel(application.status)}
-          </Tag>
-        },
-        {
-
-          key: "workflow",
-          label: "流程",
-          children: `${application.workflow_name} · v${application.workflow_version}`
-        },
-        { key: "owner", label: "招聘负责人", children: application.owner_email || "待分配" },
-        { key: "stage", label: "当前节点", children: node?.name || application.stage || "已结束" },
-        {
-
-          key: "email",
-          label: "候选人邮箱",
-          children: application.candidate?.email || "暂无可用邮箱，请先补充简历资料"
-        },
-        {
-
-          key: "resume",
-          label: "简历",
-          children: permissions?.can_view_resume ? <Link href={`/admin/resumes/detail?candidate_id=${encodeURIComponent(application.candidate_id)}`}>查看完整简历</Link> : "下方招聘资料可查看"
-        }
-      ]} />
-      <Flex justify="space-between" gap={8} wrap style={{ marginBlock: 8 }}>
-        <Typography.Text type="secondary">
-          {unreadNotifications.length ? `有 ${unreadNotifications.length} 条发给我的新进度，展开操作记录可查看。` : "我的进度通知已读完。"}
-        </Typography.Text>
-        {unreadNotifications.length ? <Button size="small" disabled={busy} onClick={() => void act("read_notifications")}>标记通知已读</Button> : null}
-      </Flex><Steps
-        size="small"
-        current={application.current_node}
-        style={{ marginBlock: 16 }}
-        items={(application.nodes || []).map((item) => ({ title: item.name, status: item.status === "completed" ? "finish" : undefined }))} />
-      <Flex gap={8} wrap style={{ marginBottom: 16 }}>
-        {active && permissions?.can_schedule && node?.type === "interview" ? <Button type="primary" disabled={busy} onClick={() => openSchedule()}>安排面试</Button> : null}
-        {active && permissions?.can_approve ? <Button disabled={busy} onClick={() => openOpinion("approve")}>提交审核</Button> : null}
-        {active && permissions?.can_advance ? <Button
-          type="primary"
-          disabled={busy}
-          onClick={() => void confirmAction("advance", "推进招聘节点", `确认完成“${node?.name || application.stage}”并推进吗？`)}>推进下一步</Button> : null}
-        {active && permissions?.can_manage ? <>{permissions.can_assign ? <Button
-          disabled={busy}
-          onClick={() => {
-
-            setAssignment(node ? { ...node } : null);
-            setEditor("assign");
-          }}>调整节点人员</Button> : null}{application.current_node > 0 ? <Button
-            disabled={busy}
-            onClick={() => {
-
-              setTarget(application.current_node - 1);
-              setContent("");
-              setEditor("return");
-            }}>退回节点</Button> : null}<Button
-              disabled={busy}
-              onClick={() => {
-
-                setEntryDate(application.entry_date || "");
-                setEditor("entry");
-              }}>登记入职日期</Button><Button
-                danger
-                disabled={busy}
-                onClick={() => {
-
-                  setDecision("rejected");
-                  setContent("");
-                  setEditor("end");
-                }}>结束招聘</Button></> : null}
-        {(permissions?.can_manage || permissions?.can_schedule || permissions?.can_advance) ? <Button
-          disabled={busy || !templates.length}
-          onClick={() => {
-
-            setMailInterviewID("");
-            setMailOpen(true);
-          }}>预览并发送邮件</Button> : null}
-      </Flex>
-      {node ? <Alert
-        type="info"
-        title={`负责人：${node.owner_email || application.owner_email || "待分配"}；审核人：${node.approver_emails?.join("、") || (node.type === "approval" ? "负责人审核" : "无需额外审核")}${node.approver_emails?.length ? node.approval_mode === "any" ? "（任一通过）" : "（全部通过）" : ""}；内部抄送：${node.cc_emails?.join("、") || "无"}`}
-        style={{ marginBottom: 12 }} /> : null}
-      <Collapse
-        defaultActiveKey={["interviews"]}
+  /** saveNote 仅在招聘管理和完整简历权限同时具备时追加既有备注，失败保留草稿。 */
+  async function saveNote() {
+    if (!application || !permissions?.can_manage || !permissions.can_view_resume || !noteDraft.trim() || noteSaving.current || busy) return;
+    const current = generation.current;
+    noteSaving.current = true; setNoteBusy(true);
+    try {
+      const saved = await addResumeNote(application.candidate_id, noteDraft.trim(), noteKey.current);
+      if (current !== generation.current) return;
+      setNotes((entries) => [saved, ...entries.filter((entry) => entry.id !== saved.id)]);
+      setNoteDraft(""); setNoteError(""); noteKey.current = crypto.randomUUID();
+      notify("备注记好了。", "success"); onChanged?.();
+    } catch (cause) {
+      if (current === generation.current) notify(cause instanceof Error ? cause.message : "备注没保存成功，内容还在，可以再试一次。", "error");
+    } finally {
+      if (current === generation.current) { noteSaving.current = false; setNoteBusy(false); }
+    }
+  }
+  const canUseNotes = Boolean(permissions?.can_manage && permissions.can_view_resume);
+  return <><AdminDialog open={Boolean(applicationID)} title={application ? `${application.candidate_name} · ${application.position_name}` : "招聘进度"} variant="detail" maxWidth="xl" loading={loading || busy || noteBusy} showCancel={false} onClose={onClose}>
+    {!application && error ? <Alert type="warning" title={error} action={<Button onClick={() => void load()}>重试</Button>} /> : null}
+    {application ? <div className={styles.detailLayout} data-testid="recruitment-detail-layout">
+      <main className={styles.detailMain} data-testid="recruitment-detail-main">
+        <header className={styles.candidateHeader}>
+          <div className={styles.positionBar}><Tag>{application.position_name || "历史岗位"}</Tag><Typography.Text type="secondary">{application.workflow_name} · v{application.workflow_version}</Typography.Text></div>
+          <ResumeCandidateHeader candidate={application.candidate || { id: application.candidate_id, candidate_name: application.candidate_name, email: application.candidate_email }} showTags headerActions={permissions?.can_view_resume ? <Link href={`/admin/resumes/detail?candidate_id=${encodeURIComponent(application.candidate_id)}`}>查看完整简历</Link> : null} />
+        </header>
+        {error ? <Alert className={styles.detailError} type="warning" title={error} action={<Button disabled={noteBusy} onClick={() => void load()}>重试</Button>} /> : null}
+        <Tabs
+        activeKey={tab}
+        onChange={setTab}
+        className={styles.detailTabs}
+        classNames={{ header: styles.tabsHeader, body: styles.tabsBody }}
         items={[
           {
 
             key: "candidate",
-            label: "招聘资料",
+            label: "简历",
             children: <CandidateProjection candidate={application.candidate} />
           },
           {
 
             key: "interviews",
-            label: `面试安排 · ${application.interviews?.length || 0}`,
-            children: (application.interviews || []).length ? <Flex vertical gap={12}>
-              {application.interviews.map((item) => <div
-                key={item.id}
-                style={{ paddingBottom: 12, borderBottom: "1px solid var(--ant-color-border-secondary, #eee)" }}>
-                <Flex justify="space-between" gap={8} wrap>
-                  <Space wrap>
-                    <Typography.Text strong>
-                      {formatDate(item.starts_at)} ·
-                      {item.duration_minutes} 分钟
-                    </Typography.Text>
-                    <Tag>
-                      {recruitmentStatusLabel(item.status)}
-                    </Tag>
-                    <Tag color={item.confirmation === "confirmed" ? "success" : undefined}>
-                      {recruitmentStatusLabel(item.confirmation)}
-                    </Tag>
-                  </Space>
-                  <Space wrap>
-                    {active && permissions?.can_schedule && item.node_id === node?.id && item.attempt === node?.attempt && item.status !== "cancelled" && item.status !== "completed" ? <><Button size="small" disabled={busy} onClick={() => openSchedule(item)}>改期</Button><Button
-                      size="small"
-                      disabled={busy || new Date(item.starts_at).getTime() > Date.now()}
-                      title="面试开始后才可登记完成"
-                      onClick={() => void confirmAction("complete_interview", "登记面试完成", "确认这场面试已经完成吗？候选人确认参加和实际面试完成会分开记录。", { interview_id: item.id })}>完成面试</Button><Button
-                        size="small"
-                        danger
-                        disabled={busy}
-                        onClick={() => void confirmAction("cancel_interview", "取消面试", "取消这场面试后，旧确认链接将不能继续使用。需要另发取消通知时，可以选择取消邮件模板。", { interview_id: item.id, note: "HR 取消面试" })}>取消面试</Button></> : null}
-                    {active && permissions?.can_manage && item.node_id === node?.id && item.attempt === node?.attempt && item.status !== "cancelled" ? <Button
-                      size="small"
-                      disabled={busy}
-                      onClick={() => {
-
-                        setInterview(item);
-                        setInterviewers(item.interviewer_emails || []);
-                        setEditor("interviewers");
-                      }}>转交面试官</Button> : null}
-                    {active && permissions?.can_feedback && item.node_id === node?.id && item.attempt === node?.attempt && item.interviewer_emails?.includes(user?.email) && item.status !== "cancelled" ? <Button
-                      size="small"
-                      disabled={busy || new Date(item.starts_at).getTime() > Date.now()}
-                      title="面试开始后才可填写评价"
-                      onClick={() => openOpinion("feedback", item)}>写面试评价</Button> : null}
-                    {(permissions?.can_manage || permissions?.can_schedule) ? <Button
-                      size="small"
-                      disabled={busy || !templates.length}
-                      onClick={() => {
-
-                        setMailInterviewID(item.id);
-                        setMailOpen(true);
-                      }}>发送通知</Button> : null}
-                  </Space>
-                </Flex>
-                <Typography.Paragraph type="secondary" style={{ marginBlock: 6 }}>面试官：
-                  {item.interviewer_emails?.join("、") || "未分配"} ·
-                  {item.mode === "onsite" ? `现场：${item.location}` : item.mode === "phone" ? "电话面试" : `视频：${item.meeting_url || "待补充"}`}
-                </Typography.Paragraph>
-                {(item.feedback || []).map((feedback, index) => <Typography.Paragraph key={index} style={{ marginBottom: 4, whiteSpace: "pre-wrap" }}>
-                  {feedback.author_email} ·
-                  {recruitmentStatusLabel(feedback.conclusion)}：
-                  {feedback.content}
-                </Typography.Paragraph>)}
-              </div>)}
-            </Flex> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没安排面试。时间确认后，再给候选人发邀请。" />
+            label: `面试 ${application.interviews?.length || 0}`,
+            children: <RecruitmentInterviewTimeline application={application} members={members} userEmail={user?.email} busy={busy || noteBusy} hasTemplates={Boolean(templates.length)} onSchedule={openSchedule} onComplete={(item) => void confirmAction("complete_interview", "登记面试完成", "确认这场面试已经完成吗？候选人确认参加和实际面试完成会分开记录。", { interview_id: item.id })} onCancel={(item) => void confirmAction("cancel_interview", "取消面试", "取消这场面试后，旧确认链接将不能继续使用。需要另发取消通知时，可以选择取消邮件模板。", { interview_id: item.id, note: "HR 取消面试" })} onTransfer={(item) => { setInterview(item); setInterviewers(item.interviewer_emails || []); setEditor("interviewers"); }} onFeedback={(item) => openOpinion("feedback", item)} onMail={(item) => { setMailInterviewID(item.id); setMailOpen(true); }} />
           },
 
           {
@@ -446,7 +344,70 @@ export default function ApplicationDialog({ applicationID, onClose, onChanged }:
               }))} />
           }
         ]} />
-    </> : null}
+      </main>
+      <aside className={styles.detailAside} data-testid="recruitment-detail-aside">
+        <section className={styles.sideCard} aria-label="流程与操作">
+          <div className={styles.sectionHeading}>招聘流程</div>
+          <div className={styles.flowSteps}><Steps size="small" responsive={false} current={application.current_node} status={application.status === "rejected" || application.status === "withdrawn" ? "error" : undefined} items={(application.nodes || []).map((item) => ({ title: item.name, status: item.status === "completed" ? "finish" : undefined }))} /></div>
+          <div className={styles.currentStage}><Typography.Text strong>{node?.name || application.stage || "已结束"}</Typography.Text><Typography.Text type="secondary">{recruitmentStatusLabel(application.status)}</Typography.Text></div>
+                <div className={styles.flowActions}>
+        {active && permissions?.can_schedule && node?.type === "interview" ? <Button type="primary" disabled={busy} onClick={() => openSchedule()}>安排面试</Button> : null}
+        {active && permissions?.can_approve ? <Button disabled={busy} onClick={() => openOpinion("approve")}>提交审核</Button> : null}
+        {active && permissions?.can_advance ? <Button
+          type="primary"
+          disabled={busy}
+          onClick={() => void confirmAction("advance", "推进招聘节点", `确认完成“${node?.name || application.stage}”并推进吗？`)}>推进下一步</Button> : null}
+        {active && permissions?.can_manage ? <>{permissions.can_assign ? <Button
+          disabled={busy}
+          onClick={() => {
+
+            setAssignment(node ? { ...node } : null);
+            setEditor("assign");
+          }}>调整节点人员</Button> : null}{application.current_node > 0 ? <Button
+            disabled={busy}
+            onClick={() => {
+
+              setTarget(application.current_node - 1);
+              setContent("");
+              setEditor("return");
+            }}>退回节点</Button> : null}<Button
+              disabled={busy}
+              onClick={() => {
+
+                setEntryDate(application.entry_date || "");
+                setEditor("entry");
+              }}>登记入职日期</Button><Button
+                danger
+                disabled={busy}
+                onClick={() => {
+
+                  setDecision("rejected");
+                  setContent("");
+                  setEditor("end");
+                }}>结束招聘</Button></> : null}
+        {(permissions?.can_manage || permissions?.can_schedule || permissions?.can_advance) ? <Button
+          disabled={busy || !templates.length}
+          onClick={() => {
+
+            setMailInterviewID("");
+            setMailOpen(true);
+          }}>预览并发送邮件</Button> : null}
+      </div>
+          <Descriptions className={styles.ownerDetails} size="small" column={1} items={[
+            { key: "owner", label: "负责人", children: node?.owner_email || application.owner_email || "待分配" },
+            { key: "approver", label: "审核人", children: node?.approver_emails?.length ? `${node.approver_emails.join("、")}（${node.approval_mode === "any" ? "任一通过" : "全部通过"}）` : node?.type === "approval" ? "负责人审核" : "无需额外审核" },
+            { key: "cc", label: "内部抄送", children: node?.cc_emails?.join("、") || "无" },
+            ...(application.entry_date ? [{ key: "entry", label: "入职日期", children: application.entry_date }] : [])
+          ]} />
+        </section>
+        <section className={styles.sideCard} aria-label={canUseNotes ? "备注与通知" : "我的通知"}>
+          <Tabs size="small" defaultActiveKey={canUseNotes ? "notes" : "notifications"} key={canUseNotes ? "notes" : "notifications"} items={[
+            ...(canUseNotes ? [{ key: "notes", label: "备注", children: <>{noteError ? <Alert type="warning" showIcon title={noteError} className={styles.noteError} /> : null}<Input.TextArea aria-label="招聘详情备注" placeholder="先记一句，方便下次接着跟进。" value={noteDraft} onChange={(event) => { setNoteDraft(event.target.value); noteKey.current = crypto.randomUUID(); }} maxLength={1000} showCount autoSize={{ minRows: 3, maxRows: 5 }} disabled={noteBusy || busy} /><div className={styles.noteSubmit}><Button type="primary" loading={noteBusy} disabled={busy || !noteDraft.trim()} onClick={() => void saveNote()}>加备注</Button></div><div className={styles.noteHistory}>{notes.length ? notes.map((entry) => <article key={entry.id} className={styles.noteEntry}><Typography.Paragraph className={styles.preWrap}>{entry.content}</Typography.Paragraph><div className={styles.meta}>{entry.author_name || entry.author_email || "未记录人员"} · {recordTime(entry.occurred_at || entry.created_at)}</div></article>) : <Typography.Text type="secondary">这里还没备注，先记一条也行。</Typography.Text>}</div></> }] : []),
+            { key: "notifications", label: `我的通知${unreadNotifications.length ? ` ${unreadNotifications.length}` : ""}`, children: <>{unreadNotifications.length ? <Button disabled={busy} onClick={() => void act("read_notifications")}>标记通知已读</Button> : null}<div className={styles.notificationHistory}>{(application.events || []).filter((event) => event.notify_emails?.includes(user?.email)).map((event, index) => <article key={event.id || index} className={styles.noteEntry}><Typography.Paragraph className={styles.preWrap}>{recruitmentEventText(event)}</Typography.Paragraph><div className={styles.meta}>{formatDate(event.created_at || "")} · {event.read_by?.includes(user?.email) ? "已读" : "未读"}</div></article>)}{!unreadNotifications.length ? <Typography.Text type="secondary">我的进度通知已读完。</Typography.Text> : null}</div></> }
+          ]} />
+        </section>
+      </aside>
+    </div> : null}
   </AdminDialog>
     <AdminDialog
       open={Boolean(editor)}

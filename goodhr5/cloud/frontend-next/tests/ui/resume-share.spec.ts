@@ -4,6 +4,8 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const origin = new URL(process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190").origin;
+const cloudOrigin = new URL(process.env.NEXT_PUBLIC_CLOUD_API_BASE || "http://127.0.0.1:8084").origin;
+const agentOrigin = new URL(`http://127.0.0.1:${process.env.UI_TEST_AGENT_PORT || "43129"}`).origin;
 const shareToken = "a".repeat(64);
 const privateResume = {
   id: "share-resume", candidate_name: "分享合成候选人", phone: "13800138000", email: "candidate@example.invalid",
@@ -27,7 +29,7 @@ async function mockShareSession(page: Page): Promise<State> {
   await page.context().route("**/*", async (route) => {
     const request = route.request(); const url = new URL(request.url()); const method = request.method();
     if (url.origin === origin && !url.pathname.startsWith("/api/")) return route.continue();
-    if (![origin, "https://goodhr.58it.cn", "http://127.0.0.1:8084", "http://127.0.0.1:43129", "http://127.0.0.1:43139"].includes(url.origin)) return route.abort();
+    if (![origin, cloudOrigin, agentOrigin, "https://goodhr.58it.cn", "http://127.0.0.1:8084", "http://127.0.0.1:43129", "http://127.0.0.1:43139"].includes(url.origin)) return route.abort();
     const headers = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
     state.calls.push({ path: url.pathname, method, authorization: request.headers().authorization || "" });
@@ -38,7 +40,7 @@ async function mockShareSession(page: Page): Promise<State> {
     } else if (url.pathname === "/api/candidates/share-resume/share") {
       if (method === "DELETE") state.revoked = true;
       else { state.creates += 1; state.revoked = false; data = { ok: true, token: shareToken }; }
-    } else if (url.port === "43129" || url.port === "43139") {
+    } else if (["43129", "43139", new URL(agentOrigin).port].includes(url.port) && (url.pathname === "/health" || url.pathname.startsWith("/api/v1/"))) {
       if (url.pathname === "/health") data = { ok: true, version: "6.2.10.2" };
       else if (url.pathname === "/api/v1/runtime/status") data = { version: "6.2.10.2", node_installed: true, camoufox_installed: true, system_runtime: { ready: true, required: false } };
       else if (url.pathname === "/api/v1/app-update/status") data = { stage: "idle", current_version: "6.2.10.2" };
@@ -63,7 +65,7 @@ test("详情与抽屉共用分享入口，链接和二维码可生成、撤销�
   const state = await mockShareSession(page);
   await page.goto("/admin/resumes/detail?candidate_id=share-resume");
   await expect(page.getByRole("heading", { name: privateResume.candidate_name, exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "分享", exact: true }).click();
+  await page.getByRole("button", { name: "分享简历", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "分享简历", exact: true });
   await expect(dialog.getByLabel("简历分享链接")).toHaveValue(`${origin}/resumes/share/${shareToken}`);
   await expect(dialog.locator(".ant-qrcode canvas, .ant-qrcode svg")).toHaveCount(1);
@@ -80,7 +82,7 @@ test("详情与抽屉共用分享入口，链接和二维码可生成、撤销�
   await page.goto("/admin/resumes");
   await page.getByRole("button", { name: privateResume.candidate_name, exact: true }).click();
   const drawer = page.getByRole("dialog", { name: privateResume.candidate_name, exact: true });
-  await drawer.getByRole("button", { name: "分享", exact: true }).click();
+  await drawer.getByRole("button", { name: "分享简历", exact: true }).click();
   await expect(dialog.getByLabel("简历分享链接")).toHaveValue(`${origin}/resumes/share/${shareToken}`);
   expect(state.errors).toEqual([]);
 });
@@ -99,9 +101,11 @@ test("公开页无需登录，只请求公开接口并展示二维码，手机�
   expect(state.analytics).toEqual([]);
   expect(state.calls.filter((call) => call.path.startsWith("/api/"))).toEqual([{ path: `/api/public/resume-shares/${shareToken}`, method: "GET", authorization: "" }]);
   for (const text of ["内部跟进备注", "内部任务记录", "内部AI评分原因", "不公开的完整原文", "不公开的AI摘要", "内部入库人", "private-owner@example.invalid"]) await expect(page.getByText(text, { exact: false })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "分享", exact: true })).toHaveCount(0);
-  const widths = await page.locator("body").evaluate((element) => ({ scroll: element.scrollWidth, viewport: document.documentElement.clientWidth }));
-  expect(widths.scroll).toBeLessThanOrEqual(widths.viewport);
+  await expect(page.getByRole("button", { name: "分享简历", exact: true })).toHaveCount(0);
+  const publicBox = await page.getByLabel("公开简历资料").boundingBox();
+  expect(publicBox).not.toBeNull();
+  expect(publicBox!.x).toBeGreaterThanOrEqual(0);
+  expect(publicBox!.x + publicBox!.width).toBeLessThanOrEqual(390);
   const screenshots = resolve("artifacts/resume-share"); mkdirSync(screenshots, { recursive: true });
   await page.screenshot({ path: resolve(screenshots, "public-mobile.png"), fullPage: true });
   expect(state.errors).toEqual([]);

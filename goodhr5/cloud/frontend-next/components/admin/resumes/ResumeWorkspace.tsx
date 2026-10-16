@@ -1,21 +1,27 @@
 /** 文件作用说明：共用简历详情工作区，展示结构化简历、通用备注、人工推荐及自动任务记录。 */
 "use client";
-import { Alert, Button, Collapse, Empty, Flex, Input, Radio, Select, Skeleton, Space, Tag, Timeline, Typography } from "antd";
+import { Alert, Button, Collapse, Empty, Flex, Input, Radio, Select, Skeleton, Space, Steps, Tabs, Tag, Timeline, Typography } from "antd";
 import { EditOutlined, PlusOutlined, ShareAltOutlined } from "@ant-design/icons";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, loadRecommendations, loadResume, loadResumeNotes } from "@/lib/resume-api";
 import { formatDate } from "@/lib/admin-api";
-import { isReadOnlyResume, recommendationStages, recordTime, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeNote } from "@/lib/resume-types";
+import { isReadOnlyResume, latestRecommendationEvent, recommendationStages, recordTime, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeNote } from "@/lib/resume-types";
 import ResumeEditor from "./ResumeEditor";
 import ResumeSummaryDialog from "./ResumeSummaryDialog";
 import ResumeRecruitmentPanel from "../recruitment/ResumeRecruitmentPanel";
-import ResumeProfile from "./ResumeProfile";
+import ResumeProfile, { ResumeCandidateHeader } from "./ResumeProfile";
 import ResumeShareDialog from "./ResumeShareDialog";
 import styles from "./resumes.module.css";
+import detailStyles from "./resume-detail.module.css";
+
+/** entryTab 把历史入口映射到详情标签，备注入口始终保留右侧备注区。 */
+function entryTab(value: string) {
+  return ["recommendations", "automation", "recruitment"].includes(value) ? value : "resume";
+}
 
 /** ResumeWorkspace 在详情地址与抽屉间复用同一候选人记录和维护入口。 */
-export default function ResumeWorkspace({ candidateID, engagementID = "", positions, initialTab = "notes", initialPositionID = "", onChanged }: {
+export default function ResumeWorkspace({ candidateID, engagementID = "", positions, initialTab = "resume", initialPositionID = "", onChanged }: {
   candidateID: string; engagementID?: string; positions: PositionOption[]; initialTab?: string; initialPositionID?: string; onChanged?: () => void;
 }) {
   const { notify, user } = useAdmin();
@@ -28,6 +34,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   const [notes, setNotes] = useState<ResumeNote[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState(entryTab(initialTab));
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -47,11 +54,8 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   const candidateScope = useRef(0);
   const noteSaving = useRef(false);
   const recommendationSaving = useRef(false);
-  const pendingSection = useRef(initialTab);
-  const lastEntrySection = useRef(initialTab);
   const notesSection = useRef<HTMLElement>(null);
-  const recommendationsSection = useRef<HTMLElement>(null);
-  const automationSection = useRef<HTMLElement>(null);
+  const pendingNotesEntry = useRef(initialTab === "notes");
   const recommendationsVisible = (recommendationPreference.account === accountIdentity ? recommendationPreference.visible : true) || recommendationEntryScope === recommendationEntryKey;
   // 初始化只读偏好，写入仅由明确切换按钮触发，避免首次渲染用默认值覆盖已保存的隐藏设置。
   useEffect(() => {
@@ -94,18 +98,15 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
     setStage(recommendations.find((item) => item.position_id === initial)?.stage || "draft");
   }, [loading, recommendations]);
   useEffect(() => {
-    pendingSection.current = initialTab === "notes" && lastEntrySection.current === initialTab ? "" : initialTab;
-    lastEntrySection.current = initialTab;
+    setActiveTab(entryTab(initialTab));
+    pendingNotesEntry.current = initialTab === "notes";
   }, [candidateID, engagementID, initialTab, accountIdentity]);
-  // 仅响应候选人或入口变化；保存后的读取不重新滚动，也不影响默认打开时阅读姓名和正文。
+  // 备注入口在手机上直接定位到备注卡；保存和重新读取后不打断当前阅读位置。
   useEffect(() => {
-    if (loading || candidate?.id !== candidateID || !pendingSection.current) return;
-    const target = pendingSection.current;
-    pendingSection.current = "";
-    if (target === "recommendations") recommendationsSection.current?.scrollIntoView({ block: "start" });
-    else if (target === "automation") automationSection.current?.scrollIntoView({ block: "start" });
-    else if (target === "notes") notesSection.current?.scrollIntoView({ block: "start" });
-  }, [candidate, loading, candidateID, engagementID, initialTab]);
+    if (loading || candidate?.id !== candidateID || !pendingNotesEntry.current) return;
+    pendingNotesEntry.current = false;
+    notesSection.current?.scrollIntoView({ block: "start" });
+  }, [loading, candidate, candidateID, initialTab]);
   /** saveNote 只新增通用备注，失败时保留正文供重试。 */
   async function saveNote() {
     if (readOnly || !note.trim() || noteSaving.current) return;
@@ -133,6 +134,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
       // 保存回包已包含完整推进历史，直接更新关系，避免后续读取失败被误认为没有保存。
       setRecommendations((current) => [saved, ...current.filter((item) => item.position_id !== saved.position_id)]);
       setRecommendationNote(""); recommendationKey.current = crypto.randomUUID();
+      setActiveTab("recommendations");
       notify(stage === "draft" ? "岗位已关联，等你明确推荐时再记推荐动作。" : "推荐和跟进记录已记好。", "success"); onChanged?.();
     } catch (cause) { if (currentScope === candidateScope.current) notify(cause instanceof Error ? cause.message : "推荐没记上，请重试。", "error"); }
     finally { if (currentScope === candidateScope.current) { recommendationSaving.current = false; setRecommendationBusy(false); } }
@@ -141,6 +143,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   function selectRecommendationPosition(value: string) {
     if (readOnly || recommendationSaving.current || value === positionID) return;
     setPositionID(value); setStage(recommendations.find((item) => item.position_id === value)?.stage || "draft");
+    setActiveTab("recommendations");
     setRecommendationNote(""); recommendationKey.current = crypto.randomUUID();
   }
   /** editRecommendation 选择已有关系，保留当前岗位草稿，不复制旧备注或自动提交。 */
@@ -163,55 +166,77 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
   const selectedRecommendation = recommendations.find((item) => item.position_id === positionID);
   const historyRecommendation = selectedRecommendation || (!positionID ? recommendations[0] : undefined);
   const recommendationChanged = Boolean(positionID && (!selectedRecommendation || selectedRecommendation.stage !== stage || recommendationNote.trim()));
+  const timelineStage = historyRecommendation?.stage || "draft";
+  const progressStages = recommendationStages.filter((item) => item.value !== "paused");
+  const progressStage = timelineStage === "paused" ? latestRecommendationEvent(historyRecommendation?.events)?.from_stage || "draft" : timelineStage;
+  const currentStage = Math.max(0, progressStages.findIndex((item) => item.value === progressStage));
   return <>
-    {readOnly ? <Alert type="info" showIcon title="管理员内置的只读示例，资料仅供演示，不能修改或删除。" style={{ marginBottom: 10 }} data-testid="resume-builtin-notice" /> : null}
-    {error ? <Alert type="warning" title={error} action={<Button size="small" onClick={() => void reload()}>重试读取</Button>} style={{ marginBottom: 12 }} /> : null}
-    <div className={styles.workspace} data-testid="resume-detail-layout">
-      <div className={styles.resumeBody} data-testid="resume-detail-main">
-        <ResumeProfile candidate={candidate} showTags headerActions={readOnly ? null : <Space size={4} wrap><Button icon={<ShareAltOutlined aria-hidden="true" />} onClick={() => { if (!readOnly) setShareOpen(true); }}>分享</Button><Button icon={<EditOutlined aria-hidden="true" />} onClick={() => { if (!readOnly) setEditing(true); }}>编辑</Button></Space>} />
-        <section className={styles.resumeSection}><Flex gap={8} justify="space-between" align="center" wrap><Typography.Title level={5} style={{ margin: 0 }}>AI 简历摘要</Typography.Title><Button size="small" disabled={readOnly} onClick={() => { if (!readOnly) setSummaryOpen(true); }}>生成摘要</Button></Flex>{candidate.ai_summary ? <Typography.Paragraph className={styles.preWrap} style={{ marginTop: 6 }}>{candidate.ai_summary}</Typography.Paragraph> : <Typography.Text type="secondary">{readOnly ? "内置示例不调用AI生成摘要。" : "还没有摘要，点一下让本地AI帮忙整理。"}</Typography.Text>}</section>
-        {candidate.raw_text ? <Collapse size="small" items={[{ key: "raw", label: "查看完整简历正文", children: <Typography.Paragraph className={styles.preWrap}>{candidate.raw_text}</Typography.Paragraph> }]} style={{ marginTop: 10 }} /> : null}
-        <section className={styles.resumeSection}><Typography.Text type="secondary">{sourceLabel(candidate.source_type, candidate.platform_id)} · 入库人：{candidate.creator_name || candidate.user_email || "暂时没记上"} · {candidate.created_at ? formatDate(candidate.created_at) : "入库时间待补充"}</Typography.Text>
-          {(candidate.sources || []).map((source, index) => <div key={`${source.platform_id}-${index}`}><Typography.Text type="secondary">{source.source_type ? sourceLabel(source.source_type, source.platform_id) : sourceLabel(source.platform_id)}{source.source_url ? " · " : ""}</Typography.Text>{source.source_url && /^https?:\/\//.test(source.source_url) ? <a href={source.source_url} target="_blank" rel="noopener noreferrer">查看原页面</a> : null}</div>)}
+    <div className={detailStyles.workspace} data-testid="resume-detail-layout">
+      <main className={detailStyles.main} data-testid="resume-detail-main">
+        {readOnly ? <Alert type="info" showIcon title="管理员内置的只读示例，资料仅供演示，不能修改或删除。" data-testid="resume-builtin-notice" /> : null}
+        {error ? <Alert type="warning" title={error} action={<Button onClick={() => void reload()}>重试读取</Button>} /> : null}
+        <div className={detailStyles.candidateTop}>
+          <Flex align="center" justify="space-between" gap={8} wrap className={detailStyles.context}>
+            <Space size={6} wrap><Tag>{sourceLabel(candidate.source_type, candidate.platform_id)}</Tag>{historyRecommendation ? <Tag>{historyRecommendation.position_name || "历史岗位"}</Tag> : null}</Space>
+            <Typography.Text type="secondary" className={styles.meta}>{candidate.created_at ? "入库于 " + formatDate(candidate.created_at) : "入库时间待补充"}</Typography.Text>
+          </Flex>
+          <ResumeCandidateHeader candidate={candidate} showTags headerActions={readOnly ? null : <Button type="text" icon={<EditOutlined aria-hidden="true" />} onClick={() => setEditing(true)}>编辑</Button>} />
+        </div>
+        <Tabs activeKey={activeTab} onChange={setActiveTab} className={detailStyles.tabs} items={[
+          { key: "resume", label: "简历", children: <>
+            <ResumeProfile candidate={candidate} hideHeader />
+            <section className={styles.resumeSection}><Flex gap={8} justify="space-between" align="center" wrap><Typography.Title level={5} style={{ margin: 0 }}>AI 简历摘要</Typography.Title><Button disabled={readOnly} onClick={() => { if (!readOnly) setSummaryOpen(true); }}>生成摘要</Button></Flex>{candidate.ai_summary ? <Typography.Paragraph className={styles.preWrap} style={{ marginTop: 8 }}>{candidate.ai_summary}</Typography.Paragraph> : <Typography.Text type="secondary">{readOnly ? "内置示例不调用AI生成摘要。" : "还没有摘要，点一下让本地AI帮忙整理。"}</Typography.Text>}</section>
+            {candidate.raw_text ? <Collapse items={[{ key: "raw", label: "查看完整简历正文", children: <Typography.Paragraph className={styles.preWrap}>{candidate.raw_text}</Typography.Paragraph> }]} style={{ marginTop: 16 }} /> : null}
+            <section className={styles.resumeSection}><Typography.Text type="secondary">入库人：{candidate.creator_name || candidate.user_email || "暂时没记上"}</Typography.Text>
+              {(candidate.sources || []).map((source, index) => <div key={String(source.platform_id) + index}><Typography.Text type="secondary">{source.source_type ? sourceLabel(source.source_type, source.platform_id) : sourceLabel(source.platform_id)}{source.source_url ? " · " : ""}</Typography.Text>{source.source_url && /^https?:\/\//.test(source.source_url) ? <a href={source.source_url} target="_blank" rel="noopener noreferrer">查看原页面</a> : null}</div>)}
+            </section>
+          </> },
+          { key: "recommendations", label: "推荐 " + recommendations.length, children: <section aria-label="推荐跟进记录">
+            <Flex justify="space-between" align="center" gap={8} wrap className={detailStyles.sectionHeading}><Typography.Title level={5}>推荐与跟进</Typography.Title><Typography.Text type="secondary">按岗位分别记录</Typography.Text></Flex>
+            {recommendationsVisible ? <>
+              {recommendations.length ? <div className={styles.recommendationPicker} data-testid="resume-recommendation-picker" role="group" aria-label="已关联岗位">{recommendations.map((item) => <RecommendationCard key={item.id} item={item} selected={historyRecommendation?.position_id === item.position_id} busy={recommendationBusy} onSelect={() => editRecommendation(item)} />)}</div> : null}
+              <div className={detailStyles.recommendationHistory} data-testid="resume-recommendation-history">{historyRecommendation ? <RecommendationHistory item={historyRecommendation} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={positionID ? "这个岗位还没记录，保存后我再认真记账。" : "还没关联岗位，右侧选一个就能开始。"} />}</div>
+            </> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="推荐记录已收起，随时可以展开。"><Button onClick={toggleRecommendations}>展开推荐记录</Button></Empty>}
+          </section> },
+          { key: "recruitment", label: "面试 / 招聘", disabled: readOnly, children: !readOnly ? <ResumeRecruitmentPanel key={candidate.id} candidate={candidate} positions={positions} positionID={positionID || historyRecommendation?.position_id || ""} initiallyExpanded /> : null },
+          { key: "automation", label: "任务记录", children: <section className={styles.recordSection} data-testid="resume-auto-tasks-section" aria-label="自动任务">
+            <Typography.Title level={5}>自动任务</Typography.Title><Flex vertical gap={12}>
+              {candidate.engagement_id ? <><Typography.Text>岗位：{candidate.position_name || "未记录岗位"}</Typography.Text><Typography.Text type="secondary">任务状态：{candidate.engagement_status || "未记录"}</Typography.Text></> : null}
+              <AIResult title="详情分析" value={candidate.ai?.detail} /><AIResult title="招呼分析" value={candidate.ai?.greet} />
+              {autoEvents.length ? <Timeline items={autoEvents.map((event, index) => ({ key: String(event.id || index), children: <><Typography.Text>{String(event.message_text || event.event_type || "任务记录")}</Typography.Text><div className={styles.meta}>{event.created_at ? formatDate(String(event.created_at)) : ""}</div></> }))} /> : <Typography.Text type="secondary">暂时没有更多自动任务记录。</Typography.Text>}
+            </Flex>
+          </section> },
+        ]} />
+      </main>
+      <aside className={detailStyles.aside} data-testid="resume-detail-aside">
+        <section className={detailStyles.sideCard}>
+          {historyRecommendation ? <div className={detailStyles.progress} aria-label="当前推荐进度">
+            <Steps size="small" responsive={false} current={currentStage} status={timelineStage === "paused" ? "error" : timelineStage === "hired" ? "finish" : "process"} items={progressStages.map((item) => ({ title: item.label }))} />
+            <Flex justify="space-between" gap={8}><Typography.Text strong>{stageLabel(timelineStage)}</Typography.Text><Typography.Text type="secondary">{historyRecommendation.position_name || "历史岗位"}</Typography.Text></Flex>
+          </div> : <Typography.Title level={5} className={detailStyles.cardTitle}>操作</Typography.Title>}
+          <Button type="primary" block disabled={readOnly} onClick={() => { if (readOnly) return; setRecommendationEntryScope(recommendationEntryKey); setActiveTab("recommendations"); }}>推荐到岗位</Button>
+          <div className={detailStyles.actionGrid}><Button icon={<ShareAltOutlined aria-hidden="true" />} disabled={readOnly} onClick={() => { if (!readOnly) setShareOpen(true); }}>分享简历</Button><Button disabled={readOnly} onClick={() => { if (!readOnly) setSummaryOpen(true); }}>AI 摘要</Button></div>
         </section>
-      </div>
-      <aside className={styles.recordAside} data-testid="resume-detail-aside">
-        <section ref={notesSection} className={styles.recordSection} data-testid="resume-notes-section" aria-label="备注">
-          <Typography.Title level={5}>备注{notes.length ? ` · ${notes.length}` : ""}</Typography.Title>
-          <Flex vertical gap={8}>
-          <Flex gap={8} align="flex-end" className={styles.noteEditor}>
-            <Input.TextArea className={styles.noteInput} value={note} onChange={(event) => { setNote(event.target.value); noteKey.current = crypto.randomUUID(); }} maxLength={1000} showCount disabled={readOnly || noteBusy} autoSize={{ minRows: 2, maxRows: 4 }} placeholder={readOnly ? "内置示例备注仅供阅读" : "比如：意向不错，周五再约一次。"} />
-            <Button size="small" type="primary" icon={<PlusOutlined aria-hidden="true" />} loading={noteBusy} disabled={readOnly || !note.trim()} onClick={() => void saveNote()}>加备注</Button>
-          </Flex>
-          <div className={styles.recordHistory} data-testid="resume-notes-history" role="region" aria-label="历史备注" tabIndex={0}>{notes.length ? notes.map((item) => <div key={item.id} className={styles.record}><Typography.Paragraph className={styles.preWrap}>{item.content}</Typography.Paragraph><Typography.Text type="secondary" className={styles.meta} title={item.created_at ? `保存于 ${recordTime(item.created_at)}` : undefined}>{item.author_name || item.author_email || "未记录操作人"} · {(item.occurred_at || item.created_at) ? recordTime(item.occurred_at || item.created_at) : ""}</Typography.Text></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没备注，先记一条也行。" />}</div>
-          </Flex>
-        </section>
-        <section ref={recommendationsSection} className={styles.recordSection} data-testid="resume-recommendations-section" aria-label="推荐">
-          <Flex gap={8} align="center" justify="space-between" className={styles.recommendationHeading}>
-            <Typography.Title level={5} style={{ margin: 0 }}>推荐</Typography.Title>
-            <Button size="small" type="text" onClick={toggleRecommendations} aria-expanded={recommendationsVisible} aria-controls={recommendationContentID}>{recommendationsVisible ? "隐藏推荐" : "显示推荐"}</Button>
-          </Flex>
+        <section className={detailStyles.sideCard} data-testid="resume-recommendations-section" aria-label="推荐">
+          <Flex gap={8} align="center" justify="space-between" className={styles.recommendationHeading}><Typography.Title level={5} className={detailStyles.cardTitle}>推荐跟进</Typography.Title><Button type="text" onClick={toggleRecommendations} aria-expanded={recommendationsVisible} aria-controls={recommendationContentID}>{recommendationsVisible ? "隐藏推荐" : "显示推荐"}</Button></Flex>
           <div id={recommendationContentID} data-testid="resume-recommendation-content" hidden={!recommendationsVisible} className={styles.recommendationContent}>
-          <Flex vertical gap={8}>
-          <Select aria-label="选择推荐岗位" showSearch optionFilterProp="label" placeholder="选择开启的岗位" value={positionUnavailable ? undefined : positionID} disabled={readOnly || recommendationBusy} onChange={selectRecommendationPosition} options={currentOptions.map((item) => ({ value: item.id, label: item.name }))} />
-          {positionUnavailable ? <Typography.Text type="secondary" className={styles.meta}>这个岗位当前不可推荐，历史记录还在。</Typography.Text> : null}
-          <Radio.Group aria-label="推荐阶段" value={stage} disabled={readOnly || recommendationBusy || positionUnavailable} className={styles.recommendationStages} onChange={(event) => { if (readOnly || recommendationSaving.current || positionUnavailable) return; setStage(event.target.value); recommendationKey.current = crypto.randomUUID(); }} options={recommendationStages} />
-          <Input.TextArea aria-label="新增岗位跟进备注" value={recommendationNote} disabled={readOnly || recommendationBusy || positionUnavailable} maxLength={1000} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(event) => { if (readOnly || recommendationSaving.current || positionUnavailable) return; setRecommendationNote(event.target.value); recommendationKey.current = crypto.randomUUID(); }} placeholder="只记这个岗位的推荐、面试和跟进情况。" />
-          <Flex justify="flex-end"><Button size="small" type="primary" loading={recommendationBusy} disabled={readOnly || positionUnavailable || !recommendationChanged} onClick={() => void saveRecommendation()}>{stage === "draft" ? "保存关联" : stage === "recommended" ? "记录推荐" : "记录跟进"}</Button></Flex>
-          {recommendations.length ? <div className={styles.recommendationPicker} data-testid="resume-recommendation-picker" role="group" aria-label="已关联岗位">{recommendations.map((item) => <RecommendationCard key={item.id} item={item} selected={historyRecommendation?.position_id === item.position_id} busy={recommendationBusy} onSelect={() => editRecommendation(item)} />)}</div> : null}
-          <div className={styles.recommendationHistory} data-testid="resume-recommendation-history">{historyRecommendation ? <RecommendationHistory item={historyRecommendation} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={positionID ? "这个岗位还没记录，保存后我再认真记账。" : "还没关联岗位，选一个就能开始记记录。"} />}</div>
-          </Flex>
+            <Flex vertical gap={12}>
+              <Select aria-label="选择推荐岗位" showSearch optionFilterProp="label" placeholder="选择开启的岗位" value={positionUnavailable ? undefined : positionID} disabled={readOnly || recommendationBusy} onChange={selectRecommendationPosition} options={currentOptions.map((item) => ({ value: item.id, label: item.name }))} />
+              {positionUnavailable ? <Typography.Text type="secondary" className={styles.meta}>这个岗位当前不可推荐，历史记录还在。</Typography.Text> : null}
+              <Radio.Group aria-label="推荐阶段" value={stage} disabled={readOnly || recommendationBusy || positionUnavailable} className={styles.recommendationStages} onChange={(event) => { if (readOnly || recommendationSaving.current || positionUnavailable) return; setStage(event.target.value); recommendationKey.current = crypto.randomUUID(); }} options={recommendationStages} />
+              <Input.TextArea aria-label="新增岗位跟进备注" value={recommendationNote} disabled={readOnly || recommendationBusy || positionUnavailable} maxLength={1000} autoSize={{ minRows: 3, maxRows: 6 }} onChange={(event) => { if (readOnly || recommendationSaving.current || positionUnavailable) return; setRecommendationNote(event.target.value); recommendationKey.current = crypto.randomUUID(); }} placeholder="只记这个岗位的推荐、面试和跟进情况。" />
+              <Button block type="primary" loading={recommendationBusy} disabled={readOnly || positionUnavailable || !recommendationChanged} onClick={() => void saveRecommendation()}>{stage === "draft" ? "保存关联" : stage === "recommended" ? "记录推荐" : "记录跟进"}</Button>
+            </Flex>
           </div>
         </section>
-        <section ref={automationSection} className={styles.recordSection} data-testid="resume-auto-tasks-section" aria-label="自动任务">
-          <Typography.Title level={5}>自动任务</Typography.Title>
-          <Flex vertical gap={8}>
-          {candidate.engagement_id ? <><Typography.Text>岗位：{candidate.position_name || "未记录岗位"}</Typography.Text><Typography.Text type="secondary">任务状态：{candidate.engagement_status || "未记录"}</Typography.Text></> : null}
-          <AIResult title="详情分析" value={candidate.ai?.detail} /><AIResult title="招呼分析" value={candidate.ai?.greet} />
-          {autoEvents.length ? <Timeline items={autoEvents.map((event) => ({ children: <><Typography.Text>{String(event.message_text || event.event_type || "任务记录")}</Typography.Text><div className={styles.meta}>{event.created_at ? formatDate(String(event.created_at)) : ""}</div></> }))} /> : <Typography.Text type="secondary">暂时没有更多自动任务记录。</Typography.Text>}
+        <section ref={notesSection} className={detailStyles.sideCard} data-testid="resume-notes-section" aria-label="备注">
+          <Typography.Title level={5} className={detailStyles.cardTitle}>备注{notes.length ? " · " + notes.length : ""}</Typography.Title>
+          <Flex vertical gap={12}>
+            <Input.TextArea aria-label="新增候选人备注" value={note} onChange={(event) => { setNote(event.target.value); noteKey.current = crypto.randomUUID(); }} maxLength={1000} showCount disabled={readOnly || noteBusy} autoSize={{ minRows: 3, maxRows: 5 }} placeholder={readOnly ? "内置示例备注仅供阅读" : "比如：意向不错，周五再约一次。"} />
+            <Flex justify="flex-end"><Button type="primary" icon={<PlusOutlined aria-hidden="true" />} loading={noteBusy} disabled={readOnly || !note.trim()} onClick={() => void saveNote()}>加备注</Button></Flex>
+            <div className={styles.recordHistory} data-testid="resume-notes-history" role="region" aria-label="历史备注" tabIndex={0}>{notes.length ? notes.map((item) => <div key={item.id} className={styles.record}><Typography.Paragraph className={styles.preWrap}>{item.content}</Typography.Paragraph><Typography.Text type="secondary" className={styles.meta} title={item.created_at ? "保存于 " + recordTime(item.created_at) : undefined}>{item.author_name || item.author_email || "未记录操作人"} · {(item.occurred_at || item.created_at) ? recordTime(item.occurred_at || item.created_at) : ""}</Typography.Text></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没备注，先记一条也行。" />}</div>
           </Flex>
         </section>
-        {!readOnly ? <ResumeRecruitmentPanel key={candidate.id} candidate={candidate} positions={positions} positionID={positionID || historyRecommendation?.position_id || ""} /> : null}
       </aside>
     </div>
     <ResumeEditor open={editing} candidate={candidate} positions={positions} onClose={() => setEditing(false)} onFoldersChanged={onChanged} onSaved={(saved) => { setEditing(false); setCandidate(saved); void reload(); onChanged?.(); }} />
@@ -233,7 +258,7 @@ function RecommendationCard({ item, selected, busy, onSelect }: { item: Recommen
 }
 /** RecommendationHistory 直接展示当前岗位的完整历史，每条只出现一次阶段、作者时间与备注。 */
 function RecommendationHistory({ item }: { item: Recommendation }) {
-  const events = item.events || [];
+  const events = [...(item.events || [])].sort((left, right) => (Date.parse(right.occurred_at || right.created_at || "") || 0) - (Date.parse(left.occurred_at || left.created_at || "") || 0));
   const legacyNote = item.note?.trim();
   const showLegacyNote = legacyNote && !events.some((event) => (event.content || event.note || "").trim() === legacyNote);
   return <>
