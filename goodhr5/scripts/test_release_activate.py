@@ -50,6 +50,7 @@ class FakeEngine:
         self.fail = None
         self.uncertain_create = False
         self.corrupt_env = False
+        self.network_driver = "bridge"
 
     def inspect(self, reference, missing=False):
         """inspect 深复制假容器，防止待测代码直接修改daemon状态。"""
@@ -61,6 +62,10 @@ class FakeEngine:
     def image(self, identifier):
         """image 只读取假候选元数据。"""
         return copy.deepcopy(self.images[identifier])
+
+    def network(self, name):
+        """network 模拟原自定义网络驱动，供显式MAC桥接验证使用。"""
+        return {"Name": name, "Driver": self.network_driver, "Id": "network-fixture"}
 
     def snapshot(self):
         """snapshot 以真实引擎相同字段生成安全身份和运行状态。"""
@@ -93,11 +98,16 @@ class FakeEngine:
         """stop 只改变指定假容器运行状态。"""
         self.mutate("stop", identifier)
         self.rows[identifier]["State"].update(Running=False, Status="exited")
+        for details in self.rows[identifier]["NetworkSettings"]["Networks"].values():
+            details["MacAddress"] = ""
 
     def start(self, identifier):
         """start 模拟重启后StartedAt发生正常变化。"""
         self.mutate("start", identifier)
         self.rows[identifier]["State"].update(Running=True, Status="running", StartedAt="new-started")
+        if self.rows[identifier]["Config"].get("MacAddress"):
+            for details in self.rows[identifier]["NetworkSettings"]["Networks"].values():
+                details["MacAddress"] = self.rows[identifier]["Config"]["MacAddress"]
 
     def rename(self, identifier, name):
         """rename 模拟Docker精确名称冲突保护。"""
@@ -193,18 +203,78 @@ class ActivationTests(unittest.TestCase):
                     runner.activate()
                 self.assertEqual(engine.actions, [])
 
-    def test_static_ip_or_mac_requires_separate_review_before_stopping(self):
-        """静态地址停止后可能被Docker清空，不冒用动态网络恢复策略。"""
+    def test_static_ip_or_inconsistent_mac_requires_review_before_stopping(self):
+        """静态IP及不一致显式MAC不冒用已审阅的唯一桥接恢复策略。"""
         for kind in ("ip", "mac"):
             runner, engine, _, _ = self.runner()
             old = engine.rows[original("frontend")["Id"]]
             if kind == "ip":
                 old["NetworkSettings"]["Networks"]["goodhr-production_default"]["IPAMConfig"] = {"IPv4Address": "172.29.0.5"}
             else:
-                old["Config"]["MacAddress"] = "aa:bb:cc:dd:ee:ff"
+                old["Config"]["MacAddress"] = "02:42:ac:1b:00:02"
             with self.assertRaises(activation.CutoverError):
                 runner.activate()
             self.assertEqual(engine.actions, [])
+
+    def explicit_mac_runner(self):
+        """explicit_mac_runner 构造已审阅的唯一自定义bridge、无静态IP且MAC一致的真实形态。"""
+        runner, engine, audits, private = self.runner()
+        old = engine.rows[original("frontend")["Id"]]
+        old["Config"]["MacAddress"] = "02:42:ac:1b:00:02"
+        old["NetworkSettings"]["Networks"]["goodhr-production_default"].update(MacAddress="02:42:ac:1b:00:02", Aliases=None, Links=None, IPAMConfig=None, NetworkID="network-fixture")
+        return runner, engine, audits, private, copy.deepcopy(old)
+
+    def test_reviewed_explicit_mac_preserved_in_config_and_bridge_endpoint(self):
+        """已审阅的显式MAC同时保留在Config和唯一桥接端点，运行后严格一致。"""
+        runner, engine, _, _, old = self.explicit_mac_runner()
+        self.assertTrue(runner.activate()["success"])
+        actual = engine.inspect(runner.name("frontend"))
+        self.assertEqual(actual["Config"]["MacAddress"], old["Config"]["MacAddress"])
+        self.assertEqual(actual["NetworkSettings"]["Networks"]["goodhr-production_default"]["MacAddress"], old["Config"]["MacAddress"])
+        self.assertEqual(actual["HostConfig"], old["HostConfig"])
+
+    def test_reviewed_explicit_mac_restores_after_stop_clears_endpoint(self):
+        """Docker停止清空运行态MAC后，创建失败仍恢复原前端ID并在启动后恢复真实MAC。"""
+        runner, engine, audits, _, old = self.explicit_mac_runner()
+        engine.fail = "create_frontend"
+        with self.assertRaises(activation.CutoverError):
+            runner.activate()
+        actual = engine.inspect(runner.name("frontend"))
+        self.assertEqual(actual["Id"], old["Id"])
+        self.assertTrue(actual["State"]["Running"])
+        self.assertEqual(actual["Config"], old["Config"])
+        self.assertEqual(actual["NetworkSettings"]["Networks"]["goodhr-production_default"]["MacAddress"], old["Config"]["MacAddress"])
+        self.assertTrue(audits[-1]["automatic_rollback_succeeded"])
+
+    def test_invalid_explicit_mac_or_ambiguous_network_never_stops(self):
+        """非法、组播、零MAC、多网络及非bridge驱动必须在停止前拒绝。"""
+        for variant in ("malformed", "multicast", "zero", "multiple", "overlay", "mismatched-id"):
+            with self.subTest(variant=variant):
+                runner, engine, _, _, _ = self.explicit_mac_runner()
+                old = engine.rows[original("frontend")["Id"]]
+                network = old["NetworkSettings"]["Networks"]["goodhr-production_default"]
+                if variant in ("malformed", "multicast", "zero"):
+                    mac = {"malformed": "invalid", "multicast": "01:42:ac:1b:00:02", "zero": "00:00:00:00:00:00"}[variant]
+                    old["Config"]["MacAddress"] = network["MacAddress"] = mac
+                elif variant == "multiple":
+                    old["NetworkSettings"]["Networks"]["second-network"] = {}
+                elif variant == "overlay":
+                    engine.network_driver = "overlay"
+                else:
+                    network["NetworkID"] = "unexpected-network"
+                with self.assertRaises(activation.CutoverError):
+                    runner.activate()
+                self.assertEqual(engine.actions, [])
+
+    def test_running_explicit_mac_cannot_use_stopped_endpoint_fallback(self):
+        """运行后的MAC丢失或变化必须失败，只有停止态空MAC可使用已保存请求值。"""
+        runner, _, _, _, old = self.explicit_mac_runner()
+        stopped = copy.deepcopy(old)
+        stopped["State"]["Running"] = False
+        stopped["NetworkSettings"]["Networks"]["goodhr-production_default"]["MacAddress"] = ""
+        self.assertEqual(activation.endpoints(stopped), activation.endpoints(old))
+        stopped["State"]["Running"] = True
+        self.assertNotEqual(activation.endpoints(stopped), activation.endpoints(old))
 
     def test_new_image_default_runtime_fields_rejected_before_stopping(self):
         """新镜像补入旧空运行字段会改变行为，必须在停止前拒绝。"""

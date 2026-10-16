@@ -69,8 +69,27 @@ def endpoints(container):
         entry = {key: copy.deepcopy(details[key]) for key in ("IPAMConfig", "Links", "Aliases", "DriverOpts") if details.get(key)}
         if entry.get("Aliases"):
             entry["Aliases"] = [row for row in entry["Aliases"] if row not in (container["Id"], container["Id"][:12])]
+        explicit_mac = container.get("Config", {}).get("MacAddress")
+        if explicit_mac:
+            # Docker停止后会清空运行态MAC；未运行时比较保留的请求值，运行后必须核对真实端点。
+            entry["MacAddress"] = details.get("MacAddress") or (explicit_mac if not container.get("State", {}).get("Running") else "")
         result[name] = entry
     return result
+
+
+def validate_network_shape(container):
+    """validate_network_shape 只接纳唯一自定义桥接网络上的一致显式MAC，静态IP及模糊形态提前停止。"""
+    networks = container.get("NetworkSettings", {}).get("Networks") or {}
+    require(not any(details.get("IPAMConfig") for details in networks.values()), "静态IP需要单独核对停止和恢复策略")
+    mac = container["Config"].get("MacAddress")
+    if not mac:
+        return
+    require(isinstance(mac, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", mac), "显式MAC格式不明确")
+    octets = bytes.fromhex(mac.replace(":", ""))
+    require(any(octets) and not octets[0] & 1, "显式MAC必须是有效单播地址")
+    mode = container["HostConfig"].get("NetworkMode", "")
+    require(len(networks) == 1 and mode in networks and mode not in ("host", "none", "bridge", "default") and not mode.startswith("container:"), "显式MAC只支持唯一自定义桥接网络")
+    require(networks[mode].get("MacAddress") == mac, "显式MAC与当前网络端点不一致")
 
 
 def mounts(container):
@@ -84,7 +103,7 @@ def payload_for(old, image):
     require(not host.get("AutoRemove") and not host.get("ContainerIDFile") and not host.get("VolumesFrom"), "原服务包含不支持的自动删除或外部容器依赖")
     require(all(row.get("Type") == "bind" for row in old.get("Mounts", [])), "正式切换仅支持已核对的绑定挂载")
     require(not old.get("State", {}).get("Paused"), "原正式容器处于暂停状态")
-    require(not old["Config"].get("MacAddress") and not any(details.get("IPAMConfig") for details in (old.get("NetworkSettings", {}).get("Networks") or {}).values()), "静态IP或MAC需要单独核对停止和恢复策略")
+    validate_network_shape(old)
     value = copy.deepcopy(old["Config"])
     # Docker会用镜像默认值补入旧Config的空字段；有差异必须在停止前审阅，而不是重建后才发现。
     defaults = image["Config"]
@@ -144,6 +163,11 @@ class DockerEngine(BaseEngine):
         """image 按不可变ID读取候选元数据，不使用可能漂移的标签。"""
         require(IMAGE.fullmatch(identifier), "候选镜像ID不完整")
         return self.request("GET", self.prefix + "/images/" + urllib.parse.quote(identifier, safe="") + "/json")
+
+    def network(self, name):
+        """network 只读核对原自定义网络实际驱动，不根据网络名称猜测桥接类型。"""
+        require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]+", name), "原自定义网络名称不明确")
+        return self.request("GET", self.prefix + "/networks/" + urllib.parse.quote(name, safe=""))
 
     def rename(self, identifier, name):
         """rename 只允许两个正式名称及本次格式的备份名称，不提供删除接口。"""
@@ -223,6 +247,12 @@ class Activation:
             require(all(self.engine.inspect(self.name(role, suffix), missing=True) is None for suffix in ("backup", "failed")), "本次备份或失败名称已经占用")
             self.originals[role] = old
             self.payloads[role], self.journal["added_environment_keys"][role] = payload_for(old, image)
+            if old["Config"].get("MacAddress"):
+                mode = old["HostConfig"]["NetworkMode"]
+                network = self.engine.network(mode)
+                require(network.get("Name") == mode and network.get("Driver") == "bridge", "显式MAC的原自定义网络不是已核对的桥接驱动")
+                expected_id = old["NetworkSettings"]["Networks"][mode].get("NetworkID")
+                require(not expected_id or network.get("Id") == expected_id, "显式MAC的原网络身份发生变化")
         self.gate()
         require(self.engine.snapshot() == self.baseline, "准备期间容器基线发生变化")
         for role in ROLES:
