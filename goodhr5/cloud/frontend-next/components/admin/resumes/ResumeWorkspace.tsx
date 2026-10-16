@@ -179,10 +179,11 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
         <section ref={notesSection} className={styles.recordSection} data-testid="resume-notes-section" aria-label="备注">
           <Typography.Title level={5}>备注{notes.length ? ` · ${notes.length}` : ""}</Typography.Title>
           <Flex vertical gap={8}>
-          <Input.TextArea value={note} onChange={(event) => { setNote(event.target.value); noteKey.current = crypto.randomUUID(); }} maxLength={1000} showCount disabled={readOnly || noteBusy} autoSize={{ minRows: 2, maxRows: 6 }} placeholder={readOnly ? "内置示例备注仅供阅读" : "比如：意向不错，周五再约一次。"} />
-          {/* 字数计数浮在输入框下方，预留高度避免压住右侧按钮。 */}
-          <Flex justify="flex-end" style={{ marginTop: 16 }}><Button size="small" type="primary" icon={<PlusOutlined aria-hidden="true" />} loading={noteBusy} disabled={readOnly || !note.trim()} onClick={() => void saveNote()}>加备注</Button></Flex>
-          <div className={styles.recordHistory}>{notes.length ? notes.map((item) => <div key={item.id} className={styles.record}><Typography.Paragraph className={styles.preWrap}>{item.content}</Typography.Paragraph><Typography.Text type="secondary" className={styles.meta} title={item.created_at ? `保存于 ${recordTime(item.created_at)}` : undefined}>{item.author_name || item.author_email || "未记录操作人"} · {(item.occurred_at || item.created_at) ? recordTime(item.occurred_at || item.created_at) : ""}</Typography.Text></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没备注，先记一条也行。" />}</div>
+          <Flex gap={8} align="flex-end" className={styles.noteEditor}>
+            <Input.TextArea className={styles.noteInput} value={note} onChange={(event) => { setNote(event.target.value); noteKey.current = crypto.randomUUID(); }} maxLength={1000} showCount disabled={readOnly || noteBusy} autoSize={{ minRows: 2, maxRows: 4 }} placeholder={readOnly ? "内置示例备注仅供阅读" : "比如：意向不错，周五再约一次。"} />
+            <Button size="small" type="primary" icon={<PlusOutlined aria-hidden="true" />} loading={noteBusy} disabled={readOnly || !note.trim()} onClick={() => void saveNote()}>加备注</Button>
+          </Flex>
+          <div className={styles.recordHistory} data-testid="resume-notes-history" role="region" aria-label="历史备注" tabIndex={0}>{notes.length ? notes.map((item) => <div key={item.id} className={styles.record}><Typography.Paragraph className={styles.preWrap}>{item.content}</Typography.Paragraph><Typography.Text type="secondary" className={styles.meta} title={item.created_at ? `保存于 ${recordTime(item.created_at)}` : undefined}>{item.author_name || item.author_email || "未记录操作人"} · {(item.occurred_at || item.created_at) ? recordTime(item.occurred_at || item.created_at) : ""}</Typography.Text></div>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没备注，先记一条也行。" />}</div>
           </Flex>
         </section>
         <section ref={recommendationsSection} className={styles.recordSection} data-testid="resume-recommendations-section" aria-label="推荐">

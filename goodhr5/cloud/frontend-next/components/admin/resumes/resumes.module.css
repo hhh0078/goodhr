@@ -15,7 +15,11 @@
 .workspace :global(.ant-typography) { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .recordSection { min-width: 0; scroll-margin-top: 12px; }
 .recordSection + .recordSection { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--goodhr-border); }
-.recordHistory { min-width: 0; }
+/* 计数位于输入框下方，同行按钮不另占一行；长备注只在历史区域内滚动。 */
+.noteEditor.noteEditor { min-width: 0; padding-bottom: 16px; }
+.noteInput.noteInput { flex: 1; min-width: 0; }
+.noteEditor :global(.ant-btn) { flex: none; }
+.recordHistory { min-width: 0; max-height: min(320px, 40vh); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
 .record { padding: 8px 0; border-bottom: 1px solid var(--goodhr-border); min-width: 0; }
 .meta { font-size: 12px; line-height: 1.45; color: var(--goodhr-text-secondary); overflow-wrap: anywhere; }
 .experience { margin-bottom: 8px; min-width: 0; }

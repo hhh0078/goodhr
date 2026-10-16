@@ -5,7 +5,8 @@ import { resolve } from "node:path";
 
 const previewOrigin = new URL(process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190").origin;
 const cloudOrigin = new URL(process.env.NEXT_PUBLIC_CLOUD_API_BASE || "http://127.0.0.1:8084").origin;
-const screenshotDirectory = resolve("../../../output/resume-folders");
+const agentOrigin = new URL(`http://127.0.0.1:${process.env.UI_TEST_AGENT_PORT || "43129"}`).origin;
+const screenshotDirectory = resolve(process.env.UI_TEST_SCREENSHOT_DIR || "../../../output/resume-folders");
 // 合成16px纯色PNG只用于界面验证，不含任何真实候选人的照片。
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 type Call = { origin: string; path: string; method: string; body: any; query: URLSearchParams };
@@ -21,13 +22,13 @@ async function mockResumeSession(page: Page): Promise<State> {
   await page.context().route("**/*", async (route) => {
     const request = route.request(); const url = new URL(request.url()); const method = request.method();
     if (url.origin === previewOrigin && !url.pathname.startsWith("/api/")) return route.continue();
-    if (![previewOrigin, cloudOrigin, "http://127.0.0.1:8084", "http://127.0.0.1:43129", "http://127.0.0.1:43139", "https://goodhr.58it.cn"].includes(url.origin)) return route.abort();
+    if (![previewOrigin, cloudOrigin, agentOrigin, "http://127.0.0.1:8084", "http://127.0.0.1:43129", "http://127.0.0.1:43139", "https://goodhr.58it.cn"].includes(url.origin)) return route.abort();
     const headers = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
     let body: any; try { body = request.postDataJSON(); } catch { /* 上传和 GET 无 JSON 正文。 */ }
     state.calls.push({ origin: url.origin, path: url.pathname, method, body, query: url.searchParams });
     let data: any = { ok: true };
-    if (["43129", "43139"].includes(url.port)) {
+    if (["43129", "43139", new URL(agentOrigin).port].includes(url.port) && (url.pathname === "/health" || url.pathname.startsWith("/api/v1/"))) {
       // 离线场景也完全拦截端口探测，绝不连接电脑上正在运行的真实本地程序。
       if (state.agentOffline) return route.abort("connectionrefused");
       if (url.pathname === "/health") data = { ok: true, version: "6.2.10.1" };
@@ -1336,6 +1337,49 @@ test("查询写回URL，详情抽屉独立保存备注和人工推荐，窄屏�
   await expect(automaticTasks.getByText("通用备注仅在备注接口保存", { exact: true })).toHaveCount(0);
   expect(state.errors).toEqual([]);
 });
+
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+  test(`候选人长备注保持限高并内部滚动，输入和加备注同行 ${viewport.width}`, async ({ page }) => {
+    const state = await mockResumeSession(page);
+    state.notes = Array.from({ length: 30 }, (_, index) => ({ id: `bounded-note-${index}`, content: `合成长备注 ${index + 1}：${"已沟通岗位意向，等待下次跟进。".repeat(24)}`, author_name: "合成HR", occurred_at: "2026-10-16T09:00:00+08:00" }));
+    await page.setViewportSize(viewport);
+    await page.goto("/admin/resumes");
+    await page.getByRole("button", { name: "原有候选人", exact: true }).click();
+    const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
+    const notes = drawer.getByTestId("resume-notes-section");
+    const history = notes.getByRole("region", { name: "历史备注", exact: true });
+    const input = notes.getByPlaceholder("比如：意向不错，周五再约一次。");
+    const add = notes.getByRole("button", { name: "加备注", exact: true });
+    await expect(history.getByText(/^合成长备注/)).toHaveCount(30);
+    await notes.scrollIntoViewIfNeeded();
+    const initialHeight = (await history.boundingBox())!.height;
+    expect(initialHeight).toBeLessThanOrEqual(Math.min(320, viewport.height * 0.4) + 1);
+    expect(await history.evaluate((element) => element.scrollHeight)).toBeGreaterThan(initialHeight * 2);
+    const inputBox = (await input.boundingBox())!;
+    const addBox = (await add.boundingBox())!;
+    expect(addBox.x).toBeGreaterThanOrEqual(inputBox.x + inputBox.width);
+    expect(addBox.y).toBeGreaterThanOrEqual(inputBox.y);
+    expect(addBox.y + addBox.height).toBeLessThanOrEqual(inputBox.y + inputBox.height + 1);
+    await history.hover();
+    await page.mouse.wheel(0, 700);
+    await expect.poll(() => history.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await input.fill("合成新增备注：内部滚动后仍能保存。");
+    await add.click();
+    await expect(notes.getByRole("heading", { name: "备注 · 31", exact: true })).toBeVisible();
+    await expect(history.getByText("合成新增备注：内部滚动后仍能保存。", { exact: true })).toHaveCount(1);
+    await expect(input).toHaveValue("");
+    expect((await history.boundingBox())!.height).toBeCloseTo(initialHeight, 0);
+    expect(state.calls.filter((call) => call.path === `/api/candidates/${existing.id}/notes` && call.method === "POST")).toHaveLength(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    // 手机上的保存通知可能落在当前鼠标位置，先移开，避免悬停让自动关闭计时暂停。
+    await page.mouse.move(1, 1);
+    await dismissNotices(page);
+    await notes.scrollIntoViewIfNeeded();
+    mkdirSync(screenshotDirectory, { recursive: true });
+    await page.screenshot({ path: resolve(screenshotDirectory, `notes-bounded-${viewport.width}.png`), fullPage: true, animations: "disabled" });
+    expect(state.errors).toEqual([]);
+  });
+}
 
 test("多岗位卡片带入阶段，保存时禁切，选中岗位历史直展且通用备注独立", async ({ page }) => {
   const state = await mockResumeSession(page);
