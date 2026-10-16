@@ -168,6 +168,31 @@ class ActivationTests(unittest.TestCase):
         self.assertEqual(payload["Labels"]["com.docker.compose.image"], image("frontend")["Id"])
         self.assertEqual(payload["Labels"]["com.docker.compose.container-number"], "1")
 
+    def test_known_compose_builder_label_preserved_from_real_image_shape(self):
+        """Compose自动新增的已知构建器审计标签可合并，旧业务标签及运行参数仍保留。"""
+        for builder in ("classic", "buildkit"):
+            with self.subTest(builder=builder):
+                runner, engine, _, _ = self.runner()
+                for role in activation.ROLES:
+                    engine.images[image(role)["Id"]]["Config"]["Labels"]["com.docker.compose.image.builder"] = builder
+                self.assertTrue(runner.activate()["success"])
+                for role in activation.ROLES:
+                    actual = engine.inspect(runner.name(role))
+                    self.assertEqual(actual["Config"]["Labels"]["com.docker.compose.image.builder"], builder)
+                    self.assertEqual(actual["Config"]["Labels"]["routing.policy"], "keep-me")
+                    self.assertEqual(actual["Config"]["Env"][:4], original(role)["Config"]["Env"])
+                    self.assertEqual(actual["HostConfig"], original(role)["HostConfig"])
+
+    def test_unknown_compose_builder_or_other_default_label_never_stops(self):
+        """构建器标签只允许明确的两个值，其他未知默认标签仍在停止前拒绝。"""
+        for key, content in (("com.docker.compose.image.builder", "unknown"), ("com.docker.compose.image.builder", ""), ("com.docker.compose.image.builder", None), ("unreviewed.default", "classic")):
+            with self.subTest(key=key, content=content):
+                runner, engine, _, _ = self.runner()
+                engine.images[image("backend")["Id"]]["Config"]["Labels"][key] = content
+                with self.assertRaises(activation.CutoverError):
+                    runner.activate()
+                self.assertEqual(engine.actions, [])
+
     def test_static_ip_or_mac_requires_separate_review_before_stopping(self):
         """静态地址停止后可能被Docker清空，不冒用动态网络恢复策略。"""
         for kind in ("ip", "mac"):

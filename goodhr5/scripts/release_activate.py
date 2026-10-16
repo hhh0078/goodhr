@@ -99,6 +99,12 @@ def payload_for(old, image):
     value["Env"], added = environment(value.get("Env"), image["Config"].get("Env"))
     labels = value.get("Labels") or {}
     labels.update({key: content for key, content in (image["Config"].get("Labels") or {}).items() if key.startswith("goodhr.")})
+    # Compose构建器自动写入这一审计标签；只接纳已知构建器，不放开其他默认标签。
+    builder_key = "com.docker.compose.image.builder"
+    image_labels = image["Config"].get("Labels") or {}
+    if builder_key in image_labels:
+        require(image_labels[builder_key] in ("classic", "buildkit"), "候选Compose构建器标签尚未核对")
+        labels[builder_key] = image_labels[builder_key]
     if "org.opencontainers.image.revision" in labels:
         labels["org.opencontainers.image.revision"] = labels["goodhr.source_commit"]
     if "com.docker.compose.image" in labels:
