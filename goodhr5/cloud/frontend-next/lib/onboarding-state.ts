@@ -59,8 +59,9 @@ export function readOnboardingState(identity: string, storage?: Pick<Storage, "g
     const step = ONBOARDING_STEPS.includes(raw.step as OnboardingStep) ? raw.step as OnboardingStep : "agent-menu";
     const platformId = ["boss", "zhaopin", "liepin", "hliepin"].includes(String(raw.platformId)) ? String(raw.platformId) : "boss";
     const positionId = typeof raw.positionId === "string" ? raw.positionId.trim() : "";
-    // 保留原账号缓存与岗位草稿；旧顺序还没建岗位时，先回岗位入口，不能继续要求登录。
-    const normalizedStep = !positionId && ["platform-select", "platform-open", "platform-login"].includes(step) ? "position-menu" : step;
+    // 开始弹框不会跨刷新保留；新旧开窗等待缓存都回到原岗位开始入口，不自动打开或导航招聘页。
+    const startDialogStep = ["platform-select", "platform-open", "platform-login", "platform-filter", "position-run", "position-start-check", "position-start-error", "position-start-update"].includes(step);
+    const normalizedStep = startDialogStep ? positionId ? raw.reviewPosition === true ? "position-edit" : "position-start" : "position-menu" : step;
     return { ...fallback, status, step: normalizedStep, platformId, positionId, environmentReady: raw.environmentReady === true, platformLoggedIn: Boolean(positionId) && raw.platformLoggedIn === true, positionStarted: raw.positionStarted === true, filterMode: raw.filterMode === "keyword" ? "keyword" : "ai", detailMode: ["ai", "ocr", "dom"].includes(String(raw.detailMode)) ? String(raw.detailMode) : "ai", completedFields: stringList(raw.completedFields), celebrated: stringList(raw.celebrated), reviewPosition: Boolean(positionId) && raw.reviewPosition === true, replaying: raw.replaying === true, updatedAt: Number.isFinite(raw.updatedAt) ? Number(raw.updatedAt) : Date.now(), completionKind: raw.completionKind === "keyword" || raw.completionKind === "ai" ? raw.completionKind : undefined };
   } catch { return fallback; }
 }
@@ -79,8 +80,8 @@ export function saveOnboardingState(identity: string, state: OnboardingState, st
 /** onboardingStage 返回当前操作所属的大阶段，字段教学不会额外增加总步数。 */
 export function onboardingStage(step: OnboardingStep): number {
   if (step.startsWith("agent-") || step.startsWith("runtime-")) return 0;
-  if (step.startsWith("platform-") && step !== "platform-filter") return 2;
-  if (step.startsWith("position-start") || ["platform-filter", "position-run"].includes(step)) return 3;
+  if (step.startsWith("platform-") || step === "position-start") return 2;
+  if (step.startsWith("position-start") || step === "position-run") return 3;
   if (step === "first-result" || step === "complete") return 4;
   return 1;
 }
@@ -134,11 +135,11 @@ export function normalizeOnboardingPosition(state: OnboardingState, position: On
   const changed = platformId !== state.platformId;
   if (state.reviewPosition) return { ...state, platformId, platformLoggedIn: false, positionStarted: false };
   const platformLoggedIn = !changed && state.platformLoggedIn;
-  const loginRequired = changed || state.step === "platform-select" || (!platformLoggedIn && ["position-start", "position-menu"].includes(state.step));
+  const requiresStartEntry = changed || ["platform-select", "platform-open"].includes(state.step);
   return { ...state, platformId, platformLoggedIn,
     filterMode: position.common_config?.mode_default === "keyword" ? "keyword" : position.common_config?.mode_default === "ai" ? "ai" : state.filterMode,
     detailMode: position.common_config?.detail_mode || state.detailMode,
-    step: loginRequired && !state.positionStarted && state.status !== "completed" ? "platform-open" : state.step };
+    step: requiresStartEntry && !state.positionStarted && state.status !== "completed" ? "position-start" : state.step };
 }
 
 /** stringList 只保留有限数量的短字符串，避免损坏缓存把异常值带入界面。 */

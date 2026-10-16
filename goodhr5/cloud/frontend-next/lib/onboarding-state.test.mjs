@@ -85,7 +85,7 @@ test("新版本保存不会复用旧版本，读写存储被拒绝时仍能继�
   assert.equal(saveOnboardingState(identity, state, storage), true);
   const raw = JSON.parse(storage.getItem(onboardingStorageKey(identity)));
   assert.equal(raw.version, ONBOARDING_VERSION);
-  assert.equal(readOnboardingState(identity, storage).step, "platform-open");
+  assert.equal(readOnboardingState(identity, storage).step, "position-start");
   const denied = {
     /** getItem 模拟浏览器隐私或权限设置拒绝读取。 */
     getItem() { throw new Error("Access denied"); },
@@ -209,15 +209,14 @@ test("表单先确认平台，再确认名称和两种模式，AI/OCR 各走正�
   assert.equal(onboardingDoneCount(state), 0, "填写完字段还没有真实创建岗位");
 });
 
-test("字段教学归入创建岗位，平台筛选归入实际启动，总共只有五个大阶段", () => {
+test("岗位开始入口与弹框开窗登录归入平台准备，确认运行才进入筛选并开始阶段", () => {
   assert.deepEqual(ONBOARDING_STAGES, ["准备本地程序", "创建岗位", "登录招聘平台", "筛选并开始", "看到筛选结果"]);
   assert.equal(onboardingStage("runtime-install"), 0);
-  assert.equal(onboardingStage("platform-login"), 2);
+  for (const preparing of ["position-start", "platform-filter", "platform-login"]) assert.equal(onboardingStage(preparing), 2, preparing);
   for (const fieldStep of ["position-menu", "position-create", "position-edit", "position-platform", "position-name", "position-filter-mode", "position-detail-mode", "position-requirement", "position-keywords", "position-save"]) {
     assert.equal(onboardingStage(fieldStep), 1, fieldStep);
   }
-  assert.equal(onboardingStage("platform-filter"), 3);
-  assert.equal(onboardingStage("position-run"), 3);
+  for (const starting of ["position-run", "position-start-check", "position-start-error", "position-start-update"]) assert.equal(onboardingStage(starting), 3, starting);
   assert.equal(onboardingStage("first-result"), 4);
 });
 
@@ -236,9 +235,9 @@ test("预计耗时随着真实完成事实递减，全部跑通后不再显示�
   assert.equal(onboardingRemainingTime(state), "已跑通");
 });
 
-test("旧v2平台选择和登录缓存没有岗位时回创建，保持账号缓存键并撤销旧登录标记", () => {
+test("旧v2平台及开始弹框缓存没有岗位时回创建，保持账号缓存键并撤销旧登录标记", () => {
   const storage = memoryStorage();
-  for (const step of ["platform-select", "platform-open", "platform-login"]) {
+  for (const step of ["platform-select", "platform-open", "platform-login", "platform-filter", "position-run", "position-start-check", "position-start-error", "position-start-update"]) {
     const identity = `${step}@example.invalid`;
     const state = activeState({ step, platformLoggedIn: true, environmentReady: true, status: "paused" });
     assert.equal(saveOnboardingState(identity, state, storage), true);
@@ -252,13 +251,13 @@ test("旧v2平台选择和登录缓存没有岗位时回创建，保持账号缓
   }
 });
 
-test("恢复已有岗位时使用服务器平台，缓存平台变更须撤销旧登录并重新打开正确平台", () => {
+test("恢复已有岗位时使用服务器平台，缓存平台变更须撤销旧登录并回该岗位开始", () => {
   const state = activeState({ step: "position-start", positionId: "real-position", platformId: "boss", platformLoggedIn: true, completedFields: ["platform", "name"] });
   const restored = normalizeOnboardingPosition(state, { id: "real-position", platform_id: "zhaopin", is_open: true });
   assert.equal(restored.positionId, "real-position");
   assert.equal(restored.platformId, "zhaopin");
   assert.equal(restored.platformLoggedIn, false);
-  assert.equal(restored.step, "platform-open");
+  assert.equal(restored.step, "position-start");
   assert.equal(state.platformId, "boss", "归一过程不能改写传入的缓存对象");
 });
 
@@ -411,5 +410,101 @@ test("无岗位和非布尔复核标记不会凭缓存产生需要编辑的业�
     const restored = readOnboardingState(identity, storage);
     assert.equal(restored.reviewPosition, false);
     assert.equal(restored.replaying, overrides.replaying === true);
+  }
+});
+
+test("开始弹框不持久化，旧开窗登录和筛选缓存刷新后回同一个岗位开始", () => {
+  const storage = memoryStorage();
+  for (const step of ["platform-select", "platform-open", "platform-login", "platform-filter", "position-run", "position-start-check", "position-start-error", "position-start-update"]) {
+    for (const status of ["active", "paused"]) {
+      const identity = `${step}-${status}@example.invalid`;
+      const saved = activeState({ step, status, positionId: "saved-position", platformId: "zhaopin", environmentReady: true,
+        platformLoggedIn: false, completedFields: ["platform", "name"], filterMode: "keyword", detailMode: "ocr" });
+      assert.equal(saveOnboardingState(identity, saved, storage), true);
+      const restored = readOnboardingState(identity, storage);
+      assert.equal(restored.step, "position-start", `${step} 刷新后没有开始弹框，必须先回岗位开始入口`);
+      assert.equal(restored.positionId, "saved-position", "恢复不能新建或改用其他岗位");
+      assert.equal(restored.platformId, "zhaopin");
+      assert.equal(restored.status, status);
+      assert.equal(restored.environmentReady, true);
+      assert.equal(restored.platformLoggedIn, false);
+      assert.equal(restored.positionStarted, false);
+      assert.equal(restored.filterMode, "keyword");
+      assert.equal(restored.detailMode, "ocr");
+      assert.deepEqual(restored.completedFields, ["platform", "name"]);
+      assert.equal(saved.step, step, "缓存迁移不修改当前会话对象");
+    }
+  }
+});
+
+test("实际岗位平台变化时撤销旧平台登录，在开始入口重新准备而不是自动开窗", () => {
+  const actual = { id: "saved-position", platform_id: "liepin", is_open: true, common_config: { mode_default: "keyword", detail_mode: "ocr" } };
+  for (const step of ["position-start", "platform-open", "platform-login", "platform-filter", "position-run"]) {
+    const previous = activeState({ step, positionId: "saved-position", platformId: "boss", platformLoggedIn: true, filterMode: "ai", detailMode: "ai" });
+    const normalized = normalizeOnboardingPosition(previous, actual);
+    assert.equal(normalized.positionId, "saved-position");
+    assert.equal(normalized.platformId, "liepin");
+    assert.equal(normalized.platformLoggedIn, false);
+    assert.equal(normalized.positionStarted, false);
+    assert.equal(normalized.step, "position-start");
+    assert.equal(normalized.filterMode, "keyword");
+    assert.equal(normalized.detailMode, "ocr");
+    assert.equal(previous.platformId, "boss");
+  }
+});
+
+test("旧平台选择和顶部开窗微步骤归到岗位开始，同会话真实登录等待仍保留", () => {
+  const actual = { id: "saved-position", platform_id: "boss", is_open: true };
+  for (const step of ["platform-select", "platform-open"]) {
+    const normalized = normalizeOnboardingPosition(activeState({ step, positionId: "saved-position", platformId: "boss" }), actual);
+    assert.equal(normalized.step, "position-start");
+    assert.equal(normalized.positionId, "saved-position");
+    assert.equal(normalized.platformLoggedIn, false);
+  }
+  const waiting = activeState({ step: "platform-login", positionId: "saved-position", platformId: "boss", platformLoggedIn: false });
+  const normalized = normalizeOnboardingPosition(waiting, actual);
+  assert.equal(normalized.step, "platform-login", "开始弹框仍打开时，岗位读取不能打断本轮登录检测");
+  assert.equal(normalized.positionId, "saved-position");
+  assert.equal(normalized.platformLoggedIn, false);
+  assert.equal(onboardingDoneCount(normalized), 1, "未登录不能因为处于等待界面上涨登录进度");
+});
+
+test("正常开始与结果等待刷新不退回旧开窗教程，已完成事实继续保留", () => {
+  const storage = memoryStorage();
+  for (const state of [
+    activeState({ step: "position-start", positionId: "saved-position", platformLoggedIn: true, environmentReady: true }),
+    activeState({ step: "first-result", positionId: "saved-position", platformLoggedIn: true, positionStarted: true, environmentReady: true }),
+    activeState({ step: "complete", status: "completed", positionId: "saved-position", platformLoggedIn: true, positionStarted: true, environmentReady: true, completionKind: "ai" }),
+  ]) {
+    const identity = `${state.step}@example.invalid`;
+    assert.equal(saveOnboardingState(identity, state, storage), true);
+    const restored = readOnboardingState(identity, storage);
+    const normalized = normalizeOnboardingPosition(restored, { id: "saved-position", platform_id: "boss", is_open: true });
+    assert.equal(normalized.step, state.step);
+    assert.equal(normalized.status, state.status);
+    assert.equal(normalized.positionStarted, state.positionStarted);
+    assert.equal(normalized.positionId, "saved-position");
+    assert.equal(normalized.platformLoggedIn, true);
+    assert.equal(normalized.completionKind, state.completionKind);
+    assert.equal(onboardingDoneCount(normalized), onboardingDoneCount(state));
+  }
+});
+
+test("旧弹框缓存若已要求原岗位复核，刷新后回编辑而不能直接进入开始", () => {
+  const storage = memoryStorage();
+  for (const step of ["platform-open", "platform-login", "platform-filter", "position-run", "position-start-error"]) {
+    const identity = `review-${step}@example.invalid`;
+    const state = activeState({ step, positionId: "saved-position", platformId: "boss", reviewPosition: true, replaying: true, completedFields: [] });
+    assert.equal(saveOnboardingState(identity, state, storage), true);
+    const restored = readOnboardingState(identity, storage);
+    const normalized = normalizeOnboardingPosition(restored, { id: "saved-position", platform_id: "zhaopin", is_open: true });
+    assert.equal(normalized.step, "position-edit");
+    assert.equal(normalized.positionId, "saved-position");
+    assert.equal(normalized.platformId, "zhaopin");
+    assert.equal(normalized.reviewPosition, true);
+    assert.equal(normalized.replaying, true);
+    assert.equal(normalized.platformLoggedIn, false);
+    assert.equal(normalized.positionStarted, false);
+    assert.deepEqual(normalized.completedFields, []);
   }
 });

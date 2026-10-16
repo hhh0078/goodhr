@@ -54,6 +54,13 @@
 .passivePanel { pointer-events: none; }
 .passivePanel button { pointer-events: auto; }
 .tourHint { font-size: 12px; margin-bottom: 8px !important; }
+.modeTourSection { display: flex; flex-direction: column; overflow: hidden; }
+.modeTourHeader, .modeTourFooter { flex-shrink: 0; }
+.modeTourDescription { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.modeComparison { display: grid; gap: 8px; margin-bottom: 12px; }
+.modeComparison > div { padding: 9px 10px; background: #f7f8f6; border: 1px solid var(--goodhr-border); border-radius: 7px; }
+.modeComparison p { margin: 5px 0 0; font-size: 12px; line-height: 1.6; }
+.modeComparison .modeFee { color: #805d24; font-weight: 600; }
 .loginStatus { margin-bottom: 12px; font-size: 12px; }
 .tourEstimate { font-size: 11px; display: block; line-height: 1.6; }
 .storageNotice { position: fixed; z-index: 1601; bottom: 8px; left: 240px; max-width: calc(100vw - 270px); background: #fff8e8; color: #856121; padding: 5px 10px; border-radius: 6px; font-size: 11px; pointer-events: none; }

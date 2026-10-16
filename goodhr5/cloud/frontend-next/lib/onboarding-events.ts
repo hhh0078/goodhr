@@ -12,10 +12,12 @@ export type OnboardingScreeningResult = {
 export type OnboardingEvent = {
   type: "guide-requested" | "runtime-status-changed" | "platform-browser-open-requested" | "platform-unavailable" | "position-form-close-requested" | "position-start-close-requested" | "position-form-opened" | "position-form-closed" | "position-form-saving" | "form-field-completed" | "position-created" | "start-dialog-opened" | "start-dialog-closed" | "start-dialog-status" | "position-recover-requested" | "position-recovered" | "platform-opened" | "position-started" | "screening-result";
   saving?: boolean;
+  /** 关闭旧岗位开始弹框时同步重读岗位，避免平台变更或删除后仍使用旧卡片。 */
+  refreshPositions?: boolean;
   agentBase?: string;
   runtimeStatus?: Record<string, unknown>;
   recovered?: boolean;
-  startStatus?: "ready" | "checking" | "error" | "update";
+  startStatus?: "ready" | "opening" | "checking" | "error" | "update";
   message?: string;
   restored?: boolean;
   field?: OnboardingFormField;

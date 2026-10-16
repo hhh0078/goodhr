@@ -232,15 +232,29 @@ function isPlatformPageHost(url: string, auth: PlatformAuthConfig) {
   }
 }
 
-/** isLoggedInURL 先排除明确的公开登录页面，再按原有已登录规则判断，避免泛域名把登录页认成成功。 */
+/** isLoggedInURL 先排除公开规则及明确登录路径，再按原有已登录规则判断，避免泛域名或回跳参数误报成功。 */
 export function isLoggedInURL(url: string, auth: PlatformAuthConfig) {
   if (isLoginURL(url, auth)) return false;
   return (auth.pages || []).some((page) => matchPageURL(url, page));
 }
 
-/** isLoginURL 判断当前地址是否命中平台公开登录页面。 */
+/** isLoginURL 优先沿用平台公开规则，再保守排除完整登录路径，不把查询参数里的登录地址当页面路径。 */
 export function isLoginURL(url: string, auth: PlatformAuthConfig) {
-  return (auth.public_pages || []).some((page) => matchPageURL(url, page));
+  return (auth.public_pages || []).some((page) => matchPageURL(url, page)) || hasExplicitLoginPath(url);
+}
+
+/** hasExplicitLoginPath 只识别URL路径中的完整登录段，兼容常见页后缀和编码，不猜测任何登录成功地址。 */
+function hasExplicitLoginPath(url: string): boolean {
+  try {
+    for (const rawSegment of new URL(url).pathname.split("/")) {
+      let segment = rawSegment;
+      try { segment = decodeURIComponent(rawSegment); } catch { /* 某段编码损坏时保留原值，不能跳过其他明确的登录路径段。 */ }
+      if (segment.split("/").some((part) => /^(?:log[-_]?in|sign[-_]?in|logon|signon)(?:\.(?:html?|aspx?|jsp|php))?$/i.test(part))) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 /** matchPageURL 按平台配置规则匹配页面地址。 */

@@ -1,7 +1,7 @@
 /** 本文件负责新手邀请、真实操作遮罩、阶段进度、针对性帮助和轻量完成鼓励。 */
 "use client";
 
-import { Alert, Button, Flex, Image, Input, Modal, Progress, Spin, Tour, Typography } from "antd";
+import { Alert, Button, Flex, Image, Input, Modal, Progress, Spin, Tag, Tour, Typography } from "antd";
 import { CheckCircleFilled, ClockCircleOutlined, PauseOutlined, QuestionCircleOutlined, TrophyOutlined } from "@ant-design/icons";
 import confetti from "canvas-confetti";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -18,12 +18,45 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
   const { phase, state, step, target, targetGeometry, title, description, hint, estimate, remaining, doneCount, statusText, error, busy, helpOpen, restartOpen, restartBlockedReason, formSaving, blocked, storageUnavailable, celebration, actions } = props;
   const [skipText, setSkipText] = useState("");
   const [mobileMenuPlacement, setMobileMenuPlacement] = useState<"top" | "bottom" | null>(null);
+  const [modePopupLayout, setModePopupLayout] = useState<{ placement: "top" | "bottom"; maxHeight: number } | null>(null);
   const actionsRef = useRef(actions);
   const progressBarRef = useRef<HTMLElement | null>(null);
   actionsRef.current = actions;
   const stage = onboardingStage(step);
   const active = phase === "active";
   const stageDone = [state.environmentReady, Boolean(state.positionId) && !state.reviewPosition, state.platformLoggedIn && !state.reviewPosition, state.positionStarted, state.status === "completed"];
+
+  useLayoutEffect(() => {
+    if (!active || !target || step !== "position-filter-mode") { setModePopupLayout(null); return; }
+    let frame = 0;
+    /** measureModePopup 只按控制台目标与固定进度条的真实空位限制费用气泡，标题和操作始终留在滚动区外。 */
+    function measureModePopup() {
+      const box = target!.getBoundingClientRect();
+      const progressBottom = progressBarRef.current?.getBoundingClientRect().bottom || 0;
+      // 为遮罩孔边距、气泡箭头及视口边缘留出空间，不能只靠 Tour 的视口翻转避让进度条。
+      const gap = 24;
+      const above = Math.max(0, box.top - progressBottom - gap);
+      const below = Math.max(0, window.innerHeight - box.bottom - gap);
+      const placement = above > below ? "top" : "bottom";
+      const maxHeight = Math.floor(Math.min(520, placement === "top" ? above : below));
+      setModePopupLayout((current) => current?.placement === placement && current.maxHeight === maxHeight ? current : { placement, maxHeight });
+    }
+    /** scheduleModePopup 合并滚动、弹框动画和尺寸通知，避免同一帧重复测量引导气泡。 */
+    function scheduleModePopup() { cancelAnimationFrame(frame); frame = requestAnimationFrame(measureModePopup); }
+    measureModePopup();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleModePopup);
+    observer?.observe(target);
+    if (progressBarRef.current) observer?.observe(progressBarRef.current);
+    window.addEventListener("resize", scheduleModePopup);
+    window.addEventListener("scroll", scheduleModePopup, true);
+    window.addEventListener("transitionend", scheduleModePopup, true);
+    return () => {
+      cancelAnimationFrame(frame); observer?.disconnect();
+      window.removeEventListener("resize", scheduleModePopup);
+      window.removeEventListener("scroll", scheduleModePopup, true);
+      window.removeEventListener("transitionend", scheduleModePopup, true);
+    };
+  }, [active, target, targetGeometry, step]);
 
   useLayoutEffect(() => {
     if (!active || !target || !step.endsWith("menu")) { setMobileMenuPlacement(null); return; }
@@ -149,8 +182,8 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         steps={[{
           target,
           title: <span data-testid="onboarding-tour" data-step={step}>{title}</span>,
-          description: <div>{step === "platform-login" ? simulationNotice : null}<Typography.Paragraph>{description}</Typography.Paragraph>{step === "platform-login" && !error ? <Flex gap={8} align="center" className={styles.loginStatus} role="status"><Image src="/assets/platforms/camoufox.png" alt="橙色狐狸浏览器图标" width={28} height={28} preview={false} /><Typography.Text type="secondary"><Spin size="small" /> {statusText || "我在等你完成平台登录。"}</Typography.Text></Flex> : null}<Typography.Paragraph type="secondary" className={styles.tourHint}>{hint}</Typography.Paragraph>{error && !["position-start-error", "position-start-update"].includes(step) ? <Alert type="warning" showIcon title={error} className={styles.helpAlert} /> : null}<Typography.Text type="secondary" className={styles.tourEstimate}>{estimate} · 完成操作后，我会自动接着带路。</Typography.Text></div>,
-          placement: operationPanel ? "top" : step.endsWith("menu") ? mobileMenuPlacement || "right" : "bottom",
+          description: <div tabIndex={step === "position-filter-mode" ? 0 : undefined} data-testid={step === "position-filter-mode" ? "onboarding-mode-description" : undefined}>{step === "platform-login" ? simulationNotice : null}<Typography.Paragraph>{description}</Typography.Paragraph>{step === "position-filter-mode" ? <FilterModeExplanation /> : null}{step === "platform-login" && !error ? <Flex gap={8} align="center" className={styles.loginStatus} role="status"><Image src="/assets/platforms/camoufox.png" alt="橙色狐狸浏览器图标" width={28} height={28} preview={false} /><Typography.Text type="secondary"><Spin size="small" /> {statusText || "我在等你完成平台登录。"}</Typography.Text></Flex> : null}<Typography.Paragraph type="secondary" className={styles.tourHint}>{hint}</Typography.Paragraph>{error && !["position-start-error", "position-start-update"].includes(step) ? <Alert type="warning" showIcon title={error} className={styles.helpAlert} /> : null}<Typography.Text type="secondary" className={styles.tourEstimate}>{estimate} · 完成操作后，我会自动接着带路。</Typography.Text></div>,
+          placement: modePopupLayout?.placement || (operationPanel ? "top" : step.endsWith("menu") ? mobileMenuPlacement || "right" : "bottom"),
         }]}
         disabledInteraction={false}
         keyboard={false}
@@ -161,7 +194,8 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         onClose={actions.pause}
         indicatorsRender={() => null}
         actionsRender={() => <Flex gap={6} wrap><Button type="text" disabled={formSaving} onClick={actions.back}>上一步</Button><Button type="text" disabled={formSaving} onClick={actions.pause}>稍后继续</Button><Button onClick={actions.openHelp}>遇到问题</Button></Flex>}
-        styles={{ section: { maxWidth: "min(390px, calc(100vw - 28px))" }, title: { color: "var(--goodhr-text)" } }}
+        classNames={modePopupLayout ? { section: styles.modeTourSection, header: styles.modeTourHeader, description: styles.modeTourDescription, footer: styles.modeTourFooter } : undefined}
+        styles={{ section: { maxWidth: "min(390px, calc(100vw - 28px))", ...(modePopupLayout ? { maxHeight: modePopupLayout.maxHeight } : {}) }, title: { color: "var(--goodhr-text)" } }}
       />
 
       <Modal
@@ -174,7 +208,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         footer={<Flex justify="flex-end" gap={8} wrap><Button onClick={actions.requestSkip}>我非新用户，无需教程</Button><Button type="primary" onClick={actions.accept}>好，带我跑一遍</Button></Flex>}
       >
         {simulationNotice}
-        <Typography.Paragraph className={styles.welcomeCopy}>强烈建议跟我跑一遍：先建岗位，再打开招聘浏览器登录，直到筛完第一位候选人。有我带路，少一点“接下来点哪儿”。</Typography.Paragraph>
+        <Typography.Paragraph className={styles.welcomeCopy}>强烈建议跟我跑一遍：先建岗位，再从“开始”弹框打开平台、登录并设好筛选条件，直到筛完第一位候选人。有我带路，少一点“接下来点哪儿”。</Typography.Paragraph>
         <div className={styles.welcomeFacts}><span>5 个阶段 · 进度自动保存</span><span>预计 {remaining}</span></div>
       </Modal>
 
@@ -199,6 +233,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         footer={<Flex justify="flex-end" gap={8} wrap><Button disabled={formSaving} onClick={actions.back}>上一步</Button><Button onClick={actions.requestRestart}>从头开始</Button><Button type="primary" onClick={actions.closeHelp}>我再试试</Button></Flex>}
       >
         <Typography.Paragraph>{description}</Typography.Paragraph>
+        {step === "position-filter-mode" ? <FilterModeExplanation /> : null}
         <Typography.Paragraph type="secondary">{hint}</Typography.Paragraph>
         {error || blocked ? <Alert type="warning" showIcon title="我目前看到的卡点" description={error || statusText || "先按当前页面提示完成检查，再回来继续。"} className={styles.helpAlert} /> : null}
         {step === "agent-connect" ? <div><Typography.Paragraph>启动本地 GoodHR 程序后，如果还连不上，点击地址栏左侧的网站设置，允许“设备上的应用”，再检查一次连接。</Typography.Paragraph><ClickableImagePreview src={permissionImage} alt="Chrome 设备上的应用权限开关位置" /></div> : null}
@@ -218,7 +253,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       </Modal>
 
       {phase === "paused" || phase === "declined" ? (
-        <div className={styles.resumeEntry}><Typography.Text type="secondary">{phase === "paused" ? "教程进度给你留着了" : "需要带路时，我还在"}</Typography.Text><Button onClick={actions.requestRestart}>从头开始</Button><Button type="primary" onClick={actions.resume}>{phase === "paused" ? "继续教程" : "开启引导"}</Button></div>
+        <div className={styles.resumeEntry} style={props.resumeAboveDialog ? { zIndex: 1600 } : undefined}><Typography.Text type="secondary">{phase === "paused" ? "教程进度给你留着了" : "需要带路时，我还在"}</Typography.Text><Button onClick={actions.requestRestart}>从头开始</Button><Button type="primary" onClick={actions.resume}>{phase === "paused" ? "继续教程" : "开启引导"}</Button></div>
       ) : null}
 
       {celebration && phase !== "completed" ? <div className={styles.celebrationToast} role="status" aria-live="polite"><CheckCircleFilled aria-hidden="true" /><div><strong>{celebration.title}</strong><span>{celebration.description}</span></div></div> : null}
@@ -230,6 +265,16 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         <Typography.Paragraph type="secondary">接下来可以调整岗位条件，继续招人。正在运行的岗位会继续工作，你随时可以在岗位管理中停止。</Typography.Paragraph>
         <Progress percent={100} strokeColor="var(--goodhr-primary)" />
       </Modal>
+    </div>
+  );
+}
+
+/** FilterModeExplanation 在遮罩和帮助中突出免费、付费及对应场景，避免费用提示埋在灰字里。 */
+function FilterModeExplanation() {
+  return (
+    <div className={styles.modeComparison} data-testid="onboarding-filter-mode-costs">
+      <div><Tag color="success">基础筛选免费</Tag><Typography.Text strong>关键词筛选</Typography.Text><p>适合单一、简单的条件，按技能词、排除词匹配。</p></div>
+      <div><Tag color="gold">付费模式</Tag><Typography.Text strong>AI 筛选</Typography.Text><p>适合多项、复杂要求，结合经历和岗位要求判断。</p><p className={styles.modeFee}>需有效会员；内置 AI 按用量扣余额，自定义接口按服务商规则计费。</p></div>
     </div>
   );
 }

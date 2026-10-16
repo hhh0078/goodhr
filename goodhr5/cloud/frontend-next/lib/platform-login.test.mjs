@@ -137,6 +137,50 @@ test("启动前快速检查也不能把旧配置的同域登录页认成已登�
   });
 });
 
+test("真实猎聘account/login即使回跳参数命中岗位入口和泛域名也不能算已登录", async () => {
+  const platform = legacyPlatforms[1];
+  const loginURL = "https://h.liepin.com/account/login?backurl=https%3A%2F%2Fh.liepin.com%2Fsearch%2FgetConditionItem";
+  await withLoginAgent([loginURL], async (api, calls) => {
+    const parsed = api.parsePlatformAuthConfig(legacyPlatformConfig(platform), platform.id);
+    assert.equal(api.isLoginURL(loginURL, parsed), true);
+    assert.equal(api.isLoggedInURL(loginURL, parsed), false);
+    await assert.rejects(api.confirmPlatformLoggedInForPosition("http://isolated-agent.invalid", parsed, () => {}), /招聘平台还没登录/);
+    assert.equal(calls.length, 3, "开始前的三次检查都不能放行这个真实登录页");
+  });
+  const businessURL = `${platform.entry}?source=login&backurl=https%3A%2F%2Fh.liepin.com%2Faccount%2Flogin`;
+  await withLoginAgent([loginURL, loginURL, loginURL, businessURL, businessURL, businessURL], async (api, calls) => {
+    const parsed = api.parsePlatformAuthConfig(legacyPlatformConfig(platform), platform.id);
+    const statuses = [];
+    assert.equal(api.isLoginURL(businessURL, parsed), false, "业务页查询参数提到login不能误判为登录页");
+    assert.equal(api.isLoggedInURL(businessURL, parsed), true, "正常业务URL仍按原auth规则判断，不剥离或重写query");
+    await api.waitForPlatformLoggedIn("http://isolated-agent.invalid", parsed, (message) => statuses.push(message));
+    assert.equal(calls.length, 6, "离开真实登录页后才开始连续三次确认");
+    assert.equal(statuses.filter((message) => message === "请在招聘浏览器中完成扫码或验证码登录").length, 3);
+    assert.equal(statuses.at(-1), "正在确认登录状态 3/3");
+  });
+});
+
+test("通用登录排除仅识别完整pathname段，不扫描query或把相似业务路径当登录页", async () => {
+  const platform = legacyPlatforms[1];
+  await withLoginAgent([], async (api) => {
+    const parsed = api.parsePlatformAuthConfig(legacyPlatformConfig(platform), platform.id);
+    for (const path of ["/account/login", "/account/signin", "/sso/sign-in/verify", "/user/log-in", "/user/log_in", "/user/sign_in", "/sso/logon", "/sso/signon", "/ACCOUNT/LOGIN.html", "/account/%6cogin", "/account/%6cogin/%broken"]) {
+      const url = `${platform.domain}${path}?next=${encodeURIComponent(platform.entry)}`;
+      assert.equal(api.isLoginURL(url, parsed), true, path);
+      assert.equal(api.isLoggedInURL(url, parsed), false, path);
+    }
+    for (const path of ["/search/login-history", "/search/mylogin", "/search/signin-settings", "/search/getConditionItem?login=true&return_to=/account/login"]) {
+      const url = `${platform.domain}${path}`;
+      assert.equal(api.isLoginURL(url, parsed), false, path);
+      assert.equal(api.isLoggedInURL(url, parsed), true, path);
+    }
+    const exactURL = `${platform.entry}?tab=candidates&source=login`;
+    const exactConfig = { pages: [{ url: exactURL, match: "exact" }], public_pages: parsed.public_pages };
+    assert.equal(api.isLoggedInURL(exactURL, exactConfig), true, "带query的显式exact成功规则保持原义");
+    assert.equal(api.isLoggedInURL(platform.entry, exactConfig), false, "不能扩大原exact成功规则");
+  });
+});
+
 test("空页和其他网站明确提示重开本次登录窗口，平台内跳转也不能冒充登录", async () => {
   const entry = auth.pages[0].url;
   await withLoginAgent(["", "about:blank", "https://www.bing.com/", "https://recruiting.example.invalid/verify", auth.public_pages[0].url, entry, entry, entry], async (api, calls) => {

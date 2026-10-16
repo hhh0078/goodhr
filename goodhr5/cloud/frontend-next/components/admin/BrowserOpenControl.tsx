@@ -1,10 +1,10 @@
 /** 本文件提供顶部浏览器打开入口、等待反馈和只需确认一次的浏览器图标提示。 */
 "use client";
 
-import { Button, Flex, Image, Spin, Tooltip, Typography } from "antd";
+import { Button, Flex, Image, Tooltip, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { detectLocalAgent, openLocalPage } from "@/lib/admin-api";
-import { getOnboardingGuideContext, publishOnboardingEvent, subscribeOnboardingGuideContext } from "@/lib/onboarding-events";
+import { getOnboardingGuideContext, subscribeOnboardingGuideContext } from "@/lib/onboarding-events";
 import AdminDialog from "./AdminDialog";
 
 const BROWSER_ICON = "/assets/platforms/camoufox.png";
@@ -30,21 +30,16 @@ export default function BrowserOpenControl({
   const [guide, setGuide] = useState(getOnboardingGuideContext);
   const inFlight = useRef(false);
   const acknowledged = useRef(false);
-  const guidedOpening = guide.active && ["platform-open", "platform-login"].includes(guide.step || "") && Boolean(guide.browserOpening);
-  const showingOpening = opening || guidedOpening;
+  const showingOpening = opening;
 
   useEffect(() => subscribeOnboardingGuideContext(setGuide), []);
   useEffect(() => { if (guide.active) setNoticeOpen(false); }, [guide.active]);
 
-  /** openBrowser 教程中只接受已保存岗位的登录步骤开窗；普通使用等待真实打开后再提示成功。 */
+  /** openBrowser 教程统一通过原岗位开始弹框开窗，普通使用等待真实打开后再提示成功。 */
   async function openBrowser() {
     const currentGuide = getOnboardingGuideContext();
     if (currentGuide.active) {
-      if (!currentGuide.positionId?.trim() || !["platform-open", "platform-login"].includes(currentGuide.step || "")) {
-        notify(currentGuide.positionId ? "先跟着完成当前这一步，需要打开招聘浏览器时我会带你过来。" : "先把岗位建好并保存，我再带你打开对应的招聘浏览器。", "info");
-      } else if (!currentGuide.browserOpening) {
-        publishOnboardingEvent({ type: "platform-browser-open-requested", platformId: currentGuide.platformId });
-      }
+      notify(currentGuide.positionId ? "这次从岗位的“开始”进入，在弹框里点“打开平台，并筛选条件”，我陪你登录和设置条件。" : "先把岗位建好并保存，再从岗位的“开始”进入招聘浏览器。", "info");
       return;
     }
     if (inFlight.current) return;
@@ -100,7 +95,7 @@ export default function BrowserOpenControl({
   const icon = (
     // 教程加载时保留图标占位和按钮文案，避免转圈结束后按钮变宽、遮罩沿用中途尺寸。
     <span style={{ width: 22, height: 22, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-      {guidedOpening ? <Spin size="small" /> : <Image src={BROWSER_ICON} alt="" width={22} height={22} preview={false} />}
+      <Image src={BROWSER_ICON} alt="" width={22} height={22} preview={false} />
     </span>
   );
   return (

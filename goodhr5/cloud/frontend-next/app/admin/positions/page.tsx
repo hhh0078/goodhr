@@ -38,6 +38,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
+import { ONBOARDING_FILTER_MODE_OPTIONS } from "@/lib/onboarding-view";
 import AIResponseDiagnosticDetails, {
   aiResponseDiagnosticFromOutput,
 } from "@/components/admin/AIResponseDiagnosticDetails";
@@ -188,6 +189,10 @@ export default function PositionsPage() {
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
   const [startLoading, setStartLoading] = useState(false);
   const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
+  const [startPlatformOpened, setStartPlatformOpened] = useState(false);
+  const startDialogEpoch = useRef(0);
+  const startDialogPositionID = useRef("");
+  const startOperationInFlight = useRef(false);
   const pendingStartDialogClose = useRef(false);
   const [startStatus, setStartStatus] = useState("");
   const [startError, setStartError] = useState("");
@@ -228,6 +233,12 @@ export default function PositionsPage() {
     lastDraftIdentity.current = draftIdentity;
     positionFormEpoch.current += 1;
     positionSaveEpoch.current = null;
+    startDialogEpoch.current += 1;
+    startDialogPositionID.current = "";
+    startOperationInFlight.current = false;
+    setStartPlatformOpened(false);
+    setStartLoading(false);
+    setStartOpeningPlatform(false);
     draftOwnerIdentity.current = "";
     createdOnboardingPositionID.current = "";
     startedOnboardingPositionID.current = "";
@@ -247,7 +258,10 @@ export default function PositionsPage() {
   }, [draftIdentity]);
   useEffect(() => subscribeOnboardingEvents((event) => {
     if (event.type === "position-form-close-requested" && dialogOpen) closePositionForm();
-    if (event.type === "position-start-close-requested" && startPositionItem) closeStartDialog();
+    if (event.type === "position-start-close-requested") {
+      if (startPositionItem) closeStartDialog();
+      if (event.refreshPositions) void load();
+    }
     if (event.type === "position-recover-requested" && event.positionId) {
       if (loading) { queuedTutorialRecovery.current = event.positionId; return; }
       const item = items.find((position) => String(position.id) === event.positionId);
@@ -268,7 +282,7 @@ export default function PositionsPage() {
     publishOnboardingEvent({
       type: "start-dialog-status",
       positionId: String(startPositionItem.id),
-      startStatus: startError ? "error" : startRequiresUpdate ? "update" : startLoading || startOpeningPlatform ? "checking" : "ready",
+      startStatus: startError ? "error" : startRequiresUpdate ? "update" : startLoading ? "checking" : startOpeningPlatform ? "opening" : "ready",
       message: startError || startStatus,
     });
   }, [startPositionItem, startError, startRequiresUpdate, startLoading, startOpeningPlatform, startStatus]);
@@ -721,6 +735,7 @@ export default function PositionsPage() {
   }
   /** openStartPosition 展开岗位日志并打开启动确认弹框。 */
   function openStartPosition(item: any) {
+    if (startOperationInFlight.current) return;
     if (!agentBase) return notify("请先启动本地程序", "warning");
     if (getOnboardingGuideContext().active && !isPlatformOpen(platformConfigs, item.platform_id)) {
       publishOnboardingEvent({ type: "platform-unavailable", platformId: String(item.platform_id || ""), message: "这个岗位的平台暂未开放，请重新选择可用平台。岗位会保留，我不会替你换平台开跑。" });
@@ -730,7 +745,11 @@ export default function PositionsPage() {
     void loadPositionLogs(item);
     setStartStatus("");
     setStartError("");
+    startDialogEpoch.current += 1;
+    startDialogPositionID.current = String(item.id);
+    setStartLoading(false);
     setStartOpeningPlatform(false);
+    setStartPlatformOpened(false);
     setStartRequiresUpdate(false);
     pendingStartDialogClose.current = false;
     setStartPositionItem(item);
@@ -738,48 +757,67 @@ export default function PositionsPage() {
   }
   /** closeStartDialog 等待正在进行的真实操作结束后关闭弹框，再通知教程回退，避免指向弹框背后。 */
   function closeStartDialog() {
-    if (startLoading || startOpeningPlatform) {
+    if (startOperationInFlight.current || startLoading || startOpeningPlatform) {
       pendingStartDialogClose.current = true;
       return;
     }
     pendingStartDialogClose.current = false;
     const closedPositionID = startPositionItem?.id;
+    startDialogEpoch.current += 1;
+    startDialogPositionID.current = "";
     setStartPositionItem(null);
     setStartStatus("");
     setStartError("");
     setStartOpeningPlatform(false);
+    setStartPlatformOpened(false);
     setStartRequiresUpdate(false);
     if (closedPositionID) publishOnboardingEvent({ type: "start-dialog-closed", positionId: String(closedPositionID) });
+  }
+  /** isCurrentStartDialog 限定异步回复仍属于当前账号和同一次岗位弹框，关闭、换号或重开后的旧回复不可推进教程。 */
+  function isCurrentStartDialog(epoch: number, ownerIdentity: string, ownerToken: string, positionID: string) {
+    return pageMountedRef.current && startDialogEpoch.current === epoch && startDialogPositionID.current === positionID && lastDraftIdentity.current === ownerIdentity && getToken() === ownerToken;
   }
   /** openStartPlatformForFiltering 打开当前岗位对应的招聘平台页面，供用户先手动设置基础筛选条件。 */
   async function openStartPlatformForFiltering() {
     const item = startPositionItem;
-    if (!item || !agentBase || startOpeningPlatform) return;
+    if (!item || !agentBase || startOperationInFlight.current || startOpeningPlatform || startLoading) return;
     if (!isPlatformOpen(platformConfigs, item.platform_id)) {
       setStartStatus("这个招聘平台暂时还没开放，请联系作者确认。");
       setStartError("这个招聘平台暂时还没开放。请返回后重新选择可用平台，再继续教程。");
       return;
     }
+    const epoch = startDialogEpoch.current;
+    const ownerIdentity = draftIdentity;
+    const ownerToken = getToken();
+    startOperationInFlight.current = true;
     setStartOpeningPlatform(true);
+    setStartPlatformOpened(false);
+    setStartError("");
     setStartStatus("正在打开当前岗位对应的招聘平台页面...");
     try {
       const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
       await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
+      if (!isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id)) || pendingStartDialogClose.current) return;
+      setStartPlatformOpened(true);
       publishOnboardingEvent({ type: "platform-opened", positionId: String(item.id), platformId: String(item.platform_id || "") });
       setStartStatus(
-        "招聘平台已打开。请在平台页面筛选好基础条件，再回来点击“我已筛选好，立即开始”。",
+        "招聘浏览器已打开。请在里面登录招聘账号，亲自设置年龄、学历、地区等条件，再回来点击“我已筛选好，立即开始”。",
       );
     } catch (error) {
+      if (!isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id)) || pendingStartDialogClose.current) return;
       const message =
         error instanceof Error ? error.message : "打开招聘平台失败";
       setStartStatus(message);
       setStartError(message);
     } finally {
-      setStartOpeningPlatform(false);
+      if (isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id))) {
+        startOperationInFlight.current = false;
+        setStartOpeningPlatform(false);
+      }
     }
   }
   /** checkPositionStartGuard 检查 AI 余额和本地程序版本是否满足启动要求。 */
-  async function checkPositionStartGuard(item: any) {
+  async function checkPositionStartGuard(item: any, isCurrent: () => boolean = () => true) {
     const usesAI = positionUsesAI(item);
     setStartStatus(
       usesAI ? "正在检查 AI 余额和本地程序版本..." : "正在检查本地程序版本...",
@@ -788,12 +826,14 @@ export default function PositionsPage() {
       let runtimeConfig = onboardingConfig;
       if (!latestLocalAgentRelease(runtimeConfig).version) {
         const runtimePayload = await cloudRequest("/api/runtime/config");
+        if (!isCurrent()) return false;
         runtimeConfig = runtimePayload.config || runtimePayload || {};
       }
       const [health, walletPayload] = await Promise.all([
         localRequest(agentBase, "/health"),
         usesAI ? cloudRequest("/api/ai-wallet") : Promise.resolve(null),
       ]);
+      if (!isCurrent()) return false;
       const release = latestLocalAgentRelease(runtimeConfig);
       const guardFailure = evaluatePositionStartGuard(
         walletPayload?.wallet || walletPayload,
@@ -810,6 +850,7 @@ export default function PositionsPage() {
           source: "position_start_guard",
           position_id: item.id,
         }).catch(() => undefined);
+        if (!isCurrent()) return false;
         setStartStatus(guardFailure.message);
         setStartRequiresUpdate(guardFailure.code === "agent_version_outdated");
         setStartError(
@@ -822,6 +863,7 @@ export default function PositionsPage() {
       setStartRequiresUpdate(false);
       return true;
     } catch (error) {
+      if (!isCurrent()) return false;
       const message =
         error instanceof Error
           ? `启动条件检查没跑完：${error.message}。这次我先不乱启动，你稍后再试一次。`
@@ -842,12 +884,25 @@ export default function PositionsPage() {
   }
   /** confirmStartPosition 在确认弹框中完成启动检查、登录确认和岗位启动。 */
   async function confirmStartPosition() {
+    if (startOperationInFlight.current || startLoading || startOpeningPlatform) return;
     if (startRequiresUpdate) {
       window.location.reload();
       return;
     }
     const item = startPositionItem;
     if (!item || !agentBase) return;
+    const guide = getOnboardingGuideContext();
+    const tutorialPosition = Boolean(guide.active && guide.positionId === String(item.id));
+    if (tutorialPosition && (guide.reviewPosition || guide.step !== "position-run" || !startPlatformOpened)) {
+      setStartStatus("先点“打开平台，并筛选条件”，在招聘浏览器里登录并设置条件，确认后我再开工。");
+      return;
+    }
+    const epoch = startDialogEpoch.current;
+    const ownerIdentity = draftIdentity;
+    const ownerToken = getToken();
+    /** canContinueStart 在真正运行前复查弹框归属及关闭请求，防止迟到检查启动已经取消的任务。 */
+    const canContinueStart = () => isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id)) && !pendingStartDialogClose.current;
+    startOperationInFlight.current = true;
     const floatingWindowPromise = openPositionFloatingWindow();
     let started = false;
     setStartLoading(true);
@@ -856,6 +911,7 @@ export default function PositionsPage() {
     setStartError("");
     try {
       const pipWindow = await floatingWindowPromise;
+      if (!canContinueStart()) { pipWindow?.close(); return; }
       if (pipWindow) {
         setFloatingStatusWindow(pipWindow);
         setFloatingPositionTask({
@@ -870,8 +926,9 @@ export default function PositionsPage() {
           skippedCount: 0,
         });
       }
-      if (!(await checkPositionStartGuard(item))) return;
+      if (!(await checkPositionStartGuard(item, canContinueStart)) || !canContinueStart()) return;
       const subscriptionData = await cloudRequest("/api/subscription/status");
+      if (!canContinueStart()) return;
       const currentSubscription = normalizeSubscription(
         subscriptionData.subscription,
       );
@@ -883,19 +940,26 @@ export default function PositionsPage() {
         return;
       }
       const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
-      setStartStatus("正在打开招聘平台，我先看看账号有没有登录。");
-      await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
-      publishOnboardingEvent({ type: "platform-opened", positionId: String(item.id), platformId: String(item.platform_id || "") });
+      // 已在本次弹框打开并手动设置条件时复用当前页，避免再次导航入口丢失筛选条件。
+      if (!startPlatformOpened) {
+        setStartStatus("正在打开招聘平台，我先看看账号有没有登录。");
+        await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
+        if (!canContinueStart()) return;
+        setStartPlatformOpened(true);
+      } else setStartStatus("正在复查当前招聘页面的登录状态，已设置的筛选条件会保留。");
       try {
         await confirmPlatformLoggedInForPosition(agentBase, auth, (message) =>
-          setStartStatus(message),
+          { if (canContinueStart()) setStartStatus(message); },
         );
+        if (!canContinueStart()) return;
         await reportUserFlow({
           step: "platform_login_verified",
           source: "position_start",
           position_id: item.id,
         });
+        if (!canContinueStart()) return;
       } catch (loginError) {
+        if (!canContinueStart()) return;
         const message =
           loginError instanceof Error
             ? loginError.message
@@ -933,6 +997,7 @@ export default function PositionsPage() {
           "info",
         );
       setStartStatus("登录确认好了，正在启动岗位...");
+      if (!canContinueStart()) return;
       await localRequest(
         agentBase,
         `/api/v1/local/positions/${encodeURIComponent(item.id)}/run`,
@@ -942,6 +1007,7 @@ export default function PositionsPage() {
         },
       );
       started = true;
+      if (!isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id))) return;
       pendingStartDialogClose.current = false;
       if (getOnboardingGuideContext().active) {
         startedOnboardingPositionID.current = String(item.id);
@@ -958,12 +1024,14 @@ export default function PositionsPage() {
         source: "position_start",
         position_id: item.id,
       });
+      if (!isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id))) return;
       notify("岗位已经开始跑了，我会老实记日志", "success");
       setStartPositionItem(null);
       setStartStatus("");
       setStartError("");
       await Promise.all([load(), loadPositionLogs(item)]);
     } catch (error) {
+      if (!isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id)) || pendingStartDialogClose.current) return;
       const message = error instanceof Error ? error.message : "岗位启动失败";
       setStartStatus(message);
       setStartError(message);
@@ -976,15 +1044,18 @@ export default function PositionsPage() {
         position_id: item.id,
       }).catch(() => undefined);
     } finally {
-      if (!started) {
-        setFloatingPositionTask((current) =>
-          current && current.id === item.id
-            ? { ...current, status: "stopped", followTask: false }
-            : current,
-        );
+      if (isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id))) {
+        if (!started) {
+          setFloatingPositionTask((current) =>
+            current && current.id === item.id
+              ? { ...current, status: "stopped", followTask: false }
+              : current,
+          );
+        }
+        startOperationInFlight.current = false;
+        setBusyPositionID("");
+        setStartLoading(false);
       }
-      setBusyPositionID("");
-      setStartLoading(false);
     }
   }
   /** stopPosition 停止本地岗位运行，但保持浏览器打开。 */
@@ -1593,6 +1664,7 @@ export default function PositionsPage() {
         loading={startLoading}
         loadingText="启动中"
         confirmDataOnboarding="position-run-confirm"
+        confirmDisabled={!startError && !startRequiresUpdate && (startOpeningPlatform || Boolean(guideContext.active && guideContext.positionId === String(startPositionItem?.id || "") && (guideContext.reviewPosition || guideContext.step !== "position-run" || !startPlatformOpened)))}
         onClose={closeStartDialog}
         onConfirm={() =>
           startError ? closeStartDialog() : void confirmStartPosition()
@@ -1632,7 +1704,7 @@ export default function PositionsPage() {
                   <Typography.Paragraph
                     className={`${styles.text} ${styles.s16}`}
                   >
-                    强烈建议您先点击下方“打开平台，并筛选条件”，在招聘平台中设置好年龄、学历、地区等基础筛选条件，再回来开始任务。基础筛选会直接影响候选人结果，此步骤非常重要。
+                    先点下方“打开平台，并筛选条件”，在刚打开的招聘浏览器里登录账号，再亲自设置年龄、学历、地区等条件。设置好后回来点“我已筛选好，立即开始”，我才正式开工。
                   </Typography.Paragraph>{" "}
                 </>
               }
@@ -1771,10 +1843,7 @@ export default function PositionsPage() {
                 value={form.mode_default}
                 compact
                 onChange={(value) => void selectMode(String(value))}
-                options={[
-                  { value: "keyword", label: "关键词筛选", description: "按关键词找人，这部分免费。" },
-                  { value: "ai", label: "AI 筛选", description: "AI 根据岗位要求判断，需要会员与 AI 余额。", memberOnly: true },
-                ]}
+                options={ONBOARDING_FILTER_MODE_OPTIONS}
               />
             </div>
             <div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
@@ -1786,7 +1855,7 @@ export default function PositionsPage() {
                 onChange={(value) => void selectDetailMode(String(value))}
                 options={form.platform_id === "boss" ? [
                   { value: "ocr", label: "本地识别（OCR）", description: "在电脑上识别简历文字，不花 AI 余额。" },
-                  { value: "ai", label: "AI 识别", description: "AI 理解简历详情，需要会员与 AI 余额。", memberOnly: true },
+                  { value: "ai", label: "AI 识别（付费模式）", description: "需有效会员；内置 AI 按用量扣余额，自定义接口按服务商规则计费。", memberOnly: true },
                 ] : [
                   { value: "dom", label: "页面文字识别", description: "直接读取可见简历文字，不花 AI 余额。" },
                 ]}
@@ -1806,7 +1875,7 @@ export default function PositionsPage() {
                   />
                 </Form.Item>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  选了 AI 就会使用 AI 余额，开始前会检查会员与余额。
+                  AI 需有效会员；内置 AI 按用量扣余额，自定义接口按服务商规则计费。开始前会检查会员与余额。
                 </Typography.Text>
               </>
             ) : null}
@@ -2024,19 +2093,7 @@ export default function PositionsPage() {
             label="基础信息筛选模式   (决定是否打开查看详情)"
             value={form.mode_default}
             onChange={(value) => void selectMode(String(value))}
-            options={[
-              {
-                value: "keyword",
-                label: "关键词筛选",
-                description: "按关键词和排除词判断，永久免费且速度快。",
-              },
-              {
-                value: "ai",
-                label: "AI 筛选（会员功能）",
-                description: "AI 先根据基础信息判断是否值得打开详情。",
-                memberOnly: true,
-              },
-            ]}
+            options={ONBOARDING_FILTER_MODE_OPTIONS}
           />
           </div>
           <div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
