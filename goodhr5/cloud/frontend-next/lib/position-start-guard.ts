@@ -12,7 +12,7 @@ export type PositionStartGuardFailure = {
 export function latestLocalAgentRelease(config: any) {
   const isWindows = typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("windows");
   const releases = Array.isArray(config?.local_agent) ? config.local_agent : [];
-  const item = releases.find((release: any) => release && (isWindows
+  const item = releases.find((release: any) => release && String(release.version || "").trim() && (isWindows
     ? release.url_win || release.url_windows || release.url
     : release.url_mac || release.url_macos || release.url)) || {};
   return {
@@ -44,11 +44,18 @@ export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown,
   }
   const current = String(currentVersion || "").trim();
   const required = String(requiredVersion || "").trim();
-  if (!current || !required) {
+  if (!current) {
     return {
       code: "agent_version_unavailable",
-      title: "版本检查失败",
-      message: "暂时没有读到本地程序当前版本或后台要求版本。本次岗位运行不会开始，请重新连接本地程序后重试。",
+      title: "本地程序版本没读到",
+      message: "暂时没读到本地程序的版本。请确认本地程序已启动，再点“重新检查”；招聘页面和筛选条件都会保留。",
+    };
+  }
+  if (!required) {
+    return {
+      code: "agent_release_unavailable",
+      title: "后台版本要求暂缺",
+      message: "后台暂时没有提供当前系统的版本要求，我先不冒险启动。可以稍后点“重新检查”，已设置的筛选条件会保留。",
     };
   }
   if (isMandatoryLocalAgentUpdate(current, required)) {

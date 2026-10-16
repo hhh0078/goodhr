@@ -282,15 +282,17 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       update((current) => ({ ...current, status: "active", step: current.status === "completed" ? "position-menu" : current.step }));
       changePhase("active"); setError(""); return;
     }
-    if (phaseRef.current !== "active") return;
-    const current = stateRef.current;
-    if (event.type === "platform-unavailable") { returnToPlatformChoice(event.message || "这个招聘平台暂未开放，请重新选择可用平台。我不会替你换平台。"); void readPlatformAvailability(); return; }
-    if (event.type === "start-dialog-status" && event.positionId === current.positionId) {
+    // 暂停时弹框仍可重查，只同步展示事实；恢复教程不能继续显示已经解决的旧错误。
+    if (event.type === "start-dialog-status" && event.positionId === stateRef.current.positionId) {
       setStartDialogStatus(event.startStatus || "ready");
       if (event.startStatus === "error" || event.startStatus === "update") setError(event.message || "请先按启动弹框里的提示处理，再继续。");
       else if (event.startStatus === "checking" || event.startStatus === "opening") { setError(""); setStatusText(event.message || "正在处理当前操作"); }
+      else if (event.startStatus === "ready") { setError(""); setStatusText(event.message || ""); }
       return;
     }
+    if (phaseRef.current !== "active") return;
+    const current = stateRef.current;
+    if (event.type === "platform-unavailable") { returnToPlatformChoice(event.message || "这个招聘平台暂未开放，请重新选择可用平台。我不会替你换平台。"); void readPlatformAvailability(); return; }
     if (event.type === "position-form-opened") {
       setFormOpen(true);
       update((value) => {

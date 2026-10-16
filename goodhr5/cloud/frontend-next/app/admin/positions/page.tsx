@@ -88,6 +88,7 @@ import {
   evaluatePositionStartGuard,
   latestLocalAgentRelease,
   positionUsesAI,
+  type PositionStartGuardFailure,
 } from "@/lib/position-start-guard";
 const CHROMIUM_ICON_SRC = "/assets/platforms/camoufox.png";
 const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
@@ -145,7 +146,7 @@ type FloatingPositionTask = {
 /** PositionsPage 管理岗位筛选、详情识别和 AI 提示词配置。 */
 export default function PositionsPage() {
   const router = useRouter();
-  const { user, subscription, notify, confirm, agentBase, onboardingConfig } =
+  const { user, subscription, notify, confirm, agentBase } =
     useAdmin();
   const [items, setItems] = useState<any[]>([]);
   const [positionScope, setPositionScope] = useState("true");
@@ -197,6 +198,8 @@ export default function PositionsPage() {
   const [startStatus, setStartStatus] = useState("");
   const [startError, setStartError] = useState("");
   const [startRequiresUpdate, setStartRequiresUpdate] = useState(false);
+  const [startGuardFailure, setStartGuardFailure] = useState<PositionStartGuardFailure | null>(null);
+  const [startGuardRechecking, setStartGuardRechecking] = useState(false);
   const [floatingStatusWindow, setFloatingStatusWindow] =
     useState<Window | null>(null);
   const [floatingPositionTask, setFloatingPositionTask] =
@@ -218,6 +221,7 @@ export default function PositionsPage() {
   });
   const aiMembership = canUseAI(subscription);
   const simpleOnboardingForm = guideContext.active && (!form.id || Boolean(guideContext.reviewPosition && form.id === guideContext.positionId));
+  const recheckStartAvailable = Boolean(startGuardFailure && !startRequiresUpdate);
   const draftIdentity = String(user?.id || user?.email || "").trim();
   useEffect(() => {
     pageMountedRef.current = true;
@@ -239,6 +243,8 @@ export default function PositionsPage() {
     setStartPlatformOpened(false);
     setStartLoading(false);
     setStartOpeningPlatform(false);
+    setStartGuardFailure(null);
+    setStartGuardRechecking(false);
     draftOwnerIdentity.current = "";
     createdOnboardingPositionID.current = "";
     startedOnboardingPositionID.current = "";
@@ -751,6 +757,8 @@ export default function PositionsPage() {
     setStartOpeningPlatform(false);
     setStartPlatformOpened(false);
     setStartRequiresUpdate(false);
+    setStartGuardFailure(null);
+    setStartGuardRechecking(false);
     pendingStartDialogClose.current = false;
     setStartPositionItem(item);
     publishOnboardingEvent({ type: "start-dialog-opened", positionId: String(item.id), platformId: String(item.platform_id || "") });
@@ -771,6 +779,8 @@ export default function PositionsPage() {
     setStartOpeningPlatform(false);
     setStartPlatformOpened(false);
     setStartRequiresUpdate(false);
+    setStartGuardFailure(null);
+    setStartGuardRechecking(false);
     if (closedPositionID) publishOnboardingEvent({ type: "start-dialog-closed", positionId: String(closedPositionID) });
   }
   /** isCurrentStartDialog 限定异步回复仍属于当前账号和同一次岗位弹框，关闭、换号或重开后的旧回复不可推进教程。 */
@@ -816,25 +826,20 @@ export default function PositionsPage() {
       }
     }
   }
-  /** checkPositionStartGuard 检查 AI 余额和本地程序版本是否满足启动要求。 */
+  /** checkPositionStartGuard 每次并行读取最新后台版本要求、本地版本和AI余额，结果仅用于当前弹框，不打开平台或运行任务。 */
   async function checkPositionStartGuard(item: any, isCurrent: () => boolean = () => true) {
     const usesAI = positionUsesAI(item);
     setStartStatus(
       usesAI ? "正在检查 AI 余额和本地程序版本..." : "正在检查本地程序版本...",
     );
     try {
-      let runtimeConfig = onboardingConfig;
-      if (!latestLocalAgentRelease(runtimeConfig).version) {
-        const runtimePayload = await cloudRequest("/api/runtime/config");
-        if (!isCurrent()) return false;
-        runtimeConfig = runtimePayload.config || runtimePayload || {};
-      }
-      const [health, walletPayload] = await Promise.all([
+      const [runtimePayload, health, walletPayload] = await Promise.all([
+        cloudRequest("/api/runtime/config"),
         localRequest(agentBase, "/health"),
         usesAI ? cloudRequest("/api/ai-wallet") : Promise.resolve(null),
       ]);
       if (!isCurrent()) return false;
-      const release = latestLocalAgentRelease(runtimeConfig);
+      const release = latestLocalAgentRelease(runtimePayload.config || runtimePayload || {});
       const guardFailure = evaluatePositionStartGuard(
         walletPayload?.wallet || walletPayload,
         health.version || health.agent_version,
@@ -852,6 +857,7 @@ export default function PositionsPage() {
         }).catch(() => undefined);
         if (!isCurrent()) return false;
         setStartStatus(guardFailure.message);
+        setStartGuardFailure(guardFailure);
         setStartRequiresUpdate(guardFailure.code === "agent_version_outdated");
         setStartError(
           guardFailure.code === "agent_version_outdated"
@@ -861,6 +867,7 @@ export default function PositionsPage() {
         return false;
       }
       setStartRequiresUpdate(false);
+      setStartGuardFailure(null);
       return true;
     } catch (error) {
       if (!isCurrent()) return false;
@@ -871,6 +878,7 @@ export default function PositionsPage() {
       setStartStatus(message);
       setStartError(message);
       setStartRequiresUpdate(false);
+      setStartGuardFailure({ code: "position_start_guard_unavailable", title: "启动检查暂时没完成", message });
       await reportUserFlow({
         step: "position_started",
         status: "blocked",
@@ -880,6 +888,33 @@ export default function PositionsPage() {
         position_id: item.id,
       }).catch(() => undefined);
       return false;
+    }
+  }
+  /** recheckPositionStartGuard 只重查同一准备弹框的启动条件，保留招聘页面，成功后仍等待用户再次确认运行。 */
+  async function recheckPositionStartGuard() {
+    const item = startPositionItem;
+    if (!item || !agentBase || !recheckStartAvailable || startOperationInFlight.current || startLoading || startOpeningPlatform) return;
+    const epoch = startDialogEpoch.current;
+    const ownerIdentity = draftIdentity;
+    const ownerToken = getToken();
+    /** canContinueRecheck 仅允许当前账号原弹框接收检查结果，帮助回退或取消后不再更新提示。 */
+    const canContinueRecheck = () => isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id)) && !pendingStartDialogClose.current;
+    startOperationInFlight.current = true;
+    setStartGuardRechecking(true);
+    setStartLoading(true);
+    setStartError("");
+    try {
+      const ready = await checkPositionStartGuard(item, canContinueRecheck);
+      if (!canContinueRecheck()) return;
+      if (ready) {
+        setStartStatus("启动条件检查通过了。招聘页面和已设条件都留着，准备好后再点“我已筛选好，立即开始”。");
+      }
+    } finally {
+      if (isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id))) {
+        startOperationInFlight.current = false;
+        setStartGuardRechecking(false);
+        setStartLoading(false);
+      }
     }
   }
   /** confirmStartPosition 在确认弹框中完成启动检查、登录确认和岗位启动。 */
@@ -1655,19 +1690,19 @@ export default function PositionsPage() {
         title={<span data-onboarding="position-start-feedback">{startError ? "岗位还没启动成功" : "开始招聘岗位"}</span>}
         confirmText={
           startError
-            ? "我知道了"
+            ? recheckStartAvailable ? "重新检查" : "我知道了"
             : startRequiresUpdate
               ? "立即更新"
               : "我已筛选好，立即开始"
         }
-        showCancel={!startError}
+        showCancel={!startError || recheckStartAvailable}
         loading={startLoading}
-        loadingText="启动中"
+        loadingText={startGuardRechecking ? "检查中" : "启动中"}
         confirmDataOnboarding="position-run-confirm"
         confirmDisabled={!startError && !startRequiresUpdate && (startOpeningPlatform || Boolean(guideContext.active && guideContext.positionId === String(startPositionItem?.id || "") && (guideContext.reviewPosition || guideContext.step !== "position-run" || !startPlatformOpened)))}
         onClose={closeStartDialog}
         onConfirm={() =>
-          startError ? closeStartDialog() : void confirmStartPosition()
+          startError ? recheckStartAvailable ? void recheckPositionStartGuard() : closeStartDialog() : void confirmStartPosition()
         }
       >
         {startError ? (
@@ -1685,7 +1720,7 @@ export default function PositionsPage() {
                 <Typography.Paragraph
                   className={`${styles.text} ${styles.s14}`}
                 >
-                  岗位没有偷偷开跑。按上面的提示处理好后，再点一次开始就行。
+                  {recheckStartAvailable ? "招聘浏览器和筛选条件给你留着。点“重新检查”只检查启动条件，通过后还会等你亲自确认开始。" : "岗位没有偷偷开跑。按上面的提示处理好后，再点一次开始就行。"}
                 </Typography.Paragraph>{" "}
               </>
             }

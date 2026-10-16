@@ -11,7 +11,7 @@ let state = initialState();
 
 /** initialState 创建完全独立的模拟状态，默认组件已安装且平台登录成功。 */
 function initialState() {
-  return { available: true, runtimeReady: true, systemReady: true, loggedIn: true, opened: false, autoResult: true, version: "6.2.10.8", targetVersion: "6.2.10.9", pageURL: "", installProgress: { running: false, stage: "idle", percent: 0 }, updateProgress: { running: false, stage: "idle", percent: 0 }, tasks: {}, token: "", calls: [], errors: [] };
+  return { available: true, runtimeReady: true, systemReady: true, loggedIn: true, opened: false, autoResult: true, version: "6.2.10.8", targetVersion: "6.2.10.9", runtimeAgentReleases: "fixture", pageURL: "", installProgress: { running: false, stage: "idle", percent: 0 }, updateProgress: { running: false, stage: "idle", percent: 0 }, tasks: {}, token: "", calls: [], errors: [] };
 }
 
 /** json 输出兼容本地程序的 JSON，同时允许本机开发前端跨域。 */
@@ -40,10 +40,14 @@ function runtimeStatus() {
   return { version: state.version, platform: "win-x64", node_installed: state.runtimeReady, camoufox_installed: state.runtimeReady, ocr_installed: true, system_runtime: { required: true, ready: state.systemReady, name: "Microsoft Visual C++ x64 运行库", download_url: "https://example.invalid/test-only-runtime.exe" }, install_progress: state.installProgress };
 }
 
-/** applyControl 支持测试主动模拟连接、组件、登录、扫描与终态结果。 */
+/** applyControl 支持测试模拟连接与任务；发布列表默认补测试版本，null 透传真实配置，数组模拟后台发布修复。 */
 async function applyControl(payload) {
   if (payload.reset) state = initialState();
   for (const key of ["available", "runtimeReady", "systemReady", "loggedIn", "opened", "autoResult", "version", "targetVersion", "pageURL"]) if (Object.hasOwn(payload, key)) state[key] = payload[key];
+  if (Object.hasOwn(payload, "runtimeAgentReleases")) {
+    if (payload.runtimeAgentReleases !== null && payload.runtimeAgentReleases !== "fixture" && !Array.isArray(payload.runtimeAgentReleases)) throw new Error("测试发布列表只接受数组、null 或 fixture");
+    state.runtimeAgentReleases = payload.runtimeAgentReleases;
+  }
   if (payload.positionID) {
     const task = state.tasks[payload.positionID] || createTask(payload.positionID);
     if (payload.scannedCount != null) task.scanned_count = Number(payload.scannedCount);
@@ -76,7 +80,9 @@ async function proxyCloud(request, response, url, payload) {
   const text = await upstream.text();
   if (url.pathname === "/api/runtime/config" && upstream.ok) {
     const result = JSON.parse(text);
-    result.config.local_agent = [{ version: "6.2.10.8", url_win: "https://example.invalid/test-only-agent.exe", url_mac: "https://example.invalid/test-only-agent.pkg", sha256: "a".repeat(64), note: "仅本机协议模拟的测试版本" }];
+    if (state.runtimeAgentReleases !== null) {
+      result.config.local_agent = Array.isArray(state.runtimeAgentReleases) ? state.runtimeAgentReleases : [{ version: "6.2.10.8", url_win: "https://example.invalid/test-only-agent.exe", url_mac: "https://example.invalid/test-only-agent.pkg", sha256: "a".repeat(64), note: "仅本机协议模拟的测试版本" }];
+    }
     return json(response, upstream.status, result, false);
   }
   response.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") || "application/json; charset=utf-8", "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "cache-control": "no-store" });

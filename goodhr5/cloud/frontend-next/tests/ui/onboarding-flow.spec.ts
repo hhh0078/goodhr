@@ -1,6 +1,6 @@
 /** 文件作用：在真实本地前后端与隔离协议模拟 Agent 上逐步验证新手遮罩，招聘平台、安装包和招呼均不实际操作。 */
 import { test as base, expect, type Browser, type BrowserContext, type Page, type APIRequestContext, type Locator } from "@playwright/test";
-import { CLOUD_URL, PREVIEW_URL, agentControl, openAdmin, protectNetwork, readAgentState, readUserFlow, registerUser, userStorageState, type TestUser } from "../fixtures/onboarding-helpers";
+import { AGENT_URL, CLOUD_URL, PREVIEW_URL, agentControl, openAdmin, protectNetwork, readAgentState, readUserFlow, registerUser, userStorageState, type TestUser } from "../fixtures/onboarding-helpers";
 import { createOnboardingState, onboardingStorageKey } from "../../lib/onboarding-state";
 
 type Scenario = { context: BrowserContext; page: Page; user: TestUser; forbidden: string[]; errors: string[] };
@@ -804,24 +804,158 @@ test(`${viewport.width}px启动检查失败展示真实原因与恢复按钮，�
   await expectMaskAround(page, feedback);
   await expectFeedbackBelowProgress(page, feedback);
   await expect(feedback).toContainText("本机验收：启动检查暂时不可用");
-  const acknowledge = feedback.getByRole("button", { name: "我知道了", exact: true });
-  await expect(acknowledge).toBeEnabled();
-  await expectTourClearOfButton(page, acknowledge);
-  await expect(page.locator(".ant-tour")).toContainText(/我知道了|处理|修复/);
+  const recheck = feedback.getByRole("button", { name: "重新检查", exact: true });
+  await expect(recheck).toBeEnabled();
+  await expectTourClearOfButton(page, recheck);
+  await expect(page.locator(".ant-tour")).toContainText(/重新检查|处理|修复/);
   expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/run`)).toHaveLength(0);
   await expectNoCompletion(page, request, user);
   await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/12-start-error-recovery-${viewport.width}.png`, fullPage: true });
-  if (viewport.width === 390) await acknowledge.click();
-  else await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
-  await expectStep(page, "position-start");
-  await expect(page.getByRole("dialog", { name: "岗位还没启动成功", exact: true })).toHaveCount(0);
-  await openRunConfirmation(page, position.id);
+  if (viewport.width === 390) {
+    await recheck.click();
+    await expectStep(page, "position-run");
+    expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/run`)).toHaveLength(0);
+  } else {
+    await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+    await expectStep(page, "position-start");
+    await expect(page.getByRole("dialog", { name: "岗位还没启动成功", exact: true })).toHaveCount(0);
+    await openRunConfirmation(page, position.id);
+  }
   await page.locator('[data-onboarding="position-run-confirm"]').click();
   await expectStep(page, "first-result");
   await expectNoCompletion(page, request, user);
   expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/run`)).toHaveLength(1);
 });
 }
+
+for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+  test(`${viewport.width}px后台发布配置缺失可原弹框重查，修好后仍须手动确认启动`, async ({ scenario, request }) => {
+    const { page, user } = scenario;
+    await page.setViewportSize(viewport);
+    // 复现实测 Go HTTP200/local_agent=[]，保留其他真实配置；不再由默认模拟发布掩盖缺失。
+    await agentControl(request, { version: "6.2.11.0", runtimeAgentReleases: [] });
+    const headers = { authorization: `Bearer ${user.token}` };
+    const emptyConfig = await request.get(`${AGENT_URL}/api/runtime/config`, { headers });
+    expect(emptyConfig.ok()).toBe(true);
+    expect((await emptyConfig.json()).config.local_agent).toEqual([]);
+    const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
+    await openRunConfirmation(page, position.id);
+    const opened = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open").length;
+    await page.locator('[data-onboarding="position-run-confirm"]').click();
+    await expectStep(page, "position-start-error");
+    const feedback = page.locator('.ant-modal-container:has([data-onboarding="position-start-feedback"])');
+    const recheck = feedback.getByRole("button", { name: "重新检查", exact: true });
+    await expect(feedback).toContainText(/后台|发布配置/);
+    await expect(feedback).not.toContainText("请重新连接本地程序");
+    await expectFeedbackBelowProgress(page, feedback);
+    await expectTourClearOfButton(page, recheck);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const runtimeResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/runtime/config" && response.request().method() === "GET");
+      await recheck.click();
+      expect((await runtimeResponse).ok()).toBe(true);
+      await expectStep(page, "position-start-error");
+      await expect(recheck).toBeEnabled();
+      const state = await readAgentState(request);
+      expect(state.version).toBe("6.2.11.0");
+      expect(state.calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(0);
+      expect(state.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
+      expect((await readTutorialPositions(request, user)).map((item) => item.id)).toEqual([position.id]);
+      await expectNoCompletion(page, request, user);
+    }
+    await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/20-release-config-missing-${viewport.width}.png`, fullPage: true });
+
+    // 后台修复后透传实际 Go 发布列表，重新检查只恢复待确认，不重开平台或自动运行。
+    await agentControl(request, { runtimeAgentReleases: null });
+    const upstreamConfig = await request.get(`${CLOUD_URL}/api/runtime/config`, { headers });
+    const proxiedConfig = await request.get(`${AGENT_URL}/api/runtime/config`, { headers });
+    expect(upstreamConfig.ok()).toBe(true);
+    expect(proxiedConfig.ok()).toBe(true);
+    const realReleases = (await upstreamConfig.json()).config.local_agent;
+    expect(realReleases.length, "验收后台应已补齐实际发布配置").toBeGreaterThan(0);
+    expect((await proxiedConfig.json()).config.local_agent).toEqual(realReleases);
+    await recheck.click();
+    await expectStep(page, "position-run");
+    await expect(feedback.getByRole("button", { name: "我已筛选好，立即开始", exact: true })).toBeEnabled();
+    const recovered = await readAgentState(request);
+    expect(recovered.calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(0);
+    expect(recovered.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
+    expect((await readTutorialPositions(request, user)).map((item) => item.id)).toEqual([position.id]);
+    await expectNoCompletion(page, request, user);
+    await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/20-release-config-recovered-${viewport.width}.png`, fullPage: true });
+    await page.locator('[data-onboarding="position-run-confirm"]').click();
+    await expectStep(page, "first-result");
+    const started = await readAgentState(request);
+    expect(started.calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(1);
+    expect(started.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
+    await expectNoCompletion(page, request, user);
+  });
+
+  test(`${viewport.width}px本地版本缺失提示连接问题，原弹框重查恢复后不自动启动`, async ({ scenario, request }) => {
+    const { page, user } = scenario;
+    await page.setViewportSize(viewport);
+    const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
+    await openRunConfirmation(page, position.id);
+    const opened = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open").length;
+    await agentControl(request, { version: "" });
+    await page.locator('[data-onboarding="position-run-confirm"]').click();
+    await expectStep(page, "position-start-error");
+    const feedback = page.locator('.ant-modal-container:has([data-onboarding="position-start-feedback"])');
+    const recheck = feedback.getByRole("button", { name: "重新检查", exact: true });
+    await expect(feedback).toContainText(/本地程序.*版本/);
+    await expect(feedback).toContainText(/已启动|连接/);
+    await expectFeedbackBelowProgress(page, feedback);
+    await expectTourClearOfButton(page, recheck);
+    await recheck.click();
+    await expectStep(page, "position-start-error");
+    await expect(recheck).toBeEnabled();
+    await expectNoCompletion(page, request, user);
+    let state = await readAgentState(request);
+    expect(state.calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(0);
+    expect(state.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
+    await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/21-local-version-missing-${viewport.width}.png`, fullPage: true });
+    await agentControl(request, { version: "6.2.11.0" });
+    await recheck.click();
+    await expectStep(page, "position-run");
+    state = await readAgentState(request);
+    expect(state.calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(0);
+    expect(state.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
+    expect((await readTutorialPositions(request, user)).map((item) => item.id)).toEqual([position.id]);
+    await page.locator('[data-onboarding="position-run-confirm"]').click();
+    await expectStep(page, "first-result");
+    state = await readAgentState(request);
+    expect(state.calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(1);
+    expect(state.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
+    await expectNoCompletion(page, request, user);
+  });
+}
+
+test("旧上下文版本要求已更新时，重查和再次确认均读最新后台配置，不退回旧要求", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  // 让 AdminApp 先持有旧要求；本地版本同为旧版本，首次进入时不会触发必要升级。
+  await agentControl(request, { version: "6.2.12.0", runtimeAgentReleases: [{ version: "6.2.12.0", url_win: "https://example.invalid/old-agent.exe", url_mac: "https://example.invalid/old-agent.pkg" }] });
+  const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
+  await openRunConfirmation(page, position.id);
+  const opened = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open").length;
+  await agentControl(request, { version: "", runtimeAgentReleases: null });
+  await page.locator('[data-onboarding="position-run-confirm"]').click();
+  await expectStep(page, "position-start-error");
+  const feedback = page.locator('.ant-modal-container:has([data-onboarding="position-start-feedback"])');
+  await expect(feedback).toContainText(/本地程序.*版本/);
+  await agentControl(request, { version: "6.2.11.0" });
+  await feedback.getByRole("button", { name: "重新检查", exact: true }).click();
+  await expectStep(page, "position-run");
+  let state = await readAgentState(request);
+  expect(state.calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(0);
+  expect(state.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
+  await page.locator('[data-onboarding="position-run-confirm"]').click();
+  await expectStep(page, "first-result");
+  state = await readAgentState(request);
+  expect(state.calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(1);
+  expect(state.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
+  expect((await readTutorialPositions(request, user)).map((item) => item.id)).toEqual([position.id]);
+  await expectNoCompletion(page, request, user);
+  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/22-fresh-config-confirm.png", fullPage: true });
+});
 
 test("启动发现必要升级时遮罩和立即更新按钮相符，回退不会误启动", async ({ scenario, request }) => {
   const { page, user } = scenario;
