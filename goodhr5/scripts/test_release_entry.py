@@ -40,6 +40,7 @@ tool,args=sys.argv[1],sys.argv[2:]
 with open(os.environ['FIXTURE_LOG'],'a',encoding='utf-8') as stream:stream.write(json.dumps([tool]+args)+'\n')
 if tool=='python3':
  if args and args[0].endswith('release_guard.py'):sys.exit(21 if os.environ.get('FIXTURE_GUARD_FAIL')=='1' else 0)
+ if args and args[0].endswith('release_activate.py'):sys.exit(35 if os.environ.get('FIXTURE_ACTIVATION_FAIL')=='1' else 0)
  if args and args[0].endswith(('release_hygiene.py','release_retention.py')):
   retention=args[0].endswith('release_retention.py')
   if retention and 'check' in args:
@@ -175,6 +176,7 @@ class EntryTests(unittest.TestCase):
         self.calls = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()] if self.log.exists() else []
         self.builds = [call for call in self.calls if call[:2] == ["docker", "compose"] and "build" in call]
         self.ups = [call for call in self.calls if call[:2] == ["docker", "compose"] and "up" in call]
+        self.activations = [call for call in self.calls if call[0] == "python3" and call[1].endswith("release_activate.py")]
         return result
 
     def test_missing_or_wrong_evidence_never_starts(self):
@@ -182,51 +184,60 @@ class EntryTests(unittest.TestCase):
         result = self.run_entry(evidence=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.ups, [])
+        self.assertEqual(self.activations, [])
 
     def test_wrong_commit_evidence_never_starts(self):
         """验收记录的源码提交错误时不得调用Compose up。"""
         self.evidence["source_commit"] = "e" * 40
         self.assertNotEqual(self.run_entry().returncode, 0)
         self.assertEqual(self.ups, [])
+        self.assertEqual(self.activations, [])
 
     def test_wrong_validation_stage_never_starts(self):
         """健康结果不能冒充隔离验收阶段来激活候选。"""
         self.evidence["stage"] = "post_activation_health"
         self.assertNotEqual(self.run_entry().returncode, 0)
         self.assertEqual(self.ups, [])
+        self.assertEqual(self.activations, [])
 
     def test_wrong_image_source_and_role_never_start(self):
         """镜像真实角色不匹配时，即使镜像来源guard通过也不得启动。"""
         self.flags["FIXTURE_BAD_ROLE"] = "1"
         self.assertNotEqual(self.run_entry().returncode, 0)
         self.assertEqual(self.ups, [])
+        self.assertEqual(self.activations, [])
 
     def test_wrong_actual_image_commit_never_starts(self):
         """镜像真实源码提交不同于验收提交时不得启动。"""
         self.flags["FIXTURE_BAD_SOURCE"] = "1"
         self.assertNotEqual(self.run_entry().returncode, 0)
         self.assertEqual(self.ups, [])
+        self.assertEqual(self.activations, [])
 
     def test_guard_failure_never_starts(self):
         """来源检查失败即停止，不越过guard启动服务。"""
         self.flags["FIXTURE_GUARD_FAIL"] = "1"
         self.assertNotEqual(self.run_entry().returncode, 0)
         self.assertEqual(self.ups, [])
+        self.assertEqual(self.activations, [])
 
     def test_retention_precheck_failure_never_starts(self):
         """迁移或兼容回退预检失败时不能先启动再报错。"""
         self.flags["FIXTURE_PRECHECK_FAIL"] = "1"
         self.assertEqual(self.run_entry().returncode, 23)
         self.assertEqual(self.ups, [])
+        self.assertEqual(self.activations, [])
 
     def test_activate_only_does_not_rebuild_and_limits_services(self):
-        """同一标签激活不重建，只以no-build方式更新前后端。"""
+        """同一标签激活不重建，由保留原参数的helper只接收冻结双端镜像。"""
         self.assertEqual(self.run_entry().returncode, 0)
         self.assertEqual(self.builds, [])
-        self.assertEqual(len(self.ups), 1)
-        self.assertEqual(self.ups[0][-2:], ["backend", "frontend"])
-        self.assertIn("--no-build", self.ups[0])
-        self.assertIn("--no-deps", self.ups[0])
+        self.assertEqual(self.ups, [])
+        self.assertEqual(len(self.activations), 1)
+        call = self.activations[0]
+        self.assertEqual(call[call.index("--backend-image") + 1], BACKEND_ID)
+        self.assertEqual(call[call.index("--frontend-image") + 1], FRONTEND_ID)
+        self.assertEqual(call[call.index("--source-commit") + 1], "a" * 40)
 
     def test_existing_either_image_tag_never_rebuilds(self):
         """任意一端版本标签已存在时拒绝覆盖，不能先重建另一端。"""
@@ -254,13 +265,14 @@ class EntryTests(unittest.TestCase):
         self.flags["FIXTURE_SOURCE_DRIFT"] = "1"
         self.assertNotEqual(self.run_entry().returncode, 0)
         self.assertEqual(self.ups, [])
+        self.assertEqual(self.activations, [])
 
     def test_hygiene_failure_reports_pending_and_does_not_continue_gc(self):
         """健康后缓存收尾失败必须说明线上已激活，且不能继续Docker GC。"""
         self.flags["FIXTURE_HYGIENE_FAIL"] = "1"
         result = self.run_entry()
         self.assertEqual(result.returncode, 31)
-        self.assertEqual(len(self.ups), 1)
+        self.assertEqual(len(self.activations), 1)
         self.assertIn(b"cleanup_pending", result.stderr)
         self.assertEqual(len([call for call in self.calls if call[0] == "curl"]), 2)
         self.assertFalse(any(call[0] == "python3" and call[1].endswith("release_retention.py") and ("plan" in call or "apply" in call) for call in self.calls))
@@ -270,8 +282,18 @@ class EntryTests(unittest.TestCase):
         self.flags["FIXTURE_RETENTION_FAIL"] = "1"
         result = self.run_entry()
         self.assertEqual(result.returncode, 32)
-        self.assertEqual(len(self.ups), 1)
+        self.assertEqual(len(self.activations), 1)
         self.assertIn(b"cleanup_pending", result.stderr)
+
+    def test_helper_failure_stops_before_hygiene_and_retention(self):
+        """激活helper失败时保留备份，正式入口不能继续健康后收尾或删除镜像。"""
+        self.flags["FIXTURE_ACTIVATION_FAIL"] = "1"
+        result = self.run_entry()
+        self.assertEqual(result.returncode, 35)
+        self.assertEqual(len(self.activations), 1)
+        self.assertEqual(self.ups, [])
+        self.assertTrue((self.home / "release/database.dump").is_file())
+        self.assertFalse(any(call[0] == "python3" and call[1].endswith(("release_hygiene.py", "release_retention.py")) and ("plan" in call or "apply" in call) for call in self.calls))
 
     def test_auto_deploy_only_prepares_candidate(self):
         """自动入口只构建候选，未提供验收记录也不会激活。"""

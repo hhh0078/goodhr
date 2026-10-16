@@ -34,6 +34,8 @@ services:
         goodhr.release_kind: frontend
         goodhr.dockerfile_sha256: ${GOODHR_FRONTEND_DOCKERFILE_SHA:?必须先通过镜像来源检查}
       args:
+        NODE_OPTIONS: ${GOODHR_BUILD_NODE_OPTIONS:---max-old-space-size=1536}
+        CIRCLE_NODE_TOTAL: ${GOODHR_BUILD_CPU_COUNT:-1}
         NEXT_PUBLIC_CLOUD_API_BASE: ${NEXT_PUBLIC_CLOUD_API_BASE:?必须指定 API 域名}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?必须指定网站域名}
         NEXT_PUBLIC_LEGACY_ADMIN_URL: "/admin/"

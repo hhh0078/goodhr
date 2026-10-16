@@ -81,7 +81,17 @@ docker exec "${GOODHR_POSTGRES_CONTAINER:-postgres}" sh -c 'exec pg_dump -U "$PO
 [[ -s "$backup/database.dump" ]] || { echo "数据库备份为空，部署已停止" >&2; exit 1; }
 docker exec -i "${GOODHR_POSTGRES_CONTAINER:-postgres}" pg_restore --list < "$backup/database.dump" > "$backup/database-toc.txt"
 if [[ "$mode" == build ]]; then
-  "${compose[@]}" up -d --no-build --pull never --no-deps backend frontend
+  # 既有正式容器可能含有序重复环境和绝对挂载；仅换镜像，禁止Compose重建时重排或改挂新工作区。
+  python3 "$root/scripts/release_activate.py" \
+    --release-dir "$production_release_dir" --release-id "$GOODHR_RELEASE_IMAGE_TAG" \
+    --source-commit "$GOODHR_SOURCE_COMMIT" \
+    --backend-image "$production_backend_id" --frontend-image "$production_frontend_id" \
+    --backend-dockerfile-sha "$GOODHR_BACKEND_DOCKERFILE_SHA" \
+    --frontend-dockerfile-sha "$GOODHR_FRONTEND_DOCKERFILE_SHA" \
+    --backend-url "http://127.0.0.1:${GOODHR_CLOUD_ADDR##*:}/health" \
+    --frontend-url "http://127.0.0.1:$GOODHR_FRONTEND_PORT/" \
+    --evidence "$GOODHR_VERIFIED_RELEASE_EVIDENCE" \
+    --registry "${GOODHR_RETENTION_REGISTRY:-/opt/goodhr-release/retention-registry.json}"
 else
   "${compose[@]}" up -d --no-build
 fi

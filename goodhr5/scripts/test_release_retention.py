@@ -275,6 +275,46 @@ class RetentionTests(unittest.TestCase):
         removed = {row["id"] for row in self.plan()["images_to_remove"]}
         self.assertFalse({iid(20), iid(21), iid(22)} & removed)
 
+    def test_docker_created_fraction_precision_and_real_nanosecond_samples(self):
+        """Docker三、六、七、九位小数及真实样本均保留完整纳秒，不依赖新版Python的宽松解析。"""
+        for value, nanos in (("2026-10-16T14:09:58.851Z", 851000000), ("2026-10-16T14:09:58.851392Z", 851392000), ("2026-10-16T14:09:11.0638735Z", 63873500), ("2026-10-16T14:09:58.851392078Z", 851392078), ("2026-10-16T14:08:42.521710067Z", 521710067), ("2026-10-16T14:09:58Z", 0)):
+            with self.subTest(value=value):
+                whole, fraction = retention.parse_docker_created(value)
+                self.assertEqual(fraction, nanos)
+                self.assertEqual(whole.microsecond, 0)
+                self.assertEqual(whole.utcoffset(), retention.dt.timedelta(0))
+        self.assertEqual(retention.parse_docker_created("2026-10-16T14:09:11.0638735Z"), retention.parse_docker_created("2026-10-16T14:09:11.063873500Z"))
+
+    def test_docker_created_offset_and_adjacent_second_sorting(self):
+        """不同时区的同一时刻相等，跨秒比较优先整秒再比较纳秒。"""
+        utc = retention.parse_docker_created("2026-10-16T14:09:58.851392078Z")
+        self.assertEqual(utc, retention.parse_docker_created("2026-10-16T22:09:58.851392078+08:00"))
+        self.assertEqual(utc, retention.parse_docker_created("2026-10-16T09:09:58.851392078-05:00"))
+        self.assertLess(retention.parse_docker_created("2026-10-16T14:09:58.999999999Z"), retention.parse_docker_created("2026-10-16T14:09:59Z"))
+
+    def test_builder_same_microsecond_keeps_actual_latest_nanosecond(self):
+        """同微秒内用纳秒确定最新完成缓存，不能截断后靠镜像ID误选旧分支。"""
+        for value, when in ((20, "2026-10-16T14:09:58.851392078Z"), (21, "2026-10-16T14:09:58.851392001Z")):
+            row = image(value, role="build", parent=1, tags=[])
+            row.update(Project="goodhr", BuildStage="backend-builder", BuildFinished="true", Created=when)
+            self.snapshot["images"][row["Id"]] = row
+        plan = self.plan()
+        self.assertEqual(plan["retained_build_cache_leaf_ids"], [iid(20)])
+        self.assertIn(iid(21), {row["id"] for row in plan["images_to_remove"]})
+        self.assertNotIn(iid(20), {row["id"] for row in plan["images_to_remove"]})
+
+    def test_docker_created_invalid_or_missing_timezone_stops_plan(self):
+        """缺失时区、超九位小数、非法日期与时区仍停止，不猜测缓存删除顺序。"""
+        for value in (None, "", "2026-10-16T14:09:58", "2026-10-16T14:09:58.1234567890Z", "2026-10-16T14:09:58.Z", "2026-02-30T14:09:58Z", "2026-10-16T14:09:58+24:00", "2026-10-16T14:09:58+01:99", "2026-10-16T14:09:58-00:60", "2026-10-16T14:09:60Z"):
+            with self.subTest(value=value):
+                with self.assertRaises(retention.GuardError):
+                    retention.parse_docker_created(value)
+                row = image(20, role="build", parent=1, tags=[])
+                row.update(Project="goodhr", BuildStage="backend-builder", BuildFinished="true", Created=value)
+                self.snapshot["images"][row["Id"]] = row
+                with self.assertRaises(retention.GuardError):
+                    self.plan()
+
     def test_evidence_must_bind_exact_pair_host_and_migration(self):
         """即使文件SHA正确，错误配对、主机、账本或失败契约也不能当兼容证明。"""
         row = self.registry["verified_releases"][0]
