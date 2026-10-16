@@ -5,6 +5,7 @@ const extension = globalThis.browser || globalThis.chrome;
 const shared = globalThis.GoodHRShared;
 const avatar = globalThis.GoodHRAvatar;
 const snapshots = new Map();
+const snapshotSequences = new Map();
 const attachmentReceipts = new Map();
 const attachmentTaskScopes = new Map();
 let restoreAttempted = false;
@@ -264,7 +265,7 @@ async function requireCurrentCapture(captureID, sourceTab) {
 }
 
 /** publicResume 仅公开头像已识别状态，不把招聘图片外链和临时参数交给 UI。 */
-function publicResume(snapshot) { if (!snapshot) return null; const { avatar_source_url, attachment, ...resume } = snapshot; return { ...resume, ...(attachment ? { attachment: Object.fromEntries(Object.entries(attachment).filter(([key]) => key !== "text")) } : {}), avatar_detected: Boolean(avatar_source_url) }; }
+function publicResume(snapshot) { if (!snapshot) return null; const { avatar_source_url, avatar_candidates, attachment, ...resume } = snapshot; return { ...resume, ...(attachment ? { attachment: Object.fromEntries(Object.entries(attachment).filter(([key]) => key !== "text")) } : {}), avatar_detected: Boolean(avatar_source_url || avatar_candidates?.length) }; }
 
 /** requireActiveSession 在图片外部读取前检查插件账号，未登录预览不能触发图片请求。 */
 async function requireActiveSession() { if (!(await readSettings()).session?.token) throw new Error("请先登录 GoodHR，再保存简历和头像"); }
@@ -272,11 +273,17 @@ async function requireActiveSession() { if (!(await readSettings()).session?.tok
 /** prepareAvatar 绑定本次候选人快照，保存点击后才读取头像，切换详情时不串图。 */
 async function prepareAvatar(captureID, sourceTab = null) {
   if (!captureID) return { data_url: "", warning: "" };
-  const snapshot = await currentSnapshot(sourceTab);
-  if (!snapshot || snapshot.capture_id !== captureID) return { data_url: "", warning: "候选人页面已经变化，头像未保存，请重新读取后重试" };
-  if (!snapshot.avatar_source_url) return { data_url: "", warning: "" };
-  try { return { data_url: await avatar.fetchAvatar(snapshot.avatar_source_url, snapshot.source_url), warning: "" }; }
-  catch (error) { return { data_url: "", warning: `${error.message || "头像暂时没保存好"}。简历资料仍可保存，原有头像会保留` }; }
+  const generation = authGeneration, boundTab = sourceTab || await activeTab(), snapshot = await currentSnapshot(boundTab);
+  if (!snapshot || snapshot.capture_id !== captureID) throw Object.assign(new Error("候选人页面已经变化，请重新读取后再保存"), { code: "CAPTURE_SCOPE_CHANGED" });
+  if (!snapshot.avatar_source_url && !snapshot.avatar_candidates?.length) return { data_url: "", warning: "" };
+  let image;
+  try { image = { data_url: snapshot.attachment ? await avatar.fetchAttachmentAvatar(snapshot.avatar_candidates, snapshot.source_url) : await avatar.fetchAvatar(snapshot.avatar_source_url, snapshot.source_url), warning: "" }; }
+  catch (error) { image = { data_url: "", warning: `${error.message || "头像暂时没保存好"}。简历资料仍可保存，原有头像会保留` }; }
+  if (generation !== authGeneration) throw new Error("账号已经变化，本次头像保存已停止，请确认账号后重试");
+  const current = await currentSnapshot(boundTab);
+  if (generation !== authGeneration) throw new Error("账号已经变化，本次头像保存已停止，请确认账号后重试");
+  if (!current || current.capture_id !== captureID || current.avatar_source_url !== snapshot.avatar_source_url || JSON.stringify(current.avatar_candidates) !== JSON.stringify(snapshot.avatar_candidates)) throw Object.assign(new Error("候选人页面已经变化，头像未保存，请重新读取后再保存"), { code: "CAPTURE_SCOPE_CHANGED" });
+  return image;
 }
 
 /** publicState 返回不含 token、配对令牌、挑战值的界面状态。 */
@@ -327,7 +334,7 @@ async function performDraftOperation(payload, saving) {
   for (const name of ["name", "phone", "candidate-email", "city", "position", "expected-position", "gender", "first-company", "first-work-start", "first-work-end", "first-school", "first-school-start", "first-school-end", "duplicate-keyword", "job-filter", "job", "folder-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time"]) fields[name] = shared.cleanText(data.fields?.[name], name.includes("note") ? 12000 : 500);
   drafts[key] = { updated_at: Date.now(), data: { fields, folder_ids: shared.sanitizeFolderIDs(data.folder_ids), folders_edited: data.folders_edited === true, edited: Array.isArray(data.edited) ? data.edited.filter((item) => Object.hasOwn(fields, item)) : [], keys: Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((item) => [item, shared.cleanText(data.keys?.[item], 100)])), ai_summary: shared.cleanText(data.ai_summary, 12000), summary_task: data.summary_task?.id ? { id: shared.cleanText(data.summary_task.id, 100), status: shared.cleanText(data.summary_task.status, 40), possibly_charged: data.summary_task.possibly_charged === true } : null, summary_unknown: data.summary_unknown === true, summary_source: frozenSource } };
   // 只保存任务回执和已识别结构化字段，不在磁盘草稿复制附件全文。
-  drafts[key].data.attachment = data.attachment ? { capture_id: shared.cleanText(data.attachment.capture_id, 160), acknowledged: data.attachment.acknowledged === true, basic_key: shared.cleanText(data.attachment.basic_key, 128), full_key: shared.cleanText(data.attachment.full_key, 128), basic_task: attachmentTaskReceipt(data.attachment.basic_task), full_task: attachmentTaskReceipt(data.attachment.full_task), basic_unknown: data.attachment.basic_unknown === true, full_unknown: data.attachment.full_unknown === true, basic_error: shared.cleanText(data.attachment.basic_error, 500) } : null;
+  drafts[key].data.attachment = data.attachment ? { capture_id: shared.cleanText(data.attachment.capture_id, 160), basic_key: shared.cleanText(data.attachment.basic_key, 128), full_key: shared.cleanText(data.attachment.full_key, 128), basic_task: attachmentTaskReceipt(data.attachment.basic_task), full_task: attachmentTaskReceipt(data.attachment.full_task), basic_unknown: data.attachment.basic_unknown === true, full_unknown: data.attachment.full_unknown === true, basic_error: shared.cleanText(data.attachment.basic_error, 500) } : null;
   if (drafts[key].data.attachment?.full_task) delete drafts[key].data.attachment.full_task.resume;
   const entries = Object.entries(drafts).sort(([left, a], [right, b]) => left === key ? -1 : right === key ? 1 : b.updated_at - a.updated_at).slice(0, 30);
   while (entries.length > 1 && new TextEncoder().encode(JSON.stringify(Object.fromEntries(entries))).byteLength > 3 * 1024 * 1024) entries.pop();
@@ -364,7 +371,7 @@ async function attachmentOperation(payload, action, sourceTab) {
   if (!["basic", "full"].includes(phase)) throw new Error("附件识别阶段不正确，请重新读取");
   let path = "/api/candidates/attachment-parses", body = null, method = "GET";
   if (action === "start") {
-    if (attachment.blocked || !attachment.text || (!attachment.complete && payload.acknowledged !== true)) throw new Error(attachment.warning || "请先核对所有页面已经载入");
+    if (attachment.blocked || !attachment.text) throw new Error(attachment.warning || "附件还没加载完，请稍等");
     if (!/^[A-Za-z0-9_-]{8,128}$/.test(payload.request_key || "")) throw new Error("这次识别缺少标识，请重新读取");
     if (await shared.hashText(attachment.text) !== attachment.text_hash) throw new Error("附件内容校验没通过，请重新读取");
     body = { phase, request_key: payload.request_key, capture_id: snapshot.capture_id, text: attachment.text, text_hash: attachment.text_hash, source: { platform_id: "boss", source_url: shared.safeSourceURL(snapshot.source_url), ...(snapshot.platform_candidate_id ? { platform_candidate_id: snapshot.platform_candidate_id } : {}) } }; method = "POST";
@@ -532,6 +539,32 @@ function isTrustedUI(sender) {
   catch { return false; }
 }
 
+/** storeCandidateSnapshot 从可信顶层脚本整理快照，并在后台计算附件图片指纹，防止同文字换头像后沿用旧捕获。 */
+async function storeCandidateSnapshot(message, sender) {
+  const generation = authGeneration, tabID = sender.tab.id, sequence = (snapshotSequences.get(tabID) || 0) + 1; snapshotSequences.set(tabID, sequence);
+  const resume = message.resume ? shared.sanitizeResume(message.resume) : null;
+  const attachment = shared.platformForURL(sender.tab.url) === "boss" ? shared.sanitizeAttachment(message.resume?.attachment) : null;
+  if (attachment && resume) {
+    resume.platform_id = "boss"; resume.source_url = shared.safeSourceURL(sender.tab.url); resume.attachment = attachment;
+    resume.avatar_candidates = shared.sanitizeAvatarCandidates(message.resume.avatar_candidates, sender.tab.url);
+    attachment.avatar_hash = await shared.hashText(JSON.stringify(resume.avatar_candidates));
+  }
+  if (generation !== authGeneration || snapshotSequences.get(tabID) !== sequence) return { ok: false };
+  if (resume?.platform_id && resume.platform_id !== shared.platformForURL(sender.tab.url)) return { ok: false };
+  if (resume?.candidate_name || resume?.attachment) {
+    const imageSource = !attachment && shared.safeAvatarSource(message.resume.avatar_source_url, sender.tab.url);
+    if (imageSource) resume.avatar_source_url = imageSource;
+    const old = snapshots.get(tabID), { capture_id, ...oldResume } = old || {};
+    resume.capture_id = attachment ? "boss-" + attachment.text_hash + "-" + attachment.avatar_hash + (attachment.blocked ? "-blocked" : "-ready") : old && JSON.stringify(oldResume) === JSON.stringify(resume) ? capture_id : shared.newKey();
+    snapshots.set(tabID, resume);
+    if (resume.capture_id !== old?.capture_id) scheduleCaptureCheck(tabID, resume);
+  } else snapshots.delete(tabID);
+  extension.action.setBadgeText({ tabId: tabID, text: resume?.candidate_name || attachment ? "+" : "" });
+  extension.action.setBadgeBackgroundColor({ tabId: tabID, color: "#0B8968" });
+  extension.action.setTitle({ tabId: tabID, title: resume?.candidate_name ? "当前有简历，可添加到 GoodHR" : "GoodHR 简历助手" });
+  return { ok: true };
+}
+
 /** onMessage 严格区分招聘内容脚本与插件 UI，页面脚本只能上报资料不能请求授权或 API。 */
 function onMessage(message, sender, sendResponse) {
   if (sender.id !== extension.runtime.id) return false;
@@ -547,27 +580,12 @@ function onMessage(message, sender, sendResponse) {
   }
   if (sender.tab) {
     if (message.type !== "CANDIDATE_SNAPSHOT" || sender.frameId !== 0 || !shared.platformForURL(sender.tab.url)) return false;
-    const resume = message.resume ? shared.sanitizeResume(message.resume) : null;
-    const attachment = shared.platformForURL(sender.tab.url) === "boss" ? shared.sanitizeAttachment(message.resume?.attachment) : null;
-    if (attachment && resume) { resume.platform_id = "boss"; resume.source_url = shared.safeSourceURL(sender.tab.url); resume.attachment = attachment; }
-    if (resume?.platform_id && resume.platform_id !== shared.platformForURL(sender.tab.url)) return false;
-    if (resume?.candidate_name || resume?.attachment) {
-      const imageSource = shared.safeAvatarSource(message.resume.avatar_source_url, sender.tab.url);
-      if (imageSource) resume.avatar_source_url = imageSource;
-      const old = snapshots.get(sender.tab.id), { capture_id, ...oldResume } = old || {};
-      resume.capture_id = resume.attachment ? "boss-" + resume.attachment.text_hash + (resume.attachment.blocked ? "-blocked" : "-ready") : old && JSON.stringify(oldResume) === JSON.stringify(resume) ? capture_id : shared.newKey();
-      snapshots.set(sender.tab.id, resume);
-      if (resume.capture_id !== old?.capture_id) scheduleCaptureCheck(sender.tab.id, resume);
-    } else snapshots.delete(sender.tab.id);
-    extension.action.setBadgeText({ tabId: sender.tab.id, text: resume?.candidate_name || attachment ? "+" : "" });
-    extension.action.setBadgeBackgroundColor({ tabId: sender.tab.id, color: "#0B8968" });
-    extension.action.setTitle({ tabId: sender.tab.id, title: resume?.candidate_name ? "当前有简历，可添加到 GoodHR" : "GoodHR 简历助手" });
-    sendResponse({ ok: true }); return false;
+    storeCandidateSnapshot(message, sender).then(sendResponse, () => sendResponse({ ok: false })); return true;
   }
   return false;
 }
 
 extension.runtime.onMessage.addListener(onMessage);
-extension.tabs.onRemoved.addListener((tabID) => { snapshots.delete(tabID); clearTimeout(captureTimers.get(tabID)); captureTimers.delete(tabID); });
-extension.tabs.onUpdated.addListener((tabID, change) => { if (change.url) { snapshots.delete(tabID); clearTimeout(captureTimers.get(tabID)); captureTimers.delete(tabID); } });
+extension.tabs.onRemoved.addListener((tabID) => { snapshotSequences.set(tabID, (snapshotSequences.get(tabID) || 0) + 1); snapshots.delete(tabID); clearTimeout(captureTimers.get(tabID)); captureTimers.delete(tabID); });
+extension.tabs.onUpdated.addListener((tabID, change) => { if (change.url) { snapshotSequences.set(tabID, (snapshotSequences.get(tabID) || 0) + 1); snapshots.delete(tabID); clearTimeout(captureTimers.get(tabID)); captureTimers.delete(tabID); } });
 if (extension.storage.local.setAccessLevel) extension.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });

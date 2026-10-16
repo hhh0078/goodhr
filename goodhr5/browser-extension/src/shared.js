@@ -46,6 +46,23 @@
     } catch { return ""; }
   }
 
+  /** attachmentAvatarDimensions 只接受至少80像素的正方或稍竖图片，不把横幅或极长图当头像。 */
+  function attachmentAvatarDimensions(width, height) { return width >= 80 && height >= 80 && width <= 4096 && height <= 4096 && width * height <= 8000000 && width / height >= .65 && width / height <= 1.1; }
+
+  /** sanitizeAvatarCandidates 限定附件图片来源和数量，未知自然尺寸留待保存时解码，不扩大任何图片域。 */
+  function sanitizeAvatarCandidates(input, pageURL) {
+    if (!Array.isArray(input) || input.length > 6) return [];
+    const unique = new Map();
+    for (const item of input) {
+      const source_url = safeAvatarSource(item?.source_url, pageURL); if (!source_url) continue;
+      const width = Math.max(0, Math.floor(Number(item.width) || 0)), height = Math.max(0, Math.floor(Number(item.height) || 0));
+      if ((width || height) && !attachmentAvatarDimensions(width, height)) continue;
+      const candidate = { source_url, width, height }, previous = unique.get(source_url);
+      if (!previous || (!previous.width && width)) unique.set(source_url, candidate);
+    }
+    return [...unique.values()].sort((left, right) => left.source_url.localeCompare(right.source_url));
+  }
+
   /** validStoredAvatar 判断已规范化的内嵌头像，不允许 UI 加载任何外部图片地址。 */
   function validStoredAvatar(value) { if (typeof value !== "string" || value.length > 131072) return false; const match = value.match(/^data:image\/(?:png|jpeg);base64,([A-Za-z0-9+/]*={0,2})$/); return Boolean(match?.[1] && match[1].length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(match[1])); }
 
@@ -54,7 +71,7 @@
 
   /** resumeIdentity 使用平台编号或明确姓名线索隔离草稿，人工补手机号不会切换候选人。 */
   function resumeIdentity(resume) {
-    if (resume?.platform_id === "boss" && resume.attachment?.text_hash) return JSON.stringify(["boss-attachment", resume.source_url || "", resume.attachment.text_hash, resume.attachment.blocked === true]);
+    if (resume?.platform_id === "boss" && resume.attachment?.text_hash) return JSON.stringify(["boss-attachment", resume.source_url || "", resume.attachment.text_hash, resume.attachment.blocked === true, resume.attachment.avatar_hash || ""]);
     if (!resume?.candidate_name) return "";
     return JSON.stringify([resume.platform_id || "", resume.platform_candidate_id || "", resume.source_url || "", resume.candidate_name, ...(resume.platform_candidate_id ? [] : [resume.birth_ym || "", resume.educations?.[0]?.school_name || ""])]);
   }
@@ -209,7 +226,7 @@
     return result;
   }
 
-  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, sanitizeFolderIDs, normalizePhone, platformForURL, safeSourceURL, safeAvatarSource, validStoredAvatar, newKey, resumeIdentity, hashText, sanitizeAttachment, earliestExperience, attachmentReviewFields, mergeAttachmentReview, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, candidateWriteResume, describeResumeChanges, saveFollowups };
+  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, sanitizeFolderIDs, normalizePhone, platformForURL, safeSourceURL, safeAvatarSource, attachmentAvatarDimensions, sanitizeAvatarCandidates, validStoredAvatar, newKey, resumeIdentity, hashText, sanitizeAttachment, earliestExperience, attachmentReviewFields, mergeAttachmentReview, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, candidateWriteResume, describeResumeChanges, saveFollowups };
   root.GoodHRShared = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

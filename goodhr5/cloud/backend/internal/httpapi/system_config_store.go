@@ -45,6 +45,7 @@ func NewMemorySystemConfigStore() *MemorySystemConfigStore {
 // defaultMemorySystemConfigs 返回开发环境默认系统配置。
 func defaultMemorySystemConfigs() map[string]SystemConfig {
 	return map[string]SystemConfig{
+		defaultPromptsConfigKey: defaultPromptsRecord(),
 		wechatOfficialConfigKey: {
 			ConfigKey:   wechatOfficialConfigKey,
 			ConfigValue: `{"enabled":false,"account_name":"GoodHR","app_id":"","original_id":"","token":"","encoding_aes_key":"","qr_image_url":""}`,

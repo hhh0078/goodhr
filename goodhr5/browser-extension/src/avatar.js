@@ -32,11 +32,12 @@
   }
 
   /** normalizeImage 解码后在后台 OffscreenCanvas 缩至256像素，剥元数据并限制输出128KiB。 */
-  async function normalizeImage(bytes, type, environment = root) {
+  async function normalizeImage(bytes, type, environment = root, attachment = false) {
     if (!environment.createImageBitmap || !environment.OffscreenCanvas) throw new Error("当前浏览器暂不能整理头像，可更新浏览器后重试");
     const bitmap = await environment.createImageBitmap(new Blob([bytes], { type }));
     try {
       if (!bitmap.width || !bitmap.height || bitmap.width > 4096 || bitmap.height > 4096 || bitmap.width * bitmap.height > 8000000) throw new Error("头像尺寸太大，可先保存简历，稍后重新读取后重试头像");
+      if (attachment && !shared.attachmentAvatarDimensions(bitmap.width, bitmap.height)) return "";
       const scale = Math.min(1, 256 / Math.max(bitmap.width, bitmap.height));
       const canvas = new environment.OffscreenCanvas(Math.max(1, Math.round(bitmap.width * scale)), Math.max(1, Math.round(bitmap.height * scale)));
       const context = canvas.getContext("2d"); if (!context) throw new Error("头像暂时没整理好，请稍后重试");
@@ -51,16 +52,26 @@
   }
 
   /** fetchAvatar 只在保存时读取白名单源，拒绝重定向且不发送网站 Cookie。 */
-  async function fetchAvatar(source, pageURL, environment = root) {
+  async function fetchAvatar(source, pageURL, environment = root, attachment = false) {
     const url = shared.safeAvatarSource(source, pageURL); if (!url) throw new Error("头像地址不在支持范围，可先保存简历，稍后重新读取后重试头像");
     let bytes;
     if (url.startsWith("data:")) { const binary = root.atob(url.split(",")[1]); bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0)); }
     else { const response = await environment.fetch(url, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", signal: AbortSignal.timeout(8000) }); if (!response.ok) throw new Error("头像暂时读不到，可重试或稍后重新读取后重试头像"); bytes = await readLimitedResponse(response); }
     if (!bytes.length || bytes.length > MAX_SOURCE_BYTES) throw new Error("头像大小不合适，可先保存简历，稍后重新读取后重试头像");
     const type = detectImageType(bytes); if (!type) throw new Error("头像格式没认出来，可先保存简历，稍后重新读取后重试头像");
-    return normalizeImage(bytes, type, environment);
+    return normalizeImage(bytes, type, environment, attachment);
   }
 
-  const api = { MAX_SOURCE_BYTES, MAX_STORED_BYTES, MAX_STORED_CHARACTERS, detectImageType, readLimitedResponse, normalizeImage, fetchAvatar };
+  /** fetchAttachmentAvatar 仅在保存时核实附件独立图片的实际尺寸，多个合理候选或读取不确定时安全留空。 */
+  async function fetchAttachmentAvatar(input, pageURL, environment = root) {
+    const candidates = shared.sanitizeAvatarCandidates(input, pageURL);
+    if (!candidates.length || candidates.filter((item) => item.width && item.height).length > 1) return "";
+    try {
+      const images = (await Promise.all(candidates.map((item) => fetchAvatar(item.source_url, pageURL, environment, true)))).filter(Boolean);
+      return images.length === 1 ? images[0] : "";
+    } catch { return ""; /* 无法核实所有候选时不猜测，不影响简历正文保存。 */ }
+  }
+
+  const api = { MAX_SOURCE_BYTES, MAX_STORED_BYTES, MAX_STORED_CHARACTERS, detectImageType, readLimitedResponse, normalizeImage, fetchAvatar, fetchAttachmentAvatar };
   root.GoodHRAvatar = api; if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

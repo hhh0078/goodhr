@@ -39,10 +39,13 @@ async function point(page, selector) { return page.evaluate((selector) => { cons
 /** clickOwnButton 用真实鼠标点击插件自身控件，不分发页面自定义事件。 */
 async function clickOwnButton(page, selector) { const target = await point(page, selector); await page.mouse.click(target.x, target.y); }
 
+/** waitForFixture 限时等待合成接口收到请求，流程中断时明确失败而不是永久卡住测试。 */
+async function waitForFixture(page, predicate, message) { const deadline = Date.now() + 12000; while (!predicate() && Date.now() < deadline) await page.waitForTimeout(20); assert.ok(predicate(), message); }
+
 /** sampleResume 提供同名不同平台编号的合成简历，用于验证候选人身份隔离。 */
 function sampleResume(id = "candidate-a", phone = "13800000151") { return { candidate_name: "合成悬浮候选人", phone, platform_id: "hliepin", platform_candidate_id: id, source_url: "https://h.liepin.com/resume/show", work_experiences: [{ company_name: "合成悬浮公司", position_name: "合成岗位", start_ym: "2021-01", content: "仅用于本地测试" }] }; }
 
-test("Chrome真实浮窗BOSS：核对页数才基本识别，保存才完整解析，两个阶段都保留手改并复用原保存", async () => {
+test("Chrome真实浮窗BOSS：无需勾选便自动基本识别，保存才完整解析，两个阶段都保留手改并复用原保存", async () => {
   const { server, origin } = await localServer(true), browser = await chromium.launch({ channel: "chrome", headless: true }), calls = [], drafts = new Map(), errors = [];
   const hash = "a".repeat(64), snapshot = { platform_id: "boss", source_url: "https://www.zhipin.com/web/chat/index", capture_id: "boss-" + hash, attachment: { text_hash: hash, page_count: 1, total_pages: 0, complete: false, blocked: false, warning: "已读到1页，总页数请核对" } };
   let releaseBasic, releaseFull;
@@ -71,7 +74,8 @@ test("Chrome真实浮窗BOSS：核对页数才基本识别，保存才完整解�
     const frame = page.frames().find((item) => item.url().includes("/src/floating.html"));
     await frame.locator("#attachment-panel").waitFor({ state: "visible" }); await page.waitForTimeout(550);
     assert.equal(calls.filter((item) => item.type === "ATTACHMENT_START").length, 0); assert.equal(await frame.locator("#save").isDisabled(), true);
-    await frame.locator("#attachment-check").check(); while (!releaseBasic) await page.waitForTimeout(10);
+    assert.equal(await frame.locator("input[type=checkbox]").count(), 0);
+    await waitForFixture(page, () => Boolean(releaseBasic), "附件稳定后没有自动发起基础识别");
     await frame.locator("#name").fill("基本识别前手改姓名"); releaseBasic();
     await frame.waitForFunction(() => document.getElementById("phone").value === "13800000991");
     assert.equal(await frame.locator("#name").inputValue(), "基本识别前手改姓名"); assert.equal(await frame.locator("#gender").inputValue(), "female");
@@ -80,7 +84,7 @@ test("Chrome真实浮窗BOSS：核对页数才基本识别，保存才完整解�
     fs.mkdirSync(ARTIFACTS, { recursive: true }); await page.locator("#goodhr-resume-assistant").screenshot({ path: path.join(ARTIFACTS, `plugin-boss-attachment-synthetic-${version}.png`), caret: "initial" });
     await frame.locator("#attachment-review>summary").click(); await frame.locator("#first-company").fill("人工核对首份公司"); await frame.locator("#first-work-end").fill("");
     await frame.waitForFunction(() => !document.getElementById("save").disabled); await frame.locator("#save").click();
-    while (!releaseFull) await page.waitForTimeout(10);
+    await waitForFixture(page, () => Boolean(releaseFull), "点击添加后没有发起完整解析");
     await frame.locator("#name").fill("完整识别期间手改姓名"); releaseFull();
     await frame.waitForFunction(() => document.getElementById("status").textContent === "已添加");
     const saved = calls.find((item) => item.type === "CREATE").payload.resume;
@@ -98,7 +102,7 @@ test("Chrome真实浮窗BOSS：当前 AI 未配置只提示，轮询状态不重
   const hash = "b".repeat(64), snapshot = { platform_id: "boss", source_url: "https://www.zhipin.com/web/chat/index", capture_id: "boss-" + hash, attachment: { text_hash: hash, page_count: 1, total_pages: 0, complete: false, blocked: false } };
   try {
     const { page } = await preparePage(browser, origin, async ({ type, payload = {} }) => { calls.push({ type, payload }); if (type === "STATE") return { ok: true, data: { logged_in: true, data_use_accepted: true, account_key: "no-ai-fixture", resume: snapshot, version } }; if (type === "ATTACHMENT_START") return { ok: false, status: 422, code: "AI_NOT_CONFIGURED", message: "当前账号没有配置 AI" }; return { ok: true, data: {} }; });
-    await page.goto(origin + "/src/floating.html"); await page.locator("#attachment-panel").waitFor({ state: "visible" }); await page.locator("#attachment-check").check();
+    await page.goto(origin + "/src/floating.html"); await page.locator("#attachment-panel").waitFor({ state: "visible" });
     await page.waitForFunction(() => document.getElementById("attachment-status").textContent.includes("还没配置 AI")); await page.waitForTimeout(2800);
     assert.equal(calls.filter((item) => item.type === "ATTACHMENT_START").length, 1); assert.equal(calls.some((item) => item.type === "CREATE"), false); assert.equal(await page.locator("#save").isDisabled(), true); assert.equal(await page.locator("#attachment-start").isDisabled(), false);
   } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }

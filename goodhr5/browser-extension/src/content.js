@@ -18,10 +18,14 @@
   /** performCapture 先同步后台快照再显示自己的面板，忽略切人后的迟到响应，不提交云端。 */
   async function performCapture(resume, fingerprint, sequence) {
     try {
-      if (resume?.attachment) resume.attachment.text_hash = await GoodHRShared.hashText(resume.attachment.text);
+      if (resume?.attachment) {
+        resume.attachment.text_hash = await GoodHRShared.hashText(resume.attachment.text);
+        resume.attachment.avatar_hash = await GoodHRShared.hashText(JSON.stringify(GoodHRShared.sanitizeAvatarCandidates(resume.avatar_candidates, location.href)));
+      }
       if (sequence !== captureSequence) return latestCapture;
-      await extension.runtime.sendMessage({ type: "CANDIDATE_SNAPSHOT", resume });
+      const result = await extension.runtime.sendMessage({ type: "CANDIDATE_SNAPSHOT", resume });
       if (sequence !== captureSequence) return latestCapture;
+      if (result?.ok === false) throw new Error("捕获已更新，等待当前资料");
       // 自然页面变化仍可能处于防抖等待中，显示前再核对一次，避免旧人短暂出现。
       if (JSON.stringify(GoodHRExtraction.extractCurrentCandidate(document, location.href)) !== fingerprint) return capture(true);
       globalThis.GoodHRFloating?.update(resume);
@@ -41,7 +45,7 @@
   }
 
   extension.runtime.onMessage.addListener(handleRuntimeMessage);
-  new MutationObserver(scheduleCapture).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden", "aria-hidden"] });
+  new MutationObserver(scheduleCapture).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden", "aria-hidden", "src", "srcset", "href", "xlink:href", "width", "height"] });
   setInterval(scheduleCapture, 2000);
   capture();
 })();

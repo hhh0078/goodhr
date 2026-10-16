@@ -51,9 +51,8 @@ function refreshActions() {
   $("recommendation-details").hidden = !$("job").value;
   if (currentResume?.attachment) {
     const ready = attachmentState?.basic_task?.status === "completed", waiting = ["queued", "running"].includes(attachmentState?.basic_task?.status) || attachmentPolling;
-    const unconfirmed = currentResume.attachment.blocked || (!currentResume.attachment.complete && !attachmentState?.acknowledged);
-    $("save").disabled ||= !ready || unconfirmed; $("update").disabled ||= !ready || unconfirmed;
-    $("attachment-start").disabled = unavailable || waiting || currentResume.attachment.blocked || (!currentResume.attachment.complete && !attachmentState?.acknowledged);
+    $("save").disabled ||= !ready || currentResume.attachment.blocked; $("update").disabled ||= !ready || currentResume.attachment.blocked;
+    $("attachment-start").disabled = unavailable || waiting || currentResume.attachment.blocked;
     $("attachment-cancel").disabled = !loggedIn || !dataUseAccepted;
     $("summary").disabled ||= !ready;
   }
@@ -76,12 +75,12 @@ function renderPreview(resume) {
 /** renderAvatar 只显示已规范化内嵌头像，不加载招聘页面远程图片。 */
 function renderAvatar() { const saved = shared.validStoredAvatar(selectedCandidate?.avatar_data_url), image = $("candidate-avatar"); image.hidden = !saved; if (saved) image.src = selectedCandidate.avatar_data_url; else image.removeAttribute("src"); $("retry-avatar").hidden = !avatarWarning || !selectedCandidate?.id || !currentResume?.avatar_detected; }
 /** renderCandidateInfo 将候选人的简短职业资料集中展示。 */
-function renderCandidateInfo(resume) { $("candidate-info").textContent = [resume?.age ? `${resume.age}岁` : "", { male: "男", female: "女" }[resume?.gender] || resume?.gender, resume?.education_level, resume?.current_position || resume?.expected_position, resume?.work_region || resume?.current_region].filter(Boolean).join(" · "); }
+function renderCandidateInfo(resume) { $("candidate-info").textContent = [resume?.age ? `${resume.age}岁` : "", { male: "男", female: "女" }[resume?.gender] || resume?.gender, resume?.education_level, resume?.current_position || resume?.expected_position, resume?.work_region || resume?.current_region].filter(Boolean).join(" · "); $("candidate-info").hidden = !$("candidate-info").textContent; }
 
 /** attachmentFieldValues 读取已展示的查重线索，不触碰招聘页或隐藏数据。 */
 function attachmentFieldValues() { return Object.fromEntries(attachmentFields.map((id) => [id, $(id).value])); }
 /** newAttachmentState 为同一份原文冻结两个阶段的独立请求编号。 */
-function newAttachmentState(captureID) { return { capture_id: captureID, acknowledged: false, basic_key: shared.newKey(), full_key: shared.newKey(), basic_task: null, full_task: null, basic_unknown: false, full_unknown: false, basic_error: "" }; }
+function newAttachmentState(captureID) { return { capture_id: captureID, observed_at: Date.now(), basic_key: shared.newKey(), full_key: shared.newKey(), basic_task: null, full_task: null, basic_unknown: false, full_unknown: false, basic_error: "" }; }
 /** applyBasicAttachment 只填未手改的字段；姓名、手机号和最早经历随后交给现有查重流程。 */
 function applyBasicAttachment() {
   const parsed = attachmentState?.basic_task?.resume;
@@ -90,22 +89,25 @@ function applyBasicAttachment() {
   for (const [id, value] of Object.entries(shared.attachmentReviewFields(parsed))) if (!edited.has(id)) $(id).value = value;
   renderCandidateInfo(formResume()); renderPreview(formResume()); scheduleDuplicates();
 }
-/** renderAttachment 说明阶段、页数和可能计费结果，失败不会自动重新请求 AI。 */
+/** renderAttachment 只展示当前一步与必要错误，正常完成后收起提示，不重复解释流程。 */
 function renderAttachment() {
   const attachment = currentResume?.attachment; $("attachment-panel").hidden = !attachment;
   if (!attachment) return;
   const task = attachmentState?.full_task || attachmentState?.basic_task, unknown = attachmentState?.full_unknown || attachmentState?.basic_unknown;
-  const labels = { queued: "识别已排队", running: task?.phase === "full" ? "正在完整解析，完成后保存" : "正在识别查重线索", completed: task?.phase === "full" ? "完整解析已完成" : "基本资料已读到，请核对后添加或更新", failed: "识别没完成，输入已保留", cancelled: "已取消识别", uncertain: "上次结果待确认，请先查询" };
-  $("attachment-status").textContent = [attachment.warning, unknown ? "上次请求结果待确认，恢复时沿用原编号" : labels[task?.status], attachmentState?.basic_error, task?.message, task?.possibly_charged && ["failed", "cancelled", "uncertain"].includes(task.status) ? "上次可能已计费，重新识别前会再确认" : ""].filter(Boolean).join("；") || "已读到附件纯文本";
-  $("attachment-check-label").hidden = attachment.complete || attachment.blocked;
-  $("attachment-check").checked = attachmentState?.acknowledged === true;
+  const labels = { queued: "识别已排队", running: task?.phase === "full" ? "正在解析完整简历…" : "正在识别…", completed: "", failed: "识别没完成，可重试", cancelled: "已取消识别", uncertain: "结果待确认，请查询" };
+  const failed = ["failed", "cancelled", "uncertain"].includes(task?.status);
+  $("attachment-status").textContent = attachment.blocked ? attachment.warning : unknown ? (attachmentPolling ? "正在识别…" : "结果待确认，请查询") : attachmentState?.basic_error || (failed ? task.message : "") || labels[task?.status] || (!task ? "正在读取附件…" : "");
+  if (task?.possibly_charged && ["failed", "cancelled", "uncertain"].includes(task.status)) $("attachment-status").textContent += "；上次可能已计费";
+  $("attachment-status").hidden = !$("attachment-status").textContent;
   const running = [attachmentState?.basic_task, attachmentState?.full_task].find((item) => ["queued", "running"].includes(item?.status));
   $("attachment-cancel").hidden = !running;
-  $("attachment-start").textContent = attachmentState?.basic_unknown ? "恢复上次识别" : ["failed", "cancelled", "uncertain"].includes(attachmentState?.basic_task?.status) ? "重新识别基本资料" : attachmentState?.basic_task?.status === "completed" ? "重新识别基本资料" : "识别基本资料";
+  $("attachment-start").hidden = Boolean(running) || (!attachmentState?.basic_task && !unknown && !attachmentState?.basic_error);
+  $("attachment-start").textContent = attachmentState?.basic_unknown ? "查询结果" : "重新识别";
+  $("attachment-start").parentElement.hidden = $("attachment-start").hidden && $("attachment-cancel").hidden;
   refreshActions();
 }
 /** attachmentPayload 固定当前捕获、阶段及请求标识，界面不持有附件全文。 */
-function attachmentPayload(phase) { return { phase, capture_id: currentResume?.capture_id, acknowledged: attachmentState?.acknowledged, request_key: attachmentState?.[phase + "_key"], task_id: attachmentState?.[phase + "_task"]?.id }; }
+function attachmentPayload(phase) { return { phase, capture_id: currentResume?.capture_id, request_key: attachmentState?.[phase + "_key"], task_id: attachmentState?.[phase + "_task"]?.id }; }
 /** startAttachmentPhase 先落盘请求编号再发出一次识别，网络未知时只允许用户恢复原请求。 */
 async function startAttachmentPhase(phase, explicit = false) {
   requireAccount(); if (!currentResume?.attachment || !attachmentState) return null;
@@ -127,7 +129,7 @@ async function startAttachmentPhase(phase, explicit = false) {
     return result.task;
   } catch (error) {
     if (epoch === uiEpoch) {
-      if (error.code === "AI_NOT_CONFIGURED") { attachmentState[unknownKey] = false; attachmentState.basic_error = "你当前还没配置 AI。先到 GoodHR 的 AI 设置配好，再回来点识别"; }
+      if (error.code === "AI_NOT_CONFIGURED") { attachmentState[unknownKey] = false; attachmentState.basic_error = "还没配置 AI，请先到 GoodHR 的 AI 设置配置"; }
       else if (error.status >= 400 && error.status < 500) { attachmentState[unknownKey] = false; attachmentState.basic_error = error.message; }
       else attachmentState.basic_error = `${error.message}；先恢复上次请求，避免重复计费`;
     }
@@ -144,11 +146,11 @@ async function pollAttachmentPhase(phase) {
   if (phase === "basic") applyBasicAttachment();
   renderAttachment(); queueDraft(); return result.task;
 }
-/** maintainAttachment 只自动发出首次基本识别；未确认页数、未配 AI、失败和未知结果均等待明确操作。 */
+/** maintainAttachment 附件文字稳定后自动识别一次；缺页继续等加载，失败或结果不明不会自动重复计费。 */
 async function maintainAttachment() {
   if (!currentResume?.attachment || !attachmentState || attachmentPolling || busy || !loggedIn || !dataUseAccepted || updateRequired) return;
   const attachment = currentResume.attachment;
-  if (attachment.blocked || (!attachment.complete && !attachmentState.acknowledged)) return;
+  if (attachment.blocked || Date.now() - attachmentState.observed_at < 1500) return;
   const epoch = uiEpoch; attachmentPolling = true; refreshActions();
   try {
     if (["queued", "running"].includes(attachmentState.basic_task?.status)) await pollAttachmentPhase("basic");
@@ -237,7 +239,7 @@ function renderFolders() {
   options.hidden = !shown.length; filter.setAttribute("aria-expanded", String(Boolean(shown.length)));
   for (const folder of shown) { const option = document.createElement("button"), meta = document.createElement("small"); option.type = "button"; option.className = "position-option"; option.setAttribute("role", "option"); option.setAttribute("aria-selected", String(selectedFolderIDs.includes(folder.id))); option.dataset.value = folder.id; option.append(document.createTextNode(`${selectedFolderIDs.includes(folder.id) ? "✓ " : ""}${folder.name}`)); meta.textContent = `${folder.scope === "team" ? "团队可见" : "仅自己可见"} · ${Number(folder.candidate_count) || 0} 人`; option.append(meta); option.addEventListener("click", () => toggleFolder(folder.id)); options.append(option); }
   for (const id of selectedFolderIDs) { const folder = folders.find((item) => item.id === id) || selectedCandidate?.folder_details?.find((item) => item.id === id), badge = document.createElement("button"); badge.type = "button"; badge.dataset.value = id; badge.className = "selected-folder"; badge.textContent = `${folder?.name || "收藏夹已不可用"} ×`; badge.setAttribute("aria-label", `移出收藏夹 ${folder?.name || "已不可用收藏夹"}`); badge.title = folder?.scope === "team" ? "团队可见" : "仅自己可见"; badge.addEventListener("click", () => toggleFolder(id)); selected.append(badge); }
-  $("folder-hint").textContent = folderLoading ? "正在加载收藏夹……" : folderLoadError || (keyword && folderMenuOpen && !shown.length ? "没找到这个收藏夹，请去简历库管理收藏夹新增。" : "团队收藏夹同团队可见，个人收藏夹仅自己可见。新增请去简历库管理收藏夹。");
+  $("folder-hint").textContent = folderLoadError || (keyword && folderMenuOpen && !shown.length ? "没找到，可到简历库新建" : ""); $("folder-hint").hidden = !$("folder-hint").textContent;
   refreshActions();
 }
 /** positionLabel 生成岗位搜索和选中后共用的短标签，保留公司和城市方便确认。 */
@@ -319,7 +321,7 @@ async function saveCandidate(updating = false) {
   if (!updating && ["idle", "checking", "failed"].includes(duplicateState)) await checkDuplicates(true);
   if (!updating && (hiddenDuplicate || matches.some((item) => item.match_type === "exact") || selectedCandidate)) throw new Error("已有重复简历，请选择后更新");
   if (currentResume?.attachment) {
-    if (currentResume.attachment.blocked || (!currentResume.attachment.complete && !attachmentState?.acknowledged)) throw new Error("先核对附件所有页的正文已经载入，再添加或更新");
+    if (currentResume.attachment.blocked) throw new Error("附件还没加载完，请稍等");
     if (attachmentState?.basic_task?.status !== "completed") throw new Error("先识别并核对基本资料，再添加或更新");
     const parseEpoch = uiEpoch, chosenID = selectedCandidate?.id;
     resume = await completeAttachment(); if (!resume || parseEpoch !== uiEpoch) return;
@@ -359,7 +361,6 @@ async function saveSummary() { requireAccount(); if (!selectedCandidate?.id || !
 $("reload").addEventListener("click", () => runAction(loadPreview).finally(scheduleDuplicates));
 $("check").addEventListener("click", () => runAction(() => checkDuplicates(true)));
 for (const id of draftFields) $(id).addEventListener("input", () => { edited.add(id); queueDraft(); if (["name", "phone", "duplicate-keyword", ...attachmentFields].includes(id)) { querySequence++; selectedCandidate = null; $("records").hidden = true; duplicateState = "idle"; lastQuery = ""; renderAvatar(); scheduleDuplicates(); } if (id === "job-filter") { const chosen = positions.find((job) => String(job.id) === $("job").value), label = chosen ? positionLabel(chosen) : ""; if ($("job").value && $("job-filter").value.trim() !== label) { $("job").value = ""; pendingJob = ""; $("job-filter").removeAttribute("data-selected-value"); } jobMenuOpen = Boolean($("job-filter").value.trim()); renderPositions(); } else if (id === "job") renderPositions(); else if (id === "folder-filter") { folderMenuOpen = Boolean($("folder-filter").value.trim()); renderFolders(); } if (["name", "phone", "city", "position", "expected-position", "gender"].includes(id)) renderCandidateInfo(formResume()); refreshActions(); });
-$("attachment-check").addEventListener("change", () => { if (!attachmentState) return; attachmentState.acknowledged = $("attachment-check").checked; queueDraft(); renderAttachment(); maintainAttachment(); });
 $("attachment-start").addEventListener("click", () => runAction(() => startAttachmentPhase("basic", true)));
 $("attachment-cancel").addEventListener("click", () => cancelAttachment().catch((error) => showStatus(error.message, true)));
 document.addEventListener("pointerdown", (event) => { if (jobMenuOpen && !event.target.closest(".jobs")) { jobMenuOpen = false; renderPositions(); } if (folderMenuOpen && !event.target.closest(".folder-picker")) { folderMenuOpen = false; renderFolders(); } });

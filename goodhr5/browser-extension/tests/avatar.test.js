@@ -48,3 +48,30 @@ test("图片域外地址在fetch之前拒绝，WebP魔数可识别，输出只�
   assert.equal(shared.sanitizeResume({ avatar_data_url: prefix + "AAAA" }).avatar_data_url, prefix + "AAAA");
   const changes = shared.describeResumeChanges({ source_type: "browser_extension" }, { avatar_data_url: prefix + "AAAA" }); assert.deepEqual(changes, ["头像：未填写 → 已保存头像"]);
 });
+
+test("附件头像接受合理方形或竖图，使用实际解码尺寸拒绝伪造元数据和横幅", async () => {
+  const page = "https://www.zhipin.com/web/chat/index", source_url = page + "/synthetic-photo.png";
+  for (const dimensions of [{ width: 80, height: 80 }, { width: 120, height: 160 }]) {
+    const value = imageEnvironment(png, dimensions), result = await avatar.fetchAttachmentAvatar([{ source_url, width: 0, height: 0 }], page, value.environment);
+    assert.equal(shared.validStoredAvatar(result), true); assert.equal(value.closed, true); assert.equal(value.calls[0].options.credentials, "omit");
+  }
+  for (const dimensions of [{ width: 79, height: 100 }, { width: 500, height: 120 }, { width: 100, height: 500 }]) {
+    const value = imageEnvironment(png, dimensions), result = await avatar.fetchAttachmentAvatar([{ source_url, width: 120, height: 160 }], page, value.environment);
+    assert.equal(result, ""); assert.equal(value.closed, true); assert.equal(value.sizes.length, 0);
+  }
+});
+
+test("多个合理附件图片不选第一张，未知尺寸均核实后仍有歧义或读取失败时留空", async () => {
+  const page = "https://www.zhipin.com/web/chat/index", sources = ["/photo-a.png", "/photo-b.png"].map((source_url) => ({ source_url, width: 120, height: 160 }));
+  const known = imageEnvironment(png, { width: 120, height: 160 }); assert.equal(await avatar.fetchAttachmentAvatar(sources, page, known.environment), ""); assert.equal(known.calls.length, 0);
+  const unknown = imageEnvironment(png, { width: 120, height: 160 }); assert.equal(await avatar.fetchAttachmentAvatar(sources.map((item) => ({ ...item, width: 0, height: 0 })), page, unknown.environment), ""); assert.equal(unknown.calls.length, 2);
+  const failure = imageEnvironment(png, { width: 120, height: 160 }); failure.environment.fetch = async () => { throw new Error("synthetic unavailable"); };
+  assert.equal(await avatar.fetchAttachmentAvatar([{ source_url: "/photo.png", width: 0, height: 0 }], page, failure.environment), "");
+  assert.equal(await avatar.fetchAttachmentAvatar([], page, failure.environment), "");
+});
+
+test("附件候选去重排序并保持既有域限制，超量或不合理自然尺寸不触发后台下载", async () => {
+  const page = "https://www.zhipin.com/web/chat/index", source = { source_url: "/photo.png", width: 120, height: 160 };
+  assert.deepEqual(shared.sanitizeAvatarCandidates([source, source, { source_url: "https://img.bosszhipin.com/photo.png", width: 120, height: 160 }, { source_url: "/tiny.png", width: 20, height: 20 }], page), [{ ...source, source_url: "https://www.zhipin.com/photo.png" }]);
+  const value = imageEnvironment(); assert.equal(await avatar.fetchAttachmentAvatar(Array(7).fill(source), page, value.environment), ""); assert.equal(value.calls.length, 0);
+});

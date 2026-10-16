@@ -6,6 +6,7 @@ import styles from "./page.module.css";
 import { useEffect, useMemo, useState } from "react";
 import JsonEditor from "@/components/admin/JsonEditor";
 import AIRechargePromotionForm from "@/components/admin/AIRechargePromotionForm";
+import BossAttachmentPromptField, { validateBossAttachmentPrompt } from "@/components/admin/BossAttachmentPromptField";
 import { AI_RECHARGE_CONFIG_KEY, validateAIRechargePromotions } from "@/lib/ai-recharge";
 import OnboardingRewardField, {
   validateOnboardingReward,
@@ -40,11 +41,17 @@ export default function SystemConfigPage() {
   const [draft, setDraft] = useState("{}");
   const [original, setOriginal] = useState("{}");
   const [loading, setLoading] = useState(false);
+  const [bossAttachmentDefaultPrompt, setBossAttachmentDefaultPrompt] = useState("");
   /** load 读取全部系统配置并保持当前选中项。 */
   async function load() {
     setLoading(true);
     try {
-      const data = await cloudRequest("/api/admin/system/configs/");
+      const [data, promptData] = await Promise.all([
+        cloudRequest("/api/admin/system/configs/"),
+        // 默认值读取失败不阻断已有系统配置，专用字段仍可直接编辑和保存。
+        cloudRequest("/api/system/default-prompts").catch(() => ({ prompts: {} })),
+      ]);
+      setBossAttachmentDefaultPrompt(String(promptData.prompts?.boss_attachment_basic_prompt || ""));
       const nextConfigs = [...(Array.isArray(data.configs) ? data.configs : [])];
       const appConfig = nextConfigs.find((item: any) => configKey(item) === "system.app_config");
       if (appConfig) nextConfigs.push({
@@ -86,6 +93,7 @@ export default function SystemConfigPage() {
     validateJSON(draft) ||
     (isWechatConfig ? validateOfficialConfig(draft) : "") ||
     (isOnboardingConfig ? validateOnboardingReward(draft) : "") ||
+    (activeKey === "ai.default_prompts" ? validateBossAttachmentPrompt(draft) : "") ||
     (isRechargeConfig || activeKey === "system.app_config" ? validateAIRechargePromotions(draft) : "");
   /** selectDirect 不经确认直接切换当前配置。 */
   function selectDirect(item: any) {
@@ -282,7 +290,7 @@ export default function SystemConfigPage() {
                     showIcon={true}
                     title={
                       <>
-                        这里分别保存首次筛选、打开详情和最终复核使用的系统默认提示词。岗位模板留空时会读取这些值。
+                        这里管理首次筛选、打开详情、最终复核和 BOSS 附件基础识别提示词。岗位模板留空时读取前三项，插件首次识别读取专用附件项。
                       </>
                     }
                     style={{ marginBottom: 16 }}
@@ -334,6 +342,9 @@ export default function SystemConfigPage() {
                   <AIRechargePromotionForm value={draft} onChange={setDraft} disabled={loading} />
                 ) : (
                   <>
+                    {activeKey === "ai.default_prompts" ? (
+                      <BossAttachmentPromptField value={draft} defaultValue={bossAttachmentDefaultPrompt} onChange={setDraft} disabled={loading} />
+                    ) : null}
                     {isOnboardingConfig ? (
                       <OnboardingRewardField
                         value={draft}

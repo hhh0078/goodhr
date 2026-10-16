@@ -1,7 +1,8 @@
-/* 文件作用：只读当前 BOSS 附件的可见同源 PDF 文本层，在本机整理纯文本；不读取内部变量、不截图、不修改招聘页面。 */
+/* 文件作用：只读当前 BOSS 附件的可见同源 PDF 文本层和独立图片，在本机整理纯文本及头像线索；不读内部变量、不截图、不修改招聘页面。 */
 (function (root) {
   "use strict";
   const LIMIT = 200000;
+  const shared = root.GoodHRShared || (typeof require === "function" ? require("./shared.js") : null);
 
   /** visible 判断元素及父级是否显示；不要求已滚入视口，允许读取已加载的其它 PDF 页。 */
   function visible(node) {
@@ -88,7 +89,7 @@
     return result;
   }
 
-  /** declaredPages 只采信明确页数字段；没有总页数时交给用户核对，不把已挂载页数冒充总页数。 */
+  /** declaredPages 只采信明确页数字段；没有总页数时仍保留未知状态，不把已挂载页数冒充总页数。 */
   function declaredPages(viewer, doc) {
     const candidates = [viewer, ...doc.querySelectorAll("[data-page-count], #numPages, .bzl-office-pdf-page-count")];
     for (const node of candidates) {
@@ -96,6 +97,25 @@
       if (/^\/?\s*\d{1,4}(?:\s*页)?$/.test(value || "")) { const count = Number(value.match(/\d+/)[0]); if (count > 0 && count <= 1000) return count; }
     }
     return 0;
+  }
+
+  /** avatarCandidates 只读取当前附件容器里的独立可见图片，跳过明确装饰和整页预览，不读取页面画布。 */
+  function avatarCandidates(viewer, pageURL) {
+    if (!shared) return [];
+    const candidates = [];
+    for (const node of viewer.querySelectorAll("img, image")) {
+      if (!visible(node)) continue;
+      const baseURL = shared.platformForURL(node.baseURI) === "boss" ? node.baseURI : pageURL;
+      const source_url = shared.safeAvatarSource(node.currentSrc || node.getAttribute("src") || node.getAttribute("href") || node.getAttribute("xlink:href"), baseURL);
+      if (!source_url) continue;
+      const metadata = [node.getAttribute("alt"), node.getAttribute("title"), node.getAttribute("class"), node.getAttribute("id"), node.parentElement?.getAttribute("class"), node.parentElement?.getAttribute("id"), source_url.startsWith("data:") ? "" : new URL(source_url).pathname].filter(Boolean).join(" ");
+      if (/logo|icon|qr[-_ ]?code|watermark|banner|二维码|水印|徽标|图标|横幅|标志/i.test(metadata)) continue;
+      const page = node.closest?.(".page[data-page-number]"), box = node.getBoundingClientRect?.(), pageBox = page?.getBoundingClientRect?.();
+      if (box && pageBox?.width && pageBox?.height && box.width >= pageBox.width * .65 && box.height >= pageBox.height * .65) continue;
+      candidates.push({ source_url, width: Number(node.naturalWidth) || 0, height: Number(node.naturalHeight) || 0 });
+      if (candidates.length > 6) return [];
+    }
+    return shared.sanitizeAvatarCandidates(candidates, pageURL);
   }
 
   /** extract 读取唯一可见 BOSS PDF，报告多页缺失及总页数无法确认的限制。 */
@@ -110,11 +130,11 @@
     const total = declaredPages(viewer, frameDoc), text = pages.map((page) => page.text).filter(Boolean).join("\n\n").trim();
     const consecutive = pages.length > 0 && pages.every((page, index) => page.number === index + 1 && page.loaded);
     const complete = Boolean(total && consecutive && pages.length === total), tooLong = Array.from(text).length > LIMIT;
-    const warning = tooLong ? "附件超过20万字，请换一份较短的简历" : !text ? "附件文字还没加载，或这份是图片简历；请先查看附件后重读" : total && !complete ? `只读到 ${pages.filter((page) => page.loaded).length}/${total} 页，请手动滚动载入所有页后重读` : !total ? `已读到 ${pages.length} 页文字，总页数还需你核对一下` : "";
-    return { platform_id: "boss", source_url: sourceURL, attachment: { text: tooLong ? "" : text, page_count: pages.filter((page) => page.loaded).length, total_pages: total, complete, blocked: tooLong || !text || !consecutive || Boolean(total && !complete), warning } };
+    const warning = tooLong ? "附件太长，请换一份较短的简历" : !text ? "暂时读不到文字，请等附件加载；图片简历暂不支持" : total && !complete ? `正在加载附件（${pages.filter((page) => page.loaded).length}/${total} 页）` : !consecutive ? "附件还没加载完，请向下翻页" : "";
+    return { platform_id: "boss", source_url: sourceURL, avatar_candidates: avatarCandidates(viewer, href), attachment: { text: tooLong ? "" : text, page_count: pages.filter((page) => page.loaded).length, total_pages: total, complete, blocked: tooLong || !text || !consecutive || Boolean(total && !complete), warning } };
   }
 
-  const api = { visible, ownText, cleanPieces, layoutText, documents, declaredPages, extract };
+  const api = { visible, ownText, cleanPieces, layoutText, documents, declaredPages, avatarCandidates, extract };
   root.GoodHRBossAttachment = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

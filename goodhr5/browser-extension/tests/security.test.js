@@ -36,13 +36,15 @@ async function attachmentScene(value) {
   return scene;
 }
 
-test("BOSS 基本识别只传可信快照纯文本，去参数来源；UI/磁盘回执不复制原文，未核对页数不能提交", async () => {
+test("BOSS 基本识别自动提交可信纯文本，去参数来源；UI/磁盘回执不复制原文，缺页仍不能提交", async () => {
   const value = backgroundFixture((url, options) => {
     const body = JSON.parse(options.body); return response({ ok: true, task: { ...body, id: "parse-basic", status: "completed", resume: { candidate_name: "合成候选人", phone: "13800000991" } } });
   }), scene = await attachmentScene(value), payload = scene.payload();
   assert.equal(Object.hasOwn(scene.capture.attachment, "text"), false); assert.equal(value.requests.length, 0);
-  const rejected = await value.message({ type: "ATTACHMENT_START", payload: { ...payload, acknowledged: false } }, scene.sender); assert.equal(rejected.ok, false); assert.equal(value.requests.length, 0);
-  const result = await value.message({ type: "ATTACHMENT_START", payload: { ...payload, text: "UI 伪造正文", html: "<html>拒绝</html>" } }, scene.sender);
+  await scene.replaceText(undefined, { blocked: true });
+  const rejected = await value.message({ type: "ATTACHMENT_START", payload }, scene.sender); assert.equal(rejected.ok, false); assert.equal(value.requests.length, 0);
+  await scene.replaceText();
+  const result = await value.message({ type: "ATTACHMENT_START", payload: { ...payload, acknowledged: false, text: "UI 伪造正文", html: "<html>拒绝</html>" } }, scene.sender);
   assert.equal(result.ok, true); assert.equal(result.data.task.resume.phone, "13800000991"); assert.equal(JSON.stringify(result).includes(scene.raw.attachment.text), false);
   const body = JSON.parse(value.requests[0].options.body); assert.equal(body.text, scene.raw.attachment.text); assert.equal(body.phase, "basic"); assert.equal(body.source.source_url, "https://www.zhipin.com/web/chat/index"); assert.equal(Object.hasOwn(body, "html"), false); assert.equal(Object.hasOwn(body, "cookies"), false);
   assert.equal(value.requests[0].options.headers.Authorization, "Bearer private-background-token"); assert.equal(value.requests[0].options.credentials, "omit");
@@ -85,6 +87,58 @@ test("BOSS 未配置 AI 返回明确错误码；文本哈希与任务内容不�
   const result = await value.message({ type: "ATTACHMENT_START", payload: scene.payload() }, scene.sender); assert.equal(result.ok, false); assert.equal(result.code, "AI_NOT_CONFIGURED"); assert.equal(value.requests.length, 1);
   scene.raw.attachment.text_hash = "a".repeat(64); const preview = await value.message({ type: "PREVIEW" }, uiSender); scene.capture = preview.data.resume;
   const mismatch = await value.message({ type: "ATTACHMENT_START", payload: scene.payload() }, scene.sender); assert.equal(mismatch.ok, false); assert.match(mismatch.message, /校验/); assert.equal(value.requests.length, 1);
+});
+
+test("BOSS 图片源只留后台，头像变更独立于正文并由后台重算指纹，忽略聊天头像外链", async () => {
+  const value = backgroundFixture(), scene = await attachmentScene(value);
+  scene.raw.avatar_source_url = "https://www.zhipin.com/wrong-chat-avatar.png";
+  scene.raw.avatar_candidates = [{ source_url: "/photo-a.png", width: 120, height: 160 }]; scene.raw.attachment.avatar_hash = "UI cannot supply the fingerprint";
+  const first = (await value.message({ type: "PREVIEW" }, scene.sender)).data.resume;
+  assert.equal(first.avatar_detected, true); assert.equal(first.avatar_candidates, undefined); assert.equal(first.avatar_source_url, undefined); assert.equal(JSON.stringify(first).includes("photo-a"), false); assert.equal(first.capture_id.length <= 160, true);
+  scene.raw.avatar_candidates[0].source_url = "/photo-b.png";
+  const second = (await value.message({ type: "PREVIEW" }, scene.sender)).data.resume;
+  assert.equal(first.attachment.text_hash, second.attachment.text_hash); assert.notEqual(first.attachment.avatar_hash, second.attachment.avatar_hash); assert.notEqual(first.capture_id, second.capture_id); assert.equal(value.requests.length, 0);
+  scene.raw.avatar_candidates = []; const none = (await value.message({ type: "PREVIEW" }, scene.sender)).data.resume; assert.equal(none.avatar_detected, false, "不能回退到聊天/列表头像");
+});
+
+test("BOSS 旧图片指纹异步迟到不能覆盖更新后的附件快照", async () => {
+  const value = backgroundFixture(), scene = await attachmentScene(value), originalHash = value.context.GoodHRShared.hashText;
+  let release, started; const active = new Promise((resolve) => { started = resolve; });
+  value.context.GoodHRShared.hashText = async (text) => { if (text.includes("photo-delayed")) { started(); await new Promise((resolve) => { release = resolve; }); } return originalHash(text); };
+  const contentSender = { id: "test-extension", frameId: 0, tab: scene.tab };
+  const pending = value.message({ type: "CANDIDATE_SNAPSHOT", resume: { ...scene.raw, avatar_candidates: [{ source_url: "/photo-delayed.png", width: 120, height: 160 }] } }, contentSender);
+  await active;
+  const current = await value.message({ type: "CANDIDATE_SNAPSHOT", resume: { ...scene.raw, avatar_candidates: [{ source_url: "/photo-current.png", width: 120, height: 160 }] } }, contentSender); assert.equal(current.ok, true);
+  release(); assert.equal((await pending).ok, false);
+  const stored = vm.runInContext("snapshots.get(57)", value.context); assert.match(stored.avatar_candidates[0].source_url, /photo-current/); assert.equal(JSON.stringify(vm.runInContext("publicResume(snapshots.get(57))", value.context)).includes("photo-current"), false);
+});
+
+test("BOSS 同文字换头像在下载前拒绝旧捕获，下载期间变更也不PATCH已有候选人", async () => {
+  const value = backgroundFixture(), scene = await attachmentScene(value);
+  scene.raw.avatar_candidates = [{ source_url: "/photo-a.png", width: 120, height: 160 }];
+  const first = (await value.message({ type: "PREVIEW" }, scene.sender)).data.resume;
+  let calls = 0, release, started; const active = new Promise((resolve) => { started = resolve; });
+  value.context.GoodHRAvatar.fetchAttachmentAvatar = async () => { calls++; started(); return new Promise((resolve) => { release = resolve; }); };
+  const payload = { candidate_id: "synthetic-avatar-owner", row_version: 1, capture_id: first.capture_id, idempotency_key: "synthetic-boss-avatar" };
+  scene.raw.avatar_candidates[0].source_url = "/photo-b.png";
+  const stale = await value.message({ type: "AVATAR_RETRY", payload }, scene.sender); assert.equal(stale.ok, false); assert.equal(stale.code, "CAPTURE_SCOPE_CHANGED"); assert.equal(calls, 0);
+  const current = (await value.message({ type: "PREVIEW" }, scene.sender)).data.resume;
+  const pending = value.message({ type: "AVATAR_RETRY", payload: { ...payload, capture_id: current.capture_id } }, scene.sender);
+  await active; scene.raw.avatar_candidates[0].source_url = "/photo-c.png"; release("data:image/png;base64,AAAA");
+  const result = await pending; assert.equal(result.ok, false); assert.equal(result.code, "CAPTURE_SCOPE_CHANGED"); assert.equal(value.requests.length, 0);
+});
+
+test("BOSS 无独立图片仍可完整解析保存，只有当前唯一图片会随资料存成内嵌头像", async () => {
+  for (const withPhoto of [false, true]) {
+    const value = backgroundFixture((url, options) => url.includes("attachment-parses") ? response({ task: { ...JSON.parse(options.body), id: "synthetic-photo-full", status: "completed", resume: { candidate_name: "合成附件候选人", phone: "13800000991" } } }) : response({ candidate: { id: "synthetic-saved", row_version: 1 } })), scene = await attachmentScene(value);
+    let calls = 0; value.context.GoodHRAvatar.fetchAttachmentAvatar = async () => { calls++; return "data:image/png;base64,AAAA"; };
+    scene.raw.avatar_candidates = withPhoto ? [{ source_url: "/photo.png", width: 120, height: 160 }] : [];
+    scene.capture = (await value.message({ type: "PREVIEW" }, scene.sender)).data.resume;
+    const payload = scene.payload("full"), parsed = await value.message({ type: "ATTACHMENT_START", payload }, scene.sender); assert.equal(parsed.ok, true);
+    const saved = await value.message({ type: "CREATE", payload: { ...payload, resume: parsed.data.task.resume, idempotency_key: "synthetic-photo-save" } }, scene.sender); assert.equal(saved.ok, true);
+    const body = JSON.parse(value.requests.find((item) => item.url.endsWith("/api/candidates")).options.body);
+    assert.equal(calls, withPhoto ? 1 : 0); assert.equal(body.avatar_data_url, withPhoto ? "data:image/png;base64,AAAA" : undefined); assert.equal(body.avatar_candidates, undefined); assert.equal(body.avatar_source_url, undefined);
+  }
 });
 
 test("收藏夹只由授权插件界面读取已有列表，招聘网页与旧账号不能请求分类管理", async () => {

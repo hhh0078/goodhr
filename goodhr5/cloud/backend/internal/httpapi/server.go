@@ -656,6 +656,12 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "config_value must be valid json")
 		return
 	}
+	if configKey == defaultPromptsConfigKey {
+		if err := validateDefaultPromptsConfig(raw); err != nil {
+			writeError(w, http.StatusBadRequest, "AI 默认提示词没保存："+err.Error())
+			return
+		}
+	}
 	if configKey == "system.subscription_plans" {
 		if _, err := parseSubscriptionPlans(raw); err != nil {
 			writeError(w, http.StatusBadRequest, "会员套餐配置没保存："+err.Error())

@@ -36,7 +36,7 @@ test("原技能保留预览和保存，收藏夹只选已有团队/个人分类�
     assert.equal(await page.locator("#selected-folders button").count(), 2);
     await page.locator("#resume-details > summary").click(); fs.mkdirSync(path.join(ROOT, "artifacts"), { recursive: true }); await page.screenshot({ path: path.join(ROOT, "artifacts", "plugin-folder-selection-1.0.9.png"), fullPage: true }); await page.locator("#resume-details > summary").click();
     await page.locator("#folder-filter").fill("并不存在的新标签"); await page.locator("#folder-filter").press("Enter");
-    assert.equal(await page.locator("#selected-folders button").count(), 2); assert.equal(calls.some((call) => call.type === "CREATE" || call.type.startsWith("FOLDER_CREATE")), false); assert.match(await page.locator("#folder-hint").innerText(), /管理收藏夹新增/);
+    assert.equal(await page.locator("#selected-folders button").count(), 2); assert.equal(calls.some((call) => call.type === "CREATE" || call.type.startsWith("FOLDER_CREATE")), false); assert.match(await page.locator("#folder-hint").innerText(), /简历库.*新建/);
     const first = resume; resume = { ...first, candidate_name: "合成标签乙", platform_candidate_id: "synthetic-tag-b", phone: "13800000152" };
     await page.locator("#reload").click(); await page.waitForFunction(() => document.getElementById("name").value === "合成标签乙" && !document.getElementById("reload").disabled); assert.equal(await page.locator("#selected-folders button").count(), 0);
     resume = first; await page.locator("#reload").click(); await page.waitForFunction(() => document.getElementById("name").value === "合成标签甲" && !document.getElementById("save").disabled); assert.equal(await page.locator("#selected-folders button").count(), 2);
