@@ -15,7 +15,7 @@ const operationSteps = ["agent-download", "agent-connect", "first-result"];
 
 /** OnboardingExperience 只展示控制器状态，推进步骤必须由真实操作结果决定。 */
 export default function OnboardingExperience(props: OnboardingExperienceProps) {
-  const { phase, state, step, target, targetGeometry, title, description, hint, estimate, remaining, doneCount, statusText, error, busy, helpOpen, blocked, storageUnavailable, celebration, actions } = props;
+  const { phase, state, step, target, targetGeometry, title, description, hint, estimate, remaining, doneCount, statusText, error, busy, helpOpen, restartOpen, restartBlockedReason, formSaving, blocked, storageUnavailable, celebration, actions } = props;
   const [skipText, setSkipText] = useState("");
   const [mobileMenuPlacement, setMobileMenuPlacement] = useState<"top" | "bottom" | null>(null);
   const actionsRef = useRef(actions);
@@ -23,7 +23,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
   actionsRef.current = actions;
   const stage = onboardingStage(step);
   const active = phase === "active";
-  const stageDone = [state.environmentReady, Boolean(state.positionId), state.platformLoggedIn, state.positionStarted, state.status === "completed"];
+  const stageDone = [state.environmentReady, Boolean(state.positionId) && !state.reviewPosition, state.platformLoggedIn && !state.reviewPosition, state.positionStarted, state.status === "completed"];
 
   useLayoutEffect(() => {
     if (!active || !target || !step.endsWith("menu")) { setMobileMenuPlacement(null); return; }
@@ -98,7 +98,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
     return () => window.clearTimeout(timer);
   }, [celebration?.id]);
 
-  if (phase === "loading" || phase === "silent") return null;
+  if (phase === "loading" || (phase === "silent" && !restartOpen)) return null;
   const operationPanel = active && !blocked && operationSteps.includes(step) ? <OperationPanel {...props} /> : null;
   const simulationNotice = process.env.NEXT_PUBLIC_ONBOARDING_PREVIEW_MODE === "simulation" ? <Alert data-testid="onboarding-simulation-notice" type="warning" showIcon title="这是自动化模拟环境，不会打开真实招聘浏览器。" description={<Typography.Link href="http://127.0.0.1:5174/admin">打开真实浏览器验收</Typography.Link>} className={styles.helpAlert} /> : null;
 
@@ -113,8 +113,9 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
             </div>
             <Flex gap={6} align="center" wrap>
               <Typography.Text type="secondary" className={styles.remaining}><ClockCircleOutlined aria-hidden="true" /> 预计还需 {remaining}</Typography.Text>
+              <Button type="text" disabled={blocked} onClick={actions.requestRestart}>从头开始</Button>
               <Button type="text" icon={<QuestionCircleOutlined />} disabled={blocked} onClick={actions.openHelp}>遇到问题</Button>
-              <Button type="text" icon={<PauseOutlined />} onClick={actions.pause}>稍后继续</Button>
+              <Button type="text" icon={<PauseOutlined />} disabled={formSaving} onClick={actions.pause}>稍后继续</Button>
             </Flex>
           </Flex>
           <Progress percent={Math.max(0, Math.min(100, doneCount * 20))} showInfo={false} size="small" strokeColor="var(--goodhr-primary)" className={styles.progressLine} />
@@ -130,7 +131,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       ) : null}
 
       {operationPanel}
-      {active && !operationPanel && (!target || blocked) ? (
+      {active && !operationPanel && !helpOpen && !restartOpen && (!target || blocked) ? (
         <section className={`${styles.operationPanel} ${styles.passivePanel}`} data-testid="onboarding-target-loading" aria-live="polite">
           <Typography.Text strong>{blocked ? "先处理当前必要检查，进度已保存" : "正在定位操作位置"}</Typography.Text>
           <Typography.Paragraph type="secondary">{blocked ? "完成当前弹框里的检查后，我会从这一步继续带路。" : error || statusText || "当前页面准备好后，我会继续高亮操作位置。你也可以先按说明操作。"}</Typography.Paragraph>
@@ -143,7 +144,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       <Tour
         key={`${step}:${targetGeometry}`}
         rootClassName={styles.tourPopup}
-        open={active && Boolean(target) && !helpOpen && !blocked}
+        open={active && Boolean(target) && !helpOpen && !restartOpen && !blocked}
         current={0}
         steps={[{
           target,
@@ -159,7 +160,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         scrollIntoViewOptions={{ block: "nearest", inline: "nearest", behavior: "instant" }}
         onClose={actions.pause}
         indicatorsRender={() => null}
-        actionsRender={() => <Flex gap={6} wrap><Button type="text" onClick={actions.back}>上一步</Button><Button type="text" onClick={actions.pause}>稍后继续</Button><Button onClick={actions.openHelp}>遇到问题</Button></Flex>}
+        actionsRender={() => <Flex gap={6} wrap><Button type="text" disabled={formSaving} onClick={actions.back}>上一步</Button><Button type="text" disabled={formSaving} onClick={actions.pause}>稍后继续</Button><Button onClick={actions.openHelp}>遇到问题</Button></Flex>}
         styles={{ section: { maxWidth: "min(390px, calc(100vw - 28px))" }, title: { color: "var(--goodhr-text)" } }}
       />
 
@@ -195,7 +196,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         title={`这一步怎么做：${title}`}
         width={560}
         onCancel={actions.closeHelp}
-        footer={<Button type="primary" onClick={actions.closeHelp}>我再试试</Button>}
+        footer={<Flex justify="flex-end" gap={8} wrap><Button disabled={formSaving} onClick={actions.back}>上一步</Button><Button onClick={actions.requestRestart}>从头开始</Button><Button type="primary" onClick={actions.closeHelp}>我再试试</Button></Flex>}
       >
         <Typography.Paragraph>{description}</Typography.Paragraph>
         <Typography.Paragraph type="secondary">{hint}</Typography.Paragraph>
@@ -204,8 +205,20 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         {step === "first-result" ? <Typography.Paragraph>“不合适，已跳过”也是筛选结果。还没判断完、只扫描到了候选人，都不会算教程完成。岗位失败时，可以先看日志里的具体提示。</Typography.Paragraph> : null}
       </Modal>
 
+      <Modal
+        open={restartOpen && !blocked}
+        zIndex={1700}
+        title="从第一步再走一遍？"
+        width={520}
+        onCancel={actions.cancelRestart}
+        footer={<Flex justify="flex-end" gap={8} wrap><Button onClick={actions.cancelRestart}>先不重来</Button>{state.positionStarted && restartBlockedReason ? <Button onClick={actions.pause}>稍后继续，去停止岗位</Button> : null}<Button type="primary" disabled={Boolean(restartBlockedReason)} onClick={actions.confirmRestart}>从头带我一遍</Button></Flex>}
+      >
+        <Typography.Paragraph>已保存的岗位和招聘数据都会保留；这次未保存的教程草稿会清空。已经建好的岗位，我带你重新检查，不用再建一份。</Typography.Paragraph>
+        {restartBlockedReason ? <Alert type="warning" showIcon title={restartBlockedReason} /> : <Typography.Paragraph type="secondary">从邀请开始重新带路，已经准备好的本地组件会自动略过。</Typography.Paragraph>}
+      </Modal>
+
       {phase === "paused" || phase === "declined" ? (
-        <div className={styles.resumeEntry}><Typography.Text type="secondary">{phase === "paused" ? "教程进度给你留着了" : "需要带路时，我还在"}</Typography.Text><Button type="primary" onClick={actions.resume}>{phase === "paused" ? "继续教程" : "开启引导"}</Button></div>
+        <div className={styles.resumeEntry}><Typography.Text type="secondary">{phase === "paused" ? "教程进度给你留着了" : "需要带路时，我还在"}</Typography.Text><Button onClick={actions.requestRestart}>从头开始</Button><Button type="primary" onClick={actions.resume}>{phase === "paused" ? "继续教程" : "开启引导"}</Button></div>
       ) : null}
 
       {celebration && phase !== "completed" ? <div className={styles.celebrationToast} role="status" aria-live="polite"><CheckCircleFilled aria-hidden="true" /><div><strong>{celebration.title}</strong><span>{celebration.description}</span></div></div> : null}

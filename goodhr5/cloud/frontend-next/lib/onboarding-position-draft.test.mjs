@@ -81,3 +81,44 @@ test("浏览器拒绝读写和清理时安全返回，不阻断创建和关闭�
   assert.equal(saveOnboardingPositionDraft("user-1", draftFixture(), denied), false);
   assert.equal(clearOnboardingPositionDraft("user-1", denied), false);
 });
+
+test("岗位复核草稿按原岗位ID隔离，新建草稿、其他岗位和账号互不覆盖", () => {
+  const storage = storageFixture();
+  const newDraft = draftFixture({ name: "待新建岗位" });
+  const editingA = draftFixture({ position_id: "岗位 A", name: "A 未保存修改" });
+  const editingB = draftFixture({ position_id: "岗位 B", name: "B 未保存修改" });
+  const otherAccount = draftFixture({ position_id: "岗位 A", name: "另一账号" });
+  saveOnboardingPositionDraft("user-1", newDraft, storage);
+  saveOnboardingPositionDraft("user-1", editingA, storage);
+  saveOnboardingPositionDraft("user-1", editingB, storage);
+  saveOnboardingPositionDraft("user-2", otherAccount, storage);
+  assert.deepEqual(readOnboardingPositionDraft("user-1", storage), newDraft);
+  assert.deepEqual(readOnboardingPositionDraft("user-1", storage, "岗位 A"), editingA);
+  assert.deepEqual(readOnboardingPositionDraft("user-1", storage, "岗位 B"), editingB);
+  assert.deepEqual(readOnboardingPositionDraft("user-2", storage, "岗位 A"), otherAccount);
+  assert.equal(readOnboardingPositionDraft("user-1", storage, "不存在的岗位"), null);
+  assert.equal(clearOnboardingPositionDraft("user-1", storage, "岗位 A"), true);
+  assert.equal(readOnboardingPositionDraft("user-1", storage, "岗位 A"), null);
+  assert.deepEqual(readOnboardingPositionDraft("user-1", storage), newDraft);
+  assert.deepEqual(readOnboardingPositionDraft("user-1", storage, "岗位 B"), editingB);
+  assert.deepEqual(readOnboardingPositionDraft("user-2", storage, "岗位 A"), otherAccount);
+});
+
+test("复核缓存必须同时匹配键与岗位元数据，错ID或新建缓存串入编辑均被拒绝", () => {
+  const storage = storageFixture();
+  /** write 构造键与岗位元数据不一致的缓存，以验证恢复不会串用其他岗位。 */
+  const write = (keyID, metadataID) => storage.setItem(onboardingPositionDraftKey("user-1", keyID), JSON.stringify({ version: 1, draft: draftFixture({ position_id: metadataID }) }));
+  write("A", "B");
+  assert.equal(readOnboardingPositionDraft("user-1", storage, "A"), null);
+  write("A", undefined);
+  assert.equal(readOnboardingPositionDraft("user-1", storage, "A"), null);
+  write("A", 123);
+  assert.equal(readOnboardingPositionDraft("user-1", storage, "A"), null);
+  write("", "A");
+  assert.equal(readOnboardingPositionDraft("user-1", storage), null);
+  assert.equal(saveOnboardingPositionDraft("user-1", draftFixture({ position_id: " A ", token: "must-not-cache", is_open: false, match_limit: 99 }), storage), true);
+  const restored = readOnboardingPositionDraft("user-1", storage, " A ");
+  assert.deepEqual(restored, draftFixture({ position_id: "A" }));
+  assert.deepEqual(Object.keys(restored).sort(), ["position_id", "name", "platform_id", "mode_default", "detail_mode", "position_requirement", "keywords"].sort());
+  assert.equal(storage.getItem(onboardingPositionDraftKey("user-1", "A")).includes("must-not-cache"), false);
+});

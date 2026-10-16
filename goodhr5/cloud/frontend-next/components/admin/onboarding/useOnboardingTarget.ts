@@ -17,6 +17,7 @@ export function onboardingTargetSelector(step: OnboardingStep, positionId: strin
     "platform-login": "[data-onboarding='browser-open']",
     "position-menu": "[data-onboarding='menu-positions']",
     "position-create": "[data-onboarding='position-create']",
+    "position-edit": `[data-onboarding='position-edit'][data-position-id='${position}']`,
     "position-platform": "[data-onboarding='position-platform']",
     "position-name": "[data-onboarding='position-name']",
     "position-filter-mode": "[data-onboarding='position-filter-mode']",

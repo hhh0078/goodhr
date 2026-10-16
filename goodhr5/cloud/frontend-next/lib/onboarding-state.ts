@@ -3,7 +3,7 @@ export const ONBOARDING_VERSION = 2;
 export const ONBOARDING_SKIP_PHRASE = "让开，我不需要教程";
 export const ONBOARDING_STEPS = [
   "agent-menu", "agent-download", "agent-connect", "runtime-install", "runtime-system", "platform-select", "platform-open", "platform-login",
-  "position-menu", "position-create", "position-platform", "position-name", "position-filter-mode", "position-detail-mode", "position-requirement", "position-keywords", "position-save",
+  "position-menu", "position-create", "position-edit", "position-platform", "position-name", "position-filter-mode", "position-detail-mode", "position-requirement", "position-keywords", "position-save",
   "position-start", "platform-filter", "position-run", "position-start-check", "position-start-error", "position-start-update", "first-result", "complete",
 ] as const;
 export type OnboardingStep = typeof ONBOARDING_STEPS[number];
@@ -23,12 +23,22 @@ export type OnboardingState = {
   celebrated: string[];
   updatedAt: number;
   completionKind?: "ai" | "keyword";
+  reviewPosition: boolean;
+  replaying: boolean;
 };
 export const ONBOARDING_STAGES = ["准备本地程序", "创建岗位", "登录招聘平台", "筛选并开始", "看到筛选结果"];
 
 /** createOnboardingState 为首次进入当前账号的用户创建尚未接受邀请的引导。 */
 export function createOnboardingState(): OnboardingState {
-  return { version: ONBOARDING_VERSION, status: "invited", step: "agent-menu", platformId: "boss", positionId: "", environmentReady: false, platformLoggedIn: false, positionStarted: false, filterMode: "ai", detailMode: "ai", completedFields: [], celebrated: [], updatedAt: Date.now() };
+  return { version: ONBOARDING_VERSION, status: "invited", step: "agent-menu", platformId: "boss", positionId: "", environmentReady: false, platformLoggedIn: false, positionStarted: false, filterMode: "ai", detailMode: "ai", completedFields: [], celebrated: [], reviewPosition: false, replaying: false, updatedAt: Date.now() };
+}
+
+/** restartOnboardingState 仅重置当前账号的教程微步骤，复核原岗位而不删除、复制或启停业务岗位。 */
+export function restartOnboardingState(state: OnboardingState, environmentReady: boolean): OnboardingState {
+  return { ...createOnboardingState(), platformId: state.platformId, positionId: state.positionId,
+    filterMode: state.filterMode, detailMode: state.detailMode, environmentReady,
+    reviewPosition: Boolean(state.positionId), replaying: true,
+    step: environmentReady ? state.positionId ? "position-edit" : "position-menu" : "agent-menu" };
 }
 
 /** onboardingStorageKey 将版本和账号同时加入缓存键，换号时不会继承别人的进度。 */
@@ -51,7 +61,7 @@ export function readOnboardingState(identity: string, storage?: Pick<Storage, "g
     const positionId = typeof raw.positionId === "string" ? raw.positionId.trim() : "";
     // 保留原账号缓存与岗位草稿；旧顺序还没建岗位时，先回岗位入口，不能继续要求登录。
     const normalizedStep = !positionId && ["platform-select", "platform-open", "platform-login"].includes(step) ? "position-menu" : step;
-    return { ...fallback, status, step: normalizedStep, platformId, positionId, environmentReady: raw.environmentReady === true, platformLoggedIn: Boolean(positionId) && raw.platformLoggedIn === true, positionStarted: raw.positionStarted === true, filterMode: raw.filterMode === "keyword" ? "keyword" : "ai", detailMode: ["ai", "ocr", "dom"].includes(String(raw.detailMode)) ? String(raw.detailMode) : "ai", completedFields: stringList(raw.completedFields), celebrated: stringList(raw.celebrated), updatedAt: Number.isFinite(raw.updatedAt) ? Number(raw.updatedAt) : Date.now(), completionKind: raw.completionKind === "keyword" || raw.completionKind === "ai" ? raw.completionKind : undefined };
+    return { ...fallback, status, step: normalizedStep, platformId, positionId, environmentReady: raw.environmentReady === true, platformLoggedIn: Boolean(positionId) && raw.platformLoggedIn === true, positionStarted: raw.positionStarted === true, filterMode: raw.filterMode === "keyword" ? "keyword" : "ai", detailMode: ["ai", "ocr", "dom"].includes(String(raw.detailMode)) ? String(raw.detailMode) : "ai", completedFields: stringList(raw.completedFields), celebrated: stringList(raw.celebrated), reviewPosition: Boolean(positionId) && raw.reviewPosition === true, replaying: raw.replaying === true, updatedAt: Number.isFinite(raw.updatedAt) ? Number(raw.updatedAt) : Date.now(), completionKind: raw.completionKind === "keyword" || raw.completionKind === "ai" ? raw.completionKind : undefined };
   } catch { return fallback; }
 }
 
@@ -77,14 +87,14 @@ export function onboardingStage(step: OnboardingStep): number {
 
 /** onboardingDoneCount 只根据已经发生的真实里程碑计算总进度。 */
 export function onboardingDoneCount(state: OnboardingState): number {
-  return [state.environmentReady, Boolean(state.positionId.trim()), state.platformLoggedIn && Boolean(state.positionId.trim()), state.positionStarted, state.status === "completed"].filter(Boolean).length;
+  return [state.environmentReady, Boolean(state.positionId.trim()) && !state.reviewPosition, state.platformLoggedIn && Boolean(state.positionId.trim()) && !state.reviewPosition, state.positionStarted, state.status === "completed"].filter(Boolean).length;
 }
 
 /** onboardingRemainingTime 显示估计区间，网络安装与平台等待期间不制造虚假的倒计时。 */
 export function onboardingRemainingTime(state: OnboardingState): string {
   if (state.status === "completed") return "已跑通";
   const estimates = [[3, 8], [2, 3], [1, 2], [1, 2], [1, 3]];
-  const done = [state.environmentReady, Boolean(state.positionId.trim()), state.platformLoggedIn && Boolean(state.positionId.trim()), state.positionStarted, false];
+  const done = [state.environmentReady, Boolean(state.positionId.trim()) && !state.reviewPosition, state.platformLoggedIn && Boolean(state.positionId.trim()) && !state.reviewPosition, state.positionStarted, false];
   const remaining = estimates.reduce((sum, pair, index) => done[index] ? sum : [sum[0] + pair[0], sum[1] + pair[1]], [0, 0]);
   return `约 ${remaining[0]}–${remaining[1]} 分钟`;
 }
@@ -110,11 +120,11 @@ export type OnboardingPositionSnapshot = { id?: string; platform_id?: string; is
 /** normalizeOnboardingPosition 以实际保存的岗位确定平台，恢复时不沿用其他平台的登录事实或已失效岗位。 */
 export function normalizeOnboardingPosition(state: OnboardingState, position: OnboardingPositionSnapshot | null): OnboardingState {
   if (!state.positionId) {
-    const step = ["platform-select", "platform-open", "platform-login", "position-start", "platform-filter", "position-run"].includes(state.step) ? "position-menu" : state.step;
-    return { ...state, platformLoggedIn: false, step };
+    const step = ["platform-select", "platform-open", "platform-login", "position-edit", "position-start", "platform-filter", "position-run"].includes(state.step) ? "position-menu" : state.step;
+    return { ...state, reviewPosition: false, platformLoggedIn: false, step };
   }
   if (!position || position.id !== state.positionId || position.is_open === false) {
-    return { ...state, positionId: "", platformLoggedIn: false, positionStarted: false, completedFields: [], step: "position-menu", status: state.status === "completed" ? "active" : state.status, completionKind: undefined };
+    return { ...state, positionId: "", reviewPosition: false, platformLoggedIn: false, positionStarted: false, completedFields: [], step: "position-menu", status: state.status === "completed" ? "active" : state.status, completionKind: undefined };
   }
   const platformId = typeof position.platform_id === "string" ? position.platform_id.trim() : "";
   // 实际岗位缺少有效平台时，不能回退到缓存平台打开错误网站；原岗位仍保留，由用户重新创建或修改。
@@ -122,6 +132,7 @@ export function normalizeOnboardingPosition(state: OnboardingState, position: On
     return { ...state, platformId: "", platformLoggedIn: false, positionStarted: false, step: "position-create" };
   }
   const changed = platformId !== state.platformId;
+  if (state.reviewPosition) return { ...state, platformId, platformLoggedIn: false, positionStarted: false };
   const platformLoggedIn = !changed && state.platformLoggedIn;
   const loginRequired = changed || state.step === "platform-select" || (!platformLoggedIn && ["position-start", "position-menu"].includes(state.step));
   return { ...state, platformId, platformLoggedIn,

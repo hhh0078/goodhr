@@ -222,6 +222,32 @@ async function createSavedTutorialPosition(request: APIRequestContext, user: Tes
   return position;
 }
 
+/** readTutorialProgress 通过浏览器原生存储快照读取本账号进度，不向页面注入脚本。 */
+async function readTutorialProgress(page: Page, user: TestUser) {
+  const origin = (await page.context().storageState()).origins.find((entry) => entry.origin === new URL(PREVIEW_URL).origin);
+  return JSON.parse(origin?.localStorage.find((entry) => entry.name === onboardingStorageKey(user.id))?.value || "{}");
+}
+
+/** readTutorialPositions 查询真实本机 Go 岗位列表，核对复核和重走不会重复创建业务数据。 */
+async function readTutorialPositions(request: APIRequestContext, user: TestUser) {
+  const response = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${user.token}` } });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const result = await response.json();
+  return (Array.isArray(result.positions) ? result.positions : []) as { id: string; name: string; platform_id: string; keywords: string[]; status: string }[];
+}
+
+/** openTutorialPositionReview 从顶部开窗节点实际回退并点击本岗位编辑，不走另建岗位入口。 */
+async function openTutorialPositionReview(page: Page, positionID: string) {
+  await expectStep(page, "platform-open");
+  await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+  await expectStep(page, "position-edit");
+  await expect(page.getByRole("dialog", { name: /这一步怎么做/ })).toHaveCount(0);
+  const edit = page.locator(`[data-onboarding="position-edit"][data-position-id="${positionID}"]`);
+  await expectMaskAround(page, edit);
+  await edit.click();
+  await expect(page.getByRole("dialog", { name: "编辑岗位模板", exact: true })).toBeVisible();
+}
+
 for (const width of [1440, 390]) {
   test(`${width}px旧v2登录缓存无岗位时回创建，不先打开或检测平台`, async ({ scenario, browser, request }) => {
     const restored = await cachedTutorialContext(browser, scenario.user, { ...createOnboardingState(), status: "active", step: "platform-login", environmentReady: true, platformLoggedIn: true }, width, scenario);
@@ -1179,4 +1205,278 @@ test("旧平台配置缺public时按登录前缀识别，泛域名命中登录�
   expect(opened).toHaveLength(1);
   expect(opened[0].body).toMatchObject({ platform_id: "zhaopin", url: entryURL });
   await expect(page.locator(`[data-onboarding="position-start"][data-position-id="${position.id}"]`)).toBeVisible();
+});
+
+for (const width of [1440, 390]) {
+  test(`${width}px开窗前上一步回到同岗位编辑，逐字段回看且保存修改不增岗`, async ({ scenario, request }) => {
+    const { page, user } = scenario;
+    await page.setViewportSize({ width, height: 960 });
+    const position = await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false });
+    await openTutorialPositionReview(page, position.id);
+    await expectStep(page, "position-save");
+    await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue(position.name);
+    for (const step of ["position-keywords", "position-detail-mode", "position-filter-mode", "position-name", "position-platform"]) {
+      await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+      await expectStep(page, step);
+      await expectMaskAround(page, `[data-onboarding="${step}"]`);
+    }
+    const platform = page.locator('[data-onboarding="position-platform"]');
+    const radios = platform.getByRole("radio");
+    expect(await radios.count()).toBeGreaterThan(1);
+    for (const radio of await radios.all()) await expect(radio, "已保存岗位的真实平台不能在复核表单中更换").toBeDisabled();
+    await expect(platform.getByRole("radio", { name: /BOSS\s*直聘/i })).toBeChecked();
+    await platform.getByRole("button", { name: "确认使用此平台", exact: true }).click();
+    await expectStep(page, "position-save");
+    await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+    await expectStep(page, "position-keywords");
+    await page.locator('[data-onboarding="position-keywords"]').fill(`Java Spring 修改条件${width}`);
+    await page.keyboard.press("Tab");
+    await expectStep(page, "position-save");
+    const form = page.getByRole("dialog", { name: "编辑岗位模板", exact: true });
+    await expect(form.getByRole("button", { name: "保存修改", exact: true })).toBeEnabled();
+    await page.screenshot({ path: test.info().outputPath(`review-${width}-same-position.png`), fullPage: true });
+    await form.getByRole("button", { name: "保存修改", exact: true }).click();
+    await expectStep(page, "platform-open");
+    const positions = await readTutorialPositions(request, user);
+    expect(positions).toHaveLength(1);
+    expect(positions[0]).toMatchObject({ id: position.id, name: position.name, platform_id: "boss", keywords: ["Java", "Spring", `修改条件${width}`] });
+    expect(await readTutorialProgress(page, user)).toMatchObject({ positionId: position.id, platformLoggedIn: false });
+    expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path) || /\/(run|stop)$/.test(call.path))).toHaveLength(0);
+  });
+}
+
+test("已有岗位编辑草稿刷新后保留同ID，取消回编辑入口且不覆盖云端岗位", async ({ scenario, request }) => {
+  const { page, user, context } = scenario;
+  const position = await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false });
+  await openTutorialPositionReview(page, position.id);
+  await expectStep(page, "position-save");
+  for (const step of ["position-keywords", "position-detail-mode", "position-filter-mode", "position-name"]) {
+    await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+    await expectStep(page, step);
+  }
+  const draftName = "原岗位编辑草稿，刷新后还在";
+  await page.locator('[data-onboarding="position-name"]').fill("");
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-name");
+  await page.locator('[data-onboarding="position-name"]').fill(draftName);
+  await expect.poll(async () => (await context.storageState()).origins.some((origin) => origin.localStorage.some((entry) => entry.name.includes("draft") && entry.value.includes(draftName) && entry.value.includes(position.id)))).toBe(true);
+  await page.reload();
+  await expectStep(page, "position-name");
+  const form = page.getByRole("dialog", { name: "编辑岗位模板", exact: true });
+  await expect(form).toBeVisible();
+  await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue(draftName);
+  expect(await readTutorialProgress(page, user)).toMatchObject({ positionId: position.id, reviewPosition: true });
+  expect(await readTutorialPositions(request, user)).toMatchObject([{ id: position.id, name: position.name }]);
+  const cancel = form.getByRole("button", { name: "取消", exact: true });
+  await cancel.focus();
+  await expect(cancel).toBeFocused();
+  await cancel.press("Enter");
+  await expect(form).not.toBeVisible();
+  await expectStep(page, "position-edit");
+  await expectMaskAround(page, `[data-onboarding="position-edit"][data-position-id="${position.id}"]`);
+  await page.locator(`[data-onboarding="position-edit"][data-position-id="${position.id}"]`).click();
+  await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue(draftName);
+  expect(await readTutorialPositions(request, user)).toMatchObject([{ id: position.id, name: position.name }]);
+});
+
+test("登录成功响应迟到也不能把已经回退的岗位编辑跳回开始节点", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  const position = await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false });
+  let releaseLogin!: () => void;
+  const pending = new Promise<void>((resolve) => { releaseLogin = resolve; });
+  let reads = 0, held = false, settled = false;
+  await page.route("**/api/v1/page/url", async (route) => {
+    const response = await route.fetch();
+    if (++reads !== 3) return route.fulfill({ response });
+    held = true;
+    await pending;
+    try { await route.fulfill({ response }); }
+    catch (error) { expect(route.request().failure()?.errorText || String(error)).toMatch(/ABORT|CANCEL|closed|finished/i); }
+    finally { settled = true; }
+  });
+  try {
+    await headerBrowserButton(page).click();
+    await expectStep(page, "platform-login");
+    await expect.poll(() => held, { message: "必须真正拦住第三次成功登录响应，才能复现返回后的迟到确认", timeout: 25_000 }).toBe(true);
+    await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+    await openTutorialPositionReview(page, position.id);
+    await expectStep(page, "position-save");
+    const before = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length;
+    releaseLogin();
+    await expect.poll(() => settled).toBe(true);
+    await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length).toBeGreaterThan(before);
+    await expectStep(page, "position-save");
+    expect(await readTutorialProgress(page, user)).toMatchObject({ positionId: position.id, platformLoggedIn: false, reviewPosition: true });
+    await expect(page.getByRole("dialog", { name: "编辑岗位模板", exact: true })).toBeVisible();
+    expect((await readAgentState(request)).calls.filter((call: { path: string }) => /\/(run|stop)$/.test(call.path))).toHaveLength(0);
+  } finally { releaseLogin(); }
+});
+
+test("帮助里可以返回原岗位，并从头重走邀请和平台确认而不另建岗位", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  const position = await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false });
+  await page.locator(".ant-tour").getByRole("button", { name: "遇到问题", exact: true }).click();
+  const help = page.getByRole("dialog", { name: /这一步怎么做/ });
+  await help.getByRole("button", { name: "上一步", exact: true }).click();
+  await expect(help).not.toBeVisible();
+  await expectStep(page, "position-edit");
+  await page.locator(".ant-tour").getByRole("button", { name: "遇到问题", exact: true }).click();
+  await help.getByRole("button", { name: "从头开始", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "从第一步再走一遍？", exact: true });
+  await expect(confirm).toContainText(/岗位.*保留|保留.*岗位/);
+  await confirm.getByRole("button", { name: "从头带我一遍", exact: true }).click();
+  await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
+  await expect(help).not.toBeVisible();
+  expect(await readTutorialProgress(page, user)).toMatchObject({ status: "invited", positionId: position.id, completedFields: [], replaying: true, reviewPosition: true });
+  await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
+  await expectStep(page, "position-edit");
+  await expectMaskAround(page, `[data-onboarding="position-edit"][data-position-id="${position.id}"]`);
+  await page.locator(`[data-onboarding="position-edit"][data-position-id="${position.id}"]`).click();
+  await expectStep(page, "position-platform");
+  await expect(page.getByRole("dialog", { name: "编辑岗位模板", exact: true })).toBeVisible();
+  await page.locator('[data-onboarding="position-platform"]').getByRole("button", { name: "确认使用此平台", exact: true }).click();
+  await expectStep(page, "position-name");
+  await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue(position.name);
+  await page.locator('[data-onboarding="position-name"]').focus();
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-filter-mode");
+  await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选/ }).click();
+  await expectStep(page, "position-detail-mode");
+  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: /^本地识别/ }).click();
+  await expectStep(page, "position-keywords");
+  expect((await page.locator('[data-onboarding="position-keywords"]').inputValue()).split(/[，,\s]+/)).toEqual(["Java", "Spring", "后端开发"]);
+  await page.locator('[data-onboarding="position-keywords"]').focus();
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-save");
+  await page.getByRole("dialog", { name: "编辑岗位模板", exact: true }).getByRole("button", { name: "保存修改", exact: true }).click();
+  await expectStep(page, "platform-open");
+  expect(await readTutorialPositions(request, user)).toMatchObject([{ id: position.id, name: position.name, platform_id: position.platform_id }]);
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path) || /\/(run|stop)$/.test(call.path))).toHaveLength(0);
+});
+
+for (const entry of ["顶部", "暂停"] as const) {
+  test(`${entry}从头开始需要确认，取消保留进度，确认后保留真实岗位且无开窗运行副作用`, async ({ scenario, request }) => {
+    const { page, user } = scenario;
+    const position = await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false });
+    if (entry === "暂停") {
+      await page.locator(".ant-tour").getByRole("button", { name: "稍后继续", exact: true }).click();
+      await expect(page.getByRole("button", { name: "继续教程", exact: true })).toBeVisible();
+    }
+    const restart = entry === "顶部" ? page.locator('[aria-label="新手教程总进度"]').getByRole("button", { name: "从头开始", exact: true }) : page.getByRole("button", { name: "从头开始", exact: true });
+    await restart.click();
+    const confirm = page.getByRole("dialog", { name: "从第一步再走一遍？", exact: true });
+    await confirm.getByRole("button", { name: "先不重来", exact: true }).click();
+    await expect(confirm).not.toBeVisible();
+    expect(await readTutorialProgress(page, user)).toMatchObject({ status: entry === "顶部" ? "active" : "paused", positionId: position.id, step: "platform-open" });
+    await restart.click();
+    await confirm.getByRole("button", { name: "从头带我一遍", exact: true }).click();
+    await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
+    await page.reload();
+    await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
+    expect(await readTutorialProgress(page, user)).toMatchObject({ status: "invited", positionId: position.id, replaying: true, completedFields: [] });
+    await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
+    await expectStep(page, "position-edit");
+    expect(await readTutorialPositions(request, user)).toMatchObject([{ id: position.id, name: position.name }]);
+    expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path) || /\/(run|stop)$/.test(call.path))).toHaveLength(0);
+  });
+}
+
+test("运行中不能从头重置教程，明确去停止只暂停遮罩而不自动停止任务", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
+  await startFirstPosition(page, position.id);
+  await page.locator('[aria-label="新手教程总进度"]').getByRole("button", { name: "从头开始", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "从第一步再走一遍？", exact: true });
+  await expect(confirm.getByRole("button", { name: "从头带我一遍", exact: true })).toBeDisabled();
+  await expect(confirm).toContainText(/运行|停止/);
+  expect(await readTutorialProgress(page, user)).toMatchObject({ status: "active", step: "first-result", positionId: position.id, positionStarted: true });
+  await confirm.getByRole("button", { name: "稍后继续，去停止岗位", exact: true }).click();
+  await expect(confirm).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "继续教程", exact: true })).toBeVisible();
+  await expect(page.getByTestId("onboarding-tour")).toHaveCount(0);
+  expect(await readTutorialProgress(page, user)).toMatchObject({ status: "paused", step: "first-result", positionId: position.id, positionStarted: true });
+  const agent = await readAgentState(request);
+  expect(agent.tasks[position.id].status).toBe("running");
+  expect(agent.calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/stop`)).toHaveLength(0);
+  expect((await readTutorialPositions(request, user))[0]).toMatchObject({ id: position.id, status: "running" });
+  expect((await readUserFlow(request, user)).tutorial_completed).toBe(false);
+});
+
+test("已有岗位保存修改进行中禁止回退和重走，迟到保存仍落在同一个岗位", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  const position = await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false });
+  await openTutorialPositionReview(page, position.id);
+  await expectStep(page, "position-save");
+  let releaseSave!: () => void;
+  const pending = new Promise<void>((resolve) => { releaseSave = resolve; });
+  let held = false, settled = false;
+  await page.route("**/api/positions", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    expect(route.request().postDataJSON().id).toBe(position.id);
+    const response = await route.fetch();
+    held = true;
+    await pending;
+    await route.fulfill({ response });
+    settled = true;
+  });
+  try {
+    await page.getByRole("dialog", { name: "编辑岗位模板", exact: true }).getByRole("button", { name: "保存修改", exact: true }).click();
+    await expect.poll(() => held).toBe(true);
+    await expect(page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true })).toBeDisabled();
+    await page.locator('[aria-label="新手教程总进度"]').getByRole("button", { name: "从头开始", exact: true }).click();
+    const confirm = page.getByRole("dialog", { name: "从第一步再走一遍？", exact: true });
+    await expect(confirm.getByRole("button", { name: "从头带我一遍", exact: true })).toBeDisabled();
+    await expect(confirm).toContainText(/处理中|保存/);
+    await confirm.getByRole("button", { name: "先不重来", exact: true }).click();
+    await expectStep(page, "position-save");
+    releaseSave();
+    await expect.poll(() => settled).toBe(true);
+    await expectStep(page, "platform-open");
+    expect(await readTutorialPositions(request, user)).toMatchObject([{ id: position.id, name: position.name }]);
+    expect(await readTutorialProgress(page, user)).toMatchObject({ positionId: position.id, reviewPosition: false, platformLoggedIn: false });
+    expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path) || /\/(run|stop)$/.test(call.path))).toHaveLength(0);
+  } finally { releaseSave(); }
+});
+
+test("云端已完成账号从新手引导确认重走，刷新继续复核且不撤销完成事实", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  const position = await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false });
+  const completed = await request.post(`${CLOUD_URL}/api/user-flow`, { headers: { authorization: `Bearer ${user.token}` }, data: { step: "first_screening_result", source: "local_agent_test_fixture", position_id: position.id, metadata: { kind: "keyword", phase: "result", terminal: true, accepted: false } } });
+  expect(completed.ok(), await completed.text()).toBeTruthy();
+  expect((await readUserFlow(request, user)).tutorial_completed).toBe(true);
+  await page.reload();
+  await expect(page.getByTestId("onboarding-experience")).toHaveCount(0);
+  const trialNotice = page.getByRole("dialog", { name: "Max 全能版已到账", exact: true });
+  await expect(trialNotice).toBeVisible();
+  await trialNotice.getByRole("button", { name: "我知道了", exact: true }).click();
+  await expect(trialNotice).not.toBeVisible();
+  const announcements = page.getByRole("dialog", { name: "系统公告", exact: true });
+  await expect(announcements).toBeVisible();
+  await announcements.getByRole("button", { name: "我知道了", exact: true }).click();
+  await expect(announcements).not.toBeVisible();
+  await page.getByRole("button", { name: "新手引导", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "从第一步再走一遍？", exact: true });
+  await expect(confirm).toBeVisible();
+  await expect(page.getByRole("dialog"), "重走确认打开后普通公告和推广提示不能再次叠上来").toHaveCount(1);
+  await expect(confirm.getByRole("button", { name: "从头带我一遍", exact: true })).toBeEnabled();
+  expect((await readUserFlow(request, user)).tutorial_completed).toBe(true);
+  await confirm.getByRole("button", { name: "从头带我一遍", exact: true }).click();
+  await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
+  expect(await readTutorialProgress(page, user)).toMatchObject({ status: "invited", positionId: position.id, replaying: true, completedFields: [] });
+  expect((await readUserFlow(request, user)).tutorial_completed).toBe(true);
+  await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
+  await expectStep(page, "position-edit");
+  await page.locator(`[data-onboarding="position-edit"][data-position-id="${position.id}"]`).click();
+  await expectStep(page, "position-platform");
+  await page.reload();
+  await expectStep(page, "position-platform");
+  await expect(page.getByRole("dialog", { name: "编辑岗位模板", exact: true })).toBeVisible();
+  await page.locator('[data-onboarding="position-platform"]').getByRole("button", { name: "确认使用此平台", exact: true }).click();
+  await expectStep(page, "position-name");
+  await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue(position.name);
+  expect((await readUserFlow(request, user)).tutorial_completed).toBe(true);
+  expect(await readTutorialPositions(request, user)).toMatchObject([{ id: position.id, name: position.name }]);
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path) || /\/(run|stop)$/.test(call.path))).toHaveLength(0);
 });

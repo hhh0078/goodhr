@@ -10,6 +10,9 @@ export type OnboardingActions = {
   cancelSkip: () => void;
   confirmSkip: () => void;
   back: () => void;
+  requestRestart: () => void;
+  cancelRestart: () => void;
+  confirmRestart: () => void;
   openHelp: () => void;
   closeHelp: () => void;
   choosePlatform: (platformId: string) => void;
@@ -37,6 +40,9 @@ export type OnboardingExperienceProps = {
   error: string;
   busy: boolean;
   helpOpen: boolean;
+  restartOpen: boolean;
+  restartBlockedReason: string;
+  formSaving: boolean;
   blocked: boolean;
   storageUnavailable: boolean;
   availablePlatforms: string[];
@@ -57,6 +63,7 @@ const stepCopy: Record<OnboardingStep, StepCopy> = {
   "platform-login": { title: "请在招聘浏览器里登录账号", description: "点击顶部按钮后，请切到招聘浏览器，在里面登录你的招聘平台账号。完成登录后再回到 GoodHR，我确认通过后就接着带路。", hint: "扫码、验证码需要你亲自完成。没看到窗口？请再点顶部“打开浏览器”，也可以在任务栏或程序坞找橙色狐狸图标。", estimate: "约 1–2 分钟，平台验证可能更久" },
   "position-menu": { title: "现在去创建第一个岗位", description: "点击左侧“岗位管理”。岗位用来告诉我：今天帮你找什么人，以及怎么判断是否合适。", hint: "已经在岗位管理页时，这一步会自动略过。", estimate: "约 5 秒" },
   "position-create": { title: "点击“新建岗位”", description: "点击高亮的新建按钮。教程里先填写最需要的几项，其他参数使用现有默认设置。", hint: "保存后的岗位也能编辑，不用一次把所有参数研究透。", estimate: "整个岗位填写约 2–3 分钟" },
+  "position-edit": { title: "回头检查刚才的岗位", description: "点击这个岗位的“编辑”，回到刚才的填写步骤。已经保存的内容会带回来，修改后仍保存到同一个岗位。", hint: "不用再建一份。想从第一步重新听一遍，点顶部“从头开始”。", estimate: "约 5 秒" },
   "position-platform": { title: "这个岗位在哪个平台招人？", description: "选择岗位实际所在的招聘平台。先把岗位建好，保存后我再带你打开招聘浏览器登录。", hint: "猎聘企业端和猎头端要选对；暂未开放的平台不能选择。", estimate: "约 10 秒" },
   "position-name": { title: "把平台里的完整岗位名搬过来", description: "到你选择的招聘平台“岗位管理”复制完整岗位名称，原样粘贴到这里，保持一致，我才能找到对应岗位。", hint: "填好后按回车或按 Tab 离开输入框，会自动引导下一项。", estimate: "约 20–30 秒" },
   "position-filter-mode": { title: "选择第一轮筛选方式", description: "关键词按你给的词快速判断；AI 会按岗位要求分析基础信息。点击你想用的方式。", hint: "AI 需要有效会员；使用内置 AI 还需要可用余额。关键词也可以先跑通。", estimate: "约 10–20 秒" },

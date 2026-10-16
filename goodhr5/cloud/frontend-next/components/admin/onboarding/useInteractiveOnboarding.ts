@@ -1,14 +1,15 @@
 /** 本文件编排跨页面新手引导，复用实际登录、安装和岗位状态；仅微步骤保存在本机。 */
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { clearLocalAgentDetectCache, cloudRequest, localRequest } from "@/lib/admin-api";
 import { hasMissingRequiredRuntime, requiredRuntimeComponents } from "@/lib/admin-runtime";
 import { openPlatformPositionBrowser, pickPlatformAuthConfig, waitForPlatformLoggedIn } from "@/lib/platform-login";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { loadUserFlow } from "@/lib/user-flow";
 import { publishOnboardingEvent, setOnboardingGuideContext, subscribeOnboardingEvents, type OnboardingEvent, type OnboardingScreeningResult } from "@/lib/onboarding-events";
-import { createOnboardingState, needsPositionRequirement, nextOnboardingFormStep, normalizeOnboardingPosition, onboardingDoneCount, onboardingRemainingTime, readOnboardingState, saveOnboardingState, type OnboardingState, type OnboardingStep } from "@/lib/onboarding-state";
+import { createOnboardingState, restartOnboardingState, needsPositionRequirement, nextOnboardingFormStep, normalizeOnboardingPosition, onboardingDoneCount, onboardingRemainingTime, readOnboardingState, saveOnboardingState, type OnboardingState, type OnboardingStep } from "@/lib/onboarding-state";
+import { clearOnboardingPositionDraft } from "@/lib/onboarding-position-draft";
 import { onboardingStepCopy, type OnboardingCelebration, type OnboardingExperienceProps, type OnboardingPhase } from "@/lib/onboarding-view";
 import { onboardingTargetSelector, useOnboardingTarget } from "./useOnboardingTarget";
 
@@ -26,6 +27,7 @@ export type InteractiveOnboardingOptions = {
 export function useInteractiveOnboarding(options: InteractiveOnboardingOptions): OnboardingExperienceProps {
   const { identity, agentBase, agentDetected, refreshAgent, blocked, onActivityChange } = options;
   const pathname = usePathname();
+  const router = useRouter();
   const [state, setState] = useState<OnboardingState>(createOnboardingState);
   const stateRef = useRef(state);
   const [phase, setPhase] = useState<OnboardingPhase>("loading");
@@ -44,6 +46,8 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   const [startDialogStatus, setStartDialogStatus] = useState<"ready" | "checking" | "error" | "update">("ready");
   const [taskStopped, setTaskStopped] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [restartOpen, setRestartOpen] = useState(false);
+  const [formSaving, setFormSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [statusText, setStatusText] = useState("");
@@ -57,6 +61,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   const loginRequestRef = useRef<AbortController | null>(null);
   const environmentRef = useRef(false);
   const phaseBeforeSkip = useRef<OnboardingPhase>("invite");
+  const sessionEpochRef = useRef(0);
 
   /** changePhase 立即更新运行保护，防止同一轮异步响应在暂停或换号后继续推进。 */
   const changePhase = useCallback((next: OnboardingPhase) => {
@@ -114,6 +119,8 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
 
   useEffect(() => {
     aliveRef.current = true;
+    sessionEpochRef.current += 1;
+    setHelpOpen(false); setRestartOpen(false); setFormSaving(false);
     const cached = readOnboardingState(identity);
     stateRef.current = cached; setState(cached);
     let active = true;
@@ -128,11 +135,12 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
         const flow = flowRequest.value;
         if (!active) return;
         if (flow?.tutorial_completed === true || flow?.state === "completed") {
-          setCloudConfirmed(true); changePhase("silent"); return;
+          setCloudConfirmed(true);
+          if (!cached.replaying) { changePhase("silent"); return; }
         }
         if (runtimeRequest.status === "fulfilled" && runtimeRequest.value && !hasMissingRequiredRuntime(runtimeRequest.value)) {
           setConnectionAlive(true); setRuntimeReady(true); setEnvironmentChecked(true); environmentRef.current = true;
-          update((current) => ({ ...current, environmentReady: true, step: current.step.startsWith("agent-") || current.step.startsWith("runtime-") ? current.positionId ? current.platformLoggedIn ? "position-start" : "platform-open" : "position-menu" : current.step }));
+          update((current) => ({ ...current, environmentReady: true, step: current.step.startsWith("agent-") || current.step.startsWith("runtime-") ? current.positionId ? current.reviewPosition ? "position-edit" : current.platformLoggedIn ? "position-start" : "platform-open" : "position-menu" : current.step }));
         }
         if (cached.positionId) {
           const data = await cloudRequest("/api/positions");
@@ -146,7 +154,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       }
     }
     void initialize();
-    return () => { active = false; aliveRef.current = false; loginRequestRef.current?.abort(); setOnboardingGuideContext({ active: false, platformId: "boss" }); };
+    return () => { active = false; aliveRef.current = false; sessionEpochRef.current += 1; loginRequestRef.current?.abort(); setOnboardingGuideContext({ active: false, platformId: "boss" }); };
   }, [identity, changePhase, update]);
 
   useEffect(() => {
@@ -179,20 +187,20 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   }, [identity, state, phase]);
   useEffect(() => {
     // 暂停仍属于尚未结束的教程，普通欢迎、公告和小补丁不能挡住“继续教程”入口。
-    const engaged = ["loading", "invite", "skip", "active", "paused", "completed"].includes(phase);
+    const engaged = restartOpen || ["loading", "invite", "skip", "active", "paused", "completed"].includes(phase);
     onActivityChange({ engaged, awaitingChoice: ["loading", "invite", "skip"].includes(phase) });
-    setOnboardingGuideContext({ active: phase === "active", platformId: state.platformId, positionId: state.positionId, step: state.step, browserOpening: busy && ["platform-open", "platform-login"].includes(state.step) });
-  }, [phase, state.platformId, state.positionId, state.step, busy, onActivityChange]);
+    setOnboardingGuideContext({ active: phase === "active", platformId: state.platformId, positionId: state.positionId, step: state.step, reviewPosition: state.reviewPosition, browserOpening: busy && ["platform-open", "platform-login"].includes(state.step) });
+  }, [phase, restartOpen, state.platformId, state.positionId, state.step, state.reviewPosition, busy, onActivityChange]);
   useEffect(() => { if (phase !== "active" || blocked) loginRequestRef.current?.abort(); }, [phase, blocked]);
 
   /** finishResult 只有已启动教程岗位的终态筛选结果才结束教学，跳过和扫描数均不计。 */
   const finishResult = useCallback((result: OnboardingScreeningResult, positionId: string) => {
     const current = stateRef.current;
-    if (phaseRef.current !== "active" || !current.positionStarted || current.positionId !== positionId) return;
+    if (phaseRef.current !== "active" || !current.positionStarted || current.positionId !== positionId || current.step !== "first-result" || current.reviewPosition) return;
     if (result.phase !== "result" || result.terminal !== true || typeof result.accepted !== "boolean" || !result.reason.trim()) return;
     // 旧本地程序会把混合模式的关键词通过提前标成终态；仍需 AI 详情时继续等待最终判断。
     if (current.filterMode === "keyword" && current.detailMode === "ai" && result.kind === "keyword" && result.accepted) return;
-    update((value) => ({ ...value, status: "completed", step: "complete", completionKind: result.kind }));
+    update((value) => ({ ...value, status: "completed", step: "complete", replaying: false, completionKind: result.kind }));
     setStatusText(result.accepted ? "第一条真实筛选结果已经出来了，后续按岗位设置继续运行。" : "第一条真实判断：这位候选人暂不符合要求。筛选流程已经跑通。 ");
     setError(""); changePhase("completed");
     celebrate("complete", "首轮跑通，今天你赢了", "不是只点完按钮，是已经得到一条真实筛选结果。招聘小助手正式到岗。");
@@ -200,7 +208,8 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
 
   /** openPlatform 只处理顶部入口的实际打开请求，登录等待由独立检测负责。 */
   const openPlatform = useCallback(async () => {
-    if (openingRef.current || !agentBase || !environmentRef.current || phaseRef.current !== "active" || blocked || helpOpen) return;
+    if (openingRef.current || !agentBase || !environmentRef.current || phaseRef.current !== "active" || blocked || helpOpen || restartOpen) return;
+    const epoch = sessionEpochRef.current;
     const positionId = stateRef.current.positionId;
     if (!positionId || !["platform-open", "platform-login"].includes(stateRef.current.step)) return;
     loginRequestRef.current?.abort();
@@ -208,34 +217,37 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     const request = new AbortController(); loginRequestRef.current = request;
     try {
       const saved = await cloudRequest("/api/positions");
-      if (request.signal.aborted || !aliveRef.current || phaseRef.current !== "active" || stateRef.current.positionId !== positionId) return;
+      if (request.signal.aborted || epoch !== sessionEpochRef.current || !aliveRef.current || phaseRef.current !== "active" || stateRef.current.positionId !== positionId) return;
       const position = Array.isArray(saved.positions) ? saved.positions.find((item: { id?: string }) => item.id === positionId) : null;
       const verified = normalizeOnboardingPosition(stateRef.current, position || null);
       update(() => verified);
       if (!verified.positionId) { setError("教程岗位已删除或关闭，请先创建一个开启的岗位。原有岗位资料不会被修改。"); return; }
       const platformId = verified.platformId;
       const data = await cloudRequest("/api/platforms/config/");
-      if (request.signal.aborted || !aliveRef.current || phaseRef.current !== "active") return;
+      if (request.signal.aborted || epoch !== sessionEpochRef.current || !aliveRef.current || phaseRef.current !== "active") return;
       const configs = data.configs || data.configurations || [];
       platformConfigsRef.current = configs; setPlatformConfigs(configs);
       if (!isPlatformOpen(configs, platformId)) { returnToPlatformChoice("刚选的平台暂未开放，请换一个可用平台。我不会打开别的平台来凑数。"); return; }
       const auth = pickPlatformAuthConfig(configs, platformId);
       await openPlatformPositionBrowser(agentBase, platformId, auth);
-      if (request.signal.aborted || !aliveRef.current || phaseRef.current !== "active" || stateRef.current.positionId !== positionId || stateRef.current.platformId !== platformId) return;
+      if (request.signal.aborted || epoch !== sessionEpochRef.current || !aliveRef.current || phaseRef.current !== "active" || stateRef.current.positionId !== positionId || stateRef.current.platformId !== platformId) return;
       setStatusText("浏览器已经打开，请切过去登录招聘平台账号。");
       update((value) => ({ ...value, step: "platform-login" }));
     } catch (failure) {
-      if (request.signal.aborted) return;
+      if (request.signal.aborted || epoch !== sessionEpochRef.current) return;
       if (aliveRef.current && phaseRef.current === "active") setError(failure instanceof Error ? failure.message : "浏览器暂时没打开，再点顶部按钮试试。");
     } finally {
-      openingRef.current = false;
-      if (loginRequestRef.current === request) loginRequestRef.current = null;
-      if (aliveRef.current) setBusy(false);
+      if (epoch === sessionEpochRef.current) {
+        openingRef.current = false;
+        if (loginRequestRef.current === request) loginRequestRef.current = null;
+        if (aliveRef.current) setBusy(false);
+      }
     }
-  }, [agentBase, blocked, helpOpen, update, returnToPlatformChoice]);
+  }, [agentBase, blocked, helpOpen, restartOpen, update, returnToPlatformChoice]);
 
   useEffect(() => {
-    if (phase !== "active" || state.step !== "platform-login" || !state.positionId || busy || blocked || helpOpen || !connectionAlive || !runtimeReady || !agentBase) return;
+    if (phase !== "active" || state.step !== "platform-login" || !state.positionId || state.reviewPosition || busy || blocked || helpOpen || restartOpen || !connectionAlive || !runtimeReady || !agentBase) return;
+    const epoch = sessionEpochRef.current;
     const request = new AbortController(); loginRequestRef.current = request;
     let active = true;
     const platformId = state.platformId;
@@ -244,33 +256,33 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     async function checkPlatformLogin() {
       try {
         const saved = await cloudRequest("/api/positions");
-        if (!active || request.signal.aborted || stateRef.current.positionId !== positionId) return;
+        if (!active || request.signal.aborted || epoch !== sessionEpochRef.current || stateRef.current.positionId !== positionId) return;
         const position = Array.isArray(saved.positions) ? saved.positions.find((item: { id?: string }) => item.id === positionId) : null;
         const verified = normalizeOnboardingPosition(stateRef.current, position || null);
         if (!verified.positionId || verified.platformId !== platformId) {
           update(() => verified); setError(verified.positionId ? "岗位的平台已调整，请打开该岗位对应的招聘平台再登录。" : "教程岗位已删除或关闭，我们先回去创建岗位。"); return;
         }
         const data = await cloudRequest("/api/platforms/config/");
-        if (!active || request.signal.aborted) return;
+        if (!active || request.signal.aborted || epoch !== sessionEpochRef.current) return;
         const configs = data.configs || data.configurations || [];
         platformConfigsRef.current = configs; setPlatformConfigs(configs);
         if (!isPlatformOpen(configs, platformId)) { returnToPlatformChoice("这个招聘平台暂未开放，请重新选择可用平台。当前登录窗口不用关闭，已保存的岗位也会保留。"); return; }
         const auth = pickPlatformAuthConfig(configs, platformId);
         await waitForPlatformLoggedIn(agentBase, auth, (message) => {
-          if (active && !request.signal.aborted) setStatusText(message);
+          if (active && !request.signal.aborted && epoch === sessionEpochRef.current) setStatusText(message);
         }, request.signal);
-        if (!active || request.signal.aborted || phaseRef.current !== "active" || stateRef.current.positionId !== positionId || stateRef.current.platformId !== platformId) return;
+        if (!active || request.signal.aborted || epoch !== sessionEpochRef.current || phaseRef.current !== "active" || stateRef.current.positionId !== positionId || stateRef.current.platformId !== platformId) return;
         update((value) => ({ ...value, platformLoggedIn: true, step: "position-start" }));
         setError("");
         celebrate("platform", "平台登录好了，可以准备开工", "岗位已经建好，接下来设置筛选条件，再开始第一轮。");
       } catch (failure) {
-        if (!active || request.signal.aborted) return;
+        if (!active || request.signal.aborted || epoch !== sessionEpochRef.current) return;
         setError(`${failure instanceof Error ? failure.message : "平台登录暂时没确认"}。可以再点顶部“打开浏览器”，回到招聘窗口继续登录。`);
       }
     }
     void checkPlatformLogin();
     return () => { active = false; request.abort(); if (loginRequestRef.current === request) loginRequestRef.current = null; };
-  }, [identity, phase, state.step, state.platformId, state.positionId, agentBase, connectionAlive, runtimeReady, busy, blocked, helpOpen, update, celebrate, returnToPlatformChoice]);
+  }, [identity, phase, state.step, state.platformId, state.positionId, state.reviewPosition, agentBase, connectionAlive, runtimeReady, busy, blocked, helpOpen, restartOpen, update, celebrate, returnToPlatformChoice]);
 
   useEffect(() => subscribeOnboardingEvents((event: OnboardingEvent) => {
     if (event.type === "position-recovered" && event.positionId === pendingRecoveryRef.current) {
@@ -283,6 +295,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       }
       return;
     }
+    if (event.type === "position-form-saving") { setFormSaving(event.saving === true); return; }
     if (event.type === "position-form-closed") setFormOpen(false);
     if (event.type === "start-dialog-closed") {
       setStartOpen(false); setStartDialogStatus("ready");
@@ -295,6 +308,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       }
     }
     if (event.type === "guide-requested") {
+      if (stateRef.current.status === "completed" || cloudConfirmed) { requestRestart(); return; }
       update((current) => ({ ...current, status: "active", step: current.status === "completed" ? "position-menu" : current.step }));
       changePhase("active"); setError(""); return;
     }
@@ -311,12 +325,15 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     if (event.type === "position-form-opened") {
       setFormOpen(true);
       update((value) => {
-        const next = { ...value, platformId: event.platformId || "", positionId: "", platformLoggedIn: false, positionStarted: false, completedFields: event.restored ? value.completedFields : [] };
+        const next = { ...value, platformId: event.platformId || "", positionId: event.positionId || "", reviewPosition: Boolean(event.positionId), platformLoggedIn: false, positionStarted: false, completedFields: event.restored ? value.completedFields : [] };
         return { ...next, step: event.restored ? nextOnboardingFormStep(next) : "position-platform" };
       });
       setError(""); setStatusText("");
     }
-    if (event.type === "position-form-closed") { setFormOpen(false); if (!current.positionId) update((value) => ({ ...value, step: "position-create" })); }
+    if (event.type === "position-form-closed") {
+      setFormOpen(false);
+      if (!current.positionId || current.reviewPosition) update((value) => ({ ...value, step: value.positionId ? "position-edit" : "position-create" }));
+    }
     if (event.type === "form-field-completed" && event.field) {
       update((value) => {
         const completedFields = value.completedFields.filter((field) => field !== event.field);
@@ -328,7 +345,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       });
     }
     if (event.type === "position-created" && event.positionId) {
-      setFormOpen(false); update((value) => ({ ...value, positionId: event.positionId!, platformId: event.platformId || value.platformId, platformLoggedIn: false, positionStarted: false, step: "platform-open" }));
+      setFormOpen(false); update((value) => ({ ...value, positionId: event.positionId!, reviewPosition: false, platformId: event.platformId || value.platformId, platformLoggedIn: false, positionStarted: false, step: "platform-open" }));
       setError(""); setStatusText("");
       celebrate("position", "岗位建好了，方向也有了", "现在打开这个岗位对应的招聘平台，登录后再准备开工。");
     }
@@ -340,20 +357,21 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       celebrate("started", "小助手开工了", "先别关浏览器，咱们再看一条真实筛选结果。");
     }
     if (event.type === "screening-result" && event.positionId && event.result) finishResult(event.result, event.positionId);
-  }), [update, changePhase, celebrate, finishResult, openPlatform, returnToPlatformChoice, readPlatformAvailability]);
+  }), [update, changePhase, celebrate, finishResult, openPlatform, returnToPlatformChoice, readPlatformAvailability, cloudConfirmed, busy, taskStopped, agentBase]);
 
   useEffect(() => {
     if (phase !== "active") return;
     let active = true; let timer: number | undefined; let runtimeSignature = "";
     /** pollEnvironment 串行检查本地健康与真实结果，断线不删历史里程碑、不叠加慢请求。 */
     async function pollEnvironment() {
+      const epoch = sessionEpochRef.current;
       try {
         if (!agentBase) {
           setConnectionAlive(false); setRuntimeReady(false); setEnvironmentChecked(agentDetected);
           await refreshAgent(); return;
         }
         const runtime = await localRequest(agentBase, "/api/v1/runtime/status", { timeoutMS: 3500 });
-        if (!active) return;
+        if (!active || epoch !== sessionEpochRef.current) return;
         const ready = !hasMissingRequiredRuntime(runtime);
         const system = runtime?.system_runtime || runtime?.runtime?.system_runtime || {};
         const signature = JSON.stringify([requiredRuntimeComponents(runtime).map((item) => [item.key, item.installed]), runtime?.platform || "", system.download_url || ""]);
@@ -366,14 +384,14 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
         setSystemDownloadAvailable(Boolean(String(system.download_url || "").trim()));
         setConnectionAlive(true); setRuntimeReady(ready); setEnvironmentChecked(true); environmentRef.current = ready;
         if (ready && !stateRef.current.environmentReady) {
-          update((value) => ({ ...value, environmentReady: true, step: value.step.startsWith("agent-") || value.step.startsWith("runtime-") ? value.positionId ? value.platformLoggedIn ? "position-start" : "platform-open" : "position-menu" : value.step }));
+          update((value) => ({ ...value, environmentReady: true, step: value.step.startsWith("agent-") || value.step.startsWith("runtime-") ? value.positionId ? value.reviewPosition ? "position-edit" : value.platformLoggedIn ? "position-start" : "platform-open" : "position-menu" : value.step }));
           celebrate("environment", "本地小助手已到岗", "安装和连接都准备好了，先把要招聘的岗位建起来。");
         }
         const current = stateRef.current;
         if (ready && current.positionId && current.positionStarted && current.step === "first-result") {
           try {
           const task = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(current.positionId)}/status`, { timeoutMS: 5000 });
-          if (!active) return;
+          if (!active || epoch !== sessionEpochRef.current) return;
           const result = parseScreeningResult(task.analysis);
           const ended = ["failed", "stopped", "completed"].includes(String(task.status));
           setTaskStopped(ended);
@@ -384,11 +402,11 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
             if (ended) setError((currentError) => currentError || "这一轮已经结束，还没有真实筛选结果。可能暂时没有候选人，可以点“上一步”重新开始，或查看岗位日志。");
           }
           } catch {
-            if (active) setError("本地程序已经连上，但运行记录暂时没读到。我会继续重试，你也可以暂停教程查看岗位日志。");
+            if (active && epoch === sessionEpochRef.current) setError("本地程序已经连上，但运行记录暂时没读到。我会继续重试，你也可以暂停教程查看岗位日志。");
           }
         }
       } catch {
-        if (active) { setConnectionAlive(false); environmentRef.current = false; setStatusText("本地小助手暂时掉线了。启动程序后点“检查连接”，我会接着带路。"); await refreshAgent().catch(() => undefined); }
+        if (active && epoch === sessionEpochRef.current) { setConnectionAlive(false); environmentRef.current = false; setStatusText("本地小助手暂时掉线了。启动程序后点“检查连接”，我会接着带路。"); await refreshAgent().catch(() => undefined); }
       } finally {
         if (active) timer = window.setTimeout(() => void pollEnvironment(), 1800);
       }
@@ -417,13 +435,13 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   if (phase === "active") {
     if (environmentChecked && !connectionAlive) step = pathname.startsWith("/admin/agent-download") ? state.step === "agent-connect" ? "agent-connect" : "agent-download" : "agent-menu";
     else if (connectionAlive && !runtimeReady) step = systemRuntimeMissing ? "runtime-system" : "runtime-install";
-    else if (step.startsWith("agent-") || step.startsWith("runtime-") || step === "platform-select") step = "position-menu";
+      else if (step.startsWith("agent-") || step.startsWith("runtime-") || step === "platform-select") step = state.reviewPosition && state.positionId ? "position-edit" : "position-menu";
     else if (!state.positionId && ["platform-open", "platform-login"].includes(step)) step = "position-menu";
     else if (step === "first-result" && taskStopped && !pathname.startsWith("/admin/positions")) step = "position-menu";
     else if (step.startsWith("position-") || step === "platform-filter") {
       if (!pathname.startsWith("/admin/positions")) step = "position-menu";
-      else if (step === "position-menu") step = state.positionId ? state.platformLoggedIn ? "position-start" : "platform-open" : "position-create";
-      else if (["position-platform", "position-name", "position-filter-mode", "position-detail-mode", "position-requirement", "position-keywords", "position-save"].includes(step) && !formOpen) step = "position-create";
+      else if (step === "position-menu") step = state.positionId ? state.reviewPosition ? "position-edit" : state.platformLoggedIn ? "position-start" : "platform-open" : "position-create";
+      else if (["position-platform", "position-name", "position-filter-mode", "position-detail-mode", "position-requirement", "position-keywords", "position-save"].includes(step) && !formOpen) step = state.reviewPosition && state.positionId ? "position-edit" : "position-create";
       else if ((step === "platform-filter" || step === "position-run") && !startOpen) step = "position-start";
       else if (startOpen && ["platform-filter", "position-run"].includes(step)) {
         if (startDialogStatus === "error") step = "position-start-error";
@@ -433,17 +451,17 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     }
   }
   const selector = onboardingTargetSelector(step, state.positionId);
-  const { target, targetGeometry } = useOnboardingTarget(selector, phase === "active" && !blocked && !helpOpen);
+  const { target, targetGeometry } = useOnboardingTarget(selector, phase === "active" && !blocked && !helpOpen && !restartOpen);
   const copy = { ...onboardingStepCopy(step) };
   const platformName = ({ boss: "BOSS 直聘", zhaopin: "智联招聘", liepin: "猎聘企业端", hliepin: "猎聘猎头端" } as Record<string, string>)[state.platformId] || "招聘平台";
   if (step === "platform-open" && state.positionId) {
     copy.description = `点击顶部橙色狐狸图标的“打开浏览器”，我会打开这个岗位对应的${platformName}。`;
-    copy.hint = "岗位已经保存。想修改的话，点“稍后继续”后在岗位卡里编辑；准备好再继续教程。登录请用刚打开的招聘浏览器。";
+    copy.hint = "岗位已经保存。想回头修改，点“上一步”；想重新听一遍，点顶部“从头开始”。登录请用刚打开的招聘浏览器。";
   }
   if (step === "platform-login" && state.positionId) copy.description = `岗位已经保存。请切到刚打开的招聘浏览器，在${platformName}里登录招聘账号。登录后回到 GoodHR，我确认通过后再带你设置筛选条件、开始任务。`;
   if (step === "position-menu" && state.positionId) {
-    copy.title = "回到岗位管理，准备开工";
-    copy.description = "点击左侧“岗位管理”，回到已经保存的教程岗位。登录后再设置筛选条件，接着开始第一轮。";
+    copy.title = state.reviewPosition ? "回到岗位管理，检查刚才的岗位" : "回到岗位管理，准备开工";
+    copy.description = state.reviewPosition ? "点击左侧“岗位管理”，我会带你编辑已经保存的教程岗位，不用再建一份。" : "点击左侧“岗位管理”，回到已经保存的教程岗位。登录后再设置筛选条件，接着开始第一轮。";
     copy.hint = "岗位已经保存，不用再建一遍。";
   }
   if (step === "position-menu" && state.step === "first-result") {
@@ -452,6 +470,57 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     copy.hint = "已经保存的岗位和教程进度都会留着，不需要重新创建。";
   }
   if (step === "runtime-system" && !systemDownloadAvailable) copy.description = "当前没有运行库下载地址。请到微软官网下载 Microsoft Visual C++ x64 运行库，或联系作者确认安装包。安装或修复完成后，回来点击“安装或修复后重新检查”。";
+  if (step === "position-save" && state.reviewPosition) {
+    copy.title = "把检查好的岗位存下来";
+    copy.description = "点击“保存修改”。这次更新的还是刚才那个岗位，保存成功后，再打开它对应的招聘平台登录。";
+    copy.hint = "想检查前面的字段，继续点“上一步”；不会重复创建岗位。";
+  }
+
+  const restartBlockedReason = blocked || busy || formSaving || (startOpen && startDialogStatus === "checking")
+    ? "当前操作还在处理中，等它结束后就能重新带路，免得保存或启动到一半。"
+    : state.positionStarted && !taskStopped
+      ? "这个岗位还在运行。先到岗位管理停止它，再从头带路，避免同时开两轮。"
+      : "";
+
+  /** requestRestart 先解释仅重置教程的范围，登录检测在弹框期间暂停，不能越过用户选择。 */
+  function requestRestart() {
+    loginRequestRef.current?.abort();
+    setHelpOpen(false); setRestartOpen(true);
+    const current = stateRef.current;
+    if (current.positionStarted && !taskStopped && agentBase && !busy) void checkRestartTask(current.positionId);
+  }
+  /** checkRestartTask 核对暂停期间用户是否已停止原任务，只读取状态，不替用户停止或重新启动。 */
+  async function checkRestartTask(positionId: string) {
+    const epoch = sessionEpochRef.current;
+    setBusy(true);
+    try {
+      const task = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(positionId)}/status`, { timeoutMS: 5000 });
+      if (aliveRef.current && epoch === sessionEpochRef.current && stateRef.current.positionId === positionId) setTaskStopped(["stopped", "completed", "failed"].includes(String(task.status)));
+    } catch {
+      // 读不到时保留运行保护，不能把失联当成已经安全停止。
+    } finally {
+      if (aliveRef.current && epoch === sessionEpochRef.current) setBusy(false);
+    }
+  }
+  /** cancelRestart 取消重走后保留原微步骤，现有登录检测会继续。 */
+  function cancelRestart() { setRestartOpen(false); }
+  /** confirmRestart 清除本轮未保存草稿和微步骤，保留岗位及云端完成事实，不自动启停任务。 */
+  function confirmRestart() {
+    if (restartBlockedReason) return;
+    const current = stateRef.current;
+    sessionEpochRef.current += 1;
+    loginRequestRef.current?.abort(); loginRequestRef.current = null;
+    publishOnboardingEvent({ type: "position-form-close-requested" });
+    publishOnboardingEvent({ type: "position-start-close-requested" });
+    clearOnboardingPositionDraft(identity, undefined, current.positionId || undefined);
+    pendingStartBackRef.current = ""; pendingRecoveryRef.current = "";
+    openingRef.current = false;
+    setBusy(false); setFormOpen(false); setFormSaving(false); setStartOpen(false);
+    setTaskStopped(false); setHelpOpen(false); setRestartOpen(false); setCelebration(null);
+    setError(""); setStatusText("");
+    update(() => restartOnboardingState(current, connectionAlive && runtimeReady));
+    changePhase("invite");
+  }
 
   /** choosePlatform 兼容旧界面入口，仅确认岗位表单的平台，不提前打开或检测浏览器。 */
   function choosePlatform(platformId: string) {
@@ -463,23 +532,38 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   /** accept 接受引导邀请；保留当前真实事实，不把跳过当成已完成。 */
   function accept() { update((value) => ({ ...value, status: "active" })); changePhase("active"); setError(""); }
   /** pause 暂停遮罩但保留进度，恢复后重新检查当前环境。 */
-  function pause() { update((value) => ({ ...value, status: "paused" })); changePhase("paused"); setHelpOpen(false); }
+  function pause() { if (formSaving) return; update((value) => ({ ...value, status: "paused" })); changePhase("paused"); setHelpOpen(false); setRestartOpen(false); }
   /** resume 允许用户主动重新进入教程，已拒绝引导也能从帮助入口回来。 */
   function resume() { update((value) => ({ ...value, status: "active", step: value.status === "completed" ? "position-menu" : value.step })); changePhase("active"); setError(""); }
   /** back 回看前一个操作说明，不删除已经保存的岗位或真实完成事实。 */
   function back() {
+    if (formSaving || pendingRecoveryRef.current) return;
+    sessionEpochRef.current += 1;
     loginRequestRef.current?.abort();
+    openingRef.current = false; setBusy(false);
+    setHelpOpen(false); setRestartOpen(false); setStatusText(""); setError("");
     const current = stateRef.current;
     if (step === "first-result") {
-      if (!taskStopped) { setHelpOpen(true); return; }
+      if (!taskStopped) { requestRestart(); return; }
       if (pendingRecoveryRef.current) return;
       pendingRecoveryRef.current = current.positionId;
       setBusy(true); setError(""); setStatusText("上一轮已经结束，正在确认本地和云端都已停好，确认后再重新开始。");
       publishOnboardingEvent({ type: "position-recover-requested", positionId: current.positionId });
       return;
     }
-    if (step === "platform-open" && current.positionId) { setHelpOpen(true); return; }
-    if (step === "position-platform" && formOpen) publishOnboardingEvent({ type: "position-form-close-requested" });
+    if (step === "platform-open" && current.positionId) {
+      update((value) => ({ ...value, reviewPosition: true, platformLoggedIn: false, positionStarted: false, step: "position-edit" }));
+      return;
+    }
+    if (step === "position-edit" || step === "position-create") {
+      update((value) => ({ ...value, step: "position-menu" })); router.push("/admin"); return;
+    }
+    if (step === "position-menu") { changePhase("invite"); return; }
+    if (step === "position-platform" && formOpen) {
+      publishOnboardingEvent({ type: "position-form-close-requested" });
+      update((value) => ({ ...value, step: value.reviewPosition && value.positionId ? "position-edit" : "position-create" }));
+      return;
+    }
     if (["platform-filter", "position-start-check", "position-start-error", "position-start-update"].includes(step) && startOpen) {
       pendingStartBackRef.current = current.positionId;
       publishOnboardingEvent({ type: "position-start-close-requested" });
@@ -494,7 +578,8 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     try { await refreshAgent(); } catch { setError("还没连上。确认本地 GoodHR 已启动，再检查浏览器的设备应用权限。"); }
     finally { if (aliveRef.current) setBusy(false); }
   }
-  return { phase, state, step, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, helpOpen, blocked, storageUnavailable, availablePlatforms: ["boss", "zhaopin", "liepin", "hliepin"].filter((platformId) => isPlatformOpen(platformConfigs, platformId)), platformsLoading, celebration, actions: {
+  return { phase, state, step, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, helpOpen, restartOpen, restartBlockedReason, formSaving, blocked, storageUnavailable, availablePlatforms: ["boss", "zhaopin", "liepin", "hliepin"].filter((platformId) => isPlatformOpen(platformConfigs, platformId)), platformsLoading, celebration, actions: {
+    requestRestart, cancelRestart, confirmRestart,
     accept, pause, resume, back, choosePlatform, openPlatform: () => void openPlatform(), checkAgent: () => void checkAgent(),
     requestSkip: () => { phaseBeforeSkip.current = phaseRef.current; changePhase("skip"); },
     cancelSkip: () => changePhase(phaseBeforeSkip.current),

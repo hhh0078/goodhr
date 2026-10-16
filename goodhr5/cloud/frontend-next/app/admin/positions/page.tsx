@@ -165,6 +165,8 @@ export default function PositionsPage() {
   const startedOnboardingPositionID = useRef("");
   const createdOnboardingPositionID = useRef("");
   const draftOwnerIdentity = useRef("");
+  const positionFormEpoch = useRef(0);
+  const positionSaveEpoch = useRef<number | null>(null);
   const restorationBlockedStep = useRef("");
   const lastGuideActive = useRef(false);
   const lastDraftIdentity = useRef("");
@@ -210,7 +212,7 @@ export default function PositionsPage() {
     review_prompt: "",
   });
   const aiMembership = canUseAI(subscription);
-  const simpleOnboardingForm = guideContext.active && !form.id;
+  const simpleOnboardingForm = guideContext.active && (!form.id || Boolean(guideContext.reviewPosition && form.id === guideContext.positionId));
   const draftIdentity = String(user?.id || user?.email || "").trim();
   useEffect(() => {
     pageMountedRef.current = true;
@@ -224,6 +226,8 @@ export default function PositionsPage() {
     if (lastDraftIdentity.current === draftIdentity) return;
     const hadIdentity = Boolean(lastDraftIdentity.current);
     lastDraftIdentity.current = draftIdentity;
+    positionFormEpoch.current += 1;
+    positionSaveEpoch.current = null;
     draftOwnerIdentity.current = "";
     createdOnboardingPositionID.current = "";
     startedOnboardingPositionID.current = "";
@@ -283,10 +287,25 @@ export default function PositionsPage() {
     lastGuideActive.current = true;
     const step = guideContext.step || "";
     if (
-      !ONBOARDING_FORM_RESTORE_STEPS.has(step) || dialogOpen || loading || form.id ||
-      !draftIdentity || !platformConfigs.length || guideContext.positionId ||
-      createdOnboardingPositionID.current || restorationBlockedStep.current === step
+      !ONBOARDING_FORM_RESTORE_STEPS.has(step) || dialogOpen || loading ||
+      !draftIdentity || !platformConfigs.length ||
+      restorationBlockedStep.current === step
     ) return;
+    if (guideContext.positionId) {
+      if (!guideContext.reviewPosition) return;
+      const item = items.find((position) => String(position.id) === guideContext.positionId);
+      if (!item || !isCurrentUserPosition(item, user?.email)) return;
+      const actual = formFromItem(item, defaults);
+      const next = reviewFormFromItem(item);
+      positionFormEpoch.current += 1;
+      draftOwnerIdentity.current = draftIdentity;
+      setForm(next);
+      setAdvancedOpen(false);
+      setDialogOpen(true);
+      reportReviewFormOpened(next, actual);
+      return;
+    }
+    if (createdOnboardingPositionID.current) return;
     const draft = readOnboardingPositionDraft(draftIdentity);
     // 草稿平台由表单决定；已关闭的平台仍保留原值和其他字段，交给平台步骤提示重选。
     const platformID = draft?.platform_id || "";
@@ -298,6 +317,7 @@ export default function PositionsPage() {
       detail_mode: normalizeDetailMode(platformID, draft?.detail_mode || defaultCreateDetailMode(platformID, aiMembership)),
     };
     draftOwnerIdentity.current = draftIdentity;
+    positionFormEpoch.current += 1;
     setForm(fillPrompts(next, defaults));
     setAdvancedOpen(false);
     setDialogOpen(true);
@@ -312,13 +332,13 @@ export default function PositionsPage() {
       publishOnboardingEvent({ type: "form-field-completed", field: "filter-mode", completed: false, mode: next.mode_default, platformId: platformID });
       publishOnboardingEvent({ type: "form-field-completed", field: "detail-mode", completed: false, mode: next.detail_mode, platformId: platformID });
     }
-  }, [guideContext, dialogOpen, loading, form.id, draftIdentity, platformConfigs, defaults, aiMembership]);
+  }, [guideContext, dialogOpen, loading, draftIdentity, platformConfigs, defaults, aiMembership, items, user?.email]);
   useEffect(() => {
     if (
-      guideContext.active && dialogOpen && !form.id && draftIdentity &&
+      simpleOnboardingForm && dialogOpen && draftIdentity &&
       draftOwnerIdentity.current === draftIdentity
-    ) saveOnboardingPositionDraft(draftIdentity, form);
-  }, [guideContext.active, dialogOpen, form.id, form.name, form.platform_id, form.mode_default, form.detail_mode, form.position_requirement, form.keywords, draftIdentity]);
+    ) saveOnboardingPositionDraft(draftIdentity, { ...form, ...(form.id ? { position_id: form.id } : {}) });
+  }, [simpleOnboardingForm, dialogOpen, form.id, form.name, form.platform_id, form.mode_default, form.detail_mode, form.position_requirement, form.keywords, draftIdentity]);
   /** load 读取岗位模板和系统默认提示词。 */
   async function load() {
     const current = ++loadGeneration.current;
@@ -421,6 +441,7 @@ export default function PositionsPage() {
     next.mode_default = draft?.mode_default || defaultCreateMode(aiMembership);
     next.detail_mode = normalizeDetailMode(next.platform_id, draft?.detail_mode || defaultCreateDetailMode(next.platform_id, aiMembership));
     draftOwnerIdentity.current = draftIdentity;
+    positionFormEpoch.current += 1;
     createdOnboardingPositionID.current = "";
     restorationBlockedStep.current = "";
     setForm(fillPrompts(next, defaults));
@@ -435,16 +456,23 @@ export default function PositionsPage() {
   }
   /** closePositionForm 关闭岗位弹框并让新手引导保留当前未完成步骤。 */
   function closePositionForm() {
+    if (positionSaveEpoch.current !== null && isGuidedPositionForm()) return;
     restorationBlockedStep.current = getOnboardingGuideContext().step || "";
+    positionFormEpoch.current += 1;
     setDialogOpen(false);
-    publishOnboardingEvent({ type: "position-form-closed" });
+    publishOnboardingEvent({ type: "position-form-closed", positionId: form.id || undefined });
+  }
+  /** isGuidedPositionForm 限定当前账号的新建表单或当前教程岗位复核，其他岗位编辑不参与引导。 */
+  function isGuidedPositionForm() {
+    const context = getOnboardingGuideContext();
+    return context.active && (!form.id || Boolean(context.reviewPosition && context.positionId === form.id));
   }
   /** reportOnboardingField 在用户离开文本字段后上报真实填写状态，不上传输入内容。 */
   function reportOnboardingField(
     field: "name" | "position-requirement" | "keywords",
     value: string,
   ) {
-    if (!getOnboardingGuideContext().active || form.id) return;
+    if (!isGuidedPositionForm()) return;
     publishOnboardingEvent({
       type: "form-field-completed",
       field,
@@ -458,8 +486,7 @@ export default function PositionsPage() {
     field: "filter-mode" | "detail-mode",
   ) {
     if (
-      !getOnboardingGuideContext().active ||
-      form.id ||
+      !isGuidedPositionForm() ||
       !(event.target instanceof Element)
     ) return;
     const input = event.target
@@ -476,7 +503,7 @@ export default function PositionsPage() {
     field: "filter-mode" | "detail-mode",
     mode: string,
   ) {
-    if (!getOnboardingGuideContext().active || form.id) return;
+    if (!isGuidedPositionForm()) return;
     publishOnboardingEvent({
       type: "form-field-completed",
       field,
@@ -516,9 +543,40 @@ export default function PositionsPage() {
       },
     });
   }
-  /** openEdit 将岗位完整字段写入弹框并校验会员功能。 */
+  /** reviewFormFromItem 用实际岗位重建完整配置，仅覆盖当前账号同岗位、同平台的六项未保存核心草稿。 */
+  function reviewFormFromItem(item: any): PositionForm {
+    // 复核只信岗位真实平台；旧完整表单的默认平台不能补成教程事实。
+    const actual = { ...formFromItem(item, defaults), platform_id: String(item.platform_id || "").trim() };
+    const draft = readOnboardingPositionDraft(draftIdentity, undefined, String(item.id));
+    if (!draft || draft.platform_id !== actual.platform_id) return actual;
+    return {
+      ...actual,
+      name: draft.name,
+      mode_default: draft.mode_default,
+      detail_mode: normalizeDetailMode(actual.platform_id, draft.detail_mode),
+      position_requirement: draft.position_requirement,
+      keywords: draft.keywords,
+    };
+  }
+  /** reportReviewFormOpened 记录原岗位复核打开，并纠正未保存空字段或模式变化，避免刷新后停在不可保存的步骤。 */
+  function reportReviewFormOpened(next: PositionForm, actual: PositionForm) {
+    publishOnboardingEvent({ type: "position-form-opened", positionId: next.id, platformId: next.platform_id, restored: true });
+    if (!isPlatformOpen(platformConfigs, next.platform_id)) publishOnboardingEvent({ type: "form-field-completed", field: "platform", completed: false, platformId: next.platform_id });
+    if (next.mode_default !== actual.mode_default) publishOnboardingEvent({ type: "form-field-completed", field: "filter-mode", completed: false, mode: next.mode_default, platformId: next.platform_id });
+    if (next.detail_mode !== actual.detail_mode) publishOnboardingEvent({ type: "form-field-completed", field: "detail-mode", completed: false, mode: next.detail_mode, platformId: next.platform_id });
+    for (const [field, value] of [["name", next.name], ["position-requirement", next.position_requirement], ["keywords", next.keywords]] as const) {
+      if (!value.trim()) publishOnboardingEvent({ type: "form-field-completed", field, completed: false, platformId: next.platform_id });
+    }
+  }
+  /** openEdit 复用岗位完整配置与会员校验，当前教程岗位复核保留ID并通知真实编辑弹框已经打开。 */
   async function openEdit(item: any) {
-    const next = formFromItem(item, defaults);
+    const context = getOnboardingGuideContext();
+    const reviewing = Boolean(context.active && context.reviewPosition && context.positionId === String(item.id));
+    const actual = formFromItem(item, defaults);
+    const next = reviewing ? reviewFormFromItem(item) : actual;
+    const epoch = ++positionFormEpoch.current;
+    const ownerIdentity = draftIdentity;
+    const ownerToken = getToken();
     if (
       !aiMembership &&
       (next.mode_default === "ai" || next.detail_mode === "ai")
@@ -529,12 +587,17 @@ export default function PositionsPage() {
       );
       if (go) router.push("/admin/subscription");
     }
+    if (!pageMountedRef.current || epoch !== positionFormEpoch.current || ownerToken !== getToken() || lastDraftIdentity.current !== ownerIdentity) return;
+    restorationBlockedStep.current = "";
+    if (reviewing) draftOwnerIdentity.current = draftIdentity;
     setForm(next);
     setAdvancedOpen(false);
     setDialogOpen(true);
+    if (reviewing) reportReviewFormOpened(next, actual);
   }
   /** save 保存岗位模板并保留旧后端所需字段结构。 */
   async function save() {
+    if (positionSaveEpoch.current !== null) return;
     if (!form.name.trim()) return notify("请填写岗位名称", "warning");
     if (
       simpleOnboardingForm && form.mode_default === "keyword" &&
@@ -566,7 +629,11 @@ export default function PositionsPage() {
       return requireMembership();
     const saveToken = getToken();
     const ownerIdentity = draftIdentity;
+    const epoch = positionFormEpoch.current;
+    const guidedSave = isGuidedPositionForm();
+    positionSaveEpoch.current = epoch;
     setLoading(true);
+    if (guidedSave) publishOnboardingEvent({ type: "position-form-saving", positionId: form.id || undefined, saving: true });
     try {
       const saved = await cloudRequest("/api/positions", {
         method: "POST",
@@ -620,10 +687,11 @@ export default function PositionsPage() {
         },
       });
       if (!pageMountedRef.current || getToken() !== saveToken || lastDraftIdentity.current !== ownerIdentity) return;
+      if (positionFormEpoch.current !== epoch) { await load(); return; }
       notify(form.id ? "岗位模板已更新" : "岗位模板已创建", "success");
-      if (!form.id && saved.position?.id) {
+      if ((!form.id || guidedSave) && saved.position?.id) {
         createdOnboardingPositionID.current = String(saved.position.id);
-        clearOnboardingPositionDraft(draftIdentity);
+        clearOnboardingPositionDraft(draftIdentity, undefined, form.id || "");
         // 平台切换可能自动规范详情方式，以保存成功的实际模式同步教程，避免把旧点击缓存当真。
         reportOnboardingModeSelection("filter-mode", String(saved.position.common_config?.mode_default || form.mode_default));
         reportOnboardingModeSelection("detail-mode", String(saved.position.common_config?.detail_mode || detailMode));
@@ -634,6 +702,9 @@ export default function PositionsPage() {
     } catch (error) {
       if (pageMountedRef.current && getToken() === saveToken && lastDraftIdentity.current === ownerIdentity) notify(error instanceof Error ? error.message : "保存岗位失败", "error");
     } finally {
+      const ownsSave = positionSaveEpoch.current === epoch;
+      if (ownsSave) positionSaveEpoch.current = null;
+      if (ownsSave && guidedSave && positionFormEpoch.current === epoch && pageMountedRef.current && getToken() === saveToken && lastDraftIdentity.current === ownerIdentity) publishOnboardingEvent({ type: "position-form-saving", positionId: form.id || undefined, saving: false });
       if (pageMountedRef.current && getToken() === saveToken && lastDraftIdentity.current === ownerIdentity) setLoading(false);
     }
   }
@@ -1248,6 +1319,10 @@ export default function PositionsPage() {
   }
   /** selectPlatform 切换平台并修正平台不支持的详情模式。 */
   function selectPlatform(value: string) {
+    if (form.id && value !== form.platform_id) {
+      notify("已保存岗位的招聘平台不能更换，需要换平台时请新建岗位。", "info");
+      return;
+    }
     if (!isPlatformOpen(platformConfigs, value)) {
       notify("该平台暂未开放，请联系作者", "warning");
       return;
@@ -1261,7 +1336,7 @@ export default function PositionsPage() {
       platform_id: value,
       detail_mode: detailMode,
     }));
-    if (getOnboardingGuideContext().active && !form.id) {
+    if (isGuidedPositionForm()) {
       publishOnboardingEvent({ type: "form-field-completed", field: "platform", completed: true, platformId: value });
       if (platformChanged) publishOnboardingEvent({ type: "form-field-completed", field: "detail-mode", completed: false, mode: detailMode, platformId: value });
     }
@@ -1408,6 +1483,8 @@ export default function PositionsPage() {
                         <Tooltip title="编辑">
                           <Button
                             className={styles.positionCardActionIcon}
+                            data-onboarding="position-edit"
+                            data-position-id={String(item.id)}
                             onClick={() => void openEdit(item)}
                             type="text"
                             aria-label="编辑"
@@ -1647,7 +1724,7 @@ export default function PositionsPage() {
       <AdminDialog
         open={dialogOpen}
         title={form.id ? "编辑岗位模板" : "新建岗位模板"}
-        description={simpleOnboardingForm ? "先把第一个岗位建好，我陪你继续跑下一步。" : "按运行顺序填写。只有当前选择模式需要的字段会显示。"}
+        description={simpleOnboardingForm ? (form.id ? "核对这份岗位，保存后我陪你接着走，不会再新建一份。" : "先把第一个岗位建好，我陪你继续跑下一步。") : "按运行顺序填写。只有当前选择模式需要的字段会显示。"}
         maxWidth="md"
         confirmText={form.id ? "保存修改" : "创建岗位"}
         confirmDataOnboarding="position-save"
@@ -1659,21 +1736,23 @@ export default function PositionsPage() {
         {simpleOnboardingForm ? (
           <Flex vertical gap={16} data-onboarding="position-form">
             <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-              先填这几项就能开始，其他参数我先按默认值安排，之后随时能改。
+              {form.id ? "这次只复核几项关键内容，其他设置沿用这个岗位原来的配置。" : "先填这几项就能开始，其他参数我先按默认值安排，之后随时能改。"}
             </Typography.Paragraph>
             <div data-onboarding="position-platform" onClick={reportOnboardingPlatformClick}>
               <ChoiceCards
                 label="招聘平台"
                 value={form.platform_id}
+                readOnly={Boolean(form.id)}
                 compact
                 columns={2}
                 onChange={(value) => selectPlatform(String(value))}
-                options={PLATFORM_OPEN_ORDER.map((platformID) => ({ value: platformID, label: platformLabel(platformID), description: isPlatformOpen(platformConfigs, platformID) ? "" : "暂未开放", disabled: !isPlatformOpen(platformConfigs, platformID), iconSrc: platformIconSrc(platformID) }))}
+                options={PLATFORM_OPEN_ORDER.map((platformID) => ({ value: platformID, label: platformLabel(platformID), description: isPlatformOpen(platformConfigs, platformID) ? "" : "暂未开放", disabled: Boolean(form.id) || !isPlatformOpen(platformConfigs, platformID), iconSrc: platformIconSrc(platformID) }))}
               />
               <Typography.Paragraph type="secondary" style={{ margin: "8px 0 0", fontSize: 12 }}>
-                选这个岗位实际所在的平台。岗位保存后，我再带你打开招聘浏览器登录。
+                {form.id ? "这是当前岗位已经保存的平台，编辑时不能更换。确认后接着复核岗位内容。" : "选这个岗位实际所在的平台。岗位保存后，我再带你打开招聘浏览器登录。"}
               </Typography.Paragraph>
-              {form.platform_id && !isPlatformOpen(platformConfigs, form.platform_id) ? <Alert type="warning" showIcon title="上次选择的平台暂未开放，换一个可用平台再继续。其他内容给你留着了。" style={{ marginTop: 8 }} /> : null}
+              {form.id ? <Button onClick={() => selectPlatform(form.platform_id)} disabled={!isPlatformOpen(platformConfigs, form.platform_id)} style={{ marginTop: 8 }}>确认使用此平台</Button> : null}
+              {form.platform_id && !isPlatformOpen(platformConfigs, form.platform_id) ? <Alert type="warning" showIcon title={form.id ? "这个岗位的平台暂未开放，已保存的平台不能更换。可以稍后继续，或联系作者确认开放情况。" : "上次选择的平台暂未开放，换一个可用平台再继续。其他内容给你留着了。"} style={{ marginTop: 8 }} /> : null}
             </div>
             <Form.Item layout="vertical" label="岗位名称" extra={`到你选择的${form.platform_id ? platformLabel(form.platform_id) : "招聘平台"}“岗位管理”复制完整岗位名称，保持一致。`} style={{ marginBottom: 0 }}>
               <Input
