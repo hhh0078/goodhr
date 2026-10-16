@@ -5,6 +5,7 @@ import {
   ONBOARDING_VERSION,
   ONBOARDING_SKIP_PHRASE,
   ONBOARDING_STEPS,
+  ONBOARDING_STAGES,
   createOnboardingState,
   onboardingStorageKey,
   readOnboardingState,
@@ -14,6 +15,7 @@ import {
   onboardingRemainingTime,
   needsPositionRequirement,
   nextOnboardingFormStep,
+  normalizeOnboardingPosition,
 } from "./onboarding-state.ts";
 
 /** memoryStorage 创建独立内存缓存，验证时不读写用户真实浏览器数据。 */
@@ -78,7 +80,7 @@ test("损坏 JSON、非对象和旧版本缓存都回到安全的首次邀请", 
 test("新版本保存不会复用旧版本，读写存储被拒绝时仍能继续当前会话", () => {
   const storage = memoryStorage();
   const identity = "storage@example.com";
-  const state = activeState({ version: ONBOARDING_VERSION - 1, step: "platform-open" });
+  const state = activeState({ version: ONBOARDING_VERSION - 1, step: "platform-open", positionId: "real-position" });
   assert.equal(saveOnboardingState(identity, state, storage), true);
   const raw = JSON.parse(storage.getItem(onboardingStorageKey(identity)));
   assert.equal(raw.version, ONBOARDING_VERSION);
@@ -141,13 +143,13 @@ test("跳过和暂停保留各自状态，不冒充完成，也不会凭最后�
 
 test("所有教学点击和填写字段都只改变位置，总进度只计算真实里程碑", () => {
   for (const step of ONBOARDING_STEPS) {
-    const state = activeState({ step, completedFields: ["name", "filter-mode", "detail-mode", "position-requirement", "keywords"] });
+    const state = activeState({ step, completedFields: ["platform", "name", "filter-mode", "detail-mode", "position-requirement", "keywords"] });
     assert.equal(onboardingDoneCount(state), 0, step);
     assert.equal(onboardingRemainingTime(state), "约 8–18 分钟", step);
   }
   const facts = [
     { environmentReady: true },
-    { environmentReady: true, platformLoggedIn: true },
+    { environmentReady: true, positionId: "real-position" },
     { environmentReady: true, platformLoggedIn: true, positionId: "real-position" },
     { environmentReady: true, platformLoggedIn: true, positionId: "real-position", positionStarted: true },
     { environmentReady: true, platformLoggedIn: true, positionId: "real-position", positionStarted: true, status: "completed" },
@@ -180,7 +182,7 @@ test("AI 基础或 AI 详情任一启用就需要岗位要求，纯关键词本�
 });
 
 test("关键词加 AI 详情必须同时有岗位要求和关键词，切换方式后重新找缺项", () => {
-  const base = activeState({ filterMode: "keyword", detailMode: "ai", completedFields: ["name", "filter-mode", "detail-mode"] });
+  const base = activeState({ filterMode: "keyword", detailMode: "ai", completedFields: ["platform", "name", "filter-mode", "detail-mode"] });
   assert.equal(nextOnboardingFormStep(base), "position-requirement");
   assert.equal(nextOnboardingFormStep({ ...base, completedFields: [...base.completedFields, "keywords"] }), "position-requirement");
   assert.equal(nextOnboardingFormStep({ ...base, completedFields: [...base.completedFields, "position-requirement"] }), "position-keywords");
@@ -189,10 +191,12 @@ test("关键词加 AI 详情必须同时有岗位要求和关键词，切换方�
   assert.equal(nextOnboardingFormStep({ ...base, filterMode: "ai", detailMode: "ocr", completedFields: [...base.completedFields, "position-requirement"] }), "position-save");
 });
 
-test("名称、基础模式和详情模式尚未确认时优先补这三项，AI/OCR 各走正确字段", () => {
+test("表单先确认平台，再确认名称和两种模式，AI/OCR 各走正确字段", () => {
   let state = activeState({ filterMode: "ai", detailMode: "ocr" });
+  assert.equal(nextOnboardingFormStep(state), "position-platform");
+  state = { ...state, completedFields: ["platform"] };
   assert.equal(nextOnboardingFormStep(state), "position-name");
-  state = { ...state, completedFields: ["name"] };
+  state = { ...state, completedFields: ["platform", "name"] };
   assert.equal(nextOnboardingFormStep(state), "position-filter-mode");
   state = { ...state, completedFields: [...state.completedFields, "filter-mode"] };
   assert.equal(nextOnboardingFormStep(state), "position-detail-mode");
@@ -205,10 +209,11 @@ test("名称、基础模式和详情模式尚未确认时优先补这三项，AI
 });
 
 test("字段教学归入创建岗位，平台筛选归入实际启动，总共只有五个大阶段", () => {
+  assert.deepEqual(ONBOARDING_STAGES, ["准备本地程序", "创建岗位", "登录招聘平台", "筛选并开始", "看到筛选结果"]);
   assert.equal(onboardingStage("runtime-install"), 0);
-  assert.equal(onboardingStage("platform-login"), 1);
-  for (const fieldStep of ["position-name", "position-filter-mode", "position-detail-mode", "position-requirement", "position-keywords", "position-save"]) {
-    assert.equal(onboardingStage(fieldStep), 2, fieldStep);
+  assert.equal(onboardingStage("platform-login"), 2);
+  for (const fieldStep of ["position-menu", "position-create", "position-platform", "position-name", "position-filter-mode", "position-detail-mode", "position-requirement", "position-keywords", "position-save"]) {
+    assert.equal(onboardingStage(fieldStep), 1, fieldStep);
   }
   assert.equal(onboardingStage("platform-filter"), 3);
   assert.equal(onboardingStage("position-run"), 3);
@@ -220,12 +225,62 @@ test("预计耗时随着真实完成事实递减，全部跑通后不再显示�
   assert.equal(onboardingRemainingTime(state), "约 8–18 分钟");
   state.environmentReady = true;
   assert.equal(onboardingRemainingTime(state), "约 5–10 分钟");
-  state.platformLoggedIn = true;
-  assert.equal(onboardingRemainingTime(state), "约 4–8 分钟");
   state.positionId = "real-position";
+  assert.equal(onboardingRemainingTime(state), "约 3–7 分钟");
+  state.platformLoggedIn = true;
   assert.equal(onboardingRemainingTime(state), "约 2–5 分钟");
   state.positionStarted = true;
   assert.equal(onboardingRemainingTime(state), "约 1–3 分钟");
   state.status = "completed";
   assert.equal(onboardingRemainingTime(state), "已跑通");
+});
+
+test("旧v2平台选择和登录缓存没有岗位时回创建，保持账号缓存键并撤销旧登录标记", () => {
+  const storage = memoryStorage();
+  for (const step of ["platform-select", "platform-open", "platform-login"]) {
+    const identity = `${step}@example.invalid`;
+    const state = activeState({ step, platformLoggedIn: true, environmentReady: true, status: "paused" });
+    assert.equal(saveOnboardingState(identity, state, storage), true);
+    assert.match(onboardingStorageKey(identity), /^goodhr_onboarding_v2_/);
+    const restored = readOnboardingState(identity, storage);
+    assert.equal(restored.status, "paused");
+    assert.equal(restored.step, "position-menu");
+    assert.equal(restored.positionId, "");
+    assert.equal(restored.platformLoggedIn, false);
+    assert.equal(restored.environmentReady, true);
+  }
+});
+
+test("恢复已有岗位时使用服务器平台，缓存平台变更须撤销旧登录并重新打开正确平台", () => {
+  const state = activeState({ step: "position-start", positionId: "real-position", platformId: "boss", platformLoggedIn: true, completedFields: ["platform", "name"] });
+  const restored = normalizeOnboardingPosition(state, { id: "real-position", platform_id: "zhaopin", is_open: true });
+  assert.equal(restored.positionId, "real-position");
+  assert.equal(restored.platformId, "zhaopin");
+  assert.equal(restored.platformLoggedIn, false);
+  assert.equal(restored.step, "platform-open");
+  assert.equal(state.platformId, "boss", "归一过程不能改写传入的缓存对象");
+});
+
+test("真实岗位仍在且平台一致时保留登录和运行中结果等待，缺失岗位则清理关联回创建", () => {
+  const running = activeState({ step: "first-result", positionId: "real-position", platformId: "boss", platformLoggedIn: true, positionStarted: true });
+  const same = normalizeOnboardingPosition(running, { id: "real-position", platform_id: "boss", is_open: true });
+  assert.equal(same.step, "first-result");
+  assert.equal(same.platformLoggedIn, true);
+  assert.equal(same.positionStarted, true);
+  const missing = normalizeOnboardingPosition(running, null);
+  assert.equal(missing.step, "position-menu");
+  assert.equal(missing.positionId, "");
+  assert.equal(missing.platformLoggedIn, false);
+  assert.equal(missing.positionStarted, false);
+});
+
+test("实际岗位平台为空或未知时不能沿用缓存平台打开浏览器", () => {
+  const state = activeState({ step: "platform-login", positionId: "real-position", platformId: "boss", platformLoggedIn: true });
+  for (const platformID of ["", "unknown-platform"]) {
+    const restored = normalizeOnboardingPosition(state, { id: "real-position", platform_id: platformID, is_open: true });
+    assert.equal(restored.platformId, "", platformID);
+    assert.equal(restored.platformLoggedIn, false, platformID);
+    assert.equal(restored.step, "position-create", platformID);
+    assert.equal(state.platformId, "boss");
+  }
 });

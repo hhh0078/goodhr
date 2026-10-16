@@ -2,6 +2,21 @@
 import { test, expect } from "@playwright/test";
 import { CLOUD_URL, readUserFlow, registerUser } from "../fixtures/onboarding-helpers";
 
+test("新用户可先保存岗位和对应平台，创建本身不冒充教程跑通", async ({ request }) => {
+  const user = await registerUser(request, "onboarding-position-before-login");
+  const headers = { authorization: `Bearer ${user.token}` };
+  const created = await request.post(`${CLOUD_URL}/api/positions`, { headers, data: { name: "先建岗位再登录平台", platform_id: "zhaopin", is_open: true, keywords: ["招聘"], common_config: { mode_default: "keyword", detail_mode: "dom" }, ai_config: {} } });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const position = (await created.json()).position;
+  expect(position.id).toBeTruthy();
+  expect(position.platform_id).toBe("zhaopin");
+  expect(position.common_config.detail_mode).toBe("dom");
+  const listed = await request.get(`${CLOUD_URL}/api/positions`, { headers });
+  expect(listed.ok()).toBeTruthy();
+  expect((await listed.json()).positions.some((item: { id: string; platform_id: string }) => item.id === position.id && item.platform_id === "zhaopin")).toBe(true);
+  expect((await readUserFlow(request, user)).tutorial_completed).toBe(false);
+});
+
 test("新用户需要终态筛选结果；扫描节点和分析中不算完成", async ({ request }) => {
   const user = await registerUser(request, "onboarding-result-contract");
   const headers = { authorization: `Bearer ${user.token}` };

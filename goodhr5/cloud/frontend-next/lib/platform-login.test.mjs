@@ -1,4 +1,4 @@
-/** 本文件验证实际登录轮询的空页恢复、外站提示、连续确认和暂停边界，全程隔离本地程序及真实招聘网站。 */
+/** 本文件验证新旧平台登录配置解析、登录页排除、实际轮询恢复和暂停边界，全程隔离本地程序及真实招聘网站。 */
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
@@ -15,6 +15,28 @@ const auth = {
   pages: [{ url: "https://recruiting.example.invalid/recommend", match: "prefix", entry: true }],
   public_pages: [{ url: "https://recruiting.example.invalid/login", match: "prefix", code: "login" }],
 };
+const legacyPlatforms = [
+  { id: "zhaopin", entry: "https://rd6.zhaopin.com/app/recommend", domain: "https://rd6.zhaopin.com", login: "https://rd6.zhaopin.com/login", passport: "https://passport.zhaopin.com", extra: "https://www.zhaopin.com" },
+  { id: "hliepin", entry: "https://h.liepin.com/search/getConditionItem", domain: "https://h.liepin.com", login: "https://h.liepin.com/login", passport: "https://passport.liepin.com" },
+  { id: "liepin", entry: "https://lpt.liepin.com/recommend", domain: "https://lpt.liepin.com", login: "https://lpt.liepin.com/login", passport: "https://passport.liepin.com" },
+];
+
+/** legacyPlatformConfig 复现现有三种旧平台配置的认证字段，仅作为纯数据，不访问其招聘网站。 */
+function legacyPlatformConfig(platform) {
+  return {
+    id: platform.id,
+    auth: {
+      pages: [
+        { url: platform.entry, match: "contains", entry: true },
+        { url: platform.domain, match: "contains" },
+        ...(platform.extra ? [{ url: platform.extra, match: "contains" }] : []),
+      ],
+      entry_url: platform.entry,
+      login_url_prefixes: [platform.passport, platform.login],
+      logged_in_url_contains: [new URL(platform.domain).hostname],
+    },
+  };
+}
 
 /** withLoginAgent 仅加速等待时钟并返回给定页面序列，执行生产轮询且不修改其成功判断。 */
 async function withLoginAgent(urls, run, failure) {
@@ -37,6 +59,83 @@ async function withLoginAgent(urls, run, failure) {
     if (original.agent === undefined) delete globalThis.__platformLoginTestAgent; else globalThis.__platformLoginTestAgent = original.agent;
   }
 }
+
+for (const platform of legacyPlatforms) {
+  test(`${platform.id}旧认证配置沿用原入口，只用明确登录前缀补公开规则`, async () => {
+    await withLoginAgent([], async (api, calls) => {
+      const fixture = legacyPlatformConfig(platform);
+      const parsed = api.parsePlatformAuthConfig(platform.id === "zhaopin" ? JSON.stringify(fixture) : fixture, platform.id);
+      assert.deepEqual(parsed.pages, fixture.auth.pages, "不能把旧入口或域名字段扩张成新的登录成功规则");
+      assert.equal(api.pickAuthEntryURL(parsed), platform.entry);
+      assert.equal(api.pickLoginEntryURL(parsed), platform.passport);
+      assert.deepEqual(parsed.public_pages, [platform.passport, platform.login].map((url) => ({ url, match: "prefix", code: "login" })));
+      assert.equal(api.isLoggedInURL(platform.entry, parsed), true);
+      for (const prefix of [platform.passport, platform.login]) {
+        assert.equal(api.isLoginURL(`${prefix}/verify`, parsed), true);
+        assert.equal(api.isLoggedInURL(`${prefix}/verify`, parsed), false, "登录地址不能被原auth泛域名规则认成成功");
+      }
+      assert.equal(api.isLoggedInURL("https://unrelated.example.invalid/", parsed), false);
+      assert.equal(calls.length, 0, "配置解析不能请求浏览器或招聘页面");
+    });
+  });
+}
+
+test("现代公开登录规则继续优先，明确登录页即使命中泛域名也不算成功", async () => {
+  await withLoginAgent([], async (api) => {
+    const configured = { auth: { pages: [{ url: "https://recruiting.example.invalid", match: "contains", entry: true }], login_url_prefixes: ["https://legacy.example.invalid/login"] }, public: { pages: [{ url: "https://recruiting.example.invalid/login", match: "prefix", code: "login" }] } };
+    const parsed = api.parsePlatformAuthConfig(configured, "modern");
+    assert.deepEqual(parsed.public_pages, configured.public.pages);
+    assert.equal(api.pickLoginEntryURL(parsed), configured.public.pages[0].url);
+    assert.equal(api.isLoggedInURL("https://recruiting.example.invalid/login?from=recommend", parsed), false);
+    assert.equal(api.isLoggedInURL("https://recruiting.example.invalid/recommend", parsed), true);
+  });
+});
+
+test("标准public.pages省略可选code时继续可用，保留首条公开页面作为登录入口", async () => {
+  await withLoginAgent([], async (api) => {
+    const configured = { auth: { pages: [{ url: "https://recruiting.example.invalid", match: "prefix", entry: true }] }, public: { pages: [{ url: "https://recruiting.example.invalid/login", match: "prefix" }] } };
+    const parsed = api.parsePlatformAuthConfig(configured, "modern");
+    assert.deepEqual(parsed.public_pages, configured.public.pages);
+    assert.equal(api.pickLoginEntryURL(parsed), "https://recruiting.example.invalid/login");
+    assert.equal(api.isLoginURL("https://recruiting.example.invalid/login/verify", parsed), true);
+    assert.equal(api.isLoggedInURL("https://recruiting.example.invalid/login/verify", parsed), false);
+    assert.equal(api.isLoggedInURL("https://recruiting.example.invalid/recommend", parsed), true);
+  });
+});
+
+test("缺失或畸形登录规则继续报错，不能依靠entry_url或logged_in_url_contains猜登录", async () => {
+  await withLoginAgent([], async (api) => {
+    for (const missing of [undefined, [], ["", " ", null, {}, "javascript:alert(1)", "rd6.zhaopin.com/login"]]) {
+      const fixture = legacyPlatformConfig(legacyPlatforms[0]);
+      fixture.auth.login_url_prefixes = missing;
+      assert.throws(() => api.parsePlatformAuthConfig(fixture, "zhaopin"), /缺少 public\.pages 登录规则或 auth\.login_url_prefixes/);
+    }
+    assert.throws(() => api.parsePlatformAuthConfig({ auth: { pages: auth.pages }, public: { pages: [] } }, "missing"), /缺少 public\.pages/);
+    assert.throws(() => api.parsePlatformAuthConfig({ auth: { pages: auth.pages }, public: { pages: [{ url: "", code: "login" }, null, {}] } }, "missing"), /缺少 public\.pages/);
+    assert.throws(() => api.parsePlatformAuthConfig({ auth: { entry_url: legacyPlatforms[0].entry, login_url_prefixes: [legacyPlatforms[0].login], logged_in_url_contains: ["zhaopin.com"] } }, "missing"), /缺少 auth\.pages/);
+  });
+});
+
+test("旧配置登录页连续三次也不通过，离开登录页后重新确认三次才继续", async () => {
+  const platform = legacyPlatforms[0];
+  await withLoginAgent([platform.login, platform.login, platform.login, platform.entry, platform.entry, platform.entry], async (api, calls) => {
+    const statuses = [];
+    const parsed = api.parsePlatformAuthConfig(legacyPlatformConfig(platform), platform.id);
+    await api.waitForPlatformLoggedIn("http://isolated-agent.invalid", parsed, (message) => statuses.push(message));
+    assert.equal(calls.length, 6);
+    assert.equal(statuses.filter((message) => message === "请在招聘浏览器中完成扫码或验证码登录").length, 3);
+    assert.equal(statuses.at(-1), "正在确认登录状态 3/3");
+  });
+});
+
+test("启动前快速检查也不能把旧配置的同域登录页认成已登录", async () => {
+  const platform = legacyPlatforms[1];
+  await withLoginAgent([platform.login], async (api, calls) => {
+    const parsed = api.parsePlatformAuthConfig(legacyPlatformConfig(platform), platform.id);
+    await assert.rejects(api.confirmPlatformLoggedInForPosition("http://isolated-agent.invalid", parsed, () => {}), /招聘平台还没登录/);
+    assert.equal(calls.length, 3);
+  });
+});
 
 test("空页和其他网站明确提示重开本次登录窗口，平台内跳转也不能冒充登录", async () => {
   const entry = auth.pages[0].url;

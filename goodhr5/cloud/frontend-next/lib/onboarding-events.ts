@@ -1,5 +1,5 @@
 /** 本文件在 GoodHR 控制台内同步新手引导上下文和真实业务操作，不接触招聘平台页面。 */
-export type OnboardingFormField = "name" | "filter-mode" | "detail-mode" | "position-requirement" | "keywords";
+export type OnboardingFormField = "platform" | "name" | "filter-mode" | "detail-mode" | "position-requirement" | "keywords";
 export type OnboardingGuideContext = { active: boolean; platformId: string; positionId?: string; step?: import("./onboarding-state").OnboardingStep; browserOpening?: boolean };
 export type OnboardingScreeningResult = {
   kind: "ai" | "keyword";

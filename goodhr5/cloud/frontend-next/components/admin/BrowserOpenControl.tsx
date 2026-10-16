@@ -36,11 +36,15 @@ export default function BrowserOpenControl({
   useEffect(() => subscribeOnboardingGuideContext(setGuide), []);
   useEffect(() => { if (guide.active) setNoticeOpen(false); }, [guide.active]);
 
-  /** openBrowser 等待本地程序真正打开页面后再提示成功，失败时允许重新点击。 */
+  /** openBrowser 教程中只接受已保存岗位的登录步骤开窗；普通使用等待真实打开后再提示成功。 */
   async function openBrowser() {
     const currentGuide = getOnboardingGuideContext();
-    if (currentGuide.active && ["platform-open", "platform-login"].includes(currentGuide.step || "")) {
-      if (!currentGuide.browserOpening) publishOnboardingEvent({ type: "platform-browser-open-requested", platformId: currentGuide.platformId });
+    if (currentGuide.active) {
+      if (!currentGuide.positionId?.trim() || !["platform-open", "platform-login"].includes(currentGuide.step || "")) {
+        notify(currentGuide.positionId ? "先跟着完成当前这一步，需要打开招聘浏览器时我会带你过来。" : "先把岗位建好并保存，我再带你打开对应的招聘浏览器。", "info");
+      } else if (!currentGuide.browserOpening) {
+        publishOnboardingEvent({ type: "platform-browser-open-requested", platformId: currentGuide.platformId });
+      }
       return;
     }
     if (inFlight.current) return;

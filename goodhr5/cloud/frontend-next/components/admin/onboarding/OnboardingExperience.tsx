@@ -7,18 +7,11 @@ import confetti from "canvas-confetti";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { OnboardingExperienceProps } from "@/lib/onboarding-view";
 import { ONBOARDING_SKIP_PHRASE, ONBOARDING_STAGES, onboardingStage } from "@/lib/onboarding-state";
-import ChoiceCards from "../ChoiceCards";
 import ClickableImagePreview from "../ClickableImagePreview";
 import styles from "./OnboardingExperience.module.css";
 
-const platformChoices = [
-  { value: "boss", label: "BOSS 直聘", description: "使用 BOSS 直聘招聘账号" },
-  { value: "zhaopin", label: "智联招聘", description: "使用智联招聘企业账号" },
-  { value: "liepin", label: "猎聘企业端", description: "使用猎聘企业招聘账号" },
-  { value: "hliepin", label: "猎聘猎头端", description: "使用猎聘猎头账号" },
-];
 const permissionImage = "/assets/help/local-agent-device-app-permission.png";
-const operationSteps = ["platform-select", "agent-download", "agent-connect", "first-result"];
+const operationSteps = ["agent-download", "agent-connect", "first-result"];
 
 /** OnboardingExperience 只展示控制器状态，推进步骤必须由真实操作结果决定。 */
 export default function OnboardingExperience(props: OnboardingExperienceProps) {
@@ -30,7 +23,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
   actionsRef.current = actions;
   const stage = onboardingStage(step);
   const active = phase === "active";
-  const stageDone = [state.environmentReady, state.platformLoggedIn, Boolean(state.positionId), state.positionStarted, state.status === "completed"];
+  const stageDone = [state.environmentReady, Boolean(state.positionId), state.platformLoggedIn, state.positionStarted, state.status === "completed"];
 
   useLayoutEffect(() => {
     if (!active || !target || !step.endsWith("menu")) { setMobileMenuPlacement(null); return; }
@@ -180,7 +173,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         footer={<Flex justify="flex-end" gap={8} wrap><Button onClick={actions.requestSkip}>我非新用户，无需教程</Button><Button type="primary" onClick={actions.accept}>好，带我跑一遍</Button></Flex>}
       >
         {simulationNotice}
-        <Typography.Paragraph className={styles.welcomeCopy}>强烈建议跟我跑一遍：从打开浏览器到筛完第一位候选人，有我带路，少一点“接下来点哪儿”。</Typography.Paragraph>
+        <Typography.Paragraph className={styles.welcomeCopy}>强烈建议跟我跑一遍：先建岗位，再打开招聘浏览器登录，直到筛完第一位候选人。有我带路，少一点“接下来点哪儿”。</Typography.Paragraph>
         <div className={styles.welcomeFacts}><span>5 个阶段 · 进度自动保存</span><span>预计 {remaining}</span></div>
       </Modal>
 
@@ -218,7 +211,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       {celebration && phase !== "completed" ? <div className={styles.celebrationToast} role="status" aria-live="polite"><CheckCircleFilled aria-hidden="true" /><div><strong>{celebration.title}</strong><span>{celebration.description}</span></div></div> : null}
 
       <Modal open={phase === "completed" && !blocked} width={500} title={<Flex gap={10} align="center"><TrophyOutlined className={styles.trophy} />首轮跑通，今天你赢了</Flex>} onCancel={actions.finishClose} footer={<Button type="primary" onClick={actions.finishClose}>开始正式使用</Button>}>
-        <Typography.Paragraph>第一条真实筛选结果已经出来了。从本地程序、平台登录，到创建岗位和开始筛选，关键流程你已经走过一遍。</Typography.Paragraph>
+        <Typography.Paragraph>第一条真实筛选结果已经出来了。从准备本地程序、创建岗位，到打开招聘浏览器登录和开始筛选，关键流程你已经走过一遍。</Typography.Paragraph>
         {statusText ? <Alert type="success" showIcon title={statusText} className={styles.helpAlert} /> : null}
         {error ? <Alert type="warning" showIcon title={error} className={styles.helpAlert} /> : null}
         <Typography.Paragraph type="secondary">接下来可以调整岗位条件，继续招人。正在运行的岗位会继续工作，你随时可以在岗位管理中停止。</Typography.Paragraph>
@@ -229,18 +222,17 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
 }
 
 /** OperationPanel 展示当前步骤需要的真实操作按钮，不提供跳过业务判断的下一步按钮。 */
-function OperationPanel({ step, state, title, description, statusText, error, busy, availablePlatforms, platformsLoading, actions }: OnboardingExperienceProps) {
+function OperationPanel({ step, title, description, statusText, error, busy, actions }: OnboardingExperienceProps) {
   if (!operationSteps.includes(step)) return null;
   return (
     <section className={styles.operationPanel} aria-label="当前教程操作" aria-live="polite">
       <Typography.Title level={5} className={styles.panelTitle}>{title}</Typography.Title>
       <Typography.Paragraph type="secondary" className={styles.panelDescription}>{description}</Typography.Paragraph>
-      {step === "platform-select" ? <div data-onboarding="onboarding-platform-choice"><ChoiceCards label="请选择你使用的平台" value="" options={platformChoices.map((choice) => ({ ...choice, disabled: platformsLoading || !availablePlatforms.includes(choice.value), description: platformsLoading ? "正在读取开放状态" : availablePlatforms.includes(choice.value) ? choice.description : "暂未开放，请选择其他可用平台" }))} compact columns={2} onChange={(value) => actions.choosePlatform(String(value))} />{error ? <Alert type="warning" showIcon title={error} className={styles.panelStatus} /> : null}{error || (!platformsLoading && availablePlatforms.length === 0) ? <Button loading={platformsLoading} onClick={actions.refreshPlatforms} style={{ marginTop: 8 }}>重新读取平台</Button> : null}</div> : null}
       {step === "agent-download" ? <Button data-onboarding="onboarding-agent-download" type="primary" onClick={actions.downloadAgent}>下载本地程序</Button> : null}
       {step === "agent-connect" ? <div><Button data-onboarding="onboarding-agent-connect" type="primary" loading={busy} onClick={actions.checkAgent}>检查连接</Button><Typography.Paragraph type="secondary" className={styles.connectHint}>程序已经启动仍连不上？点击“遇到问题”查看浏览器权限图。</Typography.Paragraph></div> : null}
       {step === "first-result" ? <div data-onboarding="onboarding-result-wait"><Flex gap={8} align="center"><Spin size="small" /><Typography.Text>{statusText || "等待第一条真实筛选判断"}</Typography.Text></Flex><Typography.Paragraph type="secondary" className={styles.connectHint}>筛掉不合适的人也算正常结果，进度会按真实判断更新。</Typography.Paragraph></div> : null}
       {statusText && !["platform-login", "first-result"].includes(step) ? <Typography.Paragraph type="secondary" className={styles.panelStatus}>{statusText}</Typography.Paragraph> : null}
-      {error && step !== "platform-select" ? <Alert type="warning" showIcon title={error} className={styles.panelStatus} /> : null}
+      {error ? <Alert type="warning" showIcon title={error} className={styles.panelStatus} /> : null}
     </section>
   );
 }

@@ -38,7 +38,7 @@ export function pickPlatformAuthConfig(configs: any[], platformID: string) {
   );
 }
 
-/** parsePlatformAuthConfig 解析平台配置中的已登录页面和登录页面规则。 */
+/** parsePlatformAuthConfig 解析现有已登录规则，并兼容旧版明确配置的登录地址前缀，不推断新的成功条件。 */
 export function parsePlatformAuthConfig(
   value: unknown,
   platformID: string,
@@ -52,14 +52,32 @@ export function parsePlatformAuthConfig(
     }
   }
   const authPages = parsed?.auth?.pages;
-  const publicPages = parsed?.public?.pages;
+  const publicPages: PlatformPageRule[] = Array.isArray(parsed?.public?.pages)
+    ? parsed.public.pages.filter((page: PlatformPageRule | null) => page && typeof page.url === "string" && page.url.trim())
+    : [];
   if (!Array.isArray(authPages) || authPages.length === 0) {
     throw new Error(`平台 ${platformID} 配置缺少 auth.pages`);
   }
-  if (!Array.isArray(publicPages)) {
-    throw new Error(`平台 ${platformID} 配置缺少 public.pages`);
+  if (!publicPages.some((page) => page.code === "login")) {
+    publicPages.push(...legacyLoginPageRules(parsed?.auth?.login_url_prefixes));
+  }
+  if (publicPages.length === 0) {
+    throw new Error(`平台 ${platformID} 配置缺少 public.pages 登录规则或 auth.login_url_prefixes`);
   }
   return { pages: authPages, public_pages: publicPages };
+}
+
+/** legacyLoginPageRules 只把旧配置中有效的完整 HTTP(S) 登录前缀映射为公开规则，不补充平台地址。 */
+function legacyLoginPageRules(value: unknown): PlatformPageRule[] {
+  if (!Array.isArray(value)) return [];
+  const prefixes = value.filter((item): item is string => {
+    if (typeof item !== "string" || !item.trim()) return false;
+    try {
+      const parsed = new URL(item.trim());
+      return ["http:", "https:"].includes(parsed.protocol) && Boolean(parsed.hostname) && !parsed.username && !parsed.password;
+    } catch { return false; }
+  });
+  return Array.from(new Set(prefixes.map((prefix) => prefix.trim()))).map((url) => ({ url, match: "prefix", code: "login" }));
 }
 
 /** pickAuthEntryURL 从平台登录规则中选择默认打开页面。 */
@@ -214,8 +232,9 @@ function isPlatformPageHost(url: string, auth: PlatformAuthConfig) {
   }
 }
 
-/** isLoggedInURL 判断当前地址是否命中平台已登录页面。 */
+/** isLoggedInURL 先排除明确的公开登录页面，再按原有已登录规则判断，避免泛域名把登录页认成成功。 */
 export function isLoggedInURL(url: string, auth: PlatformAuthConfig) {
+  if (isLoginURL(url, auth)) return false;
   return (auth.pages || []).some((page) => matchPageURL(url, page));
 }
 

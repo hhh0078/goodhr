@@ -514,7 +514,7 @@ function OnboardingGuideEntry() {
             新手必看 · 跟我跑通第一轮招聘
           </Typography.Title>
           <Typography.Paragraph type="secondary" style={{ margin: "6px 0 0" }}>
-            从登录平台到第一条筛选结果，我一步步带路，进度会自动保存。
+            从创建岗位到第一条筛选结果，我一步步带路，进度会自动保存。
           </Typography.Paragraph>
           <Typography.Paragraph type="secondary" style={{ margin: "4px 0 0", fontSize: 12 }}>
             本地程序已准备好时约 5–10 分钟；首次安装时间另计。

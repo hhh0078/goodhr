@@ -1,6 +1,7 @@
 /** 文件作用：在真实本地前后端与隔离协议模拟 Agent 上逐步验证新手遮罩，招聘平台、安装包和招呼均不实际操作。 */
-import { test as base, expect, type BrowserContext, type Page, type APIRequestContext, type Locator } from "@playwright/test";
+import { test as base, expect, type Browser, type BrowserContext, type Page, type APIRequestContext, type Locator } from "@playwright/test";
 import { CLOUD_URL, PREVIEW_URL, agentControl, openAdmin, protectNetwork, readAgentState, readUserFlow, registerUser, userStorageState, type TestUser } from "../fixtures/onboarding-helpers";
+import { createOnboardingState, onboardingStorageKey } from "../../lib/onboarding-state";
 
 type Scenario = { context: BrowserContext; page: Page; user: TestUser; forbidden: string[]; errors: string[] };
 const test = base.extend<{ scenario: Scenario }>({
@@ -73,7 +74,14 @@ async function acceptTutorial(page: Page) {
   await openAdmin(page);
   await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
   await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
-  await expectStep(page, "platform-select");
+  await expectPositionEntry(page);
+}
+
+/** expectPositionEntry 组件就绪后优先引导创建岗位，兼容当前就在岗位管理的恢复场景。 */
+async function expectPositionEntry(page: Page) {
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", /position-menu|position-create/);
+  await expect(page.getByTestId("onboarding-tour")).toHaveAttribute("data-step", /position-menu|position-create/);
+  await expect(page.locator('[data-onboarding="onboarding-platform-choice"]')).toHaveCount(0);
 }
 
 /** headerBrowserButton 只选择顶部当前屏幕可见的真实浏览器按钮，兼容桌面文字按钮和手机图标。 */
@@ -81,13 +89,10 @@ function headerBrowserButton(page: Page) {
   return page.locator('header.goodhr-admin-toolbar [data-onboarding="browser-open"]:visible');
 }
 
-/** openFirstPositionForm 真实点击平台、岗位菜单与新建入口，不调用内部教程事件。 */
-async function openFirstPositionForm(page: Page) {
-  await acceptTutorial(page);
-  await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
-  await expectStep(page, "platform-open");
-  await headerBrowserButton(page).click();
-  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", /position-menu|position-create/, { timeout: 30_000 });
+/** openFirstPositionForm 先进入岗位管理并创建岗位，在真实表单确认平台后才填写名称，不打开浏览器。 */
+async function openFirstPositionForm(page: Page, platformName: RegExp = /BOSS\s*直聘/i, acceptFirst = true) {
+  if (acceptFirst) await acceptTutorial(page);
+  else await expectPositionEntry(page);
   if (await page.getByTestId("onboarding-experience").getAttribute("data-step") === "position-menu") {
     const positionsMenu = page.getByRole("menuitem", { name: "岗位管理", exact: true });
     if (!await positionsMenu.isVisible() && await page.locator('[data-onboarding="mobile-menu"]').isVisible()) await page.locator('[data-onboarding="mobile-menu"]').click();
@@ -95,13 +100,16 @@ async function openFirstPositionForm(page: Page) {
   }
   await expectStep(page, "position-create");
   await page.locator('[data-onboarding="position-create"]').click();
+  await expectStep(page, "position-platform");
+  await expectMaskAround(page, '[data-onboarding="position-platform"]');
+  await page.locator('[data-onboarding="position-platform"]').getByRole("radio", { name: platformName }).click();
   await expectStep(page, "position-name");
   await expectMaskAround(page, '[data-onboarding="position-name"]');
 }
 
 /** fillFirstPosition 逐字段执行输入和失焦；可停在保存前，正常保存时用实际后端核对内容。 */
-async function fillFirstPosition(page: Page, request: APIRequestContext, user: TestUser, filterMode: "ai" | "keyword", detailMode: "ai" | "ocr", savePosition = true) {
-  await openFirstPositionForm(page);
+async function fillFirstPosition(page: Page, request: APIRequestContext, user: TestUser, filterMode: "ai" | "keyword", detailMode: "ai" | "ocr" | "dom", savePosition = true, options: { platformName?: RegExp; loginAfterSave?: boolean; invitationAccepted?: boolean } = {}) {
+  await openFirstPositionForm(page, options.platformName, !options.invitationAccepted);
   const nameInput = page.locator('[data-onboarding="position-name"]');
   await nameInput.focus();
   await page.keyboard.press("Tab");
@@ -118,7 +126,7 @@ async function fillFirstPosition(page: Page, request: APIRequestContext, user: T
   await expectStep(page, "position-filter-mode");
   await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: filterMode === "ai" ? /^AI 筛选/ : /^关键词筛选/ }).click();
   await expectStep(page, "position-detail-mode");
-  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: detailMode === "ai" ? /^AI 识别/ : /^本地识别/ }).click();
+  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: detailMode === "ai" ? /^AI 识别/ : detailMode === "dom" ? /^页面文字识别/ : /^本地识别/ }).click();
   if (filterMode === "ai" || detailMode === "ai") {
     await expectStep(page, "position-requirement");
     const requirement = page.locator('[data-onboarding="position-requirement"]');
@@ -136,9 +144,11 @@ async function fillFirstPosition(page: Page, request: APIRequestContext, user: T
   await expectStep(page, "position-save");
   await expectMaskAround(page, '[data-onboarding="position-save"]');
   await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/${filterMode}-${detailMode}-position.png`, fullPage: true });
+  const beforeSave = await readAgentState(request);
+  expect(beforeSave.calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path)), "岗位保存前不能打开或检测招聘平台登录").toHaveLength(0);
   if (!savePosition) return { name };
   await page.locator('[data-onboarding="position-save"]').click();
-  await expectStep(page, "position-start");
+  await expectStep(page, "platform-open");
   const response = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${user.token}` } });
   expect(response.ok()).toBeTruthy();
   const positions = (await response.json()).positions;
@@ -148,7 +158,16 @@ async function fillFirstPosition(page: Page, request: APIRequestContext, user: T
   expect(position.common_config.detail_mode).toBe(detailMode);
   const savedStorage = (await page.context().storageState()).origins.find((entry) => entry.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
   expect(savedStorage.filter((entry) => entry.name.startsWith("goodhr_onboarding_position_draft_v1_"))).toHaveLength(0);
+  if (options.loginAfterSave !== false) await loginSavedPosition(page);
   return position;
+}
+
+/** loginSavedPosition 岗位保存后才从真实顶部入口打开其平台，连续登录检测通过后进入启动步骤。 */
+async function loginSavedPosition(page: Page) {
+  await expectStep(page, "platform-open");
+  await headerBrowserButton(page).click();
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-start", { timeout: 30_000 });
+  await expectStep(page, "position-start");
 }
 
 /** startFirstPosition 复用真实启动确认流程，所有浏览器与运行协议进入隔离模拟程序。 */
@@ -184,6 +203,110 @@ function platformConfig(id: string, open: boolean) {
   const entry = id === "boss" ? "https://www.zhipin.com/web/chat/recommend" : "https://tutorial-zhaopin.example.invalid/recruiting";
   return { config_key: `platform.${id}`, enabled: true, config_value: JSON.stringify({ id, open, auth: { pages: [{ url: entry, match: "prefix", entry: true }] }, public: { pages: [{ url: "https://tutorial-login.example.invalid/login", match: "prefix", code: "login" }] } }) };
 }
+
+/** cachedTutorialContext 用原生缓存快照复现旧v2恢复，沿用真实用户但不注入页面脚本或内部事件。 */
+async function cachedTutorialContext(browser: Browser, user: TestUser, state: ReturnType<typeof createOnboardingState>, width: number, scenario: Scenario) {
+  const context = await browser.newContext({ viewport: { width, height: 960 }, storageState: userStorageState(user, [{ name: onboardingStorageKey(user.id), value: JSON.stringify(state) }]) });
+  await protectNetwork(context, scenario.forbidden);
+  const page = await context.newPage();
+  page.on("pageerror", (error) => scenario.errors.push(error.message));
+  return { context, page };
+}
+
+/** createSavedTutorialPosition 通过真实岗位接口准备恢复样本，不要求或伪造招聘平台登录。 */
+async function createSavedTutorialPosition(request: APIRequestContext, user: TestUser, platformID: string) {
+  const response = await request.post(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${user.token}` }, data: { name: `恢复平台权威测试-${platformID}`, platform_id: platformID, is_open: true, keywords: ["招聘"], common_config: { mode_default: "keyword", detail_mode: platformID === "boss" ? "ocr" : "dom" }, ai_config: {} } });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const position = (await response.json()).position;
+  expect(position.platform_id).toBe(platformID);
+  return position;
+}
+
+for (const width of [1440, 390]) {
+  test(`${width}px旧v2登录缓存无岗位时回创建，不先打开或检测平台`, async ({ scenario, browser, request }) => {
+    const restored = await cachedTutorialContext(browser, scenario.user, { ...createOnboardingState(), status: "active", step: "platform-login", environmentReady: true, platformLoggedIn: true }, width, scenario);
+    try {
+      await openAdmin(restored.page);
+      await expectPositionEntry(restored.page);
+      expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path))).toHaveLength(0);
+      const cache = (await restored.context.storageState()).origins.find((origin) => origin.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
+      await expect.poll(async () => {
+        const values = (await restored.context.storageState()).origins.find((origin) => origin.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
+        return JSON.parse(values.find((entry) => entry.name === onboardingStorageKey(scenario.user.id))?.value || "{}").platformLoggedIn;
+      }).toBe(false);
+      expect(cache.some((entry) => entry.name === onboardingStorageKey(scenario.user.id))).toBe(true);
+    } finally { await restored.context.close(); }
+  });
+
+  test(`${width}px恢复已保存岗位时以实际平台为准，清除其他平台旧登录后再打开`, async ({ scenario, browser, request }) => {
+    const position = await createSavedTutorialPosition(request, scenario.user, "zhaopin");
+    const restored = await cachedTutorialContext(browser, scenario.user, { ...createOnboardingState(), status: "active", step: "position-start", positionId: position.id, platformId: "boss", environmentReady: true, platformLoggedIn: true }, width, scenario);
+    try {
+      await restored.page.route("**/api/platforms/config/**", (route) => route.fulfill({ json: { configs: [platformConfig("boss", true), platformConfig("zhaopin", true)] } }));
+      await openAdmin(restored.page);
+      await expectStep(restored.page, "platform-open");
+      const values = (await restored.context.storageState()).origins.find((origin) => origin.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
+      const state = JSON.parse(values.find((entry) => entry.name === onboardingStorageKey(scenario.user.id))?.value || "{}");
+      expect(state.positionId).toBe(position.id);
+      expect(state.platformId).toBe("zhaopin");
+      expect(state.platformLoggedIn).toBe(false);
+      expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path))).toHaveLength(0);
+      await headerBrowserButton(restored.page).click();
+      await expectStep(restored.page, "platform-login");
+      const opened = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open");
+      expect(opened).toHaveLength(1);
+      expect(opened[0].body.platform_id).toBe("zhaopin");
+      await expect(restored.page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", /position-menu|position-start/, { timeout: 25_000 });
+      if (await restored.page.getByTestId("onboarding-experience").getAttribute("data-step") === "position-menu") {
+        const positions = restored.page.getByRole("menuitem", { name: "岗位管理", exact: true });
+        if (!await positions.isVisible()) await restored.page.locator('[data-onboarding="mobile-menu"]').click();
+        await positions.click();
+      }
+      await expectStep(restored.page, "position-start");
+    } finally { await restored.context.close(); }
+  });
+
+  test(`${width}px表单改平台保留名称并重新确认识别方式，保存前不登录`, async ({ scenario, request }) => {
+    const { page, user, context } = scenario;
+    await page.setViewportSize({ width, height: 960 });
+    await page.route("**/api/platforms/config/**", (route) => route.fulfill({ json: { configs: [platformConfig("boss", true), platformConfig("zhaopin", true)] } }));
+    await openFirstPositionForm(page);
+    await page.locator('[data-onboarding="position-name"]').fill("切换平台时保留这条岗位名称");
+    await page.keyboard.press("Tab");
+    await expectStep(page, "position-filter-mode");
+    await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+    await expectStep(page, "position-name");
+    await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+    await expectStep(page, "position-platform");
+    await page.locator('[data-onboarding="position-platform"]').getByRole("radio", { name: /智联招聘/ }).click();
+    await expectStep(page, "position-name");
+    await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue("切换平台时保留这条岗位名称");
+    await expect(page.locator(".ant-tour")).toContainText(/岗位管理/);
+    await page.locator('[data-onboarding="position-name"]').focus();
+    await page.keyboard.press("Tab");
+    await expectStep(page, "position-filter-mode");
+    const values = (await context.storageState()).origins.find((origin) => origin.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
+    const state = JSON.parse(values.find((entry) => entry.name === onboardingStorageKey(user.id))?.value || "{}");
+    expect(state.platformId).toBe("zhaopin");
+    expect(state.platformLoggedIn).toBe(false);
+    expect(state.completedFields).not.toContain("detail-mode");
+    expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path))).toHaveLength(0);
+  });
+}
+
+test("岗位保存前键盘触发顶部浏览器不会绕过遮罩打开Bing或开始登录检测", async ({ scenario, request }) => {
+  const { page } = scenario;
+  await acceptTutorial(page);
+  await expect(page.getByRole("dialog", { name: "新同事，欢迎上岗。", exact: true })).not.toBeVisible();
+  const currentStep = await page.getByTestId("onboarding-experience").getAttribute("data-step");
+  const before = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length;
+  await headerBrowserButton(page).focus();
+  await expect(headerBrowserButton(page), "键盘验证必须真正聚焦顶部按钮，不能在别的输入框按回车而假通过").toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", currentStep!);
+  await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length).toBeGreaterThan(before);
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path))).toHaveLength(0);
+});
 
 /** expectTourClearOfButton 核对说明卡没有压住真实恢复按钮，后续标准点击还会验证按钮可操作。 */
 async function expectTourClearOfButton(page: Page, button: Locator) {
@@ -282,12 +405,12 @@ test("暂停、帮助、刷新与账号隔离不会丢失或串用进度", async
   await tour.getByRole("button", { name: "遇到问题", exact: true }).click();
   await expect(page.getByRole("dialog", { name: /这一步怎么做/ })).toBeVisible();
   await page.getByRole("button", { name: "我再试试", exact: true }).click();
-  await expectStep(page, "platform-select");
+  await expectPositionEntry(page);
   await tour.getByRole("button", { name: "稍后继续", exact: true }).click();
   await expect(page.getByRole("button", { name: "继续教程", exact: true })).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "继续教程", exact: true }).click();
-  await expectStep(page, "platform-select");
+  await expectPositionEntry(page);
   const cache = (await context.storageState()).origins.find((item) => item.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
   expect(cache.some((entry) => entry.name.startsWith("goodhr_onboarding_v2_") && entry.value.includes('"status":"active"'))).toBe(true);
   const otherUser = await registerUser(request, "onboarding-isolation");
@@ -316,6 +439,8 @@ test("半填岗位刷新恢复草稿，暂停不会弹表单，字段上一步�
   await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue("还没填完的测试岗位");
   if (await page.getByTestId("onboarding-experience").getAttribute("data-step") !== "position-name") await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
   await expectStep(page, "position-name");
+  await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+  await expectStep(page, "position-platform");
   await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
   await expectStep(page, "position-create");
   await expect(page.getByRole("dialog", { name: "新建岗位模板", exact: true })).toHaveCount(0);
@@ -408,7 +533,7 @@ test("本地连接和组件安装只占一个必要弹框，公告更新不盖�
   await expectMaskAround(page, '[data-onboarding="runtime-install"]');
   await installer.getByRole("button", { name: /安装必要组件$/ }).click();
   await expect(installer).not.toBeVisible({ timeout: 15_000 });
-  await expectStep(page, "platform-select");
+  await expectPositionEntry(page);
   const agent = await readAgentState(request);
   expect(agent.calls.filter((item: { path: string }) => item.path === "/api/v1/runtime/install")).toHaveLength(1);
   await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/after-runtime-install.png", fullPage: true });
@@ -422,9 +547,7 @@ for (const changeDuring of ["welcome", "active"] as const) {
     await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length).toBeGreaterThanOrEqual(3);
     if (changeDuring === "active") {
       await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
-      await expectStep(page, "platform-select");
-      await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
-      await expectStep(page, "platform-open");
+      await expectPositionEntry(page);
     }
     const currentURL = page.url();
     await agentControl(request, { runtimeReady: false });
@@ -437,7 +560,7 @@ for (const changeDuring of ["welcome", "active"] as const) {
     await expectNoCompletion(page, request, user);
     await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/runtime-became-missing-${changeDuring}.png`, fullPage: true });
     await installer.getByRole("button", { name: /安装必要组件$/ }).click();
-    await expectStep(page, changeDuring === "active" ? "platform-open" : "platform-select");
+    await expectPositionEntry(page);
     await expect(installer).not.toBeVisible();
     expect(page.url(), "组件修复和恢复教程不能依赖刷新页面").toBe(currentURL);
     const calls = (await readAgentState(request)).calls as { path: string }[];
@@ -479,7 +602,7 @@ test("微软运行库缺失时先圈下载和重新检查，再引导安装浏�
   await expect(page.getByRole("dialog")).toHaveCount(1);
   await expectMaskAround(page, '[data-onboarding="runtime-install"]');
   await installer.getByRole("button", { name: /安装必要组件$/ }).click();
-  await expectStep(page, "platform-select");
+  await expectPositionEntry(page);
   const calls = (await readAgentState(request)).calls as { path: string }[];
   expect(calls.filter((call) => call.path === "/api/v1/runtime/system-check")).toHaveLength(1);
   expect(calls.filter((call) => call.path === "/api/v1/runtime/install")).toHaveLength(1);
@@ -492,20 +615,34 @@ test("关闭的平台不可选，缓存平台关闭后必须重新选择且不�
   await page.route("**/api/platforms/config/**", async (route) => {
     await route.fulfill({ json: { ok: true, configs: [platformConfig("boss", bossOpen), platformConfig("zhaopin", true), platformConfig("liepin", false)] } });
   });
-  await acceptTutorial(page);
-  const choices = page.locator('[data-onboarding="onboarding-platform-choice"]');
+  await openFirstPositionForm(page);
+  await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+  await expectStep(page, "position-platform");
+  const choices = page.locator('[data-onboarding="position-platform"]');
   await expect(choices.getByRole("radio", { name: /猎聘企业端/ })).toBeDisabled();
-  await choices.getByRole("radio", { name: /BOSS 直聘/ }).click();
-  await expectStep(page, "platform-open");
+  await choices.getByRole("radio", { name: /BOSS\s*直聘/i }).click();
+  await expectStep(page, "position-name");
   bossOpen = false;
   await page.reload();
-  await expectStep(page, "platform-select");
-  await expect(choices.getByRole("radio", { name: /BOSS 直聘/ })).toBeDisabled();
+  await expectStep(page, "position-platform");
+  await expect(choices.getByRole("radio", { name: /BOSS\s*直聘/i })).toBeDisabled();
   await expect(choices.getByRole("radio", { name: /智联招聘/ })).not.toBeChecked();
-  await expect(page.getByTestId("onboarding-experience")).toContainText(/暂未开放|暂时.*开放|重新选择|换一个/);
+  await expect(choices).toContainText("暂未开放");
   expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(0);
   await expectNoCompletion(page, request, user);
   await choices.getByRole("radio", { name: /智联招聘/ }).click();
+  await expectStep(page, "position-name");
+  await page.locator('[data-onboarding="position-name"]').fill("平台关闭后新建智联岗位");
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-filter-mode");
+  await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选/ }).click();
+  await expectStep(page, "position-detail-mode");
+  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: /^页面文字识别/ }).click();
+  await expectStep(page, "position-keywords");
+  await page.locator('[data-onboarding="position-keywords"]').fill("招聘");
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-save");
+  await page.locator('[data-onboarding="position-save"]').click();
   await expectStep(page, "platform-open");
   await headerBrowserButton(page).click();
   await expectStep(page, "platform-login");
@@ -658,6 +795,8 @@ for (const invalidatedBy of ["删除", "关闭"] as const) {
     await expectMaskAround(page, '[data-onboarding="position-create"]');
     await expectNoCompletion(page, request, user);
     await page.locator('[data-onboarding="position-create"]').click();
+    await expectStep(page, "position-platform");
+    await page.locator('[data-onboarding="position-platform"]').getByRole("radio", { name: /BOSS\s*直聘/i }).click();
     await expectStep(page, "position-name");
     await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue("");
   });
@@ -700,14 +839,12 @@ test("岗位保存迟到响应遇到实际退出换号，不得把旧账号岗�
     await page.locator('.public-login-form button[type="submit"]').click();
     await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
     await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
-    await expectStep(page, "platform-select");
-    await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
-    await expectStep(page, "platform-open");
+    await expectPositionEntry(page);
     const previousPolls = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length;
     releaseSave();
     await expect.poll(() => responseSettled).toBe(true);
     await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/status").length).toBeGreaterThan(previousPolls);
-    await expectStep(page, "platform-open");
+    await expectPositionEntry(page);
     const cache = (await context.storageState()).origins.find((entry) => entry.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
     const newUserProgress = cache.find((entry) => entry.name === `goodhr_onboarding_v2_${encodeURIComponent(otherUser.id)}`);
     expect(newUserProgress).toBeTruthy();
@@ -736,7 +873,7 @@ test("有公告和可选更新时，欢迎弹框与教程遮罩仍然独占引�
   await expect(page.getByRole("dialog")).toHaveCount(1);
   await expect(page.getByRole("dialog", { name: /系统公告|更新本地程序/ })).toHaveCount(0);
   await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
-  await expectStep(page, "platform-select");
+  await expectPositionEntry(page);
   await expect(page.getByRole("dialog", { name: /系统公告|更新本地程序/ })).toHaveCount(0);
   const state = await readAgentState(request);
   expect(state.calls.filter((item: { path: string }) => item.path === "/api/v1/app-update/start")).toHaveLength(0);
@@ -770,21 +907,21 @@ test("必要升级优先完成，组件安装与教程不会叠加弹框", async
   await expect(page.getByRole("dialog")).toHaveCount(1);
   await expectMaskAround(page, '[data-onboarding="runtime-install"]');
   await installer.getByRole("button", { name: /安装必要组件$/ }).click();
-  await expectStep(page, "platform-select");
+  await expectPositionEntry(page);
   const state = await readAgentState(request);
   expect(state.calls.filter((item: { path: string }) => item.path === "/api/v1/app-update/start")).toHaveLength(1);
   expect(state.calls.filter((item: { path: string }) => item.path === "/api/v1/runtime/install")).toHaveLength(1);
 });
 
 test("顶部浏览器按钮打开所选平台，等待登录和刷新恢复都不再指向教程自造入口", async ({ scenario, request }) => {
-  const { page } = scenario;
+  const { page, user } = scenario;
   await agentControl(request, { loggedIn: false });
   const platformURL = "https://tutorial-zhaopin.example.invalid/recruiting";
   await page.route("**/api/platforms/config/**", async (route) => {
     await route.fulfill({ json: { ok: true, configs: [{ config_key: "platform.zhaopin", enabled: true, config_value: JSON.stringify({ id: "zhaopin", open: true, auth: { pages: [{ url: platformURL, match: "prefix", entry: true }] }, public: { pages: [{ url: "https://tutorial-zhaopin.example.invalid/login", match: "prefix", code: "login" }] } }) }] } });
   });
-  await acceptTutorial(page);
-  await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /智联招聘/ }).click();
+  const position = await fillFirstPosition(page, request, user, "keyword", "dom", true, { platformName: /智联招聘/, loginAfterSave: false });
+  expect(position.platform_id).toBe("zhaopin");
   await expectStep(page, "platform-open");
   const browserButton = headerBrowserButton(page);
   await expect(browserButton).toHaveCount(1);
@@ -797,7 +934,9 @@ test("顶部浏览器按钮打开所选平台，等待登录和刷新恢复都�
   await expectStep(page, "platform-login");
   await expectMaskAround(page, browserButton);
   const tour = page.locator(".ant-tour");
-  await expect(tour).toContainText("请切到招聘浏览器，在里面登录你的招聘平台账号");
+  await expect(tour).toContainText("岗位已经保存");
+  await expect(tour).toContainText("请切到刚打开的招聘浏览器");
+  await expect(tour).toContainText("在智联招聘里登录招聘账号");
   await expect(tour).toContainText("狐狸");
   await expect(tour).toContainText("任务栏");
   await expect(tour).toContainText("程序坞");
@@ -823,15 +962,14 @@ test("顶部浏览器按钮打开所选平台，等待登录和刷新恢复都�
   expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(2);
   await expectStep(page, "platform-login");
   await agentControl(request, { loggedIn: true });
-  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu", { timeout: 25_000 });
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-start", { timeout: 25_000 });
   expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(2);
 });
 
 for (const missingPage of ["", "https://www.bing.com/"]) {
   test(`登录检测遇到${missingPage ? "其他网站" : "空白页面"}时提示顶部重开，实际登录后才继续`, async ({ scenario, request }) => {
     const { page, user } = scenario;
-    await acceptTutorial(page);
-    await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
+    await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false });
     await headerBrowserButton(page).click();
     await expectStep(page, "platform-login");
     await agentControl(request, { opened: true, loggedIn: true, pageURL: missingPage });
@@ -842,7 +980,7 @@ for (const missingPage of ["", "https://www.bing.com/"]) {
     expect((await readUserFlow(request, user)).tutorial_completed).not.toBe(true);
     await expectMaskAround(page, headerBrowserButton(page));
     await headerBrowserButton(page).click();
-    await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu", { timeout: 25_000 });
+    await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-start", { timeout: 25_000 });
     const opened = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open");
     expect(opened).toHaveLength(2);
     expect(opened[1].body.url).not.toContain("bing.com");
@@ -850,11 +988,10 @@ for (const missingPage of ["", "https://www.bing.com/"]) {
 }
 
 test("登录检测报错后停止转圈，顶部真实入口仍能重开恢复", async ({ scenario, request }) => {
-  const { page } = scenario;
+  const { page, user } = scenario;
   await agentControl(request, { loggedIn: false });
   await page.route("**/api/v1/page/url", (route) => route.fulfill({ status: 500, json: { error: "招聘浏览器暂时没连上" } }));
-  await acceptTutorial(page);
-  await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
+  await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false });
   await headerBrowserButton(page).click();
   await expectStep(page, "platform-login");
   const tour = page.locator(".ant-tour");
@@ -865,31 +1002,30 @@ test("登录检测报错后停止转圈，顶部真实入口仍能重开恢复",
   await page.unroute("**/api/v1/page/url");
   await agentControl(request, { loggedIn: true });
   await headerBrowserButton(page).click();
-  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu", { timeout: 25_000 });
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-start", { timeout: 25_000 });
 });
 
 test("模拟预览在欢迎和平台登录明确标注不会打开真实浏览器", async ({ scenario, request }) => {
   test.skip(process.env.UI_TEST_EXPECT_SIMULATION !== "true", "仅在明确配置模拟构建时检查环境标记");
-  const { page } = scenario;
+  const { page, user } = scenario;
   await agentControl(request, { loggedIn: false });
   await openAdmin(page);
   const welcome = page.getByRole("dialog", { name: "新同事，欢迎上岗。", exact: true });
   await expect(welcome.getByTestId("onboarding-simulation-notice")).toContainText("不会打开真实招聘浏览器");
   await expect(welcome.getByRole("link", { name: "打开真实浏览器验收" })).toHaveAttribute("href", "http://127.0.0.1:5174/admin");
   await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
-  await expectStep(page, "platform-select");
-  await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
+  await expectPositionEntry(page);
+  await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false, invitationAccepted: true });
   await headerBrowserButton(page).click();
   await expectStep(page, "platform-login");
   await expect(page.locator(".ant-tour").getByTestId("onboarding-simulation-notice")).toContainText("不会打开真实招聘浏览器");
 });
 
 test("390px手机浏览器入口的遮罩圈住真实顶部图标，登录等待时仍可点击", async ({ scenario, request }) => {
-  const { page } = scenario;
+  const { page, user } = scenario;
   await page.setViewportSize({ width: 390, height: 844 });
   await agentControl(request, { loggedIn: false });
-  await acceptTutorial(page);
-  await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
+  await fillFirstPosition(page, request, user, "keyword", "ocr", true, { loginAfterSave: false });
   await expectStep(page, "platform-open");
   const browserButton = headerBrowserButton(page);
   await expect(browserButton).toHaveCount(1);
@@ -941,10 +1077,6 @@ test("390px手机能打开菜单并真实进入岗位管理", async ({ scenario 
   const { page } = scenario;
   await page.setViewportSize({ width: 390, height: 844 });
   await acceptTutorial(page);
-  await page.locator('[data-onboarding="onboarding-platform-choice"]').getByRole("radio", { name: /BOSS 直聘/ }).click();
-  await expectStep(page, "platform-open");
-  await headerBrowserButton(page).click();
-  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu", { timeout: 30_000 });
   await page.locator('[data-onboarding="mobile-menu"]').click();
   await expectMaskAround(page, page.getByRole("menuitem", { name: "岗位管理", exact: true }));
   await page.getByRole("menuitem", { name: "岗位管理", exact: true }).click();
@@ -998,7 +1130,9 @@ test("1280x720弹框真实滚轮和Tab后字段不被裁切，遮罩同步且完
   await expectStep(page, "position-save");
   await expectMaskAround(page, '[data-onboarding="position-save"]');
   await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-save.png", fullPage: true });
+  expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path))).toHaveLength(0);
   await page.locator('[data-onboarding="position-save"]').click();
+  await loginSavedPosition(page);
   await expectStep(page, "position-start");
   const response = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${user.token}` } });
   expect(response.ok()).toBeTruthy();
@@ -1024,4 +1158,25 @@ test("减少动态效果时保留鼓励文字并禁用礼炮", async ({ scenario
   await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator("canvas")).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: /首轮跑通/ })).toContainText("第一条真实筛选结果已经出来了");
+});
+
+test("旧平台配置缺public时按登录前缀识别，泛域名命中登录页也不能提前确认", async ({ scenario, request }) => {
+  const { page, user } = scenario;
+  const entryURL = "https://legacy-zhaopin.example.invalid/recommend";
+  const loginURL = "https://legacy-zhaopin.example.invalid/login";
+  await page.route("**/api/platforms/config/**", (route) => route.fulfill({ json: { configs: [{ config_key: "platform.zhaopin", enabled: true, config_value: { id: "zhaopin", open: true, auth: { pages: [{ url: entryURL, match: "contains", entry: true }, { url: "https://legacy-zhaopin.example.invalid", match: "contains" }], entry_url: entryURL, login_url_prefixes: ["https://passport-legacy.example.invalid", loginURL], logged_in_url_contains: ["legacy-zhaopin.example.invalid"] } } }] } }));
+  const position = await fillFirstPosition(page, request, user, "keyword", "dom", true, { platformName: /智联招聘/, loginAfterSave: false });
+  await headerBrowserButton(page).click();
+  await expectStep(page, "platform-login");
+  await agentControl(request, { opened: true, loggedIn: true, pageURL: loginURL });
+  await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/url").length, { timeout: 25_000 }).toBeGreaterThanOrEqual(4);
+  await expectStep(page, "platform-login");
+  await expect(page.locator(".ant-tour")).toContainText(/扫码|验证码/);
+  expect((await readUserFlow(request, user)).tutorial_completed).toBe(false);
+  await agentControl(request, { pageURL: entryURL });
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-start", { timeout: 20_000 });
+  const opened = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === "/api/v1/page/open");
+  expect(opened).toHaveLength(1);
+  expect(opened[0].body).toMatchObject({ platform_id: "zhaopin", url: entryURL });
+  await expect(page.locator(`[data-onboarding="position-start"][data-position-id="${position.id}"]`)).toBeVisible();
 });
