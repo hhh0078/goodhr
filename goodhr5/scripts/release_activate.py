@@ -124,6 +124,15 @@ def payload_for(old, image):
     if builder_key in image_labels:
         require(image_labels[builder_key] in ("classic", "buildkit"), "候选Compose构建器标签尚未核对")
         labels[builder_key] = image_labels[builder_key]
+    # 仅合并已核对的Compose项目、角色和版本审计；其他新增标签仍由后面的白名单检查拒绝。
+    for key, expected in (("com.docker.compose.project", "goodhr-production"), ("com.docker.compose.service", image_labels.get("goodhr.release_kind"))):
+        if key in image_labels:
+            require(isinstance(image_labels[key], str) and image_labels[key] == expected and (key.endswith(".project") or expected in ROLES), "候选Compose项目或服务标签与正式角色不一致")
+            labels[key] = image_labels[key]
+    version_key = "com.docker.compose.version"
+    if version_key in image_labels:
+        require(isinstance(image_labels[version_key], str) and re.fullmatch(r"v?[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(?:[-+][0-9A-Za-z][0-9A-Za-z.-]{0,63})?", image_labels[version_key]), "候选Compose版本审计标签格式不明确")
+        labels[version_key] = image_labels[version_key]
     if "org.opencontainers.image.revision" in labels:
         labels["org.opencontainers.image.revision"] = labels["goodhr.source_commit"]
     if "com.docker.compose.image" in labels:

@@ -203,6 +203,39 @@ class ActivationTests(unittest.TestCase):
                     runner.activate()
                 self.assertEqual(engine.actions, [])
 
+    def test_reviewed_compose_audit_labels_activate_without_runtime_changes(self):
+        """两端新增明确Compose审计标签可通过完整激活，原业务标签、环境、挂载和网络参数不变。"""
+        runner, engine, _, _ = self.runner()
+        for role in activation.ROLES:
+            engine.images[image(role)["Id"]]["Config"]["Labels"].update({"com.docker.compose.project": "goodhr-production", "com.docker.compose.service": role, "com.docker.compose.version": "2.28.1"})
+        self.assertTrue(runner.activate()["success"])
+        for role in activation.ROLES:
+            actual = engine.inspect(runner.name(role))
+            self.assertEqual(actual["Config"]["Labels"]["com.docker.compose.project"], "goodhr-production")
+            self.assertEqual(actual["Config"]["Labels"]["com.docker.compose.service"], role)
+            self.assertEqual(actual["Config"]["Labels"]["com.docker.compose.version"], "2.28.1")
+            self.assertEqual(actual["Config"]["Labels"]["routing.policy"], "keep-me")
+            self.assertEqual(actual["Config"]["Env"][:4], original(role)["Config"]["Env"])
+            self.assertEqual(actual["HostConfig"], original(role)["HostConfig"])
+            self.assertEqual(actual["Mounts"], original(role)["Mounts"])
+
+    def test_unreviewed_compose_audit_values_or_extra_labels_never_stop(self):
+        """项目、服务和版本审计不符或夹带第四个默认标签时，任何生产停止动作之前即拒绝。"""
+        cases = (("com.docker.compose.project", "other-project"), ("com.docker.compose.project", None),
+                 ("com.docker.compose.service", "frontend"), ("com.docker.compose.service", "worker"),
+                 ("com.docker.compose.version", "latest"), ("com.docker.compose.version", "2.39"),
+                 ("com.docker.compose.version", "2.39.4\nunsafe"), ("com.docker.compose.version", ""),
+                 ("com.docker.compose.version", None), ("com.docker.compose.config-hash", "unreviewed"), ("unreviewed.default", "enabled"))
+        for key, value in cases:
+            with self.subTest(key=key, value=value):
+                runner, engine, _, _ = self.runner()
+                labels = engine.images[image("backend")["Id"]]["Config"]["Labels"]
+                labels.update({"com.docker.compose.project": "goodhr-production", "com.docker.compose.service": "backend", "com.docker.compose.version": "2.28.1"})
+                labels[key] = value
+                with self.assertRaises(activation.CutoverError):
+                    runner.activate()
+                self.assertEqual(engine.actions, [])
+
     def test_static_ip_or_inconsistent_mac_requires_review_before_stopping(self):
         """静态IP及不一致显式MAC不冒用已审阅的唯一桥接恢复策略。"""
         for kind in ("ip", "mac"):
