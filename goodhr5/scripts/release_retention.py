@@ -146,6 +146,19 @@ def build_image(image):
     return image.get("Project") == "goodhr" and image.get("BuildStage") in BUILD_STAGES
 
 
+def parse_docker_created(value):
+    """parse_docker_created 兼容Python3.8解析Docker纳秒时间，返回UTC整秒及精确纳秒，绝不截断排序精度。"""
+    match = re.fullmatch(r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{1,9}))?(Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])", value) if isinstance(value, str) else None
+    require(match is not None, "Docker创建时间必须包含明确时区及最多九位小数")
+    whole, fraction, zone = match.groups()
+    try:
+        # Python3.8不接受Docker常见的7至9位小数，因此只用标准库解析整秒与时区。
+        created = dt.datetime.fromisoformat(whole + ("+00:00" if zone == "Z" else zone)).astimezone(dt.timezone.utc)
+    except (ValueError, OverflowError):
+        raise GuardError("Docker创建时间的日期或时区不合法") from None
+    return created, int((fraction or "").ljust(9, "0"))
+
+
 def retained_build_leaves(images):
     """retained_build_leaves 每种阶段仅保留最新已完成缓存叶子，其完整祖先由统一闭包保护。"""
     retained = set()
@@ -158,8 +171,7 @@ def retained_build_leaves(images):
             if row.get("BuildFinished") != "true":
                 continue
             try:
-                created = dt.datetime.fromisoformat(row["Created"].replace("Z", "+00:00"))
-                require(created.utcoffset() is not None, "构建阶段创建时间缺少时区")
+                created = parse_docker_created(row["Created"])
             except (ValueError, TypeError, KeyError):
                 raise GuardError("构建阶段创建时间异常，禁止猜测缓存保留顺序") from None
             finished.append((created, key))
