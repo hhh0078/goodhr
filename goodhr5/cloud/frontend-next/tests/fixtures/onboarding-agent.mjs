@@ -54,6 +54,8 @@ async function applyControl(payload) {
     if (payload.analysis === null) task.analysis = null;
     else if (payload.analysis) task.analysis = { ...payload.analysis, updated_at: new Date().toISOString() };
     if (payload.status) task.status = payload.status;
+    if (Object.hasOwn(payload, "currentStep")) task.current_step = String(payload.currentStep || "");
+    if (Object.hasOwn(payload, "errorMessage")) task.error_message = String(payload.errorMessage || "");
     state.tasks[payload.positionID] = task;
     if (payload.reportResult) await cloudRequest("/api/user-flow", { step: "first_screening_result", source: "local_agent", position_id: payload.positionID, metadata: { kind: task.analysis?.kind, phase: task.analysis?.phase, terminal: task.analysis?.terminal, accepted: task.analysis?.accepted } });
   }
@@ -159,7 +161,7 @@ async function handleRequest(request, response) {
     }
     const task = state.tasks[positionID] || { position_id: positionID, status: "stopped", analysis: null, scanned_count: 0, greeted_count: 0, skipped_count: 0 };
     if (action === "status") return json(response, 200, task);
-    return json(response, 200, { task, logs: task.analysis ? [{ id: `analysis-${positionID}`, level: "info", message: "教程测试：已完成一条筛选结果", created_at: new Date().toISOString() }] : [] });
+    return json(response, 200, { task, logs: task.error_message ? [{ id: `error-${positionID}`, level: "error", message: task.error_message, created_at: new Date().toISOString() }] : task.analysis ? [{ id: `analysis-${positionID}`, level: "info", message: "教程测试：已完成一条筛选结果", created_at: new Date().toISOString() }] : [] });
   }
   if (url.pathname.includes("/extension/")) return json(response, 200, { requests: [], pairs: [], connections: [] });
   return json(response, 200, { ok: true, tasks: [], profiles: [], accounts: [], logs: [] });

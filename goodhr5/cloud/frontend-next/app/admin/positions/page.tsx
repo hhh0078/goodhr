@@ -39,6 +39,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import { ONBOARDING_FILTER_MODE_OPTIONS } from "@/lib/onboarding-view";
+import { AUTHOR_CONTACT } from "@/lib/author-contact";
+import { isOnboardingTaskEnded } from "@/lib/onboarding-task-feedback";
 import AIResponseDiagnosticDetails, {
   aiResponseDiagnosticFromOutput,
 } from "@/components/admin/AIResponseDiagnosticDetails";
@@ -259,6 +261,7 @@ export default function PositionsPage() {
       setItems([]);
       setLatestTaskStats({});
       setLogs({});
+      setAllLogPosition(null); setAllLogs([]);
       void load();
     }
   }, [draftIdentity]);
@@ -272,7 +275,16 @@ export default function PositionsPage() {
       if (loading) { queuedTutorialRecovery.current = event.positionId; return; }
       const item = items.find((position) => String(position.id) === event.positionId);
       if (item) void recoverTutorialPosition(item);
-      else publishOnboardingEvent({ type: "position-recovered", positionId: event.positionId, recovered: false, message: "这个教程岗位暂时没读到。可以稍后继续重新检查，或刷新后恢复教程。" });
+      else publishOnboardingEvent({ type: "position-recovered", positionId: event.positionId, recovered: false, message: "这个教程岗位暂时没读到。请重新检查，或刷新后恢复教程。" });
+    }
+    if (event.type === "position-logs-requested" && event.positionId) {
+      const item = items.find((position) => String(position.id) === event.positionId);
+      if (item && getOnboardingGuideContext().positionId === event.positionId) void loadAllPositionLogs(item);
+    }
+    if (event.type === "position-stop-requested" && event.positionId) {
+      const item = items.find((position) => String(position.id) === event.positionId);
+      if (item) void stopTutorialPosition(item);
+      else publishOnboardingEvent({ type: "position-stopped", positionId: event.positionId, recovered: false, message: "这个教程岗位暂时没读到，请刷新后重新检查。" });
     }
   }), [dialogOpen, startPositionItem, startLoading, startOpeningPlatform, items, agentBase, loading]);
   useEffect(() => {
@@ -281,8 +293,14 @@ export default function PositionsPage() {
     queuedTutorialRecovery.current = "";
     const item = items.find((position) => String(position.id) === positionId);
     if (item) void recoverTutorialPosition(item);
-    else publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "这个教程岗位暂时没读到。可以稍后继续重新检查，或刷新后恢复教程。" });
+    else publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "这个教程岗位暂时没读到。请重新检查，或刷新后恢复教程。" });
   }, [loading, items]);
+  useEffect(() => {
+    if (!allLogPosition) return;
+    const positionId = String(allLogPosition.id);
+    publishOnboardingEvent({ type: "position-logs-opened", positionId });
+    return () => publishOnboardingEvent({ type: "position-logs-closed", positionId });
+  }, [allLogPosition?.id]);
   useEffect(() => {
     if (!startPositionItem) return;
     publishOnboardingEvent({
@@ -1149,14 +1167,39 @@ export default function PositionsPage() {
       if (lastDraftIdentity.current === ownerIdentity) setBusyPositionID("");
     }
   }
+  /** stopTutorialPosition 只响应用户主动停止教程原岗位的操作，复用现有停止和云端同步流程。 */
+  async function stopTutorialPosition(item: any) {
+    const positionId = String(item.id);
+    const ownerIdentity = draftIdentity;
+    const context = getOnboardingGuideContext();
+    if (!context.active || context.positionId !== positionId || busyPositionID || recoveringTutorialPosition.current) {
+      publishOnboardingEvent({ type: "position-stopped", positionId, recovered: false, message: "当前操作还在处理中，请等它结束后重新检查任务状态。" });
+      return;
+    }
+    let message = "";
+    let recovered = await stopPosition(item, { onError: (error) => { message = error; } });
+    if (lastDraftIdentity.current !== ownerIdentity) return;
+    if (recovered) {
+      try {
+        const confirmed = await cloudRequest(`/api/positions/${encodeURIComponent(positionId)}`);
+        if (lastDraftIdentity.current !== ownerIdentity) return;
+        recovered = confirmed.position?.id === positionId && confirmed.position?.status === "stopped";
+        if (!recovered) message = "云端停止状态还没确认，请重新检查。";
+      } catch { recovered = false; message = "云端停止状态暂时没读到，请重新检查。"; }
+    }
+    publishOnboardingEvent({ type: "position-stopped", positionId, recovered, message, agentBase });
+  }
   /** recoverTutorialPosition 只恢复当前教程岗位，重新核对本地终态并复用安全停止确认，避免旧云端 running 阻断重试。 */
   async function recoverTutorialPosition(item: any) {
     const positionId = String(item.id);
-    if (recoveringTutorialPosition.current) return;
+    if (recoveringTutorialPosition.current) {
+      publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, agentBase, message: "上一轮停止确认还在处理中，请等它结束后重试。" });
+      return;
+    }
     const ownerIdentity = draftIdentity;
     const context = getOnboardingGuideContext();
     if (!context.active || context.positionId !== positionId) {
-      publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "教程已经暂停，这次先不重复启动。恢复后可以再检查。" });
+      publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "教程岗位状态已变化，请重新检查，这次先不重复启动。" });
       return;
     }
     recoveringTutorialPosition.current = positionId;
@@ -1164,11 +1207,11 @@ export default function PositionsPage() {
       const task = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(positionId)}/status`);
       const latestContext = getOnboardingGuideContext();
       if (lastDraftIdentity.current !== ownerIdentity || !latestContext.active || latestContext.positionId !== positionId) {
-        publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "教程已经暂停或切换账号，这次先不重复启动。恢复后可以再检查。" });
+        publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "教程岗位或账号已变化，这次先不重复启动。" });
         return;
       }
-      if (!["failed", "stopped", "completed"].includes(String(task.status)) || (task.position_id && String(task.position_id) !== positionId)) {
-        publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "当前岗位还在运行或状态已经变化，这次先不重复启动。可以继续等结果，或稍后继续查看岗位日志。" });
+      if (!isOnboardingTaskEnded(task) || (task.position_id && String(task.position_id) !== positionId)) {
+        publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: "当前岗位还在运行或状态已经变化，这次先不重复启动。可以继续等结果，或查看错误日志。" });
         return;
       }
       let stopError = "";
@@ -1179,10 +1222,10 @@ export default function PositionsPage() {
         if (lastDraftIdentity.current !== ownerIdentity) return;
         recovered = String(confirmed.position?.id || "") === positionId && String(confirmed.position?.status || "") === "stopped";
       }
-      publishOnboardingEvent({ type: "position-recovered", positionId, recovered, message: recovered ? "" : `${stopError ? `${stopError}。` : ""}停止状态还没确认，这次先不重复启动。可以再点“上一步”重试，或稍后继续查看岗位日志。` });
+      publishOnboardingEvent({ type: "position-recovered", positionId, recovered, agentBase, message: recovered ? "" : `${stopError ? `${stopError}。` : ""}停止状态还没确认，这次先不重复启动。可以点“处理好，重新开始”重试，或查看错误日志。` });
     } catch (error) {
       if (lastDraftIdentity.current !== ownerIdentity) return;
-      publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, message: `停止状态还没确认：${error instanceof Error ? error.message : "本地记录暂时没读到"}。可以再点“上一步”重试，或稍后继续。` });
+      publishOnboardingEvent({ type: "position-recovered", positionId, recovered: false, agentBase, message: `停止状态还没确认：${error instanceof Error ? error.message : "本地记录暂时没读到"}。可以点“处理好，重新开始”重试，或查看错误日志。` });
     } finally {
       if (recoveringTutorialPosition.current === positionId) recoveringTutorialPosition.current = "";
     }
@@ -1242,7 +1285,8 @@ export default function PositionsPage() {
         taskStatus === "failed" &&
         taskID &&
         errorMessage &&
-        !shownTaskFailureIDs.current.has(taskID)
+        !shownTaskFailureIDs.current.has(taskID) &&
+        !(getOnboardingGuideContext().active && getOnboardingGuideContext().positionId === String(item.id))
       ) {
         shownTaskFailureIDs.current.add(taskID);
         setTaskFailure({
@@ -1314,6 +1358,8 @@ export default function PositionsPage() {
   /** loadAllPositionLogs 读取指定岗位保留的全部本地日志并打开弹框。 */
   async function loadAllPositionLogs(item: any) {
     if (!agentBase) return notify("本地程序还没连上", "warning");
+    const ownerIdentity = draftIdentity;
+    setAllLogs([]);
     setAllLogPosition(item);
     setAllLogLoading(true);
     try {
@@ -1321,14 +1367,16 @@ export default function PositionsPage() {
         agentBase,
         `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs?limit=${ALL_LOG_LIMIT}`,
       );
+      if (lastDraftIdentity.current !== ownerIdentity || !pageMountedRef.current) return;
       setAllLogs(data.logs || []);
     } catch (error) {
+      if (lastDraftIdentity.current !== ownerIdentity || !pageMountedRef.current) return;
       notify(
         error instanceof Error ? error.message : "全部日志读取失败",
         "error",
       );
     } finally {
-      setAllLogLoading(false);
+      if (lastDraftIdentity.current === ownerIdentity && pageMountedRef.current) setAllLogLoading(false);
     }
   }
   /** copyPositionDiagnosticLink 先同步本地日志，再复制七天有效的只读排障链接。 */
@@ -1859,7 +1907,7 @@ export default function PositionsPage() {
                 {form.id ? "这是当前岗位已经保存的平台，编辑时不能更换。确认后接着复核岗位内容。" : "选这个岗位实际所在的平台。岗位保存后，我再带你打开招聘浏览器登录。"}
               </Typography.Paragraph>
               {form.id ? <Button onClick={() => selectPlatform(form.platform_id)} disabled={!isPlatformOpen(platformConfigs, form.platform_id)} style={{ marginTop: 8 }}>确认使用此平台</Button> : null}
-              {form.platform_id && !isPlatformOpen(platformConfigs, form.platform_id) ? <Alert type="warning" showIcon title={form.id ? "这个岗位的平台暂未开放，已保存的平台不能更换。可以稍后继续，或联系作者确认开放情况。" : "上次选择的平台暂未开放，换一个可用平台再继续。其他内容给你留着了。"} style={{ marginTop: 8 }} /> : null}
+              {form.platform_id && !isPlatformOpen(platformConfigs, form.platform_id) ? <Alert type="warning" showIcon title={form.id ? "这个岗位的平台暂未开放，已保存的平台不能更换。请联系作者确认，或新建一个可用平台的岗位继续。" : "上次选择的平台暂未开放，换一个可用平台再继续。其他内容给你留着了。"} style={{ marginTop: 8 }} /> : null}
             </div>
             <Form.Item layout="vertical" label="岗位名称" extra={`到你选择的${form.platform_id ? platformLabel(form.platform_id) : "招聘平台"}“岗位管理”复制完整岗位名称，保持一致。`} style={{ marginBottom: 0 }}>
               <Input
@@ -3270,6 +3318,7 @@ function PositionLogPanel(props: {
           </Button>
         </Flex>
         <Flex className={styles.s110}>
+          <Button size="small" type="text" href={AUTHOR_CONTACT.contactPageURL} target="_blank" rel="noopener noreferrer" data-testid="position-contact-author">联系作者</Button>
           <Button
             size="small"
             onClick={onShare}

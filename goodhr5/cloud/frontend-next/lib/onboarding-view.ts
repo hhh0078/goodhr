@@ -5,10 +5,6 @@ export type OnboardingPhase = "loading" | "invite" | "skip" | "active" | "paused
 export type OnboardingCelebration = { id: string; title: string; description: string };
 export type OnboardingActions = {
   accept: () => void;
-  pause: () => void;
-  requestSkip: () => void;
-  cancelSkip: () => void;
-  confirmSkip: () => void;
   back: () => void;
   requestRestart: () => void;
   cancelRestart: () => void;
@@ -19,7 +15,11 @@ export type OnboardingActions = {
   openPlatform: () => void;
   downloadAgent: () => void;
   checkAgent: () => void;
-  resume: () => void;
+  checkResult: () => void;
+  recoverResult: () => void;
+  reviewResultPosition: () => void;
+  viewResultLogs: () => void;
+  stopResult: () => void;
   finishClose: () => void;
   dismissCelebration: () => void;
   refreshPlatforms: () => void;
@@ -39,10 +39,12 @@ export type OnboardingExperienceProps = {
   statusText: string;
   error: string;
   busy: boolean;
+  resultState: "waiting" | "ended" | "unavailable";
+  resultLogsOpen: boolean;
   helpOpen: boolean;
   restartOpen: boolean;
   restartBlockedReason: string;
-  /** 教程自己的表单或开始弹框保留时，让暂停入口位于其遮罩上方；必要检查仍优先。 */
+  /** 兼容旧暂停进度的数据合同，当前教程不提供暂停或跳过入口。 */
   resumeAboveDialog: boolean;
   formSaving: boolean;
   blocked: boolean;
@@ -82,7 +84,7 @@ const stepCopy: Record<OnboardingStep, StepCopy> = {
   "platform-filter": { title: "从这个弹框打开招聘平台", description: "点击“打开平台，并筛选条件”。在打开的招聘浏览器里登录账号，并设置年龄、学历、地区等基础筛选条件。", hint: "准备好后回到这个弹框，再确认开始；这些平台条件需要你亲自设置。", estimate: "约 1–2 分钟" },
   "position-run": { title: "登录已确认，筛选条件也设好了吗？", description: "请确认你已在招聘平台设置好年龄、学历、地区等条件，再点“我已筛选好，立即开始”。任务开始后会按岗位设置筛选，匹配时会打招呼。", hint: "我能检查登录，平台里的筛选条件还得请你确认；没设好可以先回招聘浏览器调整。", estimate: "约 10–30 秒" },
   "position-start-check": { title: "启动前，先让我检查一下", description: "正在打开平台或检查登录、会员、余额和本地程序。请留意当前弹框里的进度，检查通过且岗位启动成功后，我才会继续。", hint: "这会儿不用重复点击。想返回的话，点“上一步”，当前检查结束后会安全返回。", estimate: "约 10–30 秒，平台响应可能更久" },
-  "position-start-error": { title: "先处理这个提示，再继续开工", description: "岗位还没启动，原因就在高亮弹框里。看到“重新检查”时，处理好后直接点它；检查通过还会等你确认开始。其他错误按弹框提示返回处理。", hint: "重新检查不会打开平台或运行任务，已设筛选条件会保留。也可以点“稍后继续”先处理提示。", estimate: "处理好提示后即可重试" },
+  "position-start-error": { title: "先处理这个提示，再继续开工", description: "岗位还没启动，原因就在高亮弹框里。看到“重新检查”时，处理好后直接点它；检查通过还会等你确认开始。其他错误按弹框提示返回处理。", hint: "重新检查不会打开平台或运行任务，已设筛选条件会保留。还没解决的话，点“遇到问题”找我。", estimate: "处理好提示后即可重试" },
   "position-start-update": { title: "本地程序得先更新一下", description: "当前版本还不能启动这个岗位。请按高亮弹框提示点击“立即更新”，页面会重新检查版本，并接上现有更新流程。", hint: "岗位还没开跑，进度已经保存；更新并重新连接成功后，再点岗位的“开始”。", estimate: "更新约 1–3 分钟，取决于网络" },
   "first-result": { title: "等第一条真实筛选结果", description: "保持浏览器开着。我会展示当前执行步骤，等到 AI 或关键词真正给出判断，再庆祝跑通。", hint: "判定“不合适”也是正常结果；只有扫描数量增加还不算完成。", estimate: "通常约 1–3 分钟，平台或 AI 可能更久" },
   "complete": { title: "首轮跑通，今天你赢了", description: "从准备本地程序、创建岗位，到平台登录和真实筛选，关键流程你已经走过一遍。接下来可以调整岗位条件，继续使用。", hint: "教程结束不会自动停止正在运行的岗位。", estimate: "已完成" },

@@ -10,7 +10,7 @@ export type OnboardingScreeningResult = {
   score?: number;
 };
 export type OnboardingEvent = {
-  type: "guide-requested" | "runtime-status-changed" | "platform-browser-open-requested" | "platform-unavailable" | "position-form-close-requested" | "position-start-close-requested" | "position-form-opened" | "position-form-closed" | "position-form-saving" | "form-field-completed" | "position-created" | "start-dialog-opened" | "start-dialog-closed" | "start-dialog-status" | "position-recover-requested" | "position-recovered" | "platform-opened" | "position-started" | "screening-result";
+  type: "guide-requested" | "runtime-status-changed" | "platform-browser-open-requested" | "platform-unavailable" | "position-form-close-requested" | "position-start-close-requested" | "position-form-opened" | "position-form-closed" | "position-form-saving" | "form-field-completed" | "position-created" | "start-dialog-opened" | "start-dialog-closed" | "start-dialog-status" | "position-recover-requested" | "position-recovered" | "position-stop-requested" | "position-stopped" | "position-logs-requested" | "position-logs-opened" | "position-logs-closed" | "platform-opened" | "position-started" | "screening-result";
   saving?: boolean;
   /** 关闭旧岗位开始弹框时同步重读岗位，避免平台变更或删除后仍使用旧卡片。 */
   refreshPositions?: boolean;

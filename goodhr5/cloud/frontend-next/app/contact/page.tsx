@@ -9,6 +9,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import MarketingShell from "@/components/MarketingShell";
 import { createPageMetadata, SITE_URL } from "@/lib/seo";
+import { AUTHOR_CONTACT } from "@/lib/author-contact";
 
 export const metadata: Metadata = createPageMetadata({
   title: "联系GoodHR - 招聘自动化与AI招聘工具咨询",
@@ -22,15 +23,15 @@ const contacts = [
   {
     icon: PhoneRoundedIcon,
     label: "手机与微信",
-    value: "17607080935",
-    href: "tel:17607080935",
+    value: AUTHOR_CONTACT.phone,
+    href: `tel:${AUTHOR_CONTACT.phone}`,
     note: "工作日和周末都可以留言。",
   },
   {
     icon: EmailRoundedIcon,
     label: "电子邮箱",
-    value: "1224299352@qq.com",
-    href: "mailto:1224299352@qq.com",
+    value: AUTHOR_CONTACT.email,
+    href: `mailto:${AUTHOR_CONTACT.email}`,
     note: "可发送问题截图、日志和使用需求。",
   },
   {
@@ -47,8 +48,8 @@ const qrcodes = [
     icon: ChatRoundedIcon,
     title: "微信联系作者",
     description: "安装、订阅、发票、功能建议，都可以直接加我。",
-    image: "/assets/contact/wechat-developer.jpg",
-    alt: "GoodHR 作者微信二维码",
+    image: AUTHOR_CONTACT.wechatQrCode,
+    alt: AUTHOR_CONTACT.wechatQrCodeAlt,
   },
   {
     icon: GroupsRoundedIcon,

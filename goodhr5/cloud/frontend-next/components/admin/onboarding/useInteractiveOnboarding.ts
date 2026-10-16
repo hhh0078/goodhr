@@ -10,6 +10,7 @@ import { loadUserFlow } from "@/lib/user-flow";
 import { publishOnboardingEvent, setOnboardingGuideContext, subscribeOnboardingEvents, type OnboardingEvent, type OnboardingScreeningResult } from "@/lib/onboarding-events";
 import { createOnboardingState, restartOnboardingState, needsPositionRequirement, nextOnboardingFormStep, normalizeOnboardingPosition, onboardingDoneCount, onboardingRemainingTime, readOnboardingState, saveOnboardingState, type OnboardingState, type OnboardingStep } from "@/lib/onboarding-state";
 import { clearOnboardingPositionDraft } from "@/lib/onboarding-position-draft";
+import { getOnboardingTaskFeedback, isOnboardingTaskEnded } from "@/lib/onboarding-task-feedback";
 import { onboardingStepCopy, type OnboardingCelebration, type OnboardingExperienceProps, type OnboardingPhase } from "@/lib/onboarding-view";
 import { onboardingTargetSelector, useOnboardingTarget } from "./useOnboardingTarget";
 
@@ -46,6 +47,8 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   const [platformOpenGeneration, setPlatformOpenGeneration] = useState(0);
   const [startDialogStatus, setStartDialogStatus] = useState<"ready" | "opening" | "checking" | "error" | "update">("ready");
   const [taskStopped, setTaskStopped] = useState(false);
+  const [resultState, setResultState] = useState<"waiting" | "ended" | "unavailable">("waiting");
+  const [resultLogsOpen, setResultLogsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
   const [formSaving, setFormSaving] = useState(false);
@@ -58,9 +61,15 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   const aliveRef = useRef(true);
   const pendingStartBackRef = useRef("");
   const pendingRecoveryRef = useRef("");
+  const pendingRecoveryTarget = useRef<"start" | "edit">("start");
+  const pendingStopRef = useRef("");
+  const recoveryFailureRef = useRef("");
+  const resultRequestRef = useRef<Promise<void> | null>(null);
+  const activeResultAgent = useRef(agentBase);
+  const previousResultAgent = useRef(agentBase);
+  activeResultAgent.current = agentBase;
   const loginRequestRef = useRef<AbortController | null>(null);
   const environmentRef = useRef(false);
-  const phaseBeforeSkip = useRef<OnboardingPhase>("invite");
   const sessionEpochRef = useRef(0);
 
   /** changePhase 立即更新运行保护，防止同一轮异步响应在暂停或换号后继续推进。 */
@@ -121,8 +130,15 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     aliveRef.current = true;
     sessionEpochRef.current += 1;
     setHelpOpen(false); setRestartOpen(false); setFormSaving(false);
+    setTaskStopped(false); setResultState("waiting"); setResultLogsOpen(false);
+    setCloudConfirmed(false); setFormOpen(false); setStartOpen(false);
+    pendingStartBackRef.current = ""; recoveryFailureRef.current = "";
+    pendingRecoveryRef.current = ""; pendingStopRef.current = "";
+    setBusy(false); resultRequestRef.current = null; changePhase("loading");
     const cached = readOnboardingState(identity);
-    stateRef.current = cached; setState(cached);
+    // 先取消缓存的完成标记，防止云端完成事实返回前，旧缓存触发完成同步。
+    const restored: OnboardingState = cached.status === "completed" ? { ...cached, status: "active", completionKind: undefined, step: cached.positionId ? "first-result" : "position-menu" } : cached;
+    stateRef.current = restored; setState(restored);
     let active = true;
     /** initialize 先读数据库完成事实，再恢复当前账号缓存；不能因缓存缺失强迫老用户再学。 */
     async function initialize() {
@@ -137,6 +153,9 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
         if (flow?.tutorial_completed === true || flow?.state === "completed") {
           setCloudConfirmed(true);
           if (!cached.replaying) { changePhase("silent"); return; }
+        } else if (cached.status === "completed") {
+          // 本机完成快照不是云端完成事实；重新读取原任务结果后再同步，不靠缓存跳过。
+          update((current) => ({ ...current, status: "active", completionKind: undefined, step: current.positionId ? "first-result" : "position-menu" }));
         }
         if (runtimeRequest.status === "fulfilled" && runtimeRequest.value && !hasMissingRequiredRuntime(runtimeRequest.value)) {
           setConnectionAlive(true); setRuntimeReady(true); setEnvironmentChecked(true); environmentRef.current = true;
@@ -148,14 +167,29 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
           const position = Array.isArray(data.positions) ? data.positions.find((item: { id?: string }) => item.id === cached.positionId) : null;
           update((current) => normalizeOnboardingPosition(current, position || null));
         }
+        // 是否免教程只看云端事实；旧版暂停和跳过缓存不能绕过尚未完成的教程。
+        if (["paused", "declined"].includes(stateRef.current.status)) update((current) => ({ ...current, status: "active" }));
         changePhase(stateRef.current.status === "invited" ? "invite" : stateRef.current.status);
       } catch {
-        if (active) { setError("上手进度暂时没读到。点“继续引导”可以恢复本机进度，也可以先正常使用。"); changePhase("paused"); }
+        if (active) {
+          setError("上手进度暂时没读到，刷新后可以重新检查，已经保存的岗位会留着。");
+          update((current) => ({ ...current, status: "active", step: current.step === "complete" ? current.positionId ? "first-result" : "position-menu" : current.step }));
+          changePhase("active");
+        }
       }
     }
     void initialize();
     return () => { active = false; aliveRef.current = false; sessionEpochRef.current += 1; loginRequestRef.current?.abort(); setOnboardingGuideContext({ active: false, platformId: "boss" }); };
   }, [identity, changePhase, update]);
+
+  useEffect(() => {
+    if (previousResultAgent.current === agentBase) return;
+    previousResultAgent.current = agentBase;
+    // 更换本地程序后重新确认该实例的任务；旧实例的回复不能继续当前教程。
+    sessionEpochRef.current += 1; resultRequestRef.current = null;
+    pendingRecoveryRef.current = ""; pendingStopRef.current = "";
+    setBusy(false); setTaskStopped(false); setResultState("waiting");
+  }, [agentBase]);
 
   useEffect(() => {
     if (phase !== "active") return;
@@ -174,7 +208,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
         } else update((value) => normalizeOnboardingPosition(value, position));
         if (active) await readPlatformAvailability();
       } catch {
-        if (active) setError("教程岗位暂时没读到。可以稍后继续再试，已保存的进度会留着。");
+        if (active) setError("教程岗位暂时没读到。刷新后可以重新检查，已保存的进度会留着。");
       }
     }
     void validateTutorialPosition();
@@ -205,6 +239,36 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     setError(""); changePhase("completed");
     celebrate("complete", "首轮跑通，今天你赢了", "不是只点完按钮，是已经得到一条真实筛选结果。招聘小助手正式到岗。");
   }, [update, changePhase, celebrate]);
+
+  /** readResultTask 串行复用任务状态读取，真实判断优先，终态和失联均提供可恢复的展示状态。 */
+  const readResultTask = useCallback((positionId: string, epoch: number): Promise<void> => {
+    if (resultRequestRef.current) return resultRequestRef.current;
+    /** currentResultOwner 只允许当前账号、原岗位和本轮教程接收任务回复。 */
+    const currentResultOwner = () => aliveRef.current && activeResultAgent.current === agentBase && epoch === sessionEpochRef.current && phaseRef.current === "active" && stateRef.current.positionId === positionId && stateRef.current.step === "first-result";
+    const request = (async () => {
+      try {
+        const task = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(positionId)}/status`, { timeoutMS: 5000 });
+        if (!currentResultOwner() || pendingRecoveryRef.current || pendingStopRef.current) return;
+        if (task.position_id && String(task.position_id) !== positionId) throw new Error("运行记录与当前岗位不一致");
+        const result = parseScreeningResult(task.analysis);
+        if (result) {
+          finishResult(result, positionId);
+          if (stateRef.current.status === "completed") return;
+        }
+        const feedback = getOnboardingTaskFeedback(task);
+        setTaskStopped(feedback.ended); setResultState(feedback.ended ? "ended" : "waiting");
+        setStatusText(feedback.statusText); setError(recoveryFailureRef.current || feedback.error);
+      } catch (failure) {
+        if (!currentResultOwner() || pendingRecoveryRef.current || pendingStopRef.current) return;
+        setTaskStopped(false); setResultState("unavailable");
+        setStatusText("运行状态暂时没确认");
+        setError(`运行记录暂时没读到：${failure instanceof Error ? failure.message : "本地程序没有返回记录"}。点“重新检查”，我先确认状态，不会重复开工。`);
+      }
+    })();
+    resultRequestRef.current = request;
+    void request.finally(() => { if (resultRequestRef.current === request) resultRequestRef.current = null; });
+    return request;
+  }, [agentBase, finishResult]);
 
   /** openPlatform 保留旧展示层动作合同，只指明现有开始弹框入口，不另行打开或导航招聘页。 */
   const openPlatform = useCallback(() => {
@@ -253,13 +317,31 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   }, [identity, phase, state.step, state.platformId, state.positionId, state.reviewPosition, startOpen, startDialogStatus, platformOpenGeneration, agentBase, connectionAlive, runtimeReady, busy, blocked, helpOpen, restartOpen, update, celebrate, returnToPlatformChoice]);
 
   useEffect(() => subscribeOnboardingEvents((event: OnboardingEvent) => {
+    if (["position-stopped", "position-recovered"].includes(event.type) && event.agentBase && event.agentBase !== activeResultAgent.current) return;
+    if (event.type === "position-logs-opened" && event.positionId === stateRef.current.positionId) { setResultLogsOpen(true); setHelpOpen(false); return; }
+    if (event.type === "position-logs-closed") { setResultLogsOpen(false); return; }
+    if (event.type === "position-stopped" && event.positionId === pendingStopRef.current) {
+      pendingStopRef.current = ""; setBusy(false);
+      if (event.positionId !== stateRef.current.positionId || phaseRef.current !== "active") return;
+      if (event.recovered) {
+        setTaskStopped(false); setResultState("waiting"); setStatusText("这一轮已经确认停好，准备好后可以重新开始。"); setError("");
+        update((current) => ({ ...current, positionStarted: false, reviewPosition: false, step: "position-start" }));
+      }
+      else { setResultState("unavailable"); setTaskStopped(false); setError(event.message || "停止状态还没确认，请重新检查；不会重复运行。"); }
+      return;
+    }
     if (event.type === "position-recovered" && event.positionId === pendingRecoveryRef.current) {
       pendingRecoveryRef.current = ""; setBusy(false);
       if (phaseRef.current === "active" && stateRef.current.positionId === event.positionId) {
         if (event.recovered) {
-          setTaskStopped(false); setError(""); setStatusText("上一轮已经确认停好，可以重新开始。");
-          update((value) => ({ ...value, step: "position-start" }));
-        } else setError(event.message || "停止状态还没确认，这次先不重复启动。可以再点“上一步”重试，或稍后继续查看岗位日志。");
+          recoveryFailureRef.current = "";
+          setTaskStopped(false); setResultState("waiting"); setError(""); setStatusText("上一轮已经确认停好，可以重新开始。");
+          const reviewPosition = pendingRecoveryTarget.current === "edit";
+          update((value) => ({ ...value, positionStarted: false, reviewPosition, step: reviewPosition ? "position-edit" : "position-start" }));
+        } else {
+          recoveryFailureRef.current = event.message || "停止状态还没确认，请再点“处理好，重新开始”重试，或查看错误日志。";
+          setResultState("ended"); setError(recoveryFailureRef.current);
+        }
       }
       return;
     }
@@ -330,7 +412,8 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     }
     if (event.type === "position-started" && event.positionId === current.positionId) {
       pendingStartBackRef.current = "";
-      setStartOpen(false); setTaskStopped(false); update((value) => ({ ...value, positionStarted: true, step: "first-result" }));
+      recoveryFailureRef.current = "";
+      setStartOpen(false); setTaskStopped(false); setResultState("waiting"); setError(""); update((value) => ({ ...value, positionStarted: true, step: "first-result" }));
       celebrate("started", "小助手开工了", "先别关浏览器，咱们再看一条真实筛选结果。");
     }
     if (event.type === "screening-result" && event.positionId && event.result) finishResult(event.result, event.positionId);
@@ -366,21 +449,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
         }
         const current = stateRef.current;
         if (ready && current.positionId && current.positionStarted && current.step === "first-result") {
-          try {
-          const task = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(current.positionId)}/status`, { timeoutMS: 5000 });
-          if (!active || epoch !== sessionEpochRef.current) return;
-          const result = parseScreeningResult(task.analysis);
-          const ended = ["failed", "stopped", "completed"].includes(String(task.status));
-          setTaskStopped(ended);
-          if (pendingRecoveryRef.current === current.positionId) return;
-          if (result) finishResult(result, current.positionId);
-          else {
-            setStatusText(String(task.current_step || task.message || "正在等待第一条真实筛选结果"));
-            if (ended) setError((currentError) => currentError || "这一轮已经结束，还没有真实筛选结果。可能暂时没有候选人，可以点“上一步”重新开始，或查看岗位日志。");
-          }
-          } catch {
-            if (active && epoch === sessionEpochRef.current) setError("本地程序已经连上，但运行记录暂时没读到。我会继续重试，你也可以暂停教程查看岗位日志。");
-          }
+          await readResultTask(current.positionId, epoch);
         }
       } catch {
         if (active && epoch === sessionEpochRef.current) { setConnectionAlive(false); environmentRef.current = false; setStatusText("本地小助手暂时掉线了。启动程序后点“检查连接”，我会接着带路。"); await refreshAgent().catch(() => undefined); }
@@ -390,7 +459,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     }
     void pollEnvironment();
     return () => { active = false; if (timer !== undefined) window.clearTimeout(timer); };
-  }, [phase, agentBase, agentDetected, refreshAgent, update, celebrate, finishResult]);
+  }, [phase, agentBase, agentDetected, refreshAgent, update, celebrate, readResultTask]);
 
   useEffect(() => {
     if (state.status !== "completed" || cloudConfirmed || !state.completionKind || !state.positionId) return;
@@ -431,6 +500,12 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   const selector = onboardingTargetSelector(step, state.positionId);
   const { target, targetGeometry } = useOnboardingTarget(selector, phase === "active" && !blocked && !helpOpen && !restartOpen);
   const copy = { ...onboardingStepCopy(step) };
+  if (step === "first-result" && resultState !== "waiting") {
+    copy.title = resultState === "ended" ? "这轮停下了，先处理提示" : "先确认任务状态，避免重复开工";
+    copy.description = resultState === "ended" ? "查看下面的具体提示。可以查看日志、修改岗位，或处理好后重新开始，教程会接着走。" : "点“重新检查”读取状态；一直读不到时，可以主动停止并确认状态，再重新开始。";
+    copy.hint = "岗位和进度都会留着，不用重新创建，也不会把报错算作完成。";
+    copy.estimate = "处理好提示后继续";
+  }
   const platformName = ({ boss: "BOSS 直聘", zhaopin: "智联招聘", liepin: "猎聘企业端", hliepin: "猎聘猎头端" } as Record<string, string>)[state.platformId] || "招聘平台";
   if (step === "platform-login" && state.positionId) copy.description = `请切到刚打开的招聘浏览器，在${platformName}里登录招聘账号，并亲自设置年龄、学历、地区等条件。登录确认后，回来点击“我已筛选好，立即开始”。`;
   if (step === "position-menu" && state.positionId) {
@@ -440,7 +515,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   }
   if (step === "position-menu" && state.step === "first-result") {
     copy.title = "先回岗位管理，接着处理这一轮";
-    copy.description = "点击左侧“岗位管理”，回到教程岗位。上一轮已经结束但还没有筛选结果，回去后点“上一步”，我会先确认岗位停好，再带你重新开始。";
+    copy.description = "点击左侧“岗位管理”，回到教程岗位。可以查看错误日志、修改岗位，或处理好后重新开始。";
     copy.hint = "已经保存的岗位和教程进度都会留着，不需要重新创建。";
   }
   if (step === "runtime-system" && !systemDownloadAvailable) copy.description = "当前没有运行库下载地址。请到微软官网下载 Microsoft Visual C++ x64 运行库，或联系作者确认安装包。安装或修复完成后，回来点击“安装或修复后重新检查”。";
@@ -469,7 +544,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     setBusy(true);
     try {
       const task = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(positionId)}/status`, { timeoutMS: 5000 });
-      if (aliveRef.current && epoch === sessionEpochRef.current && stateRef.current.positionId === positionId) setTaskStopped(["stopped", "completed", "failed"].includes(String(task.status)));
+      if (aliveRef.current && epoch === sessionEpochRef.current && stateRef.current.positionId === positionId) setTaskStopped(isOnboardingTaskEnded(task));
     } catch {
       // 读不到时保留运行保护，不能把失联当成已经安全停止。
     } finally {
@@ -487,9 +562,9 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     publishOnboardingEvent({ type: "position-form-close-requested" });
     publishOnboardingEvent({ type: "position-start-close-requested" });
     clearOnboardingPositionDraft(identity, undefined, current.positionId || undefined);
-    pendingStartBackRef.current = ""; pendingRecoveryRef.current = "";
+    pendingStartBackRef.current = ""; pendingRecoveryRef.current = ""; recoveryFailureRef.current = "";
     setBusy(false); setFormOpen(false); setFormSaving(false); setStartOpen(false);
-    setTaskStopped(false); setHelpOpen(false); setRestartOpen(false); setCelebration(null);
+    setTaskStopped(false); setResultState("waiting"); setResultLogsOpen(false); setHelpOpen(false); setRestartOpen(false); setCelebration(null);
     setError(""); setStatusText("");
     update(() => restartOnboardingState(current, connectionAlive && runtimeReady));
     changePhase("invite");
@@ -504,10 +579,38 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   }
   /** accept 接受引导邀请；保留当前真实事实，不把跳过当成已完成。 */
   function accept() { update((value) => ({ ...value, status: "active" })); changePhase("active"); setError(""); }
-  /** pause 暂停遮罩但保留进度，恢复后重新检查当前环境。 */
-  function pause() { if (formSaving) return; update((value) => ({ ...value, status: "paused" })); changePhase("paused"); setHelpOpen(false); setRestartOpen(false); }
-  /** resume 允许用户主动重新进入教程，已拒绝引导也能从帮助入口回来。 */
-  function resume() { update((value) => ({ ...value, status: "active", step: value.status === "completed" ? "position-menu" : value.step })); changePhase("active"); setError(""); }
+  /** recoverResultTarget 复用既有安全恢复流程，确认原岗位停止后再回到开始或编辑，不直接运行。 */
+  function recoverResultTarget(target: "start" | "edit") {
+    const current = stateRef.current;
+    if (busy || pendingRecoveryRef.current || pendingStopRef.current || !current.positionId || !taskStopped) return;
+    if (!pathname.startsWith("/admin/positions")) { router.push("/admin/positions"); return; }
+    sessionEpochRef.current += 1;
+    pendingRecoveryRef.current = current.positionId; pendingRecoveryTarget.current = target; recoveryFailureRef.current = "";
+    setHelpOpen(false); setRestartOpen(false); setBusy(true); setError(""); setStatusText("正在确认原岗位已经停好，确认后接着走。");
+    publishOnboardingEvent({ type: "position-recover-requested", positionId: current.positionId });
+  }
+  /** checkResult 主动重查本轮状态，复用串行读取，不打开招聘平台或重新启动任务。 */
+  async function checkResult() {
+    if (busy || !stateRef.current.positionId) return;
+    const epoch = sessionEpochRef.current;
+    setBusy(true);
+    try { await readResultTask(stateRef.current.positionId, epoch); }
+    finally { if (aliveRef.current && epoch === sessionEpochRef.current) setBusy(false); }
+  }
+  /** viewResultLogs 打开教程原岗位现有日志弹框，教程仍处于进行中。 */
+  function viewResultLogs() {
+    setHelpOpen(false); setRestartOpen(false);
+    if (!pathname.startsWith("/admin/positions")) { router.push("/admin/positions"); return; }
+    publishOnboardingEvent({ type: "position-logs-requested", positionId: stateRef.current.positionId });
+  }
+  /** stopResult 仅在用户主动点击时请求停止当前教程任务，停止结果仍需原流程确认。 */
+  function stopResult() {
+    const current = stateRef.current;
+    if (busy || pendingStopRef.current || !current.positionId || taskStopped || resultState === "ended") return;
+    if (!pathname.startsWith("/admin/positions")) { router.push("/admin/positions"); return; }
+    pendingStopRef.current = current.positionId; setBusy(true); setHelpOpen(false); setRestartOpen(false);
+    publishOnboardingEvent({ type: "position-stop-requested", positionId: current.positionId });
+  }
   /** back 回看前一个操作说明，不删除已经保存的岗位或真实完成事实。 */
   function back() {
     if (formSaving || pendingRecoveryRef.current) return;
@@ -518,10 +621,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     const current = stateRef.current;
     if (step === "first-result") {
       if (!taskStopped) { requestRestart(); return; }
-      if (pendingRecoveryRef.current) return;
-      pendingRecoveryRef.current = current.positionId;
-      setBusy(true); setError(""); setStatusText("上一轮已经结束，正在确认本地和云端都已停好，确认后再重新开始。");
-      publishOnboardingEvent({ type: "position-recover-requested", positionId: current.positionId });
+      recoverResultTarget("start");
       return;
     }
     if (["platform-open", "position-start"].includes(step) && current.positionId) {
@@ -551,12 +651,10 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     try { await refreshAgent(); } catch { setError("还没连上。确认本地 GoodHR 已启动，再检查浏览器的设备应用权限。"); }
     finally { if (aliveRef.current) setBusy(false); }
   }
-  return { phase, state, step, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, helpOpen, restartOpen, restartBlockedReason, resumeAboveDialog: !blocked && (formOpen || startOpen), formSaving, blocked, storageUnavailable, availablePlatforms: ["boss", "zhaopin", "liepin", "hliepin"].filter((platformId) => isPlatformOpen(platformConfigs, platformId)), platformsLoading, celebration, actions: {
+  return { phase, state, step, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, resultState, resultLogsOpen, helpOpen, restartOpen, restartBlockedReason, resumeAboveDialog: !blocked && (formOpen || startOpen), formSaving, blocked, storageUnavailable, availablePlatforms: ["boss", "zhaopin", "liepin", "hliepin"].filter((platformId) => isPlatformOpen(platformConfigs, platformId)), platformsLoading, celebration, actions: {
+    recoverResult: () => recoverResultTarget("start"), reviewResultPosition: () => recoverResultTarget("edit"), viewResultLogs, checkResult: () => void checkResult(), stopResult,
     requestRestart, cancelRestart, confirmRestart,
-    accept, pause, resume, back, choosePlatform, openPlatform: () => void openPlatform(), checkAgent: () => void checkAgent(),
-    requestSkip: () => { phaseBeforeSkip.current = phaseRef.current; changePhase("skip"); },
-    cancelSkip: () => changePhase(phaseBeforeSkip.current),
-    confirmSkip: () => { update((value) => ({ ...value, status: "declined" })); changePhase("declined"); },
+    accept, back, choosePlatform, openPlatform: () => void openPlatform(), checkAgent: () => void checkAgent(),
     openHelp: () => setHelpOpen(true), closeHelp: () => setHelpOpen(false),
     downloadAgent: () => { window.open("/download", "_blank", "noopener,noreferrer"); update((value) => ({ ...value, step: "agent-connect" })); },
     finishClose: () => changePhase("silent"), dismissCelebration: () => setCelebration(null),

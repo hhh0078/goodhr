@@ -1,12 +1,13 @@
 /** 本文件负责新手邀请、真实操作遮罩、阶段进度、针对性帮助和轻量完成鼓励。 */
 "use client";
 
-import { Alert, Button, Flex, Image, Input, Modal, Progress, Spin, Tag, Tour, Typography } from "antd";
-import { CheckCircleFilled, ClockCircleOutlined, PauseOutlined, QuestionCircleOutlined, TrophyOutlined } from "@ant-design/icons";
+import { Alert, Button, Flex, Image, Modal, Progress, Spin, Tag, Tour, Typography } from "antd";
+import { CheckCircleFilled, ClockCircleOutlined, ExclamationCircleOutlined, QuestionCircleOutlined, TrophyOutlined } from "@ant-design/icons";
 import confetti from "canvas-confetti";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { OnboardingExperienceProps } from "@/lib/onboarding-view";
-import { ONBOARDING_SKIP_PHRASE, ONBOARDING_STAGES, onboardingStage } from "@/lib/onboarding-state";
+import { ONBOARDING_STAGES, onboardingStage } from "@/lib/onboarding-state";
+import { AUTHOR_CONTACT } from "@/lib/author-contact";
 import ClickableImagePreview from "../ClickableImagePreview";
 import styles from "./OnboardingExperience.module.css";
 
@@ -16,7 +17,6 @@ const operationSteps = ["agent-download", "agent-connect", "first-result"];
 /** OnboardingExperience 只展示控制器状态，推进步骤必须由真实操作结果决定。 */
 export default function OnboardingExperience(props: OnboardingExperienceProps) {
   const { phase, state, step, target, targetGeometry, title, description, hint, estimate, remaining, doneCount, statusText, error, busy, helpOpen, restartOpen, restartBlockedReason, formSaving, blocked, storageUnavailable, celebration, actions } = props;
-  const [skipText, setSkipText] = useState("");
   const [mobileMenuPlacement, setMobileMenuPlacement] = useState<"top" | "bottom" | null>(null);
   const [modePopupLayout, setModePopupLayout] = useState<{ placement: "top" | "bottom"; maxHeight: number } | null>(null);
   const actionsRef = useRef(actions);
@@ -27,9 +27,9 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
   const stageDone = [state.environmentReady, Boolean(state.positionId) && !state.reviewPosition, state.platformLoggedIn && !state.reviewPosition, state.positionStarted, state.status === "completed"];
 
   useLayoutEffect(() => {
-    if (!active || !target || step !== "position-filter-mode") { setModePopupLayout(null); return; }
+    if (!active || !target || !["position-filter-mode", "first-result"].includes(step)) { setModePopupLayout(null); return; }
     let frame = 0;
-    /** measureModePopup 只按控制台目标与固定进度条的真实空位限制费用气泡，标题和操作始终留在滚动区外。 */
+    /** measureModePopup 按目标和固定进度条的真实空位限制费用及结果气泡，标题和操作始终留在滚动区外。 */
     function measureModePopup() {
       const box = target!.getBoundingClientRect();
       const progressBottom = progressBarRef.current?.getBoundingClientRect().bottom || 0;
@@ -117,10 +117,6 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
   }, [active]);
 
   useEffect(() => {
-    if (phase !== "skip") setSkipText("");
-  }, [phase]);
-
-  useEffect(() => {
     if (!celebration) return;
     if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       const themeRoot = document.querySelector("[data-admin-root]") || document.documentElement;
@@ -132,7 +128,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
   }, [celebration?.id]);
 
   if (phase === "loading" || (phase === "silent" && !restartOpen)) return null;
-  const operationPanel = active && !blocked && operationSteps.includes(step) ? <OperationPanel {...props} /> : null;
+  const operationPanel = active && !blocked && !props.resultLogsOpen && operationSteps.includes(step) ? <OperationPanel {...props} /> : null;
   const simulationNotice = process.env.NEXT_PUBLIC_ONBOARDING_PREVIEW_MODE === "simulation" ? <Alert data-testid="onboarding-simulation-notice" type="warning" showIcon title="这是自动化模拟环境，不会打开真实招聘浏览器。" description={<Typography.Link href="http://127.0.0.1:5174/admin">打开真实浏览器验收</Typography.Link>} className={styles.helpAlert} /> : null;
 
   return (
@@ -148,7 +144,6 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
               <Typography.Text type="secondary" className={styles.remaining}><ClockCircleOutlined aria-hidden="true" /> 预计还需 {remaining}</Typography.Text>
               <Button type="text" disabled={blocked} onClick={actions.requestRestart}>从头开始</Button>
               <Button type="text" icon={<QuestionCircleOutlined />} disabled={blocked} onClick={actions.openHelp}>遇到问题</Button>
-              <Button type="text" icon={<PauseOutlined />} disabled={formSaving} onClick={actions.pause}>稍后继续</Button>
             </Flex>
           </Flex>
           <Progress percent={Math.max(0, Math.min(100, doneCount * 20))} showInfo={false} size="small" strokeColor="var(--goodhr-primary)" className={styles.progressLine} />
@@ -164,11 +159,11 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       ) : null}
 
       {operationPanel}
-      {active && !operationPanel && !helpOpen && !restartOpen && (!target || blocked) ? (
+      {active && !operationPanel && !helpOpen && !restartOpen && !props.resultLogsOpen && (!target || blocked) ? (
         <section className={`${styles.operationPanel} ${styles.passivePanel}`} data-testid="onboarding-target-loading" aria-live="polite">
           <Typography.Text strong>{blocked ? "先处理当前必要检查，进度已保存" : "正在定位操作位置"}</Typography.Text>
           <Typography.Paragraph type="secondary">{blocked ? "完成当前弹框里的检查后，我会从这一步继续带路。" : error || statusText || "当前页面准备好后，我会继续高亮操作位置。你也可以先按说明操作。"}</Typography.Paragraph>
-          <Flex gap={8} wrap><Button disabled={blocked} onClick={actions.openHelp}>遇到问题</Button><Button onClick={actions.pause}>稍后继续</Button></Flex>
+          <Flex gap={8} wrap><Button disabled={blocked} onClick={actions.openHelp}>遇到问题</Button></Flex>
         </section>
       ) : null}
 
@@ -177,12 +172,12 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       <Tour
         key={`${step}:${targetGeometry}`}
         rootClassName={styles.tourPopup}
-        open={active && Boolean(target) && !helpOpen && !restartOpen && !blocked}
+        open={active && Boolean(target) && !helpOpen && !restartOpen && !blocked && !props.resultLogsOpen}
         current={0}
         steps={[{
           target,
           title: <span data-testid="onboarding-tour" data-step={step}>{title}</span>,
-          description: <div tabIndex={step === "position-filter-mode" ? 0 : undefined} data-testid={step === "position-filter-mode" ? "onboarding-mode-description" : undefined}>{step === "platform-login" ? simulationNotice : null}<Typography.Paragraph>{description}</Typography.Paragraph>{step === "position-filter-mode" ? <FilterModeExplanation /> : null}{step === "platform-login" && !error ? <Flex gap={8} align="center" className={styles.loginStatus} role="status"><Image src="/assets/platforms/camoufox.png" alt="橙色狐狸浏览器图标" width={28} height={28} preview={false} /><Typography.Text type="secondary"><Spin size="small" /> {statusText || "我在等你完成平台登录。"}</Typography.Text></Flex> : null}<Typography.Paragraph type="secondary" className={styles.tourHint}>{hint}</Typography.Paragraph>{error && !["position-start-error", "position-start-update"].includes(step) ? <Alert type="warning" showIcon title={error} className={styles.helpAlert} /> : null}<Typography.Text type="secondary" className={styles.tourEstimate}>{estimate} · 完成操作后，我会自动接着带路。</Typography.Text></div>,
+          description: <div tabIndex={modePopupLayout ? 0 : undefined} data-testid={step === "position-filter-mode" ? "onboarding-mode-description" : undefined}>{step === "platform-login" ? simulationNotice : null}<Typography.Paragraph>{description}</Typography.Paragraph>{step === "position-filter-mode" ? <FilterModeExplanation /> : null}{step === "platform-login" && !error ? <Flex gap={8} align="center" className={styles.loginStatus} role="status"><Image src="/assets/platforms/camoufox.png" alt="橙色狐狸浏览器图标" width={28} height={28} preview={false} /><Typography.Text type="secondary"><Spin size="small" /> {statusText || "我在等你完成平台登录。"}</Typography.Text></Flex> : null}<Typography.Paragraph type="secondary" className={styles.tourHint}>{hint}</Typography.Paragraph>{error && !["position-start-error", "position-start-update", "first-result"].includes(step) ? <Alert type="warning" showIcon title={error} className={styles.helpAlert} /> : null}{step !== "first-result" || props.resultState === "waiting" ? <Typography.Text type="secondary" className={styles.tourEstimate}>{estimate} · 完成操作后，我会自动接着带路。</Typography.Text> : null}</div>,
           placement: modePopupLayout?.placement || (operationPanel ? "top" : step.endsWith("menu") ? mobileMenuPlacement || "right" : "bottom"),
         }]}
         disabledInteraction={false}
@@ -191,9 +186,9 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         gap={{ offset: 7, radius: 8 }}
         zIndex={1500}
         scrollIntoViewOptions={{ block: "nearest", inline: "nearest", behavior: "instant" }}
-        onClose={actions.pause}
+        closable={false}
         indicatorsRender={() => null}
-        actionsRender={() => <Flex gap={6} wrap><Button type="text" disabled={formSaving} onClick={actions.back}>上一步</Button><Button type="text" disabled={formSaving} onClick={actions.pause}>稍后继续</Button><Button onClick={actions.openHelp}>遇到问题</Button></Flex>}
+        actionsRender={() => <Flex gap={6} wrap>{step !== "first-result" ? <Button type="text" disabled={formSaving} onClick={actions.back}>上一步</Button> : null}<Button onClick={actions.openHelp}>遇到问题</Button></Flex>}
         classNames={modePopupLayout ? { section: styles.modeTourSection, header: styles.modeTourHeader, description: styles.modeTourDescription, footer: styles.modeTourFooter } : undefined}
         styles={{ section: { maxWidth: "min(390px, calc(100vw - 28px))", ...(modePopupLayout ? { maxHeight: modePopupLayout.maxHeight } : {}) }, title: { color: "var(--goodhr-text)" } }}
       />
@@ -205,7 +200,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         closable={false}
         keyboard={false}
         mask={{ closable: false }}
-        footer={<Flex justify="flex-end" gap={8} wrap><Button onClick={actions.requestSkip}>我非新用户，无需教程</Button><Button type="primary" onClick={actions.accept}>好，带我跑一遍</Button></Flex>}
+        footer={<Flex justify="flex-end"><Button type="primary" onClick={actions.accept}>好，带我跑一遍</Button></Flex>}
       >
         {simulationNotice}
         <Typography.Paragraph className={styles.welcomeCopy}>强烈建议跟我跑一遍：先建岗位，再从“开始”弹框打开平台、登录并设好筛选条件，直到筛完第一位候选人。有我带路，少一点“接下来点哪儿”。</Typography.Paragraph>
@@ -213,22 +208,12 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       </Modal>
 
       <Modal
-        open={phase === "skip" && !blocked}
-        title="我再小声挽留一下"
-        width={500}
-        onCancel={actions.cancelSkip}
-        footer={<Flex justify="flex-end" gap={8} wrap><Button onClick={actions.cancelSkip}>还是跟着教程走</Button><Button type="primary" disabled={skipText !== ONBOARDING_SKIP_PHRASE} onClick={actions.confirmSkip}>确认跳过</Button></Flex>}
-      >
-        <Typography.Paragraph>教程会带你跑到第一条真实筛选结果。确定不用带路的话，请完整输入下面这句话：</Typography.Paragraph>
-        <Typography.Paragraph strong className={styles.skipPhrase}>{ONBOARDING_SKIP_PHRASE}</Typography.Paragraph>
-        <Input aria-label="输入跳过教程确认文字" value={skipText} onChange={(event) => setSkipText(event.target.value)} placeholder={ONBOARDING_SKIP_PHRASE} autoComplete="off" onPressEnter={() => { if (skipText === ONBOARDING_SKIP_PHRASE) actions.confirmSkip(); }} />
-      </Modal>
-
-      <Modal
         open={active && helpOpen && !blocked}
         zIndex={1700}
         title={`这一步怎么做：${title}`}
         width={560}
+        centered
+        styles={{ body: { maxHeight: "min(560px, calc(100dvh - 220px))", overflowY: "auto", overscrollBehavior: "contain" } }}
         onCancel={actions.closeHelp}
         footer={<Flex justify="flex-end" gap={8} wrap><Button disabled={formSaving} onClick={actions.back}>上一步</Button><Button onClick={actions.requestRestart}>从头开始</Button><Button type="primary" onClick={actions.closeHelp}>我再试试</Button></Flex>}
       >
@@ -237,7 +222,8 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         <Typography.Paragraph type="secondary">{hint}</Typography.Paragraph>
         {error || blocked ? <Alert type="warning" showIcon title="我目前看到的卡点" description={error || statusText || "先按当前页面提示完成检查，再回来继续。"} className={styles.helpAlert} /> : null}
         {step === "agent-connect" ? <div><Typography.Paragraph>启动本地 GoodHR 程序后，如果还连不上，点击地址栏左侧的网站设置，允许“设备上的应用”，再检查一次连接。</Typography.Paragraph><ClickableImagePreview src={permissionImage} alt="Chrome 设备上的应用权限开关位置" /></div> : null}
-        {step === "first-result" ? <Typography.Paragraph>“不合适，已跳过”也是筛选结果。还没判断完、只扫描到了候选人，都不会算教程完成。岗位失败时，可以先看日志里的具体提示。</Typography.Paragraph> : null}
+        {step === "first-result" ? <div className={styles.helpResultActions}><Typography.Paragraph>“不合适，已跳过”也是筛选结果。还没判断完、只扫描到候选人，都不会算教程完成。</Typography.Paragraph><ResultActions {...props} /></div> : null}
+        <AuthorContact />
       </Modal>
 
       <Modal
@@ -246,15 +232,11 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         title="从第一步再走一遍？"
         width={520}
         onCancel={actions.cancelRestart}
-        footer={<Flex justify="flex-end" gap={8} wrap><Button onClick={actions.cancelRestart}>先不重来</Button>{state.positionStarted && restartBlockedReason ? <Button onClick={actions.pause}>稍后继续，去停止岗位</Button> : null}<Button type="primary" disabled={Boolean(restartBlockedReason)} onClick={actions.confirmRestart}>从头带我一遍</Button></Flex>}
+        footer={<Flex justify="flex-end" gap={8} wrap><Button onClick={actions.cancelRestart}>返回教程</Button>{state.positionStarted && props.resultState === "waiting" && restartBlockedReason ? <Button danger disabled={busy} onClick={actions.stopResult}>停止本轮</Button> : null}<Button type="primary" disabled={Boolean(restartBlockedReason)} onClick={actions.confirmRestart}>从头带我一遍</Button></Flex>}
       >
         <Typography.Paragraph>已保存的岗位和招聘数据都会保留；这次未保存的教程草稿会清空。已经建好的岗位，我带你重新检查，不用再建一份。</Typography.Paragraph>
         {restartBlockedReason ? <Alert type="warning" showIcon title={restartBlockedReason} /> : <Typography.Paragraph type="secondary">从邀请开始重新带路，已经准备好的本地组件会自动略过。</Typography.Paragraph>}
       </Modal>
-
-      {phase === "paused" || phase === "declined" ? (
-        <div className={styles.resumeEntry} style={props.resumeAboveDialog ? { zIndex: 1600 } : undefined}><Typography.Text type="secondary">{phase === "paused" ? "教程进度给你留着了" : "需要带路时，我还在"}</Typography.Text><Button onClick={actions.requestRestart}>从头开始</Button><Button type="primary" onClick={actions.resume}>{phase === "paused" ? "继续教程" : "开启引导"}</Button></div>
-      ) : null}
 
       {celebration && phase !== "completed" ? <div className={styles.celebrationToast} role="status" aria-live="polite"><CheckCircleFilled aria-hidden="true" /><div><strong>{celebration.title}</strong><span>{celebration.description}</span></div></div> : null}
 
@@ -280,17 +262,53 @@ function FilterModeExplanation() {
 }
 
 /** OperationPanel 展示当前步骤需要的真实操作按钮，不提供跳过业务判断的下一步按钮。 */
-function OperationPanel({ step, title, description, statusText, error, busy, actions }: OnboardingExperienceProps) {
+function OperationPanel(props: OnboardingExperienceProps) {
+  const { step, title, description, statusText, error, busy, actions, resultState } = props;
   if (!operationSteps.includes(step)) return null;
+  if (step === "first-result") return (
+    <section className={`${styles.operationPanel} ${styles.resultPanel}`} data-onboarding="onboarding-result-wait" data-testid="onboarding-result-state" data-result-state={resultState} aria-label="当前教程操作" aria-live="polite">
+      <Flex gap={8} align="center" className={styles.resultStatus}>
+        {resultState === "waiting" ? <Spin size="small" /> : <ExclamationCircleOutlined className={styles.resultWarning} aria-hidden="true" />}
+        <Typography.Text strong>{resultState === "ended" ? statusText || "本轮已结束，还没得到筛选结果" : resultState === "unavailable" ? "暂时没读到任务状态" : statusText || "等待第一条真实筛选判断"}</Typography.Text>
+      </Flex>
+      {error ? <Alert type="warning" showIcon title={error} className={styles.resultError} /> : <Typography.Paragraph type="secondary" className={styles.connectHint}>{resultState === "waiting" ? "筛掉不合适的人也算结果，进度按真实判断更新。" : resultState === "ended" ? "先看日志处理原因，再重试或修改这个岗位。" : "先重新检查，确认上一轮结束后再重试。"}</Typography.Paragraph>}
+      <ResultActions {...props} />
+    </section>
+  );
   return (
     <section className={styles.operationPanel} aria-label="当前教程操作" aria-live="polite">
       <Typography.Title level={5} className={styles.panelTitle}>{title}</Typography.Title>
       <Typography.Paragraph type="secondary" className={styles.panelDescription}>{description}</Typography.Paragraph>
       {step === "agent-download" ? <Button data-onboarding="onboarding-agent-download" type="primary" onClick={actions.downloadAgent}>下载本地程序</Button> : null}
       {step === "agent-connect" ? <div><Button data-onboarding="onboarding-agent-connect" type="primary" loading={busy} onClick={actions.checkAgent}>检查连接</Button><Typography.Paragraph type="secondary" className={styles.connectHint}>程序已经启动仍连不上？点击“遇到问题”查看浏览器权限图。</Typography.Paragraph></div> : null}
-      {step === "first-result" ? <div data-onboarding="onboarding-result-wait"><Flex gap={8} align="center"><Spin size="small" /><Typography.Text>{statusText || "等待第一条真实筛选判断"}</Typography.Text></Flex><Typography.Paragraph type="secondary" className={styles.connectHint}>筛掉不合适的人也算正常结果，进度会按真实判断更新。</Typography.Paragraph></div> : null}
       {statusText && !["platform-login", "first-result"].includes(step) ? <Typography.Paragraph type="secondary" className={styles.panelStatus}>{statusText}</Typography.Paragraph> : null}
       {error ? <Alert type="warning" showIcon title={error} className={styles.panelStatus} /> : null}
     </section>
   );
+}
+
+/** ResultActions 让任务结束、状态失联和仍在运行的情形分别使用真实恢复动作，不能跳过真实筛选结果。 */
+function ResultActions({ resultState, busy, actions }: OnboardingExperienceProps) {
+  return <Flex gap={8} wrap className={styles.resultActions}>
+    {resultState === "ended" ? <><Button type="primary" loading={busy} onClick={actions.recoverResult}>处理好，重新开始</Button><Button disabled={busy} onClick={actions.reviewResultPosition}>修改岗位</Button></> : null}
+    {resultState === "unavailable" ? <Button type="primary" loading={busy} onClick={actions.checkResult}>重新检查</Button> : null}
+    <Button disabled={busy} onClick={actions.viewResultLogs}>查看错误日志</Button>
+    {resultState !== "ended" ? <Button danger disabled={busy} onClick={actions.stopResult}>{resultState === "unavailable" ? "停止并确认状态" : "停止本轮"}</Button> : null}
+  </Flex>;
+}
+
+/** AuthorContact 在每一步帮助中复用官网作者信息，微信二维码使用既有真实图片并支持放大。 */
+function AuthorContact() {
+  return <section className={styles.authorContact} data-testid="onboarding-author-contact" aria-label="联系作者">
+    <div className={styles.authorQrCode}>
+      <Image src={AUTHOR_CONTACT.wechatQrCode} alt={AUTHOR_CONTACT.wechatQrCodeAlt} width="100%" preview={{ mask: "放大二维码", zIndex: 1900 }} />
+      <Typography.Text type="secondary">点图放大，微信找我</Typography.Text>
+    </div>
+    <div className={styles.authorDetails}>
+      <Typography.Text strong>作者：{AUTHOR_CONTACT.name}</Typography.Text>
+      <Typography.Text>微信 / 手机：<Typography.Link href={`tel:${AUTHOR_CONTACT.phone}`}>{AUTHOR_CONTACT.phone}</Typography.Link></Typography.Text>
+      <Typography.Text>邮箱：<Typography.Link href={`mailto:${AUTHOR_CONTACT.email}`}>{AUTHOR_CONTACT.email}</Typography.Link></Typography.Text>
+      <Typography.Paragraph type="secondary">把报错截图和岗位日志发给我，我来帮你看看。</Typography.Paragraph>
+    </div>
+  </section>;
 }
