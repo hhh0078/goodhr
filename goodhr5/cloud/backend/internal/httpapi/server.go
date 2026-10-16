@@ -21,6 +21,7 @@ type Server struct {
 	agentWS               *AgentWSHub
 	ai                    *AIConfigService
 	attachmentParses      *AttachmentParseService
+	attachmentImports     *AttachmentImportService
 	aiWallet              *AIWalletService
 	userPreferences       *UserPreferencesService
 	notificationProfile   *NotificationProfileService
@@ -126,6 +127,8 @@ func NewServer() (*Server, error) {
 	if db != nil && config.RedisAddr == "" {
 		attachmentService.store = nil
 	}
+	attachmentImports := NewAttachmentImportService(attachmentService, candidates, messages)
+	attachmentImports.StartRecovery(context.Background())
 	return &Server{
 		auth:                  auth,
 		agent:                 NewAgentService(auth, agentStore, systemConfigStore),
@@ -133,6 +136,7 @@ func NewServer() (*Server, error) {
 		agentWS:               agentWS,
 		ai:                    aiService,
 		attachmentParses:      attachmentService,
+		attachmentImports:     attachmentImports,
 		aiWallet:              aiWalletService,
 		userPreferences:       NewUserPreferencesService(auth, userPreferencesStore),
 		notificationProfile:   NewNotificationProfileService(auth, notificationProfileStore),
@@ -211,6 +215,10 @@ func (s *Server) Routes() http.Handler {
 	if s.attachmentParses != nil {
 		mux.Handle(attachmentParsePath, s.attachmentParses)
 		mux.Handle(attachmentParsePath+"/", s.attachmentParses)
+	}
+	if s.attachmentImports != nil {
+		mux.Handle(attachmentImportPath, s.attachmentImports)
+		mux.Handle(attachmentImportPath+"/", s.attachmentImports)
 	}
 	mux.HandleFunc("/api/ai-wallet", s.aiWallet.Summary)
 	mux.HandleFunc("/api/ai-wallet/records", s.aiWallet.Records)

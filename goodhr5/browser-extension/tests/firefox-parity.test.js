@@ -40,7 +40,8 @@ test("Chrome 与 Firefox 正式目录的公共业务文件和品牌图标逐字�
     const firefoxGuide = fs.readFileSync(path.join(firefox, "INSTALL.md"), "utf8");
     assert.match(firefoxGuide, /Mozilla 审核签名/);
     assert.match(firefoxGuide, /无需解压/);
-    assert.doesNotMatch(firefoxGuide, /about:debugging|临时载入附加组件/);
+    assert.match(firefoxGuide, /未签名测试包/); assert.match(firefoxGuide, /about:debugging/); assert.match(firefoxGuide, /不会替换上述签名更新配置/);
+    assert.deepEqual(fs.readFileSync(path.join(firefox, "README.md")), fs.readFileSync(path.join(ROOT, "README.md"))); assert.match(fs.readFileSync(path.join(firefox, "README.md"), "utf8"), /不覆盖已有 1\.0\.9 签名包/);
     assert.deepEqual(fs.readFileSync(path.join(chrome, "INSTALL.md")), fs.readFileSync(path.join(ROOT, "INSTALL.md")));
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 });

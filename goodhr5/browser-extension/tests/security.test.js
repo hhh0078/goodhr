@@ -36,6 +36,9 @@ async function attachmentScene(value) {
   return scene;
 }
 
+/** importInput 创建不含全文的人工核对请求，全文只能由后台绑定的内容脚本补入。 */
+function importInput(scene, extra = {}) { return { request_key: "synthetic-import-0001", capture_id: scene.capture.capture_id, operation: "create", review: { candidate_name: "人工核对姓名", phone: "13800000991", gender: "female" }, review_fields: { "first-company": "人工核对首份公司", "first-work-start": "2017-01", "first-work-end": "", "first-school": "人工核对学校", "first-school-start": "2010-09", "first-school-end": "2014-06" }, edited_fields: ["name", "phone", "first-work-end"], folder_ids: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"], ...extra }; }
+
 test("BOSS 基本识别自动提交可信纯文本，去参数来源；UI/磁盘回执不复制原文，缺页仍不能提交", async () => {
   const value = backgroundFixture((url, options) => {
     const body = JSON.parse(options.body); return response({ ok: true, task: { ...body, id: "parse-basic", status: "completed", resume: { candidate_name: "合成候选人", phone: "13800000991" } } });
@@ -53,19 +56,16 @@ test("BOSS 基本识别自动提交可信纯文本，去参数来源；UI/磁盘
   assert.equal((await value.message({ type: "CREATE", payload: { ...payload, resume: { candidate_name: "合成候选人", phone: "13800000991" }, idempotency_key: "toolbar-no-full-yet" } }, uiSender)).ok, false, "无 sender.tab 的工具栏不能绕过完整解析检查");
 });
 
-test("BOSS 完整解析完成才允许原保存，正文从后台快照补入而非 UI；忠实摘要保留", async () => {
-  let task;
-  const value = backgroundFixture((url, options) => {
-    if (url.includes("attachment-parses")) { const body = options.body ? JSON.parse(options.body) : task; task = { ...body, id: "parse-full", status: "completed", resume: { candidate_name: "合成候选人", phone: "13800000991", ai_summary: "合成忠实摘要", birth_ym: "1990", basic_info: "基".repeat(900), personal_description: "介".repeat(7000), work_experiences: Array.from({ length: 41 }, (_, index) => ({ company_name: "合成完整公司" + index, start_ym: "2017-01", content: "经".repeat(7000) })) } }; return response({ ok: true, task }); }
-    return response({ candidate: { id: "created-synthetic", row_version: 1 } });
-  }), scene = await attachmentScene(value), payload = scene.payload("full");
-  const parsed = await value.message({ type: "ATTACHMENT_START", payload }, scene.sender); assert.equal(parsed.ok, true); assert.equal(parsed.data.task.resume.ai_summary, "合成忠实摘要");
-  const saved = await value.message({ type: "CREATE", payload: { ...payload, resume: { ...parsed.data.task.resume, raw_text: "伪造原文" }, idempotency_key: "save-full-synthetic" } }, scene.sender);
-  assert.equal(saved.ok, true); const body = JSON.parse(value.requests.find((item) => item.url.endsWith("/api/candidates")).options.body);
-  assert.equal(body.raw_text, scene.raw.attachment.text); assert.equal(body.ai_summary, "合成忠实摘要"); assert.equal(body.platform_id, "boss"); assert.equal(body.source_url.includes("?"), false);
-  assert.equal(body.basic_info, "出生年份：1990\n" + "基".repeat(900)); assert.equal(body.personal_description.length, 7000); assert.equal(body.work_experiences.length, 41); assert.equal(body.work_experiences[40].content.length, 7000); assert.equal(body.birth_ym, "");
-  const savedDraft = await value.message({ type: "DRAFT_SAVE", payload: { identity: "synthetic-attachment", account_key: scene.account, draft: { attachment: { capture_id: payload.capture_id, full_task: parsed.data.task } } } }, scene.sender); assert.equal(savedDraft.ok, true);
-  const draft = Object.values(value.values.ui_drafts)[0].data.attachment; assert.equal(Object.hasOwn(draft.full_task, "resume"), false, "完整结果从任务恢复，不复制大段原文到磁盘草稿");
+test("BOSS 添加只投递后台保存任务，可信全文及人工字段冻结，202回执不泄漏完整结果", async () => {
+  const value = backgroundFixture((url, options) => response({ task: { ...JSON.parse(options.body), id: "synthetic-import", status: "queued", stage: "queued", resume: { personal_description: "私有完整结果不能给UI" } } }, 202)), scene = await attachmentScene(value);
+  const forbidden = await value.message({ type: "ATTACHMENT_START", payload: scene.payload("full") }, scene.sender); assert.equal(forbidden.ok, false); assert.equal(value.requests.length, 0);
+  const request = importInput(scene, { text: "UI伪造正文", source: { source_url: "https://evil.test" }, full_task_id: "legacy-completed-full", note: { content: "合成备注" }, recommendation: { position_id: "synthetic-position", stage: "interview", content: "合成岗位记录" } });
+  const saved = await value.message({ type: "CREATE", payload: { capture_id: request.capture_id, attachment_save: request } }, scene.sender); assert.equal(saved.ok, true); assert.equal(saved.data.task.status, "queued"); assert.equal(saved.data.task.resume, undefined);
+  const body = JSON.parse(value.requests[0].options.body); assert.equal(value.requests[0].url, "https://goodhr.58it.cn/api/candidates/attachment-imports");
+  assert.equal(body.text, scene.raw.attachment.text); assert.equal(body.source.source_url, "https://www.zhipin.com/web/chat/index"); assert.equal(body.review.candidate_name, "人工核对姓名"); assert.equal(body.review.gender, "female"); assert.equal(body.review_fields["first-work-end"], ""); assert.equal(body.full_task_id, "legacy-completed-full"); assert.deepEqual(body.folder_ids, request.folder_ids); assert.equal(body.note.content, request.note.content); assert.equal(body.recommendation.stage, "interview");
+  assert.equal(JSON.stringify(saved).includes(scene.raw.attachment.text), false); assert.equal(JSON.stringify(saved).includes("私有完整结果"), false);
+  const savedDraft = await value.message({ type: "DRAFT_SAVE", payload: { identity: "synthetic-attachment", account_key: scene.account, draft: { attachment: { capture_id: request.capture_id, save_request: request, save_task: { ...saved.data.task, resume: { raw_text: "不得落盘" } } } } } }, scene.sender); assert.equal(savedDraft.ok, true);
+  const draft = Object.values(value.values.ui_drafts)[0].data.attachment; assert.equal(Object.hasOwn(draft.save_task, "resume"), false); assert.equal(Object.hasOwn(draft.save_request, "text"), false);
 });
 
 test("BOSS 切人后迟到结果拒绝展示，可信任务仍可取消；别人的任务编号不能代取消", async () => {
@@ -128,17 +128,35 @@ test("BOSS 同文字换头像在下载前拒绝旧捕获，下载期间变更也
   const result = await pending; assert.equal(result.ok, false); assert.equal(result.code, "CAPTURE_SCOPE_CHANGED"); assert.equal(value.requests.length, 0);
 });
 
-test("BOSS 无独立图片仍可完整解析保存，只有当前唯一图片会随资料存成内嵌头像", async () => {
+test("BOSS 无独立图片仍可投递保存，只有当前唯一图片随任务存成内嵌头像", async () => {
   for (const withPhoto of [false, true]) {
-    const value = backgroundFixture((url, options) => url.includes("attachment-parses") ? response({ task: { ...JSON.parse(options.body), id: "synthetic-photo-full", status: "completed", resume: { candidate_name: "合成附件候选人", phone: "13800000991" } } }) : response({ candidate: { id: "synthetic-saved", row_version: 1 } })), scene = await attachmentScene(value);
+    const value = backgroundFixture((url, options) => response({ task: { ...JSON.parse(options.body), id: "synthetic-photo-import", status: "queued" } }, 202)), scene = await attachmentScene(value);
     let calls = 0; value.context.GoodHRAvatar.fetchAttachmentAvatar = async () => { calls++; return "data:image/png;base64,AAAA"; };
     scene.raw.avatar_candidates = withPhoto ? [{ source_url: "/photo.png", width: 120, height: 160 }] : [];
     scene.capture = (await value.message({ type: "PREVIEW" }, scene.sender)).data.resume;
-    const payload = scene.payload("full"), parsed = await value.message({ type: "ATTACHMENT_START", payload }, scene.sender); assert.equal(parsed.ok, true);
-    const saved = await value.message({ type: "CREATE", payload: { ...payload, resume: parsed.data.task.resume, idempotency_key: "synthetic-photo-save" } }, scene.sender); assert.equal(saved.ok, true);
-    const body = JSON.parse(value.requests.find((item) => item.url.endsWith("/api/candidates")).options.body);
+    const request = importInput(scene), saved = await value.message({ type: "CREATE", payload: { capture_id: request.capture_id, attachment_save: request } }, scene.sender); assert.equal(saved.ok, true);
+    const body = JSON.parse(value.requests[0].options.body);
     assert.equal(calls, withPhoto ? 1 : 0); assert.equal(body.avatar_data_url, withPhoto ? "data:image/png;base64,AAAA" : undefined); assert.equal(body.avatar_candidates, undefined); assert.equal(body.avatar_source_url, undefined);
   }
+});
+
+test("后台保存预检409尚未受理时清除本地冻结，选择update和新row_version后能正常提交", async () => {
+  let attempts = 0;
+  const value = backgroundFixture((url, options) => ++attempts === 1 ? response({ error_code: "CANDIDATE_DUPLICATE", error: "已有简历，请更新" }, 409) : response({ task: { ...JSON.parse(options.body), id: "synthetic-update-import", status: "queued" } }, 202)), scene = await attachmentScene(value), request = importInput(scene);
+  assert.equal((await value.message({ type: "CREATE", payload: { capture_id: request.capture_id, attachment_save: request } }, scene.sender)).code, "CANDIDATE_DUPLICATE");
+  const update = { ...request, operation: "update", candidate_id: "synthetic-existing", row_version: 9, note: { content: "更新不能隐式保存备注" }, recommendation: { position_id: "synthetic-position", content: "不能隐式推荐" } };
+  const result = await value.message({ type: "UPDATE", payload: { capture_id: request.capture_id, attachment_save: update } }, scene.sender); assert.equal(result.ok, true); assert.equal(attempts, 2);
+  const body = JSON.parse(value.requests[1].options.body); assert.equal(body.operation, "update"); assert.equal(body.row_version, 9); assert.equal(body.note, undefined); assert.equal(body.recommendation, undefined);
+});
+
+test("保存回包未知沿原编号GET恢复，切人不取消已受理任务，同key更改输入被拒且无第二次POST", async () => {
+  let accepted;
+  const value = backgroundFixture((url, options) => { if (options.method === "POST") { accepted = { ...JSON.parse(options.body), id: "synthetic-accepted-import", status: "running", stage: "parsing" }; throw new Error("synthetic response lost"); } return response({ task: { ...accepted, resume: { private: "不得返回完整结果" } } }); }), scene = await attachmentScene(value), request = importInput(scene);
+  assert.equal((await value.message({ type: "CREATE", payload: { capture_id: request.capture_id, attachment_save: request } }, scene.sender)).ok, false);
+  const changed = await value.message({ type: "CREATE", payload: { capture_id: request.capture_id, attachment_save: { ...request, review: { ...request.review, candidate_name: "后来修改不能混入原任务" } } } }, scene.sender); assert.equal(changed.code, "REQUEST_CONFLICT");
+  await scene.replaceText("切到另一个合成候选人");
+  const recovered = await value.message({ type: "ATTACHMENT_IMPORT_POLL", payload: { request_key: request.request_key, capture_id: request.capture_id } }, scene.sender); assert.equal(recovered.ok, true); assert.equal(recovered.data.task.status, "running"); assert.equal(recovered.data.task.resume, undefined);
+  assert.equal(value.requests.filter((item) => item.options.method === "POST").length, 1); assert.match(value.requests[1].url, /attachment-imports\?request_key=synthetic-import-0001$/); assert.equal(value.requests[1].options.body, undefined);
 });
 
 test("收藏夹只由授权插件界面读取已有列表，招聘网页与旧账号不能请求分类管理", async () => {

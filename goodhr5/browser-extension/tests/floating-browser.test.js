@@ -45,7 +45,7 @@ async function waitForFixture(page, predicate, message) { const deadline = Date.
 /** sampleResume 提供同名不同平台编号的合成简历，用于验证候选人身份隔离。 */
 function sampleResume(id = "candidate-a", phone = "13800000151") { return { candidate_name: "合成悬浮候选人", phone, platform_id: "hliepin", platform_candidate_id: id, source_url: "https://h.liepin.com/resume/show", work_experiences: [{ company_name: "合成悬浮公司", position_name: "合成岗位", start_ym: "2021-01", content: "仅用于本地测试" }] }; }
 
-test("Chrome真实浮窗BOSS：无需勾选便自动基本识别，保存才完整解析，两个阶段都保留手改并复用原保存", async () => {
+test("Chrome合成浮窗BOSS：自动basic和查重，点击后只提交后台保存任务并显示受理状态", async () => {
   const { server, origin } = await localServer(true), browser = await chromium.launch({ channel: "chrome", headless: true }), calls = [], drafts = new Map(), errors = [];
   const hash = "a".repeat(64), snapshot = { platform_id: "boss", source_url: "https://www.zhipin.com/web/chat/index", capture_id: "boss-" + hash, attachment: { text_hash: hash, page_count: 1, total_pages: 0, complete: false, blocked: false, warning: "已读到1页，总页数请核对" } };
   let releaseBasic, releaseFull;
@@ -62,7 +62,7 @@ test("Chrome真实浮窗BOSS：无需勾选便自动基本识别，保存才完�
       }
       if (type === "ATTACHMENT_POLL") { await new Promise((resolve) => { releaseFull = resolve; }); return { ok: true, data: { task: { id: "task-full", phase: "full", status: "completed", capture_id: snapshot.capture_id, text_hash: hash, resume: { candidate_name: "完整AI旧姓名", phone: "13800000999", gender: "male", email: "full-synthetic@example.test", ai_summary: "合成忠实摘要", work_experiences: [{ company_name: "最新合成公司", start_ym: "2022-01", content: "最新完整内容" }, { company_name: "最早合成公司", start_ym: "2017-01", end_ym: "2019-01", content: "最早完整内容" }], educations: [{ school_name: "最新合成学校", start_ym: "2014-09" }, { school_name: "最早合成学校", start_ym: "2010-09", end_ym: "2014-06" }] } } } }; }
       if (type === "DUPLICATES") return { ok: true, data: { matches: [], groups: [] } };
-      if (type === "CREATE") return { ok: true, data: { candidate: { id: "created-boss-fixture", ...payload.resume, row_version: 1 } } };
+      if (type === "CREATE") return { ok: true, data: { task: { id: "import-boss-fixture", request_key: payload.attachment_save.request_key, capture_id: snapshot.capture_id, text_hash: hash, status: "queued", stage: "queued" } } };
       if (type === "FOLLOWUPS") return { ok: true, data: { notes_saved: true, recommendation_saved: true, errors: [] } };
       if (type === "DETAIL") return { ok: true, data: { notes: [], recommendations: [] } };
       return { ok: true, data: {} };
@@ -80,18 +80,16 @@ test("Chrome真实浮窗BOSS：无需勾选便自动基本识别，保存才完�
     await frame.waitForFunction(() => document.getElementById("phone").value === "13800000991");
     assert.equal(await frame.locator("#name").inputValue(), "基本识别前手改姓名"); assert.equal(await frame.locator("#gender").inputValue(), "female");
     assert.equal(await frame.locator("#first-company").inputValue(), "最早合成公司"); assert.equal(await frame.locator("#first-school").inputValue(), "最早合成学校");
+    await waitForFixture(page, () => calls.some((item) => item.type === "DUPLICATES"), "基础识别完成后未自动查重");
     assert.equal(calls.some((item) => item.type === "ATTACHMENT_START" && item.payload.phase === "full"), false); assert.equal(calls.some((item) => item.type === "CREATE"), false);
     fs.mkdirSync(ARTIFACTS, { recursive: true }); await page.locator("#goodhr-resume-assistant").screenshot({ path: path.join(ARTIFACTS, `plugin-boss-attachment-synthetic-${version}.png`), caret: "initial" });
     await frame.locator("#attachment-review>summary").click(); await frame.locator("#first-company").fill("人工核对首份公司"); await frame.locator("#first-work-end").fill("");
     await frame.waitForFunction(() => !document.getElementById("save").disabled); await frame.locator("#save").click();
-    await waitForFixture(page, () => Boolean(releaseFull), "点击添加后没有发起完整解析");
-    await frame.locator("#name").fill("完整识别期间手改姓名"); releaseFull();
-    await frame.waitForFunction(() => document.getElementById("status").textContent === "已添加");
-    const saved = calls.find((item) => item.type === "CREATE").payload.resume;
-    assert.equal(saved.candidate_name, "完整识别期间手改姓名"); assert.equal(saved.phone, "13800000991"); assert.equal(saved.gender, "female"); assert.equal(saved.email, "full-synthetic@example.test"); assert.equal(saved.ai_summary, "合成忠实摘要");
-    assert.equal(saved.work_experiences.length, 2); assert.equal(saved.work_experiences[0].content, "最新完整内容"); assert.equal(saved.work_experiences[1].company_name, "人工核对首份公司"); assert.equal(saved.work_experiences[1].end_ym, ""); assert.equal(saved.work_experiences[1].content, "最早完整内容");
-    assert.equal(saved.educations.length, 2); assert.equal(saved.educations[1].school_name, "最早合成学校");
-    assert.equal(calls.filter((item) => item.type === "ATTACHMENT_START" && item.payload.phase === "basic").length, 1); assert.equal(calls.filter((item) => item.type === "ATTACHMENT_START" && item.payload.phase === "full").length, 1);
+    await waitForFixture(page, () => calls.some((item) => item.type === "CREATE"), "点击添加后没有提交后台任务");
+    await frame.waitForFunction(() => document.getElementById("attachment-status").textContent === "已交给后台处理");
+    const saved = calls.find((item) => item.type === "CREATE").payload.attachment_save;
+    assert.equal(saved.review.candidate_name, "基本识别前手改姓名"); assert.equal(saved.review.phone, "13800000991"); assert.equal(saved.review.gender, "female"); assert.equal(saved.review_fields["first-company"], "人工核对首份公司"); assert.equal(saved.review_fields["first-work-end"], "");
+    assert.equal(calls.filter((item) => item.type === "ATTACHMENT_START" && item.payload.phase === "basic").length, 1); assert.equal(calls.filter((item) => item.type === "ATTACHMENT_START" && item.payload.phase === "full").length, 0); assert.equal(calls.filter((item) => item.type === "FOLLOWUPS").length, 0);
     assert.equal(calls.filter((item) => ["ATTACHMENT_START", "ATTACHMENT_POLL", "CREATE"].includes(item.type)).some((item) => Object.hasOwn(item.payload, "text") || Object.hasOwn(item.payload, "html")), false);
     assert.deepEqual(errors, []);
   } finally { releaseBasic?.(); releaseFull?.(); await browser.close(); await new Promise((resolve) => server.close(resolve)); }

@@ -181,6 +181,10 @@ func (s *AttachmentParseService) create(w http.ResponseWriter, r *http.Request, 
 func (s *AttachmentParseService) read(w http.ResponseWriter, r *http.Request, owner, id string, cancelTask bool) {
 	for attempt := 0; attempt < 4; attempt++ {
 		record, err := s.store.Get(r.Context(), owner, id)
+		if err == nil && record.Import != nil {
+			attachmentParseError(w, 404, "TASK_NOT_FOUND", "这次解析任务没找到")
+			return
+		}
 		if errors.Is(err, ErrNotFound) {
 			attachmentParseError(w, 404, "TASK_NOT_FOUND", "这次附件任务没找到，或不属于当前账号")
 			return

@@ -1,4 +1,4 @@
-// 本文件保存附件解析任务及付费调用前的幂等回执；生产复用认证 Redis，不增加数据库表或保存原始附件。
+// 本文件保存附件解析和已确认入库任务的幂等回执；生产复用认证 Redis，确认入库后的临时文字随终态清理。
 package httpapi
 
 import (
@@ -15,13 +15,19 @@ const attachmentTaskTTL = 7 * 24 * time.Hour
 
 var errAttachmentBusy = errors.New("同时处理的附件有点多，请等当前任务结束再试")
 
-// attachmentParseRecord 保存账号归属、内容指纹和任务回执，不保存文本、AI Key 或登录凭证。
+// attachmentParseRecord 保存账号归属和回执；Import 只存用户确认入库的临时资料，绝不保存 AI Key 或登录凭证。
 type attachmentParseRecord struct {
-	Task        attachmentParseTask `json:"task"`
-	Owner       string              `json:"owner"`
-	Fingerprint string              `json:"fingerprint"`
-	Version     int64               `json:"version"`
-	LeaseUntil  int64               `json:"lease_until"`
+	Task        attachmentParseTask    `json:"task"`
+	Owner       string                 `json:"owner"`
+	Fingerprint string                 `json:"fingerprint"`
+	Version     int64                  `json:"version"`
+	LeaseUntil  int64                  `json:"lease_until"`
+	Import      *attachmentImportState `json:"import,omitempty"`
+}
+
+// attachmentImportPendingStore 枚举已确认但尚未结束的入库任务，用于重启后的安全恢复。
+type attachmentImportPendingStore interface {
+	PendingImports(context.Context) ([]attachmentParseRecord, error)
 }
 
 // attachmentParseStore 提供任务预占及版本交换，保证取消和模型结果不能相互覆盖。
@@ -88,6 +94,19 @@ func (s *memoryAttachmentParseStore) Swap(_ context.Context, record attachmentPa
 	return true, nil
 }
 
+// PendingImports 返回尚未结束的确认意图，不把普通解析任务恢复为付费调用。
+func (s *memoryAttachmentParseStore) PendingImports(_ context.Context) ([]attachmentParseRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := []attachmentParseRecord{}
+	for _, record := range s.records {
+		if record.Import != nil && attachmentImportPending(record) {
+			result = append(result, attachmentRecordCopy(record))
+		}
+	}
+	return result, nil
+}
+
 // attachmentRecordCopy 隔离测试和开发存储的嵌套结果对象，避免锁外修改数据。
 func attachmentRecordCopy(record attachmentParseRecord) attachmentParseRecord {
 	data, _ := json.Marshal(record)
@@ -119,6 +138,7 @@ if redis.call('ZCARD', KEYS[2]) >= 2 then return {-1, ''} end
 redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
 redis.call('ZADD', KEYS[2], ARGV[4], ARGV[5])
 redis.call('PEXPIRE', KEYS[2], ARGV[3])
+if ARGV[6] == '1' then redis.call('ZADD', KEYS[3], ARGV[1], KEYS[1]) end
 return {1, ARGV[2]}
 `)
 
@@ -128,7 +148,11 @@ func (s *redisAttachmentParseStore) Reserve(ctx context.Context, record attachme
 	if err != nil {
 		return attachmentParseRecord{}, false, err
 	}
-	value, err := reserveAttachmentScript.Run(ctx, s.client, []string{attachmentRecordKey(record.Owner, record.Task.ID), attachmentActiveKey(record.Owner)}, time.Now().UnixMilli(), data, attachmentTaskTTL.Milliseconds(), record.LeaseUntil, record.Task.ID).Slice()
+	importTask := "0"
+	if record.Import != nil {
+		importTask = "1"
+	}
+	value, err := reserveAttachmentScript.Run(ctx, s.client, []string{attachmentRecordKey(record.Owner, record.Task.ID), attachmentActiveKey(record.Owner), attachmentImportPendingKey}, time.Now().UnixMilli(), data, attachmentTaskTTL.Milliseconds(), record.LeaseUntil, record.Task.ID, importTask).Slice()
 	if err != nil {
 		return attachmentParseRecord{}, false, err
 	}
@@ -179,6 +203,11 @@ local parsed = cjson.decode(old)
 if parsed.version ~= tonumber(ARGV[1]) then return 0 end
 redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
 if ARGV[4] == '1' then redis.call('ZREM', KEYS[2], ARGV[5]) end
+if ARGV[6] == '1' then
+  redis.call('ZADD', KEYS[3], ARGV[7], KEYS[1])
+else
+  redis.call('ZREM', KEYS[3], KEYS[1])
+end
 return 1
 `)
 
@@ -192,6 +221,36 @@ func (s *redisAttachmentParseStore) Swap(ctx context.Context, record attachmentP
 	if !attachmentTaskActive(record.Task.Status) {
 		terminal = "1"
 	}
-	result, err := swapAttachmentScript.Run(ctx, s.client, []string{attachmentRecordKey(record.Owner, record.Task.ID), attachmentActiveKey(record.Owner)}, version, data, attachmentTaskTTL.Milliseconds(), terminal, record.Task.ID).Int()
+	pending := "0"
+	if record.Import != nil && attachmentImportPending(record) {
+		pending = "1"
+	}
+	result, err := swapAttachmentScript.Run(ctx, s.client, []string{attachmentRecordKey(record.Owner, record.Task.ID), attachmentActiveKey(record.Owner), attachmentImportPendingKey}, version, data, attachmentTaskTTL.Milliseconds(), terminal, record.Task.ID, pending, time.Now().UnixMilli()).Int()
 	return result == 1, err
+}
+
+const attachmentImportPendingKey = "goodhr:attachment-import-pending"
+
+// PendingImports 按公平轮转读取有限批次的持久任务；失效回执同时从恢复索引清除。
+func (s *redisAttachmentParseStore) PendingImports(ctx context.Context) ([]attachmentParseRecord, error) {
+	keys, err := s.client.ZRange(ctx, attachmentImportPendingKey, 0, 127).Result()
+	if err != nil || len(keys) == 0 {
+		return nil, err
+	}
+	values, err := s.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	result := []attachmentParseRecord{}
+	for index, value := range values {
+		raw, ok := value.(string)
+		var record attachmentParseRecord
+		if !ok || json.Unmarshal([]byte(raw), &record) != nil || record.Import == nil || !attachmentImportPending(record) {
+			_ = s.client.ZRem(ctx, attachmentImportPendingKey, keys[index]).Err()
+			continue
+		}
+		result = append(result, record)
+		_ = s.client.ZAdd(ctx, attachmentImportPendingKey, redis.Z{Score: float64(time.Now().UnixMilli()), Member: keys[index]}).Err()
+	}
+	return result, nil
 }

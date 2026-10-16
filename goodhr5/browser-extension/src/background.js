@@ -6,7 +6,7 @@ const shared = globalThis.GoodHRShared;
 const avatar = globalThis.GoodHRAvatar;
 const snapshots = new Map();
 const snapshotSequences = new Map();
-const attachmentReceipts = new Map();
+const attachmentImportRequests = new Map();
 const attachmentTaskScopes = new Map();
 let restoreAttempted = false;
 let authGeneration = 0, revokeInFlight = null, lastRevokeAttempt = 0;
@@ -142,7 +142,7 @@ async function retryRevocation(force = false) {
 /** logout 先退出本机使用态，再独立撤销两端授权，任何失败均明确返回待撤销状态。 */
 async function logout() {
   authGeneration++; restoreAttempted = true;
-  duplicateCache.clear(); attachmentReceipts.clear(); attachmentTaskScopes.clear(); for (const timer of captureTimers.values()) clearTimeout(timer); captureTimers.clear();
+  duplicateCache.clear(); attachmentImportRequests.clear(); attachmentTaskScopes.clear(); for (const timer of captureTimers.values()) clearTimeout(timer); captureTimers.clear();
   if (revokeInFlight) await revokeInFlight;
   const settings = await readSettings(), pending = settings.pending_revoke || { cloud_tokens: [], created_at: Date.now() };
   if (settings.session?.token) pending.cloud_tokens = [...new Set([...(pending.cloud_tokens || []), settings.session.token])];
@@ -334,8 +334,11 @@ async function performDraftOperation(payload, saving) {
   for (const name of ["name", "phone", "candidate-email", "city", "position", "expected-position", "gender", "first-company", "first-work-start", "first-work-end", "first-school", "first-school-start", "first-school-end", "duplicate-keyword", "job-filter", "job", "folder-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time"]) fields[name] = shared.cleanText(data.fields?.[name], name.includes("note") ? 12000 : 500);
   drafts[key] = { updated_at: Date.now(), data: { fields, folder_ids: shared.sanitizeFolderIDs(data.folder_ids), folders_edited: data.folders_edited === true, edited: Array.isArray(data.edited) ? data.edited.filter((item) => Object.hasOwn(fields, item)) : [], keys: Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((item) => [item, shared.cleanText(data.keys?.[item], 100)])), ai_summary: shared.cleanText(data.ai_summary, 12000), summary_task: data.summary_task?.id ? { id: shared.cleanText(data.summary_task.id, 100), status: shared.cleanText(data.summary_task.status, 40), possibly_charged: data.summary_task.possibly_charged === true } : null, summary_unknown: data.summary_unknown === true, summary_source: frozenSource } };
   // 只保存任务回执和已识别结构化字段，不在磁盘草稿复制附件全文。
-  drafts[key].data.attachment = data.attachment ? { capture_id: shared.cleanText(data.attachment.capture_id, 160), basic_key: shared.cleanText(data.attachment.basic_key, 128), full_key: shared.cleanText(data.attachment.full_key, 128), basic_task: attachmentTaskReceipt(data.attachment.basic_task), full_task: attachmentTaskReceipt(data.attachment.full_task), basic_unknown: data.attachment.basic_unknown === true, full_unknown: data.attachment.full_unknown === true, basic_error: shared.cleanText(data.attachment.basic_error, 500) } : null;
+  drafts[key].data.attachment = data.attachment ? { capture_id: shared.cleanText(data.attachment.capture_id, 160), basic_key: shared.cleanText(data.attachment.basic_key, 128), full_key: shared.cleanText(data.attachment.full_key, 128), basic_task: attachmentTaskReceipt(data.attachment.basic_task), full_task: attachmentTaskReceipt(data.attachment.full_task), basic_unknown: data.attachment.basic_unknown === true, basic_error: shared.cleanText(data.attachment.basic_error, 500), save_request: shared.sanitizeAttachmentImport(data.attachment.save_request), save_task: shared.attachmentImportReceipt(data.attachment.save_task), save_unknown: data.attachment.save_unknown === true, save_not_found: data.attachment.save_not_found === true, save_applied: shared.cleanText(data.attachment.save_applied, 100) } : null;
   if (drafts[key].data.attachment?.full_task) delete drafts[key].data.attachment.full_task.resume;
+  if (drafts[key].data.attachment) drafts[key].data.attachment.save_history = (Array.isArray(data.attachment.save_history) ? data.attachment.save_history : []).slice(0, 3).map(shared.attachmentImportReceipt).filter(Boolean);
+  if (drafts[key].data.attachment) drafts[key].data.attachment.legacy_confirmed = shared.cleanText(data.attachment.legacy_confirmed, 100);
+  if (drafts[key].data.attachment) drafts[key].data.attachment.full_unknown = data.attachment.full_unknown === true;
   const entries = Object.entries(drafts).sort(([left, a], [right, b]) => left === key ? -1 : right === key ? 1 : b.updated_at - a.updated_at).slice(0, 30);
   while (entries.length > 1 && new TextEncoder().encode(JSON.stringify(Object.fromEntries(entries))).byteLength > 3 * 1024 * 1024) entries.pop();
   await extension.storage.local.set({ ui_drafts: Object.fromEntries(entries) }); return { ok: true };
@@ -347,7 +350,7 @@ function draftOperation(payload, saving) { const operation = draftQueue.then(() 
 /** attachmentTaskReceipt 只向隔离 UI 和私有草稿提供任务结果白名单，不回显输入正文。 */
 function attachmentTaskReceipt(task) {
   if (!task?.id) return null;
-  return { id: shared.cleanText(task.id, 100), phase: task.phase === "full" ? "full" : "basic", capture_id: shared.cleanText(task.capture_id, 160), text_hash: shared.cleanText(task.text_hash, 64), request_key: shared.cleanText(task.request_key, 128), status: shared.cleanText(task.status, 40), possibly_charged: task.possibly_charged === true, error_code: shared.cleanText(task.error_code, 100), message: shared.cleanText(task.message, 1000), ...(task.resume ? { resume: shared.sanitizeResume(task.resume, task.phase === "full") } : {}) };
+  return { id: shared.cleanText(task.id, 100), phase: task.phase === "full" ? "full" : "basic", capture_id: shared.cleanText(task.capture_id, 160), text_hash: shared.cleanText(task.text_hash, 64), request_key: shared.cleanText(task.request_key, 128), status: shared.cleanText(task.status, 40), possibly_charged: task.possibly_charged === true, error_code: shared.cleanText(task.error_code, 100), message: shared.cleanText(task.message, 1000), ...(task.phase !== "full" && task.resume ? { resume: shared.sanitizeResume(task.resume) } : {}) };
 }
 
 /** attachmentOperation 从当前页面的可信快照提交纯文本，界面不能指定正文或其它页面；迟到结果必须再次校验来源。 */
@@ -371,6 +374,7 @@ async function attachmentOperation(payload, action, sourceTab) {
   if (!["basic", "full"].includes(phase)) throw new Error("附件识别阶段不正确，请重新读取");
   let path = "/api/candidates/attachment-parses", body = null, method = "GET";
   if (action === "start") {
+    if (phase !== "basic") throw new Error("完整解析已交给后台保存任务，请点击添加或更新");
     if (attachment.blocked || !attachment.text) throw new Error(attachment.warning || "附件还没加载完，请稍等");
     if (!/^[A-Za-z0-9_-]{8,128}$/.test(payload.request_key || "")) throw new Error("这次识别缺少标识，请重新读取");
     if (await shared.hashText(attachment.text) !== attachment.text_hash) throw new Error("附件内容校验没通过，请重新读取");
@@ -391,7 +395,6 @@ async function attachmentOperation(payload, action, sourceTab) {
   if (generation !== authGeneration || task?.capture_id !== snapshot.capture_id || task?.text_hash !== attachment.text_hash || task?.phase !== phase || (action === "start" && task?.request_key !== payload.request_key)) throw Object.assign(new Error("识别结果与当前附件不一致，已停止填入"), { code: "CAPTURE_SCOPE_CHANGED" });
   const receipt = attachmentTaskReceipt(task);
   if (!receipt) throw new Error("还没拿到识别记录，请查询上次请求，不要重复发起");
-  if (phase === "full" && task.status === "completed" && receipt.resume) { attachmentReceipts.set(JSON.stringify([accountKey(await readSettings()), snapshot.capture_id]), receipt); if (attachmentReceipts.size > 30) attachmentReceipts.delete(attachmentReceipts.keys().next().value); }
   return { task: receipt };
 }
 
@@ -418,9 +421,60 @@ function requireWritableResume(input = {}) {
 /** requireConsent 在任何云端业务提交前检查用户的简历数据授权。 */
 async function requireConsent() { if (!(await readSettings()).data_use_accepted) throw new Error("请先同意把确认后的简历资料保存到 GoodHR"); }
 
+/** importTaskResult 核对后台回执属于原冻结请求，并移除任何完整解析数据。 */
+function importTaskResult(result, request) {
+  const task = shared.attachmentImportReceipt(result?.task);
+  if (!task || task.request_key !== request.request_key || task.capture_id !== request.capture_id) throw new Error("后台回执还没确认，请查询原保存任务，不要重新发起");
+  return { task };
+}
+
+/** pollAttachmentImport 仅按原编号恢复同账号保存状态，关闭或切人不会取消已经受理的任务。 */
+async function pollAttachmentImport(payload) {
+  const generation = payload.expected_generation ?? authGeneration;
+  await requireConsent(); await requireActiveSession();
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(payload.request_key || "") || !payload.capture_id) throw new Error("保存编号没找到，请重新打开原候选人卡片");
+  const path = payload.task_id && /^[A-Za-z0-9_-]{1,100}$/.test(payload.task_id) ? "/api/candidates/attachment-imports/" + encodeURIComponent(payload.task_id) : "/api/candidates/attachment-imports?request_key=" + encodeURIComponent(payload.request_key);
+  return importTaskResult(await cloudRequest(path, null, "GET", true, generation), payload);
+}
+
+/** startAttachmentImport 冻结人工输入，补入当前可信全文及头像，只提交一次后台任务而不等待完整AI。 */
+async function startAttachmentImport(payload, updating, sourceTab) {
+  const generation = payload.expected_generation ?? authGeneration;
+  await requireConsent(); await requireActiveSession();
+  const request = shared.sanitizeAttachmentImport(payload.attachment_save);
+  if (!request || request.operation !== (updating ? "update" : "create") || request.capture_id !== payload.capture_id || !/^[A-Za-z0-9_-]{8,128}$/.test(request.request_key)) throw new Error("这次保存缺少原始编号，请重新读取");
+  if (!request.review.candidate_name || !request.review.phone) throw new Error("请补齐姓名和完整手机号，再交给后台保存");
+  if (updating && (!request.candidate_id || !request.row_version)) throw new Error("请先查重并选择要更新的简历");
+  if ([request.note?.content, request.recommendation?.content].some((value) => Array.from(value || "").length > 1000)) throw new Error("备注超过1000字，请缩短或分次记录");
+  const account = accountKey(await readSettings()), key = JSON.stringify([account, request.request_key]), signature = JSON.stringify(request);
+  if (generation !== authGeneration) throw new Error("账号已经变化，本次保存未提交");
+  let entry = attachmentImportRequests.get(key);
+  if (entry && entry.signature !== signature) throw Object.assign(new Error("这次保存的资料已冻结，请查询原任务"), { status: 409, code: "REQUEST_CONFLICT" });
+  if (entry?.promise) return entry.promise;
+  if (entry?.task) return { task: entry.task };
+  if (!entry) { entry = { signature, body: null, promise: null }; attachmentImportRequests.set(key, entry); if (attachmentImportRequests.size > 30) attachmentImportRequests.delete(attachmentImportRequests.keys().next().value); }
+  entry.promise = (async () => {
+    const boundTab = sourceTab || await activeTab(), snapshot = await currentSnapshot(boundTab), attachment = snapshot?.attachment;
+    if (!boundTab || !attachment || snapshot.capture_id !== request.capture_id || attachment.blocked || !attachment.text) throw Object.assign(new Error("附件已切换或还没加载完，请重新读取当前人"), { code: "CAPTURE_SCOPE_CHANGED" });
+    if (await shared.hashText(attachment.text) !== attachment.text_hash) throw new Error("附件内容校验没通过，请重新读取");
+    if (!entry.body) {
+      const image = await prepareAvatar(request.capture_id, boundTab);
+      entry.body = { ...request, text: attachment.text, text_hash: attachment.text_hash, source: { platform_id: "boss", source_url: shared.safeSourceURL(snapshot.source_url), ...(snapshot.platform_candidate_id ? { platform_candidate_id: snapshot.platform_candidate_id } : {}) }, ...(image.data_url ? { avatar_data_url: image.data_url } : {}) };
+    }
+    await requireCurrentCapture(request.capture_id, boundTab);
+    if (generation !== authGeneration) throw new Error("账号已经变化，本次保存未提交");
+    const result = importTaskResult(await cloudRequest("/api/candidates/attachment-imports", entry.body, "POST", true, generation), request);
+    entry.task = result.task; entry.body = null; return result;
+  })();
+  try { return await entry.promise; }
+  catch (error) { if (shared.unacceptedImportError(error.code)) { attachmentImportRequests.delete(key); entry.body = null; } throw error; }
+  finally { entry.promise = null; }
+}
+
 /** createCandidate 在后端再校验手机号，并用幂等键防止连续点击重复添加。 */
 async function createCandidate(payload, updating = false, sourceTab = null) {
   const generation = payload.expected_generation ?? authGeneration;
+  if (payload.attachment_save) return startAttachmentImport(payload, updating, sourceTab);
   await requireConsent(); await requireActiveSession(); const resume = shared.candidateWriteResume(payload.resume, updating, payload.resume?.platform_id === "boss");
   if (generation !== authGeneration) throw new Error("账号已经变化，本次保存已停止，请确认账号后重新保存");
   if (!resume.candidate_name || !resume.phone) throw new Error("姓名和完整手机号都填一下，我才能认真入库");
@@ -432,10 +486,7 @@ async function createCandidate(payload, updating = false, sourceTab = null) {
   const captured = boundTab ? await currentSnapshot(boundTab) : null;
   if (captured?.attachment || resume.platform_id === "boss") {
     if (!captured?.attachment || captured.capture_id !== payload.capture_id || captured.attachment.blocked || !captured.attachment.text) throw new Error("BOSS 附件已切换或页面不完整，请重新读取当前候选人");
-    const receipt = attachmentReceipts.get(JSON.stringify([accountKey(await readSettings()), captured.capture_id]));
-    if (!receipt?.resume || receipt.status !== "completed") throw new Error("附件还没完成完整解析，请确认资料后再添加");
-    Object.assign(input, shared.candidateWriteResume(payload.resume, updating, true));
-    input.raw_text = captured.attachment.text; input.platform_id = "boss"; input.source_url = captured.source_url;
+    throw new Error("请重新读取后提交附件后台保存任务");
   }
   const image = await prepareAvatar(payload.capture_id, boundTab); if (image.data_url && (!updating || image.data_url !== payload.existing_avatar_data_url)) input.avatar_data_url = image.data_url;
   if (generation !== authGeneration) throw new Error("账号已经变化，本次保存已停止，请确认账号后重新保存");
@@ -469,7 +520,7 @@ async function retryAvatar(payload, sourceTab = null) {
 /** handleUIMessage 接收插件界面的明确操作，所有接口固定而非通用代理。 */
 async function handleUIMessage(message, sourceTab = null) {
   const generation = authGeneration, payload = { ...(message.payload || {}), expected_generation: generation };
-  if (["POSITIONS", "FOLDERS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE", "ATTACHMENT_START", "ATTACHMENT_POLL", "ATTACHMENT_CANCEL"].includes(message.type) && payload.account_key) { const generation = authGeneration, settings = await readSettings(); if (generation !== authGeneration || payload.account_key !== accountKey(settings)) throw new Error("账号已经变化，本次操作已停止，请确认账号后继续"); }
+  if (["POSITIONS", "FOLDERS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE", "ATTACHMENT_START", "ATTACHMENT_POLL", "ATTACHMENT_CANCEL", "ATTACHMENT_IMPORT_POLL"].includes(message.type) && payload.account_key) { const generation = authGeneration, settings = await readSettings(); if (generation !==authGeneration || payload.account_key !== accountKey(settings)) throw new Error("账号已经变化，本次操作已停止，请确认账号后继续"); }
   if (VERSION_WRITES.has(message.type)) { await requireConsent(); await requireActiveSession(); await requireCurrentVersion(); }
   switch (message.type) {
     case "STATE": return publicState(sourceTab);
@@ -504,6 +555,7 @@ async function handleUIMessage(message, sourceTab = null) {
     case "ATTACHMENT_START": return attachmentOperation(payload, "start", sourceTab);
     case "ATTACHMENT_POLL": return attachmentOperation(payload, "poll", sourceTab);
     case "ATTACHMENT_CANCEL": return attachmentOperation(payload, "cancel", sourceTab);
+    case "ATTACHMENT_IMPORT_POLL": return pollAttachmentImport(payload);
     case "SUMMARY_POLL": return summaryOperation(payload, "poll");
     case "SUMMARY_CANCEL": return summaryOperation(payload, "cancel");
     case "SUMMARY_RETRY": return summaryOperation(payload, "retry");

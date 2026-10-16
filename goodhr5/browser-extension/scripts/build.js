@@ -108,6 +108,7 @@ function preparePackageDirectory(directory, browser, local = false) {
   for (const size of [16,32,48,64,128]) fs.writeFileSync(path.join(directory, "icons", `${size}.png`), iconPNG(size));
   fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest(browser, local), null, 2) + "\n");
   fs.copyFileSync(path.join(ROOT, installDocument(browser, local)), path.join(directory, "INSTALL.md"));
+  fs.copyFileSync(path.join(ROOT, "README.md"), path.join(directory, "README.md"));
 }
 
 /** build 清理已确认的插件 dist 或 dist-local 目录，分别输出正式开发包与本地测试包。 */

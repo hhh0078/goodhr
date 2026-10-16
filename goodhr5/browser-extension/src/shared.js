@@ -85,6 +85,29 @@
     return { text: input.text, text_hash: input.text_hash, page_count: Math.max(0, Math.min(1000, Number(input.page_count) || 0)), total_pages: Math.max(0, Math.min(1000, Number(input.total_pages) || 0)), complete: input.complete === true, blocked: input.blocked === true, warning: cleanText(input.warning, 500) };
   }
 
+  /** sanitizeAttachmentImport 冻结一次附件保存的人工核对和写入参数，不接收原文、AI完整结果或图片外链。 */
+  function sanitizeAttachmentImport(input) {
+    if (!input || typeof input !== "object") return null;
+    const operation = input.operation === "update" ? "update" : "create", review = Object.fromEntries(["candidate_name", "phone", "gender", "email", "work_region", "current_position", "expected_position"].map((key) => [key, cleanText(input.review?.[key], 500)]));
+    review.phone = normalizePhone(review.phone); review.gender = ({ 男: "male", 女: "female", male: "male", female: "female" })[review.gender] || "";
+    const review_fields = Object.fromEntries(["first-company", "first-work-start", "first-work-end", "first-school", "first-school-start", "first-school-end"].map((key) => [key, cleanText(input.review_fields?.[key], 500)]));
+    const result = { request_key: cleanText(input.request_key, 128), capture_id: cleanText(input.capture_id, 160), operation, review, review_fields, edited_fields: [...new Set((Array.isArray(input.edited_fields) ? input.edited_fields : []).filter((id) => ["name", "phone", "gender", "candidate-email", "city", "position", "expected-position", ...Object.keys(review_fields)].includes(id)))], folder_ids: sanitizeFolderIDs(input.folder_ids) };
+    if (operation === "update") { result.candidate_id = cleanText(input.candidate_id, 100); result.row_version = Math.max(0, Math.floor(Number(input.row_version) || 0)); }
+    if (input.full_task_id) result.full_task_id = cleanText(input.full_task_id, 100);
+    if (operation === "create" && cleanText(input.note?.content, 12000)) result.note = { content: cleanText(input.note.content, 12000), ...(input.note.occurred_at ? { occurred_at: cleanText(input.note.occurred_at, 80) } : {}) };
+    if (operation === "create" && input.recommendation?.position_id) result.recommendation = { position_id: cleanText(input.recommendation.position_id, 100), stage: STAGES[input.recommendation.stage] ? input.recommendation.stage : "draft", content: cleanText(input.recommendation.content, 12000), ...(input.recommendation.occurred_at ? { occurred_at: cleanText(input.recommendation.occurred_at, 80) } : {}) };
+    return result;
+  }
+
+  /** attachmentImportReceipt 只保留后台保存任务状态，不把完整解析资料或输入原文交给界面和草稿。 */
+  function attachmentImportReceipt(task) {
+    if (!task?.id || !["queued", "running", "completed", "partial_success", "failed", "uncertain"].includes(task.status)) return null;
+    return { id: cleanText(task.id, 100), request_key: cleanText(task.request_key, 128), capture_id: cleanText(task.capture_id, 160), text_hash: cleanText(task.text_hash, 64), status: task.status, stage: cleanText(task.stage, 40), candidate_id: cleanText(task.candidate_id, 100), row_version: Math.max(0, Number(task.row_version) || 0), error_code: cleanText(task.error_code, 100), message: cleanText(task.message, 1000), possibly_charged: task.possibly_charged === true, followup_errors: (Array.isArray(task.followup_errors) ? task.followup_errors : []).slice(0, 10).map((item) => cleanText(item, 500)) };
+  }
+
+  /** unacceptedImportError 仅识别服务端保证尚未受理的业务错误，不把结果未知或原编号冲突当作可重计费失败。 */
+  function unacceptedImportError(code) { return ["CANDIDATE_DUPLICATE", "CANDIDATE_VERSION_CONFLICT", "CANDIDATE_NOT_FOUND", "FOLDER_UNAVAILABLE", "POSITION_UNAVAILABLE", "AI_NOT_CONFIGURED", "AI_CONFIG_INVALID", "AI_CONFIG_UNAVAILABLE", "FULL_TASK_MISMATCH", "TASK_BUSY"].includes(code); }
+
   /** earliestExperience 以最早有效开始年月选取经历，未知日期排在最后。 */
   function earliestExperience(items) { return (Array.isArray(items) ? items : []).map((item, index) => ({ item, index })).sort((a, b) => { const left = /^\d{4}(?:-\d{2})?$/.test(a.item?.start_ym || "") ? a.item.start_ym : "9999", right = /^\d{4}(?:-\d{2})?$/.test(b.item?.start_ym || "") ? b.item.start_ym : "9999"; return left.localeCompare(right) || a.index - b.index; })[0]?.item || {}; }
 
@@ -226,7 +249,7 @@
     return result;
   }
 
-  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, sanitizeFolderIDs, normalizePhone, platformForURL, safeSourceURL, safeAvatarSource, attachmentAvatarDimensions, sanitizeAvatarCandidates, validStoredAvatar, newKey, resumeIdentity, hashText, sanitizeAttachment, earliestExperience, attachmentReviewFields, mergeAttachmentReview, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, candidateWriteResume, describeResumeChanges, saveFollowups };
+  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, sanitizeFolderIDs, normalizePhone, platformForURL, safeSourceURL, safeAvatarSource, attachmentAvatarDimensions, sanitizeAvatarCandidates, validStoredAvatar, newKey, resumeIdentity, hashText, sanitizeAttachment, sanitizeAttachmentImport, attachmentImportReceipt, unacceptedImportError, earliestExperience, attachmentReviewFields, mergeAttachmentReview, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, candidateWriteResume, describeResumeChanges, saveFollowups };
   root.GoodHRShared = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

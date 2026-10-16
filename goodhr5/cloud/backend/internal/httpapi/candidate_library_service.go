@@ -168,17 +168,8 @@ func (s *CandidateService) Save(w http.ResponseWriter, r *http.Request) {
 			writeCandidateError(w, err)
 			return
 		}
-		min, max := current.ExpectedSalaryMin, current.ExpectedSalaryMax
-		for field, target := range map[string]**float64{"expected_salary_min": &min, "expected_salary_max": &max} {
-			if raw, ok := fields[field]; ok {
-				*target = nil
-				if number, ok := raw.(float64); ok {
-					*target = &number
-				}
-			}
-		}
-		if min != nil && max != nil && *min > *max {
-			writeError(w, http.StatusBadRequest, "最低薪资不能高于最高薪资")
+		if err := validateCandidateSalaryPatch(current, fields); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
@@ -188,6 +179,23 @@ func (s *CandidateService) Save(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "candidate": publicPositionCandidate(item)})
+}
+
+// validateCandidateSalaryPatch 将部分更新与已有薪资合并核对；省略保留原值，显式 nil 清空该侧。
+func validateCandidateSalaryPatch(current PositionCandidate, fields map[string]any) error {
+	min, max := current.ExpectedSalaryMin, current.ExpectedSalaryMax
+	for field, target := range map[string]**float64{"expected_salary_min": &min, "expected_salary_max": &max} {
+		if raw, present := fields[field]; present {
+			*target = nil
+			if number, ok := raw.(float64); ok {
+				*target = &number
+			}
+		}
+	}
+	if min != nil && max != nil && *min > *max {
+		return errors.New("最低薪资不能高于最高薪资")
+	}
+	return nil
 }
 
 // Duplicates 读取精确或可能重复项，隐藏记录只返回匿名提示。
