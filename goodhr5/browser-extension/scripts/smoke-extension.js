@@ -3,6 +3,9 @@
 const path = require("node:path"), fs = require("node:fs"), assert = require("node:assert/strict"), { chromium } = require(path.resolve(__dirname, "../../cloud/frontend-next/node_modules/@playwright/test"));
 const ROOT = path.resolve(__dirname, "..");
 
+/** waitForWorkerCondition 有限等待合成扩展后台的连接状态，不读取或操作真实招聘页面。 */
+async function waitForWorkerCondition(worker, condition) { for (let attempt = 0; attempt < 50; attempt++) { if (await worker.evaluate(condition)) return; await new Promise((resolve) => setTimeout(resolve, 50)); } throw new Error("合成扩展后台状态未及时就绪"); }
+
 /** runChromeExtension 使用Chrome官方扩展调试协议加载隔离构建，仅记录UI消息来源字段，无任何凭证。 */
 async function runChromeExtension() {
   const profile = fs.mkdtempSync(path.join(ROOT, "artifacts", "chrome-profile-"));
@@ -35,6 +38,12 @@ async function runChromeExtension() {
     assert.equal(await frame.locator("#login-form,#consent,#pair-panel").count(), 0);
     const senders = await worker.evaluate(() => fixtureSenders); assert.ok(senders.length); assert.ok(senders.every((sender) => sender.tab && sender.frameId > 0 && sender.tab.url.includes("synthetic-extension-1")));
     fs.writeFileSync(path.join(ROOT, "artifacts", "chrome-extension-senders.json"), JSON.stringify({ description: "文件作用：只记录合成扩展iframe消息来源，无真实资料或凭证。", chrome: await context.browser()?.version(), senders }, null, 2));
+    // 只在本扩展合成界面建立成本等待，不调用识别；经原收起通道验证真实跨源 iframe 的短连接取消。
+    await frame.evaluate(() => { loggedIn = true; dataUseAccepted = true; updateRequired = false; globalThis.syntheticCostDecision = "waiting"; confirmAICost("合成成本确认，本流程不会调用 AI").then((accepted) => { globalThis.syntheticCostDecision = accepted; }); });
+    await frame.locator("#cost-confirmation").waitFor({ state: "visible" });
+    await waitForWorkerCondition(worker, () => [...costConfirmationPorts.values()].some((ports) => ports.size === 1));
+    await worker.evaluate((tabID) => chrome.tabs.sendMessage(tabID, { type: "CLOSE_FLOATING" }, { frameId: 0 }), senders[0].tab.id);
+    await frame.waitForFunction(() => globalThis.syntheticCostDecision === false); await waitForWorkerCondition(worker, () => costConfirmationPorts.size === 0);
     await page.goto("https://www.zhipin.com/web/chat/index?token=synthetic-extension-only");
     await page.locator("#goodhr-resume-assistant").waitFor();
     if (!page.frames().some((item) => item.url().startsWith(`chrome-extension://${installed.id}/src/floating.html`))) await page.waitForEvent("framenavigated", { predicate: (item) => item.url().startsWith(`chrome-extension://${installed.id}/src/floating.html`) });
@@ -44,7 +53,7 @@ async function runChromeExtension() {
     assert.equal(bossState.ok, true); assert.equal(bossState.data.resume.platform_id, "boss"); assert.equal(bossState.data.resume.attachment.page_count, 1); assert.equal(bossState.data.resume.attachment.complete, true);
     assert.equal(bossState.data.resume.source_url, "https://www.zhipin.com/web/chat/index"); assert.equal(Object.hasOwn(bossState.data.resume.attachment, "text"), false); assert.match(bossState.data.resume.attachment.text_hash, /^[a-f0-9]{64}$/);
     assert.equal(await bossFrame.locator("#name").inputValue(), "", "未授权预览不能调用AI或猜姓名"); assert.equal(await page.locator("#boss-business").textContent(), "合成聊天内容，不属于附件");
-    console.log(JSON.stringify({ installed: true, floating_preview: true, sender_tab_present: true, sender_frame: senders[0].frameId, boss_same_origin_pdf: true, boss_public_state_without_text: true, chrome: await context.browser()?.version() }));
+    console.log(JSON.stringify({ installed: true, floating_preview: true, sender_tab_present: true, sender_frame: senders[0].frameId, cost_port_close_cancelled: true, boss_same_origin_pdf: true, boss_public_state_without_text: true, chrome: await context.browser()?.version() }));
   } finally {
     await context.close();
     if (!path.resolve(profile).startsWith(path.join(ROOT, "artifacts", "chrome-profile-"))) throw new Error("测试Chrome临时目录超出插件范围，停止清理");

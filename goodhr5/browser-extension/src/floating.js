@@ -33,6 +33,7 @@
   /** setOpen 仅展开或收起插件面板；收起时保留 iframe 输入，避免备注草稿丢失。 */
   function setOpen(value) {
     panel.hidden = !value; host.hidden = !value;
+    if (!value) extension.runtime.sendMessage?.({ type: "FLOATING_CLOSED" })?.catch?.(() => {});
     if (value && !frame) {
       frame = makeElement("iframe", "frame"); frame.title = "GoodHR 简历助手"; frame.referrerPolicy = "no-referrer";
       frame.src = extension.runtime.getURL("src/floating.html"); panel.appendChild(frame);
@@ -69,7 +70,7 @@
 
   /** update 自动显示新候选人的简历面板，同一人主动收起后保持收起，资料消失只隐藏自己的容器。 */
   function update(resume) {
-    if (!resume?.candidate_name && !resume?.attachment) { if (host && !host.hidden) host.hidden = true; currentIdentity = ""; currentPhone = ""; return; }
+    if (!resume?.candidate_name && !resume?.attachment) { if (host && !host.hidden) setOpen(false); currentIdentity = ""; currentPhone = ""; return; }
     const identity = identityOf(resume), phone = root.GoodHRShared ? root.GoodHRShared.normalizePhone(resume.phone) : resume.phone || "";
     const changed = identity !== currentIdentity || Boolean(phone && currentPhone && phone !== currentPhone);
     mount(); host.setAttribute("aria-label", `${resume.candidate_name || "BOSS 附件"} 的 GoodHR 简历助手`);

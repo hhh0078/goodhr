@@ -21,7 +21,7 @@ func TestBossAttachmentPromptDefaults(t *testing.T) {
 			t.Fatalf("默认识别缺少明确手机号边界: %s", rule)
 		}
 	}
-	for _, rule := range []string{"实习", "兼职", "受聘机构岗位", "不能仅凭机构名称", "纯志愿服务", "班委", "团委", "社团", "课程实践", "竞赛", "个人项目", "不得放入work_experiences", "开始时间最早", "work_experiences:[]", "完整阶段保留全部", "project_experiences"} {
+	for _, rule := range []string{"实习", "兼职", "受聘机构岗位", "不能仅凭机构名称", "纯志愿服务", "班委", "团委", "社团", "课程实践", "竞赛", "个人项目", "不得放入work_experiences", "开始时间最早", "work_experiences:[]", "完整阶段保留全部", "project_experiences", "实际任职或实习雇主", "发布平台、渠道、软件工具、服务客户", "不能仅据名称当作雇主", "company_name留空", "不编造或拿渠道凑数"} {
 		if !strings.Contains(bossAttachmentWorkClassification, rule) || strings.Count(builtinBossAttachmentBasicPrompt, bossAttachmentWorkClassification) != 1 {
 			t.Fatalf("默认识别缺少统一经历分类规则: %s", rule)
 		}

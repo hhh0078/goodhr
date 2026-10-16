@@ -5,17 +5,29 @@ const src = path.join(__dirname, "..", "src");
 
 /** backgroundFixture 构造后台执行环境和无真实网络的受限会话。 */
 function backgroundFixture(fetchReply) {
-  const values = { session: { token: "private-background-token", user: { email: "fixture@example.test", id: "fixture" }, expires_at: "2030-01-01" } }, requests = [], versionRequests = []; let listener;
+  const values = { session: { token: "private-background-token", user: { email: "fixture@example.test", id: "fixture" }, expires_at: "2030-01-01" } }, requests = [], versionRequests = []; let listener, connectListener;
   const extension = {
-    runtime: { id: "test-extension", getURL: (value) => "chrome-extension://test-extension/" + value, getManifest: () => ({ version: require("../package.json").version }), onMessage: { addListener: (handler) => { listener = handler; } } },
+    runtime: { id: "test-extension", getURL: (value) => "chrome-extension://test-extension/" + value, getManifest: () => ({ version: require("../package.json").version }), onMessage: { addListener: (handler) => { listener = handler; } }, onConnect: { addListener: (handler) => { connectListener = handler; } } },
     storage: { local: { get: async (keys) => Object.fromEntries(keys.filter((key) => key in values).map((key) => [key, values[key]])), set: async (input) => Object.assign(values, input), remove: async (keys) => { for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key]; }, setAccessLevel: async () => {} } },
     tabs: { query: async () => [], create: async () => ({}), onRemoved: { addListener: () => {} }, onUpdated: { addListener: () => {} } },
     action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {}, setTitle: () => {} }
   };
   const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, TextEncoder, console, setTimeout, clearTimeout, fetch: async (url, options) => { if (new URL(url).pathname === "/api/system/browser-extension") { versionRequests.push({ url, options }); return response({ release: { version: extension.runtime.getManifest().version } }); } requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
   vm.runInContext(fs.readFileSync(path.join(src, "shared.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "avatar.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "background.js"), "utf8"), context);
-  return { values, requests, versionRequests, context, extension, message: (message, sender) => new Promise((resolve) => { const result = listener(message, sender, resolve); if (result === false) resolve(undefined); }) };
+  return { values, requests, versionRequests, context, extension, connect: (port) => connectListener(port), message: (message, sender) => new Promise((resolve) => { const result = listener(message, sender, resolve); if (result === false) resolve(undefined); }) };
 }
+
+test("卡片成本短连接只接受可信扩展iframe，收起信号仅取消同tab且不请求网络", async () => {
+  const value = backgroundFixture(), tabA = { id: 70, url: "https://www.zhipin.com/web/chat/index" }, tabB = { ...tabA, id: 71 };
+  /** portFixture 只记录本插件内部取消信号，不连接真实浏览器。 */
+  function portFixture(sender) { return { name: "goodhr-cost-confirmation", sender, messages: [], disconnected: false, onDisconnect: { addListener: () => {} }, disconnect() { this.disconnected = true; }, postMessage(message) { this.messages.push(message); } }; }
+  const first = portFixture({ ...floatingSender, frameId: 2, tab: tabA }), second = portFixture({ ...floatingSender, frameId: 2, tab: tabB }); value.connect(first); value.connect(second);
+  for (const sender of [{ id: "test-extension", url: tabA.url, frameId: 0, tab: tabA }, { ...floatingSender, frameId: 0, tab: tabA }, { ...floatingSender, frameId: 2, tab: { id: 72, url: "https://example.com/" } }]) { const port = portFixture(sender); value.connect(port); assert.equal(port.disconnected, true); }
+  await value.message({ type: "FLOATING_CLOSED" }, { id: "test-extension", frameId: 0, tab: tabA });
+  assert.equal(first.messages.length, 1); assert.equal(first.messages[0].type, "CANCEL_COST_CONFIRMATION"); assert.equal(second.messages.length, 0);
+  for (const sender of [{ id: "test-extension", frameId: 2, tab: tabB }, { id: "other-extension", frameId: 0, tab: tabB }, { id: "test-extension", frameId: 0, tab: { id: 71, url: "https://example.com/" } }]) await value.message({ type: "FLOATING_CLOSED" }, sender);
+  assert.equal(second.messages.length, 0); assert.equal(value.requests.length, 0); assert.equal(value.versionRequests.length, 0);
+});
 
 /** response 构造明确状态码的 JSON 响应，避免真实外部请求。 */
 function response(body = { ok: true }, status = 200) { return { ok: status >= 200 && status < 300, status, json: async () => body }; }

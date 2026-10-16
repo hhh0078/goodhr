@@ -9,6 +9,37 @@ let accountKey = "", identity = "", uiEpoch = 0, querySequence = 0, stateSequenc
 let keys = newKeys(), avatarWarning = "", aiSummary = "", summaryTask = null, summaryPolling = false, updateChecked = false, pendingJob = "", jobMenuOpen = false, summaryUnknown = false, summarySource = null;
 let folders = [], selectedFolderIDs = [], foldersEdited = false, folderMenuOpen = false, folderLoading = false, folderLoadError = "", folderSequence = 0;
 let attachmentState = null, attachmentPolling = false, attachmentSavePolling = false;
+let costConfirmation = null;
+
+/** sameCostScope 只允许同一账号和候选人快照接受本次成本确认，授权或版本变化时一律取消。 */
+function sameCostScope(scope) { return scope.epoch === uiEpoch && scope.account === accountKey && scope.identity === identity && scope.capture === currentResume?.capture_id && loggedIn && dataUseAccepted && !updateRequired; }
+/** settleCostConfirmation 关闭插件自己的确认区；取消不修改已有任务、请求编号或人工输入。 */
+function settleCostConfirmation(accepted = false) {
+  const pending = costConfirmation; if (!pending) return;
+  costConfirmation = null; $("cost-confirmation").hidden = true;
+  const allowed = accepted && sameCostScope(pending);
+  try { pending.port?.disconnect(); } catch { /* 扩展卸载时仍结束本地等待，不放行付费。 */ }
+  pending.resolve(allowed);
+}
+/** confirmAICost 在扩展内部明确确认可能再次计费，避免原生弹窗被浏览器抑制后静默取消。 */
+function confirmAICost(message, label = "确认继续") {
+  settleCostConfirmation(false);
+  const scope = { epoch: uiEpoch, account: accountKey, identity, capture: currentResume?.capture_id };
+  if (!sameCostScope(scope)) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const pending = { ...scope, resolve, port: null }; costConfirmation = pending;
+    $("cost-confirmation-message").textContent = message; $("cost-confirmation-accept").textContent = label;
+    $("cost-confirmation").hidden = false; $("cost-confirmation-accept").disabled = false; $("cost-confirmation-cancel").disabled = false;
+    // 短连接仅接收可信后台的取消信号，收起本卡片不能放行任何付费或保存动作。
+    if (extension.runtime.connect) {
+      try {
+        const port = extension.runtime.connect({ name: "goodhr-cost-confirmation" }); pending.port = port;
+        port.onMessage.addListener((message) => { if (costConfirmation === pending && message?.type === "CANCEL_COST_CONFIRMATION") settleCostConfirmation(false); });
+        port.onDisconnect.addListener(() => { if (costConfirmation === pending) settleCostConfirmation(false); });
+      } catch { settleCostConfirmation(false); }
+    }
+  });
+}
 
 /** newKeys 为独立写操作生成幂等键，失败重试沿用原标识。 */
 function newKeys() { return Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((key) => [key, shared.newKey()])); }
@@ -131,7 +162,7 @@ async function startAttachmentPhase(phase, explicit = false) {
   if (prior && ["queued", "running"].includes(prior.status)) return prior;
   if (prior && ["completed", "failed", "cancelled", "uncertain"].includes(prior.status)) {
     if (!explicit) return prior;
-    if (!confirm("会再次调用你当前的 AI，上次请求可能已计费。确认重新识别吗？")) return prior;
+    if (!await confirmAICost("会再次调用你当前的 AI，上次请求可能已计费。确认重新识别吗？", "确认重新识别") || epoch !== uiEpoch) return prior;
     attachmentState[phase + "_key"] = shared.newKey(); attachmentState[taskKey] = null;
   }
   attachmentState[unknownKey] = true; attachmentState.basic_error = ""; renderAttachment();
@@ -184,7 +215,7 @@ function freezeAttachmentSave(updating) {
 async function confirmLegacyAttachmentSave(request) {
   const previous = attachmentState?.full_task, epoch = uiEpoch;
   if (!previous?.id && attachmentState?.full_unknown && attachmentState.legacy_confirmed !== "request:" + attachmentState.full_key) {
-    if (!confirm("上次完整解析的回执没有确认，可能已计费。本次新保存可能再次调用 AI 并计费，继续吗？")) return false;
+    if (!await confirmAICost("上次完整解析的回执没有确认，可能已计费。本次新保存可能再次调用 AI 并计费，继续吗？") || epoch !== uiEpoch) return false;
     attachmentState.legacy_confirmed = "request:" + attachmentState.full_key; return true;
   }
   if (!previous?.id || attachmentState.legacy_confirmed === previous.id) return true;
@@ -192,13 +223,13 @@ async function confirmLegacyAttachmentSave(request) {
   try { task = await pollAttachmentPhase("full"); }
   catch (error) {
     if (epoch !== uiEpoch || error.status !== 404) throw error;
-    if (!confirm("上次完整解析记录已过期或查不到，可能已计费。本次新保存可能再次调用 AI 并计费，继续吗？")) return false;
+    if (!await confirmAICost("上次完整解析记录已过期或查不到，可能已计费。本次新保存可能再次调用 AI 并计费，继续吗？") || epoch !== uiEpoch) return false;
     attachmentState.legacy_confirmed = previous.id; return true;
   }
   if (epoch !== uiEpoch || !task) return false;
   if (task.status === "completed") { request.full_task_id = task.id; return true; }
   if (["queued", "running"].includes(task.status)) throw new Error("上次完整解析还在进行，请稍后查询，不会重复调用 AI");
-  if (!confirm("上次完整解析可能已计费，结果没有确认。本次另建保存任务可能再次调用 AI 并计费，继续吗？")) return false;
+  if (!await confirmAICost("上次完整解析可能已计费，结果没有确认。本次另建保存任务可能再次调用 AI 并计费，继续吗？") || epoch !== uiEpoch) return false;
   attachmentState.legacy_confirmed = task.id; return true;
 }
 
@@ -261,8 +292,8 @@ async function maintainAttachmentImport() {
 
 /** resetFailedAttachmentImport 仅在明确失败后人工确认重新核对，旧编号仍可查询，不自动发出新收费任务。 */
 async function resetFailedAttachmentImport() {
-  requireAccount(); if (attachmentState?.save_task?.status !== "failed") return;
-  if (!confirm("上次完整解析可能已计费。重新核对后再次点击保存，可能再次调用 AI 并计费，继续吗？")) return;
+  requireAccount(); if (attachmentState?.save_task?.status !== "failed") return; const epoch = uiEpoch;
+  if (!await confirmAICost("上次完整解析可能已计费。重新核对后再次点击保存，可能再次调用 AI 并计费，继续吗？", "确认重新核对") || epoch !== uiEpoch) return;
   attachmentState.save_history = [attachmentState.save_task, ...(attachmentState.save_history || [])].slice(0, 3);
   attachmentState.save_request = null; attachmentState.save_task = null; attachmentState.save_unknown = false; attachmentState.save_not_found = false; attachmentState.save_applied = ""; keys.save = shared.newKey(); lastQuery = "";
   await checkDuplicates(true); renderAttachment(); await persistDraft(); showStatus("已保留核对资料，请确认目标后再点击添加或更新");
@@ -285,6 +316,7 @@ async function cancelAttachment() {
 }
 /** applySnapshot 同人补读只更新未手改字段，切人恢复专属草稿。 */
 async function applySnapshot(resume, switching = false) {
+  if (switching) settleCostConfirmation(false);
   if (switching) { await persistDraft(); uiEpoch++; querySequence++; clearTimeout(duplicateTimer); clearTimeout(autoCloseTimer); identity = shared.resumeIdentity(resume); currentResume = resume; selectedCandidate = null; matches = []; groups = []; hiddenDuplicate = false; lastQuery = ""; duplicateState = "idle"; edited = new Set(); keys = newKeys(); avatarWarning = ""; aiSummary = ""; summaryTask = null; pendingJob = ""; jobMenuOpen = false; $("job-filter").removeAttribute("data-selected-value"); $("duplicates").replaceChildren(); $("duplicate-criteria").replaceChildren(); $("records").hidden = true; $("candidate-link").hidden = true; for (const id of draftFields) $(id).value = id === "stage" ? "draft" : ""; }
   if (switching) { selectedFolderIDs = []; foldersEdited = false; folderMenuOpen = false; attachmentState = resume?.attachment ? newAttachmentState(resume.capture_id) : null; }
   currentResume = resume; for (const [id, field] of Object.entries(resumeFields)) if (!edited.has(id)) $(id).value = resume?.[field] || "";
@@ -297,6 +329,7 @@ async function applySnapshot(resume, switching = false) {
 async function loadState() {
   const sequence = ++stateSequence, state = await send("STATE"); if (sequence !== stateSequence) return;
   const nextAccount = state.account_key || (state.logged_in ? JSON.stringify([state.user?.id || "", state.user?.email || ""]) : "preview"), changedAccount = nextAccount !== accountKey;
+  if (changedAccount || !state.logged_in || !state.data_use_accepted) settleCostConfirmation(false);
   if (changedAccount) { identity = ""; accountKey = nextAccount; positions = []; folders = []; folderLoadError = ""; folderLoading = false; folderSequence++; }
   const wasLoggedIn = loggedIn, wasAccepted = dataUseAccepted; loggedIn = Boolean(state.logged_in); dataUseAccepted = Boolean(state.data_use_accepted); autoCloseAfterSave = state.auto_close_after_save !== false; renderUpdate(state.update);
   if (!dataUseAccepted || !loggedIn) { querySequence++; folderSequence++; clearTimeout(duplicateTimer); selectedCandidate = null; matches = []; groups = []; folders = []; folderLoading = false; lastQuery = ""; duplicateState = "idle"; $("records").hidden = true; $("duplicates").replaceChildren(); renderFolders(); }
@@ -306,6 +339,7 @@ async function loadState() {
   if (!loggedIn || !dataUseAccepted) { $("duplicate-status").textContent = "简历预览"; showStatus("请点工具栏 GoodHR 图标登录并授权"); }
   else if (switching || !wasAccepted || !wasLoggedIn) { $("duplicate-status").textContent = state.resume ? "正在查重" : "等待简历"; showStatus(state.resume ? "" : "打开候选人详情后会自动读取"); }
   scheduleDuplicates(); refreshActions(); maintainAttachment(); maintainAttachmentImport();
+  if (costConfirmation && !sameCostScope(costConfirmation)) settleCostConfirmation(false);
 }
 /** loadPreview 只重读当前可见资料，不提交简历到云端。 */
 async function loadPreview() { const result = await send("PREVIEW"); await applySnapshot(result.resume, identity !== shared.resumeIdentity(result.resume)); showStatus(result.resume ? "已重新读取" : "还没看到简历，请打开候选人详情"); }
@@ -451,10 +485,9 @@ async function retryAvatar() { requireAccount(); const epoch = uiEpoch, result =
 function renderSummary() { $("summary-panel").hidden = !summaryTask && !summaryUnknown && !aiSummary; $("summary-content").textContent = aiSummary; const labels = { queued: "总结已排队", running: "正在总结", completed: "总结已生成", failed: "总结失败，草稿保留", cancelled: "总结已取消" }; $("summary-status").textContent = [summaryUnknown ? "结果待确认，点查询总结恢复" : labels[summaryTask?.status] || "", summaryTask?.error, summaryTask?.possibly_charged ? "上次可能已计费，重试将再次调用AI" : ""].filter(Boolean).join("；"); refreshActions(); }
 /** summarize 通过明确点击启动或重试本地任务，切人切账号丢弃旧结果。 */
 async function summarize(retrying = false) {
-  requireAccount(); const action = shared.summaryAction(summaryTask, summaryUnknown, summarySource, formResume());
+  requireAccount(); const epoch = uiEpoch, action = shared.summaryAction(summaryTask, summaryUnknown, summarySource, formResume());
   if (!retrying && ["wait", "retry"].includes(action)) throw new Error("上次任务保留了，失败或取消后请点明确重试；资料改变后可重新生成");
-  if ((retrying || action === "changed") && !confirm("会再次调用AI，上次请求可能已计费。确认继续吗？")) return;
-  const epoch = uiEpoch;
+  if ((retrying || action === "changed") && (!await confirmAICost("可能再次调用 AI 并计费，上次请求也可能已计费。确认继续吗？", "确认重新总结") || epoch !== uiEpoch)) return;
   if (!retrying && action !== "recover") { if (["new", "changed"].includes(action)) keys.summary = shared.newKey(); summarySource = shared.stripSummaryContacts(formResume()); summaryTask = null; }
   summaryUnknown = true; renderSummary(); if (!await persistDraft()) { summaryUnknown = false; renderSummary(); throw new Error("总结草稿还没保存，先不要关闭插件，整理履历后再试"); } if (epoch !== uiEpoch) return;
   try { const result = await send(retrying ? "SUMMARY_RETRY" : "SUMMARY_START", { task_id: summaryTask?.id, resume: summarySource || formResume(), request_key: keys.summary }); if (epoch !== uiEpoch) return; summaryTask = result.task; if (!summaryTask?.id) throw new Error("还没拿到总结记录，请查询上次总结确认结果"); summaryUnknown = false; if (summaryTask.ai_summary) aiSummary = summaryTask.ai_summary; }
@@ -486,6 +519,9 @@ $("summary").addEventListener("click", () => runAction(() => summarize()));
 $("summary-retry").addEventListener("click", () => runAction(() => summarize(true)));
 $("summary-cancel").addEventListener("click", () => runAction(cancelSummary));
 $("summary-save").addEventListener("click", () => runAction(saveSummary));
-document.addEventListener("keydown", (event) => { if (event.altKey && event.key === "Enter" && !busy && !$("save").disabled && !$("save").hidden) { event.preventDefault(); runAction(() => saveCandidate()); } });
-window.addEventListener("pagehide", persistDraft); loadState().catch((error) => showStatus(error.message, true));
-setInterval(() => { pollSummary(); if (!busy) loadState().catch(() => {}); }, 2500);
+$("cost-confirmation-accept").addEventListener("click", () => settleCostConfirmation(true));
+$("cost-confirmation-cancel").addEventListener("click", () => settleCostConfirmation(false));
+document.addEventListener("keydown", (event) => { if (event.key === "Escape" && costConfirmation) { event.preventDefault(); settleCostConfirmation(false); return; } if (event.altKey && event.key === "Enter" && !busy && !$("save").disabled && !$("save").hidden) { event.preventDefault(); runAction(() => saveCandidate()); } });
+document.addEventListener("visibilitychange", () => { if (document.hidden) settleCostConfirmation(false); });
+window.addEventListener("pagehide", () => { settleCostConfirmation(false); persistDraft(); }); loadState().catch((error) => showStatus(error.message, true));
+setInterval(() => { pollSummary(); if (!busy || costConfirmation) loadState().catch(() => {}); }, 2500);

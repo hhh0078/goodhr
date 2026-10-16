@@ -591,6 +591,21 @@ function isTrustedUI(sender) {
   catch { return false; }
 }
 
+const costConfirmationPorts = new Map();
+/** bindCostConfirmation 只连接本插件在招聘标签内的卡片，短通道仅用于收起时取消成本确认。 */
+function bindCostConfirmation(port) {
+  if (port.name !== "goodhr-cost-confirmation") return;
+  const sender = port.sender;
+  if (sender?.id !== extension.runtime.id || !isTrustedUI(sender) || new URL(sender.url).pathname !== "/src/floating.html" || !sender.tab?.id || !shared.platformForURL(sender.tab.url) || !Number.isInteger(sender.frameId) || sender.frameId < 1) { port.disconnect(); return; }
+  const tabID = sender.tab.id, ports = costConfirmationPorts.get(tabID) || new Set(); ports.add(port); costConfirmationPorts.set(tabID, ports);
+  port.onDisconnect.addListener(() => { ports.delete(port); if (!ports.size) costConfirmationPorts.delete(tabID); });
+}
+
+/** cancelFloatingCostConfirmation 只向同一浏览器标签的插件卡片发送取消，不能确认或发起任何 AI、保存请求。 */
+function cancelFloatingCostConfirmation(tabID) {
+  for (const port of costConfirmationPorts.get(tabID) || []) { try { port.postMessage({ type: "CANCEL_COST_CONFIRMATION" }); } catch { /* 已销毁的卡片不再接收消息。 */ } }
+}
+
 /** storeCandidateSnapshot 从可信顶层脚本整理快照，并在后台计算附件图片指纹，防止同文字换头像后沿用旧捕获。 */
 async function storeCandidateSnapshot(message, sender) {
   const generation = authGeneration, tabID = sender.tab.id, sequence = (snapshotSequences.get(tabID) || 0) + 1; snapshotSequences.set(tabID, sequence);
@@ -631,6 +646,7 @@ function onMessage(message, sender, sendResponse) {
     return true;
   }
   if (sender.tab) {
+    if (message.type === "FLOATING_CLOSED" && sender.frameId === 0 && shared.platformForURL(sender.tab.url)) { cancelFloatingCostConfirmation(sender.tab.id); sendResponse({ ok: true }); return false; }
     if (message.type !== "CANDIDATE_SNAPSHOT" || sender.frameId !== 0 || !shared.platformForURL(sender.tab.url)) return false;
     storeCandidateSnapshot(message, sender).then(sendResponse, () => sendResponse({ ok: false })); return true;
   }
@@ -638,6 +654,7 @@ function onMessage(message, sender, sendResponse) {
 }
 
 extension.runtime.onMessage.addListener(onMessage);
+extension.runtime.onConnect?.addListener(bindCostConfirmation);
 extension.tabs.onRemoved.addListener((tabID) => { snapshotSequences.set(tabID, (snapshotSequences.get(tabID) || 0) + 1); snapshots.delete(tabID); clearTimeout(captureTimers.get(tabID)); captureTimers.delete(tabID); });
 extension.tabs.onUpdated.addListener((tabID, change) => { if (change.url) { snapshotSequences.set(tabID, (snapshotSequences.get(tabID) || 0) + 1); snapshots.delete(tabID); clearTimeout(captureTimers.get(tabID)); captureTimers.delete(tabID); } });
 if (extension.storage.local.setAccessLevel) extension.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
