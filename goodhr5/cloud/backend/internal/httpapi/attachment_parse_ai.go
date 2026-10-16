@@ -29,6 +29,7 @@ func (s *AttachmentParseService) parseAI(ctx context.Context, cfg AIConfig, inpu
 	system := loadDefaultPrompts(s.ai.systemConfigs).BossAttachmentBasicPrompt
 	if input.Phase == "full" {
 		system = attachmentFullSystem + "\n还必须先判断原文是否确实是个人简历，在同一个JSON对象返回is_resume布尔值。合同、广告、岗位说明、下载失败页、空模板均返回is_resume:false，不提取候选人。只有包含明确个人履历的材料才返回true。性别不得凭姓名推测，年月无据不得编造。"
+		system += "\n" + bossAttachmentWorkClassification
 	}
 	requestBody := map[string]any{"model": cfg.Model, "messages": []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": "请整理下面这份简历原文：\n" + input.Text}}, "temperature": cfg.Temperature, "stream": false, "enable_thinking": false}
 	// 基础阶段只有身份和两段经历，限制输出，避免模型展开完整简历消耗额外费用。

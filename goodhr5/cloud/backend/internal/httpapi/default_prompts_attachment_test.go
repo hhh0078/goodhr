@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -20,6 +21,11 @@ func TestBossAttachmentPromptDefaults(t *testing.T) {
 			t.Fatalf("默认识别缺少明确手机号边界: %s", rule)
 		}
 	}
+	for _, rule := range []string{"实习", "兼职", "受聘机构岗位", "不能仅凭机构名称", "纯志愿服务", "班委", "团委", "社团", "课程实践", "竞赛", "个人项目", "不得放入work_experiences", "开始时间最早", "work_experiences:[]", "完整阶段保留全部", "project_experiences"} {
+		if !strings.Contains(bossAttachmentWorkClassification, rule) || strings.Count(builtinBossAttachmentBasicPrompt, bossAttachmentWorkClassification) != 1 {
+			t.Fatalf("默认识别缺少统一经历分类规则: %s", rule)
+		}
+	}
 	for _, test := range []struct{ raw, want string }{
 		{`{"filter_prompt":"旧筛选","open_detail_prompt":"旧详情","review_prompt":"旧复核"}`, builtinBossAttachmentBasicPrompt},
 		{`{"boss_attachment_basic_prompt":"  "}`, builtinBossAttachmentBasicPrompt},
@@ -36,6 +42,71 @@ func TestBossAttachmentPromptDefaults(t *testing.T) {
 		if strings.Contains(test.raw, "旧筛选") && (got.FilterPrompt != "旧筛选" || got.OpenDetailPrompt != "旧详情" || got.ReviewPrompt != "旧复核") {
 			t.Fatal("新增附件提示词改变了原岗位提示词")
 		}
+	}
+}
+
+// TestBossAttachmentExperienceRulesBothPhases 验证默认与系统配置经过真实请求构造后，两阶段复用同一经历分类规则且完整 JSON 合同不变。
+func TestBossAttachmentExperienceRulesBothPhases(t *testing.T) {
+	for _, test := range []struct{ name, config, prefix string }{
+		{"missing-config", "", builtinBossAttachmentBasicPrompt},
+		{"legacy-config", `{"filter_prompt":"保留旧筛选"}`, builtinBossAttachmentBasicPrompt},
+		{"explicit-config", "configured", "系统管理配置的基础识别\n" + bossAttachmentWorkClassification},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, phase := range []string{"basic", "full"} {
+				t.Run(phase, func(t *testing.T) {
+					var system string
+					s := attachmentServiceForTest(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+						var body struct {
+							Messages []struct{ Role, Content string }
+						}
+						if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+							t.Fatal(err)
+						}
+						if len(body.Messages) != 2 || body.Messages[0].Role != "system" || body.Messages[1].Role != "user" {
+							t.Fatalf("unexpected message contract: %+v", body)
+						}
+						system = body.Messages[0].Content
+						return attachmentAIResponseForTest(`{"is_resume":true,"candidate_name":"测试候选人","work_experiences":[{"company_name":"测试镇政府","position_name":"办公室文员","start_ym":"2025-07","end_ym":"2025-08"},{"company_name":"测试统计局","position_name":"文员","start_ym":"2026-07","end_ym":"2026-08"}]}`), nil
+					}))
+					if test.config != "" {
+						store := NewMemorySystemConfigStore()
+						raw := test.config
+						if raw == "configured" {
+							data, _ := json.Marshal(map[string]string{"boss_attachment_basic_prompt": test.prefix})
+							raw = string(data)
+						}
+						if err := store.Save(SystemConfig{ConfigKey: defaultPromptsConfigKey, ConfigValue: raw, Enabled: true}); err != nil {
+							t.Fatal(err)
+						}
+						s.ai.systemConfigs = store
+					}
+					input := attachmentInputForTest(phase)
+					input.Text = "测试候选人\n实践经历\n2023-09至2024-09：班级团委。2025-01至2025-02：测试博物馆纯志愿者。2025-07至2025-08：测试镇政府办公室文员，负责归档和日常接待。2026-07至2026-08：测试统计局文员。"
+					cfg, err := s.ai.store.UserConfig("owner@example.com")
+					if err != nil {
+						t.Fatal(err)
+					}
+					resume, code, message, _ := s.parseAI(context.Background(), cfg, input)
+					if code != "" {
+						t.Fatalf("request failed: %s %s", code, message)
+					}
+					if strings.Count(system, bossAttachmentWorkClassification) != 1 {
+						t.Fatalf("classification rule missing or duplicated in %s: %s", phase, system)
+					}
+					if phase == "basic" {
+						if system != test.prefix || len(attachmentRows(resume["work_experiences"])) != 1 {
+							t.Fatal("basic config override or one-work contract changed")
+						}
+					} else if !strings.HasPrefix(system, attachmentFullSystem+"\n") || len(attachmentRows(resume["work_experiences"])) != 2 {
+						t.Fatal("full schema or all-work contract changed")
+					}
+					if strings.Contains(system, "测试博物馆") {
+						t.Fatal("candidate content entered fixed classification prompt")
+					}
+				})
+			}
+		})
 	}
 }
 
