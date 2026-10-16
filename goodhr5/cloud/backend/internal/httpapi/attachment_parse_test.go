@@ -357,6 +357,73 @@ func TestAttachmentFactsDoNotInventIdentity(t *testing.T) {
 	}
 }
 
+// TestAttachmentExperienceFutureDates 验证基础和完整经历保留原文明示的未来起止日期，仍不编造年份或月份。
+func TestAttachmentExperienceFutureDates(t *testing.T) {
+	futureYear := time.Now().Year() + 2
+	for _, phase := range []string{"basic", "full"} {
+		for _, test := range []struct{ name, text, start, end, wantStart, wantEnd string }{
+			{"本科明确未来毕业", "2024-09至2028-06", "2024-09", "2028-06", "2024-09", "2028-06"},
+			{"只有年份不补月份", "2024年至2028年", "2024-09", "2028-06", "2024", "2028"},
+			{"没给毕业年份不按学制补", "2024-09入学，目前在读，未列毕业日期", "2024-09", "2028-06", "2024-09", ""},
+			{"动态未来起止", fmt.Sprintf("%d-03至%d-06", futureYear, futureYear+1), fmt.Sprintf("%d-03", futureYear), fmt.Sprintf("%d-06", futureYear+1), fmt.Sprintf("%d-03", futureYear), fmt.Sprintf("%d-06", futureYear+1)},
+			{"二十年上限", fmt.Sprintf("2024-09至%d-06", time.Now().Year()+20), "2024-09", fmt.Sprintf("%d-06", time.Now().Year()+20), "2024-09", fmt.Sprintf("%d-06", time.Now().Year()+20)},
+			{"超出合理未来范围", fmt.Sprintf("2024-09至%d-06", time.Now().Year()+21), "2024-09", fmt.Sprintf("%d-06", time.Now().Year()+21), "2024-09", ""},
+		} {
+			t.Run(phase+"/"+test.name, func(t *testing.T) {
+				input := attachmentInputForTest(phase)
+				input.Text = "姓名：测试候选人\n测试学校、测试公司和测试项目日期：" + test.text
+				raw := map[string]any{"candidate_name": "测试候选人", "educations": []any{map[string]any{"school_name": "测试学校", "start_ym": test.start, "end_ym": test.end}}, "work_experiences": []any{map[string]any{"company_name": "测试公司", "start_ym": test.start, "end_ym": test.end}}, "project_experiences": []any{map[string]any{"project_name": "测试项目", "start_ym": test.start, "end_ym": test.end}}}
+				resume, err := sanitizeAttachmentResume(raw, input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				collections := []string{"educations", "work_experiences"}
+				if phase == "full" {
+					collections = append(collections, "project_experiences")
+				}
+				for _, collection := range collections {
+					rows := attachmentRows(resume[collection])
+					if len(rows) != 1 {
+						t.Fatalf("%s lost experience: %v", collection, resume)
+					}
+					if candidateString(rows[0], "start_ym") != test.wantStart || candidateString(rows[0], "end_ym") != test.wantEnd {
+						t.Fatalf("%s dates=%v wanted=%s/%s", collection, rows[0], test.wantStart, test.wantEnd)
+					}
+				}
+			})
+		}
+	}
+}
+
+// TestAttachmentNonExperienceDateLimits 验证生日和证书荣誉颁发日期仍沿用原来至明年的边界，不随经历日期一起放宽。
+func TestAttachmentNonExperienceDateLimits(t *testing.T) {
+	for _, offset := range []int{1, 2} {
+		t.Run(fmt.Sprintf("future-%d", offset), func(t *testing.T) {
+			date := fmt.Sprintf("%d-06", time.Now().Year()+offset)
+			input := attachmentInputForTest("full")
+			input.Text = "姓名：测试候选人\n出生年月、证书和荣誉颁发年月：" + date
+			raw := map[string]any{"candidate_name": "测试候选人", "birth_ym": date, "certificates": []any{map[string]any{"certificate_name": "测试证书", "issued_ym": date}}, "honors": []any{map[string]any{"honor_name": "测试荣誉", "issued_ym": date}}}
+			resume, err := sanitizeAttachmentResume(raw, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := date
+			if offset == 2 {
+				want = ""
+			}
+			if candidateString(resume, "birth_ym") != want || attachmentDate(date, input.Text) != want {
+				t.Fatalf("birth wrapper changed: %v", resume)
+			}
+			for _, collection := range []string{"certificates", "honors"} {
+				rows := attachmentRows(resume[collection])
+				if len(rows) != 1 || candidateString(rows[0], "issued_ym") != want {
+					t.Fatalf("%s date limit changed: %v", collection, resume)
+				}
+			}
+		})
+	}
+}
+
 // TestAttachmentWechatOnlyPhone 验证微信号码不能被模型误填手机，同时保留同号电话证据和正常无标签号码。
 func TestAttachmentWechatOnlyPhone(t *testing.T) {
 	for _, test := range []struct {

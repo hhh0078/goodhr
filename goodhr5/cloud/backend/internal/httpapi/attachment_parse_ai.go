@@ -153,7 +153,9 @@ func sanitizeAttachmentResume(raw map[string]any, input attachmentParseRequest) 
 					return nil, errors.New("经历字段不正确")
 				}
 				value = strings.TrimSpace(value)
-				if strings.HasSuffix(field, "_ym") {
+				if field == "start_ym" || field == "end_ym" {
+					value = attachmentDateWithMaxYear(value, input.Text, time.Now().Year()+20)
+				} else if strings.HasSuffix(field, "_ym") {
 					value = attachmentDate(value, input.Text)
 				}
 				if value != "" {
@@ -304,6 +306,11 @@ func attachmentGender(value, text string) string {
 
 // attachmentDate 只保留原文明示的年或年月；原文只有年份时不编造月份。
 func attachmentDate(value, text string) string {
+	return attachmentDateWithMaxYear(value, text, time.Now().Year()+1)
+}
+
+// attachmentDateWithMaxYear 按字段允许的年份上限复用原文年月核验，不按学制推断日期，也不补原文缺少的月份。
+func attachmentDateWithMaxYear(value, text string, maxYear int) string {
 	value = strings.TrimSpace(value)
 	if value == "至今" || strings.EqualFold(value, "present") || strings.EqualFold(value, "current") || strings.EqualFold(value, "now") {
 		if strings.Contains(text, "至今") || strings.Contains(text, "现在") || attachmentPresentPattern.MatchString(text) {
@@ -316,7 +323,7 @@ func attachmentDate(value, text string) string {
 		return ""
 	}
 	year, _ := strconv.Atoi(match[1])
-	if year < 1900 || year > time.Now().Year()+1 {
+	if year < 1900 || year > maxYear {
 		return ""
 	}
 	if !regexp.MustCompile(`(^|[^0-9])` + match[1] + `([^0-9]|$)`).MatchString(text) {
