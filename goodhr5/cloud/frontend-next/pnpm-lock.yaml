@@ -38,6 +38,9 @@ importers:
       dayjs:
         specifier: 1.11.13
         version: 1.11.13
+      hls.js:
+        specifier: 1.7.3
+        version: 1.7.3
       next:
         specifier: 16.2.9
         version: 16.2.9(@playwright/test@1.60.0)(babel-plugin-macros@3.1.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -945,6 +948,9 @@ packages:
   hasown@2.0.4:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
+
+  hls.js@1.7.3:
+    resolution: {integrity: sha512-MsPlx6yVW4Qv4C7mEVou4/gk/5cN2dVxOTnrNjPSmyH2f0Ln+/UkG10Ax1PE6OvrmTVPKgQYozTtBaPOuCzq7A==}
 
   html-void-elements@2.0.1:
     resolution: {integrity: sha512-0quDb7s97CfemeJAnW9wC0hw78MtW7NU3hqtCD75g2vFlDLt36llsYD7uB7SUzojLMP24N5IatXf7ylGXiGG9A==}
@@ -2216,6 +2222,8 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
     optional: true
+
+  hls.js@1.7.3: {}
 
   html-void-elements@2.0.1: {}
 

@@ -296,6 +296,20 @@ export default function SystemConfigPage() {
                     style={{ marginBottom: 16 }}
                   />
                 ) : null}
+                {activeKey === "system.guide" ? (
+                  <Alert
+                    type={"info"}
+                    showIcon={true}
+                    title={
+                      <>
+                        videos 数组可配置多条视频，按数组顺序展示。title 填标题，src
+                        填 HTTPS 的 .m3u8 或 .mp4 视频直链，enabled 控制是否显示。
+                        修改时请保留其他指南字段。
+                      </>
+                    }
+                    style={{ marginBottom: 16 }}
+                  />
+                ) : null}
                 {activeKey === "system.subscription_plans" ? (
                   <Alert
                     type={"info"}

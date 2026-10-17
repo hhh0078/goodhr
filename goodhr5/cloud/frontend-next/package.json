@@ -20,6 +20,7 @@
     "antd": "6.6.5",
     "canvas-confetti": "1.9.4",
     "dayjs": "1.11.13",
+    "hls.js": "1.7.3",
     "next": "16.2.9",
     "react": "19.2.0",
     "react-dom": "19.2.0"

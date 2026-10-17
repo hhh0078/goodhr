@@ -10,7 +10,7 @@ import { absoluteURL, createPageMetadata } from "@/lib/seo";
 export const metadata: Metadata = createPageMetadata({
   title: "GoodHR视频教程 - 招聘平台自动化、AI筛选与自动打招呼",
   description:
-    "观看 GoodHR 安装、AI接口配置、岗位模板、自动筛选候选人、自动打招呼和招聘岗位运行使用教程。",
+    "观看 GoodHR 注册安装、创建招聘岗位、设置筛选条件、AI筛选候选人和自动打招呼视频教程。",
   path: "/videos",
   keywords: [
     "BOSS自动打招呼教程",
@@ -36,8 +36,8 @@ export default async function VideosPage() {
       />
       <MarketingShell
         eyebrow="视频教程"
-        title="从安装到开始第一条招聘岗位运行"
-        description="按照步骤完成本地程序、招聘平台账号、岗位模板、AI筛选和自动打招呼岗位运行配置。"
+        title="从安装到跑通第一次招聘任务"
+        description="注册、安装本地程序、创建岗位，再登录招聘平台开始筛选。跟着视频，一步步来。"
       >
         <section className="public-videos-3">
           <div className="public-container">

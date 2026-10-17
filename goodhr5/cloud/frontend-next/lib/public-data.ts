@@ -2,8 +2,10 @@
 
 import { normalizeFirefoxTemporaryRelease, type FirefoxTemporaryRelease } from "./firefox-temporary-release";
 import { SITE_URL } from "./seo";
+import { normalizeGuideVideos, type GuideVideo } from "./guide-videos";
 
 export type { FirefoxTemporaryRelease } from "./firefox-temporary-release";
+export type { GuideVideo } from "./guide-videos";
 
 export type PublicStatsData = {
   processedResumeCount: number | null;
@@ -28,14 +30,6 @@ export type LocalAgentUpdate = {
 	urlMac: string;
 	sha256: string;
 	note: string;
-};
-
-export type GuideVideo = {
-	id: string;
-	title: string;
-	description: string;
-	src: string;
-	enabled: boolean;
 };
 
 /** BrowserExtensionRelease 表示后台维护的插件兼容版本及各浏览器实际开放的安装包版本。 */
@@ -125,8 +119,7 @@ export async function getGuideVideos(): Promise<GuideVideo[]> {
 		const response = await fetch(`${baseURL}/api/help/guide`, { cache: "no-store" });
 		if (!response.ok) return [];
 		const data = await response.json();
-		const source = Array.isArray(data?.guide?.videos) ? data.guide.videos : Array.isArray(data?.videos) ? data.videos : [];
-		return source.map(normalizeGuideVideo).filter((item: GuideVideo) => item.enabled && item.title && item.src);
+		return normalizeGuideVideos(data);
 	} catch {
 		return [];
 	}
@@ -163,17 +156,6 @@ function normalizeLocalAgentUpdate(value: any): LocalAgentUpdate {
 		urlMac: String(value?.url_mac || ""),
 		sha256: String(value?.sha256 || ""),
 		note: String(value?.note || ""),
-	};
-}
-
-/** normalizeGuideVideo 将系统指南视频字段整理成页面展示结构。 */
-function normalizeGuideVideo(value: Record<string, unknown>): GuideVideo {
-	return {
-		id: String(value?.id || value?.title || ""),
-		title: String(value?.title || ""),
-		description: String(value?.description || ""),
-		src: String(value?.src || value?.url || value?.iframe_url || value?.video_url || ""),
-		enabled: value?.enabled !== false,
 	};
 }
 
