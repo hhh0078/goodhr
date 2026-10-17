@@ -99,6 +99,17 @@ func TestFailedDetailOpenCleansVisibleDialog(t *testing.T) {
 	}
 }
 
+// TestFailedDetailOpenUsesEscapeFirstCleanup 验证配置 Escape 优先的平台在详情打开失败后的补关也遵循同一顺序。
+func TestFailedDetailOpenUsesEscapeFirstCleanup(t *testing.T) {
+	browser := &detailCleanupBrowser{escapeWorks: true}
+	cfg := cleanupConfig()
+	cfg.Behavior.DetailCloseEscapeFirst = true
+	err := OpenCandidateDetail(context.Background(), browser, cfg, model.Candidate{})
+	if !errors.Is(err, model.ErrCandidateDetailUnavailable) || browser.present || browser.closeCalls != 0 || browser.escapes != 1 || len(browser.closeProbes) != 0 {
+		t.Fatalf("打开失败后的清理必须先 Escape，成功时不能再找按钮：%v %+v", err, browser)
+	}
+}
+
 // TestVisibleDialogWaitsForBodyWithoutReclick 验证详情仍在加载时继续等正文，不点击被弹窗遮住的卡片。
 func TestVisibleDialogWaitsForBodyWithoutReclick(t *testing.T) {
 	browser := &detailCleanupBrowser{bodyReadyAfter: 2}

@@ -79,6 +79,8 @@ async function mockPersonalAI(
     let data: Record<string, unknown> = { ok: true, config: {}, items: [] };
     if (path === "/api/auth/me")
       data = { user: { email: "ai-test@example.invalid", role: "user", id: "test-user" } };
+    else if (path === "/api/user-flow" || path === "/api/user-flow/state")
+      data = { flow: { version: 2, state: "completed", stage: "completed", tutorial_completed: true, steps: {} } };
     else if (path === "/api/subscription/status")
       data = { subscription: { active: true, member_type: "plus", allow_ai: true, remaining_days: 10 } };
     else if (path === "/api/ai-wallet") {
@@ -107,6 +109,36 @@ async function mockPersonalAI(
   else await expect(page.getByRole("button", { name: "保存配置", exact: true })).toBeEnabled();
   return calls;
 }
+
+test("鼠标速度默认快速档，五档范围齐全并保存选择且保留其他配置", async ({ page }) => {
+  const screenshotDirectory = resolve(process.env.UI_MOUSE_SPEED_ARTIFACT_DIR || "../../../output/mouse-speed");
+  mkdirSync(screenshotDirectory, { recursive: true });
+  for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const calls = await mockPersonalAI(page);
+    await page.getByRole("tab", { name: "随机时间", exact: true }).click();
+    const speed = page.getByRole("combobox", { name: "鼠标移动速度", exact: true });
+    await expect(speed).toBeVisible();
+    await expect(page.getByText("快速（默认）· 180–360 ms", { exact: true })).toBeVisible();
+    await expect(page.getByText("每次移动在所选范围内随机。保存后，关闭并重新打开 GoodHR 浏览器生效。", { exact: true })).toBeVisible();
+    await speed.click();
+    const dropdown = page.locator(".ant-select-dropdown").filter({ visible: true });
+    for (const label of ["超快 · 90–210 ms", "快速（默认）· 180–360 ms", "标准 · 350–650 ms", "舒缓 · 650–1100 ms", "慢速 · 1100–1800 ms"]) {
+      await expect(dropdown.getByText(label, { exact: true })).toBeVisible();
+    }
+    await dropdown.getByText("超快 · 90–210 ms", { exact: true }).click();
+    await page.getByRole("button", { name: "保存配置", exact: true }).click();
+    await expect(page.getByText("个人配置已保存", { exact: true })).toBeVisible();
+    const saved = calls.find((call) => call.path === "/api/config/user-preferences")?.body;
+    expect(saved?.mouse_speed).toBe("ultra_fast");
+    expect(saved?.candidate_read_concurrency).toBe(100);
+    expect(saved?.detail_close_delay_min).toBe(0);
+    const box = await speed.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+    await page.screenshot({ path: resolve(screenshotDirectory, `mouse-speed-${viewport.width}.png`), fullPage: true });
+  }
+});
 
 test("个人配置分类和内容同一白色面板，无顶部标题且通知保存及所有分类可用", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });

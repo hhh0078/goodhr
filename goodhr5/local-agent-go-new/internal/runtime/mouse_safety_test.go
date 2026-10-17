@@ -36,27 +36,27 @@ func TestMouseSafetyPatch(t *testing.T) {
 	}
 }
 
-// TestMouseSafetyLegacyUpgrade 验证已经安装的 v7/v8/v9/v10 升级到 v11，保留其他浏览器修正并拒绝损坏资源。
+// TestMouseSafetyLegacyUpgrade 验证已经安装的 v7 至 v11 升级到 v12，保留其他浏览器修正并拒绝损坏资源。
 func TestMouseSafetyLegacyUpgrade(t *testing.T) {
-	for _, version := range []string{"v7", "v8", "v9", "v10"} {
+	for _, version := range []string{"v7", "v8", "v9", "v10", "v11"} {
 		t.Run(version, func(t *testing.T) {
 			legacy := []byte("// GoodHR native mouse safety " + version + "\nunchanged-browser-settings\n")
 			helper := []byte("// 文件作用：给浏览器原生输入增加激活阶段保护和窗口证据，超时后禁止迟到的输入，不读取招聘页面。\n  async _goodhrRunInput(diagnostic, operation) {}\n")
 			if version == "v10" {
 				// 重建上一版完整公共保护，验证升级确实替换旧活动状态门槛。
-				helper = bytes.Replace(nativeInputSafety, []byte("mouse_safety_version: 'v11'"), []byte("mouse_safety_version: 'v10'"), 1)
+				helper = bytes.Replace(nativeInputSafety, []byte("mouse_safety_version: 'v12'"), []byte("mouse_safety_version: 'v10'"), 1)
 				helper = bytes.Replace(helper, []byte("return snapshot.window_minimized === false;"), []byte("return snapshot.window_minimized === false && snapshot.chrome_document_hidden === false && snapshot.browser_active === true;"), 1)
 			}
 			legacy = append(legacy, helper...)
 			legacy = append(legacy, '\n')
-			tail := []byte("  async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) { GOODHR_MOUSE_ACK_TIMEOUT: }\n  async ['Page.dispatchWheelEvent']() { GOODHR_MOUSE_APZ_TIMEOUT:wheel }\nunchanged-download-settings")
+			tail := []byte("  async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) {\n    const sendEvents = async (types) => { ChromeUtils.camouGetMouseTrajectory(); GOODHR_MOUSE_ACK_TIMEOUT: }\n    // We must switch to proper tab in the tabbed browser so that\n  }\n  async ['Page.dispatchWheelEvent']() { GOODHR_MOUSE_APZ_TIMEOUT:wheel }\nunchanged-download-settings")
 			legacy = append(legacy, tail...)
 			updated, err := patchMouseSafety(legacy)
-			if err != nil || !bytes.HasPrefix(updated, []byte(mouseSafetyMarker+"\nunchanged-browser-settings\n")) || !bytes.HasSuffix(updated, tail) || !bytes.Contains(updated, []byte("mouseUpAcknowledged")) || !bytes.Contains(updated, []byte("window_focus_attempts")) {
+			if err != nil || !bytes.HasPrefix(updated, []byte(mouseSafetyMarker+"\nunchanged-browser-settings\n")) || !bytes.HasSuffix(updated, []byte("unchanged-download-settings")) || !bytes.Contains(updated, []byte("mouseUpAcknowledged")) || !bytes.Contains(updated, []byte("window_focus_attempts")) || !bytes.Contains(updated, []byte("goodhr.mouse.min_ms")) {
 				t.Fatal("旧版公共保护没有安全升级", err)
 			}
 			if version == "v10" && (bytes.Contains(updated, []byte("snapshot.chrome_document_hidden === false")) ||
-				!bytes.Contains(updated, []byte("mouse_safety_version: 'v11'")) ||
+				!bytes.Contains(updated, []byte("mouse_safety_version: 'v12'")) ||
 				!bytes.Contains(updated, []byte("GOODHR_MOUSE_INPUT_TIMEOUT:"))) {
 				t.Fatal("v10 升级没有移除遮挡门槛或丢失输入限时保护")
 			}
@@ -98,4 +98,29 @@ func TestMouseSafetyV9IsolatedBrowserUpgrade(t *testing.T) {
 	if stable.ResourceSHA256 != after.ResourceSHA256 {
 		t.Fatal("重复安装改变了浏览器资源")
 	}
+}
+
+// TestMouseSpeedIsolatedBrowserUpgrade 在显式指定的隔离浏览器中验证 v11 到 v12 的资源升级和重复安装。
+func TestMouseSpeedIsolatedBrowserUpgrade(t *testing.T) {
+	browserDir := os.Getenv("GOODHR_MOUSE_SPEED_SMOKE_DIR")
+	if browserDir == "" {
+		t.Skip("未指定鼠标速度隔离浏览器目录")
+	}
+	if filepath.Base(filepath.Clean(browserDir)) != "mouse-speed-browser" {
+		t.Fatal("只允许修改本次专用的 mouse-speed-browser 隔离浏览器")
+	}
+	if err := EnsureCamoufoxMouseSafety(browserDir); err != nil {
+		t.Fatal(err)
+	}
+	current := InspectCamoufoxMouseSafety(browserDir)
+	if !current.Ready || current.InstalledVersion != "v12" {
+		t.Fatalf("隔离浏览器没有完成速度补丁升级：%+v", current)
+	}
+	if err := EnsureCamoufoxMouseSafety(browserDir); err != nil {
+		t.Fatal(err)
+	}
+	if repeated := InspectCamoufoxMouseSafety(browserDir); repeated.ResourceSHA256 != current.ResourceSHA256 {
+		t.Fatal("重复安装改变了浏览器资源")
+	}
+	t.Logf("隔离鼠标速度补丁版本=%s sha256=%s", current.InstalledVersion, current.ResourceSHA256)
 }

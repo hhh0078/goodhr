@@ -14,6 +14,7 @@ type UserPreferencesService struct {
 
 type userPreferencesRequest struct {
 	AIModel                  string  `json:"ai_model"`
+	MouseSpeed               *string `json:"mouse_speed"`
 	ClickFrequency           int     `json:"click_frequency"`
 	DetailOpenProbability    int     `json:"detail_open_probability"`
 	CandidateReadConcurrency *int    `json:"candidate_read_concurrency"`
@@ -92,6 +93,17 @@ func (s *UserPreferencesService) UpdateUser(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	// 旧客户端不认识鼠标档位；保存其他偏好时沿用用户已经选好的速度。
+	if req.MouseSpeed == nil {
+		current, err := s.store.UserPreferences(session.Email)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			writeError(w, http.StatusInternalServerError, "failed to load user preferences")
+			return
+		}
+		if err == nil {
+			prefs.MouseSpeed = normalizeMouseSpeed(current.MouseSpeed)
+		}
+	}
 	saved, err := s.store.SaveUserPreferences(session.Email, prefs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save user preferences")
@@ -119,6 +131,13 @@ func (s *UserPreferencesService) currentSession(w http.ResponseWriter, r *http.R
 func (r userPreferencesRequest) toPreferences(w http.ResponseWriter) (UserPreferences, bool) {
 	prefs := DefaultUserPreferences()
 	prefs.AIModel = strings.TrimSpace(r.AIModel)
+	if r.MouseSpeed != nil {
+		prefs.MouseSpeed = strings.TrimSpace(*r.MouseSpeed)
+		if !validMouseSpeed(prefs.MouseSpeed) {
+			writeError(w, http.StatusBadRequest, "鼠标速度请从已有档位中选择")
+			return UserPreferences{}, false
+		}
+	}
 	prefs.ClickFrequency = r.ClickFrequency
 	prefs.DetailOpenProbability = r.DetailOpenProbability
 	if r.CandidateReadConcurrency != nil {
@@ -196,9 +215,28 @@ func validFloatRange(minValue float64, maxValue float64) bool {
 	return minValue >= 0 && maxValue >= minValue
 }
 
+// validMouseSpeed 判断鼠标速度是否属于本地程序支持的五个档位。
+func validMouseSpeed(value string) bool {
+	switch value {
+	case "ultra_fast", "fast", "standard", "relaxed", "slow":
+		return true
+	default:
+		return false
+	}
+}
+
+// normalizeMouseSpeed 为旧配置或未知档位补上默认快速档，保持读取兼容。
+func normalizeMouseSpeed(value string) string {
+	if validMouseSpeed(value) {
+		return value
+	}
+	return "fast"
+}
+
 func publicUserPreferences(prefs UserPreferences) map[string]any {
 	return map[string]any{
 		"ai_model":                   prefs.AIModel,
+		"mouse_speed":                normalizeMouseSpeed(prefs.MouseSpeed),
 		"click_frequency":            prefs.ClickFrequency,
 		"detail_open_probability":    prefs.DetailOpenProbability,
 		"candidate_read_concurrency": prefs.CandidateReadConcurrency,

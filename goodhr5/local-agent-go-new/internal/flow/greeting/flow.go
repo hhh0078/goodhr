@@ -102,6 +102,7 @@ func (f *Flow) startBrowser(ctx context.Context, prepared shared.PreparedTask) e
 		DownloadsPath:  f.DownloadsDir,
 		Headless:       &headless,
 		Humanize:       &humanize,
+		MouseSpeed:     contract.NormalizeMouseSpeed(prepared.Preferences.MouseSpeed),
 		Locale:         "zh-CN",
 		Timezone:       "Asia/Shanghai",
 		ExtensionPaths: profile.WithBookmarkExtension(prepared.ProfilePath, f.extensionPaths()),

@@ -19,7 +19,7 @@ var nativeInputSafety []byte
 var wheelSafetyEvents []byte
 
 const mouseHandlerResource = "chrome/juggler/content/protocol/PageHandler.js"
-const nativeInputSafetyVersion = "v11"
+const nativeInputSafetyVersion = "v12"
 const mouseSafetyMarker = "// GoodHR native mouse safety " + nativeInputSafetyVersion
 
 // EnsureCamoufoxMouseSafety 修正已知协议资源，保留原始备份，未知版本不修改。
@@ -66,7 +66,7 @@ func patchMouseSafety(original []byte) ([]byte, error) {
 	if bytes.Contains(original, []byte(mouseSafetyMarker)) {
 		return original, nil
 	}
-	for _, version := range []string{"v7", "v8", "v9", "v10"} {
+	for _, version := range []string{"v7", "v8", "v9", "v10", "v11"} {
 		if bytes.HasPrefix(original, []byte("// GoodHR native mouse safety "+version+"\n")) {
 			return upgradeMouseSafetyLegacy(original, version)
 		}
@@ -125,9 +125,9 @@ func patchMouseSafety(original []byte) ([]byte, error) {
 	return result, nil
 }
 
-// upgradeMouseSafetyLegacy 仅替换已知 v7/v8/v9/v10 的公共输入保护，保留鼠标、滚轮和其他浏览器资源修正。
+// upgradeMouseSafetyLegacy 替换已知 v7 至 v11 的公共输入保护和鼠标时长排程，保留滚轮和其他浏览器资源修正。
 func upgradeMouseSafetyLegacy(original []byte, version string) ([]byte, error) {
-	if version != "v7" && version != "v8" && version != "v9" && version != "v10" {
+	if version != "v7" && version != "v8" && version != "v9" && version != "v10" && version != "v11" {
 		return nil, fmt.Errorf("浏览器输入保护版本不支持升级：%s", version)
 	}
 	helperStart := []byte("// 文件作用：给浏览器原生输入增加激活阶段保护和窗口证据，超时后禁止迟到的输入，不读取招聘页面。")
@@ -143,5 +143,17 @@ func upgradeMouseSafetyLegacy(original []byte, version string) ([]byte, error) {
 	updated = append(updated, nativeInputSafety...)
 	updated = append(updated, '\n')
 	updated = append(updated, original[to:]...)
-	return updated, nil
+	start := []byte("    const sendEvents = async (types) => {")
+	end := []byte("\n    // We must switch to proper tab in the tabbed browser so that")
+	if bytes.Count(updated, start) != 1 || bytes.Count(updated, end) != 1 {
+		return nil, fmt.Errorf("浏览器 %s 鼠标时长方法无法识别，原资源没有修改", version)
+	}
+	from, to = bytes.Index(updated, start), bytes.Index(updated, end)
+	if to <= from || !bytes.Contains(updated[from:to], []byte("ChromeUtils.camouGetMouseTrajectory")) {
+		return nil, fmt.Errorf("浏览器 %s 鼠标轨迹方法无法识别，原资源没有修改", version)
+	}
+	result := append([]byte{}, updated[:from]...)
+	result = append(result, mouseSafetyEvents...)
+	result = append(result, updated[to:]...)
+	return result, nil
 }

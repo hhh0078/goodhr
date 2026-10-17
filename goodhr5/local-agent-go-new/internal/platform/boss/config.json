@@ -50,6 +50,8 @@
     "_comment_select_first_position_result": "Boss 会按岗位名称匹配搜索结果，不固定点击第一项。",
     "needs_detail": true,
     "_comment_needs_detail": "候选人判断需要打开详情。",
+    "detail_close_escape_first": true,
+    "_comment_detail_close_escape_first": "先按 Escape 并确认详情弹窗消失；一秒内未关闭时再点击备用关闭按钮并验证。",
     "message_send_enter_fallback": true,
     "_comment_message_send_enter_fallback": "发送按钮未找到或明确尚未点击时，聚焦原输入框后按回车发送；结果不确定时不重复发送。",
     "message_send_verify_empty": true,
@@ -357,7 +359,7 @@
       "description": "Boss候选人详情弹窗"
     },
     "candidate.detail_close": {
-      "_comment": "优先关闭推荐框架中的外层简历弹窗，兼容旧详情框架按钮，按钮缺失时退回 Escape 并验证弹窗消失。",
+      "_comment": "Escape 未关闭详情时使用的备用按钮；优先推荐框架中的外层简历弹窗，兼容旧详情框架按钮，并验证弹窗消失。",
       "frames": [
         {
           "_comment": "当前关闭按钮位于推荐列表框架内、简历正文 iframe 外。",

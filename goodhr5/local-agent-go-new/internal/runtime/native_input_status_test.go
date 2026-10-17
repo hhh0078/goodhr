@@ -44,7 +44,7 @@ func TestNativeInputStatusUsesActualExecutable(t *testing.T) {
 				binary = filepath.Join(root, "Camoufox.app", "Contents", "MacOS", "camoufox")
 				archive = filepath.Join(root, "Camoufox.app", "Contents", "Resources", "omni.ja")
 			}
-			writeInputStatusArchive(t, archive, mouseSafetyMarker+"\n"+string(nativeInputSafety)+string(wheelSafetyEvents))
+			writeInputStatusArchive(t, archive, mouseSafetyMarker+"\n"+string(nativeInputSafety)+string(mouseSafetyEvents)+string(wheelSafetyEvents))
 			if err := os.MkdirAll(filepath.Dir(binary), 0o700); err != nil {
 				t.Fatal(err)
 			}

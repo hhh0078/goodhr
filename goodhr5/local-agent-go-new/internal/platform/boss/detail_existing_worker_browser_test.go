@@ -1,13 +1,16 @@
-// Package boss_test 文件作用：借用已运行的 Worker，在独立本机标签页回归 Boss 三种详情关闭布局，并恢复原标签页，不启动或停止浏览器。
+// Package boss_test 文件作用：借用明确指定的 Worker，在独立本机标签页回归 Boss 三种详情布局的 Escape 优先及备用按钮，并恢复原标签页。
 package boss_test
 
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -33,7 +36,7 @@ func (b *detailRecordingBrowser) Click(ctx context.Context, request contract.Ele
 	return result, err
 }
 
-// PressKey 复用正式键盘封装，记录测试是否意外退回 Escape。
+// PressKey 复用正式键盘封装，记录每种布局是否先使用 Escape。
 func (b *detailRecordingBrowser) PressKey(ctx context.Context, request contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
 	if request.Key == "Escape" {
 		b.escapes++
@@ -41,11 +44,14 @@ func (b *detailRecordingBrowser) PressKey(ctx context.Context, request contract.
 	return b.Client.PressKey(ctx, request)
 }
 
-// TestBossDetailCloseExistingWorkerLayouts 使用显式现有 Worker URL 回归三种关闭布局；运行前须确认真实岗位已停止，默认跳过。
+// TestBossDetailCloseExistingWorkerLayouts 使用显式 Worker URL 回归三种布局的两种关闭方式；优先指定隔离测试 Worker，默认跳过。
 func TestBossDetailCloseExistingWorkerLayouts(t *testing.T) {
 	workerURL := strings.TrimSpace(os.Getenv("GOODHR_BOSS_DETAIL_TEST_WORKER_URL"))
+	if workerURL == "" && strings.TrimSpace(os.Getenv("GOODHR_BOSS_BROWSER_DIR")) != "" {
+		workerURL = isolatedDetailTestWorker(t, os.Getenv("GOODHR_BOSS_BROWSER_DIR"))
+	}
 	if workerURL == "" {
-		t.Skip("真实岗位停止后设置 GOODHR_BOSS_DETAIL_TEST_WORKER_URL，借用现有 Worker 执行本机布局回归")
+		t.Skip("设置 GOODHR_BOSS_BROWSER_DIR 自动启动隔离回归，或显式指定 GOODHR_BOSS_DETAIL_TEST_WORKER_URL")
 	}
 	parsed, err := url.Parse(workerURL)
 	if err != nil || parsed.Scheme != "http" || (parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost") || parsed.RawQuery != "" || (parsed.Path != "" && parsed.Path != "/") {
@@ -80,7 +86,7 @@ func TestBossDetailCloseExistingWorkerLayouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	counts := map[string]*atomic.Int32{"current": {}, "legacy-root": {}, "legacy-nested": {}}
+	counts := map[string]*atomic.Int32{"current": {}, "legacy-root": {}, "legacy-nested": {}, "current-escape": {}, "legacy-root-escape": {}, "legacy-nested-escape": {}}
 	server := newDetailLayoutServer(counts)
 	defer server.Close()
 	t.Cleanup(func() {
@@ -95,7 +101,7 @@ func TestBossDetailCloseExistingWorkerLayouts(t *testing.T) {
 			t.Errorf("测试结束时原有标签页集合未保持：error=%v", err)
 		}
 	})
-	for _, layout := range []string{"current", "legacy-root", "legacy-nested"} {
+	for _, layout := range []string{"current-escape", "legacy-root-escape", "legacy-nested-escape", "current", "legacy-root", "legacy-nested"} {
 		if !t.Run(layout, func(t *testing.T) {
 			fixtureURL := server.URL + "/layout/" + layout
 			t.Cleanup(func() {
@@ -119,26 +125,94 @@ func TestBossDetailCloseExistingWorkerLayouts(t *testing.T) {
 			if err != nil || len(items) != 1 {
 				t.Fatalf("本机测试详情未出现：count=%d error=%v", len(items), err)
 			}
+			escapeWorks := strings.HasSuffix(layout, "-escape")
+			if escapeWorks {
+				// 真正点进详情 iframe，证明焦点在内层文档时 Escape 同样可关闭，不手工修改焦点。
+				if _, err := browser.Click(caseCtx, contract.ElementClickRequest{Selector: cfg.Selectors["candidate.detail"]}); err != nil {
+					t.Fatalf("真实点击详情正文以定位键盘焦点失败：%v", err)
+				}
+			}
 			recorded := &detailRecordingBrowser{Client: browser}
 			if err := common.CloseCandidateDetail(caseCtx, recorded, cfg); err != nil {
 				t.Fatalf("正式平台关闭流程失败：%v", err)
 			}
-			if len(recorded.clicks) != 1 || !recorded.clicks[0].Clicked || !recorded.clicks[0].Verified || recorded.escapes != 0 || counts[layout].Load() != 1 {
-				t.Fatalf("必须点击该布局自己的按钮并验证关闭：clicks=%+v escapes=%d fixture_clicks=%d", recorded.clicks, recorded.escapes, counts[layout].Load())
+			if escapeWorks {
+				if len(recorded.clicks) != 0 || recorded.escapes != 1 || counts[layout].Load() != 0 {
+					t.Fatalf("Escape 成功后不能再点击按钮：clicks=%+v escapes=%d fixture_clicks=%d", recorded.clicks, recorded.escapes, counts[layout].Load())
+				}
+			} else if len(recorded.clicks) != 1 || !recorded.clicks[0].Clicked || !recorded.clicks[0].Verified || recorded.escapes != 1 || counts[layout].Load() != 1 {
+				t.Fatalf("Escape 无效后必须点击该布局自己的按钮并验证关闭：clicks=%+v escapes=%d fixture_clicks=%d", recorded.clicks, recorded.escapes, counts[layout].Load())
 			}
 			dialog.TimeoutMS = 200
 			items, err = browser.FindAll(caseCtx, contract.ElementFindAllRequest{Selector: dialog, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true})
 			if err != nil || len(items) != 0 {
 				t.Fatalf("真实点击后详情仍可见：count=%d error=%v", len(items), err)
 			}
-			t.Logf("layout=%s clicked=true verified=true fixture_clicks=1 hidden=true escape_calls=0", layout)
+			t.Logf("layout=%s escape_calls=%d fixture_clicks=%d hidden=true", layout, recorded.escapes, counts[layout].Load())
 		}) {
 			break
 		}
 	}
 }
 
-// newDetailLayoutServer 提供三种本机页面；onclick 脚本属于测试页面自身实现，不向招聘页面注入或执行任何脚本。
+// isolatedDetailTestWorker 复用正式 Worker 和本机浏览器，以独立临时 Profile 运行回归，结束后只关闭本测试创建的进程。
+func isolatedDetailTestWorker(t *testing.T, browserDir string) string {
+	t.Helper()
+	moduleRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	logFile, err := os.Create(filepath.Join(directory, "worker.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("node", filepath.Join(moduleRoot, "worker", "dist", "main.js"))
+	command.Env = append(os.Environ(), fmt.Sprintf("GOODHR_WORKER_PORT=%d", port), "CAMOUFOX_INSTALL_DIR="+browserDir, "GOODHR_UBO_EXTENSION_PATH="+filepath.Join(browserDir, "addons", "UBO"))
+	command.Stdout, command.Stderr = logFile, logFile
+	if err := command.Start(); err != nil {
+		_ = logFile.Close()
+		t.Fatal(err)
+	}
+	workerURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	browser := client.New(workerURL)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		_, _ = browser.StopBrowser(cleanupCtx)
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		_ = logFile.Close()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	for attempt := 0; ; attempt++ {
+		if err := browser.Health(ctx); err == nil {
+			break
+		} else if attempt == 49 {
+			t.Fatalf("隔离 Worker 未启动：%v，日志 %s", err, logFile.Name())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	headless := true
+	if _, err := browser.StartBrowser(ctx, contract.BrowserStartRequest{
+		Headless: &headless, UserDataDir: filepath.Join(directory, "profile"), DownloadsPath: filepath.Join(directory, "downloads"), URL: "about:blank",
+		ExtensionPaths: []string{filepath.Join(browserDir, "addons", "UBO")},
+	}); err != nil {
+		t.Fatalf("启动隔离浏览器失败：%v，日志 %s", err, logFile.Name())
+	}
+	return workerURL
+}
+
+// newDetailLayoutServer 提供三种本机布局及各自的按键响应版本；事件脚本属于测试页面自身实现，不向招聘页面注入脚本。
 func newDetailLayoutServer(counts map[string]*atomic.Int32) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -152,22 +226,44 @@ func newDetailLayoutServer(counts map[string]*atomic.Int32) *httptest.Server {
 			return
 		}
 		const header = `<!doctype html><meta charset="utf-8"><style>body{margin:24px;font:18px sans-serif}iframe{width:960px;height:600px;border:0}button{padding:16px 24px;font:18px sans-serif}iframe.detail{width:840px;height:450px}</style>`
-		switch r.URL.Path {
-		case "/layout/current", "/layout/legacy-nested":
-			layout := strings.TrimPrefix(r.URL.Path, "/layout/")
-			fmt.Fprintf(w, `%s<iframe name="recommendFrame" src="/recommend/%s"></iframe>`, header, layout)
-		case "/layout/legacy-root":
-			fmt.Fprint(w, header+`<iframe class="detail" src="/web/frame/c-resume/legacy-root"></iframe>`)
-		case "/recommend/current":
-			fmt.Fprint(w, header+`<div class="lib-standard-resume"><button class="close-btn" onclick="fetch('/clicked?layout=current').then(()=>{document.querySelector('.lib-standard-resume').hidden=true})">关闭测试详情</button><br><iframe class="detail" src="/web/frame/c-resume/current"></iframe></div>`)
-		case "/recommend/legacy-nested":
-			fmt.Fprint(w, header+`<iframe class="detail" src="/web/frame/c-resume/legacy-nested"></iframe>`)
-		case "/web/frame/c-resume/current":
-			fmt.Fprint(w, header+`<div id="resume">本机测试详情正文，关闭按钮在外层。</div>`)
-		case "/web/frame/c-resume/legacy-root":
-			fmt.Fprint(w, header+`<button class="resume-custom-close" onclick="fetch('/clicked?layout=legacy-root').then(()=>{window.frameElement.hidden=true})">关闭旧版测试详情</button><div id="resume">本机并列框架测试正文。</div>`)
-		case "/web/frame/c-resume/legacy-nested":
-			fmt.Fprint(w, header+`<button class="boss-popup__close" onclick="fetch('/clicked?layout=legacy-nested').then(()=>{window.frameElement.hidden=true})">关闭旧版测试详情</button><div id="resume">本机内嵌框架测试正文。</div>`)
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		layout := parts[len(parts)-1]
+		baseLayout := strings.TrimSuffix(layout, "-escape")
+		if _, exists := counts[layout]; !exists {
+			http.NotFound(w, r)
+			return
+		}
+		var closeScript string
+		if baseLayout == "current" && strings.HasPrefix(r.URL.Path, "/recommend/") {
+			closeScript = "document.querySelector('.lib-standard-resume').hidden=true"
+		} else if strings.HasPrefix(r.URL.Path, "/web/frame/c-resume/") {
+			closeScript = "parent.closeTestDetail()"
+		} else {
+			closeScript = "document.querySelector('iframe.detail').hidden=true"
+		}
+		fmt.Fprint(w, header)
+		fmt.Fprintf(w, `<script>function closeTestDetail(){%s}</script>`, closeScript)
+		if strings.HasSuffix(layout, "-escape") {
+			fmt.Fprint(w, `<script>addEventListener('keydown',event=>{if(event.key==='Escape')closeTestDetail()})</script>`)
+		}
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/layout/") && baseLayout != "legacy-root":
+			fmt.Fprintf(w, `<iframe name="recommendFrame" src="/recommend/%s"></iframe>`, layout)
+		case strings.HasPrefix(r.URL.Path, "/layout/") && baseLayout == "legacy-root":
+			fmt.Fprintf(w, `<iframe class="detail" src="/web/frame/c-resume/%s"></iframe>`, layout)
+		case strings.HasPrefix(r.URL.Path, "/recommend/") && baseLayout == "current":
+			fmt.Fprintf(w, `<div class="lib-standard-resume"><button class="close-btn" onclick="fetch('/clicked?layout=%s').then(closeTestDetail)">关闭测试详情</button><br><iframe class="detail" src="/web/frame/c-resume/%s"></iframe></div>`, layout, layout)
+		case strings.HasPrefix(r.URL.Path, "/recommend/") && baseLayout == "legacy-nested":
+			fmt.Fprintf(w, `<iframe class="detail" src="/web/frame/c-resume/%s"></iframe>`, layout)
+		case strings.HasPrefix(r.URL.Path, "/web/frame/c-resume/"):
+			if baseLayout != "current" {
+				closeClass := "resume-custom-close"
+				if baseLayout == "legacy-nested" {
+					closeClass = "boss-popup__close"
+				}
+				fmt.Fprintf(w, `<button class="%s" onclick="fetch('/clicked?layout=%s').then(closeTestDetail)">关闭旧版测试详情</button>`, closeClass, layout)
+			}
+			fmt.Fprint(w, `<div id="resume" style="width:760px;height:300px">本机测试详情正文。</div>`)
 		default:
 			http.NotFound(w, r)
 		}

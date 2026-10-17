@@ -78,6 +78,7 @@ func (f *Flow) startBrowser(ctx context.Context, prepared shared.PreparedTask) e
 	_, err := f.Browser.StartBrowser(ctx, contract.BrowserStartRequest{
 		UserDataDir: prepared.ProfilePath, DownloadsPath: f.DownloadsDir,
 		Headless: &headless, Humanize: &humanize, Locale: "zh-CN", Timezone: "Asia/Shanghai",
+		MouseSpeed:     contract.NormalizeMouseSpeed(prepared.Preferences.MouseSpeed),
 		ExtensionPaths: profile.WithBookmarkExtension(prepared.ProfilePath, f.extensionPaths()),
 	})
 	return err

@@ -90,6 +90,7 @@ type BrowserStartRequest struct {
 	DownloadsPath  string       `json:"downloads_path,omitempty"`
 	Headless       *bool        `json:"headless,omitempty"`
 	Humanize       *bool        `json:"humanize,omitempty"`
+	MouseSpeed     string       `json:"mouse_speed,omitempty"`
 	URL            string       `json:"url,omitempty"`
 	WaitUntil      string       `json:"wait_until,omitempty"`
 	TimeoutMS      int          `json:"timeout_ms,omitempty"`

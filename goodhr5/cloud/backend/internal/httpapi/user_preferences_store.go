@@ -10,6 +10,7 @@ import (
 
 type UserPreferences struct {
 	AIModel                  string
+	MouseSpeed               string
 	ClickFrequency           int
 	DetailOpenProbability    int
 	CandidateReadConcurrency int
@@ -39,6 +40,7 @@ type UserPreferences struct {
 func DefaultUserPreferences() UserPreferences {
 	return UserPreferences{
 		AIModel:                  "",
+		MouseSpeed:               "fast",
 		ClickFrequency:           80,
 		DetailOpenProbability:    80,
 		CandidateReadConcurrency: 100,
@@ -97,6 +99,7 @@ func (s *MemoryUserPreferencesStore) SaveUserPreferences(userEmail string, prefs
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	prefs.UpdatedAt = s.now()
+	prefs.MouseSpeed = normalizeMouseSpeed(prefs.MouseSpeed)
 	s.items[userEmail] = prefs
 	return prefs, nil
 }
@@ -117,7 +120,7 @@ func (s *PostgresUserPreferencesStore) UserPreferences(userEmail string) (UserPr
 	err := s.db.QueryRowContext(
 		ctx,
 		`
-		SELECT up.ai_model, up.click_frequency, up.detail_open_probability,
+		SELECT up.ai_model, up.mouse_speed, up.click_frequency, up.detail_open_probability,
 		       up.candidate_read_concurrency,
 		       up.scroll_delay_min, up.scroll_delay_max,
 		       up.list_view_delay_min, up.list_view_delay_max,
@@ -137,6 +140,7 @@ func (s *PostgresUserPreferencesStore) UserPreferences(userEmail string) (UserPr
 		userEmail,
 	).Scan(
 		&prefs.AIModel,
+		&prefs.MouseSpeed,
 		&prefs.ClickFrequency,
 		&prefs.DetailOpenProbability,
 		&prefs.CandidateReadConcurrency,
@@ -196,9 +200,9 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 			rest_after_candidates_min, rest_after_candidates_max,
 			rest_times_min, rest_times_max,
 			rest_duration_min, rest_duration_max,
-			candidate_read_concurrency
+			candidate_read_concurrency, mouse_speed
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
 		ON CONFLICT (user_id)
 		DO UPDATE SET
 			ai_model = EXCLUDED.ai_model,
@@ -225,8 +229,9 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 			rest_duration_min = EXCLUDED.rest_duration_min,
 			rest_duration_max = EXCLUDED.rest_duration_max,
 			candidate_read_concurrency = EXCLUDED.candidate_read_concurrency,
+			mouse_speed = EXCLUDED.mouse_speed,
 			updated_at = now()
-		RETURNING ai_model, click_frequency, detail_open_probability,
+		RETURNING ai_model, mouse_speed, click_frequency, detail_open_probability,
 		          scroll_delay_min, scroll_delay_max,
 		          list_view_delay_min, list_view_delay_max,
 		          detail_view_delay_min, detail_view_delay_max,
@@ -265,8 +270,10 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		prefs.RestDurationMin,
 		prefs.RestDurationMax,
 		prefs.CandidateReadConcurrency,
+		normalizeMouseSpeed(prefs.MouseSpeed),
 	).Scan(
 		&saved.AIModel,
+		&saved.MouseSpeed,
 		&saved.ClickFrequency,
 		&saved.DetailOpenProbability,
 		&saved.ScrollDelayMin,

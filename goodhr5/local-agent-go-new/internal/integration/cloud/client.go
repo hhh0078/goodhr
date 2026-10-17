@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
@@ -407,6 +408,7 @@ func (c *Client) SendFailNotice(ctx context.Context, token string, positionID st
 // DefaultUserPreferences 返回与云端一致的个人运行默认值。
 func DefaultUserPreferences() UserPreferences {
 	return UserPreferences{
+		MouseSpeed:     "fast",
 		ClickFrequency: 80, DetailOpenProbability: 80,
 		CandidateReadConcurrency: 100,
 		ScrollDelayMin:           3, ScrollDelayMax: 8,
@@ -423,6 +425,7 @@ func DefaultUserPreferences() UserPreferences {
 
 // normalizeUserPreferences 修正云端个人配置中的越界值和反向区间。
 func normalizeUserPreferences(value UserPreferences) UserPreferences {
+	value.MouseSpeed = contract.NormalizeMouseSpeed(value.MouseSpeed)
 	value.DetailOpenProbability = clamp(value.DetailOpenProbability, 0, 100)
 	if value.CandidateReadConcurrency == 0 {
 		value.CandidateReadConcurrency = 100

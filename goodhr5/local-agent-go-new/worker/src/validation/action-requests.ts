@@ -20,6 +20,7 @@ import type {
 import type { SelectorSpec } from "../contracts/selector.js";
 import { parseClickVerification } from "./click-verification.js";
 import { parseSelectorSpec } from "./selector.js";
+import { isMouseSpeed } from "../browser/session/mouse-speed.js";
 import {
   asRecord,
   invalidRequest,
@@ -46,6 +47,12 @@ export function parseBrowserStartRequest(
   assignString(request, "user_agent", optionalString(record, "user_agent"));
   assignBoolean(request, "headless", optionalBoolean(record, "headless"));
   assignBoolean(request, "humanize", optionalBoolean(record, "humanize"));
+  if (record.mouse_speed !== undefined) {
+    if (!isMouseSpeed(record.mouse_speed)) {
+      throw invalidRequest(traceId, action, "鼠标速度档位暂不支持，请重新选择");
+    }
+    request.mouse_speed = record.mouse_speed;
+  }
   assignBoolean(request, "new_tab", optionalBoolean(record, "new_tab"));
   assignNumber(
     request,

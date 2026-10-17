@@ -70,6 +70,7 @@ type Behavior struct {
 	SelectFirstPositionResult bool   `json:"select_first_position_result"`
 	NeedsDetail               bool   `json:"needs_detail"`
 	StitchDetailScreenshots   bool   `json:"stitch_detail_screenshots"`
+	DetailCloseEscapeFirst    bool   `json:"detail_close_escape_first"`   // 先按 Escape 并确认详情消失，未关闭时才点击备用关闭按钮。
 	MessageSendEnterFallback  bool   `json:"message_send_enter_fallback"` // 发送按钮明确尚未点击时，允许聚焦输入框后按回车兜底。
 	MessageSendVerifyEmpty    bool   `json:"message_send_verify_empty"`   // 发送后确认输入框清空，避免把按键成功当成消息发送成功。
 }

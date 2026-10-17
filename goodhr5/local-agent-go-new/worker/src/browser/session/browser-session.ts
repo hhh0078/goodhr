@@ -31,6 +31,7 @@ import { buildLaunchOptions } from "./launch-options.js";
 import { nativeInputSafetyDiagnostic } from "./native-input-safety.js";
 import { focusCurrentBrowserWindow, type WindowFocusResult } from "./window-focus.js";
 import { assertInputAllowed } from "../primitives/input-lifecycle.js";
+import { normalizeMouseSpeed, type MouseSpeed } from "./mouse-speed.js";
 
 export { pageURLContainsTarget } from "./navigation.js";
 
@@ -41,6 +42,7 @@ export class BrowserSession {
   private currentPage: Page | null = null;
   private userDataDir = "";
   private extensionPaths: string[] = [];
+  private mouseSpeed: MouseSpeed = "fast";
   private readonly registeredPages = new WeakSet<Page>();
   private readonly downloadManager: DownloadManager;
   private readonly lifecycle: BrowserLifecycle;
@@ -83,6 +85,11 @@ export class BrowserSession {
       const running = await this.isRunning();
       assertInputAllowed(actionContext);
       if (running) {
+        if (request.mouse_speed !== undefined && normalizeMouseSpeed(request.mouse_speed) !== this.mouseSpeed) {
+          throw new WorkerError({ code: "INVALID_REQUEST", message: "鼠标速度已保存，请先关闭浏览器窗口，再重新打开就能生效",
+            action: actionContext.action, step: "browser_config_change", trace_id: actionContext.trace_id,
+            details: { browser_retained: true, manual_close_required: true, mouse_speed: this.mouseSpeed, requested_mouse_speed: request.mouse_speed } });
+        }
         if (
           (request.user_data_dir ?? this.userDataDir) === this.userDataDir &&
           samePaths(request.extension_paths ?? this.extensionPaths, this.extensionPaths)
@@ -122,6 +129,7 @@ export class BrowserSession {
       this.lifecycle.begin();
       const nativeDownloadPrefs = await this.downloadManager.prepareNativeSession();
       this.extensionPaths = [...(request.extension_paths ?? [])];
+      this.mouseSpeed = normalizeMouseSpeed(request.mouse_speed);
       if (request.user_data_dir) {
         this.userDataDir = request.user_data_dir;
         await fs.mkdir(this.userDataDir, { recursive: true });
@@ -572,6 +580,7 @@ export class BrowserSession {
     this.currentPage = null;
     this.userDataDir = "";
     this.extensionPaths = [];
+    this.mouseSpeed = "fast";
     this.elements.clear();
   }
 

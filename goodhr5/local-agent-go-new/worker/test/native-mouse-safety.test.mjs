@@ -33,7 +33,10 @@ function fixture(missing = false, trajectory = [0,0, 0.1,0.1, 8.2,8.2, 8.3,8.3, 
       jugglerSendMouseEvent(type, x, y) { sent.push({type,x,y}); return sent.length; },
     }, windowState: 2, STATE_MINIMIZED: 2, devicePixelRatio: 1.25, document: { hasFocus: () => false } },
     x: 10, y: 10, button: 0, clickCount: 0, modifiers: 0, buttons: 0,
-    Cc: { '@mozilla.org/observer-service;1': { getService: () => observerService } },
+    Cc: {
+      '@mozilla.org/observer-service;1': { getService: () => observerService },
+      '@mozilla.org/preferences-service;1': { getService: () => ({ getIntPref: (_name, fallback) => fallback }) },
+    },
     Ci: { nsIObserverService: {} },
     ChromeUtils: {
       importESModule: () => ({ clearTimeout }),
@@ -93,7 +96,7 @@ test('合成器未返回通知时停止且不发送鼠标事件，解除订阅',
     assert.equal(diagnostic.events_sent, 0);
     assert.equal(diagnostic.window_at_failure.window_minimized, true);
     assert.equal(diagnostic.window_at_failure.chrome_has_focus, false);
-    assert.equal(diagnostic.mouse_safety_version, 'v11');
+    assert.equal(diagnostic.mouse_safety_version, 'v12');
     return true;
   });
   assert.equal(value.sent.length, 0);

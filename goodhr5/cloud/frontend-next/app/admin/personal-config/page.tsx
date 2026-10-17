@@ -43,6 +43,7 @@ const defaults = {
   model: "qwen3.7-plus",
   api_key: "",
   click_frequency: 80,
+  mouse_speed: "fast",
   detail_open_probability: 80,
   candidate_read_concurrency: 100,
   detail_open_delay_min: 1,
@@ -58,6 +59,13 @@ const defaults = {
   rest_duration_min: 2,
   rest_duration_max: 7,
 };
+const mouseSpeedOptions = [
+  { value: "ultra_fast", label: "超快 · 90–210 ms" },
+  { value: "fast", label: "快速（默认）· 180–360 ms" },
+  { value: "standard", label: "标准 · 350–650 ms" },
+  { value: "relaxed", label: "舒缓 · 650–1100 ms" },
+  { value: "slow", label: "慢速 · 1100–1800 ms" },
+];
 /** PersonalConfigPage 管理 AI 接口和模拟人工操作参数。 */
 export default function PersonalConfigPage() {
   const { notify } = useAdmin();
@@ -137,6 +145,9 @@ export default function PersonalConfigPage() {
       setForm({
         ...defaults,
         ...preference,
+        mouse_speed: mouseSpeedOptions.some((option) => option.value === preference.mouse_speed)
+          ? preference.mouse_speed
+          : defaults.mouse_speed,
         base_url: ai.base_url || defaults.base_url,
         model: ai.model || preference.ai_model || defaults.model,
         api_key: ai.api_key || "",
@@ -539,6 +550,33 @@ export default function PersonalConfigPage() {
               description="在范围内随机等待，让岗位运行操作保持自然。"
             />
             <Flex className={styles.s228}>
+              <div className={pageStyles.mouseSpeedRow}>
+                <div>
+                  <Typography.Paragraph className={`${styles.text} ${styles.s256}`}>
+                    鼠标移动速度
+                  </Typography.Paragraph>
+                  <Typography.Paragraph className={`${styles.text} ${styles.s257}`}>
+                    每次移动在所选范围内随机。保存后，关闭并重新打开 GoodHR 浏览器生效。
+                  </Typography.Paragraph>
+                </div>
+                <Form.Item
+                  layout="vertical"
+                  htmlFor="personal-config-mouse-speed"
+                  style={{ marginBottom: 0 }}
+                >
+                  <Select
+                    id="personal-config-mouse-speed"
+                    aria-label="鼠标移动速度"
+                    value={form.mouse_speed}
+                    options={mouseSpeedOptions}
+                    showSearch
+                    optionFilterProp="label"
+                    disabled={loading || !configLoaded}
+                    onChange={(value) => setForm((current) => ({ ...current, mouse_speed: value }))}
+                    className={pageStyles.mouseSpeedSelect}
+                  />
+                </Form.Item>
+              </div>
               <CompactNumber
                 label="点击频率"
                 help="控制候选人操作的执行比例。"

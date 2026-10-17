@@ -4,6 +4,9 @@ import type { Cookie } from "playwright-core";
 import type { JsonObject, JsonValue } from "./common.js";
 import type { ElementView, FindResult, SelectorSpec } from "./selector.js";
 
+/** MouseSpeed 表示个人配置中可选的鼠标移动速度。 */
+export type MouseSpeed = "ultra_fast" | "fast" | "standard" | "relaxed" | "slow";
+
 /** ProxyConfig 表示浏览器代理配置。 */
 export interface ProxyConfig {
   server: string;
@@ -18,6 +21,7 @@ export interface BrowserStartRequest {
   downloads_path?: string;
   headless?: boolean;
   humanize?: boolean;
+  mouse_speed?: MouseSpeed;
   url?: string;
   wait_until?: "load" | "domcontentloaded" | "networkidle" | "commit";
   timeout_ms?: number;

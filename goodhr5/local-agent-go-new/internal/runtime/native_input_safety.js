@@ -78,7 +78,7 @@
   /** _goodhrInputDiagnostic 创建鼠标和滚轮共用的阶段证据。 */
   _goodhrInputDiagnostic(eventTypes, x, y, extra = {}) {
     return {
-      schema_version: 1, mouse_safety_version: 'v11', stage: 'activation', event_types: eventTypes,
+      schema_version: 1, mouse_safety_version: 'v12', stage: 'activation', event_types: eventTypes,
       target_x: Math.round(x), target_y: Math.round(y), input_started_at: Date.now(),
       activation_wait_ms: 0, apz_wait_ms: 0, mouse_ack_wait_ms: 0,
       apz_flush_requested: false, apz_flush_result: null, apz_repaint_received: false,

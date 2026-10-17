@@ -23,6 +23,7 @@ import (
 
 // pageOpenRequest 表示现有控制台打开招聘平台页面时使用的参数。
 type pageOpenRequest struct {
+	Token             string          `json:"token"`
 	URL               string          `json:"url"`
 	UserDataDir       string          `json:"user_data_dir"`
 	ProfileID         string          `json:"profile_id"`
@@ -31,6 +32,7 @@ type pageOpenRequest struct {
 	DownloadsPath     string          `json:"downloads_path"`
 	Headless          bool            `json:"headless"`
 	Humanize          *bool           `json:"humanize"`
+	MouseSpeed        string          `json:"mouse_speed"`
 	GeoIP             *bool           `json:"geoip"` // 旧版控制台兼容字段，geoip 已停用，仅接受不生效
 	Persistent        bool            `json:"persistent"`
 	WaitUntil         string          `json:"wait_until"`
@@ -91,6 +93,11 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", fmt.Errorf("页面地址不能为空"))
 		return
 	}
+	mouseSpeed, err := s.pageOpenMouseSpeed(r.Context(), request, r.Header.Get("Authorization"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "MOUSE_SPEED_NOT_READY", err)
+		return
+	}
 	profileValue := firstNonEmpty(request.UserDataDir, request.ProfileID, request.PlatformAccountID, "default")
 	profilePath, err := s.profiles.Resolve(profileValue)
 	if err != nil {
@@ -124,7 +131,8 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 	result, err := s.browser.StartBrowser(r.Context(), contract.BrowserStartRequest{
 		UserDataDir: profilePath, DownloadsPath: downloadsPath,
 		Headless: &request.Headless, Humanize: &humanize,
-		URL: request.URL, WaitUntil: request.WaitUntil, TimeoutMS: request.TimeoutMS, NewTab: newTab,
+		MouseSpeed: mouseSpeed,
+		URL:        request.URL, WaitUntil: request.WaitUntil, TimeoutMS: request.TimeoutMS, NewTab: newTab,
 		Locale: locale, Timezone: timezone,
 		UserAgent: request.UserAgent, Proxy: proxy, Args: request.Args,
 		ExtensionPaths: profile.WithBookmarkExtension(profilePath, s.cfg.ExtensionPaths()),

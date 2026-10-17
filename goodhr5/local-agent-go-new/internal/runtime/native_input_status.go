@@ -86,6 +86,8 @@ func InspectCamoufoxMouseSafety(location string) NativeInputSafetyStatus {
 			bytes.Contains(content, []byte("mouseUpAcknowledged")) &&
 			bytes.Contains(content, []byte("_goodhrRunInput(")) &&
 			bytes.Contains(content, []byte("GOODHR_MOUSE_INPUT_TIMEOUT:")) &&
+			bytes.Contains(content, []byte("goodhr.mouse.min_ms")) &&
+			bytes.Contains(content, []byte("mouse_duration_planned_ms")) &&
 			bytes.Contains(content, []byte("GOODHR_MOUSE_APZ_TIMEOUT:wheel"))
 		if !status.Ready {
 			status.Error = "浏览器原生输入保护资源没有通过版本与方法检查"

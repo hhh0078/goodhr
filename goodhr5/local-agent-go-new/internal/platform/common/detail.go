@@ -3,6 +3,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -152,8 +153,11 @@ func BrowseCandidateDetail(ctx context.Context, browser model.Browser, cfg model
 	return err
 }
 
-// CloseCandidateDetail 关闭详情后检查弹窗或正文是否消失，必要时再按一次 Escape。
+// CloseCandidateDetail 按平台配置选择 Escape 或按钮优先，确认弹窗或正文消失后才返回成功。
 func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	detailKey := "candidate.detail"
 	_, hasDialog := cfg.Selectors["candidate.detail_dialog"]
 	if hasDialog {
@@ -164,7 +168,7 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 		return err
 	}
 	detail.TimeoutMS = 200
-	if hasDialog {
+	if hasDialog || cfg.Behavior.DetailCloseEscapeFirst {
 		items, probeErr := browser.FindAll(ctx, contract.ElementFindAllRequest{
 			Selector: detail, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true, Diagnostic: true,
 		})
@@ -175,6 +179,32 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 			return probeErr
 		}
 	}
+	var escapeErr error
+	if cfg.Behavior.DetailCloseEscapeFirst {
+		_, escapeErr = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if contract.IsSessionUnavailable(escapeErr) || errors.Is(escapeErr, context.Canceled) || errors.Is(escapeErr, context.DeadlineExceeded) {
+			return escapeErr
+		}
+		if escapeErr == nil {
+			// Escape 无响应时尽快让备用按钮接手，不使用完整按钮关闭轮询来拖慢每位候选人的处理。
+			verifyCtx, cancel := context.WithTimeout(ctx, time.Second)
+			hidden, verifyErr := waitSelectorHidden(verifyCtx, browser, cfg, detailKey)
+			cancel()
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if verifyErr != nil && !errors.Is(verifyErr, context.DeadlineExceeded) {
+				return verifyErr
+			}
+			if hidden {
+				return nil
+			}
+			escapeErr = fmt.Errorf("按 Escape 后候选人详情仍未关闭")
+		}
+	}
 	var clickErr error
 	if _, ok := cfg.Selectors["candidate.detail_close"]; ok {
 		closeSelector, selectorErr := RequiredSelector(cfg, "candidate.detail_close")
@@ -182,8 +212,8 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 			return selectorErr
 		}
 		closePresent := true
-		if hasDialog {
-			// 关闭按钮缺失是可恢复的探测结果，先保留诊断，再由 Escape 和弹窗隐藏确认最终结果。
+		if hasDialog || cfg.Behavior.DetailCloseEscapeFirst {
+			// 关闭按钮缺失是预期探测结果；保留诊断，由当前策略决定能否继续关闭。
 			items, probeErr := browser.FindAll(ctx, contract.ElementFindAllRequest{
 				Selector: closeSelector, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true, Diagnostic: true,
 			})
@@ -193,6 +223,9 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 			closePresent = probeErr == nil && len(items) > 0
 		}
 		if closePresent {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			_, clickErr = browser.Click(ctx, contract.ElementClickRequest{
 				Selector:   closeSelector,
 				Diagnostic: true,
@@ -204,13 +237,21 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 			if clickErr == nil {
 				return nil
 			}
-			if contract.IsSessionUnavailable(clickErr) {
+			if contract.IsSessionUnavailable(clickErr) || errors.Is(clickErr, context.Canceled) || errors.Is(clickErr, context.DeadlineExceeded) {
 				return clickErr
 			}
+		} else if cfg.Behavior.DetailCloseEscapeFirst {
+			clickErr = fmt.Errorf("备用关闭按钮未找到")
 		}
-	} else if !hasDialog {
+	} else if !hasDialog && !cfg.Behavior.DetailCloseEscapeFirst {
 		_, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
 		return err
+	}
+	if cfg.Behavior.DetailCloseEscapeFirst {
+		if clickErr != nil {
+			return fmt.Errorf("%w；备用关闭按钮未能关闭详情：%w", escapeErr, clickErr)
+		}
+		return fmt.Errorf("%w；没有配置备用关闭按钮", escapeErr)
 	}
 	if _, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
 		if clickErr != nil {

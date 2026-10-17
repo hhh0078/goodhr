@@ -99,7 +99,14 @@
       try {
         for (const eventType of types) {
           if (eventType === 'mousemove' && ChromeUtils.camouGetBool('humanize', false)) {
+            // 偏好属于浏览器内部原生输入设置；这里不执行、读取或修改招聘页面脚本。
+            const preferences = Cc['@mozilla.org/preferences-service;1'].getService(Ci.nsIPrefBranch);
+            const minimumMS = Math.max(90, Math.min(1800, preferences.getIntPref('goodhr.mouse.min_ms', 180)));
+            const maximumMS = Math.max(minimumMS, Math.min(1800, preferences.getIntPref('goodhr.mouse.max_ms', 360)));
+            const durationMS = minimumMS + Math.floor(Math.random() * (maximumMS - minimumMS + 1));
+            const movementStartedAt = Date.now();
             const trajectory = ChromeUtils.camouGetMouseTrajectory(lastX, lastY, x, y);
+            const points = [];
             for (let i = 2; i < trajectory.length - 2; i += 2) {
               const currentX = trajectory[i];
               const currentY = trajectory[i + 1];
@@ -107,9 +114,30 @@
               // 仅跳过曲线的边缘中间点，终点仍按调用者要求发送。
               if (!Number.isFinite(currentX) || !Number.isFinite(currentY) ||
                   currentX < 8 || currentY < 8 || currentX >= boundingBox.width - 8 || currentY >= boundingBox.height - 8) continue;
-              await sendOne('mousemove', currentX, currentY);
-              await new Promise(resolve => setTimeout(resolve, 10));
+              points.push([currentX, currentY]);
             }
+            points.push([x, y]);
+            diagnostic.mouse_duration_min_ms = minimumMS;
+            diagnostic.mouse_duration_max_ms = maximumMS;
+            diagnostic.mouse_duration_planned_ms = durationMS;
+            // 使用整段轨迹的截止时刻排程，回执开销不再逐点叠加；迟到时跳过中间点，终点必达。
+            for (let i = 0; i < points.length; i++) {
+              const remainingMS = movementStartedAt + durationMS * (i + 1) / points.length - Date.now();
+              if (remainingMS > 0) await new Promise(resolve => setTimeout(resolve, remainingMS));
+              guard();
+              while (i < points.length - 1 &&
+                     Date.now() - movementStartedAt >= durationMS * (i + 2) / points.length) i++;
+              // 临近终点时为最近一次回执预留开销，避免倒数第二点把终点推迟一整次回执。
+              if (i < points.length - 1 && Date.now() + Math.max(1, diagnostic.mouse_ack_wait_ms) >= movementStartedAt + durationMS) {
+                i = points.length - 1;
+                const finalWaitMS = movementStartedAt + durationMS - Date.now();
+                if (finalWaitMS > 0) await new Promise(resolve => setTimeout(resolve, finalWaitMS));
+                guard();
+              }
+              await sendOne('mousemove', points[i][0], points[i][1]);
+            }
+            diagnostic.mouse_duration_actual_ms = Date.now() - movementStartedAt;
+            continue;
           }
           await sendOne(eventType, x, y);
         }
