@@ -517,6 +517,24 @@ async function retryAvatar(payload, sourceTab = null) {
   return cloudRequest(`/api/candidates/${encodeURIComponent(payload.candidate_id)}`, { avatar_data_url: image.data_url, row_version: payload.row_version, idempotency_key: shared.cleanText(payload.idempotency_key, 100) }, "PATCH", true, generation);
 }
 
+/** setFloatingOpen 仅向原账号、原捕获和原候选人的顶层卡片转发展开或收起，不触发保存或 AI。 */
+async function setFloatingOpen(payload, sourceTab, opening, generation) {
+  const unchanged = opening ? { opened: false } : { closed: false };
+  if (!sourceTab?.id) return unchanged;
+  const settings = await readSettings();
+  if (!payload.account_key || !settings.session?.token || generation !== authGeneration || payload.account_key !== accountKey(settings)) throw new Error("账号已经变化，本次卡片操作已停止");
+  if (!opening && settings.auto_close_after_save === false) return unchanged;
+  const identity = shared.cleanText(payload.identity, 3000), captureID = shared.cleanText(payload.capture_id, 160);
+  if (!identity || identity !== payload.identity || !captureID || captureID !== payload.capture_id) throw Object.assign(new Error("原候选人标识不完整，卡片保持原状"), { code: "CAPTURE_SCOPE_CHANGED" });
+  const snapshot = await currentSnapshot(sourceTab);
+  if (!snapshot || snapshot.capture_id !== captureID || shared.resumeIdentity(snapshot) !== identity || (opening && (snapshot.platform_id !== "boss" || !snapshot.attachment))) throw Object.assign(new Error("候选人已经变化，旧卡片操作已停止"), { code: "CAPTURE_SCOPE_CHANGED" });
+  const currentSettings = await readSettings(), current = snapshots.get(sourceTab.id);
+  if (!currentSettings.session?.token || generation !== authGeneration || payload.account_key !== accountKey(currentSettings)) throw new Error("账号已经变化，本次卡片操作已停止");
+  if (!current || current.capture_id !== captureID || shared.resumeIdentity(current) !== identity) throw Object.assign(new Error("候选人已经变化，旧卡片操作已停止"), { code: "CAPTURE_SCOPE_CHANGED" });
+  const type = opening ? "OPEN_FLOATING" : "CLOSE_FLOATING", result = await extension.tabs.sendMessage(sourceTab.id, { type, identity }, { frameId: 0 });
+  return opening ? { opened: Boolean(result?.opened) } : { closed: Boolean(result?.closed) };
+}
+
 /** handleUIMessage 接收插件界面的明确操作，所有接口固定而非通用代理。 */
 async function handleUIMessage(message, sourceTab = null) {
   const generation = authGeneration, payload = { ...(message.payload || {}), expected_generation: generation };
@@ -546,11 +564,8 @@ async function handleUIMessage(message, sourceTab = null) {
     case "DRAFT_GET": return draftOperation(payload, false);
     case "DRAFT_SAVE": return draftOperation(payload, true);
     case "CHECK_UPDATE": return checkUpdate(true);
-    case "CLOSE_FLOATING": {
-      if (!sourceTab?.id || (await readSettings()).auto_close_after_save === false) return { closed: false };
-      const result = await extension.tabs.sendMessage(sourceTab.id, { type: "CLOSE_FLOATING", identity: shared.cleanText(payload.identity, 1500) }, { frameId: 0 });
-      return { closed: Boolean(result?.closed) };
-    }
+    case "CLOSE_FLOATING": return setFloatingOpen(payload, sourceTab, false, generation);
+    case "OPEN_FLOATING": return setFloatingOpen(payload, sourceTab, true, generation);
     case "SUMMARY_START": return summaryOperation(payload, "start");
     case "ATTACHMENT_START": return attachmentOperation(payload, "start", sourceTab);
     case "ATTACHMENT_POLL": return attachmentOperation(payload, "poll", sourceTab);

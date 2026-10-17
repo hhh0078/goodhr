@@ -44,6 +44,46 @@ test("点击添加冻结核对和followups，只提交CREATE保存任务，不�
   assert.equal(value.run("attachmentState.save_task.resume"), undefined); assert.equal(value.calls.some((item) => item.type === "ATTACHMENT_START" || item.type === "FOLLOWUPS"), false); assert.equal(value.elements.get("attachment-status").textContent, "已交给后台处理");
 });
 
+// 验证新增投递后500毫秒收起早于云端回执，迟到完成不会重复收起。
+test("附件新增500毫秒收起不等待CREATE回执且不会再次收起", async () => {
+  let release, posted; const started = new Promise((resolve) => { posted = resolve; });
+  const value = uiFixture(async ({ type, payload }) => { if (type === "CREATE") { posted(); await new Promise((resolve) => { release = resolve; }); return { ok: true, data: { task: { ...payload.attachment_save, id: "late-import", status: "queued" } } }; } return { ok: true, data: type === "CLOSE_FLOATING" ? { closed: true } : { matches: [], groups: [] } }; });
+  value.run("applyBasicAttachment()"); await value.advance(450); const pending = value.run("runAction(() => saveCandidate())"); await started;
+  assert.equal(value.run("attachmentState.save_unknown"), true); assert.ok(value.calls.some((item) => item.type === "DRAFT_SAVE" && item.payload.draft.attachment.save_request));
+  await value.advance(499); assert.equal(value.calls.some((item) => item.type === "CLOSE_FLOATING"), false);
+  await value.advance(1); const close = value.calls.find((item) => item.type === "CLOSE_FLOATING"); assert.equal(close.payload.capture_id, "synthetic-capture"); assert.equal(close.payload.account_key, "synthetic-account");
+  release(); await pending; await value.advance(1000); assert.equal(value.calls.filter((item) => item.type === "CLOSE_FLOATING").length, 1); assert.equal(value.calls.filter((item) => item.type === "CREATE").length, 1);
+});
+
+// 验证快速拒绝保留浮窗，收起后的迟到失败只重新展开原人，切人后不打扰新人。
+test("附件新增提交失败取消收起，迟到失败只恢复原候选人", async () => {
+  for (const phase of ["early", "late", "switched"]) {
+    let release, posted; const started = new Promise((resolve) => { posted = resolve; });
+    const value = uiFixture(async ({ type }) => { if (type === "CREATE") { posted(); await new Promise((resolve) => { release = resolve; }); return { ok: false, message: "合成提交失败" }; } return { ok: true, data: type === "CLOSE_FLOATING" ? { closed: true } : { matches: [], groups: [] } }; });
+    value.run("applyBasicAttachment()"); await value.advance(450); const pending = value.run("runAction(() => saveCandidate())"); await started;
+    if (phase !== "early") await value.advance(500);
+    if (phase === "switched") value.run('uiEpoch++; identity = "new-person"; currentResume.capture_id = "new-capture"');
+    release(); await pending; await value.advance(600);
+    assert.equal(value.calls.filter((item) => item.type === "CLOSE_FLOATING").length, phase === "early" ? 0 : 1);
+    assert.equal(value.calls.filter((item) => item.type === "OPEN_FLOATING").length, phase === "late" ? 1 : 0);
+    assert.equal(value.calls.filter((item) => item.type === "CREATE").length, 1);
+  }
+});
+
+// 验证精简首屏不丢失性别字段，取消自动收起和候选人切换仍受原设置保护。
+test("首屏隐藏性别与成功后的重新识别，更新或关闭自动收起均不自动关窗", async () => {
+  for (const mode of ["disabled", "switched", "update"]) {
+    const value = uiFixture(({ type, payload }) => ({ ok: true, data: ["CREATE", "UPDATE"].includes(type) ? { task: { ...payload.attachment_save, id: "synthetic-import", status: "queued" } } : { matches: [], groups: [] } }));
+    value.run('attachmentState.basic_task.resume.gender = "女"; applyBasicAttachment(); renderCandidateInfo({gender:"female"}); renderAttachment()'); await value.advance(450);
+    assert.equal(value.elements.get("candidate-info").hidden, true); assert.equal(value.elements.get("gender").value, "female"); assert.equal(value.elements.get("attachment-start").hidden, true);
+    if (mode === "disabled") value.run("autoCloseAfterSave = false");
+    if (mode === "update") value.run('selectedCandidate = { id: "existing", row_version: 1 }');
+    await value.run(`runAction(() => saveCandidate(${mode === "update"}))`);
+    if (mode === "switched") value.run('uiEpoch++; identity = "another-person"');
+    await value.advance(600); assert.equal(value.calls.some((item) => item.type === "CLOSE_FLOATING"), false);
+  }
+});
+
 test("未收到保存回执先查询原任务，404后人工重投同key和冻结字段，不把后来改名带入", async () => {
   let posts = 0;
   const value = uiFixture(({ type, payload }) => type === "CREATE" ? (++posts === 1 ? { ok: false, message: "synthetic lost response" } : { ok: true, data: { task: { ...payload.attachment_save, id: "synthetic-recovered-task", status: "queued" } } }) : type === "ATTACHMENT_IMPORT_POLL" ? { ok: false, status: 404, message: "not received" } : { ok: true, data: { matches: [], groups: [] } });

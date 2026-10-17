@@ -84,5 +84,11 @@
     setOpen(false); return true;
   }
 
-  root.GoodHRFloating = Object.freeze({ update, close });
+  /** open 仅恢复仍对应原候选人的已存在卡片，提交失败的迟到通知不能展开下一位候选人。 */
+  function open(identity = "") {
+    if (!identity || !host || !panel || identity !== currentIdentity) return false;
+    setOpen(true); return true;
+  }
+
+  root.GoodHRFloating = Object.freeze({ update, close, open });
 })(globalThis);

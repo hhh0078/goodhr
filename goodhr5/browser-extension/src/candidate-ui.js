@@ -44,15 +44,17 @@ function confirmAICost(message, label = "确认继续") {
 /** newKeys 为独立写操作生成幂等键，失败重试沿用原标识。 */
 function newKeys() { return Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((key) => [key, shared.newKey()])); }
 /** send 请求固定后台操作，UI不接触凭证。 */
-async function send(type, payload = {}) { const guarded = ["POSITIONS", "FOLDERS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE", "ATTACHMENT_START", "ATTACHMENT_POLL", "ATTACHMENT_CANCEL", "ATTACHMENT_IMPORT_POLL"].includes(type); const result = await extension.runtime.sendMessage({ type, payload: { ...(guarded ? { account_key: accountKey } : {}), ...payload } }); if (!result?.ok) { const error = new Error(result?.message || "没有处理成功，请再试一次"); error.status = result?.status; error.code = result?.code; throw error; } return result.data; }
+async function send(type, payload = {}) { const guarded = ["POSITIONS", "FOLDERS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE", "ATTACHMENT_START", "ATTACHMENT_POLL", "ATTACHMENT_CANCEL", "ATTACHMENT_IMPORT_POLL", "CLOSE_FLOATING", "OPEN_FLOATING"].includes(type); const result = await extension.runtime.sendMessage({ type, payload: { ...(guarded ? { account_key: accountKey } : {}), ...payload } }); if (!result?.ok) { const error = new Error(result?.message || "没有处理成功，请再试一次"); error.status = result?.status; error.code = result?.code; throw error; } return result.data; }
 /** showStatus 显示简短结果和下一步提示。 */
 function showStatus(text, error = false) { $("status").hidden = !text; $("status").textContent = text || ""; $("status").classList.toggle("error", error); }
 /** runAction 防止重复写入，失败保留表单。 */
 async function runAction(action) { if (busy) return; busy = true; refreshActions(); try { await action(); } catch (error) { showStatus(error.message, true); if (["UPDATE_REQUIRED", "EXTENSION_UPDATE_REQUIRED"].includes(error.code) || error.status === 426) { updateRequired = true; try { await checkUpdate(); } catch { renderUpdate({ update_required: true }); } } else if (error.status === 409) { lastQuery = ""; try { await checkDuplicates(true); } catch { /* 保留错误和草稿供明确重试。 */ } } } finally { busy = false; refreshActions(); queueDraft(); scheduleDuplicates(); } }
-/** scheduleAutoClose 新简历完整入库后延迟收起；切人、关闭设置或迟到结果都不会关闭当前卡片。 */
+/** scheduleAutoClose 为当前账号和候选人安排500毫秒收起，并保留收起回执供提交失败时恢复提示。 */
 function scheduleAutoClose(epoch, savedIdentity) {
-  clearTimeout(autoCloseTimer); if (!autoCloseAfterSave) return;
-  autoCloseTimer = setTimeout(() => { if (epoch !== uiEpoch || savedIdentity !== identity || !autoCloseAfterSave) return; send("CLOSE_FLOATING", { identity: savedIdentity }).catch(() => {}); }, 500);
+  clearTimeout(autoCloseTimer); if (!autoCloseAfterSave) return null;
+  const scope = { account: accountKey, capture: currentResume?.capture_id, closed: false, promise: null, timer: null };
+  scope.timer = autoCloseTimer = setTimeout(() => { if (epoch !== uiEpoch || savedIdentity !== identity || scope.account !== accountKey || !autoCloseAfterSave) return; scope.promise = send("CLOSE_FLOATING", { identity: savedIdentity, capture_id: scope.capture, account_key: scope.account }).then((result) => { scope.closed = Boolean(result.closed); }).catch(() => {}); }, 500);
+  return scope;
 }
 /** requireAccount 未登录或未授权时引导工具栏设置，旧版本禁止写入。 */
 function requireAccount() { if (!loggedIn || !dataUseAccepted) throw new Error("请点工具栏 GoodHR 图标登录并授权"); if (updateRequired) throw new Error("请先更新插件，再继续保存"); }
@@ -110,7 +112,7 @@ function renderPreview(resume) {
 /** renderAvatar 只显示已规范化内嵌头像，不加载招聘页面远程图片。 */
 function renderAvatar() { const saved = shared.validStoredAvatar(selectedCandidate?.avatar_data_url), image = $("candidate-avatar"); image.hidden = !saved; if (saved) image.src = selectedCandidate.avatar_data_url; else image.removeAttribute("src"); $("retry-avatar").hidden = !avatarWarning || !selectedCandidate?.id || !currentResume?.avatar_detected; }
 /** renderCandidateInfo 将候选人的简短职业资料集中展示。 */
-function renderCandidateInfo(resume) { $("candidate-info").textContent = [resume?.age ? `${resume.age}岁` : "", { male: "男", female: "女" }[resume?.gender] || resume?.gender, resume?.education_level, resume?.current_position || resume?.expected_position, resume?.work_region || resume?.current_region].filter(Boolean).join(" · "); $("candidate-info").hidden = !$("candidate-info").textContent; }
+function renderCandidateInfo(resume) { $("candidate-info").textContent = [resume?.age ? `${resume.age}岁` : "", resume?.education_level, resume?.current_position || resume?.expected_position, resume?.work_region || resume?.current_region].filter(Boolean).join(" · "); $("candidate-info").hidden = !$("candidate-info").textContent; }
 
 /** attachmentFieldValues 读取已展示的查重线索，不触碰招聘页或隐藏数据。 */
 function attachmentFieldValues() { return Object.fromEntries(attachmentFields.map((id) => [id, $(id).value])); }
@@ -147,7 +149,7 @@ function renderAttachment() {
   $("attachment-status").hidden = !$("attachment-status").textContent;
   const running = [attachmentState?.basic_task].find((item) => ["queued", "running"].includes(item?.status));
   $("attachment-cancel").hidden = !running;
-  $("attachment-start").hidden = Boolean(running) || (!attachmentState?.basic_task && !unknown && !attachmentState?.basic_error);
+  $("attachment-start").hidden = Boolean(running) || attachmentState?.basic_task?.status === "completed" || (!attachmentState?.basic_task && !unknown && !attachmentState?.basic_error);
   $("attachment-start").textContent = attachmentState?.basic_unknown ? "查询结果" : "重新识别";
   $("attachment-start").parentElement.hidden = $("attachment-start").hidden && $("attachment-cancel").hidden;
   refreshActions();
@@ -253,20 +255,23 @@ async function acceptAttachmentImport(result, epoch) {
     lastQuery = ""; try { await checkDuplicates(true); } catch { /* 已保存不回滚，查重失败仍可手动查询。 */ }
     if (epoch !== uiEpoch) return;
   }
-  renderAttachment(); showStatus(""); const saved = await persistDraft();
-  if (epoch === uiEpoch && task.status === "completed" && request.operation === "create" && saved && !task.followup_errors.length) scheduleAutoClose(epoch, identity);
+  renderAttachment(); showStatus(""); await persistDraft();
 }
 
-/** submitAttachmentSave 先落盘原请求编号，再投递一次后台任务；关闭界面不会取消已受理任务。 */
+/** submitAttachmentSave 先落盘冻结请求，新增投递后500毫秒收起；不等服务端返回，失败时仅恢复原人的提示。 */
 async function submitAttachmentSave() {
-  const epoch = uiEpoch, request = attachmentState?.save_request; if (!request) throw new Error("这次保存还没准备好，请重新点击");
+  const epoch = uiEpoch, savedIdentity = identity, request = attachmentState?.save_request; if (!request) throw new Error("这次保存还没准备好，请重新点击");
   attachmentState.save_unknown = true; attachmentState.save_not_found = false; renderAttachment();
   if (!await persistDraft()) { attachmentState.save_unknown = false; renderAttachment(); throw new Error("保存编号没记住，请先别关闭插件，稍后重试"); }
   if (epoch !== uiEpoch) return;
-  try { await acceptAttachmentImport(await send(request.operation === "update" ? "UPDATE" : "CREATE", { capture_id: request.capture_id, attachment_save: request }), epoch); }
+  let closing = null;
+  try { const pending = send(request.operation === "update" ? "UPDATE" : "CREATE", { capture_id: request.capture_id, attachment_save: request }); if (request.operation === "create") closing = scheduleAutoClose(epoch, savedIdentity); await acceptAttachmentImport(await pending, epoch); }
   catch (error) {
+    if (closing) clearTimeout(closing.timer);
     if (epoch === uiEpoch && (shared.unacceptedImportError(error.code) || (error.status >= 400 && error.status < 500 && error.status !== 409))) { attachmentState.save_unknown = false; attachmentState.save_request = null; attachmentState.save_task = null; keys.save = shared.newKey(); lastQuery = ""; }
     if (epoch === uiEpoch) { renderAttachment(); await persistDraft(); }
+    if (closing?.promise) await closing.promise;
+    if (epoch === uiEpoch && closing?.closed && closing.account === accountKey) await send("OPEN_FLOATING", { identity: savedIdentity, capture_id: request.capture_id, account_key: closing.account }).catch(() => {});
     throw error;
   }
 }

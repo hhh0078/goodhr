@@ -79,6 +79,7 @@ test("Chrome合成浮窗BOSS：自动basic和查重，点击后只提交后台�
     await frame.locator("#name").fill("基本识别前手改姓名"); releaseBasic();
     await frame.waitForFunction(() => document.getElementById("phone").value === "13800000991");
     assert.equal(await frame.locator("#name").inputValue(), "基本识别前手改姓名"); assert.equal(await frame.locator("#gender").inputValue(), "female");
+    assert.equal(await frame.locator("#candidate-info").isVisible(), false); assert.equal(await frame.locator("#attachment-start").isVisible(), false);
     assert.equal(await frame.locator("#first-company").inputValue(), "最早合成公司"); assert.equal(await frame.locator("#first-school").inputValue(), "最早合成学校");
     await waitForFixture(page, () => calls.some((item) => item.type === "DUPLICATES"), "基础识别完成后未自动查重");
     assert.equal(calls.some((item) => item.type === "ATTACHMENT_START" && item.payload.phase === "full"), false); assert.equal(calls.some((item) => item.type === "CREATE"), false);

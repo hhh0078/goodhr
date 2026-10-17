@@ -36,10 +36,14 @@
   /** scheduleCapture 合并页面自然变化，避免每个节点变化都重复扫描。 */
   function scheduleCapture() { clearTimeout(pendingTimer); pendingTimer = setTimeout(() => capture(), 450); }
 
-  /** handleRuntimeMessage 仅响应同一插件的重读与收起请求，不接受页面自定义事件。 */
+  /** handleRuntimeMessage 仅响应同一插件的重读及原候选人卡片显隐请求，不接受页面自定义事件。 */
   function handleRuntimeMessage(message, sender, sendResponse) {
     if (sender.id !== extension.runtime.id) return false;
-    if (message?.type === "CLOSE_FLOATING") { sendResponse({ ok: true, closed: Boolean(globalThis.GoodHRFloating?.close(message.identity || "")) }); return false; }
+    if (message?.type === "CLOSE_FLOATING" || message?.type === "OPEN_FLOATING") {
+      const opening = message.type === "OPEN_FLOATING", validIdentity = typeof message.identity === "string" && message.identity.length > 0;
+      const changed = validIdentity && Boolean(opening ? globalThis.GoodHRFloating?.open(message.identity) : globalThis.GoodHRFloating?.close(message.identity));
+      sendResponse({ ok: true, ...(opening ? { opened: changed } : { closed: changed }) }); return false;
+    }
     if (message?.type !== "REQUEST_CAPTURE") return false;
     capture(true).then((ok) => sendResponse({ ok: ok === true }), () => sendResponse({ ok: false })); return true;
   }

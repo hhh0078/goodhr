@@ -255,16 +255,90 @@ test("独立悬浮界面不能登录、配对、退出或改变资料授权，�
 
 test("入库自动关闭默认开启并持久化，只有工具栏能设置且只向来源页主框架发收起请求", async () => {
   const value = backgroundFixture(), tab = { id: 31, url: "https://h.liepin.com/resume/showresumedetail" }, sender = { ...floatingSender, frameId: 2, tab };
+  const account = JSON.stringify(["fixture", "fixture@example.test"]), deliveries = [], resume = { platform_id: "hliepin", platform_candidate_id: "fixture", candidate_name: "合成长链接候选人", source_url: "https://h.liepin.com/" + "a".repeat(700) };
+  value.extension.tabs.get = async () => tab;
+  value.extension.tabs.sendMessage = async (id, message, options) => {
+    if (message.type === "REQUEST_CAPTURE") return value.message({ type: "CANDIDATE_SNAPSHOT", resume }, { id: "test-extension", frameId: 0, tab });
+    deliveries.push([id, message, options]); return { closed: true };
+  };
+  const snapshot = (await value.message({ type: "PREVIEW" }, sender)).data.resume;
+  const identity = value.context.GoodHRShared.resumeIdentity(snapshot), payload = { account_key: account, capture_id: snapshot.capture_id, identity };
   const initial = await value.message({ type: "STATE" }, uiSender); assert.equal(initial.data.auto_close_after_save, true);
   assert.equal(await value.message({ type: "SET_AUTO_CLOSE", payload: { enabled: false } }, sender), undefined); assert.equal(value.values.auto_close_after_save, undefined);
   const disabled = await value.message({ type: "SET_AUTO_CLOSE", payload: { enabled: false } }, uiSender); assert.equal(disabled.ok, true); assert.equal(value.values.auto_close_after_save, false);
   const restored = await value.message({ type: "STATE" }, uiSender); assert.equal(restored.data.auto_close_after_save, false);
-  const deliveries = []; value.extension.tabs.sendMessage = async (...args) => { deliveries.push(args); return { closed: true }; };
-  const skipped = await value.message({ type: "CLOSE_FLOATING", payload: { identity: "disabled" } }, sender); assert.equal(skipped.data.closed, false); assert.equal(deliveries.length, 0);
+  const skipped = await value.message({ type: "CLOSE_FLOATING", payload }, sender); assert.equal(skipped.data.closed, false); assert.equal(deliveries.length, 0);
   await value.message({ type: "SET_AUTO_CLOSE", payload: { enabled: true } }, uiSender);
   const longIdentity = JSON.stringify(["hliepin", "fixture", `https://h.liepin.com/${"a".repeat(700)}`, "合成长链接候选人"]);
-  const closed = await value.message({ type: "CLOSE_FLOATING", payload: { identity: longIdentity } }, sender); assert.equal(closed.data.closed, true);
-  assert.equal(deliveries.length, 1); assert.equal(deliveries[0][0], tab.id); assert.equal(deliveries[0][1].type, "CLOSE_FLOATING"); assert.equal(deliveries[0][1].identity, longIdentity); assert.equal(deliveries[0][2].frameId, 0);
+  const closed = await value.message({ type: "CLOSE_FLOATING", payload }, sender); assert.equal(closed.data.closed, true);
+  assert.equal(deliveries.length, 1); assert.equal(deliveries[0][0], tab.id); assert.equal(deliveries[0][1].type, "CLOSE_FLOATING"); assert.equal(deliveries[0][1].identity, identity); assert.equal(deliveries[0][2].frameId, 0);
+  assert.equal(longIdentity, identity);
+  const rejectedOpen = await value.message({ type: "OPEN_FLOATING", payload }, sender); assert.equal(rejectedOpen.ok, false); assert.equal(deliveries.length, 1);
+});
+
+test("BOSS失败恢复只允许原账号原捕获原候选人的可信iframe，旧状态不投递显隐动作", async () => {
+  const value = backgroundFixture(), scene = await attachmentScene(value), capture = value.extension.tabs.sendMessage, deliveries = [];
+  const payload = { account_key: scene.account, capture_id: scene.capture.capture_id, identity: value.context.GoodHRShared.resumeIdentity(scene.capture) };
+  value.extension.tabs.sendMessage = async (id, message, options) => {
+    if (message.type === "REQUEST_CAPTURE") return capture(id, message, options);
+    deliveries.push({ id, message, options }); return { opened: true, closed: true };
+  };
+  for (const type of ["OPEN_FLOATING", "CLOSE_FLOATING"]) {
+    for (const changed of [{ account_key: "old-account" }, { capture_id: "old-capture" }, { identity: "old-candidate" }, { account_key: "" }, { capture_id: "" }, { identity: "" }]) {
+      const rejected = await value.message({ type, payload: { ...payload, ...changed } }, scene.sender); assert.equal(rejected.ok, false); assert.equal(deliveries.length, 0);
+    }
+    const result = await value.message({ type, payload }, scene.sender); assert.equal(result.ok, true); assert.equal(result.data[type === "OPEN_FLOATING" ? "opened" : "closed"], true);
+    const delivery = deliveries.pop(); assert.equal(delivery.id, scene.tab.id); assert.equal(delivery.options.frameId, 0); assert.equal(delivery.message.type, type); assert.equal(delivery.message.identity, payload.identity); assert.equal(Object.hasOwn(delivery.message, "account_key"), false);
+  }
+  await scene.replaceText("合成另一份附件，不能接收上一人的失败恢复");
+  const stale = await value.message({ type: "OPEN_FLOATING", payload }, scene.sender); assert.equal(stale.ok, false); assert.equal(deliveries.length, 0);
+  assert.equal(value.requests.length, 0); assert.equal(value.versionRequests.length, 0); value.values.data_use_accepted = false;
+});
+
+test("读取原捕获期间切换账号会停止迟到的失败展开请求", async () => {
+  const value = backgroundFixture(), scene = await attachmentScene(value), capture = value.extension.tabs.sendMessage, deliveries = [];
+  const payload = { account_key: scene.account, capture_id: scene.capture.capture_id, identity: value.context.GoodHRShared.resumeIdentity(scene.capture) };
+  let release, started; const waiting = new Promise((resolve) => { started = resolve; });
+  value.extension.tabs.sendMessage = async (id, message, options) => {
+    if (message.type === "REQUEST_CAPTURE") { started(); await new Promise((resolve) => { release = resolve; }); return capture(id, message, options); }
+    deliveries.push(message); return { opened: true };
+  };
+  const pending = value.message({ type: "OPEN_FLOATING", payload }, scene.sender); await waiting;
+  value.values.session = { token: "new-account-token", user: { id: "other", email: "other@example.test" } }; release();
+  const result = await pending; assert.equal(result.ok, false); assert.equal(deliveries.length, 0); assert.equal(value.requests.length, 0); value.values.data_use_accepted = false;
+});
+
+/** floatingContentFixture 使用合成插件容器加载真实显隐逻辑，不连接招聘页面或浏览器。 */
+async function floatingContentFixture() {
+  const nodes = [], messages = []; let listener;
+  /** node 为插件自身 Shadow DOM 提供显隐测试所需的最小节点。 */
+  function node(tag) {
+    const value = { tag, hidden: false, isConnected: true, children: [], style: { setProperty: () => {} }, addEventListener: () => {}, setAttribute: () => {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 248, height: 460 }), append(...items) { this.children.push(...items); }, appendChild(item) { this.children.push(item); }, attachShadow() { return node("shadow"); } };
+    nodes.push(value); return value;
+  }
+  const document = { createElement: node, documentElement: node("html") };
+  const context = vm.createContext({ document, location: { href: "https://www.zhipin.com/web/chat/index" }, URL, crypto: crypto.webcrypto, Uint8Array, TextEncoder, innerWidth: 1100, innerHeight: 900, addEventListener: () => {}, MutationObserver: class { observe() {} }, setInterval: () => 1, setTimeout: () => 1, clearTimeout: () => {}, GoodHRExtraction: { extractCurrentCandidate: () => null }, chrome: { runtime: { id: "test-extension", getURL: (file) => "chrome-extension://test-extension/" + file, sendMessage: async (message) => { messages.push(message); return { ok: true }; }, onMessage: { addListener: (handler) => { listener = handler; } } } } });
+  for (const file of ["shared.js", "floating.js", "content.js"]) vm.runInContext(fs.readFileSync(path.join(src, file), "utf8"), context);
+  await new Promise((resolve) => setImmediate(resolve));
+  return { context, nodes, messages, message: (message, sender = { id: "test-extension" }) => new Promise((resolve) => { const pending = listener(message, sender, resolve); if (pending === false) resolve(undefined); }) };
+}
+
+test("顶层卡片仅显隐同一identity，迟到失败不能展开新人且网页没有新增动作桥", async () => {
+  const value = await floatingContentFixture(), first = { platform_id: "boss", source_url: "https://www.zhipin.com/web/chat/index", attachment: { text_hash: "a".repeat(64) } };
+  value.context.GoodHRFloating.update(first);
+  const firstIdentity = value.context.GoodHRShared.resumeIdentity(first), host = value.nodes.find((item) => item.tag === "aside");
+  assert.equal((await value.message({ type: "CLOSE_FLOATING", identity: firstIdentity })).closed, true); assert.equal(host.hidden, true);
+  assert.equal((await value.message({ type: "OPEN_FLOATING", identity: "wrong-candidate" })).opened, false); assert.equal(host.hidden, true);
+  assert.equal((await value.message({ type: "OPEN_FLOATING", identity: firstIdentity })).opened, true); assert.equal(host.hidden, false);
+  const second = { ...first, attachment: { text_hash: "b".repeat(64) } }; value.context.GoodHRFloating.update(second);
+  const secondIdentity = value.context.GoodHRShared.resumeIdentity(second);
+  assert.equal((await value.message({ type: "CLOSE_FLOATING", identity: firstIdentity })).closed, false); assert.equal(host.hidden, false);
+  assert.equal((await value.message({ type: "CLOSE_FLOATING", identity: secondIdentity })).closed, true);
+  assert.equal((await value.message({ type: "OPEN_FLOATING", identity: firstIdentity })).opened, false); assert.equal(host.hidden, true);
+  assert.equal(await value.message({ type: "OPEN_FLOATING", identity: secondIdentity }, { id: "webpage" }), undefined); assert.equal(host.hidden, true);
+  assert.equal((await value.message({ type: "OPEN_FLOATING" })).opened, false); assert.equal(host.hidden, true);
+  assert.equal((await value.message({ type: "OPEN_FLOATING", identity: secondIdentity })).opened, true);
+  assert.equal(value.messages.some((item) => !["CANDIDATE_SNAPSHOT", "FLOATING_CLOSED"].includes(item.type)), false);
 });
 
 test("悬浮UI读取和头像绑定自身tab，活动tab变化不串人，旧快照不能新增", async () => {
@@ -305,7 +379,7 @@ test("悬浮面板头像读取期间切人会终止CREATE，既有简历不被�
 
 test("内容脚本不能调用登录、查重、保存或读取凭证接口", async () => {
   const value = backgroundFixture(), sender = { id: "test-extension", frameId: 0, tab: { id: 4, url: "https://h.liepin.com/resume/showresumedetail" } };
-  for (const type of ["STATE", "PREVIEW", "LOGIN", "CREATE", "AVATAR_RETRY", "DUPLICATES", "RESTORE", "FOLLOWUPS", "LOGOUT", "REVOKE_RETRY", "DRAFT_GET", "DRAFT_SAVE", "CHECK_UPDATE", "SET_AUTO_CLOSE", "CLOSE_FLOATING", "SUMMARY_START", "SUMMARY_SAVE"]) assert.equal(await value.message({ type, payload: {} }, sender), undefined);
+  for (const type of ["STATE", "PREVIEW", "LOGIN", "CREATE", "AVATAR_RETRY", "DUPLICATES", "RESTORE", "FOLLOWUPS", "LOGOUT", "REVOKE_RETRY", "DRAFT_GET", "DRAFT_SAVE", "CHECK_UPDATE", "SET_AUTO_CLOSE", "CLOSE_FLOATING", "OPEN_FLOATING", "SUMMARY_START", "SUMMARY_SAVE"]) assert.equal(await value.message({ type, payload: {} }, sender), undefined);
   assert.equal(value.requests.length, 0);
 });
 
