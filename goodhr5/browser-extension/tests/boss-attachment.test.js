@@ -28,7 +28,7 @@ function pdfFixture(images = [], loadedPages = [true], total = 0) {
 test("BOSS 只开放精确 HTTPS 域名，保持顶层脚本和无网络拦截权限", () => {
   assert.equal(shared.platformForURL("https://www.zhipin.com/web/chat/index?token=secret"), "boss");
   for (const url of ["http://www.zhipin.com/", "https://zhipin.com/", "https://www.zhipin.com.evil.test/", "https://www.zhipin.com:444/"]) assert.equal(shared.platformForURL(url), "");
-  for (const browser of ["chrome", "firefox"]) { const result = manifest(browser); assert.equal(result.content_scripts[0].all_frames, false); assert.ok(result.content_scripts[0].js.includes("src/boss-attachment.js")); assert.ok(result.content_scripts[0].matches.includes("https://www.zhipin.com/*")); assert.equal(result.permissions.some((item) => /webRequest|scripting|debugger|cookies/.test(item)), false); }
+  for (const browser of ["chrome", "firefox"]) { const result = manifest(browser); assert.equal(result.content_scripts[0].all_frames, false); assert.ok(result.content_scripts[0].js.includes("src/boss-attachment.js")); assert.ok(result.content_scripts[0].matches.includes("https://www.zhipin.com/*")); assert.ok(result.permissions.includes("scripting")); assert.ok(result.host_permissions.includes("https://img.bosszhipin.com/*")); assert.equal(result.permissions.some((item) => /webRequest|debugger|cookies/.test(item)), false); }
 });
 
 test("视觉顺序恢复标题、连续双栏和公司日期，不能采用原 DOM 顺序", () => {
@@ -106,7 +106,7 @@ test("附件图片只从唯一附件容器读取，排除明确装饰、隐藏�
 });
 
 test("SVG image仅保留显式图片地址，未知自然尺寸交后台核实，未核验CDN不扩大权限", () => {
-  const scene = pdfFixture([imageNode("data:image/png;base64,AAAA", { svg: true }), imageNode("https://img.bosszhipin.com/unverified.png"), imageNode("https://www.zhipin.com.evil.test/photo.png")]);
+  const scene = pdfFixture([imageNode("data:image/png;base64,AAAA", { svg: true }), imageNode("https://img.bosszhipin.com.evil.test/unverified.png"), imageNode("https://www.zhipin.com.evil.test/photo.png")]);
   assert.deepEqual(reader.avatarCandidates(scene.viewer, "https://www.zhipin.com/web/chat/index"), [{ source_url: "data:image/png;base64,AAAA", width: 0, height: 0 }]);
   assert.deepEqual(reader.avatarCandidates(pdfFixture(Array.from({ length: 7 }, (_, index) => imageNode(`/photo-${index}.png`))).viewer, "https://www.zhipin.com/web/chat/index"), []);
 });

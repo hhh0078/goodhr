@@ -72,6 +72,13 @@
     } catch { return ""; /* 无法核实所有候选时不猜测，不影响简历正文保存。 */ }
   }
 
-  const api = { MAX_SOURCE_BYTES, MAX_STORED_BYTES, MAX_STORED_CHARACTERS, detectImageType, readLimitedResponse, normalizeImage, fetchAvatar, fetchAttachmentAvatar };
+  /** fetchBossVueAvatar 再验固定 BOSS 上传目录，复用无 Cookie 下载及附件头像尺寸规范。 */
+  async function fetchBossVueAvatar(source, pageURL, environment = root) {
+    const url = shared.safeBossVueAvatarSource(source, pageURL);
+    if (!url) return "";
+    return fetchAvatar(url, pageURL, environment, true);
+  }
+
+  const api = { MAX_SOURCE_BYTES, MAX_STORED_BYTES, MAX_STORED_CHARACTERS, detectImageType, readLimitedResponse, normalizeImage, fetchAvatar, fetchAttachmentAvatar, fetchBossVueAvatar };
   root.GoodHRAvatar = api; if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

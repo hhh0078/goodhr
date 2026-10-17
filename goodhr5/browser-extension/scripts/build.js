@@ -36,8 +36,8 @@ function manifest(browser, local = false) {
   const common = {
     manifest_version: 3, name: "GoodHR 简历助手", version,
     description: "识别可见简历后自动展开，补号、查重并一键添加或更新；只读招聘页面。",
-    permissions: ["storage"],
-    host_permissions: ["https://goodhr.58it.cn/*", "http://127.0.0.1/*", "https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://www.zhipin.com/*", "https://*.lietou-static.com/*", "https://mypics.zhaopin.cn/*"],
+    permissions: ["storage", "scripting"],
+    host_permissions: ["https://goodhr.58it.cn/*", "http://127.0.0.1/*", "https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://www.zhipin.com/*", "https://*.lietou-static.com/*", "https://mypics.zhaopin.cn/*", "https://img.bosszhipin.com/*"],
     icons: { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "64": "icons/64.png", "128": "icons/128.png" },
     action: { default_title: "GoodHR 简历助手", default_popup: "src/ui.html", default_icon: { "16": "icons/16.png", "32": "icons/32.png" } },
     content_scripts: [{ matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://www.zhipin.com/*"], js: ["src/shared.js", "src/boss-attachment.js", "src/extraction.js", "src/floating.js", "src/content.js"], run_at: "document_idle", all_frames: false }],
@@ -51,7 +51,7 @@ function manifest(browser, local = false) {
     common.action.default_title = LOCAL.name;
   }
   if (browser === "chrome") return { ...common, minimum_chrome_version: "116", permissions: [...common.permissions, "sidePanel"], background: { service_worker: "src/background.js" }, side_panel: { default_path: "src/ui.html" } };
-  return { ...common, background: { scripts: ["src/shared.js", "src/avatar.js", "src/background.js"] }, sidebar_action: { default_title: common.name, default_panel: "src/ui.html", default_icon: "icons/32.png", open_at_install: false }, browser_specific_settings: { gecko: { id: local ? "resume-assistant-local@goodhr.local" : "resume-assistant@goodhr.58it.cn", strict_min_version: "140.0", data_collection_permissions: { required: ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent", "personalCommunications", "locationInfo", "browsingActivity"] } } } };
+  return { ...common, background: { scripts: ["src/shared.js", "src/avatar.js", "src/boss-vue-avatar.js", "src/background.js"] }, sidebar_action: { default_title: common.name, default_panel: "src/ui.html", default_icon: "icons/32.png", open_at_install: false }, browser_specific_settings: { gecko: { id: local ? "resume-assistant-local@goodhr.local" : "resume-assistant@goodhr.58it.cn", strict_min_version: "140.0", data_collection_permissions: { required: ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent", "personalCommunications", "locationInfo", "browsingActivity"] } } } };
 }
 
 /** replaceRequired 替换已知构建模板，源模板变化时停止，避免静默留下生产地址。 */

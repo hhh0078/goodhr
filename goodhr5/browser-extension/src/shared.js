@@ -33,6 +33,16 @@
     const url = new URL(value); return `${url.origin}${url.pathname}`;
   }
 
+  /** safeBossVueAvatarSource 只接受已核实的 BOSS 上传头像目录，默认卡通头像及其它路径均留空。 */
+  function safeBossVueAvatarSource(value, pageURL) {
+    if (platformForURL(pageURL) !== "boss" || typeof value !== "string" || !value || value.length > 4096) return "";
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "https:" || url.hostname !== "img.bosszhipin.com" || url.port || url.username || url.password || !url.pathname.startsWith("/beijin/upload/avatar/") || url.pathname.length <= "/beijin/upload/avatar/".length) return "";
+      return url.href;
+    } catch { return ""; }
+  }
+
   /** safeAvatarSource 仅保留候选人头像的有限 HTTPS 图片域或小型内嵌图片，不读取隐藏状态。 */
   function safeAvatarSource(value, pageURL) {
     const platform = platformForURL(pageURL); if (!platform || typeof value !== "string" || !value.trim()) return "";
@@ -41,7 +51,7 @@
     try {
       const url = new URL(value, pageURL), page = new URL(pageURL), hostname = url.hostname.toLowerCase();
       const liepinCDN = ["liepin", "hliepin"].includes(platform) && (hostname === "lietou-static.com" || hostname.endsWith(".lietou-static.com"));
-      if (url.protocol !== "https:" || url.port || url.username || url.password || !(hostname === page.hostname || liepinCDN || (platform === "zhaopin" && hostname === "mypics.zhaopin.cn"))) return "";
+      if (url.protocol !== "https:" || url.port || url.username || url.password || !(hostname === page.hostname || liepinCDN || (platform === "zhaopin" && hostname === "mypics.zhaopin.cn") || safeBossVueAvatarSource(value, pageURL))) return "";
       return url.href;
     } catch { return ""; }
   }
@@ -249,7 +259,7 @@
     return result;
   }
 
-  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, sanitizeFolderIDs, normalizePhone, platformForURL, safeSourceURL, safeAvatarSource, attachmentAvatarDimensions, sanitizeAvatarCandidates, validStoredAvatar, newKey, resumeIdentity, hashText, sanitizeAttachment, sanitizeAttachmentImport, attachmentImportReceipt, unacceptedImportError, earliestExperience, attachmentReviewFields, mergeAttachmentReview, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, candidateWriteResume, describeResumeChanges, saveFollowups };
+  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, sanitizeFolderIDs, normalizePhone, platformForURL, safeSourceURL, safeBossVueAvatarSource, safeAvatarSource, attachmentAvatarDimensions, sanitizeAvatarCandidates, validStoredAvatar, newKey, resumeIdentity, hashText, sanitizeAttachment, sanitizeAttachmentImport, attachmentImportReceipt, unacceptedImportError, earliestExperience, attachmentReviewFields, mergeAttachmentReview, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, candidateWriteResume, describeResumeChanges, saveFollowups };
   root.GoodHRShared = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

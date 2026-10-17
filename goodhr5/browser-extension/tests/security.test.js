@@ -13,7 +13,7 @@ function backgroundFixture(fetchReply) {
     action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {}, setTitle: () => {} }
   };
   const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, TextEncoder, console, setTimeout, clearTimeout, fetch: async (url, options) => { if (new URL(url).pathname === "/api/system/browser-extension") { versionRequests.push({ url, options }); return response({ release: { version: extension.runtime.getManifest().version } }); } requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
-  vm.runInContext(fs.readFileSync(path.join(src, "shared.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "avatar.js"), "utf8"), context); vm.runInContext(fs.readFileSync(path.join(src, "background.js"), "utf8"), context);
+  for (const file of ["shared.js", "avatar.js", "boss-vue-avatar.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(src, file), "utf8"), context);
   return { values, requests, versionRequests, context, extension, connect: (port) => connectListener(port), message: (message, sender) => new Promise((resolve) => { const result = listener(message, sender, resolve); if (result === false) resolve(undefined); }) };
 }
 
@@ -149,6 +149,77 @@ test("BOSS 无独立图片仍可投递保存，只有当前唯一图片随任务
     const request = importInput(scene), saved = await value.message({ type: "CREATE", payload: { capture_id: request.capture_id, attachment_save: request } }, scene.sender); assert.equal(saved.ok, true);
     const body = JSON.parse(value.requests[0].options.body);
     assert.equal(calls, withPhoto ? 1 : 0); assert.equal(body.avatar_data_url, withPhoto ? "data:image/png;base64,AAAA" : undefined); assert.equal(body.avatar_candidates, undefined); assert.equal(body.avatar_source_url, undefined);
+  }
+});
+
+/** bossVueScene 设置固定主世界回复与离页面图片替身，记录每次限定权限调用，不运行真实网页代码。 */
+async function bossVueScene(value) {
+  const scene = await attachmentScene(value), calls = [], photos = [], source = { candidate_id: "synthetic_encrypted_uid_A", avatar_url: "https://img.bosszhipin.com/beijin/upload/avatar/20261017/synthetic-photo.jpg.webp" };
+  scene.vue = { source, calls, photos, reply: async () => [{ frameId: 0, result: { ...source } }] };
+  value.extension.scripting = { executeScript: async (options) => { calls.push(options); return scene.vue.reply(options); } };
+  value.context.GoodHRAvatar.fetchBossVueAvatar = async (url, pageURL) => { photos.push({ url, pageURL }); return "data:image/png;base64,AAAA"; };
+  return scene;
+}
+
+test("BOSS头像只在提交时用固定零参数MAIN探针读取，前后校验后仅发送内嵌图片，捕获与AI不重启", async () => {
+  const value = backgroundFixture((url, options) => response({ task: { ...JSON.parse(options.body), id: "synthetic-vue-import", status: "queued" } }, 202)), scene = await bossVueScene(value);
+  const before = (await value.message({ type: "PREVIEW" }, scene.sender)).data.resume;
+  assert.equal(scene.vue.calls.length, 0); assert.equal(scene.vue.photos.length, 0); assert.equal(value.requests.length, 0);
+  const request = importInput(scene), result = await value.message({ type: "CREATE", payload: { capture_id: request.capture_id, attachment_save: request } }, scene.sender);
+  assert.equal(result.ok, true); assert.equal(scene.vue.calls.length, 2); assert.equal(scene.vue.photos.length, 1);
+  for (const options of scene.vue.calls) { assert.equal(options.world, "MAIN"); assert.deepEqual(JSON.parse(JSON.stringify(options.target)), { tabId: scene.tab.id, frameIds: [0] }); assert.equal(options.func, value.context.GoodHRBossVueAvatar.probeCurrentBossAvatar); assert.equal(options.args, undefined); assert.equal(options.files, undefined); }
+  const body = JSON.parse(value.requests[0].options.body); assert.equal(body.avatar_data_url, "data:image/png;base64,AAAA"); assert.equal(JSON.stringify(body).includes("bosszhipin"), false); assert.equal(JSON.stringify(result).includes("bosszhipin"), false); assert.equal(JSON.stringify(value.values).includes("bosszhipin"), false);
+  const after = (await value.message({ type: "PREVIEW" }, scene.sender)).data.resume; assert.equal(after.capture_id, before.capture_id); assert.equal(after.attachment.text_hash, before.attachment.text_hash); assert.equal(scene.vue.calls.length, 2); assert.equal(value.requests.filter((item) => item.url.includes("attachment-parses")).length, 0);
+});
+
+test("BOSS附件独立头像优先，不借Vue替换有效附件头像或改变原捕获", async () => {
+  const value = backgroundFixture((url, options) => response({ task: { ...JSON.parse(options.body), id: "synthetic-independent-photo", status: "queued" } }, 202)), scene = await bossVueScene(value);
+  scene.raw.avatar_candidates = [{ source_url: "/synthetic-independent.png", width: 120, height: 160 }]; scene.capture = (await value.message({ type: "PREVIEW" }, scene.sender)).data.resume;
+  let attachmentCalls = 0; value.context.GoodHRAvatar.fetchAttachmentAvatar = async () => { attachmentCalls++; return "data:image/png;base64,AQID"; };
+  const request = importInput(scene), result = await value.message({ type: "CREATE", payload: { capture_id: request.capture_id, attachment_save: request } }, scene.sender);
+  assert.equal(result.ok, true); assert.equal(attachmentCalls, 1); assert.equal(scene.vue.calls.length, 0); assert.equal(scene.vue.photos.length, 0); assert.equal(JSON.parse(value.requests[0].options.body).avatar_data_url, "data:image/png;base64,AQID");
+});
+
+test("BOSS缺少脚本能力、主世界失败或结果无效时保持正文可保存，不把不可信图片传给下载器", async () => {
+  for (const failure of ["missing", "throw", "empty", "subframe", "duplicate", "default", "wrong-domain"]) {
+    const value = backgroundFixture((url, options) => response({ task: { ...JSON.parse(options.body), id: "synthetic-no-vue-photo", status: "queued" } }, 202)), scene = await bossVueScene(value);
+    if (failure === "missing") delete value.extension.scripting;
+    else scene.vue.reply = async () => { if (failure === "throw") throw new Error("synthetic MAIN unavailable"); if (failure === "empty") return []; if (failure === "subframe") return [{ frameId: 2, result: scene.vue.source }]; if (failure === "duplicate") return [{ frameId: 0, result: scene.vue.source }, { frameId: 0, result: scene.vue.source }]; return [{ frameId: 0, result: { ...scene.vue.source, avatar_url: failure === "default" ? "https://img.bosszhipin.com/boss/avatar/avatar_13.png" : "https://img.bosszhipin.com.evil.test/beijin/upload/avatar/photo.jpg" } }]; };
+    const request = importInput(scene), result = await value.message({ type: "CREATE", payload: { capture_id: request.capture_id, attachment_save: request } }, scene.sender);
+    assert.equal(result.ok, true, failure); assert.equal(scene.vue.photos.length, 0, failure); assert.equal(value.requests.length, 1); assert.equal(JSON.parse(value.requests[0].options.body).avatar_data_url, undefined, failure);
+  }
+});
+
+test("BOSS Vue头像下载失败不阻断正文保存，后台不回传或落盘外部地址", async () => {
+  const value = backgroundFixture((url, options) => response({ task: { ...JSON.parse(options.body), id: "synthetic-failed-vue-photo", status: "queued" } }, 202)), scene = await bossVueScene(value);
+  value.context.GoodHRAvatar.fetchBossVueAvatar = async () => { throw new Error("synthetic image unavailable"); };
+  const request = importInput(scene), result = await value.message({ type: "CREATE", payload: { capture_id: request.capture_id, attachment_save: request } }, scene.sender);
+  assert.equal(result.ok, true); assert.equal(JSON.parse(value.requests[0].options.body).avatar_data_url, undefined); assert.equal(value.requests.length, 1); assert.equal(JSON.stringify(result).includes("bosszhipin"), false); assert.equal(JSON.stringify(value.values).includes("bosszhipin"), false);
+});
+
+test("BOSS同正文同capture切候选人或头像源时，下载迟到的头像不能提交简历或PATCH", async () => {
+  for (const changed of ["candidate", "avatar", "capture"]) for (const type of ["CREATE", "AVATAR_RETRY"]) {
+    const value = backgroundFixture(), scene = await bossVueScene(value); let release, started;
+    const active = new Promise((resolve) => { started = resolve; });
+    value.context.GoodHRAvatar.fetchBossVueAvatar = async () => { started(); return new Promise((resolve) => { release = resolve; }); };
+    const request = importInput(scene), payload = type === "CREATE" ? { capture_id: request.capture_id, attachment_save: request } : { candidate_id: "synthetic-existing-avatar-owner", row_version: 1, capture_id: request.capture_id, idempotency_key: "synthetic-vue-avatar-retry" };
+    const pending = value.message({ type, payload }, scene.sender); await active;
+    if (changed === "candidate") scene.vue.source.candidate_id = "synthetic_encrypted_uid_B";
+    else if (changed === "avatar") scene.vue.source.avatar_url = "https://img.bosszhipin.com/beijin/upload/avatar/20261017/synthetic-other-photo.jpg.webp";
+    else await scene.replaceText("合成换人后的另一份附件正文");
+    release("data:image/png;base64,AAAA"); const result = await pending;
+    assert.equal(result.ok, false, type + ":" + changed); assert.equal(result.code, "CAPTURE_SCOPE_CHANGED", type + ":" + changed); assert.equal(value.requests.length, 0);
+  }
+});
+
+test("BOSS Vue头像等待期间退出、切账号或撤销同意，旧头像和保存请求都停止", async () => {
+  for (const type of ["CREATE", "AVATAR_RETRY"]) for (const switchType of ["LOGOUT", "LOGIN", "CONSENT"]) {
+    const value = backgroundFixture(), scene = await bossVueScene(value); let release, started;
+    const active = new Promise((resolve) => { started = resolve; }); value.context.GoodHRAvatar.fetchBossVueAvatar = async () => { started(); return new Promise((resolve) => { release = resolve; }); };
+    const request = importInput(scene), payload = type === "CREATE" ? { capture_id: request.capture_id, attachment_save: request } : { candidate_id: "synthetic-existing-avatar-owner", row_version: 1, capture_id: request.capture_id, idempotency_key: "synthetic-vue-auth-retry" };
+    const pending = value.message({ type, payload }, scene.sender); await active;
+    await value.message({ type: switchType, payload: { email: "new-account@example.test", password: "synthetic", agreement_accepted: true } }, uiSender); release("data:image/png;base64,AAAA");
+    const result = await pending; assert.equal(result.ok, false, type + ":" + switchType); assert.match(result.message, /账号已经变化/); assert.equal(value.requests.some((item) => item.url.includes("/api/candidates")), false);
   }
 });
 

@@ -24,7 +24,7 @@ function firefoxBackgroundFixture() {
     sidebarAction: { open: async () => { opened.push("sidebar"); } }
   };
   const context = vm.createContext({ browser: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, TextEncoder, console, setTimeout, clearTimeout, fetch: async () => ({ ok: true, status: 200, json: async () => ({ release: { version: firefoxManifest.version } }) }) });
-  for (const file of ["shared.js", "avatar.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(SRC, file), "utf8"), context);
+  for (const file of ["shared.js", "avatar.js", "boss-vue-avatar.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(SRC, file), "utf8"), context);
   const sender = { id: extensionID, url: extension.runtime.getURL("src/ui.html") };
   return { context, opened, message: (type) => new Promise((resolve) => { const accepted = listener({ type, payload: {} }, sender, resolve); if (accepted === false) resolve(undefined); }) };
 }
@@ -51,7 +51,7 @@ test("Firefox 清单只保留浏览器必需差异并声明实际读取的数据
   for (const key of ["minimum_chrome_version", "background", "side_panel", "browser_specific_settings", "sidebar_action"]) { delete chromeCommon[key]; delete firefoxCommon[key]; }
   chromeCommon.permissions = chromeCommon.permissions.filter((permission) => permission !== "sidePanel");
   assert.deepEqual(firefoxCommon, chromeCommon);
-  assert.deepEqual(firefox.background.scripts, ["src/shared.js", "src/avatar.js", "src/background.js"]);
+  assert.deepEqual(firefox.background.scripts, ["src/shared.js", "src/avatar.js", "src/boss-vue-avatar.js", "src/background.js"]);
   assert.equal(firefox.sidebar_action.default_panel, chrome.side_panel.default_path); assert.equal(firefox.sidebar_action.open_at_install, false);
   assert.deepEqual(firefox.browser_specific_settings.gecko.data_collection_permissions.required, ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent", "personalCommunications", "locationInfo", "browsingActivity"]);
 });

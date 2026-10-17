@@ -2,6 +2,8 @@
 
 <!-- 用户已确认的例外：仅 goodhr5/browser-extension 的手动简历采集插件允许使用 content script 读取当前可见候选人 DOM，并添加自身隔离的悬浮界面（Shadow DOM / 扩展域 iframe）。只允许修改或移除插件自身容器，不得修改招聘网站业务 DOM、样式、焦点、滚动、自动点击或读取隐藏平台状态；不注入主世界，不进行规避检测的标识伪装。工具栏弹窗/侧栏保留为备用入口。现有 Go/Worker/Camoufox 自动化链路仍严格执行下面的零注入规则。 -->
 
+<!-- 用户于2026-10-17明确授权的补充例外：仅 goodhr5/browser-extension 在手动保存当前BOSS附件时，可用固定 scripting.executeScript MAIN 函数只读该可见附件候选人的Vue头像和身份标识；必须核对附件组件、聊天候选及预览地址的候选ID，并在下载前后复核。不读取全量Vue状态，不创建通用页面消息桥，不修改业务DOM，不读Cookie，不拦截网络；默认头像和无法证明归属的图片留空。此例外不适用于Go、Worker或其他平台流程。 -->
+
 - 严禁使用 `page.evaluate()`、`locator.evaluate()`、`evaluateHandle()`、`$eval()`、`$$eval()`、`addScriptTag()`、`addInitScript()` 或 `dispatchEvent()` 读取或控制招聘页面。
 - 严禁向招聘页面注入 JavaScript，或修改页面 DOM、样式、滚动位置、焦点和运行状态。
 - 页面读取与操作只能使用 CloakBrowser/Playwright 标准 `Page`、`Locator`、鼠标、键盘、真实滚轮和截图能力。

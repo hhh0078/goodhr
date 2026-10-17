@@ -26,7 +26,7 @@ function updateFixture({ values = {}, currentVersion = "1.0.3", browser = "chrom
     requests.push({ url, options });
     return businessReply ? businessReply(url, options) : response({ ok: true, candidate: { id: "synthetic-existing", row_version: 4 }, matches: [], notes: [], recommendations: [], data: url.includes("resume-summary") ? { task: { id: "synthetic-task", status: "cancelled" } } : undefined });
   } });
-  for (const name of ["shared.js", "avatar.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(src, name), "utf8"), context);
+  for (const name of ["shared.js", "avatar.js", "boss-vue-avatar.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(src, name), "utf8"), context);
   return { values, requests, versionRequests, context, extension, clock, message: (type, payload = {}, sender = uiSender) => new Promise((resolve) => { const accepted = listener({ type, payload }, sender, resolve); if (accepted === false) resolve(undefined); }) };
 }
 

@@ -1,9 +1,10 @@
 /* 文件作用：持有受限凭证、管理本地配对与云端简历请求；凭证永不交给招聘页面或插件 UI。 */
 "use strict";
-if (typeof importScripts === "function") importScripts("shared.js", "avatar.js");
+if (typeof importScripts === "function") importScripts("shared.js", "avatar.js", "boss-vue-avatar.js");
 const extension = globalThis.browser || globalThis.chrome;
 const shared = globalThis.GoodHRShared;
 const avatar = globalThis.GoodHRAvatar;
+const bossVueAvatar = globalThis.GoodHRBossVueAvatar;
 const snapshots = new Map();
 const snapshotSequences = new Map();
 const attachmentImportRequests = new Map();
@@ -270,15 +271,49 @@ function publicResume(snapshot) { if (!snapshot) return null; const { avatar_sou
 /** requireActiveSession 在图片外部读取前检查插件账号，未登录预览不能触发图片请求。 */
 async function requireActiveSession() { if (!(await readSettings()).session?.token) throw new Error("请先登录 GoodHR，再保存简历和头像"); }
 
-/** prepareAvatar 绑定本次候选人快照，保存点击后才读取头像，切换详情时不串图。 */
+/** probeBossAttachmentAvatar 只向原 BOSS 顶层页执行固定只读函数，返回后台私有的最小头像线索。 */
+async function probeBossAttachmentAvatar(sourceTab) {
+  if (!sourceTab?.id || !extension.scripting?.executeScript || !bossVueAvatar?.probeCurrentBossAvatar) return null;
+  try {
+    const tab = extension.tabs.get ? await extension.tabs.get(sourceTab.id) : sourceTab;
+    if (!tab || tab.id !== sourceTab.id || shared.platformForURL(tab.url) !== "boss") return null;
+    const results = await extension.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, world: "MAIN", func: bossVueAvatar.probeCurrentBossAvatar });
+    if (!Array.isArray(results) || results.length !== 1 || results[0]?.frameId !== 0) return null;
+    const value = results[0].result, candidateID = value?.candidate_id, source = shared.safeBossVueAvatarSource(value?.avatar_url, tab.url);
+    if (typeof candidateID !== "string" || !candidateID || candidateID.length > 256 || candidateID.trim() !== candidateID || /[\u0000-\u001f\u007f]/.test(candidateID) || !source) return null;
+    return { candidate_id: candidateID, avatar_url: source };
+  } catch { return null; }
+}
+
+/** prepareAvatar 绑定本次候选人快照，独立附件图片缺失时才核对当前 BOSS Vue，切换详情时不串图。 */
 async function prepareAvatar(captureID, sourceTab = null) {
   if (!captureID) return { data_url: "", warning: "" };
   const generation = authGeneration, boundTab = sourceTab || await activeTab(), snapshot = await currentSnapshot(boundTab);
   if (!snapshot || snapshot.capture_id !== captureID) throw Object.assign(new Error("候选人页面已经变化，请重新读取后再保存"), { code: "CAPTURE_SCOPE_CHANGED" });
-  if (!snapshot.avatar_source_url && !snapshot.avatar_candidates?.length) return { data_url: "", warning: "" };
-  let image;
-  try { image = { data_url: snapshot.attachment ? await avatar.fetchAttachmentAvatar(snapshot.avatar_candidates, snapshot.source_url) : await avatar.fetchAvatar(snapshot.avatar_source_url, snapshot.source_url), warning: "" }; }
-  catch (error) { image = { data_url: "", warning: `${error.message || "头像暂时没保存好"}。简历资料仍可保存，原有头像会保留` }; }
+  const bossAttachment = snapshot.platform_id === "boss" && snapshot.attachment && !snapshot.attachment.blocked && shared.platformForURL(snapshot.source_url) === "boss";
+  if (!snapshot.avatar_source_url && !snapshot.avatar_candidates?.length && !bossAttachment) return { data_url: "", warning: "" };
+  let image = { data_url: "", warning: "" }, vueLookup = false;
+  try {
+    if (snapshot.avatar_source_url || snapshot.avatar_candidates?.length) image.data_url = snapshot.attachment ? await avatar.fetchAttachmentAvatar(snapshot.avatar_candidates, snapshot.source_url) : await avatar.fetchAvatar(snapshot.avatar_source_url, snapshot.source_url);
+    if (!image.data_url && bossAttachment) {
+      vueLookup = true;
+      if (generation !== authGeneration) throw new Error("账号已经变化");
+      const before = await probeBossAttachmentAvatar(boundTab);
+      if (generation !== authGeneration) throw new Error("账号已经变化");
+      if (before) {
+        await requireCurrentCapture(captureID, boundTab);
+        if (generation !== authGeneration) throw new Error("账号已经变化");
+        const dataURL = await avatar.fetchBossVueAvatar(before.avatar_url, snapshot.source_url);
+        if (generation !== authGeneration) throw new Error("账号已经变化");
+        const after = await probeBossAttachmentAvatar(boundTab);
+        if (!after || before.candidate_id !== after.candidate_id || before.avatar_url !== after.avatar_url) throw Object.assign(new Error("候选人页面已经变化，头像未保存，请重新读取后再保存"), { code: "CAPTURE_SCOPE_CHANGED" });
+        image.data_url = dataURL;
+      }
+    }
+  } catch (error) {
+    if (error.code === "CAPTURE_SCOPE_CHANGED") throw error;
+    image = { data_url: "", warning: `${vueLookup ? "头像暂时没保存好，可稍后重试" : error.message || "头像暂时没保存好"}。简历资料仍可保存，原有头像会保留` };
+  }
   if (generation !== authGeneration) throw new Error("账号已经变化，本次头像保存已停止，请确认账号后重试");
   const current = await currentSnapshot(boundTab);
   if (generation !== authGeneration) throw new Error("账号已经变化，本次头像保存已停止，请确认账号后重试");

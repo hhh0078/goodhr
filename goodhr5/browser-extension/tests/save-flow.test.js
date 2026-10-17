@@ -72,11 +72,12 @@ test("更新前差异预览只列非空变化，并用中文显示职位与经�
 test("Chrome 和 Firefox 版本统一，使用各自后台和原生侧栏且无全站/网络拦截权限", () => {
   const chrome = manifest("chrome"), firefox = manifest("firefox");
   assert.equal(chrome.version, require("../package.json").version); assert.equal(chrome.version, firefox.version);
-  assert.equal(chrome.background.service_worker, "src/background.js"); assert.equal(firefox.background.service_worker, undefined); assert.deepEqual(firefox.background.scripts, ["src/shared.js", "src/avatar.js", "src/background.js"]);
+  assert.equal(chrome.background.service_worker, "src/background.js"); assert.equal(firefox.background.service_worker, undefined); assert.deepEqual(firefox.background.scripts, ["src/shared.js", "src/avatar.js", "src/boss-vue-avatar.js", "src/background.js"]);
   assert.equal(chrome.side_panel.default_path, firefox.sidebar_action.default_panel);
   for (const value of [chrome, firefox]) {
     assert.equal(value.host_permissions.includes("<all_urls>"), false);
-    for (const forbidden of ["cookies", "webRequest", "scripting", "tabs", "debugger", "downloads", "nativeMessaging"]) assert.equal(value.permissions.includes(forbidden), false);
+    assert.equal(value.permissions.includes("scripting"), true);
+    for (const forbidden of ["cookies", "webRequest", "tabs", "debugger", "downloads", "nativeMessaging"]) assert.equal(value.permissions.includes(forbidden), false);
     assert.equal(value.content_scripts[0].all_frames, false); assert.equal(value.content_scripts[0].css, undefined);
   }
   assert.ok(firefox.browser_specific_settings.gecko.data_collection_permissions.required.includes("personallyIdentifyingInfo"));

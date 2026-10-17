@@ -20,6 +20,9 @@ function imageEnvironment(bytes = png, dimensions = { width: 800, height: 400 })
 test("头像仅可从当前平台及有限CDN读取，拒绝相似域、用户名、HTTP与跨平台地址", () => {
   assert.equal(shared.safeAvatarSource("https://image0.lietou-static.com/fixture.png", "https://lpt.liepin.com/resume/detail"), "https://image0.lietou-static.com/fixture.png");
   assert.equal(shared.safeAvatarSource("https://mypics.zhaopin.cn/fixture.jpg", "https://rd6.zhaopin.com/app"), "https://mypics.zhaopin.cn/fixture.jpg");
+  assert.equal(shared.safeAvatarSource("https://img.bosszhipin.com/beijin/upload/avatar/synthetic.jpg.webp", "https://www.zhipin.com/web/chat/index"), "https://img.bosszhipin.com/beijin/upload/avatar/synthetic.jpg.webp");
+  for (const source of ["https://img.bosszhipin.com.evil.test/photo.png", "https://sub.img.bosszhipin.com/photo.png", "http://img.bosszhipin.com/photo.png", "https://user:secret@img.bosszhipin.com/photo.png"]) assert.equal(shared.safeAvatarSource(source, "https://www.zhipin.com/web/chat/index"), "", source);
+  assert.equal(shared.safeAvatarSource("https://img.bosszhipin.com/photo.png", "https://h.liepin.com/resume/showresumedetail"), "");
   for (const source of ["https://lietou-static.com.evil.test/a.png", "http://image0.lietou-static.com/a.png", "https://user:secret@image0.lietou-static.com/a.png", "https://mypics.zhaopin.cn/a.png", "javascript:alert(1)", "blob:https://lpt.liepin.com/fixture"]) assert.equal(shared.safeAvatarSource(source, "https://lpt.liepin.com/resume/detail"), "", source);
   assert.equal(shared.safeAvatarSource("https://unverified.51jobcdn.com/a.png", "https://ehire.51job.com/feature/im"), "");
   assert.equal(shared.safeAvatarSource("", "https://h.liepin.com/resume/showresumedetail"), "");
@@ -72,6 +75,14 @@ test("多个合理附件图片不选第一张，未知尺寸均核实后仍有�
 
 test("附件候选去重排序并保持既有域限制，超量或不合理自然尺寸不触发后台下载", async () => {
   const page = "https://www.zhipin.com/web/chat/index", source = { source_url: "/photo.png", width: 120, height: 160 };
-  assert.deepEqual(shared.sanitizeAvatarCandidates([source, source, { source_url: "https://img.bosszhipin.com/photo.png", width: 120, height: 160 }, { source_url: "/tiny.png", width: 20, height: 20 }], page), [{ ...source, source_url: "https://www.zhipin.com/photo.png" }]);
+  assert.deepEqual(shared.sanitizeAvatarCandidates([source, source, { source_url: "https://img.bosszhipin.com.evil.test/photo.png", width: 120, height: 160 }, { source_url: "/tiny.png", width: 20, height: 20 }], page), [{ ...source, source_url: "https://www.zhipin.com/photo.png" }]);
   const value = imageEnvironment(); assert.equal(await avatar.fetchAttachmentAvatar(Array(7).fill(source), page, value.environment), ""); assert.equal(value.calls.length, 0);
+});
+
+test("BOSS Vue头像实际经过无Cookie下载和尺寸解码，默认图不下载且横幅不保存", async () => {
+  const page = "https://www.zhipin.com/web/chat/index", photo = "https://img.bosszhipin.com/beijin/upload/avatar/20261017/synthetic-photo.jpg.webp";
+  const value = imageEnvironment(png, { width: 200, height: 200 }), result = await avatar.fetchBossVueAvatar(photo, page, value.environment);
+  assert.equal(shared.validStoredAvatar(result), true); assert.equal(value.calls.length, 1); assert.equal(value.calls[0].options.credentials, "omit"); assert.equal(value.calls[0].options.redirect, "error"); assert.deepEqual(value.sizes, [{ width: 200, height: 200 }]); assert.equal(value.closed, true);
+  const rejected = imageEnvironment(png, { width: 200, height: 200 }); assert.equal(await avatar.fetchBossVueAvatar("https://img.bosszhipin.com/boss/avatar/avatar_13.png", page, rejected.environment), ""); assert.equal(rejected.calls.length, 0);
+  const banner = imageEnvironment(png, { width: 600, height: 160 }); assert.equal(await avatar.fetchBossVueAvatar(photo, page, banner.environment), ""); assert.equal(banner.sizes.length, 0); assert.equal(banner.closed, true);
 });

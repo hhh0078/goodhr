@@ -36,7 +36,7 @@ function localFixture(approveOrigin = "http://127.0.0.1:5173") {
       : { ok: true, matches: [] };
     return { ok: true, status: 200, json: async () => body };
   } });
-  for (const file of ["shared.js", "avatar.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(OUT, "chrome", "src", file), "utf8"), context);
+  for (const file of ["shared.js", "avatar.js", "boss-vue-avatar.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(OUT, "chrome", "src", file), "utf8"), context);
   const sender = { id: extension.runtime.id, url: extension.runtime.getURL("src/ui.html") };
   return { values, requests, opened, message: (message) => new Promise((resolve) => { if (listener(message, sender, resolve) === false) resolve(undefined); }) };
 }
