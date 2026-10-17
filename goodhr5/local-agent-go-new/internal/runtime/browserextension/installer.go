@@ -4,6 +4,7 @@ package browserextension
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,11 +29,12 @@ const (
 type browserKind string
 
 const (
-	browserChrome  browserKind = "chrome"
-	browserFirefox browserKind = "firefox"
+	browserChrome           browserKind = "chrome"
+	browserFirefox          browserKind = "firefox"
+	browserFirefoxTemporary browserKind = "firefox-temporary"
 )
 
-// ManagedFirefoxDestination 返回签名 XPI 的稳定来源目录，Worker 会把原包装入当前 Firefox Profile。
+// ManagedFirefoxDestination 返回托管 Firefox 插件的稳定代码目录，不包含 Profile 或登录数据。
 func ManagedFirefoxDestination(extensionsDir string) (string, error) {
 	extensionsDir = strings.TrimSpace(extensionsDir)
 	if extensionsDir == "" {
@@ -55,6 +57,7 @@ type Result struct {
 	Version        string
 	Directory      string
 	AlreadyCurrent bool
+	UsedCached     bool
 }
 
 // DefaultDestinationDir 返回当前用户专用的 Chrome 插件稳定目录。
@@ -87,7 +90,7 @@ func PrepareFirefox(ctx context.Context, options Options) (Result, error) {
 }
 
 // prepareForBrowser 复用统一下载与原子切换流程，并按浏览器执行发布字段和清单校验。
-func prepareForBrowser(ctx context.Context, options Options, browser browserKind) (Result, error) {
+func prepareForBrowser(ctx context.Context, options Options, browser browserKind) (result Result, resultErr error) {
 	destination := strings.TrimSpace(options.DestinationDir)
 	if destination == "" {
 		var err error
@@ -99,6 +102,32 @@ func prepareForBrowser(ctx context.Context, options Options, browser browserKind
 	destination, err := filepath.Abs(destination)
 	if err != nil {
 		return Result{}, fmt.Errorf("解析插件目录失败：%w", err)
+	}
+	unlock, err := lockDestination(ctx, destination)
+	if err != nil {
+		return Result{}, err
+	}
+	defer unlock()
+	requestCtx := ctx
+	if browser == browserFirefoxTemporary {
+		defer func() {
+			if requestCtx.Err() != nil {
+				result, resultErr = Result{}, requestCtx.Err()
+				return
+			}
+			if resultErr == nil {
+				return
+			}
+			cached, cacheErr := validatedTemporaryCache(destination)
+			if cacheErr == nil && requestCtx.Err() == nil {
+				cached.UsedCached = true
+				log.Printf("event=firefox_extension_update_deferred version=%q kept_verified=true reason=%q", cached.Version, fmt.Sprintf("%.180s", resultErr))
+				result, resultErr = cached, nil
+			}
+		}()
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
 	}
 	client := options.HTTPClient
 	if client == nil {
@@ -115,7 +144,12 @@ func prepareForBrowser(ctx context.Context, options Options, browser browserKind
 
 	var published release
 	var downloadURL string
-	if browser == browserFirefox {
+	if browser == browserFirefoxTemporary {
+		published, downloadURL, err = fetchTemporaryFirefoxRelease(ctx, client, options.CloudBaseURL)
+		if err == nil {
+			client, err = sameOriginDownloadClient(client, options.CloudBaseURL)
+		}
+	} else if browser == browserFirefox {
 		published, downloadURL, err = fetchFirefoxRelease(ctx, client, options.CloudBaseURL)
 	} else {
 		published, downloadURL, err = fetchRelease(ctx, client, options.CloudBaseURL)
@@ -123,19 +157,36 @@ func prepareForBrowser(ctx context.Context, options Options, browser browserKind
 	if err != nil {
 		return Result{}, err
 	}
+	if err = ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	if browser == browserFirefoxTemporary {
+		if cached, cacheErr := validatedTemporaryCache(destination); cacheErr == nil && olderTemporaryVersion(published.Version, cached.Version) {
+			cached.UsedCached = true
+			log.Printf("event=firefox_extension_update_deferred version=%q downgrade_rejected=true", cached.Version)
+			return cached, nil
+		}
+	}
 	releaseSHA256 := published.SHA256Chrome
-	if browser == browserFirefox {
+	if browser != browserChrome {
 		releaseSHA256 = published.SHA256Firefox
 	}
 	current, manifestErr := readManifest(filepath.Join(destination, "manifest.json"))
 	receipt, receiptErr := readReceipt(filepath.Join(destination, receiptFilename))
 	currentTreeSHA256, treeErr := directoryTreeSHA256(destination)
+	if err = ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	signedXPIReady := browser != browserFirefox
 	if browser == browserFirefox {
 		actualSHA256, hashErr := fileSHA256(filepath.Join(destination, signedFirefoxXPIFilename))
 		signedXPIReady = hashErr == nil && actualSHA256 == releaseSHA256
 	}
-	if manifestErr == nil && receiptErr == nil && treeErr == nil && signedXPIReady && current.Version == published.Version && validateManifest(browser, destination, current) == nil && receipt.Version == published.Version && receipt.SHA256 == releaseSHA256 && receipt.TreeSHA256 == currentTreeSHA256 {
+	channelReady := browser != browserFirefoxTemporary || receipt.Channel == temporaryChannel
+	if browser == browserFirefox {
+		channelReady = receipt.Channel == ""
+	}
+	if manifestErr == nil && receiptErr == nil && treeErr == nil && signedXPIReady && channelReady && current.Version == published.Version && validateManifest(browser, destination, current) == nil && receipt.Version == published.Version && receipt.SHA256 == releaseSHA256 && receipt.TreeSHA256 == currentTreeSHA256 {
 		return Result{Version: published.Version, Directory: destination, AlreadyCurrent: true}, nil
 	}
 
@@ -148,6 +199,9 @@ func prepareForBrowser(ctx context.Context, options Options, browser browserKind
 		return Result{}, err
 	}
 	defer os.Remove(archivePath)
+	if err = ctx.Err(); err != nil {
+		return Result{}, err
+	}
 
 	staging, err := os.MkdirTemp(parent, "."+string(browser)+"-stage-")
 	if err != nil {
@@ -155,6 +209,9 @@ func prepareForBrowser(ctx context.Context, options Options, browser browserKind
 	}
 	defer os.RemoveAll(staging)
 	if err = extractArchive(archivePath, staging, maxExtractedBytes); err != nil {
+		return Result{}, err
+	}
+	if err = ctx.Err(); err != nil {
 		return Result{}, err
 	}
 	manifest, err := readManifest(filepath.Join(staging, "manifest.json"))
@@ -166,6 +223,11 @@ func prepareForBrowser(ctx context.Context, options Options, browser browserKind
 	}
 	if manifest.Version != published.Version {
 		return Result{}, fmt.Errorf("插件版本校验失败：配置为 %s，压缩包为 %s", published.Version, manifest.Version)
+	}
+	if browser == browserFirefoxTemporary {
+		if _, statErr := os.Lstat(filepath.Join(staging, signedFirefoxXPIFilename)); !os.IsNotExist(statErr) {
+			return Result{}, fmt.Errorf("临时 Firefox 包不能包含签名安装器保留文件")
+		}
 	}
 	if browser == browserFirefox {
 		signedXPIPath := filepath.Join(staging, signedFirefoxXPIFilename)
@@ -180,11 +242,20 @@ func prepareForBrowser(ctx context.Context, options Options, browser browserKind
 	if err != nil {
 		return Result{}, fmt.Errorf("计算插件目录摘要失败：%w", err)
 	}
+	if err = ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	newReceipt := releaseReceipt{Version: published.Version, SHA256: releaseSHA256, TreeSHA256: treeSHA256}
+	if browser == browserFirefoxTemporary {
+		newReceipt.Channel = temporaryChannel
+	}
 	if err = writeReceipt(filepath.Join(staging, receiptFilename), newReceipt); err != nil {
 		return Result{}, err
 	}
 	if err = writeReceipt(filepath.Join(staging, loadRequiredFilename), newReceipt); err != nil {
+		return Result{}, err
+	}
+	if err = ctx.Err(); err != nil {
 		return Result{}, err
 	}
 	if err = replaceDirectory(destination, staging, os.Rename); err != nil {
@@ -195,6 +266,9 @@ func prepareForBrowser(ctx context.Context, options Options, browser browserKind
 
 // validateManifest 按目标浏览器核对固定产品身份、后台入口和 Firefox 扩展编号。
 func validateManifest(browser browserKind, root string, manifest extensionManifest) error {
+	if browser == browserFirefoxTemporary {
+		return validateFirefoxIdentity(root, manifest)
+	}
 	if browser == browserFirefox {
 		return validateFirefoxManifest(root, manifest)
 	}

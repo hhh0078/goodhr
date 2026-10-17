@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -20,8 +21,11 @@ import (
 
 // Client 是 Browser Worker 强类型客户端。
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL     string
+	http        *http.Client
+	startMu     chan struct{}
+	startOnce   sync.Once
+	beforeStart BeforeBrowserStart
 }
 
 // envelope 表示 Worker 统一响应边界。
@@ -75,11 +79,36 @@ func (c *Client) Health(ctx context.Context) error {
 
 // StartBrowser 启动或复用 Camoufox。
 func (c *Client) StartBrowser(ctx context.Context, request contract.BrowserStartRequest) (contract.BrowserStatus, error) {
+	unlock, err := c.lockStart(ctx)
+	if err != nil {
+		return contract.BrowserStatus{}, err
+	}
+	defer unlock()
+	if err := ctx.Err(); err != nil {
+		return contract.BrowserStatus{}, err
+	}
+	if c.beforeStart != nil {
+		status, err := c.BrowserStatus(ctx)
+		if err != nil {
+			return contract.BrowserStatus{}, fmt.Errorf("确认浏览器启动状态失败：%w", err)
+		}
+		if !status.Running {
+			request, err = c.beforeStart(ctx, request)
+			if err != nil {
+				return contract.BrowserStatus{}, err
+			}
+		}
+	}
 	return callValue[contract.BrowserStatus](ctx, c, "/api/v1/browser/start", request)
 }
 
 // StopBrowser 关闭 Camoufox。
 func (c *Client) StopBrowser(ctx context.Context) (contract.BrowserStatus, error) {
+	unlock, err := c.lockStart(ctx)
+	if err != nil {
+		return contract.BrowserStatus{}, err
+	}
+	defer unlock()
 	return callValue[contract.BrowserStatus](ctx, c, "/api/v1/browser/stop", struct{}{})
 }
 

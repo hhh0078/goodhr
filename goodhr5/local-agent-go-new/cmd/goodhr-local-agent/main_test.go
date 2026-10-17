@@ -61,24 +61,16 @@ func TestNormalStartupDoesNotPrepareChromeExtension(t *testing.T) {
 	}
 }
 
-// TestNormalStartupPreparesFirefoxBeforeBootstrap 验证正常启动会先同步 Firefox 插件，失败只记录并继续组装 Agent。
-func TestNormalStartupPreparesFirefoxBeforeBootstrap(t *testing.T) {
+// TestNormalStartupDefersFirefoxPreparation 验证启动 Agent 不再同步旧签名插件，准备步骤统一交给浏览器冷启动。
+func TestNormalStartupDefersFirefoxPreparation(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("main.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(content)
-	prepareIndex := strings.Index(source, "extensionResult, extensionErr := prepareManagedFirefoxExtension(extensionCtx, cfg)")
-	bootstrapIndex := strings.Index(source, "application, err := bootstrap.New(cfg")
-	if prepareIndex < 0 || bootstrapIndex < 0 || prepareIndex >= bootstrapIndex {
-		t.Fatal("正常启动没有在浏览器和业务服务组装前同步 Firefox 插件")
-	}
-	failureIndex := strings.Index(source[prepareIndex:bootstrapIndex], "if extensionErr != nil")
-	logIndex := strings.Index(source[prepareIndex:bootstrapIndex], "event=firefox_extension_prepare_failed kept_previous=true")
-	if failureIndex < 0 || logIndex < failureIndex {
-		t.Fatal("Firefox 插件同步失败没有记录保留旧版的日志")
-	}
-	if strings.Contains(source[prepareIndex:bootstrapIndex], "return extensionErr") {
-		t.Fatal("Firefox 插件同步失败不应阻断 Agent 启动")
+	for _, forbidden := range []string{"prepareManagedFirefoxExtension", "browserextension.PrepareFirefox(", "extensionCtx"} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("Agent 启动仍会覆盖浏览器插件：%s", forbidden)
+		}
 	}
 }

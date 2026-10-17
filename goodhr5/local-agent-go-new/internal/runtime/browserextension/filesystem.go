@@ -33,6 +33,7 @@ type releaseReceipt struct {
 	Version    string `json:"version"`
 	SHA256     string `json:"sha256"`
 	TreeSHA256 string `json:"tree_sha256"`
+	Channel    string `json:"channel,omitempty"`
 }
 
 // readReceipt 读取上一次已校验插件的版本和压缩包摘要收据。

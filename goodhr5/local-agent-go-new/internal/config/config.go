@@ -10,6 +10,8 @@ import (
 	goruntime "runtime"
 	"strconv"
 	"strings"
+
+	"goodhr5/local-agent-go-new/internal/runtime/browserextension"
 )
 
 const (
@@ -168,6 +170,7 @@ func (c Config) EnsureDirectories() error {
 // ExtensionPaths 返回扩展目录下可以交给 Camoufox（Firefox 插件）加载的一级子目录。
 // Chrome service_worker 和无效目录会被忽略，避免旧插件阻断整批 Firefox 扩展安装。
 func (c Config) ExtensionPaths() []string {
+	managed, _ := browserextension.ManagedFirefoxDestination(c.ExtensionsDir)
 	entries, err := os.ReadDir(c.ExtensionsDir)
 	if err != nil {
 		return nil
@@ -178,6 +181,9 @@ func (c Config) ExtensionPaths() []string {
 			continue
 		}
 		path := filepath.Join(c.ExtensionsDir, entry.Name())
+		if path == managed+".previous" {
+			continue
+		}
 		content, err := os.ReadFile(filepath.Join(path, "manifest.json"))
 		if err != nil {
 			continue
@@ -198,6 +204,11 @@ func (c Config) ExtensionPaths() []string {
 			continue
 		}
 		paths = append(paths, path)
+	}
+	for _, current := range paths {
+		if current == managed {
+			return browserextension.WithManagedFirefoxPath(paths, managed)
+		}
 	}
 	return paths
 }

@@ -17,7 +17,6 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/bootstrap"
 	"goodhr5/local-agent-go-new/internal/config"
-	"goodhr5/local-agent-go-new/internal/runtime/browserextension"
 	"goodhr5/local-agent-go-new/internal/system/console"
 	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 	"goodhr5/local-agent-go-new/internal/system/startup"
@@ -159,17 +158,6 @@ func run() (runErr error) {
 		logAgentLifecycle("agent_previous_run_unclean", "检测到上次异常退出", previous.Reason, true, map[string]any{"previous_pid": previous.PID, "previous_started_at": previous.StartedAt})
 	}
 	logAgentLifecycle("agent_start", "本地程序已启动", "", false, map[string]any{"pid": os.Getpid(), "version": version.Value})
-	if view != nil {
-		view.Update(config.DataProgress{Stage: "initializing", Message: "正在同步最新版简历插件"})
-	}
-	extensionCtx, cancelExtension := context.WithTimeout(ctx, 30*time.Second)
-	extensionResult, extensionErr := prepareManagedFirefoxExtension(extensionCtx, cfg)
-	cancelExtension()
-	if extensionErr != nil {
-		log.Printf("event=firefox_extension_prepare_failed kept_previous=true error=%q", extensionErr)
-	} else {
-		log.Printf("event=firefox_extension_prepare_success version=%q directory=%q already_current=%t", extensionResult.Version, extensionResult.Directory, extensionResult.AlreadyCurrent)
-	}
 	application, err := bootstrap.New(cfg, runLog, previous)
 	if err != nil {
 		return fmt.Errorf("初始化本地程序失败：%w", err)
@@ -182,18 +170,6 @@ func run() (runErr error) {
 	}
 	exitReason = application.ExitReason()
 	return nil
-}
-
-// prepareManagedFirefoxExtension 把已签名简历插件准备到 Agent 的扩展目录，供下一次 Camoufox 启动自动加载。
-func prepareManagedFirefoxExtension(ctx context.Context, cfg config.Config) (browserextension.Result, error) {
-	destination, err := browserextension.ManagedFirefoxDestination(cfg.ExtensionsDir)
-	if err != nil {
-		return browserextension.Result{}, err
-	}
-	return browserextension.PrepareFirefox(ctx, browserextension.Options{
-		CloudBaseURL:   cfg.CloudURL,
-		DestinationDir: destination,
-	})
 }
 
 // logAgentLifecycle 把程序启动、退出和崩溃原因写成同一 JSONL 格式。

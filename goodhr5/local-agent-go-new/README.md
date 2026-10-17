@@ -8,6 +8,8 @@
 
 本地程序会分别打包为 **Windows x64 版** 和 **macOS 版（Apple Silicon 与 Intel）**。修改公共流程、运行组件或系统能力时必须同时适配三个目标；平台规则见 [开发规范](AGENTS.md#双平台适配与验证)，Node、Camoufox 和 OCR 安装与平台差异见 [本地程序流程](docs/runtime-flow.md#支持的平台与运行组件安装)。Windows 测试通过不能代表 Mac 已验证。
 
+通过GoodHR启动新的火狐进程前，会校验并准备最新版临时简历插件；原窗口保持复用，不更新运行中的代码。更新保留Profile和插件登录存储，只替换托管旧代码，避免重启后退回不支持BOSS的旧签名版。流程、发布清单与系统差异见 [临时插件更新说明](docs/firefox-temporary-extension.md)。
+
 ## 技术组成
 
 - Go：本地 HTTP 服务、任务流程、平台适配、本地数据、AI/OCR、运行组件和系统能力。

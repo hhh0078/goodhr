@@ -251,10 +251,26 @@ func validateChromeManifest(root string, manifest extensionManifest) error {
 
 // validateFirefoxManifest 核对固定产品身份、Mozilla 扩展编号、后台脚本和签名信封文件。
 func validateFirefoxManifest(root string, manifest extensionManifest) error {
+	if err := validateFirefoxIdentity(root, manifest); err != nil {
+		return err
+	}
+	for _, signatureFile := range []string{
+		"META-INF/manifest.mf", "META-INF/mozilla.sf", "META-INF/mozilla.rsa",
+		"META-INF/cose.manifest", "META-INF/cose.sig",
+	} {
+		if err := validateRegularArchiveFile(root, signatureFile, "Mozilla 签名信封"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateFirefoxIdentity 校验两种 Firefox 发布共有的产品身份和后台文件，不替代签名通道的信封校验。
+func validateFirefoxIdentity(root string, manifest extensionManifest) error {
 	if manifest.Name != expectedExtensionName {
 		return fmt.Errorf("插件身份校验失败：manifest 名称不正确")
 	}
-	if manifest.ManifestVersion != 3 || len(manifest.Background.Scripts) == 0 {
+	if manifest.ManifestVersion != 3 || len(manifest.Background.Scripts) == 0 || manifest.Background.ServiceWorker != "" {
 		return fmt.Errorf("插件格式校验失败：不是可用的 Firefox Manifest V3 包")
 	}
 	if manifest.BrowserSpecificSettings.Gecko.ID != expectedFirefoxID {
@@ -265,17 +281,6 @@ func validateFirefoxManifest(root string, manifest extensionManifest) error {
 			return fmt.Errorf("插件格式校验失败：Firefox 后台入口不能为空")
 		}
 		if err := validateRegularArchiveFile(root, script, "Firefox 后台入口"); err != nil {
-			return err
-		}
-	}
-	for _, signatureFile := range []string{
-		"META-INF/manifest.mf",
-		"META-INF/mozilla.sf",
-		"META-INF/mozilla.rsa",
-		"META-INF/cose.manifest",
-		"META-INF/cose.sig",
-	} {
-		if err := validateRegularArchiveFile(root, signatureFile, "Mozilla 签名信封"); err != nil {
 			return err
 		}
 	}

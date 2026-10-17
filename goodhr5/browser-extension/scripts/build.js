@@ -4,6 +4,15 @@ const fs = require("node:fs"), path = require("node:path"), zlib = require("node
 const ROOT = path.resolve(__dirname, "..");
 const LOCAL = Object.freeze({ api: "http://127.0.0.1:8084", web: "http://127.0.0.1:5173", agentPort: 43139, name: "GoodHR 简历助手（本地测试）" });
 const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+const FIREFOX_TEMPORARY_RELEASE_FILE = "goodhr-resume-firefox-latest.json";
+
+/** firefoxTemporaryRelease 生成仅供 GoodHR 托管浏览器临时加载的同版本清单，不替代 Mozilla 签名发布。 */
+function firefoxTemporaryRelease(packages) {
+  const name = `goodhr-resume-firefox-unsigned-${version}.xpi`;
+  const item = packages.find((value) => value.browser === "firefox" && value.file === name);
+  if (!item || item.signed !== false || item.installation !== "temporary-only" || !/^[a-f0-9]{64}$/.test(item.sha256)) throw new Error("临时 Firefox 发布清单缺少已核对的 XPI");
+  return { version, url: "/zip/" + name, sha256: item.sha256, extension_id: "resume-assistant@goodhr.58it.cn", channel: "temporary" };
+}
 
 /** crc32 计算 ZIP/PNG 标准校验值，不依赖外部包。 */
 function crc32(buffer) { let crc = 0xffffffff; for (const byte of buffer) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0); } return (crc ^ 0xffffffff) >>> 0; }
@@ -130,9 +139,10 @@ function build(options = {}) {
     if (browser === "firefox") { const xpi = `goodhr-resume-firefox-${local ? "local-" : ""}unsigned-${version}.xpi`; fs.writeFileSync(path.join(OUT, xpi), archive); packages.push({ browser, file: xpi, bytes: archive.length, sha256: checksum, ...metadata }); }
   }
   fs.writeFileSync(path.join(OUT, "checksums.json"), JSON.stringify({ description: "文件作用：记录同版本开发包的体积、SHA256 和未签名状态。", version, packages }, null, 2) + "\n");
+  if (!local && !options.chromeOnly) fs.writeFileSync(path.join(OUT, FIREFOX_TEMPORARY_RELEASE_FILE), JSON.stringify(firefoxTemporaryRelease(packages), null, 2) + "\n");
   console.log(JSON.stringify({ version, packages }, null, 2));
   return { version, packages };
 }
 
 if (require.main === module) build(parseBuildOptions(process.argv.slice(2)));
-module.exports = { manifest, zipBuffer, crc32, iconPNG, build, parseBuildOptions, installDocument, preparePackageDirectory };
+module.exports = { manifest, zipBuffer, crc32, iconPNG, build, parseBuildOptions, installDocument, preparePackageDirectory, firefoxTemporaryRelease, FIREFOX_TEMPORARY_RELEASE_FILE };

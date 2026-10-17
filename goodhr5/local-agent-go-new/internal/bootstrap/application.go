@@ -64,6 +64,7 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 		return nil, err
 	}
 	browserClient := client.New(cfg.WorkerURL())
+	browserClient.SetBeforeStart(firefoxBeforeStart(cfg))
 	workerProcess := browserprocess.New(
 		cfg.NodePath,
 		cfg.WorkerEntryPath,
