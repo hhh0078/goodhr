@@ -19,3 +19,14 @@ Windows沿用Camoufox原生临时加载。macOS的临时通道会绕过旧的“
 - Worker全量测试：213项，212通过、0失败、1项Mac真机语言包测试跳过。Windows Camoufox 152.0.4-beta.30实际运行固定ID测试扩展，连续启动和同ID升级后，storage.local测试值及UUID均保留。测试使用独立Profile，不读取真实账号。
 - 插件构建相关10项测试通过；Chrome和Firefox 1.0.16包内容与已发布包相同。独立临时通道清单只用于GoodHR托管火狐。
 - Windows amd64、macOS arm64、macOS amd64均以CGO_ENABLED=0编译通过。Mac安装、原生扩展和真实登录保留尚未经过真机验收。
+
+## Windows真实安装验收
+
+本机从6.2.11.0通过现有本地更新接口下载、校验并安装6.2.11.1，安装路径为`D:\GoodHRLocalAgent`。安装后主程序摘要与发布包内主程序一致，使用原`data/profiles/default`，没有重新登录或重新配对。
+
+1. 安装完成、尚未打开火狐时，托管插件仍为1.0.9；通过本地`/api/v1/page/open`打开BOSS后自动下载并临时加载1.0.16，日志为`cached=false already_current=false`。旧代码备份目录已清理。
+2. 工具栏显示1.0.16且原插件账号仍登录，BOSS账号也保留。打开已取得的BOSS简历附件后，GoodHR卡片自动弹出并读取基本资料，没有点击添加入库。
+3. 通过本地接口关闭火狐，再用同一Profile打开；插件仍为1.0.16且账号保持登录，BOSS也保持登录。日志为`cached=false already_current=true`，插件manifest内容及修改时间均未变化，未重复下载。原扩展UUID保持一致。
+4. 浏览器保持运行时再次打开同一页面返回`reused=true`，没有再次执行插件准备步骤。
+
+Windows独立安装包：`/zip/GoodHR-Local-Agent-Setup-v6.2.11.1-windows-x64.exe`，31177141字节，SHA256为`3fe17c4b083328f3a93522d868ef6732792fa0ea8fed6138c08683bd30defe45`，主程序构建提交为`7e5efb61a3c3f51b1229b33ee252f41bb74cd568`。安装包与临时插件清单已单独发布，本轮没有修改正式本地程序更新配置，也没有重启云端容器。
