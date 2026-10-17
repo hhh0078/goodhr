@@ -44,6 +44,7 @@ type Server struct {
 	adminUsers            *AdminUserService
 	adminEmails           *AdminEmailService
 	publicStats           *PublicStatsService
+	articles              *ArticleService
 	teamStats             *TeamStatsService
 	dailyStats            SystemDailyStatsStore
 	help                  *HelpService
@@ -92,9 +93,11 @@ func NewServer() (*Server, error) {
 	positionStore := config.PositionStore(db)
 	var recruitmentStore RecruitmentStore = NewMemoryRecruitmentStore()
 	var recruitmentMailStore RecruitmentMailStore = NewMemoryRecruitmentMailStore()
+	var articleStore ArticleStore = NewMemoryArticleStore()
 	if db != nil {
 		recruitmentStore = NewPostgresRecruitmentStore(db)
 		recruitmentMailStore = NewPostgresRecruitmentMailStore(db)
+		articleStore = NewPostgresArticleStore(db)
 	}
 	aiConfigStore := newModelRestrictedAIConfigStore(config.AIConfigStore(db), systemConfigStore)
 	aiWalletStore := config.AIWalletStore(db)
@@ -159,6 +162,7 @@ func NewServer() (*Server, error) {
 		adminUsers:            NewAdminUserService(auth, adminUserStore, subscriptionStore, systemConfigStore, mailer, agentStore, aiWalletStore),
 		adminEmails:           adminEmails,
 		publicStats:           NewPublicStatsService(adminUserStore, positionStore, agentStore, dailyStatsStore),
+		articles:              NewArticleService(auth, articleStore),
 		teamStats:             NewTeamStatsService(auth, db, tenantStore),
 		dailyStats:            dailyStatsStore,
 		help:                  NewHelpService(auth, systemConfigStore, aiConfigStore),
@@ -260,6 +264,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/emails/", s.adminEmails.Detail)
 	mux.HandleFunc("/api/public/email-jobs/", s.adminEmails.PublicJob)
 	mux.HandleFunc("/api/public/mail/open", s.adminEmails.OpenPixel)
+	// 官网文章独立维护；公开端仅可读已发布且到期内容，links和catalog在UUID详情前精确匹配。
+	if s.articles != nil {
+		mux.HandleFunc("/api/admin/articles", s.articles.AdminCollection)
+		mux.HandleFunc("/api/admin/articles/links", s.articles.AdminLinks)
+		mux.HandleFunc("/api/admin/articles/", s.articles.AdminDetail)
+		mux.HandleFunc("/api/public/articles", s.articles.PublicCollection)
+		mux.HandleFunc("/api/public/articles/catalog", s.articles.PublicCatalog)
+		mux.HandleFunc("/api/public/articles/", s.articles.PublicDetail)
+	}
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 	mux.HandleFunc("/api/help/guide", s.help.Guide)
 	mux.HandleFunc("/api/help/chat", s.help.Chat)

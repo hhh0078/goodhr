@@ -146,6 +146,7 @@ const menuGroups: MenuGroup[] = [
     items: [
       ["/admin/users", "用户管理", PersonRoundedIcon],
       ["/admin/logs", "运行日志", ManageSearchRoundedIcon],
+      ["/admin/articles", "文章管理", ArticleRoundedIcon],
       ["/admin/mail", "邮件群发", EmailRoundedIcon],
       ["/admin/activation-codes", "激活码管理", AdminPanelSettingsRoundedIcon],
       ["/admin/payment-records", "支付记录", PaidRoundedIcon],

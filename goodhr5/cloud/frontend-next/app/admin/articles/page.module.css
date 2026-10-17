@@ -1,0 +1,13 @@
+/* 本文件补充文章管理的紧凑工具栏、长标题及手机布局，尺寸沿用后台共享主题。 */
+.toolbar.toolbar { flex-wrap: nowrap; }
+.filters.filters { flex: 1 1 320px; min-width: 0; flex-wrap: nowrap; }
+.search.search { flex: 0 1 260px; width: 260px; max-width: 100%; }
+.status.status { flex: 0 0 110px; width: 110px; }
+.table { overflow: hidden; }
+.title { max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.copyText { width: 100%; }
+@media (max-width: 599px) {
+  .toolbar.toolbar { flex-wrap: wrap; }
+  .filters.filters { flex-basis: 100%; flex-wrap: wrap; }
+  .search.search { width: auto; flex: 1 1 160px; }
+}

@@ -41,6 +41,8 @@ ${PLATFORM_AUTOMATION_KEYWORDS.join("、")}
 - 功能介绍：${SITE_URL}/features
 - 产品定价：${SITE_URL}/pricing
 - 视频教程：${SITE_URL}/videos
+- 文章与产品动态：${SITE_URL}/articles
+- 动态站点地图：${SITE_URL}/sitemap.xml
 - 下载：${SITE_URL}/download
 - 联系方式：${SITE_URL}/contact
 `;

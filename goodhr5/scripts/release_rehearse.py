@@ -1,4 +1,4 @@
-"""文件作用：在专属内部Docker网络恢复完整备份，以只读应用权限核验零迁移发布和完整回退组合；不切换生产、不覆盖全局登记、不删除Docker对象。"""
+"""文件作用：在内部网络恢复完整备份，默认核验零迁移；显式批准时验证唯一文章新增表及完整回退组合，不切换生产或删除对象。"""
 
 import argparse
 from contextlib import contextmanager
@@ -23,6 +23,9 @@ import urllib.parse
 from release_activate import COMMIT, HEX, IMAGE, TAG, DockerEngine, save_json
 from release_cutover import CutoverError, require
 from release_retention import deployment_locks, digest_file, verified_records
+from release_rehearse_additive import (MIGRATION, SCHEMA_SQL, SNAPSHOT_NEW_TABLE, additive_options,
+                                      assert_added_ledger, assert_added_schema, assert_added_tables,
+                                      assert_packaged_migrations)
 
 
 ROOT = Path("/opt/goodhr-release")
@@ -87,7 +90,7 @@ def dsn_database(environment):
     return result
 
 
-def evidence_documents(host, commit, release_id, candidate, rollback, fingerprint, reports):
+def evidence_documents(host, commit, release_id, candidate, rollback, fingerprint, reports, additive=None, before_fingerprint=None):
     """evidence_documents 只有两个完整组合均实际通过后才生成绑定主机、提交、镜像及账本的证据。"""
     require(COMMIT.fullmatch(commit) and TAG.fullmatch(release_id) and HEX.fullmatch(fingerprint), "发布证据身份不完整")
     require(set(candidate) == set(rollback) == set(ROLES) and all(IMAGE.fullmatch(value) for pair in (candidate, rollback) for value in pair.values()), "前后端镜像组合不完整")
@@ -97,12 +100,23 @@ def evidence_documents(host, commit, release_id, candidate, rollback, fingerprin
         report = reports[name]
         require(all(report.get(key) is True for key in ("success", "legacy_data_preserved", "contract_verified")), "组合检查尚未全部成功")
         require(report.get("host") == host and report.get("migration_fingerprint") == fingerprint and all(report.get(role + "_image") == images[role] for role in ROLES), "组合报告与镜像或账本不匹配")
-    return {"stage": "isolated_validation", "host": host, "source_commit": commit, "release_id": release_id,
+    if additive:
+        require(additive_options(additive.get("filename"), additive.get("sha256")) == additive
+                and HEX.fullmatch(before_fingerprint or "") and before_fingerprint != fingerprint,
+                "新增表迁移证据缺少明确批准或前后账本变化")
+        for report in reports.values():
+            require(report.get("additive_migration") == additive and report.get("schema_verified") is True,
+                    "新增表候选或回退报告缺少结构核验与固定迁移身份")
+    result = {"stage": "isolated_validation", "host": host, "source_commit": commit, "release_id": release_id,
             "success": True, "legacy_data_preserved": True, "rollback_verified": True,
             "backend_image": candidate["backend"], "frontend_image": candidate["frontend"],
-            "before_migration_fingerprint": fingerprint, "after_migration_fingerprint": fingerprint,
-            "expected_new_migrations": 0, "contract_scope": "read_only_startup_and_anonymous_routes",
+            "before_migration_fingerprint": before_fingerprint if additive else fingerprint,
+            "after_migration_fingerprint": fingerprint,
+            "expected_new_migrations": 1 if additive else 0, "contract_scope": "read_only_startup_and_anonymous_routes",
             "business_write_validation": "requires_separate_change_specific_tests"}
+    if additive:
+        result["additive_migration"] = additive
+    return result
 
 
 def cleanup_manifest(host, release_id, prefix, network, containers, directory):
@@ -156,6 +170,8 @@ class Rehearsal:
         self.password = secrets.token_hex(24)
         self.app_password = secrets.token_hex(24)
         self.reports = {}
+        self.additive = additive_options(getattr(arguments, "additive_migration", None),
+                                         getattr(arguments, "additive_migration_sha256", None))
         self.journal = {"schema_version": 1, "host": self.host, "release_id": arguments.release_id,
                         "source_commit": arguments.source_commit, "success": False, "created": {}}
 
@@ -245,6 +261,61 @@ class Rehearsal:
         """ledger 单独读取原始迁移文件名，零迁移发布必须与恢复基线完全一致。"""
         return self.psql("SELECT filename FROM public.schema_migrations ORDER BY filename;").decode().splitlines()
 
+    def ledger_records(self):
+        """ledger_records 保留完整旧账本行和时间戳，避免只看文件名掩盖旧行改变。"""
+        return [json.loads(line) for line in self.psql(
+            "SELECT row_to_json(t)::text FROM public.schema_migrations t ORDER BY filename;").decode().splitlines()]
+
+    def database_schema(self):
+        """database_schema 盘点非系统对象定义，隔离授权ACL与数据内容分别核验。"""
+        return json.loads(self.psql(SCHEMA_SQL))
+
+    def additive_startup_permissions(self, label):
+        """additive_startup_permissions 仅在真实后端启动迁移窗口授CREATE，候选再获账本filename列INSERT。"""
+        require(label in {"candidate", "rollback"}, "新增表演练角色不明确")
+        self.psql("GRANT CREATE ON SCHEMA public TO rehearsal_app;")
+        if label == "candidate":
+            self.psql("GRANT INSERT(filename) ON public.schema_migrations TO rehearsal_app;")
+
+    def additive_readonly_permissions(self, label):
+        """additive_readonly_permissions 在health确认迁移结束后立刻收回创建和账本写入，再做业务探测。"""
+        if label == "candidate":
+            assert_added_ledger(self.before_ledger, self.ledger_records())
+            assert_added_schema(self.before_schema, self.database_schema())
+            self.psql("REVOKE INSERT(filename) ON public.schema_migrations FROM rehearsal_app; "
+                      "ALTER TABLE public.public_articles OWNER TO postgres; "
+                      "GRANT SELECT ON public.public_articles TO rehearsal_app;")
+        self.psql("REVOKE CREATE ON SCHEMA public FROM rehearsal_app;")
+        writable = self.psql("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+                             "WHERE c.relkind IN ('r','p') AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema' "
+                             "AND has_table_privilege('rehearsal_app',c.oid,'INSERT,UPDATE,DELETE,TRUNCATE');").decode().strip()
+        privileges = self.psql("SELECT has_schema_privilege('rehearsal_app','public','CREATE') OR "
+                               "has_column_privilege('rehearsal_app','public.schema_migrations','filename','INSERT');").decode().strip()
+        require(writable == "0" and privileges == "f", "迁移启动窗口结束后仍有创建或写入权限")
+
+    def verify_additive_pair(self, label, after):
+        """verify_additive_pair 精确保护原业务行及账本，回退必须在同一已迁移数据库保持完整50表。"""
+        ledger = self.ledger_records()
+        schema = self.database_schema()
+        if label == "candidate":
+            assert_added_tables(self.baseline, after, self.before_ledger, ledger)
+            assert_added_schema(self.before_schema, schema)
+            self.migrated_baseline, self.migrated_ledger, self.migrated_schema = after, ledger, schema
+            self.filenames = self.ledger()
+            require(sorted(self.filenames) == sorted(self.before_filenames + [MIGRATION]), "迁移后文件名集合不符")
+            self.fingerprint = migration_fingerprint(self.filenames)
+            save_json(self.directory / "additive-migration.json", {
+                "approved": self.additive, "before_ledger": self.before_ledger, "after_ledger": ledger,
+                "before_schema": self.before_schema, "after_schema": schema,
+                "legacy_business_table_count": len(self.baseline) - 1, "new_table_empty": True,
+                "startup_create_permission_window": True, "post_startup_write_and_create_permissions": False,
+            }, exclusive=True)
+        else:
+            assert_preserved(self.migrated_baseline, after)
+            require(ledger == self.migrated_ledger and schema == self.migrated_schema,
+                    "旧前后端回退改变了已迁移的完整账本或数据库结构")
+        return True
+
     def restore(self):
         """restore 从明确生产库只读导出完整dump并在无外网网络的新PostgreSQL中恢复。"""
         self.directory.mkdir(mode=0o700)
@@ -286,6 +357,16 @@ class Rehearsal:
         self.psql("CREATE ROLE rehearsal_app LOGIN PASSWORD '" + self.app_password + "'; GRANT CONNECT ON DATABASE " + quote_identifier(self.args.database) + " TO rehearsal_app; GRANT USAGE, CREATE ON SCHEMA public TO rehearsal_app; GRANT SELECT ON ALL TABLES IN SCHEMA public TO rehearsal_app;")
         writable = self.psql("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p') AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema' AND has_table_privilege('rehearsal_app',c.oid,'INSERT,UPDATE,DELETE,TRUNCATE');").decode().strip()
         require(writable == "0", "隔离应用角色意外具有业务表写入权限")
+        if self.additive:
+            self.before_filenames = list(self.filenames)
+            require(MIGRATION not in self.before_filenames and SNAPSHOT_NEW_TABLE not in self.baseline,
+                    "指定0097或文章表已存在，不能冒充本次新增迁移")
+            self.before_fingerprint = self.fingerprint
+            self.before_ledger = self.ledger_records()
+            self.before_schema = self.database_schema()
+            save_json(self.directory / "additive-baseline.json", {"ledger": self.before_ledger,
+                      "schema": self.before_schema, "approved": self.additive}, exclusive=True)
+            self.psql("REVOKE CREATE ON SCHEMA public FROM rehearsal_app;")
         redis_path = self.directory / "redis-data"
         redis_path.mkdir(mode=0o700)
         redis = self.own(self.prefix + "-redis", {"Image": self.redis_image["Id"], "Cmd": ["redis-server", "--save", "", "--appendonly", "no"], "HostConfig": {"NetworkMode": self.prefix, "Memory": 64 * 1024**2, "Binds": [str(redis_path) + ":/data"]}})
@@ -310,27 +391,50 @@ class Rehearsal:
         archive = command(["docker", "cp", backend + ":/app/db/migrations", "-"], timeout=30)
         with tarfile.open(fileobj=io.BytesIO(archive)) as files:
             packaged = sorted(Path(member.name).name for member in files.getmembers() if member.isfile() and member.name.endswith(".sql") and not member.name.endswith(".down.sql"))
-        require(packaged == sorted(self.filenames), "镜像迁移集合与恢复账本不一致，本工具只接受零迁移发布")
+            if self.additive:
+                matching = [member for member in files.getmembers() if member.isfile() and Path(member.name).name == MIGRATION]
+                migration_bytes = files.extractfile(matching[0]).read() if len(matching) == 1 else None
+                assert_packaged_migrations(label, packaged, self.before_filenames, self.additive, migration_bytes)
+        if not self.additive:
+            require(packaged == sorted(self.filenames), "镜像迁移集合与恢复账本不一致，本工具只接受零迁移发布")
         frontend = self.own(self.prefix + "-frontend", {"Image": images["frontend"], "Env": ["PORT=3000", "HOSTNAME=0.0.0.0", "CLOUD_API_BASE=http://" + self.prefix + "-backend:8084", "NEXT_PUBLIC_ONBOARDING_PREVIEW_MODE="], "HostConfig": {"NetworkMode": self.prefix, "Memory": 384 * 1024**2}})
         checks = []
         try:
+            if self.additive:
+                self.additive_startup_permissions(label)
             self.engine.start(backend)
             self.engine.start(frontend)
             base = "http://" + self.prefix + "-backend:8084"
             checks.append({"path": "/health", "status": self.probe(frontend, base + "/health", 200, wait=True)})
+            if self.additive:
+                self.additive_readonly_permissions(label)
             for path in ("/api/auth/me", "/api/candidates", "/api/positions", "/api/resume-library/settings"):
                 checks.append({"path": path, "status": self.probe(frontend, base + path, 401)})
             for path in ("/", "/login", "/download", "/admin/resumes"):
                 checks.append({"frontend_path": path, "status": self.probe(frontend, "http://" + self.prefix + "-frontend:3000" + path, 200, wait=True)})
+            if self.additive and label == "candidate":
+                for path, expected in (("/api/admin/articles", 401), ("/api/public/articles", 200),
+                                       ("/api/public/articles/catalog", 200),
+                                       ("/api/public/articles/00000000-0000-0000-0000-000000000000", 404)):
+                    checks.append({"path": path, "status": self.probe(frontend, base + path, expected)})
+                for path in ("/articles", "/sitemap.xml"):
+                    checks.append({"frontend_path": path, "status": self.probe(frontend, "http://" + self.prefix + "-frontend:3000" + path, 200, wait=True)})
         finally:
             self.stop(backend)
             self.stop(frontend)
         after = self.database_snapshot()
-        assert_preserved(self.baseline, after)
-        require(self.ledger() == self.filenames, "迁移账本发生变化")
+        if self.additive:
+            self.verify_additive_pair(label, after)
+        else:
+            assert_preserved(self.baseline, after)
+            require(self.ledger() == self.filenames, "迁移账本发生变化")
         report = {"host": self.host, "success": True, "legacy_data_preserved": True, "contract_verified": True,
                   "migration_fingerprint": self.fingerprint, "backend_image": images["backend"], "frontend_image": images["frontend"],
                   "contract_scope": "read_only_startup_and_anonymous_routes", "checks": checks, "tables": after}
+        if self.additive:
+            report.update({"additive_migration": self.additive, "schema_verified": True,
+                           "packaged_migrations": packaged, "startup_create_permission_window": True,
+                           "post_startup_write_and_create_permissions": False})
         save_json(self.directory / (label + "-pair-summary.json"), report, exclusive=True)
         self.reports[label] = report
         # 两轮使用相同明确DNS名；旧容器保留，改成本轮已绑定的独立归档名称，不删除对象。
@@ -345,7 +449,9 @@ class Rehearsal:
         for role in ROLES:
             actual = self.engine.inspect("goodhr-production-" + role + "-1")
             require(actual["Id"] == self.originals[role]["Id"] and actual["Image"] == self.rollback[role] and actual["State"]["Running"], "演练期间生产应用身份发生变化")
-        evidence = evidence_documents(self.host, self.args.source_commit, self.args.release_id, self.candidate, self.rollback, self.fingerprint, self.reports)
+        evidence = evidence_documents(self.host, self.args.source_commit, self.args.release_id, self.candidate,
+                                      self.rollback, self.fingerprint, self.reports, self.additive,
+                                      getattr(self, "before_fingerprint", None))
         records = []
         for label, images in (("candidate", self.candidate), ("rollback", self.rollback)):
             path = self.directory / (label + "-pair-summary.json")
@@ -397,6 +503,8 @@ def main():
     parser.add_argument("operation", choices=("run",))
     for flag in ("host", "release-dir", "release-id", "source-root", "source-commit", "database", "postgres-container", "postgres-container-id", "postgres-user", "redis-image", "backend-container-id", "frontend-container-id", "backend-image", "frontend-image"):
         parser.add_argument("--" + flag, required=True)
+    parser.add_argument("--additive-migration")
+    parser.add_argument("--additive-migration-sha256")
     arguments = parser.parse_args()
     require(all(HEX.fullmatch(getattr(arguments, role + "_container_id")) and IMAGE.fullmatch(getattr(arguments, role + "_image")) for role in ROLES), "应用容器ID或候选镜像ID不完整")
     require(HEX.fullmatch(arguments.postgres_container_id) and IMAGE.fullmatch(arguments.redis_image), "PostgreSQL或Redis身份不完整")
