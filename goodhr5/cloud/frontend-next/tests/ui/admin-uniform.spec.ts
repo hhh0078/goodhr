@@ -267,7 +267,7 @@ test.describe("公开页面与后台尺寸隔离", () => {
     await page.setViewportSize({ width: 1366, height: 960 });
     await page.goto("/login?next=/admin/positions");
     const email = page.locator(".public-login-form .ant-input-affix-wrapper").first();
-    const mode = page.locator(".public-login-tabs").getByRole("button", { name: "验证码登录", exact: true });
+    const mode = page.locator(".public-login-tabs").getByRole("button", { name: "验证码注册/登录", exact: true });
     expect((await visibleBox(email)).height).toBe(38);
     expect((await visibleBox(mode)).height).toBe(38);
     await expect(mode).toHaveCSS("font-size", "14px");
@@ -282,7 +282,7 @@ test.describe("公开页面与后台尺寸隔离", () => {
     await captureUniform(page, "route-login-to-admin-1366", []);
     await page.getByRole("button", { name: "退出登录", exact: true }).click();
     await expect(page).toHaveURL(/\/login$/);
-    await expect(page.locator(".public-login-tabs").getByRole("button", { name: "验证码登录", exact: true })).toHaveCSS("font-size", "14px");
+    await expect(page.locator(".public-login-tabs").getByRole("button", { name: "验证码注册/登录", exact: true })).toHaveCSS("font-size", "14px");
     expect((await visibleBox(page.locator(".public-login-form .ant-input-affix-wrapper").first())).height).toBe(38);
     await captureUniform(page, "route-admin-to-login-1366", []);
     expectUniformNetwork(state);

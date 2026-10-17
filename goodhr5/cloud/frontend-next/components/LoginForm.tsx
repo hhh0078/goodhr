@@ -378,7 +378,7 @@ export default function LoginForm() {
             onClick={() => setLoginMode("code")}
             disabled={loading}
           >
-            验证码登录
+            验证码注册/登录
           </Button>
           <Button
             block
