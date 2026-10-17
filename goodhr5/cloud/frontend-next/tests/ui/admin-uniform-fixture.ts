@@ -7,10 +7,14 @@ export const uniformOrigin = new URL(process.env.UI_TEST_BASE_URL || "http://127
 // 默认保留独立 Agent 测试端口；教程联调显式指定 43130，云端与 Agent 同端口时仍按既有路径合同模拟。
 const uniformAgentPort = process.env.UI_UNIFORM_AGENT_PORT || "43129";
 if (!/^\d+$/.test(uniformAgentPort) || Number(uniformAgentPort) < 1 || Number(uniformAgentPort) > 65535) throw new Error("UI_UNIFORM_AGENT_PORT 必须是有效的本机测试端口");
-const uniformAPIOrigins = new Set([uniformOrigin, "http://127.0.0.1:8084", `http://127.0.0.1:${Number(uniformAgentPort)}`]);
+const uniformCloudURL = new URL(process.env.NEXT_PUBLIC_CLOUD_API_BASE || "http://127.0.0.1:8084");
+if (!["127.0.0.1", "localhost", "[::1]"].includes(uniformCloudURL.hostname)) throw new Error("后台合成测试仅允许本机云端API地址");
+const uniformAPIOrigins = new Set([uniformOrigin, uniformCloudURL.origin, `http://127.0.0.1:${Number(uniformAgentPort)}`]);
 export const uniformLongPosition = "合成长岗位名称 · 企业招聘与猎头沟通协作工具产品负责人（搜索选择时仍须完整可读）";
 const auditFile = resolve(process.env.UI_UNIFORM_AUDIT_FILE || "../../../output/admin-uniform-20261015/api-fixture-audit.jsonl");
 const createdAt = "2026-10-15T08:00:00Z";
+// 仅以合成纯色PNG、损坏图和远程地址覆盖头像展示与安全回退，不包含个人照片。
+const uniformAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 export type UniformCall = { path: string; method: string; query: string; origin: string };
 export type UniformState = { empty: boolean; calls: UniformCall[]; errors: string[]; unknown: string[]; writes: string[]; readMessages: string[] };
 
@@ -37,6 +41,7 @@ export async function mockUniformAdmin(page: Page, empty = false, withMessages =
   ];
   const candidates = rows.map((index) => ({
     id: `uniform-candidate-${index}`, candidate_name: `合成候选人${index}`, phone: "00000000000",
+    avatar_data_url: index === 1 ? uniformAvatar : index === 2 ? "data:image/png;base64,YmFk" : index === 3 ? "https://avatar.example.invalid/never-fetch.png" : undefined,
     source_type: "manual", user_email: "uniform@example.invalid", education_level: "本科",
     current_region: "合成测试地区", expected_region: "合成测试地区", work_years: "5年",
     expected_position: "合成招聘产品岗位", work_status: "在职考虑机会", tags: ["合成技能"],
@@ -51,12 +56,13 @@ export async function mockUniformAdmin(page: Page, empty = false, withMessages =
   }));
   const recommendations = rows.map((index) => ({
     id: `uniform-recommendation-${index}`, candidate_id: candidates[index - 1].id,
-    candidate_name: candidates[index - 1].candidate_name, phone: "00000000000", position_id: positions[0].id,
+    candidate_name: candidates[index - 1].candidate_name, avatar_data_url: candidates[index - 1].avatar_data_url, phone: "00000000000", position_id: positions[0].id,
     position_name: uniformLongPosition, position_is_open: true, stage: "recommended", can_edit: true, can_delete: true,
     updated_at: createdAt, created_at: createdAt, events: [{ id: `uniform-event-${index}`, content: "合成沟通记录", to_stage: "recommended", occurred_at: createdAt }],
   }));
   const applications = rows.map((index) => ({
     id: `uniform-application-${index}`, candidate_id: candidates[index - 1].id, candidate_name: candidates[index - 1].candidate_name,
+    avatar_data_url: candidates[index - 1].avatar_data_url,
     position_id: positions[0].id, position_name: uniformLongPosition, owner_email: "uniform@example.invalid",
     status: "active", stage: "review", workflow_name: "合成流程", current_node: 0, revision: 1,
     nodes: [{ id: "uniform-node", name: "合成审核", type: "review", owner_email: "uniform@example.invalid", interviewer_emails: [], approver_emails: [], cc_emails: [], approval_mode: "all", requires_feedback: false }],

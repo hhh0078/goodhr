@@ -419,7 +419,27 @@ func (s *RecruitmentService) Applications(w http.ResponseWriter, r *http.Request
 				continue
 			}
 			item.Permissions = recruitmentPermissions(scope, item)
+			// 头像是当前简历的列表投影，不信任或沿用招聘流程启动时保存的快照。
+			item.AvatarDataURL = ""
 			result = append(result, item)
+		}
+		if avatars, supported := s.candidates.(CandidateAvatarSummaryStore); supported && len(result) > 0 {
+			ids := make([]string, 0, len(result))
+			seen := map[string]bool{}
+			for _, item := range result {
+				if !seen[item.CandidateID] {
+					ids = append(ids, item.CandidateID)
+					seen[item.CandidateID] = true
+				}
+			}
+			current, readErr := avatars.CandidateAvatarSummaries(scope.TenantID, ids)
+			if readErr != nil {
+				writeRecruitmentError(w, readErr)
+				return
+			}
+			for index := range result {
+				result[index].AvatarDataURL = current[result[index].CandidateID]
+			}
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "applications": result})
 		return
@@ -557,7 +577,7 @@ func (s *RecruitmentService) ApplicationDetail(w http.ResponseWriter, r *http.Re
 		}
 		item, readErr := s.candidates.GetPositionCandidate(scope.TenantID, app.CandidateID, "", scope.UserEmail, true)
 		if readErr == nil {
-			candidate = map[string]any{"id": item.ID, "candidate_name": item.CandidateName, "phone": item.Phone, "email": item.Email, "basic_info": item.BasicInfo, "work_years": item.WorkYears, "education_level": item.EducationLevel, "work_region": item.WorkRegion, "personal_description": item.PersonalDescription, "work_experiences": safeSlice(item.WorkExperiences), "educations": safeSlice(item.Educations), "project_experiences": safeSlice(item.ProjectExperiences)}
+			candidate = map[string]any{"id": item.ID, "candidate_name": item.CandidateName, "avatar_data_url": candidateString(item.LibraryFields, "avatar_data_url"), "phone": item.Phone, "email": item.Email, "basic_info": item.BasicInfo, "work_years": item.WorkYears, "education_level": item.EducationLevel, "work_region": item.WorkRegion, "personal_description": item.PersonalDescription, "work_experiences": safeSlice(item.WorkExperiences), "educations": safeSlice(item.Educations), "project_experiences": safeSlice(item.ProjectExperiences)}
 		}
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "application": app, "candidate": candidate})

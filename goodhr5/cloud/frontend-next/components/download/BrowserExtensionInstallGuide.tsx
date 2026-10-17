@@ -10,6 +10,7 @@ type BrowserExtensionInstallGuideProps = {
   href: string;
   label: string;
   browser?: "Chrome" | "Firefox";
+  firefoxInstallMode?: "signed" | "temporary";
   className?: string;
   type?: "default" | "primary";
   icon?: ReactNode;
@@ -21,6 +22,7 @@ export default function BrowserExtensionInstallGuide({
   href,
   label,
   browser = "Chrome",
+  firefoxInstallMode = "signed",
   className,
   type = "default",
   icon = <DownloadOutlined aria-hidden="true" />,
@@ -28,6 +30,7 @@ export default function BrowserExtensionInstallGuide({
 }: BrowserExtensionInstallGuideProps) {
   const [open, setOpen] = useState(false);
   const isDownloadPage = href.startsWith("/");
+  const download = browser === "Firefox" && firefoxInstallMode === "temporary" ? true : undefined;
 
   /** showGuide 拦下正常点击并先展示教程；没有 JavaScript 时链接仍可直接打开。 */
   function showGuide(event: MouseEvent<HTMLElement>) {
@@ -39,6 +42,7 @@ export default function BrowserExtensionInstallGuide({
     <>
       <Button
         href={href}
+        download={download}
         type={type}
         icon={icon}
         className={className}
@@ -57,6 +61,7 @@ export default function BrowserExtensionInstallGuide({
             <Button
               type="primary"
               href={href}
+              download={download}
               target={isDownloadPage ? "_self" : undefined}
               rel={isDownloadPage ? undefined : "noopener noreferrer"}
               icon={<DownloadOutlined aria-hidden="true" />}
@@ -80,6 +85,15 @@ export default function BrowserExtensionInstallGuide({
                 <li>点击浏览器右上角的下载图标，在下载记录里找到插件安装包。</li>
                 <li>把安装包直接拖到扩展管理页，按 Chrome 提示完成安装。</li>
               </ol>
+            ) : firefoxInstallMode === "temporary" ? (
+              <>
+                <p>GoodHR 自带火狐会自动更新并加载，无需手动安装。</p>
+                <ol>
+                  <li>普通 Firefox 先下载此临时插件包，保留 .xpi 文件，无需解压。</li>
+                  <li>在地址栏打开 <Typography.Text code>about:debugging#/runtime/this-firefox</Typography.Text>。</li>
+                  <li>点击“临时载入附加组件”，选择刚下载的 .xpi 文件；已有 GoodHR 时会替换为新版。</li>
+                </ol>
+              </>
             ) : (
               <ol>
                 <li>下载经过 Mozilla 签名的 Firefox 插件安装包。</li>
@@ -102,7 +116,9 @@ export default function BrowserExtensionInstallGuide({
             showIcon
             title={browser === "Chrome"
               ? "安装包直接拖进去就行，无需解压。若 Chrome 没反应，确认“开发者模式”已经打开，再试一次。"
-              : "插件只读取当前打开的候选人资料，不会替你点击招聘页面。"}
+              : firefoxInstallMode === "temporary"
+                ? "这是未签名临时包，不能当作正式附加组件安装。普通 Firefox 关闭后需重新加载；GoodHR 自带火狐会自动加载。"
+                : "插件只读取当前打开的候选人资料，不会替你点击招聘页面。"}
           />
         </Flex>
       </Modal>

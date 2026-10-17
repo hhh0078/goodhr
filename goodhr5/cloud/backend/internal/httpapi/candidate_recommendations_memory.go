@@ -32,7 +32,7 @@ func (s *MemoryCandidateStore) ListCandidateRecommendationRecords(scope Candidat
 		recommendation.PositionName = name
 		recommendation.Events = append([]CandidateRecommendationEvent{}, recommendation.Events...)
 		open := positionExists && position.IsOpen
-		items = append(items, CandidateRecommendationRecord{CandidateRecommendation: recommendation, CandidateName: candidate.CandidateName, Phone: candidate.Phone, CurrentPosition: candidateString(candidate.LibraryFields, "current_position"), PositionIsOpen: open, CanEdit: open, CanDelete: scope.IsAdmin || recommendation.AuthorEmail == scope.UserEmail})
+		items = append(items, CandidateRecommendationRecord{CandidateRecommendation: recommendation, CandidateName: candidate.CandidateName, AvatarDataURL: candidateString(candidate.LibraryFields, "avatar_data_url"), Phone: candidate.Phone, CurrentPosition: candidateString(candidate.LibraryFields, "current_position"), PositionIsOpen: open, CanEdit: open, CanDelete: scope.IsAdmin || recommendation.AuthorEmail == scope.UserEmail})
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {

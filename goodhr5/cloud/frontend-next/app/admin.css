@@ -101,6 +101,11 @@ a.goodhr-admin-banner-text:hover {
 .goodhr-detail-dialog .ant-modal-header { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); }
 .goodhr-detail-dialog .ant-modal-close { top: 10px; inset-inline-end: 10px; z-index: 3; background: #fff; }
 .goodhr-admin-modal.goodhr-detail-dialog .ant-modal-body { min-height: 0; max-height: calc(100dvh - 32px) !important; }
+/* 详情弹层只隐藏原生滚动条，保留外层和手机内容区的滚动能力。 */
+.goodhr-detail-dialog-wrap,
+.goodhr-detail-dialog .ant-modal-body { scrollbar-width: none; -ms-overflow-style: none; }
+.goodhr-detail-dialog-wrap::-webkit-scrollbar,
+.goodhr-detail-dialog .ant-modal-body::-webkit-scrollbar { display: none; }
 @media (max-width: 760px) {
   .goodhr-admin-modal.goodhr-detail-dialog.ant-modal { width: calc(100vw - 16px); max-width: calc(100vw - 16px); margin: 0 auto; }
   .goodhr-admin-modal.goodhr-detail-dialog .ant-modal-body { overflow-y: auto !important; }

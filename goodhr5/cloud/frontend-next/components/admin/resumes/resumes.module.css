@@ -20,6 +20,9 @@
 .noteInput.noteInput { flex: 1; min-width: 0; }
 .noteEditor :global(.ant-btn) { flex: none; }
 .recordHistory { min-width: 0; max-height: min(320px, 40vh); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+/* 弹层备注仍限制高度并可滚动，只移除滚动条和预留槽。 */
+:global(.goodhr-detail-dialog) .recordHistory { scrollbar-width: none; -ms-overflow-style: none; scrollbar-gutter: auto; }
+:global(.goodhr-detail-dialog) .recordHistory::-webkit-scrollbar { display: none; }
 .record { padding: 8px 0; border-bottom: 1px solid var(--goodhr-border); min-width: 0; }
 .meta { font-size: 12px; line-height: 1.45; color: var(--goodhr-text-secondary); overflow-wrap: anywhere; }
 .experience { margin-bottom: 8px; min-width: 0; }

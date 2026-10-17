@@ -13,7 +13,7 @@ import BrowserExtensionInstallGuide from "@/components/download/BrowserExtension
 import LocalAgentInstallGuide from "@/components/download/LocalAgentInstallGuide";
 import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import styles from "@/components/download/download.module.css";
-import { getLocalAgentUpdates, getBrowserExtensionRelease, type BrowserExtensionRelease } from "@/lib/public-data";
+import { getLocalAgentUpdates, getBrowserExtensionRelease, getFirefoxTemporaryRelease, type BrowserExtensionRelease, type FirefoxTemporaryRelease } from "@/lib/public-data";
 import { createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
@@ -31,7 +31,7 @@ export const metadata: Metadata = createPageMetadata({
 
 /** DownloadPage 分开展示本地程序与浏览器插件，并保留服务端渲染的近期更新记录。 */
 export default async function DownloadPage() {
-  const [updates, extension] = await Promise.all([getLocalAgentUpdates(), getBrowserExtensionRelease()]);
+  const [updates, extension, firefox] = await Promise.all([getLocalAgentUpdates(), getBrowserExtensionRelease(), getFirefoxTemporaryRelease()]);
   const windows = updates.find((item) => item.urlWin);
   const mac = updates.find((item) => item.urlMac);
 
@@ -68,7 +68,7 @@ export default async function DownloadPage() {
               />
             </div>
           </section>
-          <BrowserExtensionDownloads release={extension} />
+          <BrowserExtensionDownloads release={extension} firefox={firefox} />
           <DownloadUpdateRecords updates={updates} />
           <div className="public-download-10">
             <h2 className="public-text public-download-11">安装前说明</h2>
@@ -103,32 +103,18 @@ export default async function DownloadPage() {
     </MarketingShell>
   );
 }
-/** BrowserExtensionDownloads 展示后台配置的 Chrome/Firefox 插件包与准确的安装方式。 */
-function BrowserExtensionDownloads({release}: {release: BrowserExtensionRelease | null}) {
-  const firefoxAvailable = isSignedFirefoxDownload(release);
+/** BrowserExtensionDownloads 分别展示 Chrome 发布包和与本地程序一致的 Firefox 临时插件包。 */
+function BrowserExtensionDownloads({release, firefox}: {release: BrowserExtensionRelease | null; firefox: FirefoxTemporaryRelease | null}) {
   const chromeVersion = release?.version_chrome || release?.version;
-  const firefoxVersion = release?.version_firefox || release?.version;
   return <section id="browser-extension" className={`public-download-10 ${styles.downloadSection}`} aria-labelledby="browser-extension-heading">
     <h2 id="browser-extension-heading" className="public-text public-download-11">浏览器插件下载</h2>
     <p className={`public-text public-download-18 ${styles.sectionDescription}`}><strong>当前支持：{BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}。</strong> 打开候选人详情后，插件会自动识别简历并打开助手。查重、补手机号、记备注和入库都在助手里完成。</p>
     <div className={`public-download-4 ${styles.cardGrid}`}>
       <DownloadCard icon={<DownloadRoundedIcon />} system="Chrome" buttonLabel="下载 Chrome 插件" note={`${chromeVersion ? `当前版本 ${chromeVersion}。` : ""}下载前会先展示安装教程。打开开发者模式后，把下载记录里的安装包直接拖进扩展管理页，无需解压。`} href={release?.url_chrome || ""} available={Boolean(release?.url_chrome)} browser="Chrome" />
-      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={firefoxAvailable ? `${firefoxVersion ? `当前版本 ${firefoxVersion}。` : ""}已签名安装包，下载前会先展示安装教程。` : "正在完成 Mozilla 签名，签名通过后开放下载。"} href={firefoxAvailable ? release?.url_firefox || "" : ""} available={firefoxAvailable} browser="Firefox" />
+      <DownloadCard icon={<DownloadRoundedIcon />} system="Firefox" buttonLabel="下载 Firefox 插件" note={firefox ? `当前版本 ${firefox.version}。GoodHR 自带火狐会自动更新并加载；普通 Firefox 请按教程临时加载。` : "暂时没读到最新插件，请稍后重试。GoodHR 自带火狐可在启动时检查更新。"} href={firefox?.url || ""} available={Boolean(firefox)} browser="Firefox" firefoxInstallMode="temporary" />
     </div>
-    {release?.note ? <p className="public-text public-download-18">{release.note}</p> : null}
     <p className="public-text public-download-18">各浏览器开放的版本以对应下载入口为准。插件仅读取可见候选人信息；悬浮界面独立显示，不自动点击或解锁手机号。</p>
   </section>;
-}
-
-/** isSignedFirefoxDownload 只允许下载页展示已签名的 HTTPS XPI 安装包。 */
-function isSignedFirefoxDownload(release: BrowserExtensionRelease | null): boolean {
-  if (!release?.firefox_signed || !release.url_firefox) return false;
-  try {
-    const downloadURL = new URL(release.url_firefox);
-    return downloadURL.protocol === "https:" && downloadURL.pathname.endsWith(".xpi");
-  } catch {
-    return false;
-  }
 }
 
 /** DownloadCard 展示一个操作系统的下载入口。 */
@@ -140,6 +126,7 @@ function DownloadCard({
   available,
   buttonLabel = "下载安装程序",
   browser,
+  firefoxInstallMode,
   localPlatform,
 }: {
   icon: ReactNode;
@@ -149,6 +136,7 @@ function DownloadCard({
   available: boolean;
   buttonLabel?: string;
   browser?: "Chrome" | "Firefox";
+  firefoxInstallMode?: "signed" | "temporary";
   localPlatform?: "Windows" | "macOS";
 }) {
   return (
@@ -163,6 +151,7 @@ function DownloadCard({
           href={href}
           label={buttonLabel}
           browser={browser}
+          firefoxInstallMode={firefoxInstallMode}
           type="primary"
           className={styles.cardAction}
         />

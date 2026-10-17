@@ -6,7 +6,7 @@ import { AntdRegistry } from "@ant-design/nextjs-registry";
 import InviteCapture from "@/components/InviteCapture";
 import StructuredData from "@/components/StructuredData";
 import GoodHRAnalytics from "@/components/GoodHRAnalytics";
-import { CORE_SEO_KEYWORDS, GITHUB_REPOSITORY_URL, SITE_URL } from "@/lib/seo";
+import { CORE_SEO_KEYWORDS, SITE_URL } from "@/lib/seo";
 import Providers from "./providers";
 import "./globals.css";
 import "./admin.css";
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     template: "%s | GoodHR AI招聘助手",
   },
   description:
-    "GoodHR 是面向 HR 和猎头的完全开源招聘系统，覆盖招聘平台自动筛选与沟通、结构化简历库、猎头推荐记录和企业 HR 招聘流程。",
+    "GoodHR 是面向 HR 和猎头的招聘系统，覆盖招聘平台自动筛选与沟通、结构化简历库、猎头推荐记录和企业 HR 招聘流程。",
   keywords: CORE_SEO_KEYWORDS,
   authors: [{ name: "GoodHR", url: SITE_URL }],
   creator: "GoodHR",
@@ -41,12 +41,12 @@ export const metadata: Metadata = {
     url: SITE_URL,
     title: "GoodHR AI招聘助手",
     description:
-      "完全开源的招聘系统，支持招聘平台自动化、结构化简历库、猎头推荐流程和企业 HR 招聘流程。",
+      "面向 HR 和猎头的招聘系统，支持招聘平台自动化、结构化简历库、猎头推荐流程和企业 HR 招聘流程。",
   },
   twitter: {
     card: "summary_large_image",
     title: "GoodHR AI招聘助手",
-    description: "面向 HR 和猎头的完全开源招聘自动化工具。",
+    description: "面向 HR 和猎头的招聘自动化工具。",
   },
   robots: {
     index: true,
@@ -77,9 +77,8 @@ export default function RootLayout({ children }: RootLayoutProps) {
               url: SITE_URL,
               email: "1224299352@qq.com",
               telephone: "+86-17607080935",
-              sameAs: [GITHUB_REPOSITORY_URL],
               description:
-                "面向 HR、招聘团队和猎头顾问的完全开源招聘系统，连接招聘平台自动化、简历库、猎头推荐和企业招聘流程。",
+                "面向 HR、招聘团队和猎头顾问的招聘系统，连接招聘平台自动化、简历库、猎头推荐和企业招聘流程。",
             },
             {
               "@context": "https://schema.org",
@@ -87,9 +86,8 @@ export default function RootLayout({ children }: RootLayoutProps) {
               name: "GoodHR",
               url: SITE_URL,
               inLanguage: "zh-CN",
-              sameAs: [GITHUB_REPOSITORY_URL],
               description:
-                "提供招聘平台自动筛选与沟通、结构化简历库、猎头推荐流程和企业 HR 招聘流程的完全开源招聘系统。",
+                "提供招聘平台自动筛选与沟通、结构化简历库、猎头推荐流程和企业 HR 招聘流程的招聘系统。",
             },
           ]}
         />

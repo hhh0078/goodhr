@@ -64,6 +64,9 @@
 .noteError { margin-bottom: 12px; }
 .noteSubmit { display: flex; justify-content: flex-end; margin-top: 16px; }
 .noteHistory, .notificationHistory { max-height: 270px; overflow: auto; margin-top: 16px; }
+/* 面试详情的正文、侧栏和手机主区继续滚动，隐藏这些区域的原生灰条。 */
+.tabsBody, .detailAside, .detailLayout, .noteHistory, .notificationHistory { scrollbar-width: none; -ms-overflow-style: none; }
+.tabsBody::-webkit-scrollbar, .detailAside::-webkit-scrollbar, .detailLayout::-webkit-scrollbar, .noteHistory::-webkit-scrollbar, .notificationHistory::-webkit-scrollbar { display: none; }
 .noteEntry { border-top: 1px solid var(--ant-color-border-secondary, #edf0ed); padding-block: 12px; }
 .noteEntry > :global(.ant-typography) { margin-bottom: 6px; }
 

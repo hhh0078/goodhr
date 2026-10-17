@@ -28,8 +28,9 @@ func TestCandidateRecommendationsHTTP(t *testing.T) {
 	ownerPositionID := ownerPosition["position"].(map[string]any)["id"].(string)
 	_, memberPosition := candidateTestRequest(t, routes, memberToken, http.MethodPost, "/api/positions", map[string]any{"name": "推荐岗位"})
 	memberPositionID := memberPosition["position"].(map[string]any)["id"].(string)
-	_, first := candidateTestRequest(t, routes, memberToken, http.MethodPost, "/api/candidates", map[string]any{"candidate_name": "张推荐测试", "phone": "13800138960", "current_position": "开发工程师"})
+	_, first := candidateTestRequest(t, routes, memberToken, http.MethodPost, "/api/candidates", map[string]any{"candidate_name": "张推荐测试", "phone": "13800138960", "current_position": "开发工程师", "avatar_data_url": candidateAvatarTestImage(t, "png", 32, 32, false)})
 	firstID := first["candidate"].(map[string]any)["id"].(string)
+	firstAvatar := first["candidate"].(map[string]any)["avatar_data_url"]
 	_, second := candidateTestRequest(t, routes, memberToken, http.MethodPost, "/api/candidates", map[string]any{"candidate_name": "李推荐测试", "phone": "13800138961"})
 	secondID := second["candidate"].(map[string]any)["id"].(string)
 	status, adminRec := candidateTestRequest(t, routes, ownerToken, http.MethodPost, "/api/candidates/"+firstID+"/recommendations", map[string]any{"position_id": ownerPositionID, "stage": "recommended", "content": "管理推进", "idempotency_key": "admin-rec"})
@@ -58,6 +59,12 @@ func TestCandidateRecommendationsHTTP(t *testing.T) {
 	}
 	for _, raw := range listed["items"].([]any) {
 		item := raw.(map[string]any)
+		if item["candidate_id"] == firstID && (firstAvatar == nil || item["avatar_data_url"] != firstAvatar) {
+			t.Fatal("recommendation omitted persisted candidate avatar")
+		}
+		if item["candidate_id"] == secondID && item["avatar_data_url"] != nil {
+			t.Fatal("candidate without avatar received another candidate's image")
+		}
 		if item["id"] == adminID && (item["can_delete"] != false || item["can_edit"] != true || len(item["events"].([]any)) != 1 || item["current_position"] != "开发工程师") {
 			t.Fatal("record summary or permission missing", item)
 		}
@@ -140,14 +147,27 @@ func TestCandidateRecommendationsPostgres(t *testing.T) {
 	position := Position{ID: positionID, Name: "推荐工程师", IsOpen: true}
 	ids := []string{}
 	candidateIDs := []string{}
+	rawAvatar := candidateAvatarTestImage(t, "png", 32, 32, false)
+	avatar, err := normalizeCandidateAvatar(rawAvatar)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i, input := range []struct {
 		scope       CandidateLibraryScope
 		name, phone string
 	}{{member, "张数据库推荐", "13800138970"}, {owner, "李数据库推荐", "13800138971"}} {
-		fields, _ := candidateMutationFields(map[string]any{"candidate_name": input.name, "phone": input.phone, "current_position": "工程师"}, true)
+		// 和实际入库请求一致，原图只经一次字段校验；透明PNG再次重编码可能产生不同字节。
+		fields, err := candidateMutationFields(map[string]any{"candidate_name": input.name, "phone": input.phone, "current_position": "工程师", "avatar_data_url": rawAvatar}, true)
+		if err != nil || candidateString(fields, "avatar_data_url") != avatar {
+			t.Fatal("candidate avatar validation differs from normalized source", err)
+		}
 		candidate, err := store.SaveLibraryCandidate(input.scope, "", fields, 0, "")
 		if err != nil {
 			t.Fatal(err)
+		}
+		var storedAvatar string
+		if err = db.QueryRow(`SELECT library_fields->>'avatar_data_url' FROM candidate_profiles WHERE id=$1::uuid`, candidate.ID).Scan(&storedAvatar); err != nil || storedAvatar != avatar || candidateString(candidate.LibraryFields, "avatar_data_url") != storedAvatar {
+			t.Fatal("saved candidate avatar must equal validated fields and persisted JSONB", err)
 		}
 		rec, err := store.SaveCandidateRecommendation(owner, candidate.ID, position, "draft", "首次推荐", "")
 		if err != nil {
@@ -162,6 +182,9 @@ func TestCandidateRecommendationsPostgres(t *testing.T) {
 	memberList, err := store.ListCandidateRecommendationRecords(member, CandidateRecommendationQuery{PageSize: 1})
 	if err != nil || memberList.Total != 1 || len(memberList.Items) != 1 || memberList.Items[0].CanDelete || !memberList.Items[0].CanEdit || len(memberList.Items[0].Events) != 1 {
 		t.Fatal("member page boundary", memberList, err)
+	}
+	if memberList.Items[0].AvatarDataURL != avatar {
+		t.Fatal("PostgreSQL recommendation omitted JSONB avatar")
 	}
 	all, err := store.ListCandidateRecommendationRecords(owner, CandidateRecommendationQuery{Page: 2, PageSize: 1})
 	if err != nil || all.Total != 2 || len(all.Items) != 1 {

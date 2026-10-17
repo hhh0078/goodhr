@@ -114,6 +114,9 @@ test("桌面详情采用宽弹层和双栏，标签切换保留独立记录", as
   expect(dialogBox.width).toBeGreaterThan(1200);
   const main = dialog.getByTestId("resume-detail-main");
   const aside = dialog.getByTestId("resume-detail-aside");
+  await expect(main).toHaveCSS("scrollbar-width", "none");
+  await expect(aside).toHaveCSS("scrollbar-width", "none");
+  await expect(page.locator(".goodhr-detail-dialog-wrap:visible")).toHaveCSS("scrollbar-width", "none");
   const [mainBox, asideBox] = await Promise.all([measuredBox(main), measuredBox(aside)]);
   expect(asideBox.x).toBeGreaterThanOrEqual(mainBox.x + mainBox.width);
   expect(Math.abs(asideBox.y - mainBox.y)).toBeLessThan(2);
@@ -188,6 +191,7 @@ test("面试详情分别呈现初复试、多位评价及待评价，原有操�
   await page.setViewportSize({ width: 1446, height: 1220 });
   const dialog = await openApplication(page);
   await expect(dialog.getByRole("tab", { name: /^面试/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".goodhr-detail-dialog-wrap:visible")).toHaveCSS("scrollbar-width", "none");
   const first = dialog.getByTestId("recruitment-interview-interview-first");
   const second = dialog.getByTestId("recruitment-interview-interview-second");
   await expect(first).toHaveAttribute("aria-label", "初试面试安排与评价");

@@ -1,6 +1,6 @@
 /** 文件作用说明：集中查看和维护猎头推荐，复用候选人详情推进历史，保留关闭岗位记录。 */
 "use client";
-import { Alert, Button, Flex, Input, Pagination, Select, Table, Tag, Typography } from "antd";
+import { Alert, Avatar, Button, Flex, Input, Pagination, Select, Table, Tag, Typography } from "antd";
 import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -10,7 +10,7 @@ import { useAdmin } from "@/components/admin/AdminApp";
 import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
 import RecommendationCreateDialog from "@/components/admin/resumes/RecommendationCreateDialog";
 import { deleteRecommendationRecord, loadRecommendationRecords, loadResumePositions } from "@/lib/resume-api";
-import { latestRecommendationEvent, recommendationStages, recordTime, stageLabel, type PositionOption, type RecommendationRecord } from "@/lib/resume-types";
+import { avatarSource, latestRecommendationEvent, recommendationStages, recordTime, stageLabel, type PositionOption, type RecommendationRecord } from "@/lib/resume-types";
 import styles from "./page.module.css";
 
 /** RecommendationsPage 用分页列表管理已有推荐，候选人详情和阶段推进沿用同一工作区。 */
@@ -73,7 +73,7 @@ export default function RecommendationsPage() {
       <Table<RecommendationRecord> size="small" rowKey="id" loading={loading} dataSource={items} pagination={false} scroll={{ x: 1120 }} className={styles.records}
         onRow={(record) => ({ title: "双击打开候选人简历", onDoubleClick: (event) => { if (event.target instanceof Element && event.target.closest("button,a,input,textarea,select,[role='button'],[role='combobox']")) return; openRecord(record, "notes"); } })}
         locale={{ emptyText: "这里暂时没有推荐记录，先选一位候选人吧。" }} columns={[
-          { title: "候选人", width: 180, fixed: "left", render: (_, record) => <Flex vertical gap={2}><Button type="link" className={styles.inline} onClick={() => openRecord(record, "notes")}>{record.candidate_name || "未命名候选人"}</Button><Typography.Text type="secondary" className={styles.meta}>{record.phone || "手机号待补充"}</Typography.Text></Flex> },
+          { title: "候选人", width: 180, fixed: "left", render: (_, record) => <Flex gap={8} align="center"><Avatar size={32} src={avatarSource(record.avatar_data_url)} alt={`${record.candidate_name || "候选人"}头像`} style={{ flexShrink: 0 }}>{record.candidate_name?.slice(0, 1) || "人"}</Avatar><Flex vertical gap={2} style={{ minWidth: 0 }}><Button type="link" className={styles.inline} onClick={() => openRecord(record, "notes")}>{record.candidate_name || "未命名候选人"}</Button><Typography.Text type="secondary" className={styles.meta}>{record.phone || "手机号待补充"}</Typography.Text></Flex></Flex> },
           { title: "岗位", width: 180, render: (_, record) => <Flex vertical gap={2}><Typography.Text>{record.position_name || "历史岗位"}</Typography.Text>{record.position_is_open === false ? <Typography.Text type="secondary" className={styles.meta}>已关闭 · 历史保留</Typography.Text> : null}</Flex> },
           { title: "阶段", width: 95, render: (_, record) => <Tag>{stageLabel(record.stage)}</Tag> },
           { title: "最新跟进", width: 250, render: (_, record) => { const latest = latestRecommendationEvent(record.events); return <Typography.Paragraph ellipsis={{ rows: 2, tooltip: true }} className={styles.note}>{latest?.content || latest?.note || record.note || "还没备注"}</Typography.Paragraph>; } },

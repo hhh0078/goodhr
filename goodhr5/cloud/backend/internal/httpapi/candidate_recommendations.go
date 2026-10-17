@@ -14,6 +14,7 @@ var ErrCandidateRecommendationForbidden = errors.New("这条推荐只能由推�
 type CandidateRecommendationRecord struct {
 	CandidateRecommendation
 	CandidateName   string `json:"candidate_name"`
+	AvatarDataURL   string `json:"avatar_data_url,omitempty"`
 	Phone           string `json:"phone"`
 	CurrentPosition string `json:"current_position"`
 	PositionIsOpen  bool   `json:"position_is_open"`

@@ -10,6 +10,11 @@
 .tabs :global(.ant-tabs-tab) { padding: 12px 0; }
 .tabs :global(.ant-tabs-tab-btn) { font-size: 14px; }
 .aside { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: 32px; }
+/* 简历和推荐详情的双栏隐藏原生滚动条，继续由各栏独立滚动。 */
+:global(.goodhr-detail-dialog) .main,
+:global(.goodhr-detail-dialog) .aside { scrollbar-width: none; -ms-overflow-style: none; }
+:global(.goodhr-detail-dialog) .main::-webkit-scrollbar,
+:global(.goodhr-detail-dialog) .aside::-webkit-scrollbar { display: none; }
 .sideCard { min-width: 0; padding: 20px; margin-bottom: 12px; background: #fff; border-radius: 8px; }
 .sideCard :global(.ant-typography) { overflow-wrap: anywhere; }
 .cardTitle.cardTitle { margin: 0 0 16px; font-size: 15px; }

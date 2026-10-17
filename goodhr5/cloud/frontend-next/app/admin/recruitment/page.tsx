@@ -1,6 +1,6 @@
 /** 文件作用说明：提供岗位招聘进度、个人待办与抄送入口，支持从真实候选人开启企业招聘。 */
 "use client";
-import { Alert, Button, Flex, Input, Select, Space, Table, Tabs, Tag, Typography } from "antd";
+import { Alert, Avatar, Button, Flex, Input, Select, Space, Table, Tabs, Tag, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SectionPanel } from "@/components/admin/AdminUI";
@@ -8,7 +8,7 @@ import ApplicationDialog from "@/components/admin/recruitment/ApplicationDialog"
 import StartRecruitmentDialog from "@/components/admin/recruitment/StartRecruitmentDialog";
 import RecruitmentSettingsDialog from "@/components/admin/recruitment/RecruitmentSettingsDialog";
 import { loadResumePositions } from "@/lib/resume-api";
-import { type PositionOption } from "@/lib/resume-types";
+import { avatarSource, type PositionOption } from "@/lib/resume-types";
 import { loadRecruitmentApplications, recruitmentStatusLabel, type RecruitmentApplication } from "@/lib/recruitment-api";
 
 /** RecruitmentPage 使用岗位筛选和本人待办展示独立招聘进程，抄送成员只读查看。 */
@@ -102,10 +102,10 @@ export default function RecruitmentPage() {
 
             title: "候选人",
             dataIndex: "candidate_name",
-            width: 160,
-            render: (value, row) => <Button type="link" style={{ padding: 0 }} onClick={() => setDetailID(row.id)}>
+            width: 180,
+            render: (value, row) => <Flex gap={8} align="center"><Avatar size={32} src={avatarSource(row.avatar_data_url)} alt={`${row.candidate_name || "候选人"}头像`} style={{ flexShrink: 0 }}>{row.candidate_name?.slice(0, 1) || "人"}</Avatar><Button type="link" style={{ padding: 0, minWidth: 0, height: "auto", whiteSpace: "normal", overflowWrap: "anywhere", textAlign: "start" }} onClick={() => setDetailID(row.id)}>
               {value || "未命名候选人"}
-            </Button>
+            </Button></Flex>
           },
           { title: "岗位", dataIndex: "position_name", width: 170 },
           {

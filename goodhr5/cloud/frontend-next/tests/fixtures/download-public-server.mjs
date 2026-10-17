@@ -9,6 +9,17 @@ const localAgent = Array.from({ length: 40 }, (_, index) => ({
 }));
 let firefoxReleaseMode = "signed";
 
+/** firefoxTemporaryRelease 返回与本地程序相同格式的合成临时插件发布清单。 */
+function firefoxTemporaryRelease() {
+  return {
+    version: "1.0.16",
+    url: "/zip/goodhr-resume-firefox-unsigned-1.0.16.xpi",
+    sha256: firefoxReleaseMode === "temporary-invalid" ? "invalid" : "a".repeat(64),
+    extension_id: "resume-assistant@goodhr.58it.cn",
+    channel: "temporary",
+  };
+}
+
 /** browserExtensionRelease 根据测试模式返回已签名包或应被隐藏的未签名包。 */
 function browserExtensionRelease() {
   const firefoxSigned = firefoxReleaseMode === "signed";
@@ -29,9 +40,15 @@ function browserExtensionRelease() {
 function servePublicFixture(request, response) {
   const path = new URL(request.url, `http://127.0.0.1:${port}`).pathname;
   if (path === "/__test__/firefox-release") {
-    firefoxReleaseMode = new URL(request.url, `http://127.0.0.1:${port}`).searchParams.get("mode") === "unsigned" ? "unsigned" : "signed";
+    const mode = new URL(request.url, `http://127.0.0.1:${port}`).searchParams.get("mode");
+    firefoxReleaseMode = ["unsigned", "temporary-unavailable", "temporary-invalid"].includes(mode) ? mode : "signed";
     response.writeHead(204);
     response.end();
+    return;
+  }
+  if (path === "/zip/goodhr-resume-firefox-latest.json") {
+    response.writeHead(firefoxReleaseMode === "temporary-unavailable" ? 503 : 200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify(firefoxTemporaryRelease()));
     return;
   }
   const data = path === "/api/system/local-agent-updates" ? { local_agent: localAgent }

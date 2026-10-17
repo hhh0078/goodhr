@@ -3,7 +3,6 @@ import "@/components/public-site.css";
 import ArrowForwardRoundedIcon from "@ant-design/icons/lib/icons/ArrowRightOutlined";
 import CheckCircleRoundedIcon from "@ant-design/icons/lib/icons/CheckCircleOutlined";
 import DownloadRoundedIcon from "@ant-design/icons/lib/icons/DownloadOutlined";
-import GitHubIcon from "@ant-design/icons/lib/icons/GithubOutlined";
 import MarkChatReadRoundedIcon from "@ant-design/icons/lib/icons/CommentOutlined";
 import PersonSearchRoundedIcon from "@ant-design/icons/lib/icons/UserOutlined";
 import SaveAltRoundedIcon from "@ant-design/icons/lib/icons/DownloadOutlined";
@@ -18,14 +17,13 @@ import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extensi
 import {
   absoluteURL,
   createPageMetadata,
-  GITHUB_REPOSITORY_URL,
   RECRUITMENT_PLATFORMS,
 } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
   title: "GoodHR AI招聘助手 - 简历库、猎头推荐与HR招聘流程",
   description:
-    "GoodHR 是面向 HR 和猎头的完全开源招聘系统，支持招聘平台自动筛选与沟通、结构化简历库、候选人查重、猎头岗位推荐记录，以及企业 HR 面试、评价、审核和录用流程。",
+    "GoodHR 是面向 HR 和猎头的招聘系统，支持招聘平台自动筛选与沟通、结构化简历库、候选人查重、猎头岗位推荐记录，以及企业 HR 面试、评价、审核和录用流程。",
   path: "/",
   keywords: [
     "免费招聘软件",
@@ -33,8 +31,6 @@ export const metadata: Metadata = createPageMetadata({
     "猎头AI工具",
     "HR自动化招聘",
     "多招聘平台自动化",
-    "开源招聘系统",
-    "开源AI招聘助手",
     "结构化简历库",
     "猎头推荐流程",
     "企业HR招聘流程",
@@ -135,9 +131,8 @@ export default function HomePage() {
             operatingSystem: "Windows, macOS",
             url: absoluteURL("/"),
             downloadUrl: absoluteURL("/download"),
-            codeRepository: GITHUB_REPOSITORY_URL,
             description:
-              "面向 HR 和猎头的完全开源招聘系统，支持招聘平台自动化、结构化简历库、猎头推荐流程和企业 HR 招聘流程。",
+              "面向 HR 和猎头的招聘系统，支持招聘平台自动化、结构化简历库、猎头推荐流程和企业 HR 招聘流程。",
             offers: {
               "@type": "Offer",
               price: "0",
@@ -181,7 +176,7 @@ export default function HomePage() {
 
               <p className="public-text public-home-14">
                 HR
-                和猎头的免费自动招聘助手，完全开源，代码公开。不是摸鱼神器，而是提效工具
+                和猎头的免费自动招聘助手。不是摸鱼神器，而是提效工具
               </p>
               <div className="public-home-15">
                 <Button
@@ -202,17 +197,6 @@ export default function HomePage() {
                   iconPlacement="end"
                 >
                   进入控制台
-                </Button>
-                <Button
-                  href={GITHUB_REPOSITORY_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  type="default"
-                  size="large"
-                  icon={<GitHubIcon aria-hidden="true" />}
-                  className="public-home-20"
-                >
-                  开源地址
                 </Button>
               </div>
             </div>

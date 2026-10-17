@@ -58,6 +58,7 @@ export default function AdminDialog({
       title={title}
       width={variant === "detail" ? "min(1480px, calc(100vw - 32px))" : dialogWidths[maxWidth]}
       className={`goodhr-admin-modal${variant === "detail" ? " goodhr-detail-dialog" : ""}`}
+      classNames={variant === "detail" ? { wrapper: "goodhr-detail-dialog-wrap" } : undefined}
       style={variant === "detail" ? { top: 16, paddingBottom: 0 } : undefined}
       destroyOnHidden={variant === "detail"}
       zIndex={/* 详情低于编辑与确认弹框，避免复用的子弹框被详情门户盖住。 */ variant === "detail" ? 900 : undefined}

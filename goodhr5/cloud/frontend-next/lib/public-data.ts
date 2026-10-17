@@ -1,5 +1,10 @@
 /** 本文件负责在 Next.js 服务端读取官网公开数据。 */
 
+import { normalizeFirefoxTemporaryRelease, type FirefoxTemporaryRelease } from "./firefox-temporary-release";
+import { SITE_URL } from "./seo";
+
+export type { FirefoxTemporaryRelease } from "./firefox-temporary-release";
+
 export type PublicStatsData = {
   processedResumeCount: number | null;
   todayRegisteredCount: number | null;
@@ -49,6 +54,24 @@ export async function getBrowserExtensionRelease(): Promise<BrowserExtensionRele
     const data = await response.json();
     return data?.release?.version ? data.release as BrowserExtensionRelease : null;
   } catch { return null; }
+}
+
+/** getFirefoxTemporaryRelease 读取与本地程序相同的临时发布清单，失败时不冒充最新版本。 */
+export async function getFirefoxTemporaryRelease(): Promise<FirefoxTemporaryRelease | null> {
+  if (process.env.GOODHR_STATIC_EXPORT === "1") return null;
+  try {
+    const response = await fetch(new URL("/zip/goodhr-resume-firefox-latest.json", SITE_URL), {
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!response.ok || Number(response.headers.get("content-length")) > 16384) return null;
+    const body = await response.text();
+    if (body.length > 16384) return null;
+    return normalizeFirefoxTemporaryRelease(JSON.parse(body), SITE_URL);
+  } catch {
+    return null;
+  }
 }
 
 /** getPublicStats 在服务端读取官网统计，失败时返回空数据且不影响页面。 */

@@ -115,6 +115,7 @@ type RecruitmentApplication struct {
 	TenantID         string                    `json:"tenant_id"`
 	CandidateID      string                    `json:"candidate_id"`
 	CandidateName    string                    `json:"candidate_name"`
+	AvatarDataURL    string                    `json:"avatar_data_url,omitempty"`
 	CandidateEmail   string                    `json:"candidate_email"`
 	PositionID       string                    `json:"position_id"`
 	PositionName     string                    `json:"position_name"`

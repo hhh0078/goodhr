@@ -41,7 +41,7 @@ export type Recommendation = {
   author_email?: string; author_name?: string; events?: RecommendationEvent[];
 };
 export type RecommendationRecord = Recommendation & {
-  candidate_id: string; candidate_name: string; phone?: string; current_position?: string;
+  candidate_id: string; candidate_name: string; avatar_data_url?: string; phone?: string; current_position?: string;
   position_is_open: boolean; can_edit: boolean; can_delete: boolean;
 };
 /** latestRecommendationEvent 按实际跟进时间选最新事件，兼容历史接口的正序和倒序数组。 */

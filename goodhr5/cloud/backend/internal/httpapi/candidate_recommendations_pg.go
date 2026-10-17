@@ -58,7 +58,7 @@ func (s *PostgresCandidateStore) ListCandidateRecommendationRecords(scope Candid
 	}
 	listArgs := append(args, pageSize, (page-1)*pageSize)
 	rows, err := s.db.QueryContext(ctx, `SELECT cr.id::text,cr.candidate_id::text,COALESCE(cr.position_id::text,cr.position_key),COALESCE(NULLIF(p.name,''),cr.position_name),cr.stage,cr.author_email,cr.author_name,cr.created_at,cr.updated_at,
- cp.candidate_name,cp.phone,COALESCE(cp.library_fields->>'current_position',''),COALESCE(p.is_open,false),
+ cp.candidate_name,COALESCE(cp.library_fields->>'avatar_data_url',''),cp.phone,COALESCE(cp.library_fields->>'current_position',''),COALESCE(p.is_open,false),
  COALESCE((SELECT jsonb_agg(to_jsonb(ev) ORDER BY ev.occurred_at DESC,ev.created_at DESC,ev.id DESC) FROM candidate_recommendation_events ev WHERE ev.recommendation_id=cr.id),'[]'::jsonb)`+from+fmt.Sprintf(` ORDER BY cr.updated_at DESC,cr.id LIMIT $%d OFFSET $%d`, len(args)+1, len(args)+2), listArgs...)
 	if err != nil {
 		return CandidateRecommendationList{}, err
@@ -67,7 +67,7 @@ func (s *PostgresCandidateStore) ListCandidateRecommendationRecords(scope Candid
 	items := []CandidateRecommendationRecord{}
 	for rows.Next() {
 		var item CandidateRecommendationRecord
-		if err = rows.Scan(&item.ID, &item.CandidateID, &item.PositionID, &item.PositionName, &item.Stage, &item.AuthorEmail, &item.AuthorName, &item.CreatedAt, &item.UpdatedAt, &item.CandidateName, &item.Phone, &item.CurrentPosition, &item.PositionIsOpen, jsonScanner(&item.Events)); err != nil {
+		if err = rows.Scan(&item.ID, &item.CandidateID, &item.PositionID, &item.PositionName, &item.Stage, &item.AuthorEmail, &item.AuthorName, &item.CreatedAt, &item.UpdatedAt, &item.CandidateName, &item.AvatarDataURL, &item.Phone, &item.CurrentPosition, &item.PositionIsOpen, jsonScanner(&item.Events)); err != nil {
 			return CandidateRecommendationList{}, err
 		}
 		item.CanEdit, item.CanDelete = item.PositionIsOpen, scope.IsAdmin || item.AuthorEmail == scope.UserEmail
