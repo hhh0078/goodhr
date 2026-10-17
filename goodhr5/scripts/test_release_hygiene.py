@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -161,6 +162,74 @@ class HygieneTests(unittest.TestCase):
         with self.assertRaises(hygiene.HygieneError):
             hygiene.apply_plan(path, digest, self.reader)
         self.assertTrue(self.cache.exists())
+
+    def test_same_size_content_change_with_frozen_metadata_blocks_delete(self):
+        """test_same_size_content_change_with_frozen_metadata_blocks_delete 元数据完全不变时仍以内容SHA拒绝同尺寸改写。"""
+        original_stat_identity = hygiene.stat_identity
+        frozen = {(path.stat().st_dev, path.stat().st_ino): hygiene.identity(path)
+                  for path in [self.cache, self.cache / "cache.bin"]}
+
+        def frozen_identity(value):
+            """frozen_identity 模拟低精度或未能体现同尺寸改写的文件系统元数据。"""
+            return frozen.get((value.st_dev, value.st_ino), original_stat_identity(value))
+
+        with patch.object(hygiene, "stat_identity", side_effect=frozen_identity):
+            path, digest = self.plan_file()
+            first = hygiene.create_plan(self.release, self.reader)
+            self.assertEqual(first["candidates"][0]["fingerprint"]["algorithm"], "sha256-content-v1")
+            (self.cache / "cache.bin").write_bytes(b"changed____")
+            second = hygiene.create_plan(self.release, self.reader)
+            self.assertNotEqual(first["candidates"][0]["fingerprint"]["sha256"],
+                                second["candidates"][0]["fingerprint"]["sha256"])
+            with patch.object(hygiene.shutil, "rmtree") as delete:
+                with self.assertRaises(hygiene.HygieneError):
+                    hygiene.apply_plan(path, digest, self.reader)
+                delete.assert_not_called()
+        self.assertEqual((self.cache / "cache.bin").read_bytes(), b"changed____")
+
+    def test_file_replacement_between_stat_and_open_is_rejected(self):
+        """test_file_replacement_between_stat_and_open_is_rejected 同内容的新文件也不能替换已核对inode。"""
+        path = self.cache / "cache.bin"
+        expected = hygiene.identity(path)
+        original_open = hygiene.os.open
+
+        def replace_then_open(value, flags):
+            """replace_then_open 在真实打开前置换目标，模拟路径检查后的竞态。"""
+            path.rename(self.cache / "old-cache.bin")
+            path.write_bytes(b"rebuildable")
+            return original_open(value, flags)
+
+        with patch.object(hygiene.os, "open", side_effect=replace_then_open):
+            with self.assertRaises(hygiene.HygieneError):
+                hygiene.regular_file_sha(path, expected)
+        self.assertTrue((self.cache / "old-cache.bin").exists())
+
+    def test_file_change_during_content_hash_is_rejected(self):
+        """test_file_change_during_content_hash_is_rejected 真实读取过程中发生内容和时间变化时不得签发指纹。"""
+        path = self.cache / "cache.bin"
+        expected = hygiene.identity(path)
+        original_sha256 = hygiene.hashlib.sha256
+
+        class MutatingDigest:
+            """只在真实摘要读取第一块后改写测试文件，验证读取后的fstat保护。"""
+
+            def __init__(self):
+                """__init__ 保留真正SHA实现，避免以模拟摘要代替内容核验。"""
+                self.digest = original_sha256()
+
+            def update(self, value):
+                """update 计算真实块摘要后执行本机测试文件的同尺寸改写。"""
+                self.digest.update(value)
+                path.write_bytes(b"changed____")
+                os.utime(path, ns=(expected[6] + 2_000_000_000, expected[6] + 2_000_000_000))
+
+            def hexdigest(self):
+                """hexdigest 返回真实内容摘要。"""
+                return self.digest.hexdigest()
+
+        with patch.object(hygiene.hashlib, "sha256", side_effect=MutatingDigest):
+            with self.assertRaises(hygiene.HygieneError):
+                hygiene.regular_file_sha(path, expected)
 
     def test_new_reference_at_apply_blocks(self):
         """test_new_reference_at_apply_blocks 计划后新出现停止容器引用也不能删除。"""

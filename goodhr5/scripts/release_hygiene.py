@@ -50,11 +50,35 @@ def file_sha(path):
     return digest.hexdigest()
 
 
-def identity(path):
-    """identity 记录文件系统身份和修改信息，不记录访问时间。"""
-    value = Path(path).lstat()
+def stat_identity(value):
+    """stat_identity 统一提取路径或打开文件的身份及修改信息，不记录读取引起的访问时间。"""
     return [value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid,
             value.st_size, value.st_mtime_ns, value.st_ctime_ns]
+
+
+def identity(path):
+    """identity 记录文件系统身份和修改信息，不记录访问时间。"""
+    return stat_identity(Path(path).lstat())
+
+
+def regular_file_sha(path, expected_identity):
+    """regular_file_sha 不跟随链接流式计算普通文件内容SHA，并核对打开前后身份及读取期间变化。"""
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    digest = hashlib.sha256()
+    try:
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            require(stat.S_ISREG(opened.st_mode) and stat_identity(opened) == expected_identity,
+                    "缓存文件在打开前被替换或改变：" + str(path))
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+            require(stat_identity(os.fstat(stream.fileno())) == expected_identity,
+                    "缓存文件在内容核验期间变化：" + str(path))
+        require(identity(path) == expected_identity, "缓存文件路径在内容核验期间变化：" + str(path))
+    except OSError:
+        raise HygieneError("缓存文件无法安全读取：" + str(path)) from None
+    return digest.hexdigest()
 
 
 def real_path(path, directory=False):
@@ -114,7 +138,7 @@ def protected_file(path, target, kind):
 
 
 def fingerprint(target, kind):
-    """fingerprint 建立全树元数据指纹，拒绝跨设备、特殊文件和被误放入缓存的业务备份。"""
+    """fingerprint 绑定全树元数据及每个普通文件的完整内容SHA，拒绝跨设备、特殊文件和业务备份。"""
     target = real_path(target, directory=True)
     device = target.stat().st_dev
     entries = [target]
@@ -126,13 +150,18 @@ def fingerprint(target, kind):
         require(value.st_dev == device, "目标内部存在跨设备挂载")
         require(stat.S_ISDIR(value.st_mode) or stat.S_ISREG(value.st_mode) or stat.S_ISLNK(value.st_mode), "缓存内部存在特殊文件")
         require(not protected_file(path, target, kind), "缓存内发现需保留的业务文件：" + str(path))
-        record = [str(path.relative_to(target)), identity(path), os.readlink(path) if path.is_symlink() else ""]
+        before = stat_identity(value)
+        link_target = os.readlink(path) if stat.S_ISLNK(value.st_mode) else ""
+        content_sha = regular_file_sha(path, before) if stat.S_ISREG(value.st_mode) else None
+        require(identity(path) == before, "缓存条目在指纹核验期间变化：" + str(path))
+        record = [str(path.relative_to(target)), before, link_target, content_sha]
         digest.update(json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
         key = (value.st_dev, value.st_ino)
         if key not in seen:
             allocated += getattr(value, "st_blocks", (value.st_size + 511) // 512) * 512
             seen.add(key)
-    return {"sha256": digest.hexdigest(), "entries": len(set(entries)), "allocated_bytes": allocated}
+    return {"algorithm": "sha256-content-v1", "sha256": digest.hexdigest(),
+            "entries": len(set(entries)), "allocated_bytes": allocated}
 
 
 def overlaps(left, right):
