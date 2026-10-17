@@ -6,6 +6,9 @@ const reader = require("../src/boss-attachment.js"), shared = require("../src/sh
 /** piece 创建不含个人资料的排版片段，便于独立测试视觉顺序。 */
 function piece(text, x, y, extra = {}) { return { text, x, y, width: 100, height: 12, rotation: 0, order: 0, ...extra }; }
 
+/** glyphs 模拟PDF将同一行拆成逐字span，间距与字宽独立，避免大块字符串掩盖跨页中线断词。 */
+function glyphs(text, x, y, step = 12) { return Array.from(text, (char, index) => piece(char, x + index * step, y, { width: step - 1, height: 14, order: index })); }
+
 /** imageNode 构造只读附件图片替身，用自然尺寸区分头像、装饰和整页图片。 */
 function imageNode(source, options = {}) {
   const attributes = { src: options.svg ? "" : source, href: options.svg ? source : "", alt: options.alt || "", class: options.className || "" }, page = { getBoundingClientRect: () => ({ width: 750, height: 1000 }) };
@@ -37,6 +40,36 @@ test("重复长串并有旋转才去水印，普通旋转文字与单个长编�
   const mark = "SYNTHETIC_WATERMARK_01234567890123456789", pieces = [piece(mark, 0, 0), piece(mark, 200, 200, { rotation: -40 }), piece(mark, 500, 500, { rotation: -90 }), piece("S", 0, 0, { rotation: -40 }), piece("合法旋转正文", 0, 20, { rotation: -40 }), piece("ANOTHER_SINGLE_IDENTIFIER_01234567890", 0, 40)];
   assert.deepEqual(reader.cleanPieces(pieces).map((item) => item.text), ["合法旋转正文", "ANOTHER_SINGLE_IDENTIFIER_01234567890"]);
   assert.equal(reader.cleanPieces([piece(mark, 0, 0), piece(mark, 0, 1), piece(mark, 0, 2)]).length, 3);
+});
+
+test("逐字专业和邮箱横跨48%页宽仍保持完整，字段之间的空隙不把词语拆到后文", () => {
+  const pieces = [...glyphs("姓名：合成甲", 70, 20), ...glyphs("政治面貌：共青团员", 300, 20), ...glyphs("学历：本科在读", 70, 40), ...glyphs("专业：信息管理与信息系统", 300, 40), ...glyphs("电话：13800000991", 70, 60, 8), ...glyphs("邮箱：synthetic@example.test", 300, 60, 7)];
+  const lines = reader.layoutText(pieces.reverse(), 747).split("\n");
+  for (const field of ["专业：信息管理与信息系统", "邮箱：synthetic@example.test", "电话：13800000991", "政治面貌：共青团员"]) assert.ok(lines.some((line) => line.replace(/\s/g, "").includes(field)), field);
+  assert.equal(lines.filter((line) => line.includes("信息管理与信息系统")).length, 1);
+});
+
+test("偏离页中线的真双栏使用稳定空隙，局部缺左栏与跨栏标题仍按完整段落输出", () => {
+  const pieces = [piece("跨栏标题", 40, 0, { width: 600 }), piece("左栏一", 40, 30, { width: 120 }), piece("右栏一整段横跨页中线", 270, 30, { width: 300 }), piece("右栏中间独立行", 270, 46, { width: 300 }), piece("左栏二", 40, 62, { width: 120 }), piece("右栏二", 270, 62, { width: 300 }), piece("跨栏结尾", 40, 90, { width: 600 })];
+  assert.equal(reader.layoutText(pieces, 747), "跨栏标题\n左栏一\n左栏二\n右栏一整段横跨页中线\n右栏中间独立行\n右栏二\n跨栏结尾");
+});
+
+test("字号不同但基线相同的标题合为一行，轻微基线偏移不打散专业正文", () => {
+  const pieces = [piece("个人简历", 40, 0, { width: 150, height: 26 }), piece("PERSONAL RESUME", 230, 12, { width: 250, height: 14 }), ...glyphs("专业：信息管理与信息系统", 300, 55).map((item, index) => ({ ...item, y: item.y + (index % 3 - 1) * 2 }))];
+  assert.equal(reader.layoutText(pieces, 747), "个人简历 PERSONAL RESUME\n专业：信息管理与信息系统");
+});
+
+test("三列日期公司岗位保持同一视觉行关联，不把日期和雇主分别抽成纵列", () => {
+  const pieces = [piece("2024.01-2024.03", 60, 20, { width: 150 }), piece("合成甲公司", 270, 20, { width: 170 }), piece("运营", 600, 20, { width: 60 }), piece("2025.01-2025.03", 60, 45, { width: 150 }), piece("合成乙公司", 270, 45, { width: 170 }), piece("工程师", 600, 45, { width: 60 })];
+  assert.equal(reader.layoutText(pieces, 747), "2024.01-2024.03 合成甲公司 运营\n2025.01-2025.03 合成乙公司 工程师");
+  const years = [piece("EmployerA", 70, 10, { width: 150 }), piece("2018", 450, 10, { width: 40 }), piece("2020", 540, 10, { width: 40 }), piece("EmployerB", 70, 25, { width: 150 }), piece("2019", 450, 25, { width: 40 }), piece("2021", 540, 25, { width: 40 })];
+  assert.equal(reader.layoutText(years, 747), "EmployerA 2018 2020\nEmployerB 2019 2021");
+});
+
+test("带波浪号的重复旋转水印去掉，兼容汉字恢复且普通编号和旋转正文保留", () => {
+  const mark = "SYNTHETIC_WATERMARK_01234567890123456789~~", pieces = [piece(mark, 0, 0), piece(mark, 200, 200, { rotation: -40 }), piece(mark, 500, 500, { rotation: -90 }), piece("~", 0, 300, { rotation: -40 }), piece("合法旋转正文", 0, 350, { rotation: -40 }), piece("SINGLE_VALID_IDENTIFIER_0123456789~~", 0, 400)];
+  assert.deepEqual(reader.cleanPieces(pieces).map((item) => item.text), ["合法旋转正文", "SINGLE_VALID_IDENTIFIER_0123456789~~"]);
+  assert.equal(reader.ownText({ childNodes: [{ nodeType: 3, nodeValue: "⼯作：信息管理与信息系统" }] }), "工作:信息管理与信息系统");
 });
 
 test("最早经历按开始年月而非数组顺序，完整解析保留其它经历和人工清空", () => {

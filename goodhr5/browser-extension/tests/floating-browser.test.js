@@ -125,6 +125,17 @@ test("Chrome合成BOSS附件：同源可见框架只读呈现叶子文字，多�
     assert.equal(await page.locator("#business").innerHTML(), before, "提取不得修改网站 DOM");
     await page.evaluate(() => { const frameDoc = document.getElementById("pdf-fixture").contentDocument, layer = frameDoc.createElement("div"), span = frameDoc.createElement("span"); layer.className = "textLayer"; span.setAttribute("role", "presentation"); span.style.cssText = "left:70px;top:20px"; span.textContent = "第二页合成工作经历"; layer.append(span); frameDoc.querySelector('[data-page-number="2"]').append(layer); });
     const full = await page.evaluate(() => GoodHRBossAttachment.extract(document, "https://www.zhipin.com/web/chat/index")); assert.equal(full.attachment.complete, true); assert.equal(full.attachment.blocked, false); assert.ok(full.attachment.text.endsWith("第二页合成工作经历"));
+    await page.evaluate(() => {
+      const frameDoc = document.getElementById("pdf-fixture").contentDocument, layer = frameDoc.querySelector(".textLayer");
+      /** addGlyphs 在独立合成附件里模拟逐字定位，验证浏览器实际字宽而非仅依赖手写坐标。 */
+      const addGlyphs = (text, x, y, step) => Array.from(text).forEach((text, index) => { const span = frameDoc.createElement("span"); span.setAttribute("role", "presentation"); span.style.cssText = `left:${x + index * step}px;top:${y}px`; span.textContent = text; layer.append(span); });
+      addGlyphs("学历：本科在读", 70, 140, 14); addGlyphs("专业：信息管理与信息系统", 300, 140, 14);
+      addGlyphs("联系方式", 70, 165, 14); addGlyphs("邮箱：synthetic@example.test", 300, 165, 9);
+    });
+    const layoutDOM = await page.locator("#business").innerHTML(), restored = await page.evaluate(() => GoodHRBossAttachment.extract(document, "https://www.zhipin.com/web/chat/index"));
+    assert.ok(restored.attachment.text.split("\n").some((line) => line.replace(/\s/g, "").includes("专业:信息管理与信息系统")));
+    assert.ok(restored.attachment.text.split("\n").some((line) => line.replace(/\s/g, "").includes("synthetic@example.test")));
+    assert.equal(await page.locator("#business").innerHTML(), layoutDOM, "逐字排版提取仍不能修改页面 DOM");
     await page.evaluate(() => { const frame = document.createElement("iframe"); frame.srcdoc = document.getElementById("pdf-fixture").srcdoc; document.getElementById("business").append(frame); });
     await page.waitForFunction(() => [...document.querySelectorAll("#business>iframe")].filter((frame) => !frame.hidden && frame.contentDocument?.querySelector(".bzl-office-pdf")).length === 2);
     const ambiguous = await page.evaluate(() => GoodHRBossAttachment.extract(document, "https://www.zhipin.com/web/chat/index")); assert.equal(ambiguous.attachment.text, ""); assert.equal(ambiguous.attachment.blocked, true);

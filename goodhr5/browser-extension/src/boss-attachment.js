@@ -22,42 +22,64 @@
       if (child.nodeType === 3) text += child.nodeValue || "";
       else if (child.nodeType === 1 && !child.matches?.("span[role='presentation']") && visible(child)) text += ownText(child);
     }
-    return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-\u200d\ufeff]/g, "").replace(/\s+/g, " ").trim();
+    return text.normalize("NFKC").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-\u200d\ufeff]/g, "").replace(/\s+/g, " ").trim();
   }
 
   /** cleanPieces 只删除高度确信的重复旋转水印；普通旋转正文继续保留。 */
   function cleanPieces(pieces) {
-    const counts = new Map();
-    for (const piece of pieces) counts.set(piece.text, (counts.get(piece.text) || 0) + 1);
-    const watermarks = new Set(pieces.filter((piece) => /^[A-Za-z0-9_-]{24,}$/.test(piece.text) && counts.get(piece.text) >= 3 && pieces.some((other) => other.text === piece.text && Math.abs(other.rotation) >= 20)).map((piece) => piece.text));
+    const counts = new Map(), rotated = new Set();
+    for (const piece of pieces) { counts.set(piece.text, (counts.get(piece.text) || 0) + 1); if (Math.abs(piece.rotation) >= 20) rotated.add(piece.text); }
+    const watermarks = new Set(pieces.filter((piece) => /^[A-Za-z0-9_-]{24,}[~=]{0,4}$/.test(piece.text) && counts.get(piece.text) >= 3 && rotated.has(piece.text)).map((piece) => piece.text));
     return pieces.filter((piece) => !watermarks.has(piece.text) && !(piece.text.length === 1 && Math.abs(piece.rotation) >= 20 && [...watermarks].some((mark) => mark.includes(piece.text))));
   }
 
   /** rowText 按水平位置拼接同一行，给明显的词间空隙留一个空格。 */
   function rowText(pieces) {
     const ordered = [...pieces].sort((a, b) => a.x - b.x || a.order - b.order);
-    return ordered.map((piece, index) => (index && piece.x - (ordered[index - 1].x + ordered[index - 1].width) > Math.max(2, piece.height * .2) ? " " : "") + piece.text).join("").trim();
+    return ordered.map((piece, index) => { const previous = ordered[index - 1], gap = previous ? piece.x - (previous.x + previous.width) : 0, cjk = previous && /[\u2e80-\u9fff\uf900-\ufaff]$/.test(previous.text) && /^[\u2e80-\u9fff\uf900-\ufaff]/.test(piece.text); return (index && gap > Math.max(2, piece.height * (cjk ? .85 : .2)) ? " " : "") + piece.text; }).join("").trim();
   }
 
-  /** layoutText 按视觉行排序，连续双栏区域先读左栏再读右栏，不使用 PDF 的杂乱 DOM 顺序。 */
+  /** visualRuns 先合并相邻文字片段；只有超过字号和页宽容差的真实大空隙才可能成为栏间空白。 */
+  function visualRuns(row, pageWidth) {
+    const ordered = [...row.items].sort((a, b) => a.x - b.x || a.order - b.order), heights = ordered.map((item) => item.height || 12).sort((a, b) => a - b), gap = Math.max(20, pageWidth * .035, (heights[Math.floor(heights.length / 2)] || 12) * 1.6), runs = [];
+    for (const item of ordered) { const previous = runs[runs.length - 1], right = item.x + item.width; if (previous && item.x - previous.right < gap) { previous.right = Math.max(previous.right, right); previous.items.push(item); } else runs.push({ x: item.x, right, items: [item] }); }
+    return { runs, gap };
+  }
+
+  /** columnBand 仅以多行共享的真实空白确定栏界，整段文字不能跨栏拆分；公司和日期等表格行保持横向关联。 */
+  function columnBand(rows, start, pageWidth) {
+    const dated = (row) => row.items.some((item) => Math.abs(item.rotation) >= 20) || /(?:^|[^\d])(?:19|20)\d{2}(?:[^\d]|$)/.test(rowText(row.items)), first = visualRuns(rows[start], pageWidth);
+    if (dated(rows[start]) || first.runs.length < 2) return null;
+    let best = null;
+    for (let boundary = 1; boundary < first.runs.length; boundary++) {
+      let left = first.runs[boundary - 1].right, right = first.runs[boundary].x, evidence = 1;
+      for (let index = start + 1; index < rows.length; index++) {
+        const row = rows[index]; if (dated(row) || row.y - rows[index - 1].y > Math.max(40, row.height * 3)) break;
+        const { runs, gap } = visualRuns(row, pageWidth), blanks = [[-Infinity, runs[0].x], ...runs.slice(1).map((run, position) => [runs[position].right, run.x]), [runs[runs.length - 1].right, Infinity]];
+        const possible = blanks.map(([low, high]) => [Math.max(left, low), Math.min(right, high)]).filter(([low, high]) => high - low >= Math.max(first.gap, gap)).sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]));
+        if (!possible.length) break;
+        [left, right] = possible[0]; if (runs.some((run) => run.right <= left) && runs.some((run) => run.x >= right)) evidence++;
+        if (evidence >= 2 && (!best || evidence > best.evidence || (evidence === best.evidence && index + 1 > best.end) || (evidence === best.evidence && index + 1 === best.end && right - left > best.width))) best = { end: index + 1, split: (left + right) / 2, evidence, width: right - left };
+      }
+    }
+    return best;
+  }
+
+  /** layoutText 按视觉行排序，仅在多行空白已证实时按实际栏界读取；普通整行和逐字内容不按固定页中线切断。 */
   function layoutText(input, pageWidth) {
     const pieces = cleanPieces(input), rows = [];
     for (const piece of [...pieces].sort((a, b) => a.y - b.y || a.x - b.x || a.order - b.order)) {
       const previous = rows[rows.length - 1];
-      if (previous && Math.abs(previous.y - piece.y) <= Math.max(2, Math.min(previous.height, piece.height) * .48)) previous.items.push(piece);
+      const height = piece.height || 12, commonHeight = previous ? Math.min(previous.height, height) : height, overlap = previous ? Math.min(previous.y + previous.height, piece.y + height) - Math.max(previous.y, piece.y) : 0;
+      if (previous && !previous.items.some((item) => Math.abs(item.rotation) >= 20) && Math.abs(piece.rotation) < 20 && (Math.abs(previous.y - piece.y) <= Math.max(2, commonHeight * .48) || (overlap >= commonHeight * .6 && Math.abs(previous.y + previous.height - piece.y - height) <= Math.max(2, commonHeight * .35)))) { previous.items.push(piece); previous.height = Math.max(previous.height, piece.y + height - previous.y); }
       else rows.push({ y: piece.y, height: piece.height || 12, items: [piece] });
     }
     const lines = [];
     for (let index = 0; index < rows.length;) {
-      const band = [], split = pageWidth * .48;
-      /** twoColumns 判断一行是否存在左右两块，避免把正常单行句子硬切开。 */
-      const twoColumns = (row) => row.items.some((item) => item.x < split && item.x + item.width < split) && row.items.some((item) => item.x >= split && !/^[\d年月.\-—~至今/\s]+$/.test(item.text)) && row.items.every((item) => item.width < pageWidth * .48);
-      if (!twoColumns(rows[index])) { lines.push(rowText(rows[index++].items)); continue; }
-      let end = index;
-      while (end < rows.length && twoColumns(rows[end]) && (!band.length || rows[end].y - rows[end - 1].y < Math.max(rows[end].height * 3, 40))) band.push(rows[end++]);
-      if (band.length < 2) { lines.push(rowText(rows[index++].items)); continue; }
-      for (const right of [false, true]) for (const row of band) lines.push(rowText(row.items.filter((item) => (item.x >= split) === right)));
-      index = end;
+      const band = columnBand(rows, index, pageWidth);
+      if (!band) { lines.push(rowText(rows[index++].items)); continue; }
+      for (const right of [false, true]) for (const row of rows.slice(index, band.end)) lines.push(rowText(row.items.filter((item) => (item.x >= band.split) === right)));
+      index = band.end;
     }
     return lines.filter(Boolean).join("\n");
   }
