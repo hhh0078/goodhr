@@ -162,6 +162,11 @@ async function main() {
       assert.equal(article.articleBody, CONTENT);
       assert.equal(article.mainEntityOfPage, `${SITE}/articles/${articleID(1)}`);
       assert.ok(structured.some((entry) => entry["@type"] === "BreadcrumbList"));
+      const navigation = text.match(/<nav[^>]*aria-label="官网导航"[^>]*>([^]*?)<\/nav>/u);
+      assert.ok(navigation, "原始 HTML 缺少官网导航");
+      const links = [...navigation[1].matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>([^]*?)<\/a>/gu)];
+      assert.deepEqual(links.map((entry) => decodedHTMLText(entry[2].replace(/<[^>]+>/gu, ""))), ["首页", "功能介绍", "定价", "视频教程", "动态", "下载", "联系作者"]);
+      assert.deepEqual(links.map((entry) => entry[1]), FIXED_PATHS);
     });
     await check("normal.invalid_or_missing_markdown_404", async () => {
       for (const id of ["not-a-uuid", articleID(99)]) {

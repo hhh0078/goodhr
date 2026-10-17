@@ -160,7 +160,7 @@ for (const width of [1440, 1051, 390]) {
     await page.goto("/articles");
     if (width < 1051) await page.getByRole("button", { name: "打开导航菜单", exact: true }).click();
     const nav = page.getByRole("navigation", { name: width < 1051 ? "移动端官网导航" : "官网导航", exact: true });
-    await expect(nav.getByRole("link", { name: "文章/动态", exact: true })).toHaveAttribute("href", "/articles");
+    await expect(nav.getByRole("link", { name: "动态", exact: true })).toHaveAttribute("href", "/articles");
     if (width < 1051) await page.getByLabel("关闭导航菜单", { exact: true }).click();
     const screenshotDir = resolve("artifacts/articles-20261017");
     mkdirSync(screenshotDir, { recursive: true });
