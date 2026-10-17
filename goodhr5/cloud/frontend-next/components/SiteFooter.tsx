@@ -5,10 +5,10 @@ import BrandMark from "./BrandMark";
 
 const footerLinks = [
   { label: "功能介绍", href: "/features" },
-  { label: "产品定价", href: "/pricing" },
+  { label: "定价", href: "/pricing" },
   { label: "视频教程", href: "/videos" },
   { label: "下载", href: "/download" },
-  { label: "联系我们", href: "/contact" },
+  { label: "联系作者", href: "/contact" },
 ];
 
 /** SiteFooter 输出品牌、联系信息和版权说明。 */

@@ -12,11 +12,11 @@ import PublicStats from "./PublicStats";
 const navItems = [
   { label: "首页", href: "/" },
   { label: "功能介绍", href: "/features" },
-  { label: "产品定价", href: "/pricing" },
+  { label: "定价", href: "/pricing" },
   { label: "视频教程", href: "/videos" },
-  { label: "文章/动态", href: "/articles" },
+  { label: "动态", href: "/articles" },
   { label: "下载", href: "/download" },
-  { label: "联系我们", href: "/contact" },
+  { label: "联系作者", href: "/contact" },
 ];
 
 /** SiteHeaderClient 输出带交互的桌面导航和移动端菜单。 */
