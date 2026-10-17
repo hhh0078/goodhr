@@ -30,3 +30,13 @@ Windows沿用Camoufox原生临时加载。macOS的临时通道会绕过旧的“
 4. 浏览器保持运行时再次打开同一页面返回`reused=true`，没有再次执行插件准备步骤。
 
 Windows独立安装包：`/zip/GoodHR-Local-Agent-Setup-v6.2.11.1-windows-x64.exe`，31177141字节，SHA256为`3fe17c4b083328f3a93522d868ef6732792fa0ea8fed6138c08683bd30defe45`，主程序构建提交为`7e5efb61a3c3f51b1229b33ee252f41bb74cd568`。安装包与临时插件清单已单独发布，本轮没有修改正式本地程序更新配置，也没有重启云端容器。
+
+## 正式更新入口补充（2026-10-17）
+
+按用户随后要求，已将上述已安装验收的Windows 6.2.11.1 EXE加入`system.onboarding_config.local_agent`正式更新记录首项，官网`/download`和`/api/system/local-agent-updates`均已显示新版本及同一下载地址。更新器原生支持EXE，未使用包含主程序的便携ZIP冒充安装器。
+
+只前插一条Windows记录，保留原47条历史记录和全部Mac下载信息；Mac最新仍为已发布的6.2.11.0。`runtime_components`、应用配置、浏览器插件签名配置和运行容器均保持。变更前备份完整配置行，并在临时表事务内验证更新、回滚后原记录完全一致，再使用原JSON和更新时间进行并发校验后写入一行。备份及回退SQL位于服务器`/opt/goodhr-release/local-agent-6-2-11-1-formal-7b2d471d-20261017`。
+
+托管火狐临时插件清单继续发布1.0.16；普通Firefox的Mozilla签名版仍为1.0.9，未把未签名包标成签名包。Chrome下载包为1.0.16。
+
+另已核对浏览器本体：本机仍为152.0.4-beta.30。官方156.0.1-beta.36的`PageHandler.js`已替换旧鼠标实现，现有GoodHR v11补丁要求的两个锚点不存在，且内置中文语言包仅支持152。因此本次没有直接替换浏览器内核；156需要先完成输入实现和中文语言包适配及真实操作回归。
