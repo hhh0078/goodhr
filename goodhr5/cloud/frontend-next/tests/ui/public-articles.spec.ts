@@ -55,10 +55,16 @@ test("文章新增与删除立即改变 sitemap，五万篇以上有分片，接
   expect(index.status()).toBe(200);
   expect(index.headers()["content-type"]).toContain("application/xml");
   expect(index.headers()["cache-control"]).toContain("no-store");
-  expect(await index.text()).toContain("/sitemaps/articles/1.xml");
+  const rootXML = await index.text();
+  expect(rootXML).toContain("<urlset");
+  expect((rootXML.match(/<url>/g) || [])).toHaveLength(28);
+  for (const path of ["/features", "/pricing", "/videos", "/download", "/contact", "/articles", `/articles/${firstID}`]) {
+    expect(rootXML).toContain(`https://goodhr.58it.cn${path}</loc>`);
+  }
   expect(await (await request.get("/sitemaps/site.xml")).text()).toContain("https://goodhr.58it.cn/articles</loc>");
   expect(await (await request.get("/sitemaps/articles/1.xml")).text()).toContain(firstID);
   await setArticlesMode("deleted");
+  expect(await (await request.get("/sitemap.xml")).text()).not.toContain(firstID);
   expect(await (await request.get("/sitemaps/articles/1.xml")).text()).not.toContain(firstID);
   await setArticlesMode("normal");
   expect(await (await request.get("/sitemaps/articles/1.xml")).text()).toContain(firstID);
@@ -69,11 +75,83 @@ test("文章新增与删除立即改变 sitemap，五万篇以上有分片，接
   expect(last.status()).toBe(200);
   expect(((await last.text()).match(/<url>/g) || [])).toHaveLength(1);
   await setArticlesMode("empty");
-  expect(await (await request.get("/sitemap.xml")).text()).not.toContain("/sitemaps/articles/1.xml");
+  const emptyXML = await (await request.get("/sitemap.xml")).text();
+  expect(emptyXML).toContain("<urlset");
+  expect((emptyXML.match(/<url>/g) || [])).toHaveLength(7);
+  expect(emptyXML).toContain("/videos</loc>");
+  expect(emptyXML).toContain("/contact</loc>");
   expect((await request.get("/sitemaps/articles/1.xml")).status()).toBe(404);
   await setArticlesMode("unavailable");
   expect((await request.get("/sitemap.xml")).status()).toBe(503);
   expect((await request.get("/sitemaps/articles/1.xml")).status()).toBe(503);
+});
+
+test("robots 指向动态地图，AI 目录和逐篇纯文本随公开文章同步", async ({ request }) => {
+  const robots = await request.get("/robots.txt");
+  expect(robots.status()).toBe(200);
+  expect(robots.headers()["cache-control"]).toContain("no-store");
+  const rules = await robots.text();
+  expect(rules).toContain("User-agent: *");
+  expect(rules).toContain("Disallow: /admin");
+  expect(rules).toContain("Disallow: /api/");
+  expect(rules).toContain("Sitemap: https://goodhr.58it.cn/sitemap.xml");
+  expect(rules).toContain("https://goodhr.58it.cn/llms.txt");
+  const llms = await request.get("/llms.txt");
+  expect(llms.status()).toBe(200);
+  expect(llms.headers()["cache-control"]).toContain("no-store");
+  expect(llms.headers()["content-type"]).toContain("text/plain");
+  const index = await llms.text();
+  expect(index).toContain("[视频教程](https://goodhr.58it.cn/videos)");
+  expect(index).toContain("[联系我们](https://goodhr.58it.cn/contact)");
+  expect(index).toContain(`/articles/${firstID}/content.md`);
+  expect(index).not.toContain("/admin/");
+  const markdown = await request.get(`/articles/${firstID}/content.md`);
+  expect(markdown.status()).toBe(200);
+  expect(markdown.headers()["content-type"]).toContain("text/plain");
+  expect(markdown.headers()["x-content-type-options"]).toBe("nosniff");
+  expect(await markdown.text()).toContain("第一段：每天少做一点重复工作。\n\n第二段");
+  await setArticlesMode("deleted");
+  expect(await (await request.get("/llms.txt")).text()).not.toContain(firstID);
+  expect((await request.get(`/articles/${firstID}/content.md`)).status()).toBe(404);
+  expect((await request.get("/articles/not-a-uuid/content.md")).status()).toBe(404);
+  await setArticlesMode("empty");
+  expect((await request.get("/llms.txt")).status()).toBe(200);
+  expect((await request.get("/llms/articles/1.txt")).status()).toBe(200);
+  expect((await request.get("/llms/articles/2.txt")).status()).toBe(404);
+  await setArticlesMode("many");
+  expect(await (await request.get("/llms.txt")).text()).toContain("/llms/articles/2.txt");
+  const next = await request.get("/llms/articles/2.txt");
+  expect(next.status()).toBe(200);
+  expect(await next.text()).toContain("/articles/10000000-0000-4000-8000-000000001001/content.md");
+  expect((await request.get("/llms/articles/53.txt")).status()).toBe(404);
+  expect((await request.get("/llms/articles/0.txt")).status()).toBe(404);
+  await setArticlesMode("unavailable");
+  for (const path of ["/llms.txt", "/llms/articles/1.txt", `/articles/${firstID}/content.md`]) {
+    const failed = await request.get(path);
+    expect(failed.status(), path).toBe(503);
+    expect(failed.headers()["retry-after"]).toBe("60");
+  }
+  expect((await request.get("/robots.txt")).status()).toBe(200);
+});
+
+test("千篇边界切换完整站点地图，目录缺项会返回可重试错误", async ({ request }) => {
+  await setArticlesMode("thousand");
+  const flat = await (await request.get("/sitemap.xml")).text();
+  expect(flat).toContain("<urlset");
+  expect((flat.match(/<url>/g) || [])).toHaveLength(1007);
+  await setArticlesMode("overflow");
+  const index = await (await request.get("/sitemap.xml")).text();
+  expect(index).toContain("<sitemapindex");
+  expect((index.match(/<sitemap>/g) || [])).toHaveLength(3);
+  const tail = await request.get("/sitemaps/articles/2.xml");
+  expect(tail.status()).toBe(200);
+  expect((await tail.text()).match(/<url>/g)).toHaveLength(1);
+  await setArticlesMode("partial");
+  for (const path of ["/sitemap.xml", "/sitemaps/articles/1.xml", "/llms.txt", "/llms/articles/1.txt"]) {
+    const failed = await request.get(path);
+    expect(failed.status(), path).toBe(503);
+    expect(failed.headers()["retry-after"]).toBe("60");
+  }
 });
 
 for (const width of [1440, 1051, 390]) {

@@ -24,9 +24,10 @@ function handleRequest(request, response) {
   if (catalog || url.pathname === "/api/public/articles") {
     const page = Number(url.searchParams.get("page") || 1);
     const pageSize = Number(url.searchParams.get("page_size") || (catalog ? 100 : 20));
-    const total = mode === "empty" ? 0 : mode === "many" ? 51001 : mode === "deleted" ? 20 : 21;
+    const total = mode === "empty" ? 0 : mode === "many" ? 51001 : mode === "thousand" ? 1000 : mode === "overflow" ? 1001 : mode === "deleted" ? 20 : 21;
     const start = (page - 1) * pageSize;
     const items = Array.from({ length: Math.max(0, Math.min(pageSize, total - start)) }, (_, index) => summary(start + index + (mode === "deleted" ? 2 : 1)));
+    if (mode === "partial") items.pop();
     return json(response, 200, { ok: true, items, total, page, page_size: pageSize });
   }
   const id = url.pathname.split("/").at(-1);

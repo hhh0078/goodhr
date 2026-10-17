@@ -2,10 +2,11 @@
 
 import { articleSitemapResponse, sitemapURLSetXML } from "@/lib/article-public-utils";
 import { absoluteURL } from "@/lib/seo";
+import { PUBLIC_SITE_PAGES } from "@/lib/public-site-pages";
 
 export const dynamic = "force-dynamic";
 
 /** GET 输出无需登录的官网页面与文章目录入口。 */
 export function GET() {
-  return articleSitemapResponse(sitemapURLSetXML(["/", "/features", "/pricing", "/videos", "/download", "/contact", "/articles"].map((path) => ({ url: absoluteURL(path) }))));
+  return articleSitemapResponse(sitemapURLSetXML(PUBLIC_SITE_PAGES.map(({ path }) => ({ url: absoluteURL(path) }))));
 }

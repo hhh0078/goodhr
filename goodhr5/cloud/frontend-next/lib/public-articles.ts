@@ -25,6 +25,7 @@ async function readPublicArticlePage<T extends PublicArticleCatalogEntry>(path: 
   if (!response.ok) throw new Error(`读取公开文章失败：${response.status}`);
   const data = await response.json();
   if (!Array.isArray(data?.items) || !Number.isSafeInteger(data.total) || data.total < 0 || data.page !== page || data.page_size !== pageSize) throw new Error("公开文章分页响应不完整");
+  if (data.items.length !== Math.min(pageSize, Math.max(0, data.total - (page - 1) * pageSize))) throw new Error("公开文章分页条目缺失");
   if (data.items.some((item: PublicArticleCatalogEntry) => !item || !ARTICLE_ID_PATTERN.test(item.id) || typeof item.title !== "string" || !Number.isFinite(new Date(item.published_at).getTime()))) throw new Error("公开文章字段不完整");
   return { items: data.items, total: data.total, page: data.page, page_size: data.page_size };
 }
