@@ -63,7 +63,7 @@ export async function getFirefoxTemporaryRelease(): Promise<FirefoxTemporaryRele
     const response = await fetch(new URL("/zip/goodhr-resume-firefox-latest.json", SITE_URL), {
       cache: "no-store",
       redirect: "error",
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(3000),
     });
     if (!response.ok || Number(response.headers.get("content-length")) > 16384) return null;
     const body = await response.text();

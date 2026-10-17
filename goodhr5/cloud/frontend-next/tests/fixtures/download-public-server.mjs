@@ -41,12 +41,17 @@ function servePublicFixture(request, response) {
   const path = new URL(request.url, `http://127.0.0.1:${port}`).pathname;
   if (path === "/__test__/firefox-release") {
     const mode = new URL(request.url, `http://127.0.0.1:${port}`).searchParams.get("mode");
-    firefoxReleaseMode = ["unsigned", "temporary-unavailable", "temporary-invalid"].includes(mode) ? mode : "signed";
+    firefoxReleaseMode = ["unsigned", "temporary-unavailable", "temporary-invalid", "temporary-pending"].includes(mode) ? mode : "signed";
     response.writeHead(204);
     response.end();
     return;
   }
   if (path === "/zip/goodhr-resume-firefox-latest.json") {
+    if (firefoxReleaseMode === "temporary-pending") {
+      // 故意不发送响应头；前端取消请求后关闭连接，避免测试遗留悬挂套接字。
+      response.once("close", () => request.socket.destroy());
+      return;
+    }
     response.writeHead(firefoxReleaseMode === "temporary-unavailable" ? 503 : 200, { "Content-Type": "application/json" });
     response.end(JSON.stringify(firefoxTemporaryRelease()));
     return;

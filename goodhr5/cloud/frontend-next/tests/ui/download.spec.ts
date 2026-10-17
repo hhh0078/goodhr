@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 const fixtureOrigin = `http://127.0.0.1:${process.env.DOWNLOAD_FIXTURE_PORT || "5239"}`;
 
 /** setFirefoxReleaseMode 切换合成接口的旧签名包或最新临时清单状态。 */
-async function setFirefoxReleaseMode(mode: "signed" | "unsigned" | "temporary-unavailable" | "temporary-invalid") {
+async function setFirefoxReleaseMode(mode: "signed" | "unsigned" | "temporary-unavailable" | "temporary-invalid" | "temporary-pending") {
   const response = await fetch(`${fixtureOrigin}/__test__/firefox-release?mode=${mode}`);
   if (!response.ok) throw new Error(`切换 Firefox 合成配置失败：${response.status}`);
 }
@@ -174,14 +174,21 @@ test("旧签名通道不可用时仍下载新版临时 Firefox 包", async ({ pa
 
 test("最新 Firefox 清单失效时明确停用下载，不退回旧签名版本", async ({ page }) => {
   try {
-    for (const mode of ["temporary-unavailable", "temporary-invalid"] as const) {
+    // 先完成路由编译与正常读取，五秒预算只验证后续外部清单故障时的页面降级。
+    await setFirefoxReleaseMode("signed");
+    await page.goto("/download");
+    for (const mode of ["temporary-unavailable", "temporary-invalid", "temporary-pending"] as const) {
       await setFirefoxReleaseMode(mode);
-      await page.goto("/download");
+      await page.goto("/download", { timeout: 5000 });
       const extension = page.locator("#browser-extension");
       await expect(extension).toContainText("暂时没读到最新插件，请稍后重试。");
       await expect(extension.getByRole("link", { name: "下载 Firefox 插件", exact: true })).toHaveCount(0);
       await expect(extension).not.toContainText("当前版本 1.0.3。");
       await expect(extension.getByText("正在准备中", { exact: true })).toBeVisible();
+      if (mode === "temporary-pending") {
+        mkdirSync(resolve("artifacts/resume-library"), { recursive: true });
+        await page.screenshot({ path: resolve("artifacts/resume-library/download-firefox-timeout.png"), fullPage: true });
+      }
     }
   } finally {
     await setFirefoxReleaseMode("signed");

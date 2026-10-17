@@ -772,7 +772,7 @@ test("添加默认AI三标签直接切换，文件文本和手工草稿各自保
   await dialog.getByLabel("手机号", { exact: true }).fill("13900139000");
   await dialog.getByLabel("首条备注", { exact: true }).fill("切换标签后仍需保留的备注");
   await dialog.getByRole("tab", { name: "浏览器插件一键导入", exact: true }).click();
-  await expect(dialog.getByText("当前支持：猎聘企业端、猎聘猎头端、智联招聘、前程无忧", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("当前支持：BOSS直聘、猎聘企业端、猎聘猎头端、智联招聘、前程无忧", { exact: true })).toBeVisible();
   await expect(dialog.getByText(/Chrome 和 Firefox 都可以下载/)).toBeVisible();
   await expect(dialog.getByRole("link", { name: /前往下载$/ })).toHaveAttribute("href", "/download#browser-extension");
   await expect(dialog.getByRole("link", { name: /前往下载$/ })).toHaveAttribute("target", "_blank");
@@ -795,7 +795,7 @@ test("添加默认AI三标签直接切换，文件文本和手工草稿各自保
 test("简历库顶部用文字链接直接前往浏览器插件下载页", async ({ page }) => {
   const state = await mockResumeSession(page);
   await page.goto("/admin/resumes");
-  await expect(page.getByText(/浏览器插件支持 猎聘企业端、猎聘猎头端、智联招聘、前程无忧/)).toBeVisible();
+  await expect(page.getByText(/浏览器插件支持 BOSS直聘、猎聘企业端、猎聘猎头端、智联招聘、前程无忧/)).toBeVisible();
   const download = page.getByRole("link", { name: "下载浏览器插件", exact: true });
   await expect(download).toHaveAttribute("href", "/download#browser-extension");
   await expect(download).toHaveAttribute("target", "_blank");
@@ -894,7 +894,7 @@ test("候选人手机号紧邻姓名且头像垂直居中，公司名称比职�
   const companyWeight = await company.evaluate((element) => Number(getComputedStyle(element).fontWeight));
   const bodyWeight = await company.locator("..").evaluate((element) => Number(getComputedStyle(element).fontWeight));
   expect(companyWeight).toBeGreaterThan(bodyWeight);
-  const privacyNotice = page.getByTitle("请勿非法买卖简历。平台不会出售您的简历，分享权限由您掌握。浏览器插件支持猎聘企业端、猎聘猎头端、智联招聘、前程无忧。", { exact: true });
+  const privacyNotice = page.getByTitle("请勿非法买卖简历。平台不会出售您的简历，分享权限由您掌握。浏览器插件支持BOSS直聘、猎聘企业端、猎聘猎头端、智联招聘、前程无忧。", { exact: true });
   await expect(privacyNotice).toBeVisible();
   const [noticeBox, filtersBox] = await Promise.all([privacyNotice.boundingBox(), page.getByTestId("resume-filters").boundingBox()]);
   if (!noticeBox || !filtersBox) throw new Error("简历保护提示或搜索栏没有显示。");
