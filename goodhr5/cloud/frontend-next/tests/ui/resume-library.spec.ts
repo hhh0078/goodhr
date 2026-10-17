@@ -907,6 +907,9 @@ test("候选人手机号紧邻姓名且头像垂直居中，公司名称比职�
   await page.setViewportSize({ width: 1920, height: 1000 });
   await name.click();
   const drawer = page.getByRole("dialog", { name: "原有候选人", exact: true });
+  // 等入场缩放结束再测量实际间距，保留姓名与手机号原有的布局要求。
+  await expect(drawer).toBeVisible();
+  await expect(drawer).not.toHaveClass(/ant-zoom-(appear|enter)/);
   const detailName = drawer.getByRole("heading", { name: "原有候选人", exact: true });
   const detailPhone = drawer.getByText(existing.phone, { exact: true });
   const [detailNameBox, detailPhoneBox] = await Promise.all([detailName.boundingBox(), detailPhone.boundingBox()]);
