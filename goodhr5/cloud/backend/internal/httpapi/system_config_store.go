@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 )
 
 // SystemConfig 表示一条系统配置记录。
@@ -32,6 +33,7 @@ var ErrConfigNotFound = errors.New("system config not found")
 
 // MemorySystemConfigStore 在内存中存储系统配置，用于未启用 PostgreSQL 时的开发环境。
 type MemorySystemConfigStore struct {
+	mu      sync.RWMutex
 	configs map[string]SystemConfig
 }
 
@@ -363,6 +365,8 @@ func defaultSystemGuideConfig() string {
 
 // Get 按配置键读取一条配置。
 func (s *MemorySystemConfigStore) Get(key string) (SystemConfig, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	cfg, ok := s.configs[key]
 	if !ok || !cfg.Enabled {
 		return SystemConfig{}, ErrConfigNotFound
@@ -372,6 +376,8 @@ func (s *MemorySystemConfigStore) Get(key string) (SystemConfig, error) {
 
 // List 列出所有启用且键名匹配 prefix 的配置。
 func (s *MemorySystemConfigStore) List(prefix string) ([]SystemConfig, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	var result []SystemConfig
 	for key, cfg := range s.configs {
 		if !cfg.Enabled {
@@ -386,6 +392,8 @@ func (s *MemorySystemConfigStore) List(prefix string) ([]SystemConfig, error) {
 
 // Save 保存或更新一条系统配置。
 func (s *MemorySystemConfigStore) Save(cfg SystemConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.configs[cfg.ConfigKey] = cfg
 	return nil
 }

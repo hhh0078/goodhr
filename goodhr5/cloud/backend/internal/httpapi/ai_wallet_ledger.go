@@ -320,7 +320,11 @@ func (s *MemoryAIWalletStore) saveMemoryLedgerLocked(email string, ledger aiWall
 	s.balances[email] = ledger.BalanceUnits
 	if record != nil {
 		record.WalletLedgerVersion = aiWalletLedgerVersion
-		record.ID = fmt.Sprintf("wallet-%d", len(s.records)+1)
+		if s.nextRecordID < int64(len(s.records)) {
+			s.nextRecordID = int64(len(s.records))
+		}
+		s.nextRecordID++
+		record.ID = fmt.Sprintf("wallet-%d", s.nextRecordID)
 		s.records = append(s.records, *record)
 	}
 }

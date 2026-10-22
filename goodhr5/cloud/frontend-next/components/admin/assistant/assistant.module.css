@@ -1,0 +1,16 @@
+/* 文件作用说明：为全局 AI 弹框提供可滚动对话、紧凑工具记录与手机布局，沿用后台主题。 */
+.shell { display: flex; flex-direction: column; gap: 12px; }
+.sessionSelect { min-width: 160px; flex: 1; max-width: 460px; }
+.messages { height: min(52dvh, 570px); min-height: 220px; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; padding: 4px; }
+.message { max-width: 94%; border: 1px solid var(--ant-color-border-secondary); border-radius: 8px; padding: 12px; overflow-wrap: anywhere; }
+.assistant { align-self: flex-start; width: 94%; background: var(--ant-color-bg-container); }
+.user { align-self: flex-end; background: var(--ant-color-primary-bg); }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 0; line-height: 1.75; }
+.meta { font-size: 12px; }
+.tools { margin: 8px 0; }
+.toolBody { max-height: 320px; overflow: auto; }
+@media (max-width: 599px) {
+  .messages { height: 43dvh; min-height: 180px; }
+  .message, .assistant { max-width: 100%; width: auto; }
+  .sessionSelect { min-width: 130px; }
+}

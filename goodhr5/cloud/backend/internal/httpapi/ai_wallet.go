@@ -567,11 +567,13 @@ func (c builtinAIConfig) modelIDs() []string {
 
 // MemoryAIWalletStore 在内存中保存 AI 余额，用于开发环境。
 type MemoryAIWalletStore struct {
-	mu       sync.Mutex
-	balances map[string]int64
-	records  []AIWalletRecord
-	aiKeys   map[string]string
-	ledgers  map[string]aiWalletLedger
+	mu           sync.Mutex
+	balances     map[string]int64
+	records      []AIWalletRecord
+	aiKeys       map[string]string
+	ledgers      map[string]aiWalletLedger
+	usageDaily   map[string]aiUsageDaily
+	nextRecordID int64
 }
 
 // NewMemoryAIWalletStore 创建内存 AI 钱包存储。
@@ -616,9 +618,25 @@ func (s *MemoryAIWalletStore) ListRecords(email string, limit int, offset int) (
 // UsageUnitsBetween 汇总内存流水中指定时间区间的 AI 调用扣费，不包含充值、赠送和退款。
 // start 为包含的起始时间，end 为不包含的结束时间；统计不受用户筛选或流水分页影响。
 func (s *MemoryAIWalletStore) UsageUnitsBetween(start time.Time, end time.Time) (int64, error) {
+	if !start.Before(end) {
+		return 0, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var units int64
+	for _, daily := range s.usageDaily {
+		if !daily.Day.Before(end) || !daily.Day.AddDate(0, 0, 1).After(start) {
+			continue
+		}
+		if daily.Day.Before(start) || daily.Day.AddDate(0, 0, 1).After(end) {
+			return 0, errors.New("历史消费按日汇总，请使用完整北京时间日期查询")
+		}
+		var err error
+		units, err = checkedAIWalletAdd(units, daily.Units)
+		if err != nil {
+			return 0, err
+		}
+	}
 	for _, record := range s.records {
 		if record.Category != "ai_usage" || record.ChangeUnits >= 0 || record.CreatedAt.Before(start) || !record.CreatedAt.Before(end) {
 			continue
@@ -720,14 +738,27 @@ func (s *PostgresAIWalletStore) ListRecords(email string, limit int, offset int)
 // UsageUnitsBetween 在 PostgreSQL 中汇总全部用户的实际 AI 扣费，使用整数单位保留账本精度。
 // start 为包含的起始时间，end 为不包含的结束时间；没有扣费记录时返回零，读取失败时返回错误。
 func (s *PostgresAIWalletStore) UsageUnitsBetween(start time.Time, end time.Time) (int64, error) {
+	if !start.Before(end) {
+		return 0, nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var units int64
+	var partial bool
 	err := s.db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(-change_units::numeric), 0)
-		FROM ai_balance_records
-		WHERE category='ai_usage' AND change_units<0 AND created_at >= $1 AND created_at < $2
-	`, start, end).Scan(&units)
+		SELECT COALESCE(SUM(units), 0), COALESCE(BOOL_OR(partial), false) FROM (
+		 SELECT -change_units::numeric AS units, false AS partial FROM ai_balance_records
+		 WHERE category='ai_usage' AND change_units<0 AND created_at >= $1 AND created_at < $2
+		 UNION ALL
+		 SELECT usage_units::numeric,
+		   (usage_day::timestamp AT TIME ZONE 'Asia/Shanghai') < $1 OR ((usage_day+1)::timestamp AT TIME ZONE 'Asia/Shanghai') > $2
+		 FROM ai_usage_daily
+		 WHERE (usage_day::timestamp AT TIME ZONE 'Asia/Shanghai') < $2 AND ((usage_day+1)::timestamp AT TIME ZONE 'Asia/Shanghai') > $1
+		) combined
+	`, start, end).Scan(&units, &partial)
+	if err == nil && partial {
+		return 0, errors.New("历史消费按日汇总，请使用完整北京时间日期查询")
+	}
 	return units, err
 }
 

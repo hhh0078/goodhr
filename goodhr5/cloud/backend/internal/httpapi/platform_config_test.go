@@ -19,11 +19,13 @@ func TestPublicPlatformConfigsWithoutLogin(t *testing.T) {
 	if !ok {
 		t.Skip("仅在内存配置存储下验证公开平台配置接口")
 	}
-	store.configs["platform.boss"] = SystemConfig{
+	if err := store.Save(SystemConfig{
 		ConfigKey:   "platform.boss",
 		ConfigValue: `{"id":"boss","name":"Boss直聘"}`,
 		Description: "Boss 平台配置",
 		Enabled:     true,
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/platforms/config/", nil)
@@ -54,11 +56,13 @@ func TestAdminPlatformConfigsRequiresSuperAdmin(t *testing.T) {
 	if !ok {
 		t.Skip("仅在内存配置存储下验证管理员平台配置接口")
 	}
-	store.configs["platform.boss"] = SystemConfig{
+	if err := store.Save(SystemConfig{
 		ConfigKey:   "platform.boss",
 		ConfigValue: `{"id":"boss","name":"Boss直聘"}`,
 		Description: "Boss 平台配置",
 		Enabled:     true,
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	token := "token_admin_platform_config"
@@ -125,11 +129,13 @@ func TestAdminPlatformConfigsUpdate(t *testing.T) {
 	if !ok {
 		t.Skip("仅在内存配置存储下验证管理员平台配置更新接口")
 	}
-	store.configs["platform.boss"] = SystemConfig{
+	if err := store.Save(SystemConfig{
 		ConfigKey:   "platform.boss",
 		ConfigValue: `{"id":"boss","name":"Boss直聘"}`,
 		Description: "Boss 平台配置",
 		Enabled:     true,
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	token := "token_admin_platform_config_update"

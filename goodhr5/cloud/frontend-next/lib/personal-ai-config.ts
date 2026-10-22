@@ -9,10 +9,14 @@ export type BuiltinAIModel = {
   output_price_per_1m_cents?: number;
 };
 
-/** usesBuiltinAIModels 判断接口地址是否包含当前网站域名，忽略大小写。 */
+/** usesBuiltinAIModels 严格核对 HTTP(S) 地址的真实主机，拒绝路径伪装、相似域名和用户信息。 */
 export function usesBuiltinAIModels(baseURL: string, hostname: string) {
   const domain = hostname.trim().toLowerCase();
-  return Boolean(domain && baseURL.toLowerCase().includes(domain));
+  if (!domain) return false;
+  try {
+    const url = new URL(baseURL.trim());
+    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && url.hostname.toLowerCase() === domain;
+  } catch { return false; }
 }
 
 /** normalizeBuiltinAIModels 保留有效且不重复的模型，按系统配置原顺序排列。 */

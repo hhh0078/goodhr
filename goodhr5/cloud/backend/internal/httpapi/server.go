@@ -23,6 +23,10 @@ type Server struct {
 	attachmentParses      *AttachmentParseService
 	attachmentImports     *AttachmentImportService
 	aiWallet              *AIWalletService
+	aiUsageRetention      *AIUsageRetentionService
+	assistant             *AssistantService
+	resumeVectors         *ResumeVectorService
+	headhunter            *HeadhunterService
 	userPreferences       *UserPreferencesService
 	notificationProfile   *NotificationProfileService
 	platformAccounts      *PlatformAccountService
@@ -132,6 +136,22 @@ func NewServer() (*Server, error) {
 	}
 	attachmentImports := NewAttachmentImportService(attachmentService, candidates, messages)
 	attachmentImports.StartRecovery(context.Background())
+	// 客户业务岗位独立于平台自动招聘配置，复用当前团队与成员权限。
+	var headhunterStore HeadhunterStore = NewMemoryHeadhunterStore()
+	if db != nil {
+		headhunterStore = NewPostgresHeadhunterStore(db)
+	}
+	headhunterService := NewHeadhunterService(auth, headhunterStore, tenantStore, positionStore)
+	headhunterService.SetBusinessStores(candidateStore, recruitmentStore)
+	searchIndex := newResumeSearch()
+	startResumeSearchInvalidation(context.Background(), db, searchIndex)
+	vectorStore := newResumeVectorStore(db, candidateStore)
+	resumeVectors := NewResumeVectorService(candidates, aiWalletService, db, searchIndex, vectorStore)
+	resumeVectors.StartRecovery(context.Background())
+	assistant := NewAssistantService(candidates, aiWalletService, headhunterService, searchIndex, vectorStore)
+	if db != nil && config.RedisAddr == "" {
+		assistant.store = nil
+	}
 	return &Server{
 		auth:                  auth,
 		agent:                 NewAgentService(auth, agentStore, systemConfigStore),
@@ -141,6 +161,10 @@ func NewServer() (*Server, error) {
 		attachmentParses:      attachmentService,
 		attachmentImports:     attachmentImports,
 		aiWallet:              aiWalletService,
+		aiUsageRetention:      NewAIUsageRetentionService(aiWalletStore),
+		assistant:             assistant,
+		resumeVectors:         resumeVectors,
+		headhunter:            headhunterService,
 		userPreferences:       NewUserPreferencesService(auth, userPreferencesStore),
 		notificationProfile:   NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:      NewPlatformAccountService(auth, platformAccountStore, tenantStore),
@@ -228,6 +252,19 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/ai-wallet/records", s.aiWallet.Records)
 	mux.HandleFunc("/api/ai-wallet/use-builtin", s.aiWallet.UseBuiltin)
 	mux.HandleFunc("/api/ai-compatible/v1/chat/completions", s.aiWallet.CompatibleChat)
+	mux.HandleFunc("/api/ai-compatible/v1/embeddings", s.aiWallet.Embeddings)
+	if s.aiUsageRetention != nil {
+		mux.HandleFunc("/api/internal/ai-usage/cleanup", s.aiUsageRetention.Cleanup)
+	}
+	if s.assistant != nil {
+		mux.HandleFunc("/api/assistant/", s.assistant.Route)
+	}
+	if s.resumeVectors != nil {
+		mux.HandleFunc("/api/resume-library/vectors", s.resumeVectors.Route)
+	}
+	if s.headhunter != nil {
+		mux.HandleFunc("/api/headhunter/", s.headhunter.Route)
+	}
 	mux.HandleFunc("/api/config/user-preferences", s.userPreferences.User)
 	mux.HandleFunc("/api/config/notification-profile", s.notificationProfile.User)
 	if s.messages != nil {

@@ -1,0 +1,12 @@
+/* 文件作用说明：提供猎头资料页的紧凑工具栏与长公司名称展示，沿用后台统一控件尺寸。 */
+.toolbar { flex-wrap: nowrap; }
+.keyword { width: 200px; min-width: 130px; flex: 1 1 200px; max-width: 280px; }
+.select { width: 160px; min-width: 110px; flex: 0 1 160px; }
+.status { width: 115px; min-width: 95px; }
+.name { padding: 0; height: auto; white-space: normal; text-align: left; justify-content: flex-start; }
+.meta { font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 599px) {
+  .toolbar { flex-wrap: wrap; }
+  .keyword { max-width: none; flex: 1 1 180px; }
+  .select { flex: 1 1 130px; }
+}

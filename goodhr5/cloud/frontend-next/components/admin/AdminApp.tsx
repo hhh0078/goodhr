@@ -49,6 +49,7 @@ import {
 } from "react";
 import BrowserOpenControl from "./BrowserOpenControl";
 import MessageCenter from "./MessageCenter";
+import AssistantDialog from "./assistant/AssistantDialog";
 import BrandMark from "@/components/BrandMark";
 import PasswordSetupDialog from "@/components/PasswordSetupDialog";
 import { useUserTheme } from "@/app/providers";
@@ -116,14 +117,18 @@ const LOCAL_AGENT_PERMISSION_IMAGE_SRC =
 const menuGroups: MenuGroup[] = [
   { label: "工作台", items: [["/admin", "控制台", DashboardRoundedIcon]] },
   {
-    label: "招聘管理",
+    label: "招聘资源",
     items: [
       ["/admin/positions", "岗位管理", WorkRoundedIcon],
       ["/admin/resumes", "简历库", ArticleRoundedIcon],
-      ["/admin/recruitment", "企业招聘", WorkRoundedIcon],
-      ["/admin/recommendations", "猎头推荐", GroupRoundedIcon],
     ],
   },
+  { label: "HR", items: [["/admin/recruitment", "企业招聘", WorkRoundedIcon]] },
+  { label: "猎头", items: [
+    ["/admin/headhunter/customers", "客户管理", PersonRoundedIcon],
+    ["/admin/headhunter/jobs", "客户岗位管理", WorkRoundedIcon],
+    ["/admin/recommendations", "猎头推荐", GroupRoundedIcon],
+  ] },
   {
     label: "团队与账户",
     items: [
@@ -760,7 +765,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                     )
                   : "本地程序未连接"}
               </Button>
-              <div style={{ marginLeft: "auto" }}><MessageCenter userKey={user?.id || user?.email || ""} /></div>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}><AssistantDialog key={`${user?.tenant_id || ""}:${user?.id || ""}`} user={user} /><MessageCenter userKey={user?.id || user?.email || ""} /></div>
               <Tooltip title="切换主题">
                 <Button
                   type="text"

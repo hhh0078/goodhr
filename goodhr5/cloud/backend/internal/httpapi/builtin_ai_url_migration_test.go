@@ -65,7 +65,7 @@ func TestBuiltinAIURLPostgresMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.Exec(`INSERT INTO system_configs(config_key,config_value,description) VALUES('system.app_config',$1::jsonb,'测试系统配置')`, `{"builtin_ai":{"public_base_url":"`+oldURL+`","default_model":"keep-model"},"keep":"keep-value"}`); err != nil {
+	if _, err := db.Exec(`INSERT INTO system_configs(config_key,config_value,description,updated_at) VALUES('system.app_config',$1::jsonb,'测试系统配置',$2)`, `{"builtin_ai":{"public_base_url":"`+oldURL+`","default_model":"keep-model"},"keep":"keep-value"}`, seedTime); err != nil {
 		t.Fatal(err)
 	}
 

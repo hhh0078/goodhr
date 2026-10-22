@@ -414,7 +414,7 @@ export default function PersonalConfigPage() {
                 <>
                   {" "}
                   可接入兼容 OpenAI 格式的模型；详情 AI 识别需要模型支持图片输入。
-                  内置 AI 会消耗账户中的 AI 余额，地址包含本站域名时请从列表选择模型。
+                  内置 AI 会消耗账户中的 AI 余额，接口主机与本站一致时请从列表选择模型。
                 </>
               }
               className={styles.s216}
@@ -436,7 +436,7 @@ export default function PersonalConfigPage() {
                 htmlFor="personal-config-field-1"
                 label={"API 地址"}
                 extra={
-                  <>地址包含本站域名时选择内置模型；其他地址可自由填写模型。</>
+                  <>接口主机与本站一致时选择内置模型；其他地址可自由填写模型。</>
                 }
                 style={{ marginBottom: 0 }}
               >
