@@ -82,6 +82,10 @@ func (s *ResumeVectorService) eligibility(scope CandidateLibraryScope) (bool, st
 // Route 返回真实简历数量或立即创建后台任务；浏览器关闭、刷新或断开不会取消已确认的任务。
 func (s *ResumeVectorService) Route(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if !aiSearchEnabled() {
+		writeError(w, 503, "简历向量搜索暂未启用")
+		return
+	}
 	if s == nil || s.candidates == nil {
 		writeError(w, 503, "向量化服务还没准备好")
 		return
@@ -146,7 +150,7 @@ func (s *ResumeVectorService) Route(w http.ResponseWriter, r *http.Request) {
 
 // StartRecovery 启动独立恢复循环，服务重启后领取未结束任务；已开始但无付费回执的批次不会盲目重算。
 func (s *ResumeVectorService) StartRecovery(ctx context.Context) {
-	if s == nil || s.tasks == nil {
+	if !aiSearchEnabled() || s == nil || s.tasks == nil {
 		return
 	}
 	s.once.Do(func() {

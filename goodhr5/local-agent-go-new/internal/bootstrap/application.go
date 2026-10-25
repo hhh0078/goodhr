@@ -175,6 +175,10 @@ func (a *Application) Run(ctx context.Context) error {
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	go a.incidents.Run(runCtx)
+	screeningCtx, stopScreening := context.WithCancel(runCtx)
+	screeningDone := make(chan struct{})
+	go func() { defer close(screeningDone); a.runner.RunScreeningSync(screeningCtx) }()
+	defer stopScreening()
 	go func() {
 		select {
 		case <-a.shutdown:
@@ -269,6 +273,8 @@ func (a *Application) Run(ctx context.Context) error {
 	incidentCtx, cancelIncidents := context.WithTimeout(context.Background(), 5*time.Second)
 	a.incidents.Flush(incidentCtx)
 	cancelIncidents()
+	stopScreening()
+	<-screeningDone
 	if err := a.store.Close(); err != nil && runErr == nil {
 		runErr = fmt.Errorf("关闭 SQLite 失败：%w", err)
 	}

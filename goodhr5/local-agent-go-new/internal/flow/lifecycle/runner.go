@@ -16,6 +16,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/auto_reply"
 	"goodhr5/local-agent-go-new/internal/flow/greeting"
 	"goodhr5/local-agent-go-new/internal/flow/preflight"
+	screeningsync "goodhr5/local-agent-go-new/internal/flow/screening_sync"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform"
@@ -68,6 +69,7 @@ type Runner struct {
 	cloud             *cloud.Client
 	notifier          *notification.Notifier
 	logger            shared.Logger
+	screenings        *screeningsync.Uploader
 }
 
 // New 创建任务生命周期管理器。
@@ -77,6 +79,7 @@ func New(checker *preflight.Checker, greetingFlow *greeting.Flow, replyFlow *aut
 		greeting: greetingFlow, reply: replyFlow, store: store,
 		profiles: profiles, power: powerGuard, cloud: cloudClient,
 		notifier: notifier, logger: logger,
+		screenings: screeningsync.New(store, cloudClient),
 	}
 }
 
@@ -97,6 +100,7 @@ func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (St
 		return StartResult{Preflight: preflightResult.Steps}, err
 	}
 	prepared := preflightResult.Prepared
+	r.BindScreeningSession(screeningsync.OwnerKey(prepared.Session), prepared.Request.Token)
 	if strings.TrimSpace(prepared.Request.Token) != "" {
 		go r.retryPendingLogUploads(prepared.Request.Token)
 	}
@@ -404,6 +408,15 @@ func (r *Runner) finish(active *activeTask, stats shared.Stats, runErr error) {
 	r.mu.Unlock()
 	if err := r.store.SaveTask(context.Background(), state); err != nil {
 		r.logNotification(state.TaskID, "save_final_task", err)
+	}
+	termination := "任务已结束，未进入第二轮详情评分"
+	if state.Status == "stopped" {
+		termination = "任务已停止，未进入第二轮详情评分"
+	} else if runErr != nil {
+		termination = "任务失败，未进入第二轮详情评分：" + runErr.Error()
+	}
+	if err := r.store.FinishScreeningTask(context.Background(), state.TaskID, termination); err != nil {
+		r.logNotification(state.TaskID, "finish_screening_records", err)
 	}
 	r.notifyFinished(active.prepared, state, stats, runErr)
 	if r.logger != nil {

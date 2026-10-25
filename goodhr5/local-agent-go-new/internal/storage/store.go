@@ -80,6 +80,10 @@ func Open(path string, previousExitReason ...string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := store.FinishScreeningTask(context.Background(), "", "本地程序上次中断或重启，未完成的判定已停止，未继续进行第二轮"); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if _, err := store.CleanupExpired(context.Background(), time.Now().UTC().Add(-localDataRetention)); err != nil {
 		db.Close()
 		return nil, err
@@ -334,6 +338,7 @@ func (s *Store) CleanupExpired(ctx context.Context, cutoff time.Time) (int64, er
 	}
 	defer transaction.Rollback()
 	queries := []string{
+		`DELETE FROM screening_records WHERE completed=1 AND acked_revision>=revision AND updated_at < ?`,
 		`DELETE FROM candidate_records WHERE created_at < ?`,
 		`DELETE FROM conversation_records WHERE created_at < ?`,
 		`DELETE FROM download_records WHERE created_at < ?`,

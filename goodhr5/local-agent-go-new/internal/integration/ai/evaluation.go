@@ -21,6 +21,13 @@ type Evaluation struct {
 	Final    <-chan EvaluationResult
 }
 
+// EvaluateCandidatePreviewEarly 在列表卡片的分数与原因完整可用时返回，完整流继续后台读取。
+func (c *Client) EvaluateCandidatePreviewEarly(ctx context.Context, cfg cloud.AIConfig, position cloud.PositionSnapshot, candidate model.Candidate) (Evaluation, error) {
+	return startEvaluation(ctx, func(onEarly func(Decision)) (Decision, error) {
+		return c.evaluateCandidatePreview(ctx, cfg, position, candidate, onEarly)
+	})
+}
+
 // EvaluateCandidateEarly 在文本评分字段完整后提前返回，完整响应继续在后台读取。
 func (c *Client) EvaluateCandidateEarly(
 	ctx context.Context,
@@ -65,17 +72,47 @@ func startEvaluation(
 		final <- EvaluationResult{Decision: decision, Err: err}
 		close(final)
 	}()
+	return waitEvaluation(ctx, early, final)
+}
+
+// waitEvaluation 优先保留已完整解析的真实评分，停止和尾部错误都不能随机覆盖已经可用的结果。
+func waitEvaluation(ctx context.Context, early <-chan Decision, final <-chan EvaluationResult) (Evaluation, error) {
+	select {
+	case decision := <-early:
+		return Evaluation{Decision: decision, Final: final}, nil
+	default:
+	}
 	select {
 	case decision := <-early:
 		return Evaluation{Decision: decision, Final: final}, nil
 	case result := <-final:
-		return Evaluation{Decision: result.Decision}, result.Err
+		return evaluationFromFinal(early, result)
 	case <-ctx.Done():
-		// 请求使用同一个上下文，等待读取收尾后才能保留中断前已经收到的 AI 正文。
-		result := <-final
-		if result.Err != nil {
-			return Evaluation{Decision: result.Decision}, result.Err
-		}
-		return Evaluation{}, ctx.Err()
+		return evaluationAfterCancellation(early, final)
+	}
+}
+
+// evaluationAfterCancellation 等待请求收尾，仍保留已收到并成功解析的普通JSON结果；没有真实判定时保留实际取消错误。
+func evaluationAfterCancellation(early <-chan Decision, final <-chan EvaluationResult) (Evaluation, error) {
+	select {
+	case decision := <-early:
+		return Evaluation{Decision: decision, Final: final}, nil
+	default:
+	}
+	// 请求使用相同上下文，收尾会返回取消错误或已经成功解析的完整结果，不能伪造空评分。
+	result := <-final
+	return evaluationFromFinal(early, result)
+}
+
+// evaluationFromFinal 在收尾先到时再次检查早评分，并保留完整尾部结果供后台诊断，避免丢掉已消费的Final。
+func evaluationFromFinal(early <-chan Decision, result EvaluationResult) (Evaluation, error) {
+	select {
+	case decision := <-early:
+		replay := make(chan EvaluationResult, 1)
+		replay <- result
+		close(replay)
+		return Evaluation{Decision: decision, Final: replay}, nil
+	default:
+		return Evaluation{Decision: result.Decision}, result.Err
 	}
 }

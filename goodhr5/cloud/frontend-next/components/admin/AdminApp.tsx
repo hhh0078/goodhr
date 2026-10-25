@@ -50,6 +50,7 @@ import {
 import BrowserOpenControl from "./BrowserOpenControl";
 import MessageCenter from "./MessageCenter";
 import AssistantDialog from "./assistant/AssistantDialog";
+import { AI_SEARCH_ENABLED } from "@/lib/ai-search-feature";
 import BrandMark from "@/components/BrandMark";
 import PasswordSetupDialog from "@/components/PasswordSetupDialog";
 import { useUserTheme } from "@/app/providers";
@@ -765,7 +766,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                     )
                   : "本地程序未连接"}
               </Button>
-              <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}><AssistantDialog key={`${user?.tenant_id || ""}:${user?.id || ""}`} user={user} /><MessageCenter userKey={user?.id || user?.email || ""} /></div>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>{AI_SEARCH_ENABLED ? <AssistantDialog key={`${user?.tenant_id || ""}:${user?.id || ""}`} user={user} /> : null}<MessageCenter userKey={user?.id || user?.email || ""} /></div>
               <Tooltip title="切换主题">
                 <Button
                   type="text"

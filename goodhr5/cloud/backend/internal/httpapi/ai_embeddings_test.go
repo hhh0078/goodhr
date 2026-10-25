@@ -16,6 +16,7 @@ import (
 // embeddingFixture 创建本人内置配置与余额，transport 用于替代付费上游，返回服务及测试钱包。
 func embeddingFixture(t *testing.T, transport http.RoundTripper) (*AIWalletService, *MemoryAIWalletStore) {
 	t.Helper()
+	t.Setenv("GOODHR_AI_SEARCH_ENABLED", "1")
 	t.Setenv("GOODHR_PUBLIC_BASE_URL", "https://goodhr.example.com")
 	system := NewMemorySystemConfigStore()
 	saveBuiltinAIConfigForTest(t, system, builtinAIPolicyConfigForTest())

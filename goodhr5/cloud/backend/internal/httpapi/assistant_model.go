@@ -90,6 +90,9 @@ func assistantUniqueJSON(decoder *json.Decoder) error {
 
 // builtinForScope 校验当前用户确实使用本站内置 Key，防止只伪造 URL 绕过钱包。
 func (s *AssistantService) builtinForScope(scope CandidateLibraryScope) (AIConfig, error) {
+	if !aiSearchEnabled() {
+		return AIConfig{}, assistantFatalError{"AI招聘助手暂未启用"}
+	}
 	cfg, err := s.wallet.aiConfigs.UserConfig(scope.UserEmail)
 	if err != nil || !cfg.Enabled || !isCurrentSiteAIURL(cfg.BaseURL) {
 		return AIConfig{}, assistantFatalError{"请先在个人配置中选择使用内置 AI，再来找我干活"}

@@ -3,6 +3,7 @@ package ai
 
 import (
 	"encoding/json"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -93,24 +94,25 @@ func findScoreReason(value any) (float64, string, bool) {
 
 // numberValue 把 AI JSON 中常见的数字表示转换为浮点数。
 func numberValue(value any) (float64, bool) {
+	var number float64
+	var err error
 	switch item := value.(type) {
 	case float64:
-		return item, true
+		number = item
 	case json.Number:
-		parsed, err := item.Float64()
-		return parsed, err == nil
+		number, err = item.Float64()
 	case string:
-		parsed, err := strconv.ParseFloat(strings.TrimSpace(item), 64)
-		return parsed, err == nil
+		number, err = strconv.ParseFloat(strings.TrimSpace(item), 64)
 	default:
 		return 0, false
 	}
+	return number, err == nil && !math.IsNaN(number) && !math.IsInf(number, 0)
 }
 
 // normalizedDecision 统一限制评分范围、原因长度并计算是否通过。
 func normalizedDecision(score float64, reason string, threshold float64) Decision {
 	score = min(100, max(0, score))
-	reason = truncateRunes(strings.TrimSpace(reason), 30)
+	reason = truncateRunes(strings.TrimSpace(reason), 16000)
 	if reason == "" {
 		reason = "AI 没有给出原因"
 	}

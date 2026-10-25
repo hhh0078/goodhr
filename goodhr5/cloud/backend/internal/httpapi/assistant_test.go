@@ -16,6 +16,7 @@ import (
 // assistantFixture 创建完全合成的内置AI账号，不连接生产数据或付费模型。
 func assistantFixture(t *testing.T) (*Server, http.Handler, string, CandidateLibraryScope) {
 	t.Helper()
+	t.Setenv("GOODHR_AI_SEARCH_ENABLED", "1")
 	t.Setenv("GOODHR_PG_DSN", "")
 	t.Setenv("GOODHR_REDIS_ADDR", "")
 	t.Setenv("GOODHR_SMTP_HOST", "")

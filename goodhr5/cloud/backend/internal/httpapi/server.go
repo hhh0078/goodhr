@@ -33,6 +33,7 @@ type Server struct {
 	positions             *PositionService
 	positionExecution     *PositionExecutionService
 	positionLogs          *PositionLogService
+	screeningRecords      *ScreeningRecordService
 	browserEvents         *BrowserEventService
 	candidates            *CandidateService
 	recruitment           *RecruitmentService
@@ -95,6 +96,10 @@ func NewServer() (*Server, error) {
 	cookieStore := config.CookieStore(db)
 	platformAccountStore := config.PlatformAccountStore(db)
 	positionStore := config.PositionStore(db)
+	var screeningStore ScreeningRecordStore = NewMemoryScreeningRecordStore()
+	if db != nil {
+		screeningStore = NewPostgresScreeningRecordStore(db)
+	}
 	var recruitmentStore RecruitmentStore = NewMemoryRecruitmentStore()
 	var recruitmentMailStore RecruitmentMailStore = NewMemoryRecruitmentMailStore()
 	var articleStore ArticleStore = NewMemoryArticleStore()
@@ -171,6 +176,7 @@ func NewServer() (*Server, error) {
 		positions:             NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
 		positionExecution:     NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
 		positionLogs:          positionLogs,
+		screeningRecords:      NewScreeningRecordService(auth, positionStore, tenantStore, screeningStore),
 		browserEvents:         NewBrowserEventService(auth, db),
 		candidates:            candidates,
 		recruitment:           recruitment,
@@ -388,6 +394,10 @@ func (s *Server) recruitmentRoute(w http.ResponseWriter, r *http.Request) {
 
 // positionRoute 根据路径分发岗位详情、日志和本地程序同步请求。
 func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/screening-records") {
+		s.screeningRecords.Collection(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/logs/share") {
 		s.positionLogs.Share(w, r)
 		return

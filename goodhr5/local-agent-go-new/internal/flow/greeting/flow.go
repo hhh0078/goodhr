@@ -45,8 +45,8 @@ type flowStep struct {
 }
 
 // Run 按平铺步骤启动浏览器、准备平台、处理候选人并同步摘要。
-func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime) (shared.Stats, error) {
-	stats := shared.Stats{}
+func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime) (stats shared.Stats, runErr error) {
+	defer func() { f.finalizeScreeningTask(ctx, prepared, stats, runErr) }()
 	position := model.Position{
 		ID: prepared.Position.ID, Name: prepared.Position.Name, Keyword: prepared.Position.Keyword,
 		RequestPhone: prepared.Position.RequestPhone, RequestWechat: prepared.Position.RequestWechat,
@@ -155,6 +155,13 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 		newCandidates := make([]model.Candidate, 0, len(candidates))
 		for _, candidate := range candidates {
 			if strings.TrimSpace(candidate.Fingerprint) == "" {
+				if id, err := f.beginScreeningAttempt(ctx, prepared, candidate); err == nil {
+					if saveErr := f.completeScreeningAttempt(ctx, id, "候选人缺少稳定编号，未执行第一轮和第二轮"); saveErr != nil {
+						return saveErr
+					}
+				} else {
+					return err
+				}
 				stats.Processed++
 				stats.Skipped++
 				f.log(
@@ -183,8 +190,10 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 				f.log(prepared.Request.TaskID, "sync_processed_resumes", "warning", time.Now(), err)
 			}
 		}
-		previewCtx, cancelPreviews := context.WithCancel(ctx)
-		previews := f.candidatePreviews(previewCtx, prepared, newCandidates)
+		previewCtx, cancel := context.WithCancel(ctx)
+		previews, previewsDone := f.candidatePreviewsWithDone(previewCtx, prepared, newCandidates)
+		cancelPreviews := func() { cancel(); <-previewsDone }
+		defer cancelPreviews()
 		for {
 			item, previewOpen, previewErr := waitCandidatePreview(
 				previewCtx,
@@ -263,7 +272,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 						nil,
 					)
 				}
-				candidateErr = f.processCandidate(candidateCtx, prepared, runtime, candidate, stats)
+				candidateErr = f.processCandidateAttempt(candidateCtx, prepared, runtime, candidate, stats, item.AttemptID)
 			}
 			candidateErr = f.finishCandidateProcessing(candidateCtx, prepared.Request.TaskID, candidateStartedAt, candidateErr)
 			cancelCandidate()
@@ -349,6 +358,30 @@ func candidateBatchLimitReached(maxBatches int, completedBatches int) bool {
 
 // processCandidate 平铺执行基础过滤、详情、OCR、AI、收藏、关闭详情、打招呼和保存结果。
 func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, candidate model.Candidate, stats *shared.Stats) (candidateErr error) {
+	return f.processCandidateAttempt(ctx, prepared, runtime, candidate, stats, "")
+}
+
+// processCandidateAttempt 复用预筛时已持久化的编号执行后续步骤，所有提前退出都保留明确的未进行二轮原因。
+func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, candidate model.Candidate, stats *shared.Stats, attemptID string) (candidateErr error) {
+	if attemptID == "" {
+		attemptID, candidateErr = f.beginScreeningAttempt(ctx, prepared, candidate)
+		if candidateErr != nil {
+			return candidateErr
+		}
+	}
+	ctx = context.WithValue(ctx, screeningContextKey{}, attemptID)
+	defer func() {
+		reason := "本轮处理已结束，未进入第二轮详情评分"
+		if !prepared.Position.RequiresAI {
+			reason = "当前筛选模式未启用第二轮AI评分"
+		}
+		if candidateErr != nil {
+			reason = "未进入第二轮或判定未完成：" + candidateErr.Error()
+		}
+		if err := f.completeScreeningAttempt(ctx, attemptID, reason); err != nil {
+			candidateErr = errors.Join(candidateErr, err)
+		}
+	}()
 	stats.Processed++
 	if reason := strings.TrimSpace(candidate.SkipReason); reason != "" {
 		stats.Skipped++
@@ -361,8 +394,12 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	needsDetail := needsCandidateDetail(prepared)
 	deferKeywordDecision := isKeywordMode(prepared.Position) && needsDetail
 	if !deferKeywordDecision {
+		keywordStarted := time.Now()
 		keywordMatch := matchKeywords(candidate, "", prepared.Position)
 		if isKeywordMode(prepared.Position) {
+			if err := f.recordKeywordScreening(ctx, prepared, candidate, attemptID, keywordStarted, keywordMatch); err != nil {
+				return err
+			}
 			result := reportKeywordMatch(f.Logger, prepared.Request.TaskID, candidate, keywordMatch, !keywordMatch.Accepted || !prepared.Position.RequiresAI)
 			f.recordScreeningResult(ctx, prepared, stats, result)
 		}
@@ -497,7 +534,11 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		}
 	}
 	if deferKeywordDecision {
+		keywordStarted := time.Now()
 		keywordMatch := matchKeywords(candidate, detail.Text, prepared.Position)
+		if err := f.recordKeywordScreening(ctx, prepared, candidate, attemptID, keywordStarted, keywordMatch); err != nil {
+			return err
+		}
 		result := reportKeywordMatch(f.Logger, prepared.Request.TaskID, candidate, keywordMatch, !keywordMatch.Accepted || !prepared.Position.RequiresAI)
 		f.recordScreeningResult(ctx, prepared, stats, result)
 		if !keywordMatch.Accepted {
@@ -529,6 +570,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "正在判断是否适合打招呼", "running", nil)
 		var decision ai.Decision
 		var decisionErr error
+		secondInvoked := false
 		decisionStartedAt := time.Now()
 		reportAILoading(
 			f.Logger,
@@ -551,17 +593,38 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			if imageErr != nil {
 				decisionErr = imageErr
 			} else {
+				var startErr error
+				if decisionStartedAt, startErr = f.startScreeningRound(ctx, attemptID, 2, "ai"); startErr != nil {
+					stopEvaluationOnCandidateEnd()
+					cancelEvaluation()
+					evaluationCancel = nil
+					return startErr
+				}
+				secondInvoked = true
 				evaluation, decisionErr = f.AI.EvaluateCandidateVisionEarly(
 					evaluationCtx, prepared.Position.AI, prepared.Position, candidate, detail, images,
 				)
 			}
 		} else {
+			var startErr error
+			if decisionStartedAt, startErr = f.startScreeningRound(ctx, attemptID, 2, "ai"); startErr != nil {
+				stopEvaluationOnCandidateEnd()
+				cancelEvaluation()
+				evaluationCancel = nil
+				return startErr
+			}
+			secondInvoked = true
 			evaluation, decisionErr = f.AI.EvaluateCandidateEarly(
 				evaluationCtx, prepared.Position.AI, prepared.Position, candidate, detail,
 			)
 		}
 		stopEvaluationOnCandidateEnd()
 		if decisionErr != nil {
+			if secondInvoked {
+				if saveErr := f.finishScreeningRound(ctx, prepared, candidate, attemptID, 2, "ai", decisionStartedAt, nil, greetScoreThreshold(prepared.Position), decisionErr); saveErr != nil {
+					return saveErr
+				}
+			}
 			reportAIError(f.Logger, prepared.Request.TaskID, candidate, decisionErr)
 			evaluationCancel()
 			evaluationCancel = nil
@@ -571,6 +634,9 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			return fmt.Errorf("判断候选人匹配度失败：%w", decisionErr)
 		}
 		decision = evaluation.Decision
+		if err := f.finishScreeningRound(ctx, prepared, candidate, attemptID, 2, "ai", decisionStartedAt, &decision, greetScoreThreshold(prepared.Position), nil); err != nil {
+			return err
+		}
 		result := reportAIResult(
 			f.Logger,
 			prepared.Request.TaskID,
@@ -754,6 +820,13 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 
 // saveCandidate 保存不含候选人详情的动作摘要。
 func (f *Flow) saveCandidate(ctx context.Context, prepared shared.PreparedTask, candidate model.Candidate, action string, result string, reason string) {
+	if result == "skipped" || result == "failed" {
+		if id, ok := ctx.Value(screeningContextKey{}).(string); ok {
+			if err := f.completeScreeningAttempt(ctx, id, reason); err != nil {
+				f.log(prepared.Request.TaskID, "save_screening_result", "warning", time.Now(), err)
+			}
+		}
+	}
 	if err := f.Store.SaveCandidate(context.WithoutCancel(ctx), storage.CandidateRecord{
 		TaskID: prepared.Request.TaskID, Fingerprint: candidate.Fingerprint,
 		PlatformID: prepared.Position.PlatformID, DisplayName: candidate.Name,

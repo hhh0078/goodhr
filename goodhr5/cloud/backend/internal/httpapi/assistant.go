@@ -54,6 +54,10 @@ func (s *AssistantService) Route(w http.ResponseWriter, r *http.Request) {
 		s.validateCachedReferences(w, r, scope)
 		return
 	}
+	if !aiSearchEnabled() {
+		writeError(w, 503, "AI招聘助手暂未启用，原有岗位筛选照常使用")
+		return
+	}
 	if s.store == nil {
 		writeError(w, 503, "后台任务缓存尚未配置，请联系管理员")
 		return

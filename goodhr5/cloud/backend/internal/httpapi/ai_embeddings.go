@@ -75,6 +75,10 @@ type embeddingUsage struct {
 // Embeddings 处理内置向量请求；r 必须携带本人内置 AI Key，校验失败不会调用模型或扣款。
 func (s *AIWalletService) Embeddings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if !aiSearchEnabled() {
+		writeError(w, http.StatusServiceUnavailable, "简历向量搜索暂未启用")
+		return
+	}
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "请使用 POST 提交向量文字")
 		return
@@ -181,6 +185,9 @@ func validateEmbeddingTexts(texts []string) error {
 // embedForUser 读取本人站内配置，校验响应后复用分笔钱包扣款；网络不明时由上层显式决定是否重试。
 func (s *AIWalletService) embedForUser(ctx context.Context, email string, texts []string) (embeddingResponse, error) {
 	var empty embeddingResponse
+	if !aiSearchEnabled() {
+		return empty, &embeddingCallError{http.StatusServiceUnavailable, "简历向量搜索暂未启用"}
+	}
 	if err := validateEmbeddingTexts(texts); err != nil {
 		return empty, &embeddingCallError{http.StatusBadRequest, err.Error()}
 	}

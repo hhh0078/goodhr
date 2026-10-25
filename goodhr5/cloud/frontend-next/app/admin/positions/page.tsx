@@ -25,6 +25,7 @@ import {
   EditOutlined,
   ExportOutlined,
   FileTextOutlined,
+  HistoryOutlined,
   LoadingOutlined,
   PlayCircleOutlined,
   PlusOutlined,
@@ -37,6 +38,7 @@ import styles from "../heavy-ui.module.css";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
+import PositionScreeningRecordsDialog from "@/components/admin/PositionScreeningRecordsDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import { ONBOARDING_FILTER_MODE_OPTIONS } from "@/lib/onboarding-view";
 import { AUTHOR_CONTACT } from "@/lib/author-contact";
@@ -150,6 +152,7 @@ export default function PositionsPage() {
   const router = useRouter();
   const { user, subscription, notify, confirm, agentBase } =
     useAdmin();
+  const screeningAccount = `${user?.tenant_id || ""}:${user?.id || user?.email || ""}`;
   const [items, setItems] = useState<any[]>([]);
   const [positionScope, setPositionScope] = useState("true");
   const loadGeneration = useRef(0);
@@ -188,6 +191,7 @@ export default function PositionsPage() {
   const [logSharePositionID, setLogSharePositionID] = useState("");
   const [allLogs, setAllLogs] = useState<any[]>([]);
   const [allLogPosition, setAllLogPosition] = useState<any | null>(null);
+  const [screeningPosition, setScreeningPosition] = useState<{ id: string; name: string; account: string } | null>(null);
   const [allLogLoading, setAllLogLoading] = useState(false);
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
   const [startLoading, setStartLoading] = useState(false);
@@ -1614,6 +1618,7 @@ export default function PositionsPage() {
                         role="group"
                         aria-label="岗位操作"
                       >
+                        <Tooltip title="筛选记录"><Button className={styles.positionCardActionIcon} type="text" aria-label="筛选记录" onClick={() => setScreeningPosition({ id: String(item.id), name: String(item.name || "当前岗位"), account: screeningAccount })} icon={<HistoryOutlined aria-hidden="true" />} /></Tooltip>
                         <Tooltip
                           title={
                             expandedLogPositionID === item.id
@@ -1860,6 +1865,7 @@ export default function PositionsPage() {
           }
         />
       </AdminDialog>
+      {screeningPosition?.account === screeningAccount ? <PositionScreeningRecordsDialog key={`${screeningAccount}:${screeningPosition.id}`} position={screeningPosition} onClose={() => setScreeningPosition(null)} /> : null}
       <AdminDialog
         open={Boolean(allLogPosition)}
         title="查看全部岗位日志"

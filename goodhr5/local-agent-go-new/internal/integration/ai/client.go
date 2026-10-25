@@ -138,10 +138,15 @@ func (c *Client) evaluateCandidate(
 
 // EvaluateCandidatePreview 只根据候选人基础信息判断是否值得打开详情。
 func (c *Client) EvaluateCandidatePreview(ctx context.Context, cfg cloud.AIConfig, position cloud.PositionSnapshot, candidate model.Candidate) (Decision, error) {
+	return c.evaluateCandidatePreview(ctx, cfg, position, candidate, nil)
+}
+
+// evaluateCandidatePreview 复用卡片提示词并允许在完整分数与原因可用时回调，不把尾部响应计入判定耗时。
+func (c *Client) evaluateCandidatePreview(ctx context.Context, cfg cloud.AIConfig, position cloud.PositionSnapshot, candidate model.Candidate, early func(Decision)) (Decision, error) {
 	content, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", candidatePreviewSystemPrompt(position)),
 		textChatMessage("user", candidatePreviewUserPrompt(position, candidate)),
-	}, candidateChatOptions(position, detailDecisionThreshold(position), nil))
+	}, candidateChatOptions(position, detailDecisionThreshold(position), early))
 	if err != nil {
 		return Decision{}, err
 	}

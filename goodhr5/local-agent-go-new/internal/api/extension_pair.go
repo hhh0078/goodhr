@@ -249,6 +249,9 @@ func (s *Server) bindExtensionSessionLocked(token, userID string) {
 		}
 	}
 	s.extensionToken, s.extensionUserID = token, userID
+	if s.runner != nil {
+		s.runner.BindScreeningSession(userID, token)
+	}
 	if s.resumeDownloads != nil {
 		s.resumeDownloads.Bind(userID, token)
 	}

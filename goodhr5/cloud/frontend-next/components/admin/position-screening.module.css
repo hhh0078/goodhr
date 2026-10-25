@@ -1,0 +1,21 @@
+/* 文件作用说明：复用后台紧凑尺寸展示两轮筛选记录，手机筛选自然换行，表格保留横向滚动。 */
+.filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.filterGroup { min-width: 0; margin: 0; padding: 10px 12px 12px; border: 1px solid var(--goodhr-border); border-radius: 8px; }
+.filterGroup legend { width: auto; margin: 0; padding: 0 4px; font-size: 13px; font-weight: 600; }
+.filterFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.filterFields :global(.ant-form-item) { min-width: 0; margin: 0; }
+.filterFields :global(.ant-form-item-label) { padding-bottom: 4px; }
+.filterFields :global(.ant-form-item-label > label) { font-size: 12px; }
+.filterFields :global(.ant-input-number), .filterFields :global(.ant-picker) { width: 100%; }
+.round { display: flex; flex-direction: column; gap: 8px; }
+.meta { font-size: 12px; color: var(--goodhr-text-secondary); white-space: normal; overflow-wrap: anywhere; }
+.reason.reason { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.expand.expand { height: auto; padding: 0; font-size: 12px; }
+.alert { margin-bottom: 12px; }
+.recordTable :global(.ant-table-cell) { vertical-align: top; }
+.mobileHint.mobileHint { display: none; margin: 0 0 8px; font-size: 12px; }
+@media (max-width: 599px) {
+  .filters { grid-template-columns: minmax(0, 1fr); }
+  .dateField { grid-column: 1 / -1; }
+  .mobileHint.mobileHint { display: block; }
+}

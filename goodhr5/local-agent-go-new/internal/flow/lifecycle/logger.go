@@ -176,6 +176,9 @@ func (l *TaskLogger) Step(taskID string, flow string, step string, status string
 
 // visibleTaskStep 只选取岗位时间线需要的流程节点和真实故障。
 func visibleTaskStep(flow string, step string, status string, err error) bool {
+	if flow == "greeting" && (step == "screening_first" || step == "screening_second") {
+		return status != "start" && status != "running"
+	}
 	if status == "failed" || status == "panic" || (status == "warning" && err != nil) {
 		return true
 	}
@@ -310,6 +313,16 @@ func (l *TaskLogger) updateCurrentStep(taskID string, message string) {
 
 // taskLogMessage 把流程步骤和状态转换成短中文用户文案。
 func taskLogMessage(step string, status string, err error) string {
+	if step == "screening_first" || step == "screening_second" {
+		label := "第一轮筛选"
+		if step == "screening_second" {
+			label = "第二轮筛选"
+		}
+		if err != nil {
+			return label + "：" + err.Error()
+		}
+		return label + "：" + status
+	}
 	if step == "agent_start" && status == "start" {
 		return "本地程序已启动，正在执行岗位任务"
 	}
