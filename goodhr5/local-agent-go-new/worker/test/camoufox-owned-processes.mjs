@@ -21,7 +21,7 @@ function executableIdentity([string]$value) {
   if ($value.StartsWith('\\\\?\\')) { $value = $value.Substring(4) }
   return $value.ToUpperInvariant()
 }
-$targets = @(ConvertFrom-Json -InputObject $env:GOODHR_TEST_CLEANUP_TARGETS)
+$targets = @(ConvertFrom-Json -InputObject $env:GOODHR_TEST_CLEANUP_TARGETS | Where-Object { $null -ne $_ -and $_.pid -gt 0 })
 $results = @(foreach ($target in $targets) {
   $opened = $null
   try {
@@ -182,11 +182,13 @@ export function terminateOwnedProcesses(child, captured, force = false) {
     const targets = verifiedProcesses(processTable(), captured);
     if (windowsQueryError || captured.size === 0) return { platform: 'win32', status: 'failed', confirmed_targets: 0,
       error_message: windowsQueryError ?? '未确认测试进程身份，未执行回收' };
+    if (targets.length === 0) return { platform: 'win32', status: 'passed', confirmed_targets: 0, outcomes: [] };
     const result = windowsPowerShell(WINDOWS_TERMINATE, { GOODHR_TEST_CLEANUP_TARGETS: JSON.stringify(targets), GOODHR_TEST_CLEANUP_FORCE: String(force) });
     try {
       if (result.status !== 0) throw new Error(result.error?.code ?? `CLEANUP_EXIT_${result.status}`);
       const decoded = JSON.parse(result.stdout.trim().replace(/^\uFEFF/, ''));
-      const outcomes = Array.isArray(decoded) ? decoded : [decoded];
+      const outcomes = Array.isArray(decoded) ? decoded : decoded == null ? [] : [decoded];
+      if (outcomes.length !== targets.length || outcomes.some(item => !item || !Number.isSafeInteger(item.pid) || item.pid <= 0)) throw new Error('回收脚本未返回每个已确认目标的有效结果');
       return { platform: 'win32', status: outcomes.some(item => item.status === 'failed') ? 'failed' : 'passed', confirmed_targets: targets.length, outcomes };
     } catch (error) { return { platform: 'win32', status: 'failed', confirmed_targets: targets.length, error_message: error.message }; }
   }

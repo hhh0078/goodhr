@@ -93,6 +93,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '公开站点探针自检失败' }
           node test/camoufox-worker-start-probe.mjs --self-test 2>&1 | Tee-Object -FilePath "$results/worker-probe-self-test.log"
           if ($LASTEXITCODE -ne 0) { throw '正式 Worker 探针自检失败' }
+          node test/camoufox-window-state.mjs --self-test 2>&1 | Tee-Object -FilePath "$results/window-state-self-test.log"
+          if ($LASTEXITCODE -ne 0) { throw '窗口身份探针自检失败' }
 
       - name: 准备隔离浏览器和精确候选包
         run: |
@@ -112,7 +114,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "正式 Go 资源适配失败：$variant" }
           }
 
-      - name: 旧版浏览器公开站点 270 轮真实输入
+      - name: 旧版浏览器三会话清理回归（9轮）
         id: baseline
         continue-on-error: true
         working-directory: goodhr5/local-agent-go-new/worker
@@ -120,7 +122,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $root = "$env:RUNNER_TEMP/camoufox-upgrade"
           $browser = "$root/browsers/152-baseline-win-x64"
-          node test/camoufox-public-stress.mjs --install-dir "$browser" --binary "$browser/camoufox.exe" --output-dir "$root/results" --label 152-baseline-win-x64 --sessions 3 --rounds 30 --site heroku --site playwright --site mdn --headed --humanize true --window-state unchanged 2>&1 | Tee-Object -FilePath "$root/results/public-stress-baseline.log"
+          node test/camoufox-public-stress.mjs --install-dir "$browser" --binary "$browser/camoufox.exe" --output-dir "$root/results" --label 152-baseline-cleanup-win-x64 --sessions 3 --rounds 1 --site heroku --site playwright --site mdn --headed --humanize true --window-state unchanged 2>&1 | Tee-Object -FilePath "$root/results/public-stress-baseline.log"
           if ($LASTEXITCODE -ne 0) { throw '旧版 Windows 公开站点多轮验证失败' }
 
       - name: 修补版浏览器公开站点 270 轮真实输入

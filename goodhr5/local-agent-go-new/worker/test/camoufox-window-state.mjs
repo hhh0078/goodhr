@@ -9,6 +9,40 @@ import { readProcessIdentities, readProcessArguments } from './camoufox-owned-pr
 
 const STRESS_SCRIPT = fileURLToPath(new URL('./camoufox-public-stress.mjs', import.meta.url));
 const WORKER_PROBE_SCRIPT = fileURLToPath(new URL('./camoufox-worker-start-probe.mjs', import.meta.url));
+const WINDOWS_WINDOW_OWNERS = `
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+// GoodHRVisibleWindowOwners 只读取指定候选 PID 的可见窗口元数据，不创建窗口、不读取标题。
+public static class GoodHRVisibleWindowOwners {
+  [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
+  private delegate bool Visitor(IntPtr handle, IntPtr parameter);
+  [DllImport("user32.dll")] private static extern bool EnumWindows(Visitor visitor, IntPtr parameter);
+  [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr handle, out uint owner);
+  [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr handle, out Rect rectangle);
+  [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr handle);
+  [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr handle);
+  // Find 只返回确实拥有可见正常尺寸窗口的候选 PID；空输入直接返回，不枚举系统窗口。
+  public static int[] Find(int[] candidates) {
+    HashSet<int> allowed = new HashSet<int>(candidates), found = new HashSet<int>();
+    if (allowed.Count == 0) return new int[0];
+    EnumWindows(delegate(IntPtr handle, IntPtr parameter) {
+      uint owner; GetWindowThreadProcessId(handle, out owner); Rect rectangle;
+      if (allowed.Contains((int)owner) && IsWindowVisible(handle) && !IsIconic(handle) && GetWindowRect(handle, out rectangle) &&
+          rectangle.Right - rectangle.Left > 100 && rectangle.Bottom - rectangle.Top > 100) found.Add((int)owner);
+      return true;
+    }, IntPtr.Zero);
+    int[] result = new int[found.Count]; found.CopyTo(result); return result;
+  }
+}
+'@
+$candidates = @((ConvertFrom-Json -InputObject $env:GOODHR_TEST_WINDOW_CANDIDATES) | Where-Object { $null -ne $_ -and $_ -gt 0 })
+$visible = @([GoodHRVisibleWindowOwners]::Find([int[]]$candidates))
+ConvertTo-Json -InputObject $visible -Compress
+`;
 const APPKIT_SCRIPT = `
 ObjC.import('AppKit');
 /** run 仅对已验证的测试应用 PID 执行 AppKit 窗口状态操作，并再次校验可执行路径。 */
@@ -74,6 +108,18 @@ function approvedSessionCommand(command, state) {
     (state === 'covered' && hasScript(WORKER_PROBE_SCRIPT) && /(?:^|\s)--child(?:\s|$)/.test(command));
 }
 
+/** visibleWindowsCandidatePIDs 只在已证明的浏览器后代中核对真实窗口所有者，排除 Windows 启动器及无窗口辅助进程。 */
+function visibleWindowsCandidatePIDs(candidates) {
+  const runner = fs.realpathSync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
+  const output = execFileSync(runner, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(WINDOWS_WINDOW_OWNERS, 'utf16le').toString('base64')], {
+    encoding: 'utf8', timeout: 15000, maxBuffer: 1024 * 1024, windowsHide: true,
+    env: { ...process.env, GOODHR_TEST_WINDOW_CANDIDATES: JSON.stringify(candidates) },
+  });
+  const decoded = JSON.parse(output.trim().replace(/^\uFEFF/, ''));
+  const visible = (Array.isArray(decoded) ? decoded : decoded == null ? [] : [decoded]).filter(pid => Number.isSafeInteger(pid) && candidates.includes(pid));
+  return [...new Set(visible)];
+}
+
 /** selectBrowser 验证压力测试子会话身份，要求其进程树内恰好一个隔离浏览器主进程。 */
 function selectBrowser(sessionPID, state) {
   const processes = process.platform === 'win32' ? readProcessIdentities().map(row => ({ ...row, command: row.executable })) : parseProcessTable(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,comm='], {
@@ -83,8 +129,12 @@ function selectBrowser(sessionPID, state) {
   assert.ok(session && /^node(?:js)?(?:\.exe)?$/i.test(path.basename(session.command)), '指定 PID 不是仍在运行的 Node 测试会话');
   const sessionArgs = processArguments(sessionPID);
   assert.ok(approvedSessionCommand(sessionArgs, state), '指定 Node PID 不属于允许的独立测试子会话');
-  const candidates = descendants(processes, sessionPID).filter(item => /^camoufox(?:\.exe)?$/i.test(path.basename(item.command)))
-    .filter(item => !/(?:^|\s)-(?:contentproc|gpu|utility)(?:\s|$)/.test(processArguments(item.pid)));
+  let candidates = descendants(processes, sessionPID).filter(item => /^camoufox(?:\.exe)?$/i.test(path.basename(item.command)))
+    .filter(item => !/(?:^|\s|["'])-(?:contentproc|gpu|utility)(?=\s|["']|$)/.test(processArguments(item.pid)));
+  if (process.platform === 'win32') {
+    const visible = visibleWindowsCandidatePIDs(candidates.map(item => item.pid));
+    candidates = candidates.filter(item => visible.includes(item.pid));
+  }
   assert.equal(candidates.length, 1, `测试会话内匹配到 ${candidates.length} 个浏览器主进程，无法唯一确认，未操作窗口`);
   const browser = candidates[0];
   assertIsolatedBinary(browser.command);
@@ -93,7 +143,8 @@ function selectBrowser(sessionPID, state) {
   // AppKit 操作前再次确认同一 PID 的路径，降低进程已退出或 PID 变化时的误操作风险。
   const current = process.platform === 'win32' ? readProcessIdentities().map(row => ({ ...row, command: row.executable })).find(row => row.pid === browser.pid)
     : parseProcessTable(execFileSync('/bin/ps', ['-p', String(browser.pid), '-o', 'pid=,ppid=,comm='], { encoding: 'utf8', timeout: 5000 }))[0];
-  assert.ok(current && current.command === browser.command && current.ppid === browser.ppid, '浏览器进程身份发生变化，未操作窗口');
+  assert.ok(current && current.command === browser.command && current.ppid === browser.ppid &&
+    (process.platform !== 'win32' || current.started === browser.started), '浏览器进程身份发生变化，未操作窗口');
   return { pid: browser.pid, binary };
 }
 
@@ -144,6 +195,7 @@ async function startCover(browser, binary, seconds) {
 
 /** selfTest 只验证进程树和路径边界，不读取窗口、不执行 AppKit 操作。 */
 function selfTest() {
+  if (process.platform === 'win32') assert.deepEqual(visibleWindowsCandidatePIDs([]), [], '空候选只编译窗口元数据探针，不能读取或创建窗口');
   assert.equal(approvedSessionCommand(`node ${STRESS_SCRIPT} --child-session 1`, 'covered'), true);
   assert.equal(approvedSessionCommand(`node ${STRESS_SCRIPT} --child-session 1`, 'visible'), true);
   assert.equal(approvedSessionCommand(`node ${WORKER_PROBE_SCRIPT} --child`, 'covered'), true);
