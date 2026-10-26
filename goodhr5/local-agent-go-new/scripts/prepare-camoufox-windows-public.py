@@ -16,6 +16,7 @@ SOURCE_NAME = "camoufox-152.0.4-beta.30-win.x86_64.zip"
 CANDIDATE_NAME = "camoufox-152.0.4-beta.30-goodhr-window-r1-win.x86_64.zip"
 SOURCE_SHA = "ea52a02fb1cfb1813ef6a326bea03fb2b650c9774143d953a94a27bfc8f10072"
 SOURCE_SIZE = 493141328
+SOURCE_URL = "https://github.com/daijro/camoufox/releases/download/v152.0.4-beta.30/" + SOURCE_NAME
 RESOURCE = "chrome/juggler/content/TargetRegistry.js"
 PATCHED_RESOURCE_SHA = "d41ff340529a47f3da99bba20892ad5f3ce95fee51da5c0929d8bc818645993b"
 METADATA_FIELDS = ("date_time", "compress_type", "comment", "extra", "create_system", "create_version",
@@ -33,7 +34,7 @@ def download_source(path):
     if not path.exists():
         temporary = path.with_suffix(".zip.part")
         started = time.monotonic()
-        request = urllib.request.Request("https://oss2.58it.cn/" + SOURCE_NAME,
+        request = urllib.request.Request(SOURCE_URL,
                                          headers={"User-Agent": "GoodHR-public-regression/1"})
         try:
             with urllib.request.urlopen(request, timeout=60) as response, temporary.open("xb") as target:
@@ -128,7 +129,7 @@ def main():
                                text=True, capture_output=True, check=True)
     (results / "windows-release-manifest.json").write_text(completed.stdout, encoding="utf-8")
     report = attest(source, candidate)
-    report.update({"platform": sys.platform, "python": sys.version, "root": str(root),
+    report.update({"platform": sys.platform, "python": sys.version, "root": str(root), "source_url": SOURCE_URL,
                    "baseline": str(baseline), "candidate_installation": str(install)})
     (results / "windows-independent-attestation.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({key: value for key, value in report.items() if key != "unchanged_members"}, ensure_ascii=False))
