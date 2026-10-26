@@ -8,6 +8,7 @@ import pathlib
 import re
 import subprocess
 import time
+import zipfile
 
 BACKUP_ROOT = pathlib.Path('/www/backup/panel')
 MAINTENANCE_ROOT = pathlib.Path('/opt/goodhr-maintenance')
@@ -62,7 +63,7 @@ def container_mount_sources():
 
 
 def prune(apply=False):
-    """保留最新一份，仅删除一小时未改动且与全部容器挂载均不重叠的旧备份。"""
+    """最新备份稳定且完整后保留一份，跳过正在写入或被容器挂载引用的旧备份。"""
     files = backup_files()
     sources = container_mount_sources()
     deleted = []
@@ -75,9 +76,31 @@ def prune(apply=False):
             continue
         if path.is_symlink() or path.resolve().parent != BACKUP_ROOT:
             raise RuntimeError('备份路径发生变化，停止清理')
-        if apply:
-            path.unlink()
         deleted.append(path.name)
+    if deleted:
+        latest = files[0]
+        before = latest.stat()
+        if time.time() - before.st_mtime < 3600:
+            return {'applied': apply, 'keep': KEEP_COUNT, 'retained': [path.name for path in files],
+                    'removed': [], 'skipped_mounted': mounted, 'waiting_latest': True}
+        try:
+            with zipfile.ZipFile(latest) as archive:
+                if not archive.infolist() or archive.testzip() is not None:
+                    raise zipfile.BadZipFile('最新备份校验失败')
+        except zipfile.BadZipFile:
+            return {'applied': apply, 'keep': KEEP_COUNT, 'retained': [path.name for path in files],
+                    'removed': [], 'skipped_mounted': mounted, 'blocked_latest': '最新备份不完整，旧备份全部保留'}
+        after = latest.stat()
+        if latest.is_symlink() or latest.resolve().parent != BACKUP_ROOT or (
+                before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+                after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+            raise RuntimeError('最新备份校验期间发生变化，旧备份全部保留')
+    if apply:
+        for name in deleted:
+            path = BACKUP_ROOT / name
+            if path.is_symlink() or path.resolve().parent != BACKUP_ROOT:
+                raise RuntimeError('备份路径发生变化，停止清理')
+            path.unlink()
     return {'applied': apply, 'keep': KEEP_COUNT, 'retained': [path.name for path in files[:KEEP_COUNT]],
             'removed': deleted, 'skipped_mounted': mounted}
 

@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+import zipfile
 from unittest import mock
 
 import panel_backup_retention as retention
@@ -27,7 +28,8 @@ class PanelBackupRetentionTests(unittest.TestCase):
     def backup(self, name, age=7200):
         """生成指定修改时间的测试备份文件。"""
         path = self.root / name
-        path.write_bytes(b'backup')
+        with zipfile.ZipFile(path, 'w') as archive:
+            archive.writestr('panel/data.txt', b'backup')
         timestamp = time.time() - age
         os.utime(path, (timestamp, timestamp))
         return path
@@ -56,6 +58,40 @@ class PanelBackupRetentionTests(unittest.TestCase):
             result = retention.prune(True)
         self.assertEqual(result['removed'], [])
         self.assertTrue(all(path.exists() for path in (recent, invalid, other, link)))
+
+    def test_latest_still_writing_keeps_last_complete_backup(self):
+        """最新ZIP尚未稳定时，不删除最后完整的历史备份。"""
+        self.backup('2026-10-26.zip', 60)
+        old = self.backup('2026-10-25.zip')
+        with mock.patch.object(retention, 'container_mount_sources', return_value=set()):
+            result = retention.prune(True)
+        self.assertTrue(result['waiting_latest'])
+        self.assertEqual(result['removed'], [])
+        self.assertTrue(old.exists())
+
+    def test_latest_corrupt_keeps_last_complete_backup(self):
+        """最新ZIP即使已超过一小时，损坏时也不能替代旧备份。"""
+        latest = self.backup('2026-10-26.zip')
+        latest.write_bytes(b'partial zip')
+        timestamp = time.time() - 7200
+        os.utime(latest, (timestamp, timestamp))
+        old = self.backup('2026-10-25.zip')
+        with mock.patch.object(retention, 'container_mount_sources', return_value=set()):
+            result = retention.prune(True)
+        self.assertIn('不完整', result['blocked_latest'])
+        self.assertEqual(result['removed'], [])
+        self.assertTrue(old.exists())
+
+    def test_no_delete_candidates_skip_zip_read(self):
+        """只有一份或旧备份受保护时，不反复读取大ZIP进行完整校验。"""
+        self.backup('2026-10-26.zip')
+        with mock.patch.object(retention, 'container_mount_sources', return_value=set()), mock.patch.object(
+                retention.zipfile, 'ZipFile', side_effect=AssertionError('不应读取ZIP')):
+            self.assertEqual(retention.prune(True)['removed'], [])
+        self.backup('2026-10-25.zip', 60)
+        with mock.patch.object(retention, 'container_mount_sources', return_value=set()), mock.patch.object(
+                retention.zipfile, 'ZipFile', side_effect=AssertionError('不应读取ZIP')):
+            self.assertEqual(retention.prune(True)['removed'], [])
 
     def test_mount_equal_ancestor_and_descendant_remain(self):
         """目标与挂载源相等或互为上下级时，即使容器停止也保留目标。"""
