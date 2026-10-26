@@ -1,0 +1,166 @@
+// Package api 文件作用：在有效网页绑定后单次后台同步 Mac 浏览器组件，退出时取消并等待，不保存登录凭证。
+package api
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/runtime"
+)
+
+// startupSyncRuntime 定义启动同步与现有 Worker 停止能力，使取消和并发边界可以独立验证。
+type startupSyncRuntime interface {
+	StartupCamoufoxSyncPending() bool
+	BeginStartupCamoufoxSyncCheck()
+	FailStartupCamoufoxSync(error)
+	SyncStartupCamoufox(context.Context, runtime.Manifest, func(context.Context) error) error
+	StopWorker() error
+}
+
+// startupSyncCloud 复用已经鉴权的组件清单读取能力，不在同步器中保留 Token。
+type startupSyncCloud interface {
+	RuntimeManifest(context.Context, string) (runtime.Manifest, error)
+}
+
+// startupSyncBrowser 只使用已有浏览器健康检查和正常关闭入口。
+type startupSyncBrowser interface {
+	Health(context.Context) error
+	StopBrowser(context.Context) (contract.BrowserStatus, error)
+}
+
+// startupSyncTasks 保护正在运行的任务，组件更新不能代替用户停止任务。
+type startupSyncTasks interface {
+	HasActive() bool
+}
+
+// startupCamoufoxSync 保存本次进程唯一的检查协程及退出状态，不持久化用户凭证。
+type startupCamoufoxSync struct {
+	runtime startupSyncRuntime
+	cloud   startupSyncCloud
+	browser startupSyncBrowser
+	tasks   startupSyncTasks
+	mu      sync.Mutex
+	cancel  context.CancelFunc
+	done    chan struct{}
+	closing bool
+}
+
+// newStartupCamoufoxSync 复用本地服务已有依赖；未配置运行组件时不启用额外任务。
+func newStartupCamoufoxSync(server *Server) *startupCamoufoxSync {
+	if server.runtime == nil || server.cloud == nil {
+		return nil
+	}
+	syncer := &startupCamoufoxSync{runtime: server.runtime, cloud: server.cloud}
+	if server.browser != nil {
+		syncer.browser = server.browser
+	}
+	if server.runner != nil {
+		syncer.tasks = server.runner
+	}
+	return syncer
+}
+
+// start 在绑定成功后启动后台检查；重复绑定共用当前协程，失败后允许下次绑定重试。
+func (s *startupCamoufoxSync) start(token string) {
+	token = strings.TrimSpace(token)
+	if s == nil || token == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.closing || s.done != nil || !s.runtime.StartupCamoufoxSyncPending() {
+		s.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	done := make(chan struct{})
+	s.cancel, s.done = cancel, done
+	s.runtime.BeginStartupCamoufoxSyncCheck()
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			cancel()
+			s.mu.Lock()
+			s.cancel, s.done = nil, nil
+			close(done)
+			s.mu.Unlock()
+		}()
+		manifest, err := s.cloud.RuntimeManifest(ctx, token)
+		if err == nil {
+			err = s.runtime.SyncStartupCamoufox(ctx, manifest, s.beforeInstall)
+		}
+		if err != nil {
+			// 云端错误即使意外包含原凭证，也不能进入组件状态或落入日志。
+			safeError := strings.ReplaceAll(err.Error(), token, "[登录凭证已隐藏]")
+			s.runtime.FailStartupCamoufoxSync(fmt.Errorf("浏览器更新还没完成，请刷新后台重试：%s", safeError))
+		}
+	}()
+}
+
+// beforeInstall 在真正换包前保护活动任务，并先关浏览器再停旧 Worker，确保新环境能够生效。
+func (s *startupCamoufoxSync) beforeInstall(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.tasks != nil && s.tasks.HasActive() {
+		return fmt.Errorf("任务还在运行，浏览器更新先等这一轮结束，再刷新后台重试")
+	}
+	if s.browser == nil {
+		return nil
+	}
+	healthCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	healthy := s.browser.Health(healthCtx) == nil
+	cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !healthy {
+		return nil
+	}
+	if _, err := s.browser.StopBrowser(ctx); err != nil {
+		return fmt.Errorf("旧浏览器还没退出，请先关闭浏览器再刷新后台：%w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.runtime.StopWorker(); err != nil {
+		return fmt.Errorf("旧的浏览器操作组件还没退出，请重启小助手：%w", err)
+	}
+	// 旧进程可能来自上次异常退出，当前管理器没有它的句柄；仍响应时禁止复用旧环境。
+	healthCtx, cancel = context.WithTimeout(ctx, 2*time.Second)
+	stillRunning := s.browser.Health(healthCtx) == nil
+	cancel()
+	if stillRunning {
+		return fmt.Errorf("旧的浏览器操作组件还在运行，请彻底退出旧程序后再重试")
+	}
+	return ctx.Err()
+}
+
+// CancelStartupSync 阻止新的绑定检查，取消并等待当前检查结束后再继续主程序退出。
+func (s *Server) CancelStartupSync(ctx context.Context) error {
+	if s == nil || s.startupSync == nil {
+		return nil
+	}
+	return s.startupSync.stop(ctx)
+}
+
+// stop 关闭同步入口并等待协程完成，避免退出安装期间旧协程继续登记组件。
+func (s *startupCamoufoxSync) stop(ctx context.Context) error {
+	s.mu.Lock()
+	s.closing = true
+	cancel, done := s.cancel, s.done
+	s.mu.Unlock()
+	if cancel == nil {
+		return nil
+	}
+	cancel()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("等待浏览器更新检查退出超时：%w", ctx.Err())
+	}
+}

@@ -61,6 +61,7 @@ type Server struct {
 	resumeImports       *resumeflow.Manager
 	resumeSummaries     *summaryflow.Manager
 	resumeDownloads     *downloadresume.Manager
+	startupSync         *startupCamoufoxSync
 }
 
 // Dependencies 保存本地 HTTP 接口调用的应用服务。
@@ -95,6 +96,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	server.initResumeImports(dependencies.ResumeImports)
 	server.initResumeSummaries(dependencies.ResumeSummaries)
 	server.initResumeDownloads()
+	server.startupSync = newStartupCamoufoxSync(server)
 	mux := http.NewServeMux()
 	server.registerResumeImportRoutes(mux)
 	server.registerResumeSummaryRoutes(mux)
@@ -162,6 +164,7 @@ func (s *Server) ListenAndServe() error {
 
 // Shutdown 优雅关闭本地 HTTP 服务。
 func (s *Server) Shutdown(ctx context.Context) error {
+	syncErr := s.CancelStartupSync(ctx)
 	err := s.http.Shutdown(ctx)
 	if s.resumeDownloads != nil {
 		s.resumeDownloads.Close()
@@ -172,7 +175,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.resumeSummaries != nil {
 		s.resumeSummaries.Close()
 	}
-	return err
+	return errors.Join(syncErr, err)
 }
 
 // handleHealth 返回本地程序健康状态。
@@ -295,6 +298,10 @@ func (s *Server) runtimeStatus(ctx context.Context, refreshSystem bool) runtime.
 			status.CamoufoxPath = browserStatus.BinaryPath
 		}
 	}
+	if s.runtime.StartupCamoufoxSyncPending() {
+		status.CamoufoxReady = false
+		status.CamoufoxInstalled = false
+	}
 	return status
 }
 
@@ -309,7 +316,26 @@ func (s *Server) handleRuntimeInstall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
 		return
 	}
-	status, err := s.runtime.StartInstall(request.Manifest)
+	var status runtime.Status
+	var err error
+	if s.runtime.StartupCamoufoxSyncPending() && s.startupSync != nil {
+		// 启动检查尚未通过时，重试按钮重新读取同一线上来源，不能让缓存的旧清单开闩。
+		s.extensionMu.Lock()
+		token := s.extensionToken
+		s.extensionMu.Unlock()
+		if strings.TrimSpace(token) == "" {
+			writeError(w, http.StatusUnauthorized, "SESSION_BIND_REQUIRED", fmt.Errorf("请刷新后台重新连接账号，再检查浏览器更新"))
+			return
+		}
+		s.startupSync.start(token)
+		status = s.runtime.Status()
+		if !status.NodeInstalled {
+			writeError(w, http.StatusConflict, "CAMOUFOX_RETRY_BEFORE_RUNTIME_INSTALL", fmt.Errorf("已重新开始检查浏览器修补包，准备好后请再点安装剩余组件"))
+			return
+		}
+	} else {
+		status, err = s.runtime.StartInstall(request.Manifest)
+	}
 	if err != nil {
 		writeError(w, http.StatusConflict, "RUNTIME_INSTALL_FAILED", err)
 		return

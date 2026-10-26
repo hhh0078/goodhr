@@ -27,6 +27,10 @@ func (m *Manager) StartInstall(manifest Manifest) (Status, error) {
 		m.installMu.Unlock()
 		return m.Status(), fmt.Errorf("运行组件下载配置为空")
 	}
+	if err := m.validateStartupManualManifest(manifest); err != nil {
+		m.installMu.Unlock()
+		return m.Status(), err
+	}
 	m.setInstallProgress(InstallProgress{
 		Running: true, Stage: "queued", Message: "运行组件更新已开始", Percent: 1,
 	})
@@ -42,6 +46,10 @@ func (m *Manager) StartInstall(manifest Manifest) (Status, error) {
 		m.ensureCamoufoxInterface()
 		m.configureWorkerEnvironment()
 		m.InvalidateSystemRuntimeStatus()
+		if err := m.completeStartupCamoufoxSync(); err != nil {
+			m.failStartupCamoufoxSync(err)
+			return
+		}
 		m.setInstallProgress(InstallProgress{
 			Running: false, Stage: "installed", Message: "运行组件安装完成", Percent: 100,
 		})
@@ -86,12 +94,18 @@ func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 
 // installAsset 下载并原地安装全部组件，验证成功后记录相对路径，不移动或覆盖旧组件目录。
 func (m *Manager) installAsset(ctx context.Context, component string, label string, targetName string, asset Asset) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if component == "camoufox" && m.StartupCamoufoxSyncPending() && strings.TrimSpace(os.Getenv("CAMOUFOX_BINARY_PATH")) != "" && !m.startupCamoufoxMatches(asset) {
+		return fmt.Errorf("启动参数固定了旧浏览器路径，请重新启动本地程序后再更新")
+	}
 	// 同版本的 Apple/Intel 包内容不同；旧记录缺少摘要时也必须重新安装。
 	if current, ok := m.loadVersions()[component]; ok &&
 		strings.TrimSpace(current.Version) == strings.TrimSpace(asset.Version) &&
 		validateSHA256(asset.SHA256) == nil &&
 		strings.EqualFold(strings.TrimSpace(current.SHA256), strings.TrimSpace(asset.SHA256)) &&
-		m.componentInstalled(component) {
+		m.reusableInstalledComponent(component) {
 		m.setInstallProgress(InstallProgress{
 			Running: true, Component: component, Stage: "skipped",
 			Message: label + "已经是当前版本", Percent: 95,
@@ -158,6 +172,14 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 	if err != nil {
 		return fmt.Errorf("检查刚安装的%s失败（目录：%s）：%w", label, sourceDir, err)
 	}
+	if component == "camoufox" && m.StartupCamoufoxSyncPending() {
+		if err := checkStartupCamoufoxArchitecture(binaryPath, platformKey()); err != nil {
+			return fmt.Errorf("刚下载的浏览器架构不匹配：%w", err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	executablePath, err := filepath.Rel(m.runtimeDir, binaryPath)
 	if err != nil {
 		return fmt.Errorf("记录%s可执行路径失败：%w", label, err)
@@ -172,6 +194,9 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 		}
 	}
 	m.setInstallProgress(InstallProgress{Running: true, Component: component, Stage: "register", Message: "正在记录" + label + "安装结果", Percent: 95})
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err = m.saveVersion(component, asset, filepath.ToSlash(executablePath), filepath.ToSlash(directoryPath)); err != nil {
 		return fmt.Errorf("保存%s版本记录失败：%w", label, err)
 	}

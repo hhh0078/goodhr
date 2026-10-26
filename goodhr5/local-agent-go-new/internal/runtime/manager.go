@@ -25,6 +25,11 @@ type Manager struct {
 	runtimeDir string
 	ocrPath    string
 	installMu  sync.Mutex
+	// startupMu 保护本次进程首次绑定后的浏览器校验门闩；默认关闭，仅由 Mac 主程序启用。
+	startupMu      sync.Mutex
+	startupEnabled bool
+	startupPending bool
+	startupTarget  Asset
 	// versionsMu 避免 Windows 状态轮询读取版本文件时阻挡该文件的原子替换。
 	versionsMu        sync.RWMutex
 	progressMu        sync.Mutex
@@ -151,6 +156,20 @@ func (m *Manager) WorkerDependencyPath() string {
 
 // EnsureWorker 检查 Node 和入口后启动 Worker。
 func (m *Manager) EnsureWorker(ctx context.Context) error {
+	// 首次检查未通过时不争用安装锁，避免配置失败回写被一个必然拒绝的启动请求挡住。
+	if m.StartupCamoufoxSyncPending() {
+		return fmt.Errorf("浏览器修补包还没检查完成，请稍等；失败时可重新检查运行组件")
+	}
+	if !m.installMu.TryLock() {
+		return fmt.Errorf("运行组件正在更新，请等它忙完再开始")
+	}
+	defer m.installMu.Unlock()
+	if m.StartupCamoufoxSyncPending() {
+		return fmt.Errorf("浏览器修补包还没检查完成，请稍等；失败时可重新检查运行组件")
+	}
+	if m.InstallProgress().Running {
+		return fmt.Errorf("运行组件正在更新，请等它忙完再开始")
+	}
 	if err := m.CheckNode(); err != nil {
 		return err
 	}
@@ -192,7 +211,7 @@ func (m *Manager) Status() Status {
 		NodeWorkerInstalled: m.CheckWorkerBuild() == nil,
 		WorkerEntry:         m.entryPath,
 		WorkerDependency:    m.WorkerDependencyPath(),
-		CamoufoxInstalled:   fileExists(browserPath),
+		CamoufoxInstalled:   !m.StartupCamoufoxSyncPending() && fileExists(browserPath),
 		CamoufoxPath:        browserPath,
 		OCRInstalled:        m.OCRInstalled(),
 		OCRPath:             ocrPath,

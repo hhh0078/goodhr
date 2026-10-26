@@ -57,6 +57,7 @@ func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
 		if s.incidents != nil {
 			s.incidents.Bind(session.UserID, request.Token)
 		}
+		s.startupSync.start(request.Token)
 	}
 	writeSuccess(w, http.StatusOK, binding)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	goruntime "runtime"
 	"sync"
 	"time"
 
@@ -74,6 +75,10 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 	runtimeManager := runtimemanager.New(
 		cfg.NodePath, cfg.WorkerEntryPath, cfg.RuntimeDir, cfg.OCRExecutable, workerProcess,
 	)
+	// Mac 更新后必须先核对线上浏览器摘要，Windows 保留现有启动规则。
+	if goruntime.GOOS == "darwin" {
+		runtimeManager.EnableStartupCamoufoxSync()
+	}
 	cloudClient := cloud.New(cfg.CloudURL)
 	machineID, deviceErr := device.Current()
 	if deviceErr != nil {
