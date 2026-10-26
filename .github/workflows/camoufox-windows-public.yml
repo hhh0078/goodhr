@@ -23,7 +23,7 @@ env:
 
 jobs:
   windows-public:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 45
     defaults:
       run:
@@ -38,10 +38,10 @@ jobs:
         with:
           node-version: 22.19.0
 
-      - name: 准备 Python 3.14
+      - name: 准备 Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: '3.12'
 
       - name: 准备 Go 1.27.0
         uses: actions/setup-go@v5
@@ -70,6 +70,30 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root/camoufox-window-cover.ps1" -SelfTest 2>&1 | Tee-Object -FilePath "$root/results/window-cover-self-test.log"
           if ($LASTEXITCODE -ne 0) { throw 'Windows 原生遮挡辅助程序自检失败' }
 
+      - name: 安装并编译正式 Worker
+        working-directory: goodhr5/local-agent-go-new/worker
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $results = "$env:RUNNER_TEMP/camoufox-upgrade/results"
+          # 固定 node-gyp 支持的 VS2022 与已安装 Python，避免自动选中更新的系统工具链。
+          $env:npm_config_msvs_version = '2022'
+          $env:npm_config_python = "$env:pythonLocation/python.exe"
+          $env:NODE_GYP_FORCE_PYTHON = "$env:pythonLocation/python.exe"
+          npm ci 2>&1 | Tee-Object -FilePath "$results/npm-ci.log"
+          if ($LASTEXITCODE -ne 0) { throw '安装锁定的 Worker 依赖失败' }
+          npm run build 2>&1 | Tee-Object -FilePath "$results/worker-build.log"
+          if ($LASTEXITCODE -ne 0) { throw '编译正式 Worker 失败' }
+
+      - name: 验证公开站点与正式 Worker 探针的自检
+        working-directory: goodhr5/local-agent-go-new/worker
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $results = "$env:RUNNER_TEMP/camoufox-upgrade/results"
+          node test/camoufox-public-stress.mjs --self-test 2>&1 | Tee-Object -FilePath "$results/public-stress-self-test.log"
+          if ($LASTEXITCODE -ne 0) { throw '公开站点探针自检失败' }
+          node test/camoufox-worker-start-probe.mjs --self-test 2>&1 | Tee-Object -FilePath "$results/worker-probe-self-test.log"
+          if ($LASTEXITCODE -ne 0) { throw '正式 Worker 探针自检失败' }
+
       - name: 准备隔离浏览器和精确候选包
         run: |
           $ErrorActionPreference = 'Stop'
@@ -87,26 +111,6 @@ jobs:
             go test ./internal/runtime -run '^TestCamoufoxUpgradeCompatibilityProbe$' -count=1 -v 2>&1 | Tee-Object -FilePath "$root/results/go-probe-$variant.log"
             if ($LASTEXITCODE -ne 0) { throw "正式 Go 资源适配失败：$variant" }
           }
-
-      - name: 安装并编译正式 Worker
-        working-directory: goodhr5/local-agent-go-new/worker
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $results = "$env:RUNNER_TEMP/camoufox-upgrade/results"
-          npm ci 2>&1 | Tee-Object -FilePath "$results/npm-ci.log"
-          if ($LASTEXITCODE -ne 0) { throw '安装锁定的 Worker 依赖失败' }
-          npm run build 2>&1 | Tee-Object -FilePath "$results/worker-build.log"
-          if ($LASTEXITCODE -ne 0) { throw '编译正式 Worker 失败' }
-
-      - name: 验证公开站点与正式 Worker 探针的自检
-        working-directory: goodhr5/local-agent-go-new/worker
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $results = "$env:RUNNER_TEMP/camoufox-upgrade/results"
-          node test/camoufox-public-stress.mjs --self-test 2>&1 | Tee-Object -FilePath "$results/public-stress-self-test.log"
-          if ($LASTEXITCODE -ne 0) { throw '公开站点探针自检失败' }
-          node test/camoufox-worker-start-probe.mjs --self-test 2>&1 | Tee-Object -FilePath "$results/worker-probe-self-test.log"
-          if ($LASTEXITCODE -ne 0) { throw '正式 Worker 探针自检失败' }
 
       - name: 旧版浏览器公开站点 270 轮真实输入
         id: baseline
