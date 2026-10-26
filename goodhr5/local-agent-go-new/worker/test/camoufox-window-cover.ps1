@@ -45,7 +45,7 @@ public static class GoodHRWindowsCover {
         return width > 100 && height > 100 ? (long)width * height : 0;
     }
 
-    // VisibleIntersection 只计算浏览器与虚拟屏幕的实际可见交集，用于诊断，不改变本轮完整边界门槛。
+    // VisibleIntersection 以原始浏览器与虚拟屏幕的交集作为遮挡目标，不要求覆盖屏外不可见区域。
     private static Rect VisibleIntersection(Rect target, Rectangle screen) {
         return new Rect { Left = Math.Max(target.Left, screen.Left), Top = Math.Max(target.Top, screen.Top),
             Right = Math.Min(target.Right, screen.Right), Bottom = Math.Min(target.Bottom, screen.Bottom) };
@@ -55,6 +55,12 @@ public static class GoodHRWindowsCover {
     private static string BoundsJson(Rect rectangle) {
         return "{\"x\":" + rectangle.Left + ",\"y\":" + rectangle.Top + ",\"width\":" + (rectangle.Right - rectangle.Left) +
             ",\"height\":" + (rectangle.Bottom - rectangle.Top) + "}";
+    }
+
+    // Covers 要求实际不透明窗完整包含每一处屏内浏览器目标像素；允许系统附加边框，不允许漏盖。
+    private static bool Covers(Rect actual, Rect target) {
+        return Area(target) > 0 && actual.Left <= target.Left && actual.Top <= target.Top &&
+            actual.Right >= target.Right && actual.Bottom >= target.Bottom;
     }
 
     // LargestWindow 只枚举指定浏览器 PID 的可见窗口，选择最大边界而不读取标题。
@@ -92,16 +98,20 @@ public static class GoodHRWindowsCover {
         Rect intersection = VisibleIntersection(new Rect { Left = -8, Top = -8, Right = 1290, Bottom = 908 }, new Rectangle(0, 0, 1280, 720));
         return Area(new Rect { Left = -100, Top = 20, Right = 900, Bottom = 720 }) == 700000 &&
                Area(new Rect { Left = 0, Top = 0, Right = 50, Bottom = 30 }) == 0 &&
-               intersection.Left == 0 && intersection.Top == 0 && intersection.Right == 1280 && intersection.Bottom == 720;
+               intersection.Left == 0 && intersection.Top == 0 && intersection.Right == 1280 && intersection.Bottom == 720 &&
+               Covers(new Rect { Left = 0, Top = 0, Right = 1300, Bottom = 740 }, intersection) &&
+               !Covers(new Rect { Left = 0, Top = 0, Right = 1279, Bottom = 720 }, intersection);
     }
 
     // Run 根据目标可见窗口的真实坐标创建自然色遮挡窗，确认自身窗口边界后输出 ready 并自动关闭。
     public static void Run(int browserPid, int seconds) {
         try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch (EntryPointNotFoundException) { SetProcessDPIAware(); }
-        Rect target = LargestWindow(browserPid);
+        Rect browserBounds = LargestWindow(browserPid);
         Rectangle screen = SystemInformation.VirtualScreen;
         Rect screenRect = new Rect { Left = screen.Left, Top = screen.Top, Right = screen.Right, Bottom = screen.Bottom };
-        Rect visibleTarget = VisibleIntersection(target, screen);
+        Rect visibleTarget = VisibleIntersection(browserBounds, screen);
+        if (Area(visibleTarget) == 0) throw new InvalidOperationException("测试浏览器屏内可见区域不足，无法验证真实遮挡");
+        Rect target = visibleTarget;
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         using (CoverForm cover = new CoverForm()) {
@@ -133,8 +143,7 @@ public static class GoodHRWindowsCover {
                     bool readBounds = GetWindowRect(cover.Handle, out actual);
                     int boundsError = readBounds ? 0 : Marshal.GetLastWin32Error();
                     bool visible = IsWindowVisible(cover.Handle);
-                    bool ready = opaque && placed && visible && readBounds && actual.Left == target.Left && actual.Top == target.Top &&
-                        actual.Right == target.Right && actual.Bottom == target.Bottom;
+                    bool ready = opaque && placed && visible && readBounds && Covers(actual, target);
                     if (!ready && attempts < 5) return;
                     readiness.Stop();
                     Console.WriteLine("{\"ready\":" + (ready ? "true" : "false") + ",\"covered\":" + (ready ? "true" : "false") +
@@ -144,8 +153,9 @@ public static class GoodHRWindowsCover {
                         ",\"position_error\":" + placementError + ",\"bounds_error\":" + boundsError + ",\"opacity_error\":" + opacityError +
                         ",\"attempts\":" + attempts + ",\"ignores_mouse_events\":true,\"activates_application\":false,\"target_bounds\":" + BoundsJson(target) +
                         ",\"actual_bounds\":" + BoundsJson(actual) + ",\"virtual_screen\":" + BoundsJson(screenRect) +
+                        ",\"browser_window_bounds\":" + BoundsJson(browserBounds) + ",\"coverage_criterion\":\"all_visible_browser_pixels_covered\"" +
                         ",\"visible_browser_bounds\":" + BoundsJson(visibleTarget) +
-                        (ready ? "}" : ",\"error_message\":\"遮挡窗没有确认实际显示在完整目标边界，诊断已保留\"}"));
+                        (ready ? "}" : ",\"error_message\":\"遮挡窗没有完整覆盖屏内可见浏览器区域，诊断已保留\"}"));
                     Console.Out.Flush();
                     if (!ready) cover.Close();
                 };
