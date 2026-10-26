@@ -166,7 +166,7 @@ func TestScreeningPostgresConcurrentFirstWrite(t *testing.T) {
 		t.Fatalf("pages=%d total=%d", len(items), first.Total)
 	}
 	for index := 1; index < len(items); index++ {
-		if items[index-1].ID <= items[index].ID {
+		if items[index-1].AttemptID <= items[index].AttemptID {
 			t.Fatal("same-time sort is unstable")
 		}
 	}

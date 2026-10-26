@@ -80,7 +80,36 @@ func (s *MemoryScreeningRecordStore) Save(ctx context.Context, scope ScreeningSc
 		return ScreeningRecord{}, err
 	}
 	s.records[key] = recruitmentClone(next)
+	s.prunePositionRecords(scope)
 	return recruitmentClone(next.Record), nil
+}
+
+// screeningRecordLater 比较发生时间及固定attempt编号；返回left是否排在right之前，避免被淘汰记录重传时因随机ID改变顺序。
+func screeningRecordLater(left, right ScreeningRecord) bool {
+	if left.OccurredAt.Equal(right.OccurredAt) {
+		return left.AttemptID > right.AttemptID
+	}
+	return left.OccurredAt.After(right.OccurredAt)
+}
+
+// prunePositionRecords 在已持内存锁时保留scope租户岗位最新500次；不按所有者拆分，且不影响其他岗位。
+func (s *MemoryScreeningRecordStore) prunePositionRecords(scope ScreeningScope) {
+	prefix := screeningStorageKey(scope, "")
+	keys := make([]string, 0)
+	for key := range s.records {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) <= screeningRecordLimit {
+		return
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return screeningRecordLater(s.records[keys[i]].Record, s.records[keys[j]].Record)
+	})
+	for _, key := range keys[screeningRecordLimit:] {
+		delete(s.records, key)
+	}
 }
 
 // screeningNumberMatches 仅让实际数值参与闭区间比较，空值不会作为零分命中。
@@ -98,7 +127,7 @@ func screeningQueryMatches(item ScreeningRecord, query ScreeningRecordQuery) boo
 	return screeningNumberMatches(item.First.Score, query.FirstScoreMin, query.FirstScoreMax) && screeningNumberMatches(item.Second.Score, query.SecondScoreMin, query.SecondScoreMax) && screeningTimeMatches(item.First.StartedAt, query.FirstStartedFrom, query.FirstStartedTo) && screeningTimeMatches(item.Second.StartedAt, query.SecondStartedFrom, query.SecondStartedTo)
 }
 
-// List 返回指定可信所有者的固定20条分页，发生时间相同则按唯一主键稳定倒序。
+// List 返回指定可信所有者的固定20条分页，发生时间相同则按固定attempt编号稳定倒序。
 func (s *MemoryScreeningRecordStore) List(ctx context.Context, scope ScreeningScope, query ScreeningRecordQuery) (ScreeningRecordList, error) {
 	if err := ctx.Err(); err != nil {
 		return ScreeningRecordList{}, err
@@ -119,10 +148,7 @@ func (s *MemoryScreeningRecordStore) List(ctx context.Context, scope ScreeningSc
 		}
 	}
 	sort.Slice(items, func(i, j int) bool {
-		if items[i].OccurredAt.Equal(items[j].OccurredAt) {
-			return items[i].ID > items[j].ID
-		}
-		return items[i].OccurredAt.After(items[j].OccurredAt)
+		return screeningRecordLater(items[i], items[j])
 	})
 	result := ScreeningRecordList{Records: []ScreeningRecord{}, Total: len(items), Page: query.Page, PageSize: screeningRecordPageSize}
 	start := (query.Page - 1) * screeningRecordPageSize

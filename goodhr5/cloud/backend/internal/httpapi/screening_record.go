@@ -18,6 +18,9 @@ import (
 
 const screeningRecordPageSize = 20
 
+// screeningRecordLimit 限制同一租户岗位保留的筛选次数，历史所有者记录也计入总数。
+const screeningRecordLimit = 500
+
 var (
 	ErrScreeningRecordInput    = errors.New("筛选记录内容需要调整")
 	ErrScreeningRecordConflict = errors.New("同一筛选版本的内容或候选人身份不一致，请保留本地记录后核对")

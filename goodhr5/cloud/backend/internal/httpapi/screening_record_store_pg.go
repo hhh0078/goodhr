@@ -32,7 +32,7 @@ func screeningPositionOwner(ctx context.Context, tx *sql.Tx, scope ScreeningScop
 	return ownerID, err
 }
 
-// Save 串行化同一租户岗位attempt的首次插入与更新，迟到旧版本不覆盖新结果且所有历史版本冲突可识别。
+// Save 串行化同一租户岗位的保存与裁剪；迟到旧版本不覆盖结果，保留窗口内的历史版本冲突仍可识别。
 func (s *PostgresScreeningRecordStore) Save(ctx context.Context, scope ScreeningScope, snapshot ScreeningSnapshot) (ScreeningRecord, error) {
 	if err := validateScreeningSnapshot(&snapshot); err != nil {
 		return ScreeningRecord{}, err
@@ -50,7 +50,7 @@ func (s *PostgresScreeningRecordStore) Save(ctx context.Context, scope Screening
 	if err != nil {
 		return ScreeningRecord{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, scope.TenantID+"/"+scope.PositionID+"/"+snapshot.AttemptID); err != nil {
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, scope.TenantID+"/"+scope.PositionID); err != nil {
 		return ScreeningRecord{}, err
 	}
 	var old screeningStoredRecord
@@ -92,10 +92,19 @@ func (s *PostgresScreeningRecordStore) Save(ctx context.Context, scope Screening
 	if err != nil {
 		return ScreeningRecord{}, err
 	}
+	if err = screeningPrunePositionRecords(ctx, tx, scope); err != nil {
+		return ScreeningRecord{}, err
+	}
 	if err = tx.Commit(); err != nil {
 		return ScreeningRecord{}, err
 	}
 	return next.Record, nil
+}
+
+// screeningPrunePositionRecords 在已持岗位事务锁时裁剪至500条；scope限定租户与岗位，错误使整次保存回滚。
+func screeningPrunePositionRecords(ctx context.Context, tx *sql.Tx, scope ScreeningScope) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM position_screening_records WHERE tenant_id=$1::uuid AND position_id=$2::uuid AND id IN (SELECT id FROM position_screening_records WHERE tenant_id=$1::uuid AND position_id=$2::uuid ORDER BY occurred_at DESC,attempt_id DESC OFFSET $3)`, scope.TenantID, scope.PositionID, screeningRecordLimit)
+	return err
 }
 
 // screeningSQLWhere 仅从固定白名单字段构建参数化SQL，分数闭区间和时间左闭右开不会把空值当成零。
@@ -143,7 +152,7 @@ func (s *PostgresScreeningRecordStore) List(ctx context.Context, scope Screening
 		return ScreeningRecordList{}, err
 	}
 	args = append(args, screeningRecordPageSize, (query.Page-1)*screeningRecordPageSize)
-	rows, err := tx.QueryContext(ctx, `SELECT r.id::text,r.position_id::text,r.snapshot,r.created_at,r.updated_at FROM position_screening_records r WHERE `+where+fmt.Sprintf(` ORDER BY r.occurred_at DESC,r.id DESC LIMIT $%d OFFSET $%d`, len(args)-1, len(args)), args...)
+	rows, err := tx.QueryContext(ctx, `SELECT r.id::text,r.position_id::text,r.snapshot,r.created_at,r.updated_at FROM position_screening_records r WHERE `+where+fmt.Sprintf(` ORDER BY r.occurred_at DESC,r.attempt_id DESC LIMIT $%d OFFSET $%d`, len(args)-1, len(args)), args...)
 	if err != nil {
 		return ScreeningRecordList{}, err
 	}

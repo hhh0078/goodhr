@@ -191,7 +191,7 @@ func screeningStoreContract(t *testing.T, store ScreeningRecordStore, scope Scre
 			t.Fatal("duplicate page row")
 		}
 		seen[item.ID] = true
-		if index > 0 && (all[index-1].OccurredAt.Before(item.OccurredAt) || all[index-1].OccurredAt.Equal(item.OccurredAt) && all[index-1].ID < item.ID) {
+		if index > 0 && (all[index-1].OccurredAt.Before(item.OccurredAt) || all[index-1].OccurredAt.Equal(item.OccurredAt) && all[index-1].AttemptID < item.AttemptID) {
 			t.Fatal("unstable descending order")
 		}
 	}
