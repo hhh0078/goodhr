@@ -14,7 +14,7 @@
 
 ## 当前状态
 
-- 已确认 Windows 缺少可用的原生测试环境；本次 Windows 配置保持原值。
+- Mac 发布阶段尚未取得 Windows 原生环境，按当时约定保留 Windows 配置。用户后续要求补充 Windows；原生验证与发布进度见 [Windows 补充记录](camoufox-windows-window-r1-20261026.md)。
 - 158.0-beta.40 Mac ARM64 官方包已下载，SHA-256 与 GitHub 资产摘要一致：`b8aba26d86f761627651b8e7f0d90ade022a32a3d750e0b68ff5830ebefd3aab`。
 - 152 隔离副本已安装正式 v12，`PageHandler.js` 资源 SHA-256 为 `3be1a33d51ce5c83052f8c59bf43664959c108fa7075844b95129581637b0f2a`，与用户诊断中记录一致；该摘要不是整个 `omni.ja` 的摘要。
 - 152 已累计完成 270 轮普通有窗口操作、540 次滚轮，没有滚轮超时。另有前台激活夹具失败的两次会话，未计入成功轮次，也不计作浏览器输入死锁。
@@ -54,7 +54,7 @@ AppKit 隐藏/激活接口没有确认生效的测试明确标记为夹具失败
 
 每次滚轮均用标准 Locator 边界变化确认正文实际移动，不把调用返回当作滚动成功。校验会话结束与子进程正常退出，关闭失败或缺少退出记录时不得显示通过。
 
-ARM64 是本机原生运行。Intel 浏览器在同一 Apple Silicon Mac 上经 Rosetta 运行，驱动 Node 为 arm64；不冒充 Intel 真机或 x64 Node 整套安装验收。Windows 未取得原生环境，没有更新 Windows 配置。
+ARM64 是本机原生运行。Intel 浏览器在同一 Apple Silicon Mac 上经 Rosetta 运行，驱动 Node 为 arm64；不冒充 Intel 真机或 x64 Node 整套安装验收。截至本记录中的 Mac 发布阶段，Windows 配置尚未更新；后续 Windows 原生结果单独记录。
 
 两个候选均通过 Go 全部资源检查和正式 Worker 启动。实际发布包安装后又分别完成正式 Worker 的“未遮挡滚动→真实遮挡→再次滚动→正常清理”：ARM64 遮挡后 2,307ms 完成，Intel 经 Rosetta 为 2,970ms。已验证原始包与候选包各 397 个外层成员仅 `omni.ja` 改变；内层各 2436 个成员仅 `TargetRegistry.js` 改变，实际 diff 只有该设置和中文说明、来源注释。每架构 19 个 Mach-O 文件内容完全不变，没有夹入 Profile、备份或额外版本文件。
 
@@ -64,7 +64,7 @@ ARM64 是本机原生运行。Intel 浏览器在同一 Apple Silicon Mac 上经 
 
 ### 发布记录
 
-内核版本保持真实值 `152.0.4-beta.30`，修补版本通过独立文件名、新 SHA-256 和配置 note 标记为 GoodHR 窗口刷新修补 r1。已有用户需刷新后台并手动更新运行组件，再完全退出 Camoufox 后重开，已有窗口不会自动重新加载磁盘模块。
+内核版本保持真实值 `152.0.4-beta.30`，修补版本通过独立文件名、新 SHA-256 和配置 note 标记为 GoodHR 窗口刷新修补 r1。已有用户需刷新后台并手动更新运行组件，再完全退出 Camoufox 和 GoodHR 本地程序后重开；已有窗口不会自动重新加载磁盘模块，已有 Worker 也不会自动替换进程环境中的组件路径。
 
 | 平台 | 新文件 | 字节数 | SHA-256 |
 | --- | --- | ---: | --- |
