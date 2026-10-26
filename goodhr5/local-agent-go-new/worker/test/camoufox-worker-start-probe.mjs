@@ -4,10 +4,11 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { captureOwnedProcesses, terminateOwnedProcesses, processCleanupSelfTest } from './camoufox-owned-processes.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const PUBLIC_URL = 'https://playwright.dev/docs/intro';
@@ -116,19 +117,23 @@ async function probe(options) {
     }, context('browser.start', 60000)));
     report.start_duration_ms = Math.round(performance.now() - startedAt);
     report.passed = report.browser.running === true;
+    process.send?.({ type: 'probe_browser_started' });
     if (options.coverScrollBinary) {
       assert.equal(report.passed, true, '正式 Worker 没有启动浏览器，不能进行遮挡滚轮验证');
       report.normal_scroll = await stage(report, 'scroll.before_cover', 45000, () =>
         actions.scroll({ distance: 240 }, context('page.scroll', 45000)));
       assert.equal(report.normal_scroll.scrolled, true, '遮挡前未确认普通真实滚轮移动，不进入遮挡实验');
       const helper = fileURLToPath(new URL('./camoufox-window-state.mjs', import.meta.url));
-      report.cover = await stage(report, 'window.cover', 12000, () => {
+      const coverBudget = process.platform === 'win32' ? 30000 : 12000;
+      report.cover = await stage(report, 'window.cover', coverBudget, () => {
         const output = execFileSync(process.execPath, [helper, '--session-pid', String(process.pid), '--state', 'covered',
-          '--cover-binary', options.coverScrollBinary, '--cover-seconds', '60'], { encoding: 'utf8', timeout: 12000, maxBuffer: 1024 * 1024 });
+          '--cover-binary', options.coverScrollBinary, '--cover-seconds', '60'], { encoding: 'utf8', timeout: coverBudget, maxBuffer: 1024 * 1024 });
         const covered = JSON.parse(output.trim());
         assert.ok(covered.ok && covered.ready && covered.covered && covered.cover_pid > 0, '未取得真实遮挡窗口证据');
         return covered;
       });
+      process.send?.({ type: 'probe_cover_started', cover: { pid: report.cover.cover_pid, browserPID: report.cover.browser_pid,
+        binary: options.coverScrollBinary, sessionPID: report.cover.session_pid, helperPID: report.cover.fixture_parent_pid, executable: report.cover.fixture_executable } });
       report.covered_scroll = await stage(report, 'scroll.under_cover', 45000, () =>
         actions.scroll({ distance: 300, max_attempts: 6, wait_ms: 0 }, context('page.scroll', 45000)));
       assert.equal(report.covered_scroll.scrolled, true, '正式 Worker 遮挡后滚轮没有确认移动；不能标记通过');
@@ -153,21 +158,7 @@ async function probe(options) {
   return redact(report);
 }
 
-/** descendantPIDs 只读取本探针子进程的后代编号，不保存其他用户进程的命令行。 */
-function descendantPIDs(childPID) {
-  if (process.platform === 'win32') return [];
-  const output = spawnSync('ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8' });
-  if (output.status !== 0) return [];
-  const rows = output.stdout.trim().split('\n').map(line => line.trim().split(/\s+/).map(Number));
-  const found = new Set([childPID]);
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const [pid, ppid] of rows) if (found.has(ppid) && !found.has(pid)) { found.add(pid); changed = true; }
-  }
-  return [...found].reverse();
-}
-
-/** supervise 普通启动限八十秒、显式遮挡实验限一百三十秒，只清理本次进程树和遮挡夹具所在独立组。 */
+/** supervise 普通启动限八十秒、遮挡限一百三十秒；Mac 和 Windows 共用核对创建时间与路径的回收能力。 */
 async function supervise(options) {
   const child = spawn(process.execPath, [SCRIPT, ...process.argv.slice(2), '--child', '--run-dir', options.runDir],
     { detached: Boolean(options.coverScrollBinary) && process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
@@ -176,36 +167,40 @@ async function supervise(options) {
   let stderr = '';
   let stdout = '';
   let killed = false;
-  /** cleanupCoverGroup 回收本次显式遮挡实验的新进程组，包含辅助退出后仍留在组内的定时遮挡窗。 */
-  function cleanupCoverGroup() {
-    if (!options.coverScrollBinary || !child.pid || process.platform === 'win32') return;
-    try { process.kill(-child.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
-  }
+  const captured = new Map();
+  captureOwnedProcesses(child, captured);
+  let processCleanup;
   /** terminate 先记录进程亲缘，再退出子进程，避免误伤其他浏览器。 */
   function terminate() {
     if (killed || !child.pid) return;
     killed = true;
     forced = true;
-    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F']);
-    else for (const pid of descendantPIDs(child.pid)) { try { process.kill(pid, 'SIGKILL'); } catch {} }
-    cleanupCoverGroup();
+    captureOwnedProcesses(child, captured);
+    processCleanup = terminateOwnedProcesses(child, captured, true);
+    if (processCleanup?.status === 'failed') child.kill('SIGKILL');
   }
   const watchdog = setTimeout(terminate, options.coverScrollBinary ? 130000 : 80000);
   process.once('SIGTERM', terminate);
   process.once('SIGINT', terminate);
   child.stdout.on('data', chunk => { stdout += chunk; });
   child.stderr.on('data', chunk => { stderr += chunk; });
-  child.on('message', message => { if (message?.type === 'probe_result') report = message.result; });
+  child.on('message', message => {
+    if (message?.type === 'probe_browser_started') captureOwnedProcesses(child, captured);
+    if (message?.type === 'probe_cover_started') captureOwnedProcesses(child, captured, message.cover);
+    if (message?.type === 'probe_result') report = message.result;
+  });
   await new Promise(resolve => { child.once('close', resolve); child.once('error', error => {
     report = { passed: false, error: redact(error) }; resolve();
   }); });
   clearTimeout(watchdog);
-  cleanupCoverGroup();
+  processCleanup = terminateOwnedProcesses(child, captured, true) ?? processCleanup;
   process.removeListener('SIGTERM', terminate);
   process.removeListener('SIGINT', terminate);
   report ??= { label: options.label, passed: false, error: { code: 'PROBE_CHILD_INCOMPLETE',
     message: '正式 Worker 启动探针未在硬上限内返回结果' } };
   report.supervisor_forced_cleanup = forced;
+  report.process_cleanup = processCleanup;
+  if (processCleanup?.status === 'failed') report.passed = false;
   if (forced) report.passed = false;
   await fsp.writeFile(path.join(options.runDir, 'worker-output.log'), redact(stdout + stderr), { mode: 0o600 });
   await fsp.writeFile(path.join(options.runDir, 'result.json'), JSON.stringify(redact(report), null, 2) + '\n', { mode: 0o600 });
@@ -215,6 +210,7 @@ async function supervise(options) {
 
 /** selfTest 验证阶段异常不会被记成成功，并检查正式调用预算和脱敏，不启动浏览器或窗口。 */
 async function selfTest() {
+  processCleanupSelfTest();
   assert.ok(fs.existsSync(fileURLToPath(new URL('./camoufox-window-state.mjs', import.meta.url))), '遮挡辅助路径必须可解析，不能覆盖 URL 构造器');
   const report = { stages: [] };
   await assert.rejects(() => stage(report, 'synthetic.worker_error', 100, () => { throw Object.assign(new Error('模拟正式 Worker 错误'), { code: 'WORKER_UNRESPONSIVE' }); }),
@@ -242,10 +238,10 @@ if (values.help) {
     : await fsp.mkdtemp(path.join(outputDir, 'worker-start-'));
   let coverScrollBinary;
   if (values['cover-scroll-binary']) {
-    assert.ok(process.platform === 'darwin' && !values.headless, '正式 Worker 遮挡滚轮实验仅支持 Mac 有窗口模式');
+    assert.ok(['darwin', 'win32'].includes(process.platform) && !values.headless, '正式 Worker 遮挡滚轮实验仅支持 Mac 或 Windows 有窗口模式');
     coverScrollBinary = isolatedPath(values['cover-scroll-binary'], 'cover-scroll-binary');
     assert.ok(fs.statSync(coverScrollBinary).isFile(), 'cover-scroll-binary 必须是隔离的已编译文件');
-    fs.accessSync(coverScrollBinary, fs.constants.X_OK);
+    fs.accessSync(coverScrollBinary, process.platform === 'win32' ? fs.constants.R_OK : fs.constants.X_OK);
   }
   const options = { installDir, binary, outputDir, runDir, label: values.label, headless: values.headless, coverScrollBinary };
   if (values.child) {

@@ -1,10 +1,11 @@
-// 文件作用：在 macOS 仅按公开压力测试进程树隐藏、显示或用独立窗口遮挡隔离 Camoufox；不执行页面脚本或操作其他浏览器。
+// 文件作用：按独立测试进程树定位隔离 Camoufox；Mac 用 AppKit 隐藏、显示或遮挡，Windows 只用专属 PowerShell 浮动窗遮挡；不执行页面脚本。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { readProcessIdentities, readProcessArguments } from './camoufox-owned-processes.mjs';
 
 const STRESS_SCRIPT = fileURLToPath(new URL('./camoufox-public-stress.mjs', import.meta.url));
 const WORKER_PROBE_SCRIPT = fileURLToPath(new URL('./camoufox-worker-start-probe.mjs', import.meta.url));
@@ -52,15 +53,16 @@ function descendants(processes, sessionPID) {
 }
 
 /** assertIsolatedBinary 要求实际路径处于 camoufox-upgrade，并明确拒绝用户正式 GoodHR 安装目录。 */
-function assertIsolatedBinary(binary) {
+function assertIsolatedBinary(binary, platform = process.platform) {
   const normalized = binary.replaceAll('\\', '/').toLowerCase();
-  assert.ok(path.isAbsolute(binary) && normalized.split('/').includes('camoufox-upgrade'), '浏览器必须来自 camoufox-upgrade 隔离副本');
-  assert.ok(!normalized.includes('/library/application support/goodhr/'), '禁止操作用户正式 GoodHR 浏览器');
-  assert.match(normalized, /\/camoufox\.app\/contents\/macos\/camoufox$/, '只允许独立 Camoufox 应用主进程');
+  assert.ok((platform === 'win32' ? path.win32.isAbsolute(binary) : path.isAbsolute(binary)) && normalized.split('/').includes('camoufox-upgrade'), '浏览器必须来自 camoufox-upgrade 隔离副本');
+  assert.ok(!['/library/application support/goodhr/', '/appdata/local/goodhr/', '/appdata/roaming/goodhr/'].some(part => normalized.includes(part)), '禁止操作用户正式 GoodHR 浏览器');
+  assert.match(normalized, platform === 'win32' ? /\/camoufox\.exe$/ : /\/camoufox\.app\/contents\/macos\/camoufox$/, '只允许独立 Camoufox 应用主进程');
 }
 
 /** processArguments 获取单个已选进程的命令行，仅用于确认身份，不输出其他用户进程内容。 */
 function processArguments(pid) {
+  if (process.platform === 'win32') return readProcessArguments(pid);
   return execFileSync('/bin/ps', ['-p', String(pid), '-o', 'args='], { encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024 }).trim();
 }
 
@@ -74,14 +76,14 @@ function approvedSessionCommand(command, state) {
 
 /** selectBrowser 验证压力测试子会话身份，要求其进程树内恰好一个隔离浏览器主进程。 */
 function selectBrowser(sessionPID, state) {
-  const processes = parseProcessTable(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,comm='], {
+  const processes = process.platform === 'win32' ? readProcessIdentities().map(row => ({ ...row, command: row.executable })) : parseProcessTable(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,comm='], {
     encoding: 'utf8', timeout: 5000, maxBuffer: 8 * 1024 * 1024,
   }));
   const session = processes.find(item => item.pid === sessionPID);
-  assert.ok(session && /^node(?:js)?$/i.test(path.basename(session.command)), '指定 PID 不是仍在运行的 Node 测试会话');
+  assert.ok(session && /^node(?:js)?(?:\.exe)?$/i.test(path.basename(session.command)), '指定 PID 不是仍在运行的 Node 测试会话');
   const sessionArgs = processArguments(sessionPID);
   assert.ok(approvedSessionCommand(sessionArgs, state), '指定 Node PID 不属于允许的独立测试子会话');
-  const candidates = descendants(processes, sessionPID).filter(item => path.basename(item.command).toLowerCase() === 'camoufox')
+  const candidates = descendants(processes, sessionPID).filter(item => /^camoufox(?:\.exe)?$/i.test(path.basename(item.command)))
     .filter(item => !/(?:^|\s)-(?:contentproc|gpu|utility)(?:\s|$)/.test(processArguments(item.pid)));
   assert.equal(candidates.length, 1, `测试会话内匹配到 ${candidates.length} 个浏览器主进程，无法唯一确认，未操作窗口`);
   const browser = candidates[0];
@@ -89,7 +91,8 @@ function selectBrowser(sessionPID, state) {
   const binary = fs.realpathSync(browser.command);
   assertIsolatedBinary(binary);
   // AppKit 操作前再次确认同一 PID 的路径，降低进程已退出或 PID 变化时的误操作风险。
-  const current = parseProcessTable(execFileSync('/bin/ps', ['-p', String(browser.pid), '-o', 'pid=,ppid=,comm='], { encoding: 'utf8', timeout: 5000 }))[0];
+  const current = process.platform === 'win32' ? readProcessIdentities().map(row => ({ ...row, command: row.executable })).find(row => row.pid === browser.pid)
+    : parseProcessTable(execFileSync('/bin/ps', ['-p', String(browser.pid), '-o', 'pid=,ppid=,comm='], { encoding: 'utf8', timeout: 5000 }))[0];
   assert.ok(current && current.command === browser.command && current.ppid === browser.ppid, '浏览器进程身份发生变化，未操作窗口');
   return { pid: browser.pid, binary };
 }
@@ -99,10 +102,15 @@ async function startCover(browser, binary, seconds) {
   assert.ok(binary && path.isAbsolute(binary), 'covered 必须明确指定已编译 cover-binary 的绝对路径');
   const executable = fs.realpathSync(binary);
   assert.ok(fs.statSync(executable).isFile(), 'cover-binary 不是可执行文件');
-  fs.accessSync(executable, fs.constants.X_OK);
+  fs.accessSync(executable, process.platform === 'win32' ? fs.constants.R_OK : fs.constants.X_OK);
   assert.ok(Number.isInteger(seconds) && seconds > 0 && seconds <= 300, 'cover-seconds 必须为 1 到 300 的整数');
-  const child = spawn(executable, ['--browser-pid', String(browser.pid), '--seconds', String(seconds)], {
-    detached: false, stdio: ['ignore', 'pipe', 'pipe'],
+  const isWindows = process.platform === 'win32';
+  if (isWindows) assert.equal(path.extname(executable).toLowerCase(), '.ps1', 'Windows 遮挡夹具必须是明确的 PowerShell 脚本');
+  const runner = isWindows ? fs.realpathSync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')) : executable;
+  const args = isWindows ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', executable, '-BrowserPid', String(browser.pid), '-Seconds', String(seconds)]
+    : ['--browser-pid', String(browser.pid), '--seconds', String(seconds)];
+  const child = spawn(runner, args, {
+    detached: false, windowsHide: isWindows, stdio: ['ignore', 'pipe', 'pipe'],
   });
   return new Promise((resolve, reject) => {
     let output = '';
@@ -110,7 +118,7 @@ async function startCover(browser, binary, seconds) {
     let ready = false;
     /** stop 只终止本辅助启动的夹具，绝不触碰浏览器或其他应用。 */
     const stop = error => { if (ready) return; clearTimeout(timer); child.kill('SIGTERM'); reject(error); };
-    const timer = setTimeout(() => stop(new Error('遮挡窗未在 5 秒内确认显示')), 5000);
+    const timer = setTimeout(() => stop(new Error('遮挡窗未在夹具初始化预算内确认显示')), isWindows ? 20000 : 5000);
     child.stderr.on('data', chunk => { errorOutput = (errorOutput + chunk.toString()).slice(-8192); });
     child.once('error', stop);
     child.once('exit', code => { if (!ready) stop(new Error(`遮挡夹具提前退出 code=${code} ${errorOutput}`)); });
@@ -128,7 +136,7 @@ async function startCover(browser, binary, seconds) {
         child.unref();
         child.stdout.destroy();
         child.stderr.destroy();
-        resolve({ ok: true, state: 'covered', ...result });
+        resolve({ ok: true, state: 'covered', fixture_parent_pid: process.pid, helper_parent_pid: process.ppid, fixture_executable: runner, ...result });
       } catch (error) { stop(error); }
     });
   });
@@ -146,14 +154,16 @@ function selfTest() {
   const processes = parseProcessTable('100 1 /opt/node\n101 100 /tmp/camoufox-upgrade/158/Camoufox.app/Contents/MacOS/camoufox\n102 101 /tmp/helper\n200 1 /tmp/other\n');
   assert.deepEqual(descendants(processes, 100).map(item => item.pid), [101, 102]);
   assert.deepEqual(descendants(processes, 999), []);
-  assert.doesNotThrow(() => assertIsolatedBinary('/tmp/camoufox-upgrade/158/Camoufox.app/Contents/MacOS/camoufox'));
+  assert.doesNotThrow(() => assertIsolatedBinary('/tmp/camoufox-upgrade/158/Camoufox.app/Contents/MacOS/camoufox', 'darwin'));
   assert.throws(() => assertIsolatedBinary('/Applications/Camoufox.app/Contents/MacOS/camoufox'));
   assert.throws(() => assertIsolatedBinary('/Users/test/Library/Application Support/GoodHR/camoufox-upgrade/Camoufox.app/Contents/MacOS/camoufox'));
   assert.throws(() => assertIsolatedBinary('/tmp/camoufox-upgrade/158/Camoufox.app/Contents/MacOS/plugin-container'));
+  assert.doesNotThrow(() => assertIsolatedBinary('D:\\Public Test\\camoufox-upgrade\\browser\\camoufox.exe', 'win32'));
+  assert.throws(() => assertIsolatedBinary('C:\\Users\\test\\AppData\\Local\\GoodHR\\camoufox-upgrade\\camoufox.exe', 'win32'));
   console.log(JSON.stringify({ ok: true, self_test: 'passed', window_operations: 0 }));
 }
 
-/** main 在 macOS 验证唯一测试进程后调用 AppKit，其他系统明确拒绝窗口操作。 */
+/** main 核对唯一测试进程；Mac 保留 AppKit，Windows 仅允许显式的 PowerShell 遮挡夹具。 */
 async function main() {
   const { values } = parseArgs({ options: { 'session-pid': { type: 'string' }, state: { type: 'string', default: 'status' },
     'cover-binary': { type: 'string' }, 'cover-seconds': { type: 'string', default: '30' },
@@ -163,13 +173,14 @@ async function main() {
     return;
   }
   if (values['self-test']) return selfTest();
-  assert.equal(process.platform, 'darwin', '此辅助仅支持 macOS AppKit；当前系统不支持，未操作窗口');
+  assert.ok(process.platform === 'darwin' || (process.platform === 'win32' && values.state === 'covered'), '此系统仅支持 Windows 遮挡或 macOS AppKit；未操作窗口');
   assert.ok(/^\d+$/.test(values['session-pid'] ?? ''), 'session-pid 必须是压力测试子会话的正整数 PID');
   const sessionPID = Number(values['session-pid']);
   assert.ok(Number.isSafeInteger(sessionPID) && sessionPID > 0, 'session-pid 必须是正整数');
   assert.ok(['hidden', 'visible', 'status', 'covered'].includes(values.state), 'state 只能是 hidden、visible、status、covered');
   const browser = selectBrowser(sessionPID, values.state);
   if (values.state === 'covered') {
+    assert.equal(process.ppid, sessionPID, '遮挡辅助必须由指定独立测试会话直接创建，拒绝不明确归属');
     const result = await startCover(browser, values['cover-binary'], Number(values['cover-seconds']));
     console.log(JSON.stringify({ session_pid: sessionPID, ...result }));
     return;

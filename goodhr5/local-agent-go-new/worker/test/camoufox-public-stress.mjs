@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -62,10 +63,10 @@ function argumentsForRun(argv) {
     'cover-before-wheel-round 必须为 0 或不超过 rounds 的正整数');
   assert.ok(Number.isInteger(options.coverSeconds) && options.coverSeconds > 0 && options.coverSeconds <= 300, 'cover-seconds 必须为 1 到 300 的整数');
   if (options.coverBeforeWheelRound > 0) {
-    assert.ok(process.platform === 'darwin' && !options.headless, '遮挡对照仅支持 Mac 有窗口模式');
+    assert.ok(['darwin', 'win32'].includes(process.platform) && !options.headless, '遮挡对照仅支持 Mac 或 Windows 有窗口模式');
     assert.equal(options.hideBeforeWheelRound, 0, '遮挡和隐藏对照必须分开运行');
     assert.ok(values['cover-binary'] && path.isAbsolute(values['cover-binary']), '遮挡对照必须指定 cover-binary 绝对路径');
-    fs.accessSync(values['cover-binary'], fs.constants.X_OK);
+    fs.accessSync(values['cover-binary'], process.platform === 'win32' ? fs.constants.R_OK : fs.constants.X_OK);
   }
   options.sites = [...new Set([...(values.site ?? []), ...(values.url ?? []).map(url => siteForURL(url))])];
   if (!options.sites.length) options.sites = ['playwright', 'mdn', 'selenium'];
@@ -152,8 +153,9 @@ async function setTestWindowState(state, detail = {}, cover = {}) {
   const args = [helper, '--session-pid', String(process.pid), '--state', state];
   if (state === 'covered') args.push('--cover-binary', cover.binary, '--cover-seconds', String(cover.seconds));
   const step = state === 'visible' ? 'activate_test_window' : state === 'covered' ? 'cover_test_window' : 'hide_test_window';
+  const budget = state === 'covered' && process.platform === 'win32' ? 30000 : 12000;
   const result = await checked(step, () => JSON.parse(execFileSync(process.execPath,
-    args, { encoding: 'utf8', timeout: 12000, maxBuffer: 1024 * 1024 }).trim()), detail);
+    args, { encoding: 'utf8', timeout: budget, maxBuffer: 1024 * 1024 }).trim()), detail, Math.max(metadata.timeout_ms, budget));
   record({ event: 'window_state', requested: state, result, ...detail });
   const verified = state === 'covered' ? result.ready && result.covered && result.cover_pid > 0 : state === 'hidden' ? result.hidden : !result.hidden && result.active;
   assert.ok(result.ok && verified, `测试浏览器没有确认处于 ${state} 状态`);
@@ -331,7 +333,8 @@ async function monitorSession(options, session, signal) {
       stopped = true;
       captureOwnedProcesses(child, captured);
       record({ event: 'supervisor_stop', session, child_pid: child.pid, reason });
-      terminateOwnedProcesses(child, captured);
+      const cleanup = terminateOwnedProcesses(child, captured);
+      if (cleanup?.status === 'failed') { record({ event: 'process_cleanup', session, ...cleanup }); child.kill('SIGTERM'); }
       forceTimer = setTimeout(() => { captureOwnedProcesses(child, captured); terminateOwnedProcesses(child, captured, true); }, 6000);
     };
     /** arm 按当前动作预算设置外部兜底，留出失败截图及关闭窗口的时间。 */
@@ -341,14 +344,16 @@ async function monitorSession(options, session, signal) {
     child.on('message', event => {
       if (event.event === 'browser_started') captureOwnedProcesses(child, captured);
       if (event.event === 'window_state' && event.requested === 'covered') captureOwnedProcesses(child, captured,
-        { pid: event.result?.cover_pid, browserPID: event.result?.browser_pid, binary: options['cover-binary'] });
+        { pid: event.result?.cover_pid, browserPID: event.result?.browser_pid, binary: options['cover-binary'],
+          sessionPID: event.result?.session_pid, helperPID: event.result?.fixture_parent_pid, executable: event.result?.fixture_executable });
       if (event.event === 'action_start') arm(event.timeout_ms + 8000);
       else if (event.event === 'action_end') arm(30000);
     });
     child.once('error', error => { record({ event: 'child_spawn_error', session, error_message: error.message }); });
     child.once('close', (code, childSignal) => {
       clearTimeout(watchdog); clearTimeout(forceTimer); signal.removeEventListener('abort', stop);
-      terminateOwnedProcesses(child, captured, true);
+      const cleanup = terminateOwnedProcesses(child, captured, true);
+      if (cleanup) record({ event: 'process_cleanup', session, child_pid: child.pid, ...cleanup });
       record({ event: 'child_exit', session, child_pid: child.pid, exit_code: code, signal: childSignal });
       resolve(code === 0 && !stopped);
     });
@@ -372,7 +377,7 @@ async function writeSummary(options) {
   const exits = events.filter(event => event.event === 'child_exit');
   const sessionsPassed = events.filter(event => event.event === 'session_end' && event.status === 'passed').length;
   const allChildrenExited = exits.length === options.sessions && exits.every(event => event.exit_code === 0 && !event.signal);
-  const errors = events.filter(event => (['action_end', 'scroll_verification', 'browser_closed', 'session_end'].includes(event.event) && event.status === 'failed') ||
+  const errors = events.filter(event => (['action_end', 'scroll_verification', 'browser_closed', 'session_end', 'process_cleanup'].includes(event.event) && event.status === 'failed') ||
     ['session_error', 'supervisor_stop'].includes(event.event) || (event.event === 'child_exit' && (event.exit_code !== 0 || Boolean(event.signal))));
   const summary = { ...metadata, headless: options.headless, humanize: options.humanize, sites: options.sites.map(site => SITES[site]),
     requested_sessions: options.sessions, window_state_requested: options['window-state'],
@@ -407,6 +412,9 @@ async function selfTest() {
   assert.throws(() => assertIsolatedInstallation('/tmp/normal-browser'));
   assert.throws(() => assertIsolatedInstallation('/Users/test/Library/Application Support/GoodHR/camoufox-upgrade/158'));
   assert.throws(() => assertIsolatedInstallation('C:\\Users\\test\\AppData\\Local\\GoodHR\\camoufox-upgrade\\158'));
+  assert.doesNotThrow(() => assertIsolatedInstallation('D:\\Public Test\\camoufox-upgrade\\browser'));
+  assert.throws(() => assertIsolatedInstallation('C:\\Users\\test\\AppData\\Roaming\\GoodHR\\camoufox-upgrade\\browser'));
+  assert.equal(path.win32.relative('C:\\Test Space\\camoufox-upgrade', 'C:\\Test Space\\camoufox-upgrade\\Camoufox\\camoufox.exe'), 'Camoufox\\camoufox.exe');
   assert.equal(siteForURL(SITES.mdn + '#examples'), 'mdn');
   for (const url of ['https://www.zhipin.com/', 'https://playwright.dev.evil.test/docs/intro', 'https://playwright.dev/docs/intro?secret=1', 'https://u:p@playwright.dev/docs/intro', 'http://playwright.dev/docs/intro']) {
     assert.throws(() => siteForURL(url));
@@ -415,7 +423,7 @@ async function selfTest() {
   assert.deepEqual(metrics([10, 30, 20]), { count: 3, p95_ms: 30, max_ms: 30 });
   const previousDirectory = runDirectory;
   const previousMetadata = metadata;
-  const temporary = fs.mkdtempSync(path.join(process.env.TMPDIR ?? process.env.TEMP ?? '/tmp', 'goodhr-summary-self-test-'));
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'goodhr-summary-self-test-'));
   try {
     runDirectory = temporary;
     metadata = { label: 'statistics-self-test', engine: 'fixture' };

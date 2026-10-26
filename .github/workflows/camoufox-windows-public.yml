@@ -1,0 +1,186 @@
+# 文件作用：在原生 Windows 中验证隔离的旧版与修补版 Camoufox、正式 Go 适配和 Worker，并保存公开站点证据及受测候选包。
+name: Camoufox Windows public regression
+
+on:
+  push:
+    branches:
+      - codex/camoufox-win-window-r1
+    paths:
+      - .github/workflows/camoufox-windows-public.yml
+      - goodhr5/local-agent-go-new/scripts/patch-camoufox-window-rendering.py
+      - goodhr5/local-agent-go-new/scripts/prepare-camoufox-windows-public.py
+      - goodhr5/local-agent-go-new/worker/**
+      - goodhr5/local-agent-go-new/internal/runtime/**
+      - goodhr5/local-agent-go-new/go.mod
+      - goodhr5/local-agent-go-new/go.sum
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  windows-public:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: goodhr5/local-agent-go-new
+    steps:
+      - name: 检出受测分支
+        uses: actions/checkout@v4
+
+      - name: 准备 Node 22.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+
+      - name: 准备 Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: 准备 Go 1.27.0
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.0
+          cache: false
+
+      - name: 检查并配置依赖镜像
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm config get registry
+          if ($LASTEXITCODE -ne 0) { throw '读取 npm 镜像失败' }
+          go env GOPROXY
+          if ($LASTEXITCODE -ne 0) { throw '读取 Go 镜像失败' }
+          npm config set registry https://registry.npmmirror.com
+          if ($LASTEXITCODE -ne 0) { throw '配置 npm 镜像失败' }
+          go env -w GOPROXY=https://goproxy.cn,direct
+          if ($LASTEXITCODE -ne 0) { throw '配置 Go 镜像失败' }
+
+      - name: 验证 Windows 原生遮挡辅助程序
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "$env:RUNNER_TEMP/camoufox-upgrade"
+          New-Item -ItemType Directory -Force "$root/results" | Out-Null
+          Copy-Item -LiteralPath worker/test/camoufox-window-cover.ps1 -Destination "$root/camoufox-window-cover.ps1"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root/camoufox-window-cover.ps1" -SelfTest 2>&1 | Tee-Object -FilePath "$root/results/window-cover-self-test.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows 原生遮挡辅助程序自检失败' }
+
+      - name: 准备隔离浏览器和精确候选包
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "$env:RUNNER_TEMP/camoufox-upgrade"
+          python scripts/prepare-camoufox-windows-public.py --root "$root" --repo "$env:GITHUB_WORKSPACE" 2>&1 | Tee-Object -FilePath "$root/results/prepare-windows.log"
+          if ($LASTEXITCODE -ne 0) { throw '准备 Windows 浏览器或候选包失败' }
+
+      - name: 验证两份浏览器的正式 Go 资源适配
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "$env:RUNNER_TEMP/camoufox-upgrade"
+          foreach ($variant in @('baseline', 'candidate-installed')) {
+            $env:GOODHR_UPGRADE_PROBE_DIR = "$root/browsers/152-$variant-win-x64"
+            if (!(Test-Path -LiteralPath $env:GOODHR_UPGRADE_PROBE_DIR -PathType Container)) { throw "隔离浏览器目录缺失：$variant" }
+            go test ./internal/runtime -run '^TestCamoufoxUpgradeCompatibilityProbe$' -count=1 -v 2>&1 | Tee-Object -FilePath "$root/results/go-probe-$variant.log"
+            if ($LASTEXITCODE -ne 0) { throw "正式 Go 资源适配失败：$variant" }
+          }
+
+      - name: 安装并编译正式 Worker
+        working-directory: goodhr5/local-agent-go-new/worker
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $results = "$env:RUNNER_TEMP/camoufox-upgrade/results"
+          npm ci 2>&1 | Tee-Object -FilePath "$results/npm-ci.log"
+          if ($LASTEXITCODE -ne 0) { throw '安装锁定的 Worker 依赖失败' }
+          npm run build 2>&1 | Tee-Object -FilePath "$results/worker-build.log"
+          if ($LASTEXITCODE -ne 0) { throw '编译正式 Worker 失败' }
+
+      - name: 验证公开站点与正式 Worker 探针的自检
+        working-directory: goodhr5/local-agent-go-new/worker
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $results = "$env:RUNNER_TEMP/camoufox-upgrade/results"
+          node test/camoufox-public-stress.mjs --self-test 2>&1 | Tee-Object -FilePath "$results/public-stress-self-test.log"
+          if ($LASTEXITCODE -ne 0) { throw '公开站点探针自检失败' }
+          node test/camoufox-worker-start-probe.mjs --self-test 2>&1 | Tee-Object -FilePath "$results/worker-probe-self-test.log"
+          if ($LASTEXITCODE -ne 0) { throw '正式 Worker 探针自检失败' }
+
+      - name: 旧版浏览器公开站点 270 轮真实输入
+        id: baseline
+        continue-on-error: true
+        working-directory: goodhr5/local-agent-go-new/worker
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "$env:RUNNER_TEMP/camoufox-upgrade"
+          $browser = "$root/browsers/152-baseline-win-x64"
+          node test/camoufox-public-stress.mjs --install-dir "$browser" --binary "$browser/camoufox.exe" --output-dir "$root/results" --label 152-baseline-win-x64 --sessions 3 --rounds 30 --site heroku --site playwright --site mdn --headed --humanize true --window-state unchanged 2>&1 | Tee-Object -FilePath "$root/results/public-stress-baseline.log"
+          if ($LASTEXITCODE -ne 0) { throw '旧版 Windows 公开站点多轮验证失败' }
+
+      - name: 修补版浏览器公开站点 270 轮真实输入
+        id: candidate
+        working-directory: goodhr5/local-agent-go-new/worker
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "$env:RUNNER_TEMP/camoufox-upgrade"
+          $browser = "$root/browsers/152-candidate-installed-win-x64"
+          node test/camoufox-public-stress.mjs --install-dir "$browser" --binary "$browser/camoufox.exe" --output-dir "$root/results" --label 152-candidate-installed-win-x64 --sessions 3 --rounds 30 --site heroku --site playwright --site mdn --headed --humanize true --window-state unchanged --cover-before-wheel-round 1 --cover-binary "$root/camoufox-window-cover.ps1" --cover-seconds 60 2>&1 | Tee-Object -FilePath "$root/results/public-stress-candidate.log"
+          if ($LASTEXITCODE -ne 0) { throw '修补版 Windows 公开站点多轮验证失败' }
+
+      - name: 修补版正式 Worker 有窗口启动验证
+        id: worker
+        working-directory: goodhr5/local-agent-go-new/worker
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "$env:RUNNER_TEMP/camoufox-upgrade"
+          $browser = "$root/browsers/152-candidate-installed-win-x64"
+          node test/camoufox-worker-start-probe.mjs --install-dir "$browser" --binary "$browser/camoufox.exe" --output-dir "$root/results" --label 152-candidate-worker-win-x64 --cover-scroll-binary "$root/camoufox-window-cover.ps1" 2>&1 | Tee-Object -FilePath "$root/results/worker-start-candidate.log"
+          if ($LASTEXITCODE -ne 0) { throw '修补版 Windows 正式 Worker 启动验证失败' }
+
+      - name: 保留对照原始结果和候选发布门槛
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
+          CANDIDATE_OUTCOME: ${{ steps.candidate.outcome }}
+          WORKER_OUTCOME: ${{ steps.worker.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $results = "$env:RUNNER_TEMP/camoufox-upgrade/results"
+          New-Item -ItemType Directory -Force "$results" | Out-Null
+          $summary = [ordered]@{
+            baseline_outcome = $env:BASELINE_OUTCOME
+            baseline_is_control = $true
+            candidate_outcome = $env:CANDIDATE_OUTCOME
+            worker_outcome = $env:WORKER_OUTCOME
+            release_gate_passed = ($env:CANDIDATE_OUTCOME -eq 'success' -and $env:WORKER_OUTCOME -eq 'success')
+          }
+          $summary | ConvertTo-Json | Set-Content -LiteralPath "$results/workflow-outcomes.json" -Encoding utf8
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "baseline outcome: $env:BASELINE_OUTCOME (control)"
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "candidate outcome: $env:CANDIDATE_OUTCOME; worker outcome: $env:WORKER_OUTCOME"
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "release gate passed: $($summary.release_gate_passed)"
+
+      - name: 保存日志、汇总和截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: camoufox-windows-public-results
+          path: |
+            ${{ runner.temp }}/camoufox-upgrade/results
+            !${{ runner.temp }}/camoufox-upgrade/results/**/profiles/**
+            !${{ runner.temp }}/camoufox-upgrade/results/**/profile/**
+            !${{ runner.temp }}/camoufox-upgrade/results/**/omni-original-*.ja
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: 保存本次原生 Windows 受测候选 ZIP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: camoufox-windows-candidate
+          path: ${{ runner.temp }}/camoufox-upgrade/archives/camoufox-152.0.4-beta.30-goodhr-window-r1-win.x86_64.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1

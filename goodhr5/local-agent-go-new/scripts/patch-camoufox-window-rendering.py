@@ -102,7 +102,7 @@ def patch_browser(install_dir, output_dir):
                     if candidate.testzip() is not None:
                         raise ValueError("新归档完整性检查未通过，原归档保留")
                 os.chmod(temporary, archive.stat().st_mode & 0o7777)
-                with open(temporary, "rb") as candidate:
+                with open(temporary, "r+b") as candidate:
                     os.fsync(candidate.fileno())
                 if digest(archive) != before:
                     raise ValueError("浏览器归档在检查期间变化，停止覆盖")
@@ -147,11 +147,15 @@ def nested_resource(outer, member):
 
 
 def package_candidate(source_zip, release_zip, output_dir, patch_report):
-    """逐项流式重写官方 Mac 原包，仅替换对应 omni，严格核对来源并禁止覆盖不同候选产物。"""
+    """流式重写 Mac 应用包或 Windows 平铺包，只替换对应 omni，核对启动文件并禁止覆盖不同产物。"""
     source = isolated_artifact(source_zip, True)
     release = isolated_artifact(release_zip, False)
     changed_archive = Path(patch_report["archive"]).resolve(strict=True)
-    if source == release or release.is_relative_to(changed_archive.parents[3]):
+    mac = changed_archive.as_posix().endswith("/Camoufox.app/Contents/Resources/omni.ja")
+    install_root = changed_archive.parents[3] if mac else changed_archive.parent
+    if not mac and (changed_archive.name != "omni.ja" or not (install_root / "camoufox.exe").is_file()):
+        raise ValueError("只支持 Mac 应用包或含 camoufox.exe 的 Windows 根目录 omni")
+    if source == release or release.is_relative_to(install_root):
         raise ValueError("候选包不能覆盖原包，也不能写入浏览器安装目录")
     before = digest(source)
     if digest(changed_archive) != patch_report["archive_sha256_after"]:
@@ -161,10 +165,10 @@ def package_candidate(source_zip, release_zip, output_dir, patch_report):
     if hashlib.sha256(actual).hexdigest() != patch_report["resource_sha256_after"]:
         raise ValueError("修复资源与校验记录不一致")
     with zipfile.ZipFile(source) as reader:
-        matches = [entry for entry in reader.infolist()
-                   if entry.filename.endswith("Camoufox.app/Contents/Resources/omni.ja")]
+        matches = [entry for entry in reader.infolist() if
+                   (entry.filename.endswith("Camoufox.app/Contents/Resources/omni.ja") if mac else entry.filename == "omni.ja")]
         if len(matches) != 1:
-            raise ValueError("官方 Mac 原包中的 omni 路径缺失或存在歧义")
+            raise ValueError("对应平台原包中的 omni 路径缺失或存在歧义")
         member = matches[0]
         original = nested_resource(reader, member)
         if (hashlib.sha256(original).hexdigest() != patch_report["resource_sha256_before"]
@@ -172,13 +176,13 @@ def package_candidate(source_zip, release_zip, output_dir, patch_report):
             raise ValueError("原包资源与补丁前来源不一致，不能混用浏览器样本")
         if patched_source(original) != actual:
             raise ValueError("原包资源无法仅通过本工具的窗口修复得到目标资源")
-        prefix = member.filename[:-len("Contents/Resources/omni.ja")]
-        binary_member = prefix + "Contents/MacOS/camoufox"
-        binary = changed_archive.parents[2] / "Contents/MacOS/camoufox"
+        prefix = member.filename[:-len("Contents/Resources/omni.ja")] if mac else ""
+        binary_member = prefix + "Contents/MacOS/camoufox" if mac else "camoufox.exe"
+        binary = changed_archive.parents[2] / "Contents/MacOS/camoufox" if mac else install_root / "camoufox.exe"
         with reader.open(binary_member) as stream:
             binary_sha = hashlib.file_digest(stream, "sha256").hexdigest()
         if digest(binary) != binary_sha:
-            raise ValueError("原包与隔离副本的浏览器启动文件不同，可能混用了 ARM 与 Intel 包")
+            raise ValueError("原包与隔离副本的浏览器启动文件不同，可能混用了架构或原包")
         release.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(prefix=".goodhr-release-", suffix=".zip", dir=release.parent)
         os.close(descriptor)
@@ -200,7 +204,7 @@ def package_candidate(source_zip, release_zip, output_dir, patch_report):
                 raise ValueError("原包或修复归档在打包期间发生变化")
             after = digest(temporary)
             os.chmod(temporary, source.stat().st_mode & 0o7777)
-            with open(temporary, "rb") as candidate:
+            with open(temporary, "r+b") as candidate:
                 os.fsync(candidate.fileno())
             try:
                 os.link(temporary, release)
@@ -289,7 +293,66 @@ def self_test():
         else:
             raise AssertionError("双锚点必须拒绝")
         assert archive.read_bytes() == ambiguous
-    print("SELF_TEST_OK unique_anchor idempotent ambiguity_rejected originals_preserved metadata_preserved nested_zip release_idempotent overwrite_rejected")
+    windows_self_test()
+    print("SELF_TEST_OK unique_anchor idempotent ambiguity_rejected originals_preserved metadata_preserved nested_zip release_idempotent overwrite_rejected windows_root_zip windows_pe_dll_preserved windows_wrong_binary_rejected")
+
+
+def windows_self_test():
+    """验证 Windows 根目录封装、PE/DLL 字节及属性保持、内层唯一修改、幂等和错误启动文件拒绝。"""
+    with tempfile.TemporaryDirectory(prefix="goodhr-win-window-patch-") as temporary:
+        root = Path(temporary) / "camoufox-upgrade/windows"
+        root.mkdir(parents=True)
+        (root / "version.json").write_text('{"version":"152.0.4"}')
+        original = ("const onOpenWindow = async (appWindow) => {\n" + ANCHOR + "};\n").encode()
+        archive = root / "omni.ja"
+        with zipfile.ZipFile(archive, "w") as inner:
+            inner.comment = b"windows-inner-comment"
+            inner.writestr(RESOURCE, original)
+            inner.writestr("unchanged.dat", b"windows browser resource")
+        original_archive = archive.read_bytes()
+        executable = b"MZ\x90\x00windows-exe-identity"
+        (root / "camoufox.exe").write_bytes(executable)
+        files = {"omni.ja": original_archive, "camoufox.exe": executable,
+                 "mozglue.dll": b"MZ\x90\x00windows-dll-identity", "browser/omni.ja": b"separate browser resources",
+                 "distribution/policies.json": b'{"keep":true}'}
+        source_zip, release_zip = root.parent / "windows-source.zip", root.parent / "windows-candidate.zip"
+        with zipfile.ZipFile(source_zip, "w") as outer:
+            outer.comment = b"windows-outer-comment"
+            for name, content in files.items():
+                item = zipfile.ZipInfo(name, (2024, 3, 4, 5, 6, 8))
+                item.create_system, item.external_attr, item.comment = 0, 0x20, b"windows-member"
+                item.compress_type = zipfile.ZIP_DEFLATED
+                outer.writestr(item, content)
+        evidence = root.parent / "windows-evidence"
+        patch = patch_browser(root, evidence)
+        packed = package_candidate(source_zip, release_zip, evidence, patch)
+        assert packed["members_changed"] == ["omni.ja"]
+        assert packed["binary_sha256"] == hashlib.sha256(executable).hexdigest()
+        with zipfile.ZipFile(source_zip) as source, zipfile.ZipFile(release_zip) as candidate:
+            assert source.namelist() == candidate.namelist() and source.comment == candidate.comment
+            for item in source.infolist():
+                kept = candidate.getinfo(item.filename)
+                for field in ("date_time", "external_attr", "internal_attr", "comment", "compress_type", "extra", "create_system"):
+                    assert getattr(item, field) == getattr(kept, field)
+                if item.filename == "omni.ja":
+                    with zipfile.ZipFile(io.BytesIO(candidate.read(item.filename))) as inner:
+                        assert inner.namelist() == [RESOURCE, "unchanged.dat"]
+                        assert inner.read(RESOURCE) == original.replace(ANCHOR.encode(), REPLACEMENT.encode())
+                        assert inner.read("unchanged.dat") == b"windows browser resource"
+                        assert inner.comment == b"windows-inner-comment"
+                else:
+                    assert source.read(item.filename) == candidate.read(item.filename)
+        before = release_zip.read_bytes()
+        assert not patch_browser(root, evidence)["changed"]
+        package_candidate(source_zip, release_zip, evidence, patch)
+        assert release_zip.read_bytes() == before
+        (root / "camoufox.exe").write_bytes(b"MZwrong-architecture-or-source")
+        try:
+            package_candidate(source_zip, root.parent / "wrong-source.zip", evidence, patch)
+        except ValueError as error:
+            assert "启动文件不同" in str(error)
+        else:
+            raise AssertionError("Windows 启动文件来源不同必须拒绝")
 
 
 def main():
