@@ -46,6 +46,8 @@ Chrome 1.0.8 正式发布；Firefox 1.0.8 提供未签名 ZIP 供用户自行上
 磁盘占满来源是宝塔内置每日面板 ZIP 备份，原逻辑固定保留 15 天。用户清理历史文件后，新增独立清理脚本，每 15 分钟只检查 `/www/backup/panel/YYYY-MM-DD.zip`，保留最近三份；不修改宝塔源码、不处理 GoodHR 发布备份。
 
 脚本：`/opt/goodhr-maintenance/panel_backup_retention.py`。
+
+2026-10-26 按用户要求调整为仅保留最新一份；仍保护一小时内改动的文件，并在清理前检查全部运行及停止容器的挂载。挂载检查失败即停止，挂载源及其真实路径与目标重叠时不删除。
 原计划任务备份：`/opt/goodhr-maintenance/crontab-before-panel-retention-20261015.txt`。
 
 ## 正式发布与回退
