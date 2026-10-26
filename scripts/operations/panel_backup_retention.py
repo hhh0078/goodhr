@@ -6,6 +6,7 @@ import fcntl
 import json
 import pathlib
 import re
+import stat
 import subprocess
 import time
 import zipfile
@@ -62,24 +63,35 @@ def container_mount_sources():
     return sources
 
 
+def file_identity(value):
+    """提取文件身份和内容变更标记，不把仅读取引起的访问时间变化视为内容变化。"""
+    return (value.st_dev, value.st_ino, value.st_mode, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
 def prune(apply=False):
     """最新备份稳定且完整后保留一份，跳过正在写入或被容器挂载引用的旧备份。"""
     files = backup_files()
     sources = container_mount_sources()
     deleted = []
     mounted = []
+    changed = []
+    identities = {}
     for path in files[KEEP_COUNT:]:
-        if time.time() - path.stat().st_mtime < 3600:
+        value = path.lstat()
+        if time.time() - value.st_mtime < 3600:
             continue
         if any(path == source or path in source.parents or source in path.parents for source in sources):
             mounted.append(path.name)
             continue
-        if path.is_symlink() or path.resolve().parent != BACKUP_ROOT:
+        if not stat.S_ISREG(value.st_mode) or path.resolve().parent != BACKUP_ROOT:
             raise RuntimeError('备份路径发生变化，停止清理')
         deleted.append(path.name)
+        identities[path.name] = file_identity(value)
     if deleted:
         latest = files[0]
-        before = latest.stat()
+        before = latest.lstat()
+        if not stat.S_ISREG(before.st_mode) or latest.resolve().parent != BACKUP_ROOT:
+            raise RuntimeError('最新备份路径发生变化，旧备份全部保留')
         if time.time() - before.st_mtime < 3600:
             return {'applied': apply, 'keep': KEEP_COUNT, 'retained': [path.name for path in files],
                     'removed': [], 'skipped_mounted': mounted, 'waiting_latest': True}
@@ -90,19 +102,30 @@ def prune(apply=False):
         except zipfile.BadZipFile:
             return {'applied': apply, 'keep': KEEP_COUNT, 'retained': [path.name for path in files],
                     'removed': [], 'skipped_mounted': mounted, 'blocked_latest': '最新备份不完整，旧备份全部保留'}
-        after = latest.stat()
-        if latest.is_symlink() or latest.resolve().parent != BACKUP_ROOT or (
-                before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
-                after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+        after = latest.lstat()
+        if latest.resolve().parent != BACKUP_ROOT or file_identity(before) != file_identity(after):
             raise RuntimeError('最新备份校验期间发生变化，旧备份全部保留')
     if apply:
+        removed = []
         for name in deleted:
             path = BACKUP_ROOT / name
-            if path.is_symlink() or path.resolve().parent != BACKUP_ROOT:
+            sources = container_mount_sources()
+            if any(path == source or path in source.parents or source in path.parents for source in sources):
+                mounted.append(name)
+                continue
+            value = path.lstat()
+            if file_identity(value) != identities[name] or time.time() - value.st_mtime < 3600:
+                changed.append(name)
+                continue
+            if not stat.S_ISREG(value.st_mode) or path.resolve().parent != BACKUP_ROOT:
                 raise RuntimeError('备份路径发生变化，停止清理')
+            if file_identity(latest.lstat()) != file_identity(after):
+                raise RuntimeError('最新备份在删除前发生变化，旧备份停止清理')
             path.unlink()
+            removed.append(name)
+        deleted = removed
     return {'applied': apply, 'keep': KEEP_COUNT, 'retained': [path.name for path in files[:KEEP_COUNT]],
-            'removed': deleted, 'skipped_mounted': mounted}
+            'removed': deleted, 'skipped_mounted': mounted, 'skipped_changed': changed}
 
 
 def main():

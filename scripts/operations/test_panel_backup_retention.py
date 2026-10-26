@@ -93,6 +93,53 @@ class PanelBackupRetentionTests(unittest.TestCase):
                 retention.zipfile, 'ZipFile', side_effect=AssertionError('不应读取ZIP')):
             self.assertEqual(retention.prune(True)['removed'], [])
 
+    def test_mount_added_during_crc_is_protected(self):
+        """完整性校验后新增的容器挂载必须在实际删除前再次识别。"""
+        self.backup('2026-10-26.zip')
+        old = self.backup('2026-10-25.zip')
+        with mock.patch.object(retention, 'container_mount_sources', side_effect=[set(), {old}]):
+            result = retention.prune(True)
+        self.assertEqual(result['removed'], [])
+        self.assertEqual(result['skipped_mounted'], [old.name])
+        self.assertTrue(old.exists())
+
+    def test_old_file_changed_during_crc_is_protected(self):
+        """校验期间旧文件重新写入或被替换后，即使恢复旧修改时间也不能删除。"""
+        self.backup('2026-10-26.zip')
+        old = self.backup('2026-10-25.zip')
+        original_time = old.stat().st_mtime
+
+        def change_old():
+            """模拟完整性校验期间写入旧文件并伪装原修改时间。"""
+            old.write_bytes(b'changed during crc')
+            os.utime(old, (original_time, original_time))
+            return None
+
+        with mock.patch.object(retention, 'container_mount_sources', return_value=set()), mock.patch.object(
+                retention.zipfile.ZipFile, 'testzip', side_effect=change_old):
+            result = retention.prune(True)
+        self.assertEqual(result['removed'], [])
+        self.assertEqual(result['skipped_changed'], [old.name])
+        self.assertTrue(old.exists())
+
+    def test_latest_file_changed_before_unlink_stops(self):
+        """最新备份在CRC完成后发生变化时，停止删除最后的旧备份。"""
+        latest = self.backup('2026-10-26.zip')
+        old = self.backup('2026-10-25.zip')
+
+        def read_mounts():
+            """在第二次挂载检查时模拟最新备份被改写。"""
+            if read_mounts.called:
+                latest.write_bytes(b'changed after crc')
+            read_mounts.called = True
+            return set()
+
+        read_mounts.called = False
+        with mock.patch.object(retention, 'container_mount_sources', side_effect=read_mounts):
+            with self.assertRaises(RuntimeError):
+                retention.prune(True)
+        self.assertTrue(old.exists())
+
     def test_mount_equal_ancestor_and_descendant_remain(self):
         """目标与挂载源相等或互为上下级时，即使容器停止也保留目标。"""
         self.backup('2026-10-26.zip')
