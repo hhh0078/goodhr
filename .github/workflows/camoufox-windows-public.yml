@@ -125,6 +125,16 @@ jobs:
           node test/camoufox-public-stress.mjs --install-dir "$browser" --binary "$browser/camoufox.exe" --output-dir "$root/results" --label 152-baseline-cleanup-win-x64 --sessions 3 --rounds 1 --site heroku --site playwright --site mdn --headed --humanize true --window-state unchanged 2>&1 | Tee-Object -FilePath "$root/results/public-stress-baseline.log"
           if ($LASTEXITCODE -ne 0) { throw '旧版 Windows 公开站点多轮验证失败' }
 
+      - name: 先验证一次 Windows 真实遮挡和清理
+        id: cover-smoke
+        working-directory: goodhr5/local-agent-go-new/worker
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "$env:RUNNER_TEMP/camoufox-upgrade"
+          $browser = "$root/browsers/152-candidate-installed-win-x64"
+          node test/camoufox-public-stress.mjs --install-dir "$browser" --binary "$browser/camoufox.exe" --output-dir "$root/results" --label 152-candidate-cover-smoke-win-x64 --sessions 1 --rounds 1 --site heroku --headed --humanize true --window-state unchanged --cover-before-wheel-round 1 --cover-binary "$root/camoufox-window-cover.ps1" --cover-seconds 60 2>&1 | Tee-Object -FilePath "$root/results/public-stress-cover-smoke.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows 遮挡与清理冒烟失败，暂不进入270轮长测' }
+
       - name: 修补版浏览器公开站点 270 轮真实输入
         id: candidate
         working-directory: goodhr5/local-agent-go-new/worker
@@ -150,6 +160,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
+          COVER_SMOKE_OUTCOME: ${{ steps.cover-smoke.outcome }}
           CANDIDATE_OUTCOME: ${{ steps.candidate.outcome }}
           WORKER_OUTCOME: ${{ steps.worker.outcome }}
         run: |
@@ -159,6 +170,7 @@ jobs:
           $summary = [ordered]@{
             baseline_outcome = $env:BASELINE_OUTCOME
             baseline_is_control = $true
+            cover_smoke_outcome = $env:COVER_SMOKE_OUTCOME
             candidate_outcome = $env:CANDIDATE_OUTCOME
             worker_outcome = $env:WORKER_OUTCOME
             release_gate_passed = ($env:CANDIDATE_OUTCOME -eq 'success' -and $env:WORKER_OUTCOME -eq 'success')

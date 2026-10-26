@@ -11,6 +11,7 @@ const STRESS_SCRIPT = fileURLToPath(new URL('./camoufox-public-stress.mjs', impo
 const WORKER_PROBE_SCRIPT = fileURLToPath(new URL('./camoufox-worker-start-probe.mjs', import.meta.url));
 const WINDOWS_WINDOW_OWNERS = `
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 Add-Type -TypeDefinition @'
 using System;
@@ -179,8 +180,9 @@ async function startCover(browser, binary, seconds) {
       if (!output.includes('\n')) return;
       try {
         const result = JSON.parse(output.split('\n')[0]);
-        assert.ok(result.ready === true && result.covered === true && result.browser_pid === browser.pid && result.cover_pid === child.pid,
-          result.error_message ?? '遮挡夹具没有返回可验证的窗口证据');
+        if (!(result.ready === true && result.covered === true && result.browser_pid === browser.pid && result.cover_pid === child.pid)) {
+          throw Object.assign(new Error(result.error_message ?? '遮挡夹具没有返回可验证的窗口证据'), { fixture_diagnostic: result });
+        }
         ready = true;
         clearTimeout(timer);
         // 不 detached，仍受 stress 会话进程组管理；解除句柄与管道等待，允许本辅助正常退出。
@@ -245,4 +247,4 @@ async function main() {
   if ((values.state === 'hidden' && !state.hidden) || (values.state === 'visible' && state.hidden)) process.exitCode = 1;
 }
 
-main().catch(error => { console.error(JSON.stringify({ ok: false, error_message: error.message })); process.exitCode = 1; });
+main().catch(error => { console.error(JSON.stringify({ ok: false, error_message: error.message, fixture_diagnostic: error.fixture_diagnostic })); process.exitCode = 1; });

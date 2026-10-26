@@ -1,6 +1,7 @@
 ﻿# 文件作用：只覆盖已验证隔离 Camoufox 的可见窗口，使用不激活、不拦截鼠标的独立 Windows 浮动窗；不截屏、不读取标题或网页。
 param([int]$BrowserPid = 0, [ValidateRange(1, 300)][int]$Seconds = 60, [switch]$SelfTest)
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 # Assert-IsolatedBrowser 再次核对指定 PID 的实际路径，拒绝用户正式 GoodHR 组件。
@@ -29,11 +30,12 @@ public static class GoodHRWindowsCover {
     private delegate bool WindowVisitor(IntPtr handle, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool EnumWindows(WindowVisitor callback, IntPtr parameter);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr handle, out uint process);
-    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr handle, out Rect rectangle);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool GetWindowRect(IntPtr handle, out Rect rectangle);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr handle);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr handle);
-    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr handle, IntPtr order, int x, int y, int width, int height, uint flags);
-    [DllImport("user32.dll")] private static extern bool SetLayeredWindowAttributes(IntPtr handle, uint color, byte alpha, uint flags);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr handle, IntPtr order, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetLayeredWindowAttributes(IntPtr handle, uint color, byte alpha, uint flags);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr handle, int command);
     [DllImport("user32.dll")] private static extern bool SetProcessDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll")] private static extern bool SetProcessDPIAware();
 
@@ -41,6 +43,18 @@ public static class GoodHRWindowsCover {
     private static long Area(Rect rectangle) {
         int width = rectangle.Right - rectangle.Left, height = rectangle.Bottom - rectangle.Top;
         return width > 100 && height > 100 ? (long)width * height : 0;
+    }
+
+    // VisibleIntersection 只计算浏览器与虚拟屏幕的实际可见交集，用于诊断，不改变本轮完整边界门槛。
+    private static Rect VisibleIntersection(Rect target, Rectangle screen) {
+        return new Rect { Left = Math.Max(target.Left, screen.Left), Top = Math.Max(target.Top, screen.Top),
+            Right = Math.Min(target.Right, screen.Right), Bottom = Math.Min(target.Bottom, screen.Bottom) };
+    }
+
+    // BoundsJson 保留有符号坐标和宽高，不采集窗口标题或图像。
+    private static string BoundsJson(Rect rectangle) {
+        return "{\"x\":" + rectangle.Left + ",\"y\":" + rectangle.Top + ",\"width\":" + (rectangle.Right - rectangle.Left) +
+            ",\"height\":" + (rectangle.Bottom - rectangle.Top) + "}";
     }
 
     // LargestWindow 只枚举指定浏览器 PID 的可见窗口，选择最大边界而不读取标题。
@@ -75,14 +89,19 @@ public static class GoodHRWindowsCover {
 
     // SelfTest 仅检查纯边界计算，不枚举窗口、不创建应用窗体。
     public static bool SelfTest() {
+        Rect intersection = VisibleIntersection(new Rect { Left = -8, Top = -8, Right = 1290, Bottom = 908 }, new Rectangle(0, 0, 1280, 720));
         return Area(new Rect { Left = -100, Top = 20, Right = 900, Bottom = 720 }) == 700000 &&
-               Area(new Rect { Left = 0, Top = 0, Right = 50, Bottom = 30 }) == 0;
+               Area(new Rect { Left = 0, Top = 0, Right = 50, Bottom = 30 }) == 0 &&
+               intersection.Left == 0 && intersection.Top == 0 && intersection.Right == 1280 && intersection.Bottom == 720;
     }
 
     // Run 根据目标可见窗口的真实坐标创建自然色遮挡窗，确认自身窗口边界后输出 ready 并自动关闭。
     public static void Run(int browserPid, int seconds) {
         try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch (EntryPointNotFoundException) { SetProcessDPIAware(); }
         Rect target = LargestWindow(browserPid);
+        Rectangle screen = SystemInformation.VirtualScreen;
+        Rect screenRect = new Rect { Left = screen.Left, Top = screen.Top, Right = screen.Right, Bottom = screen.Bottom };
+        Rect visibleTarget = VisibleIntersection(target, screen);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         using (CoverForm cover = new CoverForm()) {
@@ -101,29 +120,37 @@ public static class GoodHRWindowsCover {
             using (Timer expiry = new Timer()) {
                 readiness.Interval = 400;
                 expiry.Interval = seconds * 1000;
+                int attempts = 0;
+                bool opaque = SetLayeredWindowAttributes(cover.Handle, 0, 255, 2);
+                int opacityError = opaque ? 0 : Marshal.GetLastWin32Error();
                 readiness.Tick += delegate {
-                    readiness.Stop();
+                    attempts++;
+                    // PowerShell 的隐藏启动信息可能影响首个窗体；在消息循环内再次非激活显示并对齐本夹具。
+                    ShowWindow(cover.Handle, 4);
+                    bool placed = SetWindowPos(cover.Handle, new IntPtr(-1), target.Left, target.Top, target.Right - target.Left, target.Bottom - target.Top, 0x0010 | 0x0040);
+                    int placementError = placed ? 0 : Marshal.GetLastWin32Error();
                     Rect actual = new Rect();
-                    bool visible = IsWindowVisible(cover.Handle) && GetWindowRect(cover.Handle, out actual);
-                    if (!visible || actual.Left != target.Left || actual.Top != target.Top || actual.Right != target.Right || actual.Bottom != target.Bottom) {
-                        Console.WriteLine("{\"ready\":false,\"error_message\":\"遮挡窗没有确认实际显示在目标边界\"}");
-                        Console.Out.Flush(); cover.Close(); return;
-                    }
-                    Console.WriteLine("{\"ready\":true,\"covered\":true,\"cover_pid\":" + Process.GetCurrentProcess().Id +
-                        ",\"browser_pid\":" + browserPid + ",\"seconds\":" + seconds + ",\"window_visible\":true,\"ignores_mouse_events\":true,\"activates_application\":false,\"target_bounds\":{\"x\":" +
-                        target.Left + ",\"y\":" + target.Top + ",\"width\":" + (target.Right - target.Left) + ",\"height\":" + (target.Bottom - target.Top) + "}}");
+                    bool readBounds = GetWindowRect(cover.Handle, out actual);
+                    int boundsError = readBounds ? 0 : Marshal.GetLastWin32Error();
+                    bool visible = IsWindowVisible(cover.Handle);
+                    bool ready = opaque && placed && visible && readBounds && actual.Left == target.Left && actual.Top == target.Top &&
+                        actual.Right == target.Right && actual.Bottom == target.Bottom;
+                    if (!ready && attempts < 5) return;
+                    readiness.Stop();
+                    Console.WriteLine("{\"ready\":" + (ready ? "true" : "false") + ",\"covered\":" + (ready ? "true" : "false") +
+                        ",\"cover_pid\":" + Process.GetCurrentProcess().Id + ",\"browser_pid\":" + browserPid + ",\"seconds\":" + seconds +
+                        ",\"window_visible\":" + (visible ? "true" : "false") + ",\"bounds_read\":" + (readBounds ? "true" : "false") +
+                        ",\"position_accepted\":" + (placed ? "true" : "false") + ",\"opaque_accepted\":" + (opaque ? "true" : "false") +
+                        ",\"position_error\":" + placementError + ",\"bounds_error\":" + boundsError + ",\"opacity_error\":" + opacityError +
+                        ",\"attempts\":" + attempts + ",\"ignores_mouse_events\":true,\"activates_application\":false,\"target_bounds\":" + BoundsJson(target) +
+                        ",\"actual_bounds\":" + BoundsJson(actual) + ",\"virtual_screen\":" + BoundsJson(screenRect) +
+                        ",\"visible_browser_bounds\":" + BoundsJson(visibleTarget) +
+                        (ready ? "}" : ",\"error_message\":\"遮挡窗没有确认实际显示在完整目标边界，诊断已保留\"}"));
                     Console.Out.Flush();
+                    if (!ready) cover.Close();
                 };
                 expiry.Tick += delegate { expiry.Stop(); cover.Close(); };
-                cover.Shown += delegate {
-                    bool opaque = SetLayeredWindowAttributes(cover.Handle, 0, 255, 2);
-                    bool placed = SetWindowPos(cover.Handle, new IntPtr(-1), target.Left, target.Top, target.Right - target.Left, target.Bottom - target.Top, 0x0010 | 0x0040);
-                    if (!opaque || !placed) {
-                        Console.WriteLine("{\"ready\":false,\"error_message\":\"Windows 未确认不透明置顶遮挡设置\"}");
-                        Console.Out.Flush(); cover.Close(); return;
-                    }
-                    readiness.Start(); expiry.Start();
-                };
+                readiness.Start(); expiry.Start();
                 Application.Run(cover);
             }
         }

@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 
 const WINDOWS_TABLE = `
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $rows = @(Get-CimInstance -ClassName Win32_Process | Where-Object { $_.ExecutablePath -and $_.CreationDate } | ForEach-Object {
   @{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId;
@@ -14,6 +15,7 @@ ConvertTo-Json -InputObject $rows -Compress
 `;
 const WINDOWS_TERMINATE = `
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 # executableIdentity 仅规范化 Windows 大小写、分隔符和长路径前缀，不按进程名称匹配。
 function executableIdentity([string]$value) {
@@ -52,6 +54,7 @@ let windowsQueryError;
 
 const WINDOWS_ARGUMENTS = `
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $targetPID = [int]$env:GOODHR_TEST_PROCESS_ARGUMENT_PID
 $row = Get-CimInstance -ClassName Win32_Process -Filter ('ProcessId = ' + $targetPID)
