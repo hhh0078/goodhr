@@ -1,18 +1,30 @@
-// Package runtime 文件作用：在 Mac 主程序首次绑定后按云端摘要同步 Camoufox，校验完成前拦住旧 Worker。
+// Package runtime 文件作用：在 Windows x64 和 Mac 主程序首次绑定后按云端摘要同步 Camoufox，校验完成前拦住旧 Worker。
 package runtime
 
 import (
 	"context"
 	"debug/macho"
+	"debug/pe"
 	"fmt"
+	"os"
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
 )
 
-// EnableStartupCamoufoxSync 启用本次 Mac 进程的一次性校验，重复调用不会重新锁住已通过的检查。
+// startupCamoufoxPlatformSupported 只允许 Windows x64 与 Mac 双架构启用首次浏览器同步。
+func startupCamoufoxPlatformSupported(platform string) bool {
+	switch platform {
+	case "win-x64", "darwin-arm64", "darwin-x64":
+		return true
+	default:
+		return false
+	}
+}
+
+// EnableStartupCamoufoxSync 启用本次 Windows x64 或 Mac 进程的一次性校验，重复调用不会重新锁住已通过的检查。
 func (m *Manager) EnableStartupCamoufoxSync() {
-	if goruntime.GOOS != "darwin" {
+	if !startupCamoufoxPlatformSupported(platformKey()) {
 		return
 	}
 	m.startupMu.Lock()
@@ -63,7 +75,7 @@ func (m *Manager) failStartupCamoufoxSync(err error) {
 	m.setInstallProgress(progress)
 }
 
-// SyncStartupCamoufox 同步首次选中的 Mac 浏览器包，仅在确需下载时调用安全关闭回调。
+// SyncStartupCamoufox 同步首次选中的当前系统浏览器包，仅在确需下载时调用安全关闭回调。
 // ctx 控制下载与登记前取消；manifest 为云端清单，beforeInstall 负责确认无任务并停止旧浏览器和 Worker。
 func (m *Manager) SyncStartupCamoufox(ctx context.Context, manifest Manifest, beforeInstall func(context.Context) error) (err error) {
 	if !m.StartupCamoufoxSyncPending() {
@@ -118,16 +130,18 @@ func (m *Manager) SyncStartupCamoufox(ctx context.Context, manifest Manifest, be
 	return nil
 }
 
-// startupCamoufoxAsset 按当前 Mac 架构选包并验证必要字段，Intel 不借用旧的 Apple 芯片别名。
+// startupCamoufoxAsset 按系统和架构选包；Windows 兼容既有 win 别名，Mac Intel 不借用 Apple 芯片别名。
 func startupCamoufoxAsset(manifest Manifest, platform string) (Asset, error) {
 	aliases := []string{}
 	switch platform {
+	case "win-x64":
+		aliases = []string{"win-x64", "windows-x64", "win", "windows"}
 	case "darwin-arm64":
 		aliases = []string{"darwin-arm64", "mac-arm64", "macos-arm64", "mac", "macos", "darwin"}
 	case "darwin-x64":
 		aliases = []string{"darwin-x64"}
 	default:
-		return Asset{}, fmt.Errorf("当前系统 %s 不使用 Mac 浏览器启动更新", platform)
+		return Asset{}, fmt.Errorf("当前系统 %s 暂不支持浏览器启动更新", platform)
 	}
 	for _, alias := range aliases {
 		if asset, ok := manifest.Camoufox[alias]; ok {
@@ -199,8 +213,11 @@ func (m *Manager) completeStartupCamoufoxSync() error {
 	return nil
 }
 
-// checkStartupCamoufoxArchitecture 只读取 Mach-O 文件头确认本机 CPU，支持通用二进制，不运行浏览器。
+// checkStartupCamoufoxArchitecture 只读校验 Windows PE x64 或 Mac Mach-O 架构，不运行浏览器。
 func checkStartupCamoufoxArchitecture(path string, platform string) error {
+	if platform == "win-x64" {
+		return checkStartupCamoufoxWindowsExecutable(path)
+	}
 	want := macho.CpuArm64
 	if platform == "darwin-x64" {
 		want = macho.CpuAmd64
@@ -223,6 +240,51 @@ func checkStartupCamoufoxArchitecture(path string, platform string) error {
 	defer binary.Close()
 	if binary.Cpu != want {
 		return fmt.Errorf("浏览器启动文件为 %s，本机需要 %s", binary.Cpu, want)
+	}
+	return nil
+}
+
+// checkStartupCamoufoxWindowsExecutable 校验 Windows x64 EXE 的映像、可执行入口及文件边界，拒绝 DLL、错架构和损坏文件。
+func checkStartupCamoufoxWindowsExecutable(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("浏览器启动文件不可用：%w", err)
+	}
+	defer file.Close()
+	var signature [2]byte
+	if _, err := file.ReadAt(signature[:], 0); err != nil || signature != [2]byte{'M', 'Z'} {
+		return fmt.Errorf("浏览器启动文件缺少 Windows 程序标识")
+	}
+	binary, err := pe.NewFile(file)
+	if err != nil {
+		return fmt.Errorf("浏览器启动文件不是有效的 Windows 程序：%w", err)
+	}
+	defer binary.Close()
+	if binary.Machine != pe.IMAGE_FILE_MACHINE_AMD64 || binary.Characteristics&pe.IMAGE_FILE_EXECUTABLE_IMAGE == 0 || binary.Characteristics&pe.IMAGE_FILE_DLL != 0 {
+		return fmt.Errorf("浏览器启动文件必须是 Windows x64 EXE，不能使用其他架构或 DLL")
+	}
+	header, ok := binary.OptionalHeader.(*pe.OptionalHeader64)
+	if !ok || header.Magic != 0x20b || header.AddressOfEntryPoint == 0 || header.SizeOfImage == 0 || header.AddressOfEntryPoint >= header.SizeOfImage ||
+		(header.Subsystem != pe.IMAGE_SUBSYSTEM_WINDOWS_GUI && header.Subsystem != pe.IMAGE_SUBSYSTEM_WINDOWS_CUI) {
+		return fmt.Errorf("浏览器启动文件缺少有效的 Windows x64 程序头或入口")
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("浏览器启动文件不可用：%s", path)
+	}
+	entry := uint64(header.AddressOfEntryPoint)
+	entryValid := false
+	for _, section := range binary.Sections {
+		if section.Size > 0 && (section.Offset == 0 || uint64(section.Offset)+uint64(section.Size) > uint64(info.Size())) {
+			return fmt.Errorf("浏览器启动文件的程序段不完整")
+		}
+		start := uint64(section.VirtualAddress)
+		if entry >= start && entry < start+uint64(section.Size) && section.Characteristics&pe.IMAGE_SCN_MEM_EXECUTE != 0 {
+			entryValid = true
+		}
+	}
+	if !entryValid {
+		return fmt.Errorf("浏览器启动文件的入口不在有效的可执行程序段内")
 	}
 	return nil
 }

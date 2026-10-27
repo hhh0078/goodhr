@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
@@ -271,7 +272,7 @@ func TestStartupSyncDeduplicatesBindingsAndRetries(t *testing.T) {
 	_ = server.Shutdown(context.Background())
 }
 
-// TestStartupSyncProtectsTasksAndClosesWorker 验证只在健康 Worker 且无任务时按浏览器、Worker 的顺序关闭。
+// TestStartupSyncProtectsTasksAndClosesWorker 验证无任务时先关健康浏览器，再停当前管理器的 Worker，健康检查失败也不能漏停。
 func TestStartupSyncProtectsTasksAndClosesWorker(t *testing.T) {
 	for _, test := range []struct {
 		name                      string
@@ -281,7 +282,8 @@ func TestStartupSyncProtectsTasksAndClosesWorker(t *testing.T) {
 		wantError                 bool
 	}{
 		{"active_task", true, true, false, nil, "", true},
-		{"worker_absent", false, false, false, nil, "health", false},
+		{"worker_absent", false, false, false, nil, "health,worker,health", false},
+		{"unhealthy_worker_recovers", false, false, true, nil, "health,worker,health", true},
 		{"healthy_worker", false, true, false, nil, "health,browser,worker,health", false},
 		{"external_worker_remains", false, true, true, nil, "health,browser,worker,health", true},
 		{"close_failed", false, true, false, errors.New("保留原窗口"), "health,browser", true},
@@ -303,10 +305,24 @@ func TestStartupSyncProtectsTasksAndClosesWorker(t *testing.T) {
 	}
 }
 
+// TestStartupSyncUnhealthyWorkerStopFailure 验证不健康但仍被管理的旧 Worker 停止失败时拒绝换包。
+func TestStartupSyncUnhealthyWorkerStopFailure(t *testing.T) {
+	events := []string{}
+	browser := &startupBrowserFixture{healthy: false, events: &events}
+	fakeRuntime := &startupRuntimeFixture{stop: func() error {
+		events = append(events, "worker")
+		return errors.New("旧 Worker 还没退出")
+	}}
+	syncer := &startupCamoufoxSync{runtime: fakeRuntime, browser: browser}
+	if err := syncer.beforeInstall(context.Background()); err == nil || strings.Join(events, ",") != "health,worker" {
+		t.Fatalf("未停止的旧 Worker 不能放行换包：events=%v err=%v", events, err)
+	}
+}
+
 // TestStartupSyncConcurrentWorkerGatePreservesFailure 验证并发启动请求不会占用安装锁吞掉配置失败，导致页面永久显示安装中。
 func TestStartupSyncConcurrentWorkerGatePreservesFailure(t *testing.T) {
-	if goruntime.GOOS != "darwin" {
-		t.Skip("Mac 启动门闩仅在 macOS 启用")
+	if goruntime.GOOS != "darwin" && !(goruntime.GOOS == "windows" && goruntime.GOARCH == "amd64") {
+		t.Skip("当前系统不发布本地程序")
 	}
 	manager := runtime.New("", "", t.TempDir(), "", nil)
 	manager.EnableStartupCamoufoxSync()
@@ -365,18 +381,21 @@ func TestStartupSyncShutdownCancelsPendingRequest(t *testing.T) {
 
 // TestStartupSyncManualRetryFetchesAuthoritativeConfig 验证首次取清单失败后，原有安装按钮会重取线上清单而非接受旧缓存包。
 func TestStartupSyncManualRetryFetchesAuthoritativeConfig(t *testing.T) {
-	if goruntime.GOOS != "darwin" {
-		t.Skip("Mac 启动门闩仅在 macOS 启用")
+	if goruntime.GOOS != "darwin" && !(goruntime.GOOS == "windows" && goruntime.GOARCH == "amd64") {
+		t.Skip("当前系统不发布本地程序")
 	}
+	systemNode, nodeLookupErr := exec.LookPath("node")
 	for _, nodeMissing := range []bool{false, true} {
 		t.Run(fmt.Sprintf("node_missing_%t", nodeMissing), func(t *testing.T) {
 			nodeDir := t.TempDir()
-			t.Setenv("PATH", nodeDir)
+			nodePath := filepath.Join(nodeDir, "missing-node")
 			if !nodeMissing {
-				if err := os.WriteFile(filepath.Join(nodeDir, "node"), []byte("#!/bin/sh\necho v22.19.0\n"), 0755); err != nil {
-					t.Fatal(err)
+				if nodeLookupErr != nil {
+					t.Fatal("此回归需要已安装的 Node 22 或更高：", nodeLookupErr)
 				}
+				nodePath = systemNode
 			}
+			t.Setenv("PATH", nodeDir)
 			var requests atomic.Int32
 			entered, release := make(chan struct{}), make(chan struct{})
 			remote := startupBindingCloudFixture(t, "fixture", func(w http.ResponseWriter, r *http.Request) {
@@ -389,7 +408,7 @@ func TestStartupSyncManualRetryFetchesAuthoritativeConfig(t *testing.T) {
 				}
 				w.WriteHeader(http.StatusServiceUnavailable)
 			})
-			manager := runtime.New("", "", t.TempDir(), "", nil)
+			manager := runtime.New(nodePath, "", t.TempDir(), "", nil)
 			manager.EnableStartupCamoufoxSync()
 			server := NewServer(config.Config{}, Dependencies{Runtime: manager, Runner: &lifecycle.Runner{}, Cloud: cloud.New(remote.URL), DeviceID: func() (string, error) { return "fixture-device", nil }})
 			defer server.Shutdown(context.Background())
@@ -426,8 +445,8 @@ func TestStartupSyncManualRetryFetchesAuthoritativeConfig(t *testing.T) {
 
 // TestStartupSyncStatusCannotReuseOldWorker 验证旧 Worker 报已安装时，API 合并状态仍不能越过启动检查。
 func TestStartupSyncStatusCannotReuseOldWorker(t *testing.T) {
-	if goruntime.GOOS != "darwin" {
-		t.Skip("Mac 启动门闩仅在 macOS 启用")
+	if goruntime.GOOS != "darwin" && !(goruntime.GOOS == "windows" && goruntime.GOARCH == "amd64") {
+		t.Skip("当前系统不发布本地程序")
 	}
 	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {

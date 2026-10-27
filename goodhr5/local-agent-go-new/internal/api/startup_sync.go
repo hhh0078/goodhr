@@ -1,9 +1,11 @@
-// Package api 文件作用：在有效网页绑定后单次后台同步 Mac 浏览器组件，退出时取消并等待，不保存登录凭证。
+// Package api 文件作用：在有效网页绑定后单次后台同步 Windows x64 或 Mac 浏览器组件，退出时取消并等待，不保存登录凭证。
 package api
 
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,14 +41,16 @@ type startupSyncTasks interface {
 
 // startupCamoufoxSync 保存本次进程唯一的检查协程及退出状态，不持久化用户凭证。
 type startupCamoufoxSync struct {
-	runtime startupSyncRuntime
-	cloud   startupSyncCloud
-	browser startupSyncBrowser
-	tasks   startupSyncTasks
-	mu      sync.Mutex
-	cancel  context.CancelFunc
-	done    chan struct{}
-	closing bool
+	runtime    startupSyncRuntime
+	cloud      startupSyncCloud
+	browser    startupSyncBrowser
+	tasks      startupSyncTasks
+	workerHost string
+	workerPort int
+	mu         sync.Mutex
+	cancel     context.CancelFunc
+	done       chan struct{}
+	closing    bool
 }
 
 // newStartupCamoufoxSync 复用本地服务已有依赖；未配置运行组件时不启用额外任务。
@@ -54,7 +58,7 @@ func newStartupCamoufoxSync(server *Server) *startupCamoufoxSync {
 	if server.runtime == nil || server.cloud == nil {
 		return nil
 	}
-	syncer := &startupCamoufoxSync{runtime: server.runtime, cloud: server.cloud}
+	syncer := &startupCamoufoxSync{runtime: server.runtime, cloud: server.cloud, workerHost: server.cfg.WorkerHost, workerPort: server.cfg.WorkerPort}
 	if server.browser != nil {
 		syncer.browser = server.browser
 	}
@@ -117,15 +121,15 @@ func (s *startupCamoufoxSync) beforeInstall(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !healthy {
-		return nil
-	}
-	if _, err := s.browser.StopBrowser(ctx); err != nil {
-		return fmt.Errorf("旧浏览器还没退出，请先关闭浏览器再刷新后台：%w", err)
+	if healthy {
+		if _, err := s.browser.StopBrowser(ctx); err != nil {
+			return fmt.Errorf("旧浏览器还没退出，请先关闭浏览器再刷新后台：%w", err)
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// 健康检查失败也可能仍持有旧 Worker；先停当前管理器的进程，不能让恢复后的旧环境绕过换包。
 	if err := s.runtime.StopWorker(); err != nil {
 		return fmt.Errorf("旧的浏览器操作组件还没退出，请重启小助手：%w", err)
 	}
@@ -135,6 +139,25 @@ func (s *startupCamoufoxSync) beforeInstall(ctx context.Context) error {
 	cancel()
 	if stillRunning {
 		return fmt.Errorf("旧的浏览器操作组件还在运行，请彻底退出旧程序后再重试")
+	}
+	return checkStartupWorkerPortReleased(ctx, s.workerHost, s.workerPort)
+}
+
+// checkStartupWorkerPortReleased 仅短暂绑定已知本机 Worker 端口确认无残留监听；发现未知进程时保持门闩，不结束其 PID。
+func checkStartupWorkerPortReleased(ctx context.Context, host string, port int) error {
+	// 未提供地址的单元测试依赖只验证同步合同；正式程序始终传入其实际回环地址与端口。
+	if host == "" && port == 0 {
+		return ctx.Err()
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() || port <= 0 || port > 65535 {
+		return fmt.Errorf("浏览器操作组件的本机地址还没准备好，请重启小助手")
+	}
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		return fmt.Errorf("旧的浏览器操作组件端口还没释放，请彻底退出旧程序后再重试：%w", err)
+	}
+	if err := listener.Close(); err != nil {
+		return fmt.Errorf("浏览器操作组件端口还没确认释放，请重启小助手：%w", err)
 	}
 	return ctx.Err()
 }

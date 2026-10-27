@@ -25,7 +25,7 @@ type Manager struct {
 	runtimeDir string
 	ocrPath    string
 	installMu  sync.Mutex
-	// startupMu 保护本次进程首次绑定后的浏览器校验门闩；默认关闭，仅由 Mac 主程序启用。
+	// startupMu 保护本次进程首次绑定后的浏览器校验门闩；默认关闭，由 Windows x64 与 Mac 主程序启用。
 	startupMu      sync.Mutex
 	startupEnabled bool
 	startupPending bool
