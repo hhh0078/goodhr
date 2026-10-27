@@ -23,3 +23,25 @@
 - 发布前重算空间预算，至少保留 1 GiB，不清理其他任务文件；完成功能提交、推送并合并主分支，再删除本功能分支。
 
 强制更新沿用现有后台不可忽略提示与新任务启动阻断，用户仍需完成 macOS 系统安装。浏览器自动下载发生在新程序连接已登录后台后，不依赖用户再次点击“更新运行组件”。
+
+
+## 已完成验收
+
+正式包来自干净提交 `3e0efc3108cd8eaa8c13d5f98154c45b053e258d`，使用现有 `scripts/package-release.sh 6.2.12.0 build`。后续 `2d856ae8` 只修正验收脚本的重启复核方式，不改变包内 Go、Worker 或安装器代码。
+
+- Go 全量测试通过：34 个有测试包、8 个无测试包，零失败；Runtime、API、Cloud、Bootstrap 的相关竞态测试通过。配置失败与并发启动的回归测试在旧实现上确实失败，新实现通过。
+- Windows amd64、macOS arm64、macOS amd64 编译通过。本次只发布 Mac 主程序；Windows 的启动门闩默认关闭。
+- PKG 与 ZIP 内应用的全部文件、符号链接与权限一致。Go 含 arm64/x86_64 两个切片；分别从干净提交按正式参数重编后，SHA 与包内切片逐字节一致。Worker 包含对应两种架构的 impit 原生依赖，版本为 `6.2.12.0`，默认服务地址为正式域名。
+- 使用 PKG 解出的真实主程序与 Worker，在两个独立目录预装原始 `152.0.4-beta.30`，再从 oss2 的真实 HTTPS 地址自动下载 r1，完整校验后切换新目录。绑定前与下载中均阻止启动，重复绑定只读取一次清单、下载一次。
+- Apple Silicon 原生通过；Intel 使用 Rosetta，Go、Node 与 Camoufox 均为 x64，独立通过。两套正式 Worker 均两次打开公开 `https://example.com/`，登录 Cookie 两次保留；旧启动文件、Profile 标记保留，退出码为 0，无本次浏览器残留。
+- 初次只检查 Camoufox，不擅自安装 Node/OCR。全新机器缺 Node 时，失败重试返回明确下一步，避免现有前端空等全部组件；旧 Worker 停止后仍响应则拒绝切换，提示先退出旧程序。
+- 现有前端函数和实际弹窗表达式断言通过：旧 Mac `6.2.11.3` 选择 `6.2.12.0` 并强制更新，新版可继续；Windows 仍选 `6.2.11.3`。此项是源码断言，未冒充生产弹窗人工验收。
+
+| 产物 | 大小（字节） | SHA-256 |
+| --- | ---: | --- |
+| Mac universal PKG | 58,446,019 | `69e2e9cc8a7c17b13cdf25bb789b7831544bf6ede51f1cdc15966853e5bc7ee3` |
+| Mac universal ZIP | 60,278,290 | `056012c1032cbf081bde81106e25dbc1c27f59a41fe8803d41bd05df800634d5` |
+
+完整本地证据位于 `output/playwright/camoufox-upgrade/releases/mac-6.2.12.0/` 的 `package-audit.json`、构建与测试日志，以及 `results/mac62120-pkg-arm64-r2/result.json`、`results/mac62120-pkg-x64-r2/result.json`。初期失败的验收目录保留原记录，没有标记为通过。
+
+验证边界：未操作招聘网站、真实招聘账号或用户数据；Cookie 为隔离测试登录状态；Intel 没有实体机器验收；未覆盖本机 Applications，也未执行系统安装器的授权窗口，完成的是 PKG 内容、权限、安装脚本审计及其实际载荷运行。安装脚本沿用原实现。
