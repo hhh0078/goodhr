@@ -34,9 +34,11 @@ type AdminUser struct {
 
 // AdminUserListQuery 表示后台用户列表查询条件。
 type AdminUserListQuery struct {
-	Query    string
-	Page     int
-	PageSize int
+	Query     string
+	Page      int
+	PageSize  int
+	SortBy    string
+	SortOrder string
 }
 
 // AdminUserListResult 表示后台用户列表分页结果。
@@ -585,14 +587,42 @@ func publicAdminAgent(agent *AgentBinding) map[string]any {
 	}
 }
 
-// adminUserListQueryFromRequest 从请求中读取用户列表分页和搜索条件。
+// adminUserListQueryFromRequest 从请求中读取用户列表分页、搜索和白名单排序条件。
 // r 为 HTTP 请求，返回规范化后的查询条件。
 func adminUserListQueryFromRequest(r *http.Request) AdminUserListQuery {
 	values := r.URL.Query()
+	sortBy, sortOrder := normalizeAdminUserSort(values.Get("sort_by"), values.Get("sort_order"))
 	return AdminUserListQuery{
-		Query:    strings.TrimSpace(values.Get("q")),
-		Page:     normalizeAdminUserPage(parseAdminPositiveInt(values.Get("page"), 1)),
-		PageSize: normalizeAdminUserPageSize(parseAdminPositiveInt(values.Get("page_size"), 20)),
+		Query:     strings.TrimSpace(values.Get("q")),
+		Page:      normalizeAdminUserPage(parseAdminPositiveInt(values.Get("page"), 1)),
+		PageSize:  normalizeAdminUserPageSize(parseAdminPositiveInt(values.Get("page_size"), 20)),
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+	}
+}
+
+// normalizeAdminUserSort 只接受简历数量的升降序组合，缺省或无效参数恢复原创建时间排序。
+// sortBy、sortOrder 为外部排序条件，返回固定白名单字段及方向，不返回原始请求内容。
+func normalizeAdminUserSort(sortBy, sortOrder string) (string, string) {
+	sortBy = strings.ToLower(strings.TrimSpace(sortBy))
+	sortOrder = strings.ToLower(strings.TrimSpace(sortOrder))
+	if sortBy != "resume_count" || (sortOrder != "asc" && sortOrder != "desc") {
+		return "", ""
+	}
+	return "resume_count", sortOrder
+}
+
+// adminUserOrderBy 为用户列表返回固定排序 SQL，同数量按邮箱和唯一编号排序以稳定分页。
+// query 为用户列表查询条件，缺省或无效条件保持原创建时间倒序，不拼接外部输入。
+func adminUserOrderBy(query AdminUserListQuery) string {
+	_, sortOrder := normalizeAdminUserSort(query.SortBy, query.SortOrder)
+	switch sortOrder {
+	case "asc":
+		return "COALESCE(resume_stats.resume_count, 0) ASC, u.email ASC, u.id ASC"
+	case "desc":
+		return "COALESCE(resume_stats.resume_count, 0) DESC, u.email ASC, u.id ASC"
+	default:
+		return "u.created_at DESC"
 	}
 }
 
@@ -664,7 +694,20 @@ func (s *MemoryAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserLis
 			CreatedAt:    s.subscriptions.now(),
 		})
 	}
+	_, sortOrder := normalizeAdminUserSort(query.SortBy, query.SortOrder)
 	sort.Slice(users, func(i, j int) bool {
+		if sortOrder != "" {
+			if users[i].ResumeCount != users[j].ResumeCount {
+				if sortOrder == "asc" {
+					return users[i].ResumeCount < users[j].ResumeCount
+				}
+				return users[i].ResumeCount > users[j].ResumeCount
+			}
+			if users[i].Email != users[j].Email {
+				return users[i].Email < users[j].Email
+			}
+			return users[i].ID < users[j].ID
+		}
 		return users[i].CreatedAt.After(users[j].CreatedAt)
 	})
 	users = filterAdminUsers(users, query.Query)
@@ -781,7 +824,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 			GROUP BY cp.created_by_user_id
 		) resume_stats ON resume_stats.created_by_user_id = u.id
 		WHERE `+whereSQL+`
-		ORDER BY u.created_at DESC
+		ORDER BY `+adminUserOrderBy(query)+`
 		LIMIT $`+intString(len(args)-1)+` OFFSET $`+intString(len(args))+`
 	`, args...)
 	if err != nil {

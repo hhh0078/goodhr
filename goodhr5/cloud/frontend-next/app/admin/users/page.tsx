@@ -12,11 +12,12 @@ import {
   Tag,
   Tooltip,
   Typography,
+  type TableProps,
 } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import styles from "./page.module.css";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
 import {
   EmptyState,
@@ -71,6 +72,7 @@ type AdminUserItem = {
     message?: string;
   };
 };
+type ResumeSortOrder = "ascend" | "descend" | null;
 /** UsersPage 提供超级管理员用户列表和用户操作。 */
 export default function UsersPage() {
   const { user, notify, confirm } = useAdmin();
@@ -80,6 +82,8 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  const [resumeSortOrder, setResumeSortOrder] = useState<ResumeSortOrder>(null);
+  const loadGeneration = useRef(0);
   const [form, setForm] = useState({
     email: "",
     days: "7",
@@ -96,12 +100,14 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
   const [adjustingBalance, setAdjustingBalance] = useState(false);
-  /** load 按分页和关键词读取用户。 */
+  /** load 按关键词和简历数量排序读取分页用户，仅采用最后一次请求的结果。 */
   async function load(
     nextPage = page,
     nextPageSize = pageSize,
     nextQuery = query,
+    nextSortOrder = resumeSortOrder,
   ) {
+    const generation = ++loadGeneration.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -109,20 +115,42 @@ export default function UsersPage() {
         page_size: String(nextPageSize),
       });
       if (nextQuery.trim()) params.set("q", nextQuery.trim());
+      if (nextSortOrder) {
+        params.set("sort_by", "resume_count");
+        params.set("sort_order", nextSortOrder === "ascend" ? "asc" : "desc");
+      }
       const data = await cloudRequest(`/api/admin/users?${params}`);
+      if (generation !== loadGeneration.current) return;
       setItems(data.users || []);
       setStats(data.stats || {});
       setTotal(Number(data.total || 0));
       setPage(Number(data.page || nextPage));
     } catch (error) {
+      if (generation !== loadGeneration.current) return;
       notify(
         error instanceof Error ? error.message : "用户列表读取失败",
         "error",
       );
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }
+  /** changeResumeSort 切换简历数的全量排序并回到第一页，保留搜索条件。 */
+  const changeResumeSort: NonNullable<TableProps<AdminUserItem>["onChange"]> = (
+    _pagination,
+    _filters,
+    sorter,
+    extra,
+  ) => {
+    if (extra.action !== "sort") return;
+    const current = Array.isArray(sorter) ? sorter[0] : sorter;
+    const nextOrder = current?.columnKey === "resume_count"
+      && (current.order === "ascend" || current.order === "descend")
+      ? current.order : null;
+    setResumeSortOrder(nextOrder);
+    setPage(1);
+    void load(1, pageSize, query, nextOrder);
+  };
   useEffect(() => {
     if (user?.role === "super_admin") void load(1);
   }, [user]);
@@ -310,6 +338,7 @@ export default function UsersPage() {
                 size="small"
                 tableLayout="fixed"
                 scroll={{ x: 1470 }}
+                onChange={changeResumeSort}
                 columns={[
                   {
                     key: "identity",
@@ -351,6 +380,9 @@ export default function UsersPage() {
                     key: "resume_count",
                     title: "简历数",
                     width: 80,
+                    sorter: true,
+                    sortOrder: resumeSortOrder,
+                    sortDirections: ["descend", "ascend"],
                     render: (_, item) => (
                       <Typography.Text style={{ fontSize: 13 }}>
                         {item.resume_count ?? 0}

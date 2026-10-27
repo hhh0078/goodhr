@@ -4,6 +4,7 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -63,6 +64,101 @@ func TestAdminUserResumeCountsAPI(t *testing.T) {
 				t.Fatalf("user list exposed candidate details: %s", key)
 			}
 		}
+	}
+}
+
+// TestAdminUserResumeCountSortingAPI 验证管理员按全部匹配用户的简历数排序后分页，保留零值并稳定排列相同数量。
+func TestAdminUserResumeCountSortingAPI(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	adminToken := loginForTest(t, routes, "1224299352@qq.com")
+	owners := []struct {
+		email string
+		count int
+	}{
+		{"resume-sort-z-empty@example.com", 0},
+		{"resume-sort-b-two@example.com", 2},
+		{"resume-sort-d-one@example.com", 1},
+		{"resume-sort-a-two@example.com", 2},
+	}
+	for ownerIndex, owner := range owners {
+		token := loginForTest(t, routes, owner.email)
+		for index := 0; index < owner.count; index++ {
+			status, body := candidateTestRequest(t, routes, token, http.MethodPost, "/api/candidates", map[string]any{
+				"candidate_name": fmt.Sprintf("排序测试%d-%d", ownerIndex, index),
+				"phone":          fmt.Sprintf("13900000%d%02d", ownerIndex, index),
+			})
+			if status != http.StatusOK {
+				t.Fatalf("create sorting fixture status=%d body=%v", status, body)
+			}
+		}
+	}
+	for _, test := range []struct {
+		order string
+		want  []string
+	}{
+		{"asc", []string{owners[0].email, owners[2].email, owners[3].email, owners[1].email}},
+		{"desc", []string{owners[3].email, owners[1].email, owners[2].email, owners[0].email}},
+	} {
+		t.Run(test.order, func(t *testing.T) {
+			for repeat := 0; repeat < 3; repeat++ {
+				for index, email := range test.want {
+					path := fmt.Sprintf("/api/admin/users?q=resume-sort-&sort_by=resume_count&sort_order=%s&page=%d&page_size=1", test.order, index+1)
+					status, body := candidateTestRequest(t, routes, adminToken, http.MethodGet, path, nil)
+					users, ok := body["users"].([]any)
+					if status != http.StatusOK || !ok || len(users) != 1 || body["total"] != float64(4) || body["page"] != float64(index+1) {
+						t.Fatalf("sorted page status=%d body=%v", status, body)
+					}
+					if user := users[0].(map[string]any); user["email"] != email {
+						t.Fatalf("sorted page=%d repeat=%d got=%v want=%s", index+1, repeat, user, email)
+					}
+				}
+			}
+		})
+	}
+	status, body := candidateTestRequest(t, routes, adminToken, http.MethodGet, "/api/admin/users?q=resume-sort-z-empty&sort_by=resume_count&sort_order=desc&page_size=1", nil)
+	users, ok := body["users"].([]any)
+	if status != http.StatusOK || !ok || len(users) != 1 || body["total"] != float64(1) || users[0].(map[string]any)["resume_count"] != float64(0) {
+		t.Fatalf("sorting must preserve a searched zero-count user: status=%d body=%v", status, body)
+	}
+	status, body = candidateTestRequest(t, routes, adminToken, http.MethodGet, "/api/admin/users?q=resume-sort-&sort_by=resume_count&sort_order=asc&page=5&page_size=1", nil)
+	users, ok = body["users"].([]any)
+	if status != http.StatusOK || !ok || len(users) != 0 || body["total"] != float64(4) {
+		t.Fatalf("out-of-range sorted page should be empty: status=%d body=%v", status, body)
+	}
+}
+
+// TestAdminUserResumeCountSortWhitelist 验证请求和存储层仅接受固定排序白名单，非法输入不会进入 SQL。
+func TestAdminUserResumeCountSortWhitelist(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		sortBy    string
+		sortOrder string
+		wantBy    string
+		wantOrder string
+		wantSQL   string
+	}{
+		{"default", "", "", "", "", "u.created_at DESC"},
+		{"ascending", "resume_count", "asc", "resume_count", "asc", "COALESCE(resume_stats.resume_count, 0) ASC, u.email ASC, u.id ASC"},
+		{"descending", "resume_count", "desc", "resume_count", "desc", "COALESCE(resume_stats.resume_count, 0) DESC, u.email ASC, u.id ASC"},
+		{"normalized", " RESUME_COUNT ", " ASC ", "resume_count", "asc", "COALESCE(resume_stats.resume_count, 0) ASC, u.email ASC, u.id ASC"},
+		{"missing direction", "resume_count", "", "", "", "u.created_at DESC"},
+		{"unknown field", "email", "asc", "", "", "u.created_at DESC"},
+		{"unknown direction", "resume_count", "ascending", "", "", "u.created_at DESC"},
+		{"field injection", "resume_count DESC; DROP TABLE users", "asc", "", "", "u.created_at DESC"},
+		{"direction injection", "resume_count", "desc; DROP TABLE users", "", "", "u.created_at DESC"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			values := url.Values{"sort_by": {test.sortBy}, "sort_order": {test.sortOrder}}
+			request := httptest.NewRequest(http.MethodGet, "/api/admin/users?"+values.Encode(), nil)
+			query := adminUserListQueryFromRequest(request)
+			if query.SortBy != test.wantBy || query.SortOrder != test.wantOrder {
+				t.Fatalf("normalized sort got=(%q,%q) want=(%q,%q)", query.SortBy, query.SortOrder, test.wantBy, test.wantOrder)
+			}
+			if got := adminUserOrderBy(AdminUserListQuery{SortBy: test.sortBy, SortOrder: test.sortOrder}); got != test.wantSQL {
+				t.Fatalf("store SQL must only use fixed whitelist: got=%q want=%q", got, test.wantSQL)
+			}
+		})
 	}
 }
 
@@ -190,5 +286,32 @@ func TestAdminUserResumeCountsPostgres(t *testing.T) {
 	result, err = store.ListUsers(AdminUserListQuery{Query: "pg-count-0", PageSize: 1})
 	if err != nil || result.Total != 1 || len(result.Users) != 1 || result.Users[0].ResumeCount != 2 {
 		t.Fatalf("Postgres search count result=%+v err=%v", result, err)
+	}
+	var tiedID string
+	if err := db.QueryRow(`INSERT INTO users(email,tenant_id,created_at,subscription) VALUES('pg-count-3@example.test',$1,now()-interval '3 days',$2::jsonb) RETURNING id::text`, tenantID, string(subscriptionJSON)).Scan(&tiedID); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 2; index++ {
+		if _, err := db.Exec(`INSERT INTO candidate_profiles(tenant_id,created_by_user_id,source_platform_candidate_id) VALUES($1,$2,$3)`, tenantID, tiedID, fmt.Sprintf("count-tied-%d", index)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, test := range []struct {
+		order string
+		want  []string
+	}{
+		{"asc", []string{"pg-count-2@example.test", "pg-count-1@example.test", "pg-count-0@example.test", "pg-count-3@example.test"}},
+		{"desc", []string{"pg-count-0@example.test", "pg-count-3@example.test", "pg-count-1@example.test", "pg-count-2@example.test"}},
+	} {
+		t.Run("sort_"+test.order, func(t *testing.T) {
+			for repeat := 0; repeat < 2; repeat++ {
+				for index, email := range test.want {
+					result, err := store.ListUsers(AdminUserListQuery{Query: "pg-count-", Page: index + 1, PageSize: 1, SortBy: "resume_count", SortOrder: test.order})
+					if err != nil || result.Total != 4 || len(result.Users) != 1 || result.Users[0].Email != email {
+						t.Fatalf("Postgres sorted page=%d repeat=%d result=%+v err=%v want=%s", index+1, repeat, result, err, email)
+					}
+				}
+			}
+		})
 	}
 }
