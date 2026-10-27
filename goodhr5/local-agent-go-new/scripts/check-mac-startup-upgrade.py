@@ -227,18 +227,21 @@ def main():
             runtime_status = request(worker_base, "/api/v1/runtime/status")[1]
             assert Path(runtime_status["binary_path"]).resolve() == new_binary.resolve()
             assert request(base, "/api/v1/worker/status")[1]["running"]
-            code, browser = request(worker_base, "/api/v1/browser/start", {
-                "user_data_dir": str(profile), "headless": False, "url": "https://example.com",
-                "wait_until": "domcontentloaded", "timeout_ms": 30000})
-            assert code == 200 and browser["running"] and browser["current_url"].startswith("https://example.com"), browser
-            assert request(worker_base, "/api/v1/browser/stop", {})[0] == 200
-            profile_cookie(args.worker_entry, new_binary, profile, False, args.node)
+            for _restart in range(2):
+                code, browser = request(worker_base, "/api/v1/browser/start", {
+                    "user_data_dir": str(profile), "headless": False, "url": "https://example.com",
+                    "wait_until": "domcontentloaded", "timeout_ms": 30000})
+                assert code == 200 and browser["running"] and browser["current_url"].startswith("https://example.com"), browser
+                cookies = request(worker_base, "/api/v1/cookies")[1]["cookies"]
+                assert any(item["name"] == "goodhr_upgrade_fixture" and item["value"] == "preserved" for item in cookies)
+                assert request(worker_base, "/api/v1/browser/stop", {})[0] == 200
             assert request(base, "/api/v1/session/bind", {"token": TOKEN})[0] == 200
             time.sleep(0.5)
             assert calls["download"] == 1 and calls["config"] == 1, "绑定重试不应重复下载或打断就绪会话"
             report.update({"passed": True, "old_directory_preserved": True, "profile_preserved": True,
                            "startup_gate_checked": True, "download_gate_checked": True,
                            "login_cookie_preserved": True, "worker_uses_new_binary": True,
+                           "worker_cookie_preserved_after_restart": True,
                            "public_page_opened": browser["current_url"],
                            "installed": installed, "runtime_status": runtime_status, "calls": dict(calls)})
         finally:
