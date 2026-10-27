@@ -33,6 +33,7 @@
 - Windows amd64、macOS arm64、macOS amd64 编译通过。本次只发布 Mac 主程序；Windows 的启动门闩默认关闭。
 - PKG 与 ZIP 内应用的全部文件、符号链接与权限一致。Go 含 arm64/x86_64 两个切片；分别从干净提交按正式参数重编后，SHA 与包内切片逐字节一致。Worker 包含对应两种架构的 impit 原生依赖，版本为 `6.2.12.0`，默认服务地址为正式域名。
 - 使用 PKG 解出的真实主程序与 Worker，在两个独立目录预装原始 `152.0.4-beta.30`，再从 oss2 的真实 HTTPS 地址自动下载 r1，完整校验后切换新目录。绑定前与下载中均阻止启动，重复绑定只读取一次清单、下载一次。
+- 两个新安装目录经过 Go 的资源准备后，均再次核对 `TargetRegistry.js` 仍包含窗口激活修复，详见 `prepared-browser-resource-check.json`。
 - Apple Silicon 原生通过；Intel 使用 Rosetta，Go、Node 与 Camoufox 均为 x64，独立通过。两套正式 Worker 均两次打开公开 `https://example.com/`，登录 Cookie 两次保留；旧启动文件、Profile 标记保留，退出码为 0，无本次浏览器残留。
 - 初次只检查 Camoufox，不擅自安装 Node/OCR。全新机器缺 Node 时，失败重试返回明确下一步，避免现有前端空等全部组件；旧 Worker 停止后仍响应则拒绝切换，提示先退出旧程序。
 - 现有前端函数和实际弹窗表达式断言通过：旧 Mac `6.2.11.3` 选择 `6.2.12.0` 并强制更新，新版可继续；Windows 仍选 `6.2.11.3`。此项是源码断言，未冒充生产弹窗人工验收。
@@ -44,4 +45,22 @@
 
 完整本地证据位于 `output/playwright/camoufox-upgrade/releases/mac-6.2.12.0/` 的 `package-audit.json`、构建与测试日志，以及 `results/mac62120-pkg-arm64-r2/result.json`、`results/mac62120-pkg-x64-r2/result.json`。初期失败的验收目录保留原记录，没有标记为通过。
 
-验证边界：未操作招聘网站、真实招聘账号或用户数据；Cookie 为隔离测试登录状态；Intel 没有实体机器验收；未覆盖本机 Applications，也未执行系统安装器的授权窗口，完成的是 PKG 内容、权限、安装脚本审计及其实际载荷运行。安装脚本沿用原实现。
+验证边界：未操作招聘网站、真实招聘账号或用户数据；Cookie 为隔离测试登录状态；Intel 没有实体机器验收；未覆盖本机 Applications，也未执行系统安装器的授权窗口，完成的是 PKG 内容、权限、安装脚本审计及其实际载荷运行。安装脚本沿用原实现。实际 PKG 的 `pkgutil --check-signature` 为 `Status: no signature`，本次没有新增签名或公证流程。
+
+
+## 正式发布
+
+北京时间 **2026-10-27 08:58:11** 经宝塔 MCP 发布完成。正式资产采用 SHA 前八位唯一名称，不覆盖旧包：
+
+- [Mac PKG](https://oss2.58it.cn/GoodHR-Local-Agent-Setup-v6.2.12.0-mac-universal-69e2e9cc.pkg)
+- [Mac ZIP](https://oss2.58it.cn/goodhr-local-agent-v6.2.12.0-darwin-universal-056012c1.zip)
+
+本机、服务器文件和两份独立完整公网 HTTP 200 下载的大小及 SHA 均一致。公开 `/api/system/local-agent-updates` 已由主任务再次独立核对：53 条记录，首条为只含 Mac 地址的 `6.2.12.0`，Windows 仍为原 `6.2.11.3`。真实公开记录再次代入原前端选择和弹窗表达式，通过 Mac 强制/Windows 保持原行为断言。
+
+配置仅变更 `system.onboarding_config.local_agent`，起点 MD5 为 `da52a34e719feb249ec4216767130901`，提交后为 `ed887a72c70210bd06b9780682f7175b`。原 52 条记录的内容及顺序、三平台 Camoufox r1、其他 onboarding 字段均保持；更新字段指向 PKG 及 PKG 自身 SHA，不与 ZIP 混用。
+
+备份与带整行并发保护的回退保存在服务器私有目录 `/opt/goodhr-release/mac-local-agent-6.2.12.0-20261026/`：`configs-before.private.json`、`configs-after.private.json`、`rollback.private.sql`。回退前须检查当前整行仍为本次结果，不能覆盖后续其他配置修改。该目录沿用本次工作开始日期，不代表实际切换日期。
+
+本次只新增静态下载文件及配置记录，没有构建、替换或删除云端镜像/容器，没有重启服务；没有新建隔离容器或网络。两套验收浏览器与本地进程均正常退出。本机保留完整包、原始失败记录与有效验收证据，未清理用户目录或其他任务的资料。
+
+发布后空间复查：根盘剩余 **10,370,228,224 字节**，`/www` 剩余 **10,432,339,968 字节**（约 10.43 GB）；保守峰值预算为 1,311,190,442 字节，发布前空间满足预算。前后容器 ID、镜像引用一致，未重启服务；七份新旧静态文件完整 SHA 再次通过。两份 Upload 源文件、全部旧包与回退材料保留。完整发布证据见同一目录的 `production-publication.json`，服务器 `release-final-summary.json` 与备份为私有权限。
