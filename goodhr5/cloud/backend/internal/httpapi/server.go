@@ -15,6 +15,7 @@ type updateAdminSystemConfigRequest struct {
 }
 
 type Server struct {
+	autoReply             *AutoReplyService
 	auth                  *AuthService
 	agent                 *AgentService
 	userFlow              *UserFlowService
@@ -129,6 +130,9 @@ func NewServer() (*Server, error) {
 		NewWechatRewardNoticeService(NewPostgresWechatRewardNoticeStore(db), mailer, systemConfigStore).Start(context.Background())
 	}
 	candidates := NewCandidateService(auth, candidateStore, tenantStore, positionStore)
+	autoReplyStore := config.AutoReplyStore(db)
+	autoReplyService := NewAutoReplyService(auth, autoReplyStore, tenantStore, positionStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, agentStore, mailer)
+	candidates.autoReply = autoReplyStore
 	recruitment := NewRecruitmentService(auth, recruitmentStore, tenantStore, candidateStore, positionStore)
 	recruitmentMail := NewRecruitmentMailService(auth, recruitmentMailStore, tenantStore, mailer, recruitment)
 	messages := NewMessageService(auth, config.MessageStore(db))
@@ -158,6 +162,7 @@ func NewServer() (*Server, error) {
 		assistant.store = nil
 	}
 	return &Server{
+		autoReply:             autoReplyService,
 		auth:                  auth,
 		agent:                 NewAgentService(auth, agentStore, systemConfigStore),
 		userFlow:              NewUserFlowService(auth, userFlowStore, positionStore),
@@ -206,6 +211,13 @@ func NewServer() (*Server, error) {
 // Routes 注册云端 HTTP 路由，并包装基础 CORS 中间件。
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auto-reply/company-profiles", s.autoReply.CompanyProfiles)
+	mux.HandleFunc("/api/auto-reply/company-profiles/", s.autoReply.CompanyProfile)
+	mux.HandleFunc("/api/auto-reply/positions/", s.autoReply.Position)
+	mux.HandleFunc("/api/auto-reply/agent/", s.autoReply.Agent)
+	mux.HandleFunc("/api/auto-reply/recommendations/", s.autoReply.Recommendation)
+	mux.HandleFunc("/api/public/recommendations/", s.autoReply.PublicRecommendation)
+
 	// 注册健康检查接口，用于部署和本地开发确认服务在线。
 	mux.HandleFunc("/health", s.health)
 	// 注册认证接口，用于邮箱验证码登录和登录态校验。
@@ -779,6 +791,11 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 
 // candidateRoute 优先分派经过权限验证的简历分享，其他操作继续复用简历库路由。
 func (s *Server) candidateRoute(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/auto-reply") {
+		s.candidates.AutoReplyDetail(w, r)
+		return
+	}
+
 	if strings.HasSuffix(r.URL.Path, "/share") && s.candidateShares != nil {
 		s.candidateShares.PrivateShare(w, r)
 		return

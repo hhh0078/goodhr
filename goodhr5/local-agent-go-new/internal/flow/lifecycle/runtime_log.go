@@ -23,9 +23,35 @@ type loggedDetailRuntime struct {
 	detailBrowser model.DetailBrowser
 }
 
+// loggedAutoReplyRuntime 保留底层平台已有的自动回复能力。
+type loggedAutoReplyRuntime struct {
+	*loggedRuntime
+	model.AutoReplyRuntime
+}
+
+// loggedDetailAutoReplyRuntime 同时保留自动回复与可选详情浏览能力。
+type loggedDetailAutoReplyRuntime struct {
+	*loggedAutoReplyRuntime
+	detailBrowser model.DetailBrowser
+}
+
+// BrowseCandidateDetail 转发底层详情操作，不丢失自动回复接口。
+func (l *loggedDetailAutoReplyRuntime) BrowseCandidateDetail(ctx context.Context, browser model.Browser, config model.Config, candidate model.Candidate) (err error) {
+	defer l.record("browse_candidate_detail", time.Now(), &err)
+	return l.detailBrowser.BrowseCandidateDetail(ctx, browser, config, candidate)
+}
+
 // newLoggedRuntime 创建日志封装，并保留底层平台已有的可选详情浏览能力。
 func newLoggedRuntime(runtime model.Runtime, taskID string, logger shared.Logger) model.Runtime {
 	logged := &loggedRuntime{Runtime: runtime, taskID: taskID, logger: logger}
+	if replyRuntime, ok := runtime.(model.AutoReplyRuntime); ok {
+		reply := &loggedAutoReplyRuntime{loggedRuntime: logged, AutoReplyRuntime: replyRuntime}
+		if detailBrowser, ok := runtime.(model.DetailBrowser); ok {
+			return &loggedDetailAutoReplyRuntime{loggedAutoReplyRuntime: reply, detailBrowser: detailBrowser}
+		}
+		return reply
+	}
+
 	if detailBrowser, ok := runtime.(model.DetailBrowser); ok {
 		return &loggedDetailRuntime{loggedRuntime: logged, detailBrowser: detailBrowser}
 	}

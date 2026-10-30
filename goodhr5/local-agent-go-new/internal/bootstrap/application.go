@@ -77,6 +77,7 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 	// Windows x64 与 Mac 双架构先核对线上浏览器摘要；其他平台由管理器保持关闭。
 	runtimeManager.EnableStartupCamoufoxSync()
 	cloudClient := cloud.New(cfg.CloudURL)
+	cloudClient.EnableLocalAutoReply(store, filepath.Join(cfg.DataDir, "auto-reply"))
 	machineID, deviceErr := device.Current()
 	if deviceErr != nil {
 		log.Printf("稳定设备编号暂时不可用：%v", deviceErr)
@@ -113,8 +114,9 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 		DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
 	}
 	replyFlow := &auto_reply.Flow{
-		Browser: browserClient, AI: aiClient, Store: store, Cloud: cloudClient,
-		Logger: logger, DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
+		Browser: browserClient, Store: store, Cloud: cloudClient,
+		Responder: &auto_reply.AIResponder{AI: aiClient, Cloud: cloudClient, Logger: logger, OCR: ocrClient},
+		Logger:    logger, DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
 	}
 	runner := lifecycle.New(checker, greetingFlow, replyFlow, store, profiles, powerGuard, cloudClient, notifier, logger)
 	downloads := &downloadflow.Monitor{Browser: browserClient, Store: store, Notifier: notifier}

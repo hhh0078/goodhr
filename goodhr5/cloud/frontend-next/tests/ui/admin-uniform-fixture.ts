@@ -121,6 +121,8 @@ export async function mockUniformAdmin(page: Page, empty = false, withMessages =
     else if (path === "/api/wechat-official/status") data = { enabled: false, configured: false, bound: true, followed: true, gift_granted: true };
     else if (path === "/api/system/app-config" || path === "/api/runtime/config") data = { config: { builtin_ai: { models: [{ id: "synthetic-model", name: "合成测试模型", description: "仅界面模拟" }] } } };
     else if (path === "/api/system/default-prompts") data = { prompts: {} };
+    else if (/^\/api\/auto-reply\/positions\/[^/]+\/status$/.test(path)) data = { configured_enabled: false, enabled: false, version: 1, subscription: { allow_auto_reply: true } };
+    else if (path === "/api/v1/local/auto-reply/status") data = { ok: true, data: { status: "stopped" } };
     else if (path === "/api/config/user-ai") data = { config: { enabled: true, model: "synthetic-model", base_url: `${uniformOrigin}/api/builtin-ai/v1/chat/completions`, api_key: "synthetic-api-key-only", api_key_set: true } };
     else if (path === "/api/config/user-preferences") data = { config: { ai_model: "synthetic-model", candidate_read_concurrency: 100 } };
     else if (path === "/api/user-flow" || path === "/api/user-flow/state") data = { state: "completed", steps: {}, flow: { version: 2, state: "completed", stage: "completed", steps: {} } };

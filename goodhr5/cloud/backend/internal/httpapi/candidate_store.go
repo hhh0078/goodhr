@@ -235,6 +235,28 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if structuredCandidateInput(item) {
+		matches := map[string]bool{}
+		phone := normalizeCandidatePhone(item.Phone)
+		for id, existing := range s.profiles {
+			if existing.TenantID != item.TenantID {
+				continue
+			}
+			samePhone := phone != "" && normalizeCandidatePhone(existing.Phone) == phone
+			sameSource := existing.PlatformID == item.PlatformID && existing.PlatformCandidateID == item.PlatformCandidateID
+			for _, source := range existing.Sources {
+				if source.PlatformID == item.PlatformID && source.PlatformCandidateID == item.PlatformCandidateID && item.PlatformCandidateID != "" {
+					sameSource = true
+				}
+			}
+			if samePhone || sameSource {
+				matches[id] = true
+			}
+		}
+		if len(matches) > 1 {
+			return PositionCandidate{}, ErrCandidateDuplicate
+		}
+	}
 	now := s.now()
 	id := s.nextID("candidate")
 	profile := PositionCandidate{
@@ -278,6 +300,9 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 		FirstSeenAt:         item.FirstSeenAt,
 		CreatedAt:           now,
 		UpdatedAt:           now,
+	}
+	for key, value := range automaticCandidateExtraFields(item) {
+		profile.LibraryFields[key] = value
 	}
 	if item.Tags != nil {
 		profile.LibraryFields["tags"] = append([]string{}, item.Tags...)

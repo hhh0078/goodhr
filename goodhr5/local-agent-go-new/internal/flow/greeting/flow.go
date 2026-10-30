@@ -44,9 +44,16 @@ type flowStep struct {
 	run      func(context.Context) error
 }
 
+// CandidateCheckpoint 表示外层调度器在处理下一位候选人前同步执行的通用检查点。
+type CandidateCheckpoint func(context.Context) error
+
 // Run 按平铺步骤启动浏览器、准备平台、处理候选人并同步摘要。
-func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime) (stats shared.Stats, runErr error) {
+func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, checkpoints ...CandidateCheckpoint) (stats shared.Stats, runErr error) {
 	defer func() { f.finalizeScreeningTask(ctx, prepared, stats, runErr) }()
+	var checkpoint CandidateCheckpoint
+	if len(checkpoints) > 0 {
+		checkpoint = checkpoints[0]
+	}
 	position := model.Position{
 		ID: prepared.Position.ID, Name: prepared.Position.Name, Keyword: prepared.Position.Keyword,
 		RequestPhone: prepared.Position.RequestPhone, RequestWechat: prepared.Position.RequestWechat,
@@ -71,7 +78,7 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 			return runtime.ApplyBasicFilters(ctx, f.Browser, prepared.Platform, position)
 		}},
 		{name: "scan_decide_and_greet", label: "处理候选人并打招呼", run: func(ctx context.Context) error {
-			return f.processBatches(ctx, prepared, runtime, &stats)
+			return f.processBatches(ctx, prepared, runtime, checkpoint, &stats)
 		}},
 	}
 	for _, step := range steps {
@@ -119,7 +126,7 @@ func (f *Flow) extensionPaths() []string {
 }
 
 // processBatches 按配置批次扫描、判断和处理候选人。
-func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, stats *shared.Stats) error {
+func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, checkpoint CandidateCheckpoint, stats *shared.Stats) error {
 	maxBatches := prepared.Position.MaxBatches
 	errorPolicy := &shared.ConsecutiveErrorPolicy{}
 	seen := make(map[string]struct{})
@@ -215,6 +222,16 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			if err := ctx.Err(); err != nil {
 				cancelPreviews()
 				return err
+			}
+			if checkpoint != nil {
+				if err := checkpoint(ctx); err != nil {
+					cancelPreviews()
+					return fmt.Errorf("候选人前自动回复检查失败：%w", err)
+				}
+				if shared.GracefulStopRequested(ctx) {
+					cancelPreviews()
+					return nil
+				}
 			}
 			candidateName := strings.TrimSpace(candidate.Name)
 			if candidateName == "" {

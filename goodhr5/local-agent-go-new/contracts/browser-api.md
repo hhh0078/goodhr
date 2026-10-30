@@ -47,6 +47,7 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 | GET | `/api/v1/page/list` | 标签页列表 |
 | POST | `/api/v1/page/use` | 切换标签页 |
 | POST | `/api/v1/page/close` | 关闭当前标签页 |
+| POST | `/api/v1/page/save-current-document` | 使用当前浏览器会话保存当前文档页 |
 | GET | `/api/v1/page/url` | 当前页面地址 |
 | POST | `/api/v1/element/find` | 查找单个元素 |
 | POST | `/api/v1/element/find-all` | 查找列表并读取字段 |
@@ -145,6 +146,16 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 - `downloads.configure` 必须等待浏览器确认目录已生效，已有文件路径保持原样。
 - `downloads.clear` 只清空 GoodHR 记录，不删除已经保存的文件，也不清除浏览器原生历史。
 - Go 每秒主动读取一次下载终态，用于本地持久化和完成提示；Worker 不回调 Go 业务接口。
+
+## 当前文档页保存
+
+`POST /api/v1/page/save-current-document` 只保存当前已经打开的 `http/https` 标签页，不接受调用方提供其他 URL。请求可提供 `max_bytes`、`allowed_content_types[]`、`suggested_filename` 和 `timeout_ms`，返回结构与普通下载的 `DownloadRecord` 完全一致。
+
+- 请求和最多 5 次跳转由当前 `BrowserContext.request` 使用会话登录状态处理，不向页面注入脚本。
+- 文档正文由 Playwright 读取后写入同目录临时 `.part` 文件；默认限制 25 MiB，并在读取前检查声明大小、读取后复核实际大小。
+- 请求、读取正文和落盘共同检查 `timeout_ms` 总时限；正文读取使用 Playwright 的缓冲能力，不提供流式下载保证。
+- 失败、超限和文件签名不正确时删除临时文件；PDF 必须以 `%PDF-` 开头。
+- 成功后使用安全且不覆盖旧文件的名称，并进入现有下载记录。
 
 ## 兼容规则
 

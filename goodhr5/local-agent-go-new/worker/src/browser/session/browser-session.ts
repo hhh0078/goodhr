@@ -12,14 +12,17 @@ import type {
   BrowserStartRequest,
   BrowserStatusResult,
   DownloadListResult,
+  DownloadRecord,
   PageInfo,
   PageListResult,
   PageOpenRequest,
+  SaveCurrentDocumentRequest,
 } from "../../contracts/actions.js";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { WorkerError, normalizeWorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { DownloadManager } from "./download-manager.js";
+import { saveCurrentDocumentFromContext } from "./current-document.js";
 import { ElementRegistry } from "./element-registry.js";
 import { loadStableProfileFingerprint } from "./fingerprint.js";
 import { initializeChineseLanguagePack } from "./language-initializer.js";
@@ -416,6 +419,17 @@ export class BrowserSession {
       closed: true,
       current_url: this.currentPage?.url() ?? "",
     };
+  }
+
+  /** saveCurrentDocument 使用当前 Firefox 会话保存已打开的文档页。 */
+  async saveCurrentDocument(request: SaveCurrentDocumentRequest, actionContext: ActionContext): Promise<DownloadRecord> {
+    const page = await this.requirePage(actionContext, "save_current_document");
+    const context = this.requireContext(actionContext, "save_current_document");
+    const record = await saveCurrentDocumentFromContext(
+      context, page.url(), this.downloadManager.directory(), request, actionContext,
+    );
+    this.downloadManager.registerFetchedDocument(record);
+    return record;
   }
 
   /** requirePage 返回可用的当前页面，不存在时统一抛错。 */

@@ -200,6 +200,9 @@ func (s *MemoryCandidateStore) saveAutomaticProfileLocked(incoming PositionCandi
 				same = true
 			}
 		}
+		if _, structured := incoming.Ext["structured_fields"]; structured && normalizeCandidatePhone(incoming.Phone) != "" && normalizeCandidatePhone(incoming.Phone) == normalizeCandidatePhone(old.Phone) {
+			same = true
+		}
 		if !same {
 			continue
 		}
@@ -220,6 +223,18 @@ func (s *MemoryCandidateStore) saveAutomaticProfileLocked(incoming PositionCandi
 		old.AIGreetScore = incoming.AIGreetScore
 		old.UpdatedAt = s.now()
 		old.RowVersion++
+		if incoming.PlatformID != "" && incoming.PlatformCandidateID != "" {
+			found := false
+			for _, source := range old.Sources {
+				if source.PlatformID == incoming.PlatformID && source.PlatformCandidateID == incoming.PlatformCandidateID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				old.Sources = append(old.Sources, CandidateSource{PlatformID: incoming.PlatformID, PlatformCandidateID: incoming.PlatformCandidateID, SourceType: "automatic"})
+			}
+		}
 		s.profiles[id] = old
 		return old
 	}

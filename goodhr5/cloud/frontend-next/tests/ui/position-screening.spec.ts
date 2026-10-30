@@ -107,7 +107,7 @@ test("手机筛选分页和长原因可访问，表格仅在弹框内部横向�
 
 test("本地程序离线仍可读取云端筛选记录，查看不会发送启动或AI请求", async ({ page }) => {
   const { state, base } = await fixture(page);
-  await page.route(/127\.0\.0\.1:43139\//, (route) => route.abort("connectionrefused"));
+  await page.route(/127\.0\.0\.1:(?:43129|43139)\//, (route) => route.abort("connectionrefused"));
   await page.goto("/admin/positions");
   // 沿用后台已有的离线安装提醒，关闭提醒后仍可独立读取云端业务记录。
   await page.getByRole("dialog", { name: "请先安装本地程序", exact: true }).getByRole("button", { name: "关闭", exact: true }).click();

@@ -245,6 +245,15 @@ func positionStoppingError() error {
 	return &cloud.APIError{StatusCode: 409, Code: "POSITION_STOPPING", Message: "这个岗位还在收尾，等它停好后再开始吧"}
 }
 
+// StopTaskType 停止指定类型当前正在运行的任务。
+func (r *Runner) StopTaskType(ctx context.Context, taskType string) (storage.TaskRun, error) {
+	taskID := r.ActiveTaskIDForType(taskType)
+	if taskID == "" {
+		return r.store.LatestTaskForType(ctx, strings.TrimSpace(taskType))
+	}
+	return r.StopTask(ctx, taskID)
+}
+
 // ActiveTaskIDForPosition 返回指定岗位当前运行中的任务编号。
 func (r *Runner) ActiveTaskIDForPosition(positionID string) string {
 	positionID = strings.TrimSpace(positionID)
@@ -252,6 +261,19 @@ func (r *Runner) ActiveTaskIDForPosition(positionID string) string {
 	defer r.mu.Unlock()
 	for taskID, active := range r.active {
 		if active != nil && active.state.PositionID == positionID {
+			return taskID
+		}
+	}
+	return ""
+}
+
+// ActiveTaskIDForType 返回指定任务类型当前运行中的任务编号。
+func (r *Runner) ActiveTaskIDForType(taskType string) string {
+	taskType = strings.TrimSpace(taskType)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for taskID, active := range r.active {
+		if active != nil && strings.EqualFold(active.state.TaskType, taskType) {
 			return taskID
 		}
 	}
@@ -293,6 +315,19 @@ func (r *Runner) TaskStatus(ctx context.Context, taskID string) (TaskSnapshot, e
 // PositionStatus 返回指定岗位最近一次任务及当前内存分析结果。
 func (r *Runner) PositionStatus(ctx context.Context, positionID string) (TaskSnapshot, error) {
 	task, err := r.store.LatestTaskForPosition(ctx, positionID)
+	if err != nil {
+		return TaskSnapshot{}, err
+	}
+	return r.TaskSnapshot(task), nil
+}
+
+// TaskTypeStatus 返回指定任务类型的当前运行任务或最近一次任务。
+func (r *Runner) TaskTypeStatus(ctx context.Context, taskType string) (TaskSnapshot, error) {
+	taskID := r.ActiveTaskIDForType(taskType)
+	if taskID != "" {
+		return r.TaskStatus(ctx, taskID)
+	}
+	task, err := r.store.LatestTaskForType(ctx, strings.TrimSpace(taskType))
 	if err != nil {
 		return TaskSnapshot{}, err
 	}
@@ -368,7 +403,7 @@ func (r *Runner) run(ctx context.Context, active *activeTask) {
 	runtime = newLoggedRuntime(runtime, prepared.Request.TaskID, r.logger)
 	switch prepared.Request.TaskType {
 	case "greeting":
-		stats, err = r.greeting.Run(ctx, prepared, runtime)
+		stats, err = r.runGreetingWithAutoReply(ctx, prepared, runtime)
 	case "auto_reply":
 		stats, err = r.reply.Run(ctx, prepared, runtime)
 	default:

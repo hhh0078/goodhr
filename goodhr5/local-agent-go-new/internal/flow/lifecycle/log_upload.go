@@ -29,6 +29,8 @@ func (r *Runner) UploadPositionLogs(ctx context.Context, token, positionID strin
 		return r.store.ClearPositionLogUploadPending(ctx, positionID)
 	}
 	logs := make([]cloud.PositionDiagnosticLog, 0, len(items))
+	localAutoTasks := map[string]bool{}
+	checkedTasks := map[string]bool{}
 	for _, item := range items {
 		category := item.Category
 		if category == "" {
@@ -41,6 +43,23 @@ func (r *Runner) UploadPositionLogs(ctx context.Context, token, positionID strin
 		errorMessage := uploadLogText(item.ErrorMessage)
 		input := uploadLogObject(item.Input)
 		output := uploadLogObject(item.Output)
+		localReplyDetail := item.Flow == "auto_reply" || strings.Contains(item.Step, "auto_reply")
+		if !checkedTasks[item.TaskID] {
+			checkedTasks[item.TaskID] = true
+			if task, taskErr := r.store.Task(ctx, item.TaskID); taskErr == nil {
+				localAutoTasks[item.TaskID] = task.TaskType == "auto_reply"
+			}
+		}
+		localReplyDetail = localReplyDetail || localAutoTasks[item.TaskID]
+		if item.Flow == "browser_worker" && (strings.Contains(item.Step, "input") || strings.Contains(item.Step, "read") || strings.Contains(string(item.Input), `"action":"element.input"`) || strings.Contains(string(item.Input), `"action":"element.read"`)) {
+			localReplyDetail = true
+		}
+
+		if localReplyDetail {
+			message = "自动回复步骤已记录，详细内容保存在本机"
+			errorMessage = ""
+			input, output = json.RawMessage(`{}`), json.RawMessage(`{}`)
+		}
 		logs = append(logs, cloud.PositionDiagnosticLog{
 			Timestamp: item.CreatedAt, Category: uploadLogText(category), IsError: item.IsError,
 			ErrorMessage: errorMessage, Input: input, Output: output,

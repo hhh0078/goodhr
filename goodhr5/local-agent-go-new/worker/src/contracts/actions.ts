@@ -80,6 +80,14 @@ export interface PageUseRequest {
   page_id: string;
 }
 
+/** SaveCurrentDocumentRequest 表示使用当前 Firefox 会话保存当前文档页的参数。 */
+export interface SaveCurrentDocumentRequest {
+  max_bytes?: number;
+  allowed_content_types?: string[];
+  suggested_filename?: string;
+  timeout_ms?: number;
+}
+
 /** ElementFindRequest 表示查找一个元素的参数。 */
 export interface ElementFindRequest {
   selector: SelectorSpec;
@@ -108,6 +116,7 @@ export interface ElementReadRequest {
 /** ElementClickRequest 表示执行完整封装点击的参数。 */
 export interface ElementClickRequest {
   selector: SelectorSpec;
+  wheel_anchor?: SelectorSpec;
   diagnostic?: boolean;
   diagnostic_attempt?: number;
   button?: "left" | "right" | "middle";

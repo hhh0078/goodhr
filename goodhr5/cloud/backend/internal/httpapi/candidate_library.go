@@ -93,7 +93,7 @@ type candidateRequestReceipt struct{ Fingerprint, ResultID string }
 
 var candidateTextColumns = []string{"candidate_name", "birth_ym", "phone", "email", "work_region", "work_years", "basic_info", "education_level", "expected_position", "online_status", "personal_description", "work_status", "raw_text"}
 var candidateArrayColumns = []string{"work_experiences", "educations", "certificates", "honors", "project_experiences", "colleague_communications"}
-var candidateExtraFields = []string{"gender", "age", "current_region", "expected_region", "current_position", "expected_salary_text", "current_salary_text", "tags", "library_status", "ai_summary", "source_type", "avatar_data_url"}
+var candidateExtraFields = []string{"gender", "age", "current_region", "expected_region", "current_position", "expected_salary_text", "current_salary_text", "tags", "library_status", "ai_summary", "source_type", "avatar_data_url", "wechat", "birth_ym_precision"}
 
 // normalizeCandidatePhone 整理号码，拒绝掩码、虚构长度和无法确认的号码。
 func normalizeCandidatePhone(value string) string {

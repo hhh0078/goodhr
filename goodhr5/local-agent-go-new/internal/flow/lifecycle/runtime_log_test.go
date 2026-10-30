@@ -203,3 +203,22 @@ func TestLoggedRuntimeDetailBrowsingPreservesPanic(t *testing.T) {
 	}()
 	_ = wrapped.BrowseCandidateDetail(context.Background(), nil, model.Config{}, model.Candidate{})
 }
+
+// TestLoggedRuntimePreservesAutoReply 验证四个平台经过日志包装后仍保留自动回复与原有详情能力。
+func TestLoggedRuntimePreservesAutoReply(t *testing.T) {
+	for _, platformID := range []string{"boss", "zhaopin", "liepin", "hliepin"} {
+		runtime, err := platform.RuntimeFor(platformID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wrapped := newLoggedRuntime(runtime, "task", nil)
+		if _, ok := wrapped.(model.AutoReplyRuntime); !ok {
+			t.Fatalf("%s 的自动回复能力被日志包装丢失", platformID)
+		}
+		_, before := runtime.(model.DetailBrowser)
+		_, after := wrapped.(model.DetailBrowser)
+		if before != after {
+			t.Fatalf("%s 的详情能力变化", platformID)
+		}
+	}
+}

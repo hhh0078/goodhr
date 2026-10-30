@@ -149,6 +149,14 @@ type PageUseRequest struct {
 	PageID string `json:"page_id"`
 }
 
+// SaveCurrentDocumentRequest 表示用当前 Camoufox 会话保存当前文档页的请求。
+type SaveCurrentDocumentRequest struct {
+	MaxBytes            int64    `json:"max_bytes,omitempty"`
+	AllowedContentTypes []string `json:"allowed_content_types,omitempty"`
+	SuggestedFilename   string   `json:"suggested_filename,omitempty"`
+	TimeoutMS           int      `json:"timeout_ms,omitempty"`
+}
+
 // ElementFindRequest 表示查找一个元素请求。
 type ElementFindRequest struct {
 	Selector SelectorSpec `json:"selector"`
@@ -200,6 +208,7 @@ type ClickVerification struct {
 // ElementClickRequest 表示完整封装点击请求。
 type ElementClickRequest struct {
 	Selector          SelectorSpec       `json:"selector"`
+	WheelAnchor       *SelectorSpec      `json:"wheel_anchor,omitempty"`
 	Diagnostic        bool               `json:"diagnostic,omitempty"`
 	DiagnosticAttempt int                `json:"diagnostic_attempt,omitempty"`
 	Button            string             `json:"button,omitempty"`

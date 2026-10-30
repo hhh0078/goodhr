@@ -349,3 +349,11 @@ func envList(key string, fallback []string) []string {
 	}
 	return result
 }
+
+// AutoReplyStore 复用现有PostgreSQL连接保存自动回复配置和授权结果。
+func (c Config) AutoReplyStore(db *sql.DB) *PostgresAutoReplyStore {
+	if db == nil {
+		return nil
+	}
+	return NewPostgresAutoReplyStore(db)
+}

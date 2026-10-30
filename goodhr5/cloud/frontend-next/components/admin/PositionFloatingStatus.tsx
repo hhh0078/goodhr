@@ -13,7 +13,7 @@ export type PositionFloatingStatusValue =
   | "failed";
 
 export type PositionAnalysisStatus = {
-  kind: "ai" | "keyword";
+  kind: "ai" | "keyword" | "auto_reply";
   phase: "loading" | "result" | "error";
   stage?: "preview" | "final";
   terminal: boolean;
@@ -30,6 +30,8 @@ export type PositionAnalysisStatus = {
 };
 
 type PositionFloatingStatusProps = {
+  /** 自动回复复用同一小窗，但使用会话和回复统计文案。 */
+  autoReply?: boolean;
   pipWindow: Window | null;
   status: PositionFloatingStatusValue;
   currentStep: string;
@@ -117,6 +119,7 @@ export async function openPositionFloatingWindow() {
 
 /** PositionFloatingStatus 渲染全平台共用的分析结果、状态和本次统计。 */
 export default function PositionFloatingStatus({
+  autoReply = false,
   pipWindow,
   status,
   currentStep,
@@ -338,7 +341,7 @@ export default function PositionFloatingStatus({
                 >
                   <Spin size="small" />
                   <Typography.Text strong style={{ fontSize: 15 }}>
-                    正在分析候选人
+                    {autoReply ? "正在整理回复" : "正在分析候选人"}
                   </Typography.Text>
                 </Flex>
               ) : null}
@@ -415,10 +418,10 @@ export default function PositionFloatingStatus({
               }}
             >
               <Typography.Text>
-                扫描 {Math.max(0, scannedCount || 0)}
+                {autoReply ? "会话" : "扫描"} {Math.max(0, scannedCount || 0)}
               </Typography.Text>
               <Typography.Text>
-                打招呼 {Math.max(0, greetedCount || 0)}
+                {autoReply ? "回复" : "打招呼"} {Math.max(0, greetedCount || 0)}
               </Typography.Text>
               <Typography.Text>
                 跳过 {Math.max(0, skippedCount || 0)}

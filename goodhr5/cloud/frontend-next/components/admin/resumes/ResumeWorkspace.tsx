@@ -12,12 +12,13 @@ import ResumeSummaryDialog from "./ResumeSummaryDialog";
 import ResumeRecruitmentPanel from "../recruitment/ResumeRecruitmentPanel";
 import ResumeProfile, { ResumeCandidateHeader } from "./ResumeProfile";
 import ResumeShareDialog from "./ResumeShareDialog";
+import ResumeAutoReplyReports from "./ResumeAutoReplyReports";
 import styles from "./resumes.module.css";
 import detailStyles from "./resume-detail.module.css";
 
 /** entryTab 把历史入口映射到详情标签，备注入口始终保留右侧备注区。 */
 function entryTab(value: string) {
-  return ["recommendations", "automation", "recruitment"].includes(value) ? value : "resume";
+  return ["recommendations", "automation", "recruitment", "auto_reply"].includes(value) ? value : "resume";
 }
 
 /** ResumeWorkspace 在详情地址与抽屉间复用同一候选人记录和维护入口。 */
@@ -199,6 +200,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
             </> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="推荐记录已收起，随时可以展开。"><Button onClick={toggleRecommendations}>展开推荐记录</Button></Empty>}
           </section> },
           { key: "recruitment", label: "面试 / 招聘", disabled: readOnly, children: !readOnly ? <ResumeRecruitmentPanel key={candidate.id} candidate={candidate} positions={positions} positionID={positionID || historyRecommendation?.position_id || ""} initiallyExpanded /> : null },
+          { key: "auto_reply", label: "自动回复", disabled: readOnly, children: !readOnly ? <ResumeAutoReplyReports key={candidate.id} candidateID={candidate.id} /> : null },
           { key: "automation", label: "任务记录", children: <section className={styles.recordSection} data-testid="resume-auto-tasks-section" aria-label="自动任务">
             <Typography.Title level={5}>自动任务</Typography.Title><Flex vertical gap={12}>
               {candidate.engagement_id ? <><Typography.Text>岗位：{candidate.position_name || "未记录岗位"}</Typography.Text><Typography.Text type="secondary">任务状态：{candidate.engagement_status || "未记录"}</Typography.Text></> : null}

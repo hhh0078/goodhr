@@ -200,3 +200,42 @@ func TestTaskLoggerHoldsTerminalResult(t *testing.T) {
 		t.Fatalf("保留时间结束后没有展示最新状态：%+v", status)
 	}
 }
+
+// TestAutoReplyLogUploadOmitsPrivateContents 验证本地自动回复正文和穿插输入诊断不会被岗位日志旁路上传。
+func TestAutoReplyLogUploadOmitsPrivateContents(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(filepath.Join(t.TempDir(), "privacy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, item := range []storage.TaskLog{
+		{PositionID: "position", Flow: "analysis", Step: "analysis.auto_reply.reply", Message: "候选人聊天秘密", Input: json.RawMessage(`{"candidate":"候选人聊天秘密"}`), Output: json.RawMessage(`{"ai_response_diagnostic":{"content":"候选人聊天秘密"}}`)},
+		{PositionID: "position", Flow: "browser_worker", Step: "input", Message: "候选人聊天秘密", Input: json.RawMessage(`{"text":"候选人聊天秘密"}`)},
+	} {
+		if _, err = store.SaveTaskLog(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var uploaded []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		uploaded = request
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	runner := &Runner{store: store, cloud: cloud.New(server.URL)}
+	if err = runner.UploadPositionLogs(ctx, "token", "position"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(uploaded), "候选人聊天秘密") || strings.Contains(string(uploaded), "ai_response_diagnostic") {
+		t.Fatalf("岗位日志泄露本地正文：%s", uploaded)
+	}
+	local, err := store.ListPositionLogs(ctx, "position", 100)
+	if err != nil || len(local) != 2 || !strings.Contains(local[0].Message, "候选人聊天秘密") {
+		t.Fatalf("本地排错详情被错误删除：%+v %v", local, err)
+	}
+}

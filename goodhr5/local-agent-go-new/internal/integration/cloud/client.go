@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
@@ -24,15 +25,20 @@ func (c *Client) UploadBrowserEvents(ctx context.Context, token string, events [
 
 // Client 是 GoodHR 云端强类型客户端。
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL             string
+	http                *http.Client
+	localAutoStore      *storage.Store
+	localAutoDir        string
+	localAutoConfigured bool
+	localAutoMu         sync.Mutex
+	localAutoOwners     sync.Map
 }
 
 // New 创建 GoodHR 云端客户端。
 func New(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		http:    &http.Client{Timeout: 20 * time.Second},
+		http:    &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
@@ -63,6 +69,9 @@ func (c *Client) ValidateSession(ctx context.Context, token string) (UserSession
 		session.SessionKind = response.Data.Session.Kind
 	}
 	session.LoggedIn = session.UserID != ""
+	if session.LoggedIn {
+		c.localAutoOwners.Store(autoReplyDigest(token), session.UserID)
+	}
 	if !session.LoggedIn {
 		return UserSession{}, &APIError{
 			StatusCode: http.StatusUnauthorized,
@@ -500,6 +509,14 @@ func normalizePosition(position PositionSnapshot) PositionSnapshot {
 
 // do 发送云端请求并解析强类型响应。
 func (c *Client) do(ctx context.Context, method string, path string, token string, payload any, result any) error {
+	return c.doWithMachineID(ctx, method, path, token, "", payload, result)
+}
+
+// doWithMachineID 发送可选携带稳定设备编号的云端 JSON 请求。
+func (c *Client) doWithMachineID(ctx context.Context, method string, path string, token string, machineID string, payload any, result any) error {
+	if handled, err := c.handleLocalAutoReply(ctx, method, path, AgentCredentials{Token: token, MachineID: machineID}, payload, result); handled {
+		return err
+	}
 	if c.baseURL == "" {
 		return fmt.Errorf("云端地址不能为空")
 	}
@@ -511,14 +528,27 @@ func (c *Client) do(ctx context.Context, method string, path string, token strin
 		}
 		body = bytes.NewReader(encoded)
 	}
+	return c.doBody(ctx, method, path, token, machineID, "application/json", body, result)
+}
+
+// doBody 发送已经编码好的请求体，并统一解析云端成功和错误响应。
+func (c *Client) doBody(ctx context.Context, method string, path string, token string, machineID string, contentType string, body io.Reader, result any) error {
+	if c.baseURL == "" {
+		return fmt.Errorf("云端地址不能为空")
+	}
 	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return fmt.Errorf("创建云端请求失败：%w", err)
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(contentType) != "" {
+		request.Header.Set("Content-Type", contentType)
+	}
 	if strings.TrimSpace(token) != "" {
 		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	}
+	if strings.TrimSpace(machineID) != "" {
+		request.Header.Set("X-GoodHR-Machine-ID", strings.TrimSpace(machineID))
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
@@ -532,21 +562,28 @@ func (c *Client) do(ctx context.Context, method string, path string, token strin
 	}
 	if response.StatusCode >= 400 {
 		var failure struct {
+			Code    string          `json:"code"`
 			Message string          `json:"message"`
 			Error   json.RawMessage `json:"error"`
 			Msg     string          `json:"msg"`
+			ErrorID string          `json:"error_id"`
 		}
 		_ = json.Unmarshal(content, &failure)
 		message := strings.TrimSpace(failure.Message)
-		code := ""
+		code := strings.TrimSpace(failure.Code)
+		errorID := strings.TrimSpace(failure.ErrorID)
 		if message == "" {
 			var errorBody struct {
 				Code    string `json:"code"`
 				Message string `json:"message"`
+				ErrorID string `json:"error_id"`
 			}
 			if err := json.Unmarshal(failure.Error, &errorBody); err == nil {
-				code = strings.TrimSpace(errorBody.Code)
+				if code == "" {
+					code = strings.TrimSpace(errorBody.Code)
+				}
 				message = strings.TrimSpace(errorBody.Message)
+				errorID = strings.TrimSpace(errorBody.ErrorID)
 			}
 		}
 		if message == "" && len(failure.Error) > 0 {
@@ -564,7 +601,7 @@ func (c *Client) do(ctx context.Context, method string, path string, token strin
 		if message == "session is invalid or expired" || message == "session invalid or expired" {
 			message = "登录状态已经失效，请重新登录"
 		}
-		return &APIError{StatusCode: response.StatusCode, Code: code, Message: message}
+		return &APIError{StatusCode: response.StatusCode, Code: code, Message: message, ErrorID: errorID}
 	}
 	if result != nil && len(content) > 0 {
 		if err := json.Unmarshal(content, result); err != nil {

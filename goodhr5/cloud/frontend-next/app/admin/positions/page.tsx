@@ -38,6 +38,7 @@ import styles from "../heavy-ui.module.css";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
+import { AutoReplyGlobalControl, PositionAutoReplyControl } from "@/components/admin/AutoReplyControls";
 import PositionScreeningRecordsDialog from "@/components/admin/PositionScreeningRecordsDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import { ONBOARDING_FILTER_MODE_OPTIONS } from "@/lib/onboarding-view";
@@ -562,7 +563,7 @@ export default function PositionsPage() {
     ) return;
     const analysis = normalizeFloatingAnalysis(task?.analysis);
     if (
-      !analysis || analysis.phase !== "result" || !analysis.terminal ||
+      !analysis || analysis.kind === "auto_reply" || analysis.phase !== "result" || !analysis.terminal ||
       typeof analysis.accepted !== "boolean"
     ) return;
     const signature = JSON.stringify([
@@ -1533,6 +1534,7 @@ export default function PositionsPage() {
         <Radio.Group aria-label="岗位状态筛选" optionType="button" buttonStyle="solid" value={positionScope}
           onChange={(event) => setPositionScope(event.target.value)} options={[{ value: "true", label: "开启" }, { value: "false", label: "关闭" }]} />
         <Flex gap={8} className="goodhr-toolbar-actions">
+          <AutoReplyGlobalControl />
           <Button
             data-onboarding="position-create"
             disabled={loading}
@@ -1695,6 +1697,7 @@ export default function PositionsPage() {
                     </>
                   ) : null}
                 </Typography.Paragraph>
+                {isCurrentUserPosition(item, user?.email) ? <PositionAutoReplyControl position={{ id: String(item.id), name: String(item.name || "当前岗位") }} /> : null}
                 <Typography.Paragraph
                   className={`${styles.text} ${styles.s12}`}
                 >

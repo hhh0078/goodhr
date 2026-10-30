@@ -12,6 +12,7 @@ import (
 
 // CandidateService 处理简历库和岗位候选人查询请求。
 type CandidateService struct {
+	autoReply     *PostgresAutoReplyStore
 	auth          *AuthService
 	store         CandidateStore
 	tenantStore   TenantStore

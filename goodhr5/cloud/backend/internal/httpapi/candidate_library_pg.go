@@ -458,6 +458,12 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 		return PositionCandidate{}, err
 	}
 	defer tx.Rollback()
+	// 自动回复先锁手机号，再锁来源，与现有人工入口保持一致的加锁顺序。
+	if structuredCandidateInput(input) && normalizeCandidatePhone(input.Phone) != "" {
+		if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, tenantID+":phone:"+normalizeCandidatePhone(input.Phone)); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
 	sourceID := candidateIdentityKey(input)
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, tenantID+":source:"+input.PlatformID+":"+sourceID); err != nil {
 		return PositionCandidate{}, err
@@ -466,6 +472,12 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	err = tx.QueryRowContext(ctx, `SELECT cp.id::text FROM candidate_profiles cp WHERE cp.tenant_id=$1 AND ((cp.source_platform_id=$2 AND cp.source_platform_candidate_id=$3) OR EXISTS(SELECT 1 FROM candidate_profile_sources cs WHERE cs.candidate_id=cp.id AND cs.platform_id=$2 AND cs.platform_candidate_id=$3)) LIMIT 1`, tenantID, input.PlatformID, sourceID).Scan(&id)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return PositionCandidate{}, err
+	}
+	if structuredCandidateInput(input) {
+		id, err = automaticCandidatePhoneID(ctx, tx, tenantID, id, input.Phone)
+		if err != nil {
+			return PositionCandidate{}, err
+		}
 	}
 	var old PositionCandidate
 	if id != "" {
@@ -479,6 +491,9 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 		}
 	}
 	fields := candidateProfileFields(PositionCandidate{CandidateName: input.CandidateName, BirthYM: input.BirthYM, Phone: input.Phone, Email: input.Email, WorkRegion: input.WorkRegion, WorkYears: input.WorkYears, ExpectedSalaryMin: input.ExpectedSalaryMin, ExpectedSalaryMax: input.ExpectedSalaryMax, BasicInfo: input.BasicInfo, EducationLevel: input.EducationLevel, ExpectedPosition: input.ExpectedPosition, OnlineStatus: input.OnlineStatus, PersonalDescription: input.PersonalDescription, WorkStatus: input.WorkStatus, RawText: input.RawText, WorkExperiences: input.WorkExperiences, Educations: input.Educations, Certificates: input.Certificates, Honors: input.Honors, ProjectExperiences: input.ProjectExperiences, Communications: input.Communications})
+	for key, value := range automaticCandidateExtraFields(input) {
+		fields[key] = value
+	}
 	if input.Tags != nil {
 		fields["tags"] = append([]string{}, input.Tags...)
 	}
@@ -510,6 +525,11 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	item, err := candidateReadTx(ctx, tx, scope, id, false)
 	if err != nil {
 		return PositionCandidate{}, err
+	}
+	if structuredCandidateInput(input) {
+		if err = registerAutomaticCandidatePhone(ctx, tx, tenantID, item.ID, item.Phone); err != nil {
+			return PositionCandidate{}, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return PositionCandidate{}, err
