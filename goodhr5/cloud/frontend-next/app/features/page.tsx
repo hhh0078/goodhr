@@ -10,14 +10,17 @@ import SmartToyRoundedIcon from "@ant-design/icons/lib/icons/RobotOutlined";
 import TuneRoundedIcon from "@ant-design/icons/lib/icons/SlidersOutlined";
 
 import type { Metadata } from "next";
+import Link from "next/link";
 import MarketingShell from "@/components/MarketingShell";
+import RecruitmentPlatformOverview from "@/components/RecruitmentPlatformOverview";
 import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
+import { AUTO_REPLY_RELEASE_NOTICE } from "@/lib/recruitment-platforms";
 import { createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
-  title: "招聘自动化功能 - 简历库、猎头推荐与企业HR招聘流程",
+  title: "多平台招聘自动化功能 - AI筛选、自动打招呼与HR猎头工具",
   description:
-    "了解 GoodHR 的招聘平台自动化、结构化简历库、候选人查重、猎头岗位推荐记录，以及企业 HR 面试、评价、审核、Offer 和入职流程。",
+    "了解 BOSS直聘、猎聘、智联招聘的候选人筛选与打招呼、前程无忧51job适配进度，以及简历导入、查重、猎头推荐和企业HR招聘流程。",
   path: "/features",
   keywords: [
     "招聘自动化功能",
@@ -63,8 +66,8 @@ const features = [
   },
   {
     icon: ChatRoundedIcon,
-    title: "自动回复与候选人跟进",
-    text: "根据岗位目标继续沟通，支持招聘消息自动回复、AI 自动回复、意向确认和面试邀约场景。",
+    title: "招聘消息自动回复（开发中）",
+    text: AUTO_REPLY_RELEASE_NOTICE,
   },
   {
     icon: DownloadRoundedIcon,
@@ -116,6 +119,13 @@ export default function FeaturesPage() {
               );
             })}
           </div>
+          <nav className="public-topic-navigation" aria-label="招聘工具详细说明">
+            <Link href="/recruitment-automation">多平台筛选与自动打招呼</Link>
+            <Link href="/recruitment-auto-reply">招聘自动回复场景与进度</Link>
+            <Link href="/hr-tools">HR与猎头简历管理流程</Link>
+          </nav>
+          <h2 className="public-text public-platform-title">按平台查看当前能力</h2>
+          <RecruitmentPlatformOverview />
         </div>
       </section>
     </MarketingShell>

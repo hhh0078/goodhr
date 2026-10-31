@@ -115,6 +115,10 @@ PY
 
 # production_finalize 在健康验收后清理已登记的临时目录，再按真实兼容记录回收本项目旧容器和镜像。
 production_finalize() {
+  if [[ "${GOODHR_RELEASE_KEEP_ARTIFACTS:-0}" == "1" ]]; then
+    echo "本次按要求保留发布材料、回退容器和镜像，跳过缓存及历史版本回收。"
+    return 0
+  fi
   local manifest="$production_release_dir/release-hygiene-manifest.json"
   python3 - "$manifest" "$production_release_dir" <<'PY' || return
 import json, os, pathlib, socket, sys

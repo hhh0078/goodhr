@@ -9,21 +9,23 @@ import SaveAltRoundedIcon from "@ant-design/icons/lib/icons/DownloadOutlined";
 import SpeedRoundedIcon from "@ant-design/icons/lib/icons/DashboardOutlined";
 import Button from "antd/es/button";
 import type { Metadata } from "next";
+import Link from "next/link";
+import RecruitmentPlatformOverview from "@/components/RecruitmentPlatformOverview";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import StructuredData from "@/components/StructuredData";
 import WorkflowBand from "@/components/WorkflowBand";
 import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
+import { AUTO_REPLY_RELEASE_NOTICE, RECRUITMENT_PLATFORM_SUMMARY } from "@/lib/recruitment-platforms";
 import {
   absoluteURL,
   createPageMetadata,
-  RECRUITMENT_PLATFORMS,
 } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
-  title: "GoodHR AI招聘助手 - 简历库、猎头推荐与HR招聘流程",
+  title: "GoodHR 招聘自动化工具 - 多平台AI筛选、自动打招呼与简历管理",
   description:
-    "GoodHR 是面向 HR 和猎头的招聘系统，支持招聘平台自动筛选与沟通、结构化简历库、候选人查重、猎头岗位推荐记录，以及企业 HR 面试、评价、审核和录用流程。",
+    "GoodHR 帮 HR 和猎头在 BOSS直聘、猎聘、智联招聘筛选候选人、自动打招呼并管理简历与招聘进度。前程无忧51job简历插件已支持，招聘自动化开发中。",
   path: "/",
   keywords: [
     "免费招聘软件",
@@ -31,6 +33,10 @@ export const metadata: Metadata = createPageMetadata({
     "猎头AI工具",
     "HR自动化招聘",
     "多招聘平台自动化",
+    "BOSS直聘自动打招呼",
+    "猎聘自动打招呼",
+    "智联招聘自动筛选",
+    "前程无忧简历导入",
     "结构化简历库",
     "猎头推荐流程",
     "企业HR招聘流程",
@@ -62,26 +68,30 @@ const automationScenes = [
   {
     icon: PersonSearchRoundedIcon,
     title: "自动筛选与 AI 筛选",
+    href: "/recruitment-automation",
     description:
       "按关键词、排除词和岗位要求处理候选人，也可以通过 AI 完成简历评分、详情分析和筛选理由说明。",
   },
   {
     icon: SpeedRoundedIcon,
     title: "自动打招呼与 AI 打招呼",
+    href: "/recruitment-automation",
     description:
       "根据岗位模板和筛选结果自动执行打招呼，减少 HR 与猎头逐个打开候选人、重复点击的时间。",
   },
   {
     icon: MarkChatReadRoundedIcon,
-    title: "招聘消息自动回复",
+    title: "招聘消息自动回复（开发中）",
+    href: "/recruitment-auto-reply",
     description:
-      "围绕岗位要求继续沟通，支持 AI 自动回复、候选人意向确认、关键信息收集和面试邀约场景。",
+      "围绕岗位目标、候选人意向和面试沟通继续适配，当前仍在开发验证，尚未正式发布。",
   },
   {
     icon: SaveAltRoundedIcon,
     title: "简历下载与人才库整理",
+    href: "/hr-tools",
     description:
-      "整理候选人详情、评分与沟通结果，帮助管理 BOSS 简历下载、猎聘简历下载和跨平台候选人资料。",
+      "将 BOSS直聘、猎聘、智联招聘、前程无忧等平台的候选人资料确认后导入简历库，保留来源、查重与跟进记录。",
   },
 ];
 
@@ -89,7 +99,7 @@ const faqs = [
   {
     question: "GoodHR 是什么？",
     answer:
-      "GoodHR 是面向 HR、招聘团队和猎头顾问的招聘自动化工具，用于候选人筛选、AI 分析、自动打招呼、招聘消息回复和简历管理。",
+      "GoodHR 是面向 HR、招聘团队和猎头顾问的多平台招聘工具，用于候选人筛选、AI 分析、自动打招呼、简历管理和招聘流程跟进。招聘消息自动回复仍在开发验证。",
   },
   {
     question: "GoodHR 可以免费使用吗？",
@@ -98,7 +108,15 @@ const faqs = [
   },
   {
     question: "GoodHR 面向哪些招聘平台？",
-    answer: `GoodHR 面向 ${RECRUITMENT_PLATFORMS.join("、")} 等招聘平台持续适配。`,
+    answer: RECRUITMENT_PLATFORM_SUMMARY,
+  },
+  {
+    question: "前程无忧（51job）现在能用哪些功能？",
+    answer: "浏览器简历插件已支持前程无忧资料导入。自动筛选、打招呼等招聘自动化流程仍在开发，暂未正式开放，两类能力分别上线。",
+  },
+  {
+    question: "招聘消息自动回复现在可以使用吗？",
+    answer: AUTO_REPLY_RELEASE_NOTICE,
   },
   {
     question: "招聘平台登录信息会上传吗？",
@@ -167,11 +185,11 @@ export default function HomePage() {
                 <p className="public-text public-home-10">关键词筛选永久免费</p>
               </div>
               <h1 className="public-text public-home-11">
-                把重复招聘交给 GoodHR，
+                多平台招聘自动化，
                 <span className="public-home-12">把时间留给人</span>
               </h1>
               <p className="public-text public-home-13">
-                自动读取候选人，结合岗位模板完成筛选、分析、打招呼和后续跟进。流程持续运转，判断始终清楚可见。
+                在 BOSS直聘、猎聘、智联招聘按岗位要求筛选候选人、自动打招呼，再把简历、推荐和面试进度接起来。前程无忧也在继续适配。
               </p>
 
               <p className="public-text public-home-14">
@@ -212,15 +230,10 @@ export default function HomePage() {
               一个 GoodHR，承接不同招聘平台的重复工作
             </h2>
             <p className="public-text public-home-27">
-              围绕不同招聘平台的候选人列表、详情页、沟通和简历场景持续扩展，统一使用岗位模板、筛选规则和本地浏览器资料。
+              {RECRUITMENT_PLATFORM_SUMMARY}
             </p>
-            <div className="public-home-28">
-              {RECRUITMENT_PLATFORMS.map((platform) => (
-                <span key={platform} className="public-text public-home-29">
-                  {platform}
-                </span>
-              ))}
-            </div>
+            <RecruitmentPlatformOverview />
+            <Link href="/recruitment-automation" className="public-topic-link">查看多平台筛选与自动打招呼流程 →</Link>
           </div>
         </section>
 
@@ -253,6 +266,7 @@ export default function HomePage() {
                     <p className="public-text public-home-38">
                       {item.description}
                     </p>
+                    <Link href={item.href} className="public-topic-link">了解{item.title.replace("（开发中）", "")} →</Link>
                   </div>
                 );
               })}

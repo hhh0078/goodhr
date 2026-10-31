@@ -19,7 +19,7 @@ import { createPageMetadata } from "@/lib/seo";
 export const metadata: Metadata = createPageMetadata({
   title: "下载GoodHR - HR与猎头招聘自动化工具",
   description:
-    `下载 GoodHR Windows 或 macOS 本地程序，以及支持${BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}的 Chrome、Firefox 简历插件；用于招聘自动化、AI筛选、自动回复和候选人简历导入。`,
+    `下载 GoodHR Windows 或 macOS 本地程序，以及支持${BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}的 Chrome、Firefox 简历插件；用于多平台候选人筛选、自动打招呼和简历导入。前程无忧自动化仍在开发。`,
   path: "/download",
   keywords: [
     "招聘软件免费下载",
@@ -47,7 +47,7 @@ export default async function DownloadPage() {
           <section id="local-agent" className={styles.downloadSection} aria-labelledby="local-agent-heading">
             <h1 id="local-agent-heading" className="public-text public-download-11">本地程序下载</h1>
             <p className={`public-text public-download-18 ${styles.sectionDescription}`}>
-              运行招聘任务、AI 筛选和自动回复。安装后会自动打开控制台。
+              运行已适配平台的招聘任务、AI 筛选和自动打招呼。安装后会自动打开控制台。
             </p>
             <div className={`public-download-4 ${styles.cardGrid}`}>
               <DownloadCard
@@ -93,9 +93,9 @@ export default async function DownloadPage() {
             <h2 className="public-text public-download-17">适合哪些招聘工作</h2>
             <p className="public-text public-download-18">
               适合需要在
-              BOSS直聘、猎聘、智联招聘、前程无忧、拉勾、58同城、店长直聘、赶集直招、鱼泡直聘和脉脉等平台处理大量候选人的
+              BOSS直聘、猎聘企业端、猎聘猎头端和智联招聘处理大量候选人的
               HR
-              与猎头。可用于关键词筛选、AI筛选简历、自动打招呼、AI自动回复消息、候选人跟进和招聘简历下载整理。
+              与猎头。可用于关键词筛选、AI筛选简历、自动打招呼、候选人跟进和简历整理。前程无忧简历插件已支持，自动化流程开发中；各项能力以正式版本为准。
             </p>
           </div>
         </div>

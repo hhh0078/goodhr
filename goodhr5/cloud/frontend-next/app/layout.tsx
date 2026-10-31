@@ -15,11 +15,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   applicationName: "GoodHR",
   title: {
-    default: "GoodHR AI招聘助手 - 简历库、猎头推荐与HR招聘流程",
+    default: "GoodHR 招聘自动化工具 - 多平台AI筛选、自动打招呼与简历管理",
     template: "%s | GoodHR AI招聘助手",
   },
   description:
-    "GoodHR 是面向 HR 和猎头的招聘系统，覆盖招聘平台自动筛选与沟通、结构化简历库、猎头推荐记录和企业 HR 招聘流程。",
+    "GoodHR 是面向 HR 和猎头的多平台招聘工具，连接 BOSS直聘、猎聘、智联招聘的候选人筛选、自动打招呼、简历库和招聘流程；前程无忧自动化持续适配中。",
   keywords: CORE_SEO_KEYWORDS,
   authors: [{ name: "GoodHR", url: SITE_URL }],
   creator: "GoodHR",

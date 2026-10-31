@@ -323,6 +323,26 @@ class EntryTests(unittest.TestCase):
         checks = [call for call in self.calls if call[0] == "python3" and call[1].endswith("release_retention.py") and "check" in call]
         self.assertEqual(len(checks), 1)
 
+    def test_keep_artifacts_finalize_never_calls_cleanup_commands(self):
+        """保留开关直接加载真实收尾函数，命令桩证明没有进入Docker或文件回收路径。"""
+        env = dict(os.environ, GOODHR_RELEASE_KEEP_ARTIFACTS="1", FIXTURE_LOG=str(self.log))
+        command = "set -eu; export PATH=" + shlex.quote(shell_path(self.home / "bin")) + ":/usr/bin:$PATH; source "
+        command += shlex.quote(shell_path(PROJECT / "scripts/production-release.sh")) + "; production_finalize"
+        result = subprocess.run([self.bash, "--noprofile", "--norc", "-c", command], env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn("保留发布材料".encode(), result.stdout)
+        self.assertFalse(self.log.exists(), "收尾保留模式不应执行任何外部命令")
+
+    def test_keep_artifacts_still_requires_compatible_rollback(self):
+        """保留材料仅影响收尾，兼容回退预检失败时仍不得激活。"""
+        self.flags.update(GOODHR_RELEASE_KEEP_ARTIFACTS="1", FIXTURE_PRECHECK_FAIL="1")
+        result = self.run_entry()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.activations, [])
+        self.assertFalse(any(call[0] == "python3" and call[1].endswith(("release_hygiene.py", "release_retention.py"))
+                             and ("plan" in call or "apply" in call) for call in self.calls))
+
 
 class FailedCacheTests(unittest.TestCase):
     """直接检验失败发布的缓存收尾，独立于Bash可用性且不读取任何真实Docker元数据。"""
