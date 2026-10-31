@@ -5,6 +5,7 @@ import { ARTICLE_CATALOG_PAGE_SIZE } from "@/lib/article-public-utils";
 import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import { getPublicArticleCatalogPage } from "@/lib/public-articles";
 import { PUBLIC_SITE_PAGES } from "@/lib/public-site-pages";
+import { AUTO_REPLY_RELEASE_NOTICE, RECRUITMENT_PLATFORM_FACTS, RECRUITMENT_PLATFORM_SUMMARY } from "@/lib/recruitment-platforms";
 import { absoluteURL } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export async function GET() {
 
 ## 核心能力
 - 关键词与排除词筛选、AI 简历筛选、候选人评分和详情分析。
-- 招聘平台自动打招呼、招聘消息回复和后续沟通。
+- 招聘平台自动打招呼与候选人跟进；招聘消息自动回复仍在开发验证，尚未正式发布。
 - AI 批量解析、手动添加和浏览器插件导入简历，按手机号和履历线索查重。
 - 浏览器简历插件目前支持${BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}。
 - 结构化简历库、收藏夹、团队协作与简历下载管理。
@@ -30,6 +31,11 @@ export async function GET() {
 
 ## 简历库、推荐与企业招聘的关系
 候选人先进入结构化简历库，猎头按岗位记录推荐进度，企业 HR 再通过独立招聘流程推进面试、评价和录用。简历备注、猎头推荐历史与企业招聘进程分别保存，不会互相覆盖。
+
+## 平台能力与开发进度
+${RECRUITMENT_PLATFORM_SUMMARY}
+${RECRUITMENT_PLATFORM_FACTS.map((platform) => `- ${platform.name}：招聘自动化${platform.automationStatus}。${platform.automationDescription} ${platform.resumeImportDescription} 自动回复：${platform.autoReplyStatus}。`).join("\n")}
+${AUTO_REPLY_RELEASE_NOTICE}
 
 ## 数据与隐私
 招聘平台登录状态、Cookie、浏览器资料、截图和 OCR 数据保存在用户本机。云端负责账号、岗位、运行配置、订阅、团队以及用户导入的结构化简历数据。本文件和下列文章文件仅提供无需登录的官网内容，不提供账号、候选人简历或团队内部资料。

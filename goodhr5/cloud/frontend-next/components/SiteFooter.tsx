@@ -5,6 +5,9 @@ import BrandMark from "./BrandMark";
 
 const footerLinks = [
   { label: "功能介绍", href: "/features" },
+  { label: "多平台招聘", href: "/recruitment-automation" },
+  { label: "自动回复进度", href: "/recruitment-auto-reply" },
+  { label: "HR与猎头工具", href: "/hr-tools" },
   { label: "定价", href: "/pricing" },
   { label: "视频教程", href: "/videos" },
   { label: "下载", href: "/download" },
@@ -20,10 +23,10 @@ export default function SiteFooter() {
           <div>
             <BrandMark />
             <p className="public-text public-sitefooter-6">
-              AI筛选、自动打招呼、自动回复和招聘简历管理工具
+              多平台AI筛选、自动打招呼与招聘简历管理工具
             </p>
           </div>
-          <nav className="public-sitefooter-7">
+          <nav className="public-sitefooter-7" aria-label="官网与使用指南">
             {footerLinks.map((item) => (
               <Link
                 key={item.href}

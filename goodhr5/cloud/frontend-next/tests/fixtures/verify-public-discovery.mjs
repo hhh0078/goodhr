@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 
 const SITE = "https://goodhr.58it.cn";
-const FIXED_PATHS = ["/", "/features", "/pricing", "/videos", "/articles", "/download", "/contact"];
-const FIXED_PAGES = [["首页", "/"], ["功能介绍", "/features"], ["产品定价", "/pricing"], ["视频教程", "/videos"], ["文章/动态", "/articles"], ["下载", "/download"], ["联系我们", "/contact"]];
+const FIXED_PATHS = ["/", "/features", "/recruitment-automation", "/recruitment-auto-reply", "/hr-tools", "/pricing", "/videos", "/articles", "/download", "/contact"];
+const FIXED_PAGES = [["首页", "/"], ["功能介绍", "/features"], ["多平台招聘自动化", "/recruitment-automation"], ["招聘消息自动回复", "/recruitment-auto-reply"], ["HR与猎头工具", "/hr-tools"], ["产品定价", "/pricing"], ["视频教程", "/videos"], ["文章/动态", "/articles"], ["下载", "/download"], ["联系我们", "/contact"]];
 const CONTENT = '第一段：每天少做一点重复工作。\n\n第二段：换行和空行都会保留。\n<script>window.__articleInjected=true</script>\n最后一行 & <b>这是纯文本，不是粗体标签</b>。';
 const passed = [];
 
@@ -95,11 +95,11 @@ async function main() {
   let robotsText = "";
   try {
     await setMode(fixture, "normal");
-    await check("normal.root_sitemap_7_pages_and_21_articles", async () => {
+    await check("normal.root_sitemap_10_pages_and_21_articles", async () => {
       const { response, text } = await requestText(origin, "/sitemap.xml");
       assert.equal(response.status, 200);
       assertFresh(response, "application/xml");
-      const urls = assertURLSet(text, 28);
+      const urls = assertURLSet(text, FIXED_PATHS.length + 21);
       for (const path of FIXED_PATHS) assert.ok(urls.includes(canonicalURL(path)), `站点地图缺少 ${path}`);
       for (let index = 1; index <= 21; index++) assert.ok(urls.includes(canonicalURL(`/articles/${articleID(index)}`)));
       assert.doesNotMatch(text, /\/admin|\/login|\/api\//u);
@@ -108,7 +108,7 @@ async function main() {
       const fixed = await requestText(origin, "/sitemaps/site.xml");
       assert.equal(fixed.response.status, 200);
       assertFresh(fixed.response, "application/xml");
-      assert.deepEqual(new Set(assertURLSet(fixed.text, 7)), new Set(FIXED_PATHS.map(canonicalURL)));
+      assert.deepEqual(new Set(assertURLSet(fixed.text, FIXED_PATHS.length)), new Set(FIXED_PATHS.map(canonicalURL)));
       const article = await requestText(origin, "/sitemaps/articles/1.xml");
       assert.equal(article.response.status, 200);
       assertURLSet(article.text, 21);
@@ -166,7 +166,7 @@ async function main() {
       assert.ok(navigation, "原始 HTML 缺少官网导航");
       const links = [...navigation[1].matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>([^]*?)<\/a>/gu)];
       assert.deepEqual(links.map((entry) => decodedHTMLText(entry[2].replace(/<[^>]+>/gu, ""))), ["首页", "功能介绍", "定价", "视频教程", "动态", "下载", "联系作者"]);
-      assert.deepEqual(links.map((entry) => entry[1]), FIXED_PATHS);
+      assert.deepEqual(links.map((entry) => entry[1]), ["/", "/features", "/pricing", "/videos", "/articles", "/download", "/contact"]);
     });
     await check("normal.invalid_or_missing_markdown_404", async () => {
       for (const id of ["not-a-uuid", articleID(99)]) {
@@ -180,7 +180,7 @@ async function main() {
     await check("deleted.sitemap_and_llms_remove_article_immediately", async () => {
       const sitemap = await requestText(origin, "/sitemap.xml");
       assert.equal(sitemap.response.status, 200);
-      assertURLSet(sitemap.text, 27);
+      assertURLSet(sitemap.text, FIXED_PATHS.length + 20);
       assert.ok(!sitemap.text.includes(articleID(1)));
       const llms = await requestText(origin, "/llms.txt");
       assert.equal(llms.response.status, 200);
@@ -195,7 +195,7 @@ async function main() {
     await check("empty.fixed_pages_remain_and_first_ai_page_is_readable", async () => {
       const sitemap = await requestText(origin, "/sitemap.xml");
       assert.equal(sitemap.response.status, 200);
-      assert.deepEqual(new Set(assertURLSet(sitemap.text, 7)), new Set(FIXED_PATHS.map(canonicalURL)));
+      assert.deepEqual(new Set(assertURLSet(sitemap.text, FIXED_PATHS.length)), new Set(FIXED_PATHS.map(canonicalURL)));
       for (const path of ["/llms.txt", "/llms/articles/1.txt"]) {
         const result = await requestText(origin, path);
         assert.equal(result.response.status, 200);
@@ -209,7 +209,7 @@ async function main() {
     await check("boundary.1000_articles_stay_in_single_root_urlset", async () => {
       const sitemap = await requestText(origin, "/sitemap.xml");
       assert.equal(sitemap.response.status, 200);
-      assertURLSet(sitemap.text, 1007);
+      assertURLSet(sitemap.text, FIXED_PATHS.length + 1000);
       const llms = await requestText(origin, "/llms.txt");
       assert.equal(llms.response.status, 200);
       assert.equal(articleMarkdownLinks(llms.text).length, 1000);
@@ -278,7 +278,7 @@ async function main() {
       assert.equal(robots.text, robotsText);
       const fixed = await requestText(origin, "/sitemaps/site.xml");
       assert.equal(fixed.response.status, 200);
-      assertURLSet(fixed.text, 7);
+      assertURLSet(fixed.text, FIXED_PATHS.length);
     });
     await setMode(fixture, "partial");
     await check("partial.incomplete_api_page_does_not_publish_truncated_indexes", async () => {

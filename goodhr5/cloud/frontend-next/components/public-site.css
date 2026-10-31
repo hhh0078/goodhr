@@ -11,6 +11,93 @@
   margin: 0;
   color: inherit;
 }
+/* 平台能力与专题入口复用官网现有颜色，窄屏改为单栏，状态不只依赖颜色区分。 */
+.public-platform-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 32px;
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.public-platform-item {
+  min-width: 0;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--goodhr-border, #dce5e0);
+}
+.public-platform-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.public-platform-heading h3 {
+  margin: 0;
+  font-size: 19px;
+  color: var(--goodhr-text, #17211c);
+}
+.public-platform-status {
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--goodhr-primary-dark, #0f754a);
+  background: var(--goodhr-primary-soft, #edf7f1);
+  font-size: 12px;
+  font-weight: 600;
+}
+.public-platform-status-pending {
+  color: #795212;
+  background: #fff4df;
+}
+.public-platform-item p {
+  margin: 12px 0 0;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--goodhr-text-secondary, #637069);
+}
+.public-platform-item .public-platform-import {
+  color: var(--goodhr-text, #17211c);
+}
+.public-topic-link {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 8px 0;
+  color: var(--goodhr-primary-dark, #0f754a);
+  font-size: 15px;
+  font-weight: 600;
+  text-underline-offset: 4px;
+}
+.public-topic-link:hover,
+.public-topic-navigation a:hover {
+  text-decoration: underline;
+}
+.public-topic-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin: 24px 0 48px;
+}
+.public-topic-navigation a {
+  padding: 10px 0;
+  color: var(--goodhr-primary-dark, #0f754a);
+}
+.public-platform-title {
+  font-size: clamp(26px, 4vw, 36px);
+  line-height: 1.4;
+}
+.public-release-notice {
+  margin: 0 0 28px;
+  padding: 16px 20px;
+  border-left: 3px solid var(--goodhr-primary-dark, #0f754a);
+  color: var(--goodhr-text, #17211c);
+  background: var(--goodhr-primary-soft, #edf7f1);
+  font-size: 15px;
+  line-height: 1.8;
+}
+@media (max-width: 599px) {
+  .public-platform-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .public-panel {
   background: #fff;
   border: 1px solid var(--goodhr-border, #dce5e0);
