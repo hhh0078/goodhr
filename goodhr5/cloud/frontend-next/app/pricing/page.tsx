@@ -7,12 +7,13 @@ import type { Metadata } from "next";
 import MarketingShell from "@/components/MarketingShell";
 import StructuredData from "@/components/StructuredData";
 import { getPublicPlans, type PublicPlanData } from "@/lib/public-data";
+import { AUTO_REPLY_RELEASE_NOTICE } from "@/lib/recruitment-platforms";
 import { absoluteURL, createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
   title: "GoodHR价格与免费版 - 招聘自动化和AI筛选套餐",
   description:
-    "GoodHR 关键词筛选、基础招聘岗位运行和自动打招呼可免费使用；AI筛选简历、AI详情分析和招聘消息智能回复可按需订阅。",
+    "GoodHR 关键词筛选、基础招聘岗位运行和自动打招呼可免费使用，AI筛选与详情分析按方案订阅。招聘消息自动回复仍在开发验证，功能开放以正式版本为准。",
   path: "/pricing",
   keywords: [
     "免费招聘自动化工具",
@@ -28,7 +29,7 @@ const comparisons = [
   ["基础岗位运行和打招呼", true, true, true],
   ["AI 候选人筛选", false, true, true],
   ["AI 详情分析", false, true, true],
-  ["自动回复", false, false, true],
+  ["自动回复（开发验证中）", false, false, true],
 ] as const;
 
 /** PricingPage 展示免费版、Plus 基础版和 Max 全能版。 */
@@ -43,7 +44,7 @@ export default async function PricingPage() {
           "@type": "Product",
           name: "GoodHR AI招聘助手",
           url: absoluteURL("/pricing"),
-          description: "招聘平台自动筛选、自动打招呼、AI分析和自动回复工具。",
+          description: "多平台招聘自动筛选、自动打招呼、AI分析和简历管理工具。",
           offers: plans.map((plan) => ({
             "@type": "Offer",
             name: plan.name,
@@ -56,11 +57,12 @@ export default async function PricingPage() {
       />
       <MarketingShell
         eyebrow="永久免费 + Plus + Max"
-        title="基础招聘免费用，自动回复放进 Max"
-        description="Plus 基础包月版包含 AI 筛选和自动打招呼；Max 全能包年版再开放自动回复。"
+        title="基础招聘免费用，按需选择 AI 能力"
+        description="关键词筛选和基础打招呼可以免费用，AI 筛选与详情分析按会员方案开放。先看当前能用的功能，再选适合自己的方案。"
       >
         <section className="public-pricing-3">
           <div className="public-container">
+            <p className="public-release-notice">{AUTO_REPLY_RELEASE_NOTICE}</p>
             <div className="public-pricing-5">
               {plans.map((plan) => (
                 <div
@@ -103,7 +105,7 @@ export default async function PricingPage() {
                           className="public-pricing-15"
                           aria-hidden="true"
                         />
-                        <p className="public-text">{feature}</p>
+                        <p className="public-text">{feature.includes("自动回复") ? `${feature}（开发验证中）` : feature}</p>
                       </div>
                     ))}
                   </div>

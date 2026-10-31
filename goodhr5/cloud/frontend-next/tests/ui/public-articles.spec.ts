@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 
 const fixtureOrigin = `http://127.0.0.1:${process.env.ARTICLE_FIXTURE_PORT || "18167"}`;
 const firstID = "10000000-0000-4000-8000-000000000001";
+const fixedPaths = ["/", "/features", "/recruitment-automation", "/recruitment-auto-reply", "/hr-tools", "/pricing", "/videos", "/articles", "/download", "/contact"];
 
 /** setArticlesMode 切换本机合成 API，不修改任何真实文章。 */
 async function setArticlesMode(mode: string) {
@@ -57,8 +58,8 @@ test("文章新增与删除立即改变 sitemap，五万篇以上有分片，接
   expect(index.headers()["cache-control"]).toContain("no-store");
   const rootXML = await index.text();
   expect(rootXML).toContain("<urlset");
-  expect((rootXML.match(/<url>/g) || [])).toHaveLength(28);
-  for (const path of ["/features", "/pricing", "/videos", "/download", "/contact", "/articles", `/articles/${firstID}`]) {
+  expect((rootXML.match(/<url>/g) || [])).toHaveLength(fixedPaths.length + 21);
+  for (const path of [...fixedPaths.filter((path) => path !== "/"), `/articles/${firstID}`]) {
     expect(rootXML).toContain(`https://goodhr.58it.cn${path}</loc>`);
   }
   expect(await (await request.get("/sitemaps/site.xml")).text()).toContain("https://goodhr.58it.cn/articles</loc>");
@@ -77,7 +78,7 @@ test("文章新增与删除立即改变 sitemap，五万篇以上有分片，接
   await setArticlesMode("empty");
   const emptyXML = await (await request.get("/sitemap.xml")).text();
   expect(emptyXML).toContain("<urlset");
-  expect((emptyXML.match(/<url>/g) || [])).toHaveLength(7);
+  expect((emptyXML.match(/<url>/g) || [])).toHaveLength(fixedPaths.length);
   expect(emptyXML).toContain("/videos</loc>");
   expect(emptyXML).toContain("/contact</loc>");
   expect((await request.get("/sitemaps/articles/1.xml")).status()).toBe(404);
@@ -138,7 +139,7 @@ test("千篇边界切换完整站点地图，目录缺项会返回可重试错�
   await setArticlesMode("thousand");
   const flat = await (await request.get("/sitemap.xml")).text();
   expect(flat).toContain("<urlset");
-  expect((flat.match(/<url>/g) || [])).toHaveLength(1007);
+  expect((flat.match(/<url>/g) || [])).toHaveLength(fixedPaths.length + 1000);
   await setArticlesMode("overflow");
   const index = await (await request.get("/sitemap.xml")).text();
   expect(index).toContain("<sitemapindex");
