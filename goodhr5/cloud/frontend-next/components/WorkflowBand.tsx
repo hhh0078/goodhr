@@ -21,8 +21,8 @@ const workflow = [
   {
     icon: ForumRoundedIcon,
     index: "03",
-    title: "自动回复沟通",
-    description: "AI根据设置好的目标，自动跟候选人确认",
+    title: "候选人跟进",
+    description: "继续确认候选人意向，自动回复开发中",
   },
   {
     icon: CalendarMonthRoundedIcon,
