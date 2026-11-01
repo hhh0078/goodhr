@@ -1906,7 +1906,7 @@ export default function PositionsPage() {
                 compact
                 columns={2}
                 onChange={(value) => selectPlatform(String(value))}
-                options={PLATFORM_OPEN_ORDER.map((platformID) => ({ value: platformID, label: platformLabel(platformID), description: isPlatformOpen(platformConfigs, platformID) ? "" : "暂未开放", disabled: !isPlatformOpen(platformConfigs, platformID), iconSrc: platformIconSrc(platformID) }))}
+                options={PLATFORM_OPEN_ORDER.map((platformID) => ({ value: platformID, label: platformLabel(platformID), description: isPlatformOpen(platformConfigs, platformID) ? (platformID === "51job" ? "支持 DOM 详情识别，请先升级本地程序。" : "") : "暂未开放", disabled: !isPlatformOpen(platformConfigs, platformID), iconSrc: platformIconSrc(platformID) }))}
               />
               <Typography.Paragraph type="secondary" style={{ margin: "8px 0 0", fontSize: 12 }}>
                 {form.id ? "可以更换招聘平台。岗位名称也记得和新平台保持一致，保存后下次开工生效。" : "选这个岗位实际所在的平台。岗位保存后，我再带你打开招聘浏览器登录。"}
@@ -2125,7 +2125,7 @@ export default function PositionsPage() {
                 label: "前程无忧",
                 disabled: !isPlatformOpen(platformConfigs, "51job"),
                 description: isPlatformOpen(platformConfigs, "51job")
-                  ? "支持 DOM 详情识别。"
+                  ? "支持 DOM 详情识别，请先升级本地程序。"
                   : "暂未开放",
                 iconSrc: platformIconSrc("51job"),
               },

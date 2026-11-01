@@ -78,9 +78,18 @@ for (const width of [1440, 390]) {
     await card.getByRole("button", { name: "编辑", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "编辑岗位模板", exact: true });
     await expect(dialog.getByRole("radio", { name: /前程无忧/ })).toBeChecked();
+    // 等保存提示收起和弹框入场完成，截图需包含真正可见的表单。
+    await expect(page.getByText("岗位模板已更新", { exact: true })).toBeHidden();
+    await expect(dialog).toHaveCSS("opacity", "1");
+    await expect(dialog.getByRole("textbox", { name: "岗位名称", exact: true })).toBeVisible();
+    await expect(dialog.locator("label.goodhr-choice").filter({ hasText: "前程无忧" })).toContainText("请先升级本地程序");
     const bounds = (await dialog.boundingBox())!;
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    const saveBounds = (await dialog.getByRole("button", { name: "保存修改", exact: true }).boundingBox())!;
+    expect(saveBounds.y).toBeGreaterThanOrEqual(0);
+    expect(saveBounds.y + saveBounds.height).toBeLessThanOrEqual(960);
     await page.screenshot({ path: test.info().outputPath(`platform-edit-${width}.png`), fullPage: true, animations: "disabled" });
     await dialog.getByRole("radio", { name: /^Boss直聘/i }).click();
     await dialog.getByRole("button", { name: "保存修改", exact: true }).click();
@@ -90,5 +99,28 @@ for (const width of [1440, 390]) {
     expect(base.writes).toEqual([]);
     expect(base.errors).toEqual([]);
     expect(base.calls.filter((call) => /\/(?:run|start|stop)$/.test(call.path) || call.path === "/api/v1/page/open")).toEqual([]);
+  });
+}
+
+for (const width of [1440, 390]) {
+  /** 平台账号入口需提醒升级客户端，选择平台本身不得创建账号或启动浏览器。 */
+  test(`${width}px 前程平台账号提醒升级本地程序`, async ({ page }) => {
+    const state = await mockUniformAdmin(page, true);
+    await page.setViewportSize({ width, height: 960 });
+    await page.goto("/admin/accounts");
+    await page.getByRole("button", { name: "新增账号", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "新增平台账号", exact: true });
+    await dialog.getByRole("radio", { name: /前程无忧/ }).click();
+    await expect(dialog.getByRole("radio", { name: /前程无忧/ })).toBeChecked();
+    await expect(dialog.locator("label.goodhr-choice").filter({ hasText: "前程无忧" })).toContainText("请先升级本地程序");
+    await expect(dialog).toHaveCSS("opacity", "1");
+    await expect(dialog.getByRole("textbox", { name: "账号名称", exact: true })).toBeVisible();
+    const bounds = (await dialog.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: test.info().outputPath(`platform-account-${width}.png`), fullPage: true, animations: "disabled" });
+    expect(state.writes).toEqual([]);
+    expect(state.errors).toEqual([]);
+    expect(state.calls.filter((call) => call.path === "/api/v1/page/open")).toEqual([]);
   });
 }

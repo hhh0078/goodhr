@@ -146,15 +146,28 @@ export async function openPlatformPositionBrowser(
 ) {
   const targetURL = pickAuthEntryURL(auth);
   if (!targetURL) throw new Error("平台配置缺少入口页面地址");
-  await openLocalPage(agentBase, {
+  const payload = {
     persistent: true,
     platform_id: platformID,
     user_data_dir: "default",
     headless: false,
     humanize: true,
     url: targetURL,
-    ...(["zhaopin", "51job"].includes(platformID) && auth.reuse_urls?.length ? { reuse_urls: auth.reuse_urls } : {}),
-  });
+  };
+  const reuseURLs = ["zhaopin", "51job"].includes(platformID) ? auth.reuse_urls : undefined;
+  if (!reuseURLs?.length) {
+    await openLocalPage(agentBase, payload);
+    return;
+  }
+  try {
+    await openLocalPage(agentBase, { ...payload, reuse_urls: reuseURLs });
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : "";
+    const status = error instanceof Error && "status" in error ? error.status : 0;
+    // 旧版本在解析阶段拒绝新字段，还没操作页面；只为这个明确错误退回一次旧请求。
+    if (!(error instanceof Error) || status !== 400 || code !== "INVALID_REQUEST" || !error.message.includes('unknown field "reuse_urls"')) throw error;
+    await openLocalPage(agentBase, payload);
+  }
 }
 
 /** confirmPlatformLoggedInForPosition 快速确认岗位运行平台是否已登录。 */

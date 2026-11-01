@@ -109,6 +109,68 @@ test("智联和前程无忧仅传配置明确声明的可复用页面，旧平�
   });
 });
 
+test("旧Agent明确以400和INVALID_REQUEST拒绝reuse_urls时，只退回一次原请求", async () => {
+  for (const platform of ["zhaopin", "51job"]) {
+    await withLoginAgent([], async (api, calls, opens) => {
+      const originalOpen = globalThis.__platformLoginTestAgent.openPage;
+      let pageActions = 0;
+      // 模拟旧版本先记录请求再解析失败，拒绝期间不能有页面动作。
+      globalThis.__platformLoginTestAgent.openPage = async (base, payload) => {
+        await originalOpen(base, payload);
+        if ("reuse_urls" in payload) throw Object.assign(new Error('请求内容不正确：json: unknown field "reuse_urls"'), { code: "INVALID_REQUEST", status: 400 });
+        pageActions++;
+      };
+      const configured = { ...auth, reuse_urls: [auth.pages[0].url, "https://recruiting.example.invalid/search"] };
+      await api.openPlatformPositionBrowser("http://isolated-agent.invalid", platform, configured);
+      assert.equal(opens.length, 2);
+      const { reuse_urls, ...originalPayload } = opens[0].payload;
+      assert.deepEqual(reuse_urls, configured.reuse_urls);
+      assert.deepEqual(opens[1].payload, originalPayload, "备用请求只能移除新字段，不能换入口或其他参数");
+      assert.equal(pageActions, 1, "只有旧请求能真正打开页面");
+      assert.equal(calls.length, 0);
+    });
+  }
+});
+
+test("非400、缺失错误码、任务状态及其它错误均不重试打开页面", async () => {
+  const configured = { ...auth, reuse_urls: [auth.pages[0].url] };
+  const cases = [
+    [configured, Object.assign(new Error('json: unknown field "reuse_urls"'), { code: "TASK_RUNNING", status: 400 })],
+    [configured, Object.assign(new Error('json: unknown field "other"'), { code: "INVALID_REQUEST", status: 400 })],
+    [configured, Object.assign(new Error('json: unknown field "reuse_urls"'), { code: "INVALID_REQUEST", status: 500 })],
+    [configured, Object.assign(new Error('json: unknown field "reuse_urls"'), { status: 400 })],
+    [configured, Object.assign(new Error('json: unknown field "reuse_urls"'), { code: "INVALID_REQUEST" })],
+    [configured, new Error('json: unknown field "reuse_urls"')],
+    [configured, new Error("本地程序请求超时，请稍后重试")],
+    [configured, Object.assign(new Error('json: unknown field "reuse_urls_extra"'), { code: "INVALID_REQUEST", status: 400 })],
+    [auth, Object.assign(new Error('json: unknown field "reuse_urls"'), { code: "INVALID_REQUEST", status: 400 })],
+  ];
+  for (const [configuration, failure] of cases) {
+    await withLoginAgent([], async (api, calls, opens) => {
+      const originalOpen = globalThis.__platformLoginTestAgent.openPage;
+      globalThis.__platformLoginTestAgent.openPage = async (base, payload) => { await originalOpen(base, payload); throw failure; };
+      await assert.rejects(api.openPlatformPositionBrowser("http://isolated-agent.invalid", "zhaopin", configuration), (error) => error === failure);
+      assert.equal(opens.length, 1);
+      assert.equal(calls.length, 0);
+    });
+  }
+});
+
+test("旧请求回退仍失败时原样返回第二次错误，不再第三次打开", async () => {
+  await withLoginAgent([], async (api, calls, opens) => {
+    const originalOpen = globalThis.__platformLoginTestAgent.openPage;
+    const failure = new Error("备用请求也没连接上");
+    globalThis.__platformLoginTestAgent.openPage = async (base, payload) => {
+      await originalOpen(base, payload);
+      if ("reuse_urls" in payload) throw Object.assign(new Error('json: unknown field "reuse_urls"'), { code: "INVALID_REQUEST", status: 400 });
+      throw failure;
+    };
+    await assert.rejects(api.openPlatformPositionBrowser("http://isolated-agent.invalid", "zhaopin", { ...auth, reuse_urls: [auth.pages[0].url] }), (error) => error === failure);
+    assert.equal(opens.length, 2);
+    assert.equal(calls.length, 0);
+  });
+});
+
 test("前程无忧迁移中的真实配置可解析，精确根登录入口不拦截推荐和搜索页", async () => {
   const migration = await readFile(new URL("../../backend/db/migrations/0106_zhaopin_search_51job_entries.sql", import.meta.url), "utf8");
   const seed = migration.match(/\$config\$([\s\S]*?)\$config\$/);

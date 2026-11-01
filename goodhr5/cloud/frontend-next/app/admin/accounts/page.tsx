@@ -285,7 +285,7 @@ export default function AccountsPage() {
               {
                 value: "51job",
                 label: "前程无忧",
-                description: "只支持 DOM 详情识别。",
+                description: "支持 DOM 详情识别，请先升级本地程序。",
                 iconSrc: platformIconSrc("51job"),
               },
             ]}
