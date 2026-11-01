@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import io
+import re
 import tarfile
 from types import SimpleNamespace
 import unittest
@@ -132,6 +133,49 @@ class PlatformMigrationTests(unittest.TestCase):
             with self.subTest(time=time), self.assertRaises(CutoverError): self.verify(new_ledger=rows)
         rows = self.new_ledger + [{"filename": "0105.sql", "applied_at": self.now}]
         with self.assertRaises(CutoverError): self.verify(new_ledger=rows)
+
+    def test_pg_timestamp_short_offset_space_z_and_fractional_precision(self):
+        """PG空格、短时区与1至6位小数应等价，跨时区比较仍以真实瞬间判断。"""
+        expected = platforms.timestamp("2026-11-02T00:00:10.123450+00:00")
+        for value in ("2026-11-02 00:00:10.12345+00", "2026-11-02T00:00:10.123450Z",
+                      "2026-11-02 08:00:10.12345+08", "2026-11-02T08:00:10.12345+08:00"):
+            with self.subTest(value=value):
+                self.assertEqual(platforms.timestamp(value), expected)
+                platforms.in_window(value, "2026-11-02 00:00:00+00", "2026-11-02 00:00:20+00")
+        for fraction in ("1", "12", "123", "1234", "12345", "123456"):
+            self.assertEqual(platforms.timestamp("2026-11-02 00:00:10." + fraction + "+00").microsecond,
+                             int(fraction.ljust(6, "0")))
+        self.assertEqual(platforms.timestamp("2026-11-02 00:00:10+00"), platforms.timestamp(self.now))
+
+    def test_timestamp_normalizes_before_legacy_iso_parser(self):
+        """模拟Python3.8仅接受规范时区和3或6位小数，防止只在新版解释器上误通过。"""
+        native = platforms.dt.datetime
+        seen = []
+        class LegacyDateTime:
+            """仅接收本工具保证的规范ISO子集，再交给真实时间类型比较。"""
+            @staticmethod
+            def fromisoformat(value):
+                """fromisoformat 拒绝短时区和可变小数，验证兼容处理确实先执行。"""
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{6})?[+-]\d{2}:\d{2}", value):
+                    raise ValueError("legacy parser rejects noncanonical form")
+                seen.append(value)
+                return native.fromisoformat(value)
+        with patch.object(platforms.dt, "datetime", LegacyDateTime):
+            platforms.timestamp("2026-11-02 00:00:10.12345+00")
+            platforms.timestamp("2026-11-02T08:00:10.1+08:00")
+            platforms.timestamp("2026-11-02T00:00:10Z")
+        self.assertEqual(seen, ["2026-11-02T00:00:10.123450+00:00",
+                                "2026-11-02T08:00:10.100000+08:00", "2026-11-02T00:00:10+00:00"])
+
+    def test_timestamp_still_rejects_missing_timezone_and_bad_dates(self):
+        """兼容格式不放宽时区、真实日期、精度或窗口边界。"""
+        for value in (None, "", 1, "2026-11-02", "2026-11-02 00:00:10", "2026-11-02T00:00:10.1234567Z",
+                      "2026-13-02T00:00:10+00", "2026-02-30T00:00:10+00", "2026-11-02T25:00:10+00",
+                      "2026-11-02T00:00:10+25:00", "2026-11-02T00:00:10+00:99",
+                      "2026-11-02T00:00:10+0", "not a timestamp"):
+            with self.subTest(value=value), self.assertRaises(CutoverError): platforms.timestamp(value)
+        with self.assertRaises(CutoverError):
+            platforms.in_window("2026-11-02T00:00:21Z", "2026-11-02 00:00:00+00", "2026-11-02 00:00:20+00")
 
     def runner(self):
         """runner 创建只在内存运行的真实调度对象，不连接Docker或数据库。"""

@@ -47,10 +47,17 @@ def approval(digest):
 
 
 def timestamp(value):
-    """timestamp 读取数据库带时区时间，拒绝空值和没有时区的模糊时间。"""
+    """timestamp 规范化PG的短时区及可变精度以兼容Python3.8，仍拒绝无时区或无效时间。"""
+    require(isinstance(value, str), "配置或迁移时间格式异常")
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?"
+                         r"(Z|[+-](?:[01]\d|2[0-3])(?::[0-5]\d)?)", value.strip())
+    require(match is not None, "配置或迁移时间格式异常")
+    date, clock, fraction, offset = match.groups()
+    offset = "+00:00" if offset == "Z" else offset + ":00" if len(offset) == 3 else offset
+    normalized = date + "T" + clock + ("." + fraction.ljust(6, "0") if fraction else "") + offset
     try:
-        result = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (AttributeError, TypeError, ValueError):
+        result = dt.datetime.fromisoformat(normalized)
+    except (TypeError, ValueError):
         raise CutoverError("配置或迁移时间格式异常") from None
     require(result.tzinfo is not None, "配置或迁移时间缺少时区")
     return result
