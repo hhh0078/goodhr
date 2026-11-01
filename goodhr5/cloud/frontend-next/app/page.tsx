@@ -25,7 +25,7 @@ import {
 export const metadata: Metadata = createPageMetadata({
   title: "GoodHR 招聘自动化工具 - 多平台AI筛选、自动打招呼与简历管理",
   description:
-    "GoodHR 帮 HR 和猎头在 BOSS直聘、猎聘、智联招聘筛选候选人、自动打招呼并管理简历与招聘进度。前程无忧51job简历插件已支持，招聘自动化开发中。",
+    "GoodHR 帮 HR 和猎头在多个招聘平台筛选候选人、自动打招呼并管理简历与招聘进度。前程无忧51job推荐与搜索页已接入新版客户端，本次 Mac 安装包已更新，Windows 安装包随后更新。",
   path: "/",
   keywords: [
     "免费招聘软件",
@@ -112,7 +112,7 @@ const faqs = [
   },
   {
     question: "前程无忧（51job）现在能用哪些功能？",
-    answer: "浏览器简历插件已支持前程无忧资料导入。自动筛选、打招呼等招聘自动化流程仍在开发，暂未正式开放，两类能力分别上线。",
+    answer: "新版本地程序已支持人才推荐、搜索人才页的筛选与打招呼，本次 Mac 安装包已更新，Windows 安装包随后更新。浏览器简历插件继续独立支持资料导入，招聘消息自动回复尚未发布。",
   },
   {
     question: "招聘消息自动回复现在可以使用吗？",
@@ -189,7 +189,7 @@ export default function HomePage() {
                 <span className="public-home-12">把时间留给人</span>
               </h1>
               <p className="public-text public-home-13">
-                在 BOSS直聘、猎聘、智联招聘按岗位要求筛选候选人、自动打招呼，再把简历、推荐和面试进度接起来。前程无忧也在继续适配。
+                在 BOSS直聘、猎聘、智联招聘按岗位要求筛选候选人、自动打招呼，再把简历、推荐和面试进度接起来。前程无忧人才推荐与搜索已接入新版客户端，本次 Mac 安装包已更新，Windows 安装包随后更新。
               </p>
 
               <p className="public-text public-home-14">

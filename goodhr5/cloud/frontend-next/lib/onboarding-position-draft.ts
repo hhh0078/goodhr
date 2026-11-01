@@ -37,7 +37,7 @@ export function readOnboardingPositionDraft(
     if (fields.position_id !== undefined && typeof fields.position_id !== "string") return null;
     if (String(fields.position_id || "").trim() !== positionID.trim()) return null;
     if (DRAFT_FIELDS.some((field) => typeof fields[field] !== "string")) return null;
-    if (!["boss", "zhaopin", "liepin", "hliepin"].includes(String(fields.platform_id))) return null;
+    if (!["boss", "zhaopin", "liepin", "hliepin", "51job"].includes(String(fields.platform_id))) return null;
     if (!["ai", "keyword"].includes(String(fields.mode_default))) return null;
     if (!["ai", "ocr", "dom"].includes(String(fields.detail_mode))) return null;
     return coreOnboardingPositionDraft(fields as OnboardingPositionDraft);

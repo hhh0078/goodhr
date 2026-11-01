@@ -57,7 +57,7 @@ export function readOnboardingState(identity: string, storage?: Pick<Storage, "g
     const statuses: OnboardingStatus[] = ["invited", "active", "paused", "declined", "completed"];
     const status = statuses.includes(raw.status as OnboardingStatus) ? raw.status as OnboardingStatus : "invited";
     const step = ONBOARDING_STEPS.includes(raw.step as OnboardingStep) ? raw.step as OnboardingStep : "agent-menu";
-    const platformId = ["boss", "zhaopin", "liepin", "hliepin"].includes(String(raw.platformId)) ? String(raw.platformId) : "boss";
+    const platformId = ["boss", "zhaopin", "liepin", "hliepin", "51job"].includes(String(raw.platformId)) ? String(raw.platformId) : "boss";
     const positionId = typeof raw.positionId === "string" ? raw.positionId.trim() : "";
     // 开始弹框不会跨刷新保留；新旧开窗等待缓存都回到原岗位开始入口，不自动打开或导航招聘页。
     const startDialogStep = ["platform-select", "platform-open", "platform-login", "platform-filter", "position-run", "position-start-check", "position-start-error", "position-start-update"].includes(step);
@@ -129,7 +129,7 @@ export function normalizeOnboardingPosition(state: OnboardingState, position: On
   }
   const platformId = typeof position.platform_id === "string" ? position.platform_id.trim() : "";
   // 实际岗位缺少有效平台时，不能回退到缓存平台打开错误网站；原岗位仍保留，由用户重新创建或修改。
-  if (!["boss", "zhaopin", "liepin", "hliepin"].includes(platformId)) {
+  if (!["boss", "zhaopin", "liepin", "hliepin", "51job"].includes(platformId)) {
     return { ...state, platformId: "", platformLoggedIn: false, positionStarted: false, step: "position-create" };
   }
   const changed = platformId !== state.platformId;

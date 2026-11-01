@@ -497,7 +497,7 @@ class Rehearsal:
         return {"success": True, "evidence": str(self.root / "isolated-validation.json"), "registry": str(self.root / "retention-registry.json"), "scope": "read_only_startup_and_anonymous_routes"}
 
 
-def main(rehearsal_type=Rehearsal):
+def main(rehearsal_type=Rehearsal, configure_parser=None):
     """main 必须显式提供run、生产身份和不可变候选，帮助命令不会接触Docker或生产。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("run",))
@@ -505,6 +505,8 @@ def main(rehearsal_type=Rehearsal):
         parser.add_argument("--" + flag, required=True)
     parser.add_argument("--additive-migration")
     parser.add_argument("--additive-migration-sha256")
+    if configure_parser is not None:
+        configure_parser(parser)
     arguments = parser.parse_args()
     require(all(HEX.fullmatch(getattr(arguments, role + "_container_id")) and IMAGE.fullmatch(getattr(arguments, role + "_image")) for role in ROLES), "应用容器ID或候选镜像ID不完整")
     require(HEX.fullmatch(arguments.postgres_container_id) and IMAGE.fullmatch(arguments.redis_image), "PostgreSQL或Redis身份不完整")
