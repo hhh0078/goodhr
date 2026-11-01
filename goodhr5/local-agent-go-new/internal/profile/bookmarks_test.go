@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestResolveCreatesDefaultBookmarks 验证新配置生成五个 Firefox 默认入口且不再写 Chromium 文件。
+// TestResolveCreatesDefaultBookmarks 验证新配置生成六个 Firefox 默认入口且不再写 Chromium 文件。
 func TestResolveCreatesDefaultBookmarks(t *testing.T) {
 	t.Setenv("GOODHR_CONSOLE_URL", "https://goodhr-test.ai.58it.cn")
 	root := t.TempDir()
@@ -25,8 +25,11 @@ func TestResolveCreatesDefaultBookmarks(t *testing.T) {
 	if err := json.Unmarshal(data, &configuration); err != nil {
 		t.Fatal(err)
 	}
-	if len(configuration.Defaults) != 5 || configuration.Defaults[0].URL != "https://goodhr-test.ai.58it.cn/" {
+	if len(configuration.Defaults) != 6 || configuration.Defaults[0].URL != "https://goodhr-test.ai.58it.cn/" {
 		t.Fatalf("默认入口错误：%+v", configuration.Defaults)
+	}
+	if last := configuration.Defaults[len(configuration.Defaults)-1]; last.Title != "前程无忧" || last.URL != "https://mall.51job.com/" {
+		t.Fatalf("前程无忧默认入口错误：%+v", last)
 	}
 	if _, err := os.Stat(filepath.Join(profilePath, "Default", "Bookmarks")); !os.IsNotExist(err) {
 		t.Fatal("不应再生成 Chromium 书签")
