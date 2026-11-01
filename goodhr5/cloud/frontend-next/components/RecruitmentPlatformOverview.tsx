@@ -1,4 +1,4 @@
-/** 本文件展示官网统一的平台能力清单，避免把简历导入与开发中的招聘自动化混为一谈。 */
+/** 本文件展示官网统一的平台能力清单，区分各客户端已开放的招聘流程与独立简历导入能力。 */
 
 import { RECRUITMENT_PLATFORM_FACTS } from "@/lib/recruitment-platforms";
 
@@ -10,7 +10,7 @@ export default function RecruitmentPlatformOverview() {
         <li key={platform.id} className="public-platform-item">
           <div className="public-platform-heading">
             <h3>{platform.name}</h3>
-            <span className={platform.automationStatus === "开发中" ? "public-platform-status public-platform-status-pending" : "public-platform-status"}>
+            <span className="public-platform-status">
               招聘自动化：{platform.automationStatus}
             </span>
           </div>

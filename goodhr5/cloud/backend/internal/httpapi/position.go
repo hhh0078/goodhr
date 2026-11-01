@@ -447,7 +447,7 @@ func normalizePositionPlatformID(platformID string) string {
 }
 
 // applyPositionPlatformRules 根据平台修正岗位模板参数。
-// position 为岗位模板；Boss 不支持 DOM 时改为 OCR，智联和猎聘只允许 DOM。
+// position 为岗位模板；Boss 不支持 DOM 时改为 OCR，智联、猎聘和前程无忧只允许 DOM。
 func applyPositionPlatformRules(position *Position) {
 	if position == nil {
 		return
@@ -471,7 +471,7 @@ func applyPositionPlatformRules(position *Position) {
 // platformID 为招聘平台标识。
 func isDOMOnlyPlatform(platformID string) bool {
 	switch strings.ToLower(strings.TrimSpace(platformID)) {
-	case "hliepin", "liepin", "zhaopin":
+	case "hliepin", "liepin", "zhaopin", "51job":
 		return true
 	default:
 		return false

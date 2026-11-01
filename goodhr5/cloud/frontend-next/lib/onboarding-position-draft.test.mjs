@@ -68,6 +68,13 @@ test("半填草稿保留真实空值，AI 和关键词内容不会相互替代",
   assert.deepEqual(readOnboardingPositionDraft("user-1", storage), draft);
 });
 
+test("前程无忧草稿及编辑时改过的平台能按同岗位ID恢复", () => {
+  const storage = storageFixture();
+  const draft = draftFixture({ position_id: "existing-position", platform_id: "51job", detail_mode: "dom" });
+  assert.equal(saveOnboardingPositionDraft("user-1", draft, storage), true);
+  assert.deepEqual(readOnboardingPositionDraft("user-1", storage, "existing-position"), draft);
+});
+
 test("浏览器拒绝读写和清理时安全返回，不阻断创建和关闭弹框", () => {
   const denied = {
     /** getItem 模拟隐私设置阻止读取。 */

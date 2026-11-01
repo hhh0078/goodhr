@@ -7,7 +7,7 @@ import ts from "typescript";
 const source = await readFile(new URL("./platform-login.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText.replace(
   'import { currentLocalPageURL, openLocalPage } from "./admin-api";',
-  "const currentLocalPageURL = (...args) => globalThis.__platformLoginTestAgent.readURL(...args); const openLocalPage = () => { throw new Error('测试不得打开真实浏览器'); };",
+  "const currentLocalPageURL = (...args) => globalThis.__platformLoginTestAgent.readURL(...args); const openLocalPage = (...args) => globalThis.__platformLoginTestAgent.openPage(...args);",
 );
 assert.ok(compiled.includes("__platformLoginTestAgent"), "登录测试必须替换网络依赖，不能请求真实程序");
 let moduleSequence = 0;
@@ -42,8 +42,11 @@ function legacyPlatformConfig(platform) {
 async function withLoginAgent(urls, run, failure) {
   const original = { window: globalThis.window, agent: globalThis.__platformLoginTestAgent };
   const calls = [];
+  const opens = [];
   globalThis.window = { setTimeout: (callback) => setTimeout(callback, 0), clearTimeout };
   globalThis.__platformLoginTestAgent = {
+    /** openPage 仅记录本次测试的页面请求，不连接真实浏览器。 */
+    async openPage(base, payload) { opens.push({ base, payload }); },
     /** readURL 模拟页面读取，记录轮询次数以核对连续登录确认。 */
     async readURL(base) {
       calls.push(base);
@@ -53,7 +56,7 @@ async function withLoginAgent(urls, run, failure) {
   };
   try {
     const api = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}#${++moduleSequence}`);
-    await run(api, calls);
+    await run(api, calls, opens);
   } finally {
     if (original.window === undefined) delete globalThis.window; else globalThis.window = original.window;
     if (original.agent === undefined) delete globalThis.__platformLoginTestAgent; else globalThis.__platformLoginTestAgent = original.agent;
@@ -88,6 +91,97 @@ test("现代公开登录规则继续优先，明确登录页即使命中泛域�
     assert.equal(api.pickLoginEntryURL(parsed), configured.public.pages[0].url);
     assert.equal(api.isLoggedInURL("https://recruiting.example.invalid/login?from=recommend", parsed), false);
     assert.equal(api.isLoggedInURL("https://recruiting.example.invalid/recommend", parsed), true);
+  });
+});
+
+test("智联和前程无忧仅传配置明确声明的可复用页面，旧平台保持原打开行为", async () => {
+  await withLoginAgent([], async (api, calls, opens) => {
+    const configured = { auth: { pages: auth.pages, reuse_urls: [auth.pages[0].url, "https://recruiting.example.invalid/search", "https://recruiting.example.invalid/search", null, "javascript:alert(1)"] }, public: { pages: auth.public_pages } };
+    const parsed = api.parsePlatformAuthConfig(configured, "zhaopin");
+    assert.deepEqual(parsed.reuse_urls, [auth.pages[0].url, "https://recruiting.example.invalid/search"]);
+    for (const platform of ["zhaopin", "51job", "boss", "liepin"]) await api.openPlatformPositionBrowser("http://isolated-agent.invalid", platform, parsed);
+    for (const item of opens.slice(0, 2)) assert.deepEqual(item.payload.reuse_urls, parsed.reuse_urls);
+    for (const item of opens.slice(2)) assert.equal("reuse_urls" in item.payload, false, "旧平台不能因新页面适配改变打开行为");
+    assert.ok(opens.every((item) => item.payload.url === auth.pages[0].url));
+    assert.equal(calls.length, 0, "页面复用由本地程序选择，前端不猜测其他标签页");
+    await api.openPlatformPositionBrowser("http://isolated-agent.invalid", "zhaopin", auth);
+    assert.equal("reuse_urls" in opens.at(-1).payload, false, "旧配置无复用规则时继续沿用原入口");
+  });
+});
+
+test("旧Agent明确以400和INVALID_REQUEST拒绝reuse_urls时，只退回一次原请求", async () => {
+  for (const platform of ["zhaopin", "51job"]) {
+    await withLoginAgent([], async (api, calls, opens) => {
+      const originalOpen = globalThis.__platformLoginTestAgent.openPage;
+      let pageActions = 0;
+      // 模拟旧版本先记录请求再解析失败，拒绝期间不能有页面动作。
+      globalThis.__platformLoginTestAgent.openPage = async (base, payload) => {
+        await originalOpen(base, payload);
+        if ("reuse_urls" in payload) throw Object.assign(new Error('请求内容不正确：json: unknown field "reuse_urls"'), { code: "INVALID_REQUEST", status: 400 });
+        pageActions++;
+      };
+      const configured = { ...auth, reuse_urls: [auth.pages[0].url, "https://recruiting.example.invalid/search"] };
+      await api.openPlatformPositionBrowser("http://isolated-agent.invalid", platform, configured);
+      assert.equal(opens.length, 2);
+      const { reuse_urls, ...originalPayload } = opens[0].payload;
+      assert.deepEqual(reuse_urls, configured.reuse_urls);
+      assert.deepEqual(opens[1].payload, originalPayload, "备用请求只能移除新字段，不能换入口或其他参数");
+      assert.equal(pageActions, 1, "只有旧请求能真正打开页面");
+      assert.equal(calls.length, 0);
+    });
+  }
+});
+
+test("非400、缺失错误码、任务状态及其它错误均不重试打开页面", async () => {
+  const configured = { ...auth, reuse_urls: [auth.pages[0].url] };
+  const cases = [
+    [configured, Object.assign(new Error('json: unknown field "reuse_urls"'), { code: "TASK_RUNNING", status: 400 })],
+    [configured, Object.assign(new Error('json: unknown field "other"'), { code: "INVALID_REQUEST", status: 400 })],
+    [configured, Object.assign(new Error('json: unknown field "reuse_urls"'), { code: "INVALID_REQUEST", status: 500 })],
+    [configured, Object.assign(new Error('json: unknown field "reuse_urls"'), { status: 400 })],
+    [configured, Object.assign(new Error('json: unknown field "reuse_urls"'), { code: "INVALID_REQUEST" })],
+    [configured, new Error('json: unknown field "reuse_urls"')],
+    [configured, new Error("本地程序请求超时，请稍后重试")],
+    [configured, Object.assign(new Error('json: unknown field "reuse_urls_extra"'), { code: "INVALID_REQUEST", status: 400 })],
+    [auth, Object.assign(new Error('json: unknown field "reuse_urls"'), { code: "INVALID_REQUEST", status: 400 })],
+  ];
+  for (const [configuration, failure] of cases) {
+    await withLoginAgent([], async (api, calls, opens) => {
+      const originalOpen = globalThis.__platformLoginTestAgent.openPage;
+      globalThis.__platformLoginTestAgent.openPage = async (base, payload) => { await originalOpen(base, payload); throw failure; };
+      await assert.rejects(api.openPlatformPositionBrowser("http://isolated-agent.invalid", "zhaopin", configuration), (error) => error === failure);
+      assert.equal(opens.length, 1);
+      assert.equal(calls.length, 0);
+    });
+  }
+});
+
+test("旧请求回退仍失败时原样返回第二次错误，不再第三次打开", async () => {
+  await withLoginAgent([], async (api, calls, opens) => {
+    const originalOpen = globalThis.__platformLoginTestAgent.openPage;
+    const failure = new Error("备用请求也没连接上");
+    globalThis.__platformLoginTestAgent.openPage = async (base, payload) => {
+      await originalOpen(base, payload);
+      if ("reuse_urls" in payload) throw Object.assign(new Error('json: unknown field "reuse_urls"'), { code: "INVALID_REQUEST", status: 400 });
+      throw failure;
+    };
+    await assert.rejects(api.openPlatformPositionBrowser("http://isolated-agent.invalid", "zhaopin", { ...auth, reuse_urls: [auth.pages[0].url] }), (error) => error === failure);
+    assert.equal(opens.length, 2);
+    assert.equal(calls.length, 0);
+  });
+});
+
+test("前程无忧迁移中的真实配置可解析，精确根登录入口不拦截推荐和搜索页", async () => {
+  const migration = await readFile(new URL("../../backend/db/migrations/0106_zhaopin_search_51job_entries.sql", import.meta.url), "utf8");
+  const seed = migration.match(/\$config\$([\s\S]*?)\$config\$/);
+  assert.ok(seed, "迁移必须包含可读取的前程无忧配置");
+  await withLoginAgent([], async (api) => {
+    const parsed = api.parsePlatformAuthConfig(JSON.parse(seed[1]), "51job");
+    assert.equal(api.isLoginURL("https://mall.51job.com/", parsed), true);
+    for (const page of parsed.pages) {
+      assert.equal(api.isLoggedInURL(`${page.url}?rt=synthetic`, parsed), true);
+      assert.equal(api.isLoginURL(`${page.url}?rt=synthetic`, parsed), false);
+    }
   });
 });
 

@@ -506,7 +506,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     copy.hint = "岗位和进度都会留着，不用重新创建，也不会把报错算作完成。";
     copy.estimate = "处理好提示后继续";
   }
-  const platformName = ({ boss: "BOSS 直聘", zhaopin: "智联招聘", liepin: "猎聘企业端", hliepin: "猎聘猎头端" } as Record<string, string>)[state.platformId] || "招聘平台";
+  const platformName = ({ boss: "BOSS 直聘", zhaopin: "智联招聘", liepin: "猎聘企业端", hliepin: "猎聘猎头端", "51job": "前程无忧" } as Record<string, string>)[state.platformId] || "招聘平台";
   if (step === "platform-login" && state.positionId) copy.description = `请切到刚打开的招聘浏览器，在${platformName}里登录招聘账号，并亲自设置年龄、学历、地区等条件。登录确认后，回来点击“我已筛选好，立即开始”。`;
   if (step === "position-menu" && state.positionId) {
     copy.title = state.reviewPosition ? "回到岗位管理，检查刚才的岗位" : "回到岗位管理，准备开工";
@@ -572,7 +572,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
 
   /** choosePlatform 兼容旧界面入口，仅确认岗位表单的平台，不提前打开或检测浏览器。 */
   function choosePlatform(platformId: string) {
-    if (!["boss", "zhaopin", "liepin", "hliepin"].includes(platformId)) return;
+    if (!["boss", "zhaopin", "liepin", "hliepin", "51job"].includes(platformId)) return;
     if (platformsLoading || !isPlatformOpen(platformConfigsRef.current, platformId)) { setError("这个招聘平台暂未开放，请选择当前可用的平台。"); return; }
     update((value) => ({ ...value, platformId, platformLoggedIn: false, completedFields: [...value.completedFields.filter((field) => field !== "platform"), "platform"], step: formOpen ? "position-name" : "position-create" }));
     setError("");
@@ -651,7 +651,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     try { await refreshAgent(); } catch { setError("还没连上。确认本地 GoodHR 已启动，再检查浏览器的设备应用权限。"); }
     finally { if (aliveRef.current) setBusy(false); }
   }
-  return { phase, state, step, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, resultState, resultLogsOpen, helpOpen, restartOpen, restartBlockedReason, resumeAboveDialog: !blocked && (formOpen || startOpen), formSaving, blocked, storageUnavailable, availablePlatforms: ["boss", "zhaopin", "liepin", "hliepin"].filter((platformId) => isPlatformOpen(platformConfigs, platformId)), platformsLoading, celebration, actions: {
+  return { phase, state, step, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, resultState, resultLogsOpen, helpOpen, restartOpen, restartBlockedReason, resumeAboveDialog: !blocked && (formOpen || startOpen), formSaving, blocked, storageUnavailable, availablePlatforms: ["boss", "zhaopin", "liepin", "hliepin", "51job"].filter((platformId) => isPlatformOpen(platformConfigs, platformId)), platformsLoading, celebration, actions: {
     recoverResult: () => recoverResultTarget("start"), reviewResultPosition: () => recoverResultTarget("edit"), viewResultLogs, checkResult: () => void checkResult(), stopResult,
     requestRestart, cancelRestart, confirmRestart,
     accept, back, choosePlatform, openPlatform: () => void openPlatform(), checkAgent: () => void checkAgent(),

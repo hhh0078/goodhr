@@ -20,7 +20,7 @@ import { createPageMetadata } from "@/lib/seo";
 export const metadata: Metadata = createPageMetadata({
   title: "多平台招聘自动化功能 - AI筛选、自动打招呼与HR猎头工具",
   description:
-    "了解 BOSS直聘、猎聘、智联招聘的候选人筛选与打招呼、前程无忧51job适配进度，以及简历导入、查重、猎头推荐和企业HR招聘流程。",
+    "了解 BOSS直聘、猎聘、智联招聘的候选人筛选与打招呼、前程无忧51job推荐与搜索（新版客户端），以及简历导入、查重、猎头推荐和企业HR招聘流程。",
   path: "/features",
   keywords: [
     "招聘自动化功能",

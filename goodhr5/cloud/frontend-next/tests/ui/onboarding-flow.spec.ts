@@ -1678,7 +1678,8 @@ for (const width of [1440, 390]) {
     const platform = page.locator('[data-onboarding="position-platform"]');
     const radios = platform.getByRole("radio");
     expect(await radios.count()).toBeGreaterThan(1);
-    for (const radio of await radios.all()) await expect(radio, "已保存岗位的真实平台不能在复核表单中更换").toBeDisabled();
+    await expect(platform.getByRole("radio", { name: /BOSS\s*直聘/i })).toBeEnabled();
+    await expect(platform.getByRole("radio", { name: /智联招聘/ })).toBeEnabled();
     await expect(platform.getByRole("radio", { name: /BOSS\s*直聘/i })).toBeChecked();
     await platform.getByRole("button", { name: "确认使用此平台", exact: true }).click();
     await expectStep(page, "position-save");

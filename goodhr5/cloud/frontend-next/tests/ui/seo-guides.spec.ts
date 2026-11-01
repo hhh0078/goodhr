@@ -68,7 +68,8 @@ for (const path of guidePaths) {
         await expect(platforms.getByRole("heading", { name, exact: true })).toBeVisible();
       }
       const current51job = platforms.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "前程无忧（51job）", exact: true }) });
-      await expect(current51job).toContainText("招聘自动化：开发中");
+      await expect(current51job).toContainText("招聘自动化：新版客户端已接入");
+      await expect(current51job).toContainText("Windows 安装包随后更新");
       await expect(current51job).toContainText("简历插件已支持前程无忧资料导入");
       const faq = page.getByRole("region", { name: "你可能还想问", exact: true });
       expect(await faq.getByRole("heading", { level: 3 }).allTextContents()).toEqual(questions.map((question) => question.name));
@@ -85,6 +86,28 @@ for (const path of guidePaths) {
     }
   });
 }
+
+/** 首页与下载页区分新版客户端能力和两端安装包更新时间，不能把自动回复说成已经可用。 */
+test("首页和下载页同步说明前程人才页与安装包更新进度", async ({ request }) => {
+  for (const path of ["/", "/download"]) {
+    const response = await request.get(path);
+    expect(response.status()).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("新版客户端");
+    expect(html).toContain("Mac 安装包已更新");
+    expect(html).toContain("Windows 安装包随后更新");
+    expect(html).not.toContain("前程无忧自动化仍在开发");
+    expect(html).not.toContain("前程无忧51job简历插件已支持，招聘自动化开发中");
+  }
+  const home = await (await request.get("/")).text();
+  const answer = readFAQ(home).find((question) => question.name.includes("前程无忧"))?.acceptedAnswer.text;
+  expect(answer).toContain("人才推荐、搜索人才页");
+  expect(answer).toContain("招聘消息自动回复尚未发布");
+  const llms = await (await request.get("/llms.txt")).text();
+  const current51job = llms.split("\n").find((line) => line.startsWith("- 前程无忧（51job）"));
+  expect(current51job).toContain("招聘自动化新版客户端已接入");
+  expect(current51job).toContain("自动回复：开发中");
+});
 
 /** 新专题必须同时进入搜索引擎地图和公开 AI 阅读目录。 */
 test("三个专题均被 sitemap 和 llms 发现，链接没有重复", async ({ request }) => {

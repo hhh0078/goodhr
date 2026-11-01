@@ -348,7 +348,7 @@ test("复核和重学标记按账号保存，刷新恢复邀请或暂停后仍�
 test("同岗位复核的读取不会绕过字段确认跳回浏览器，即使实际平台已经调整", () => {
   for (const step of ["position-edit", "position-platform", "position-name", "position-save", "position-menu"]) {
     const reviewing = activeState({ step, positionId: "saved-position", platformId: "boss", reviewPosition: true, replaying: true, platformLoggedIn: true, positionStarted: true });
-    for (const platformId of ["boss", "zhaopin"]) {
+    for (const platformId of ["boss", "zhaopin", "51job"]) {
       const normalized = normalizeOnboardingPosition(reviewing, { id: "saved-position", platform_id: platformId, is_open: true });
       assert.equal(normalized.step, step, `${step} / ${platformId} 不应跳到打开浏览器`);
       assert.equal(normalized.positionId, "saved-position");

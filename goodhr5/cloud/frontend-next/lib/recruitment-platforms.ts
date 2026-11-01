@@ -29,22 +29,22 @@ export const RECRUITMENT_PLATFORM_FACTS = [
     id: "zhaopin",
     name: "智联招聘",
     automationStatus: "已接入",
-    automationDescription: "围绕招聘岗位进行候选人读取、筛选与打招呼；筛选条件需在对应平台确认。",
+    automationDescription: "围绕招聘岗位进行候选人读取、筛选与打招呼；新版客户端同时支持推荐和搜索人才页，筛选条件需在对应平台确认。",
     resumeImportDescription: "简历插件支持智联招聘候选人资料导入。",
     autoReplyStatus: "开发验证中",
   },
   {
     id: "51job",
     name: "前程无忧（51job）",
-    automationStatus: "开发中",
-    automationDescription: "自动筛选、打招呼等招聘自动化流程正在开发，暂未正式开放。",
+    automationStatus: "新版客户端已接入",
+    automationDescription: "新版本地程序支持人才推荐、搜索人才页的候选人筛选与打招呼；本次 Mac 安装包已更新，Windows 安装包随后更新，请先升级本地程序。",
     resumeImportDescription: "简历插件已支持前程无忧资料导入；导入能力与招聘自动化分别上线。",
     autoReplyStatus: "开发中",
   },
 ] as const;
 
 export const RECRUITMENT_PLATFORM_SUMMARY =
-  "招聘自动化已接入 BOSS直聘、猎聘企业端、猎聘猎头端和智联招聘；前程无忧（51job）的自动化流程开发中，简历插件已支持导入。各平台具体能力以正式客户端和控制台已开放的功能为准。";
+  "招聘自动化已接入 BOSS直聘、猎聘企业端、猎聘猎头端和智联招聘；前程无忧（51job）人才推荐、搜索人才页已接入新版客户端，本次 Mac 安装包已更新，Windows 安装包随后更新。简历插件继续独立支持导入，各项能力以正式客户端和控制台为准。";
 
 export const AUTO_REPLY_RELEASE_NOTICE =
   "招聘消息自动回复仍在开发验证，尚未正式发布。套餐中的功能说明不代表所有平台已经开放，请以正式版本的更新说明和实际入口为准。";
