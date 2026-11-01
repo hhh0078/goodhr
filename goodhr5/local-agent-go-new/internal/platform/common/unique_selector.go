@@ -15,7 +15,10 @@ func ProbeUniqueSelectorExists(ctx context.Context, browser model.Browser, cfg m
 	if err != nil {
 		return false, err
 	}
-	selector.Target.Index = nil
+	selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+		variant.Target.Index = nil
+		return variant
+	})
 	selector.TimeoutMS = 600
 	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
 		Selector: selector, MaxItems: 2, ExpectedMissing: true, ProbeOnly: true,

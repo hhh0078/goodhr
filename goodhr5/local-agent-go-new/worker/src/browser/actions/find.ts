@@ -300,13 +300,14 @@ export class FindAction {
         },
       );
       phase = "read";
-      if (spec.read_attribute) {
+      const selectedSpec = resolved.resolved_spec ?? spec;
+      if (selectedSpec.read_attribute) {
         return await this.readPrimitive.attribute(
           resolved.locator,
-          spec.read_attribute,
+          selectedSpec.read_attribute,
         );
       }
-      if (spec.read_property === "html") {
+      if (selectedSpec.read_property === "html") {
         return await this.readPrimitive.html(resolved.locator);
       }
       const value = await this.readPrimitive.text(resolved.locator);

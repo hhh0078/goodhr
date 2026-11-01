@@ -42,6 +42,9 @@ type Config struct {
 	LoginURL            string                           `json:"login_url"`
 	EntryURL            string                           `json:"entry_url"`
 	MessagesURL         string                           `json:"messages_url"`
+	LoginURLs           []string                         `json:"-"` // 仅数组格式启用多页面复用，旧字符串和对象继续使用单地址。
+	EntryURLs           []string                         `json:"-"`
+	MessagesURLs        []string                         `json:"-"`
 	Selectors           map[string]contract.SelectorSpec `json:"selectors"`
 	CandidateFields     map[string]contract.SelectorSpec `json:"candidate_fields"`
 	ConversationFields  map[string]contract.SelectorSpec `json:"conversation_fields"`
@@ -65,6 +68,10 @@ type ConfiguredAction struct {
 
 // Behavior 表示平台翻页、详情和岗位选择行为。
 type Behavior struct {
+	CandidateTopInset         int    `json:"candidate_top_inset"`    // 卡片操作需避让的固定页头高度，单位CSS像素；零表示无需平台额外避让。
+	CandidateBottomInset      int    `json:"candidate_bottom_inset"` // 实际操作按钮需避让的底部浮层高度，单位CSS像素；零保持旧平台行为。
+	RequestPhoneMessage       string `json:"request_phone_message"`  // 不使用付费取号入口时，在已确认身份的聊天框发送的礼貌索要电话文案。
+	RequestResumeMessage      string `json:"request_resume_message"` // 平台邀请投递尚未验证时，在当前聊天框索要附件简历的文案。
 	SupportsPaging            bool   `json:"supports_paging"`
 	CandidateListMode         string `json:"candidate_list_mode"`
 	AttachmentMode            string `json:"attachment_mode"`

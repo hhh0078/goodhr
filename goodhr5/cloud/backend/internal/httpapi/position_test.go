@@ -73,6 +73,46 @@ func TestPositionLifecycle(t *testing.T) {
 	}
 }
 
+// TestPositionSaveChangesPlatform 验证同一岗位可更换平台并保留编号和历史统计，同时修正详情模式。
+func TestPositionSaveChangesPlatform(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "position-platform@example.com"
+	token := loginForTest(t, routes, email)
+	position, err := server.positions.store.SavePosition(Position{
+		UserEmail: email, PlatformID: "boss", Name: "高级软件工程师", IsOpen: true,
+		ScannedCount: 7, DailyGreetedCount: 2, SkippedCount: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct{ platform, mode, want string }{
+		{"zhaopin", "ocr", "dom"}, {"51job", "ai", "dom"}, {"boss", "dom", "ocr"},
+	} {
+		body, err := json.Marshal(map[string]any{
+			"id": position.ID, "name": position.Name, "platform_id": item.platform,
+			"keywords": []string{"Java"}, "common_config": map[string]any{"mode_default": "keyword", "detail_mode": item.mode},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/positions", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := httptest.NewRecorder()
+		routes.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("更换平台 %s 失败：status=%d body=%s", item.platform, resp.Code, resp.Body.String())
+		}
+		saved, err := server.positions.store.PositionByID("", email, position.ID, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if saved.PlatformID != item.platform || saved.CommonConfig["detail_mode"] != item.want || saved.ID != position.ID || saved.ScannedCount != 7 || saved.DailyGreetedCount != 2 || saved.SkippedCount != 3 || !saved.IsOpen {
+			t.Fatalf("更换平台未保留岗位或未修正模式：%+v", saved)
+		}
+	}
+}
+
 // TestPositionSaveRejectsAIForExpiredMember 验证岗位保存接口不会只依赖前端会员判断。
 func TestPositionSaveRejectsAIForExpiredMember(t *testing.T) {
 	server := mustNewServer(t)
@@ -107,6 +147,7 @@ func TestApplyPositionPlatformRules(t *testing.T) {
 		{name: "猎聘猎头端只支持 DOM", platformID: "hliepin", mode: "ai", want: "dom"},
 		{name: "猎聘企业端只支持 DOM", platformID: "liepin", mode: "ocr", want: "dom"},
 		{name: "智联只支持 DOM", platformID: "zhaopin", mode: "ai", want: "dom"},
+		{name: "前程无忧只支持 DOM", platformID: "51job", mode: "ocr", want: "dom"},
 		{name: "普通平台保留 OCR", platformID: "other", mode: "ocr", want: "ocr"},
 	}
 

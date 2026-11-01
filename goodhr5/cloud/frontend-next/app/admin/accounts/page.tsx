@@ -282,6 +282,12 @@ export default function AccountsPage() {
                 description: "只支持 DOM 详情识别。",
                 iconSrc: platformIconSrc("hliepin"),
               },
+              {
+                value: "51job",
+                label: "前程无忧",
+                description: "只支持 DOM 详情识别。",
+                iconSrc: platformIconSrc("51job"),
+              },
             ]}
           />
           <Form.Item

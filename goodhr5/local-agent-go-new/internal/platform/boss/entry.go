@@ -10,7 +10,7 @@ import (
 
 // OpenLoginPage 打开 Boss 登录页面。
 func (r *Runtime) OpenLoginPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	return common.OpenPage(ctx, browser, r.PlatformID(), cfg.LoginURL, "登录页")
+	return common.OpenPage(ctx, browser, r.PlatformID(), cfg.LoginURL, "登录页", cfg.LoginURLs...)
 }
 
 // InitializeLoginPage 执行 Boss 登录页配置的初始化动作。
@@ -20,7 +20,7 @@ func (r *Runtime) InitializeLoginPage(ctx context.Context, browser model.Browser
 
 // OpenGreetingPage 打开 Boss 推荐牛人页面。
 func (r *Runtime) OpenGreetingPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	return common.OpenVerifiedPage(ctx, browser, r.PlatformID(), cfg.EntryURL, "打招呼页")
+	return common.OpenVerifiedPage(ctx, browser, r.PlatformID(), cfg.EntryURL, "打招呼页", cfg.EntryURLs...)
 }
 
 // InitializeGreetingPage 关闭 Boss 推荐页可能出现的确认弹框。
@@ -33,7 +33,7 @@ func (r *Runtime) InitializeGreetingPage(ctx context.Context, browser model.Brow
 
 // OpenMessagesPage 打开 Boss 消息页面。
 func (r *Runtime) OpenMessagesPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	return common.OpenVerifiedPage(ctx, browser, r.PlatformID(), cfg.MessagesURL, "消息页")
+	return common.OpenVerifiedPage(ctx, browser, r.PlatformID(), cfg.MessagesURL, "消息页", cfg.MessagesURLs...)
 }
 
 // InitializeMessagesPage 关闭 Boss 消息页可能出现的提示。

@@ -99,7 +99,7 @@ const CHROMIUM_ICON_SRC = "/assets/platforms/camoufox.png";
 const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
 const HLIEPIN_SHORTCUT_GUIDE_IMAGE_SRC =
   "/assets/help/hliepin-shortcut-search-guide.png";
-const PLATFORM_OPEN_ORDER = ["boss", "zhaopin", "hliepin", "liepin"];
+const PLATFORM_OPEN_ORDER = ["boss", "zhaopin", "hliepin", "liepin", "51job"];
 const LOG_REFRESH_MS = 3000;
 const LOG_LIMIT = 100;
 const ALL_LOG_LIMIT = 1000;
@@ -586,17 +586,18 @@ export default function PositionsPage() {
       },
     });
   }
-  /** reviewFormFromItem 用实际岗位重建完整配置，仅覆盖当前账号同岗位、同平台的六项未保存核心草稿。 */
+  /** reviewFormFromItem 用实际岗位重建完整配置，并恢复当前账号同岗位的六项未保存核心草稿。 */
   function reviewFormFromItem(item: any): PositionForm {
-    // 复核只信岗位真实平台；旧完整表单的默认平台不能补成教程事实。
+    // 没有当前岗位的有效草稿时，只使用岗位真实平台，不补成教程默认值。
     const actual = { ...formFromItem(item, defaults), platform_id: String(item.platform_id || "").trim() };
     const draft = readOnboardingPositionDraft(draftIdentity, undefined, String(item.id));
-    if (!draft || draft.platform_id !== actual.platform_id) return actual;
+    if (!draft) return actual;
     return {
       ...actual,
+      platform_id: draft.platform_id,
       name: draft.name,
       mode_default: draft.mode_default,
-      detail_mode: normalizeDetailMode(actual.platform_id, draft.detail_mode),
+      detail_mode: normalizeDetailMode(draft.platform_id, draft.detail_mode),
       position_requirement: draft.position_requirement,
       keywords: draft.keywords,
     };
@@ -1478,10 +1479,6 @@ export default function PositionsPage() {
   }
   /** selectPlatform 切换平台并修正平台不支持的详情模式。 */
   function selectPlatform(value: string) {
-    if (form.id && value !== form.platform_id) {
-      notify("已保存岗位的招聘平台不能更换，需要换平台时请新建岗位。", "info");
-      return;
-    }
     if (!isPlatformOpen(platformConfigs, value)) {
       notify("该平台暂未开放，请联系作者", "warning");
       return;
@@ -1906,17 +1903,16 @@ export default function PositionsPage() {
               <ChoiceCards
                 label="招聘平台"
                 value={form.platform_id}
-                readOnly={Boolean(form.id)}
                 compact
                 columns={2}
                 onChange={(value) => selectPlatform(String(value))}
-                options={PLATFORM_OPEN_ORDER.map((platformID) => ({ value: platformID, label: platformLabel(platformID), description: isPlatformOpen(platformConfigs, platformID) ? "" : "暂未开放", disabled: Boolean(form.id) || !isPlatformOpen(platformConfigs, platformID), iconSrc: platformIconSrc(platformID) }))}
+                options={PLATFORM_OPEN_ORDER.map((platformID) => ({ value: platformID, label: platformLabel(platformID), description: isPlatformOpen(platformConfigs, platformID) ? "" : "暂未开放", disabled: !isPlatformOpen(platformConfigs, platformID), iconSrc: platformIconSrc(platformID) }))}
               />
               <Typography.Paragraph type="secondary" style={{ margin: "8px 0 0", fontSize: 12 }}>
-                {form.id ? "这是当前岗位已经保存的平台，编辑时不能更换。确认后接着复核岗位内容。" : "选这个岗位实际所在的平台。岗位保存后，我再带你打开招聘浏览器登录。"}
+                {form.id ? "可以更换招聘平台。岗位名称也记得和新平台保持一致，保存后下次开工生效。" : "选这个岗位实际所在的平台。岗位保存后，我再带你打开招聘浏览器登录。"}
               </Typography.Paragraph>
               {form.id ? <Button onClick={() => selectPlatform(form.platform_id)} disabled={!isPlatformOpen(platformConfigs, form.platform_id)} style={{ marginTop: 8 }}>确认使用此平台</Button> : null}
-              {form.platform_id && !isPlatformOpen(platformConfigs, form.platform_id) ? <Alert type="warning" showIcon title={form.id ? "这个岗位的平台暂未开放，已保存的平台不能更换。请联系作者确认，或新建一个可用平台的岗位继续。" : "上次选择的平台暂未开放，换一个可用平台再继续。其他内容给你留着了。"} style={{ marginTop: 8 }} /> : null}
+              {form.platform_id && !isPlatformOpen(platformConfigs, form.platform_id) ? <Alert type="warning" showIcon title="这个岗位的平台暂未开放，换一个可用平台再继续。其他内容给你留着了。" style={{ marginTop: 8 }} /> : null}
             </div>
             <Form.Item layout="vertical" label="岗位名称" extra={`到你选择的${form.platform_id ? platformLabel(form.platform_id) : "招聘平台"}“岗位管理”复制完整岗位名称，保持一致。`} style={{ marginBottom: 0 }}>
               <Input
@@ -2078,7 +2074,7 @@ export default function PositionsPage() {
           </div>
           <div data-onboarding="position-platform">
           <ChoiceCards
-            label={form.id ? "招聘平台（编辑岗位时不可更换）" : "招聘平台"}
+            label="招聘平台"
             value={form.platform_id}
             columns={3}
             autoWidth
@@ -2088,7 +2084,7 @@ export default function PositionsPage() {
                 value: "boss",
                 label: "Boss直聘",
                 disabled:
-                  Boolean(form.id) || !isPlatformOpen(platformConfigs, "boss"),
+                  !isPlatformOpen(platformConfigs, "boss"),
                 description: isPlatformOpen(platformConfigs, "boss")
                   ? "支持 OCR 和 AI 详情识别。"
                   : "暂未开放",
@@ -2098,7 +2094,6 @@ export default function PositionsPage() {
                 value: "zhaopin",
                 label: "智联招聘",
                 disabled:
-                  Boolean(form.id) ||
                   !isPlatformOpen(platformConfigs, "zhaopin"),
                 description: isPlatformOpen(platformConfigs, "zhaopin")
                   ? "支持 DOM 详情识别。"
@@ -2109,7 +2104,6 @@ export default function PositionsPage() {
                 value: "hliepin",
                 label: "猎聘猎头端",
                 disabled:
-                  Boolean(form.id) ||
                   !isPlatformOpen(platformConfigs, "hliepin"),
                 description: isPlatformOpen(platformConfigs, "hliepin")
                   ? "支持 DOM 详情识别。"
@@ -2120,15 +2114,24 @@ export default function PositionsPage() {
                 value: "liepin",
                 label: "猎聘企业端",
                 disabled:
-                  Boolean(form.id) ||
                   !isPlatformOpen(platformConfigs, "liepin"),
                 description: isPlatformOpen(platformConfigs, "liepin")
                   ? "支持 DOM 详情识别。"
                   : "暂未开放",
                 iconSrc: platformIconSrc("liepin"),
               },
+              {
+                value: "51job",
+                label: "前程无忧",
+                disabled: !isPlatformOpen(platformConfigs, "51job"),
+                description: isPlatformOpen(platformConfigs, "51job")
+                  ? "支持 DOM 详情识别。"
+                  : "暂未开放",
+                iconSrc: platformIconSrc("51job"),
+              },
             ]}
           />
+          {form.id ? <Typography.Paragraph type="secondary" style={{ margin: "8px 0 0", fontSize: 12 }}>更换平台后，岗位名称也记得和新平台保持一致。保存后下次开工生效。</Typography.Paragraph> : null}
           </div>
           <Card
             styles={{
@@ -3144,7 +3147,7 @@ function defaultCreateMode(memberActive: boolean) {
 }
 /** isDOMOnlyPlatform 判断平台是否只支持 DOM 详情识别。 */
 function isDOMOnlyPlatform(platformID: string) {
-  return ["hliepin", "liepin", "zhaopin"].includes(platformID);
+  return ["hliepin", "liepin", "zhaopin", "51job"].includes(platformID);
 }
 /** splitKeywords 将多种分隔符转换成忽略大小写的去重关键词数组。 */
 function splitKeywords(value: string) {

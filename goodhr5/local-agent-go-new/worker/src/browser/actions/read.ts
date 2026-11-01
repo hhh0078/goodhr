@@ -44,13 +44,16 @@ export class ReadAction {
       );
       let value: string;
       let property: string;
-      if (request.attribute) {
+      const selectedSpec = found.resolved.resolved_spec ?? request.selector;
+      const readAttribute = request.use_selector_read ? selectedSpec.read_attribute : request.attribute;
+      const readProperty = request.use_selector_read ? selectedSpec.read_property : request.property;
+      if (readAttribute) {
         value = await this.primitive.attribute(
           found.resolved.locator,
-          request.attribute,
+          readAttribute,
         );
-        property = `attribute:${request.attribute}`;
-      } else if (request.property === "html") {
+        property = `attribute:${readAttribute}`;
+      } else if (readProperty === "html") {
         value = await this.primitive.html(found.resolved.locator);
         property = "html";
       } else {

@@ -506,29 +506,50 @@ func assertCommentedSelectors(t *testing.T, raw json.RawMessage, path string) {
 		return
 	}
 	for key, value := range selectors {
-		var spec struct {
-			Comment        string                     `json:"_comment"`
-			Frames         []commentedSelectorGroup   `json:"frames"`
-			FrameFallbacks [][]commentedSelectorGroup `json:"frame_fallbacks"`
-			Parents        []commentedSelectorGroup   `json:"parents"`
-			Target         commentedSelectorGroup     `json:"target"`
+		assertCommentedSelectorSpec(t, value, path+"."+key)
+	}
+}
+
+// assertCommentedSelectorSpec 按原规则检查单个旧对象，并对备用对象数组逐条检查完整说明。
+func assertCommentedSelectorSpec(t *testing.T, raw json.RawMessage, path string) {
+	t.Helper()
+	if strings.HasPrefix(strings.TrimSpace(string(raw)), "[") {
+		var variants []json.RawMessage
+		if json.Unmarshal(raw, &variants) != nil || len(variants) == 0 {
+			t.Errorf("%s 不是非空选择器数组", path)
+			return
 		}
-		if json.Unmarshal(value, &spec) != nil {
-			t.Errorf("%s.%s 不是有效选择器", path, key)
-			continue
+		for index, variant := range variants {
+			assertCommentedSelectorSpec(t, variant, fmt.Sprintf("%s[%d]", path, index))
 		}
-		if strings.TrimSpace(spec.Comment) == "" {
-			t.Errorf("%s.%s 缺少选择器作用说明", path, key)
+		return
+	}
+	var spec struct {
+		Comment        string                     `json:"_comment"`
+		Frames         []commentedSelectorGroup   `json:"frames"`
+		FrameFallbacks [][]commentedSelectorGroup `json:"frame_fallbacks"`
+		Parents        []commentedSelectorGroup   `json:"parents"`
+		Target         commentedSelectorGroup     `json:"target"`
+		Alternatives   []json.RawMessage          `json:"alternatives"`
+	}
+	if json.Unmarshal(raw, &spec) != nil {
+		t.Errorf("%s 不是有效选择器", path)
+		return
+	}
+	if strings.TrimSpace(spec.Comment) == "" {
+		t.Errorf("%s 缺少选择器作用说明", path)
+	}
+	for index, group := range append(spec.Frames, spec.Parents...) {
+		assertSelectorGroupComments(t, group, fmt.Sprintf("%s.parents[%d]", path, index))
+	}
+	for pathIndex, groups := range spec.FrameFallbacks {
+		for index, group := range groups {
+			assertSelectorGroupComments(t, group, fmt.Sprintf("%s.frame_fallbacks[%d][%d]", path, pathIndex, index))
 		}
-		for index, group := range append(spec.Frames, spec.Parents...) {
-			assertSelectorGroupComments(t, group, fmt.Sprintf("%s.%s.parents[%d]", path, key, index))
-		}
-		for pathIndex, groups := range spec.FrameFallbacks {
-			for index, group := range groups {
-				assertSelectorGroupComments(t, group, fmt.Sprintf("%s.%s.frame_fallbacks[%d][%d]", path, key, pathIndex, index))
-			}
-		}
-		assertSelectorGroupComments(t, spec.Target, path+"."+key+".target")
+	}
+	assertSelectorGroupComments(t, spec.Target, path+".target")
+	for index, alternative := range spec.Alternatives {
+		assertCommentedSelectorSpec(t, alternative, fmt.Sprintf("%s.alternatives[%d]", path, index))
 	}
 }
 

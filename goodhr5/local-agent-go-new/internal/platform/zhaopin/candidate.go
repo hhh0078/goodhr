@@ -18,7 +18,18 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 	return common.ScrollToCandidate(ctx, browser, cfg, candidate)
 }
 
-// AdvanceCandidateList 通过公共真实滚轮能力加载更多智联候选人。
+// AdvanceCandidateList 在搜索页使用真实滚轮定位并点击下一页，推荐页继续沿用原无限滚动能力。
 func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, before []model.Candidate, options model.CandidateListOptions) (bool, error) {
+	paging, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.pagination")
+	if err != nil {
+		return false, err
+	}
+	if paging {
+		nextPage, err := common.RequiredSelector(cfg, "candidate.next_page")
+		if err != nil {
+			return false, err
+		}
+		return common.AdvanceCandidatePageTarget(ctx, browser, cfg, r.PlatformID(), nextPage, 0, before, options)
+	}
 	return common.AdvanceCandidateList(ctx, browser, cfg, r.PlatformID(), before, options)
 }

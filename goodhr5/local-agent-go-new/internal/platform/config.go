@@ -16,6 +16,9 @@ var bossConfigJSON []byte
 //go:embed zhaopin/config.json
 var zhaopinConfigJSON []byte
 
+//go:embed job51/config.json
+var job51ConfigJSON []byte
+
 //go:embed liepin/config.json
 var liepinConfigJSON []byte
 
@@ -26,6 +29,7 @@ var hliepinConfigJSON []byte
 func LoadConfig(platformID string) (model.Config, error) {
 	content, exists := map[string][]byte{
 		"boss": bossConfigJSON, "zhaopin": zhaopinConfigJSON,
+		"51job":  job51ConfigJSON,
 		"liepin": liepinConfigJSON, "hliepin": hliepinConfigJSON,
 	}[strings.ToLower(strings.TrimSpace(platformID))]
 	if !exists {

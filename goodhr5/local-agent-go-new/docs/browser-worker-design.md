@@ -48,6 +48,7 @@ HTTP Router
 
 ```ts
 interface SelectorSpec {
+  alternatives?: SelectorSpec[];
   frames?: SelectorGroup[];
   parents?: SelectorGroup[];
   target: SelectorGroup;
@@ -84,6 +85,10 @@ interface SelectorCandidate {
 7. 生成本次操作使用的 `element_ref`。
 
 单元素和列表查找都必须在 `timeout_ms` 内轮询。列表最终超时时只返回最后一轮完整尝试记录，避免诊断被重复轮询日志淹没。
+
+选择器仍兼容原单对象。多页面元素结构不同时，可以配置完整对象数组；Go 和 Worker 在边界将其转换成主对象与 `alternatives`。每条完整路径独立检查，原有主路径优先，歧义仍停止。候选人身份、列表序号和卡片内操作作用域会应用到全部路径，不能只修改主对象。
+
+本次扩展不包含系统调用差异，Windows 与 macOS 使用同一份 JSON 和 Worker 逻辑。已通过 Go 的选择器协议、公共平台和猎头平台回归测试，以及 Worker 编译、备用路径、原框架路径、相对定位和零脚本注入测试；实际招聘页面与双系统编译由平台适配验收另行记录。
 
 ### 序号规则
 

@@ -25,6 +25,7 @@ import (
 type pageOpenRequest struct {
 	Token             string          `json:"token"`
 	URL               string          `json:"url"`
+	ReuseURLs         []string        `json:"reuse_urls,omitempty"` // 显式提供时复用数组内已打开页面，旧请求继续按 URL 打开。
 	UserDataDir       string          `json:"user_data_dir"`
 	ProfileID         string          `json:"profile_id"`
 	PlatformID        string          `json:"platform_id"`
@@ -128,7 +129,7 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
 		return
 	}
-	result, err := s.browser.StartBrowser(r.Context(), contract.BrowserStartRequest{
+	result, err := s.browser.StartBrowserWithSupportedPage(r.Context(), contract.BrowserStartRequest{
 		UserDataDir: profilePath, DownloadsPath: downloadsPath,
 		Headless: &request.Headless, Humanize: &humanize,
 		MouseSpeed: mouseSpeed,
@@ -136,7 +137,7 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 		Locale: locale, Timezone: timezone,
 		UserAgent: request.UserAgent, Proxy: proxy, Args: request.Args,
 		ExtensionPaths: profile.WithBookmarkExtension(profilePath, s.cfg.ExtensionPaths()),
-	})
+	}, request.ReuseURLs)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "PAGE_OPEN_FAILED", err)
 		return

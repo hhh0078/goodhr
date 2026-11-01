@@ -111,6 +111,7 @@ export interface ElementReadRequest {
   selector: SelectorSpec;
   property?: "text" | "html";
   attribute?: string;
+  use_selector_read?: boolean;
 }
 
 /** ElementClickRequest 表示执行完整封装点击的参数。 */

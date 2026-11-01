@@ -115,11 +115,14 @@ func numberedPageSelector(cfg model.Config, selectorKey string, pageNumber int) 
 		pageNumber = 2
 	}
 	exact := true
-	selector.Target.Text = strconv.Itoa(pageNumber)
-	selector.Target.Texts = nil
-	selector.Target.ExactText = &exact
-	selector.Target.Index = nil
-	selector.Description = fmt.Sprintf("%s第 %d 页", firstNonEmpty(cfg.Name, cfg.ID), pageNumber)
+	selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+		variant.Target.Text = strconv.Itoa(pageNumber)
+		variant.Target.Texts = nil
+		variant.Target.ExactText = &exact
+		variant.Target.Index = nil
+		variant.Description = fmt.Sprintf("%s第 %d 页", firstNonEmpty(cfg.Name, cfg.ID), pageNumber)
+		return variant
+	})
 	return selector, nil
 }
 

@@ -14,6 +14,7 @@ export type PlatformPageRule = {
 export type PlatformAuthConfig = {
   pages: PlatformPageRule[];
   public_pages: PlatformPageRule[];
+  reuse_urls?: string[];
 };
 
 const URL_CHECK_INTERVAL_MS = 3000;
@@ -64,7 +65,10 @@ export function parsePlatformAuthConfig(
   if (publicPages.length === 0) {
     throw new Error(`平台 ${platformID} 配置缺少 public.pages 登录规则或 auth.login_url_prefixes`);
   }
-  return { pages: authPages, public_pages: publicPages };
+  const reuseURLs = Array.isArray(parsed?.auth?.reuse_urls)
+    ? Array.from(new Set<string>(parsed.auth.reuse_urls.filter((url: unknown): url is string => typeof url === "string" && /^https?:\/\//.test(url.trim())).map((url: string) => url.trim())))
+    : [];
+  return { pages: authPages, public_pages: publicPages, ...(reuseURLs.length ? { reuse_urls: reuseURLs } : {}) };
 }
 
 /** legacyLoginPageRules 只把旧配置中有效的完整 HTTP(S) 登录前缀映射为公开规则，不补充平台地址。 */
@@ -134,7 +138,7 @@ export async function openPlatformLoginBrowser(
   await openLocalPage(agentBase, { ...browserPayload, url: targetURL });
 }
 
-/** openPlatformPositionBrowser 使用默认本地浏览器资料目录打开岗位运行平台入口页。 */
+/** openPlatformPositionBrowser 使用默认资料目录打开岗位入口；智联和前程无忧优先复用明确配置的已开页面。 */
 export async function openPlatformPositionBrowser(
   agentBase: string,
   platformID: string,
@@ -149,6 +153,7 @@ export async function openPlatformPositionBrowser(
     headless: false,
     humanize: true,
     url: targetURL,
+    ...(["zhaopin", "51job"].includes(platformID) && auth.reuse_urls?.length ? { reuse_urls: auth.reuse_urls } : {}),
   });
 }
 

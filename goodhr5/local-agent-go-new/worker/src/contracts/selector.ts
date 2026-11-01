@@ -25,6 +25,7 @@ export type SelectorState = "attached" | "visible" | "enabled";
 
 /** SelectorSpec 表示从 iframe、父级到目标元素的完整通用定位方案。 */
 export interface SelectorSpec {
+  alternatives?: SelectorSpec[];
   frames?: SelectorGroup[];
   frame_fallbacks?: SelectorGroup[][];
   parents?: SelectorGroup[];

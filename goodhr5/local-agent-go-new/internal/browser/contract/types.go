@@ -20,6 +20,7 @@ type SelectorGroup struct {
 
 // SelectorSpec 表示 iframe、父级和目标组成的统一定位方案。
 type SelectorSpec struct {
+	Alternatives   []SelectorSpec    `json:"alternatives,omitempty"`
 	Frames         []SelectorGroup   `json:"frames,omitempty"`
 	FrameFallbacks [][]SelectorGroup `json:"frame_fallbacks,omitempty"`
 	Parents        []SelectorGroup   `json:"parents,omitempty"`
@@ -185,9 +186,10 @@ type FindAllItem struct {
 
 // ElementReadRequest 表示元素读取请求。
 type ElementReadRequest struct {
-	Selector  SelectorSpec `json:"selector"`
-	Property  string       `json:"property,omitempty"`
-	Attribute string       `json:"attribute,omitempty"`
+	Selector        SelectorSpec `json:"selector"`
+	Property        string       `json:"property,omitempty"`
+	Attribute       string       `json:"attribute,omitempty"`
+	UseSelectorRead bool         `json:"use_selector_read,omitempty"` // 仅备用路径读取时使用实际命中方案的属性或正文设置。
 }
 
 // ReadResult 表示元素读取结果。
@@ -275,11 +277,13 @@ type ScrollRequest struct {
 
 // ScrollResult 表示真实滚轮次数和前后状态。
 type ScrollResult struct {
-	Scrolled              bool  `json:"scrolled"`
-	Attempts              int   `json:"attempts"`
-	Distance              int   `json:"distance"`
-	ProgressTargetVisible *bool `json:"progress_target_visible,omitempty"`
-	ProgressTargetMoved   *bool `json:"progress_target_moved,omitempty"`
+	Scrolled              bool         `json:"scrolled"`
+	Attempts              int          `json:"attempts"`
+	Distance              int          `json:"distance"`
+	ProgressTargetVisible *bool        `json:"progress_target_visible,omitempty"`
+	ProgressTargetMoved   *bool        `json:"progress_target_moved,omitempty"`
+	Before                *ElementView `json:"before,omitempty"` // Worker 已返回的滚动前目标位置；无目标时允许为空。
+	After                 *ElementView `json:"after,omitempty"`  // Worker 已返回的滚动后目标位置；用于平台固定页头避让。
 }
 
 // ScreenshotRequest 表示页面或元素截图请求。

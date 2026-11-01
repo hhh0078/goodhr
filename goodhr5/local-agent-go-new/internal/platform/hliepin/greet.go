@@ -136,8 +136,11 @@ func selectGreetingJob(ctx context.Context, browser model.Browser, cfg model.Con
 			// 虚拟列表会在每次滚轮中改变下标，必须在开始滚动前就绑定职位文字。
 			for _, item := range items {
 				if item.Index == matchIndex {
-					selector.Target.Text = greetingJobName(item)
-					selector.Target.Index = nil
+					selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+						variant.Target.Text = greetingJobName(item)
+						variant.Target.Index = nil
+						return variant
+					})
 					break
 				}
 			}
@@ -176,7 +179,10 @@ func clickGreetingJob(
 	matchIndex int,
 	positionName string,
 ) (bool, error) {
-	selector.Target.Index = nil
+	selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+		variant.Target.Index = nil
+		return variant
+	})
 	list.TimeoutMS = 200
 	requireFull := true
 	if _, err := browser.Scroll(ctx, contract.ScrollRequest{

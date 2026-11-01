@@ -20,7 +20,9 @@ export function platformLabel(platformID: string) {
         ? "智联招聘"
         : platformID === "liepin"
           ? "猎聘企业端"
-          : platformID || "未知平台";
+          : platformID === "51job"
+            ? "前程无忧"
+            : platformID || "未知平台";
 }
 
 /** platformIconSrc 返回招聘平台本地图标路径。 */

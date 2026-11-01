@@ -26,11 +26,14 @@ func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg
 		return err
 	}
 	exact := true
-	selector.Target.Text = shortcutName
-	selector.Target.Texts = nil
-	selector.Target.ExactText = &exact
-	selector.Target.Index = nil
-	selector.Description = "猎聘快捷搜索“" + shortcutName + "”"
+	selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+		variant.Target.Text = shortcutName
+		variant.Target.Texts = nil
+		variant.Target.ExactText = &exact
+		variant.Target.Index = nil
+		variant.Description = "猎聘快捷搜索“" + shortcutName + "”"
+		return variant
+	})
 	if _, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Home", DelayMS: 120}); err != nil {
 		return fmt.Errorf("选择猎聘快捷搜索前回到页面顶部失败：%w", err)
 	}

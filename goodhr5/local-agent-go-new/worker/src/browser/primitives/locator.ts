@@ -143,6 +143,7 @@ export class LocatorPrimitive {
           attempts: [...attempts],
           view,
           list_index: index,
+          resolved_spec: spec,
         });
       }
       if (results.length > 0) {
@@ -234,6 +235,7 @@ export class LocatorPrimitive {
       matched_selector: selected.candidate,
       attempts,
       view,
+      resolved_spec: spec,
     };
   }
 
@@ -249,7 +251,9 @@ export class LocatorPrimitive {
     let lastAttempts: SelectorAttempt[] = [];
     let lastError: unknown;
     let pollAttempts = 0;
-    const variants = [spec, ...(spec.frame_fallbacks ?? []).map(frames => ({ ...spec, frames }))];
+    const variants = selectorVariants(spec).flatMap(variant =>
+      [variant, ...(variant.frame_fallbacks ?? []).map(frames => ({ ...variant, frames }))],
+    );
     while (true) {
       pollAttempts += 1;
       const attempts: SelectorAttempt[] = [];
@@ -438,6 +442,7 @@ export class LocatorPrimitive {
       matched_selector: selected.candidate,
       attempts: [...attempts],
       view,
+      resolved_spec: spec,
     };
   }
 
@@ -635,6 +640,11 @@ export class LocatorPrimitive {
       cause,
     });
   }
+}
+
+/** selectorVariants 按顺序展开完整备用定位方案，旧对象仍只有原来的一条方案。 */
+function selectorVariants(spec: SelectorSpec): SelectorSpec[] {
+  return [spec, ...(spec.alternatives ?? []).flatMap(selectorVariants)];
 }
 
 /** exactTextPattern 创建允许首尾空白、但不允许额外正文的精确文本表达式。 */

@@ -1,0 +1,780 @@
+{
+  "_comment": "前程无忧本地运行配置；随 Go 程序一起发布，是页面地址、行为和选择器的唯一来源。",
+  "_property_comments": {
+    "SelectorSpec.frames": "从外到内的 iframe 层级数组。",
+    "SelectorSpec.parents": "从外到内的父级层级数组。",
+    "SelectorSpec.target": "最终目标选择器组。",
+    "SelectorSpec.state": "目标必须满足 attached、visible 或 enabled。",
+    "SelectorSpec.timeout_ms": "查找超时毫秒数。",
+    "SelectorSpec.read_property": "列表字段读取 text 或 html。",
+    "SelectorSpec.read_attribute": "列表字段读取指定 HTML 属性。",
+    "SelectorSpec.description": "结构化日志使用的中文目标名。",
+    "SelectorGroup.selectors": "按顺序降级尝试的选择器数组。",
+    "SelectorGroup.index": "列表序号，从 0 开始。",
+    "SelectorGroup.text": "目标文字约束。",
+    "SelectorGroup.exact_text": "是否完整匹配文字。",
+    "SelectorGroup.attributes": "目标必须同时满足的属性和值。",
+    "SelectorCandidate.type": "css、role、text 或 test_id。",
+    "SelectorCandidate.value": "选择器或文字值。",
+    "ConfiguredAction.name": "初始化或筛选步骤名称。",
+    "ConfiguredAction.type": "click 或 input。",
+    "ConfiguredAction.selector_key": "selectors 中的逻辑键。",
+    "ConfiguredAction.value": "输入动作使用的文本。",
+    "ConfiguredAction.optional": "元素不存在时是否允许跳过。"
+  },
+  "id": "51job",
+  "_comment_id": "平台唯一编号。",
+  "name": "前程无忧",
+  "_comment_name": "平台中文名称。",
+  "login_url": "https://mall.51job.com/",
+  "_comment_login_url": "前程无忧账号入口；平台自行跳转登录页。",
+  "entry_url": [
+    "https://mall.51job.com/Revision/online/talentRecommend",
+    "https://mall.51job.com/Revision/online/talent/search"
+  ],
+  "_comment_entry_url": "优先保留当前已开的人才推荐或搜索人才页面，没有时打开第一项。",
+  "messages_url": "",
+  "_comment_messages_url": "本次仅适配主动打招呼；自动回复尚未验证，启动前由配置校验明确拦截。",
+  "scroll_distance": 620,
+  "_comment_scroll_distance": "候选人列表每次真实滚轮的基础距离。",
+  "max_items": 100,
+  "_comment_max_items": "单次最多读取的候选人或会话数量。",
+  "behavior": {
+    "_comment": "两页共用无限滚动列表，当前岗位一致时保留页面与筛选；独立自动回复与附件下载尚未适配。",
+    "supports_paging": false,
+    "_comment_supports_paging": "两页均用真实滚轮追加候选人。",
+    "candidate_list_mode": "infinite_scroll",
+    "_comment_candidate_list_mode": "保留推荐与搜索页面的无限加载方式。",
+    "skip_position_selection": false,
+    "_comment_skip_position_selection": "按岗位名称选择平台已发布岗位。",
+    "direct_position_selection": false,
+    "_comment_direct_position_selection": "先读取当前岗位，同岗不重复切换。",
+    "select_first_position_result": false,
+    "_comment_select_first_position_result": "按名称匹配岗位，不直接点击第一项。",
+    "needs_detail": true,
+    "_comment_needs_detail": "读取可见简历正文后继续判断。",
+    "candidate_top_inset": 216,
+    "_comment_candidate_top_inset": "以CSS像素避让约200像素固定页头；只上滚调整卡片顶边，不扩大左右点击留白。",
+    "candidate_bottom_inset": 288,
+    "_comment_candidate_bottom_inset": "按钮底边需避开底部客服和积分浮层，仅通过列表上的真实竖向滚轮调整，不扩大横向留白。",
+    "message_send_verify_empty": true,
+    "_comment_message_send_verify_empty": "发送后只读确认可编辑输入框清空，不能把点击当成成功或重复发送。",
+    "request_phone_message": "您好，方便留个联系电话吗？想和您进一步沟通这个岗位。",
+    "_comment_request_phone_message": "仅发送礼貌索要消息，不点击获取电话等付费权益按钮。",
+    "request_resume_message": "方便发一份附件简历吗？我好更完整地了解您的经历。",
+    "_comment_request_resume_message": "在当前候选人聊天框索要附件简历，不猜测邀请投递或付费步骤。"
+  },
+  "login_init_actions": [],
+  "_comment_login_init_actions": "登录页面初始化动作，当前旧版没有可确认的弹框动作。",
+  "greeting_init_actions": [],
+  "_comment_greeting_init_actions": "主动打招呼页面初始化动作，当前旧版没有可确认的弹框动作。",
+  "message_init_actions": [],
+  "_comment_message_init_actions": "自动回复未适配，不配置猜测动作。",
+  "filter_actions": [],
+  "_comment_filter_actions": "不修改用户手动筛选；仅在任务明确提供关键词时搜索。",
+  "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
+  "selectors": {
+    "position.current": {
+      "_comment": "前程无忧当前岗位。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧当前岗位目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧当前岗位当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".job-wrap:visible .job-item.active .job-name:visible"
+          },
+          {
+            "_comment": "前程无忧当前岗位当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".search-header:visible .center-job .job-name:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "前程无忧当前岗位"
+    },
+    "position.open": {
+      "_comment": "前程无忧搜索页岗位下拉入口。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧搜索页岗位下拉入口目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧搜索页岗位下拉入口当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".search-header:visible .center-job:visible"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1500,
+      "description": "前程无忧搜索页岗位下拉入口"
+    },
+    "position.item": {
+      "_comment": "前程无忧岗位列表项。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧岗位列表项目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧岗位列表项当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".job-wrap:visible .job-list > .job-item:visible"
+          },
+          {
+            "_comment": "前程无忧岗位列表项当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".search-header:visible .job-list:visible > .job-item:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "前程无忧岗位列表项"
+    },
+    "position.item_text": {
+      "_comment": "前程无忧列表岗位名称。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧列表岗位名称目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧列表岗位名称当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".job-name:visible"
+          },
+          {
+            "_comment": "前程无忧列表岗位名称当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".job-text:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "前程无忧列表岗位名称"
+    },
+    "position.click_target": {
+      "_comment": "前程无忧岗位名称点击区域。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧岗位名称点击区域目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧岗位名称点击区域当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".job-name:visible"
+          },
+          {
+            "_comment": "前程无忧岗位名称点击区域当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".job-text:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "前程无忧岗位名称点击区域"
+    },
+    "search.input": {
+      "_comment": "前程无忧人才关键词输入框。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧人才关键词输入框目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧人才关键词输入框当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".search-header:visible .center-input input:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "前程无忧人才关键词输入框"
+    },
+    "search.submit": {
+      "_comment": "前程无忧人才搜索按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧人才搜索按钮目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧人才搜索按钮当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".search-header:visible .right-btn:visible"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "前程无忧人才搜索按钮"
+    },
+    "candidate.list": {
+      "_comment": "前程无忧主候选人列表。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧主候选人列表目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧主候选人列表当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".talent-recommend-container:visible > .list-box > .resume-module > ul.resume-card:visible"
+          },
+          {
+            "_comment": "前程无忧主候选人列表当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".talent-box:visible > .listBox > .resume-module > ul.resume-card:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "前程无忧主候选人列表"
+    },
+    "candidate.item": {
+      "_comment": "前程无忧主候选人卡片。",
+      "parents": [
+        {
+          "_comment": "只在两页主候选列表中读取，排除详情弹窗内的相似候选人。",
+          "selectors": [
+            {
+              "_comment": "前程无忧主候选人列表当前可见节点，排除SPA旧页残留。",
+              "type": "css",
+              "value": ".talent-recommend-container:visible > .list-box > .resume-module > ul.resume-card:visible"
+            },
+            {
+              "_comment": "前程无忧主候选人列表当前可见节点，排除SPA旧页残留。",
+              "type": "css",
+              "value": ".talent-box:visible > .listBox > .resume-module > ul.resume-card:visible"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "前程无忧主候选人卡片目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧主候选人卡片的可见页面节点。",
+            "type": "css",
+            "value": "li.card-item[id^='RESUME_CARD_']:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "前程无忧主候选人卡片"
+    },
+    "candidate.open_target": {
+      "_comment": "前程无忧候选人详情姓名入口。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧候选人详情姓名入口目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧候选人详情姓名入口当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".info-name:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "前程无忧候选人详情姓名入口"
+    },
+    "candidate.detail": {
+      "_comment": "只读取已加载姓名的正文模块父节点，排除同级water-mark-wrap水印；不删除真实任职公司文字。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧加载完成的简历正文目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧加载完成的简历正文当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".resume-detail-modal:visible .resume_main_wrap:has(.user_name:not(:empty)) > div:has(.resume_main_item)"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 8000,
+      "description": "前程无忧加载完成的简历正文"
+    },
+    "candidate.detail_name": {
+      "_comment": "前程无忧详情候选人姓名。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧详情候选人姓名目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧详情候选人姓名当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".resume-detail-modal:visible .resume_main_wrap .user_name:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "前程无忧详情候选人姓名"
+    },
+    "candidate.detail_dialog": {
+      "_comment": "前程无忧简历详情弹窗。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧简历详情弹窗目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧简历详情弹窗当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".resume-detail-modal:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "前程无忧简历详情弹窗"
+    },
+    "candidate.detail_scroll": {
+      "_comment": "前程无忧简历详情滚轮区域。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧简历详情滚轮区域目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧简历详情滚轮区域当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".resume-detail-modal:visible .resume_main_wrap:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "前程无忧简历详情滚轮区域"
+    },
+    "candidate.detail_close": {
+      "_comment": "前程无忧简历详情关闭按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧简历详情关闭按钮目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧简历详情关闭按钮当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".resume-detail-modal:visible .close:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "前程无忧简历详情关闭按钮"
+    },
+    "candidate.greet": {
+      "_comment": "前程无忧打招呼按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧打招呼按钮目标。",
+        "selectors": [
+          {
+            "_comment": "宽窗口实际显示的长按钮；仍由精确动作文字约束。",
+            "type": "css",
+            "value": ".right-opt .long-btn:visible"
+          },
+          {
+            "_comment": "窄窗口实际显示的短按钮，排除隐藏的宽屏副本。",
+            "type": "css",
+            "value": ".right-opt .short-btn:visible"
+          }
+        ],
+        "text": "打个招呼",
+        "exact_text": true,
+        "_comment_text": "只匹配该动作的准确文字。",
+        "_comment_exact_text": "防止误点同样式的其他操作。"
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "前程无忧打招呼按钮"
+    },
+    "candidate.loading": {
+      "_comment": "前程无忧候选列表加载层；先确认加载结束再判断空态。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧候选列表加载层可见节点。",
+        "selectors": [
+          {
+            "_comment": "前程无忧候选列表加载层当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".talent-recommend-container:visible > .list-box > .el-loading-mask:visible"
+          },
+          {
+            "_comment": "前程无忧候选列表加载层当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".talent-box:visible > .listBox > .el-loading-mask:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "前程无忧候选列表加载层"
+    },
+    "candidate.empty": {
+      "_comment": "前程无忧搜索明确空结果；先确认加载结束再判断空态。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧搜索明确空结果可见节点。",
+        "selectors": [
+          {
+            "_comment": "前程无忧搜索明确空结果当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".talent-box:visible > .listBox > .empty-container:visible > .empty-text:visible"
+          },
+          {
+            "_comment": "前程无忧搜索明确空结果当前可见节点，排除SPA旧页残留。",
+            "type": "css",
+            "value": ".talent-recommend-container:visible .empty_box:visible .talent_empty:visible .empty_text:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "前程无忧搜索明确空结果"
+    },
+    "candidate.continue": {
+      "_comment": "同一卡片异步变成继续聊聊才确认招呼成功。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧打招呼按钮目标。",
+        "selectors": [
+          {
+            "_comment": "宽窗口实际显示的长按钮；仍由精确动作文字约束。",
+            "type": "css",
+            "value": ".right-opt .long-btn:visible"
+          },
+          {
+            "_comment": "窄窗口实际显示的短按钮，排除隐藏的宽屏副本。",
+            "type": "css",
+            "value": ".right-opt .short-btn:visible"
+          }
+        ],
+        "text": "继续聊聊",
+        "exact_text": true,
+        "_comment_text": "只匹配该动作的准确文字。",
+        "_comment_exact_text": "防止误点同样式的其他操作。"
+      },
+      "state": "enabled",
+      "timeout_ms": 1000,
+      "description": "前程无忧继续聊聊按钮"
+    },
+    "candidate.greet_blocker": {
+      "_comment": "聊天点数浮层会挡住按钮；只探测并停止，不点击当前岗位刷新名单或自动重发。",
+      "parents": [],
+      "target": {
+        "_comment": "仅探测当前可见积分浮层。",
+        "selectors": [
+          {
+            "_comment": "前程无忧聊天点数提示浮层。",
+            "type": "css",
+            "value": ".integral-popper:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "前程无忧聊天点数浮层"
+    },
+    "candidate.chat_modal": {
+      "_comment": "前程无忧当前聊天框。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧当前聊天框目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧当前聊天框当前可见节点。",
+            "type": "css",
+            "value": ".chat-container:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "前程无忧当前聊天框"
+    },
+    "candidate.chat_name": {
+      "_comment": "前程无忧聊天候选人姓名。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧聊天候选人姓名目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧聊天候选人姓名当前可见节点。",
+            "type": "css",
+            "value": "#chatAreaEmbed:visible .chat-new-header .username-text:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "前程无忧聊天候选人姓名"
+    },
+    "candidate.chat_close": {
+      "_comment": "前程无忧关闭聊天框。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧关闭聊天框目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧关闭聊天框当前可见节点。",
+            "type": "css",
+            "value": "#chatAreaEmbed:visible .chat-new-header .chat-user-operate .operate-item.right:visible"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "前程无忧关闭聊天框"
+    },
+    "candidate.followup_input": {
+      "_comment": "前程无忧聊天消息输入框。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧聊天消息输入框目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧聊天消息输入框当前可见节点。",
+            "type": "css",
+            "value": ".chat-container:visible #drop-area[contenteditable=\"true\"]"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "前程无忧聊天消息输入框"
+    },
+    "candidate.followup_send": {
+      "_comment": "前程无忧聊天发送按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧聊天发送按钮目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧聊天发送按钮当前可见节点。",
+            "type": "css",
+            "value": ".chat-container:visible .new-send-button:visible"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "前程无忧聊天发送按钮"
+    },
+    "candidate.request_wechat": {
+      "_comment": "前程无忧交换微信入口。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧交换微信入口目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧交换微信入口当前可见节点。",
+            "type": "css",
+            "value": ".chat-container:visible .exchange-wx-btn:visible"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "前程无忧交换微信入口"
+    },
+    "candidate.request_confirm_modal": {
+      "_comment": "前程无忧交换微信确认弹层。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧交换微信确认弹层目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧交换微信确认弹层当前可见节点。",
+            "type": "css",
+            "value": ".exchange-wx-popover[aria-hidden='false']:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "前程无忧交换微信确认弹层"
+    },
+    "candidate.request_wechat_confirm": {
+      "_comment": "前程无忧发送微信请求。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧发送微信请求目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧发送微信请求当前可见节点。",
+            "type": "css",
+            "value": ".exchange-wx-popover[aria-hidden='false']:visible .exchange-wx-popover-btn"
+          }
+        ],
+        "text": "发送",
+        "exact_text": true,
+        "_comment_text": "精确匹配动作文字，避免点到其他控制。",
+        "_comment_exact_text": "只操作完整相同文案。"
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "前程无忧发送微信请求"
+    },
+    "candidate.request_wechat_cancel": {
+      "_comment": "前程无忧取消微信请求。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧取消微信请求目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧取消微信请求当前可见节点。",
+            "type": "css",
+            "value": ".exchange-wx-popover[aria-hidden='false']:visible .exchange-wx-popover-btn"
+          }
+        ],
+        "text": "取消",
+        "exact_text": true,
+        "_comment_text": "精确匹配动作文字，避免点到其他控制。",
+        "_comment_exact_text": "只操作完整相同文案。"
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "前程无忧取消微信请求"
+    },
+    "candidate.contact_drawer": {
+      "_comment": "前程无忧展开的联系人侧栏；继续沟通后可能仍展开，必须清理后再操作下一张卡。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧展开的联系人侧栏目标。",
+        "selectors": [
+          {
+            "_comment": "已验证的当前可见侧栏节点。",
+            "type": "css",
+            "value": ".conversation-list-section.unfold:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "前程无忧展开的联系人侧栏"
+    },
+    "candidate.contact_drawer_close": {
+      "_comment": "前程无忧收起联系人侧栏；继续沟通后可能仍展开，必须清理后再操作下一张卡。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧收起联系人侧栏目标。",
+        "selectors": [
+          {
+            "_comment": "已验证的当前可见侧栏节点。",
+            "type": "css",
+            "value": ".conversation-list-section.unfold:visible .conversation-embeded-header .edit-btn.right:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "前程无忧收起联系人侧栏"
+    }
+  },
+  "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
+  "candidate_fields": {
+    "name": {
+      "_comment": "前程无忧候选人姓名。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧候选人姓名目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧候选人姓名的可见页面节点。",
+            "type": "css",
+            "value": ".info-name"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "前程无忧候选人姓名"
+    },
+    "basic_info": {
+      "_comment": "前程无忧候选人基本信息。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧候选人基本信息目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧候选人基本信息的可见页面节点。",
+            "type": "css",
+            "value": ".info-item[title]"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "前程无忧候选人基本信息"
+    },
+    "education": {
+      "_comment": "前程无忧候选人教育经历。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧候选人教育经历目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧候选人教育经历的可见页面节点。",
+            "type": "css",
+            "value": ".work-education"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "前程无忧候选人教育经历"
+    },
+    "description": {
+      "_comment": "前程无忧候选人摘要。",
+      "parents": [],
+      "target": {
+        "_comment": "前程无忧候选人摘要目标。",
+        "selectors": [
+          {
+            "_comment": "前程无忧候选人摘要的可见页面节点。",
+            "type": "css",
+            "value": ".box-content"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "前程无忧候选人摘要"
+    },
+    "platform_candidate_id": {
+      "_comment": "先读取卡片公开DOM编号；Go按该卡真实Index剥离索引尾缀后保存稳定简历编号，原DOM编号只作本地定位。",
+      "parents": [],
+      "target": {
+        "_comment": "当前候选人卡片自身。",
+        "selectors": [
+          {
+            "_comment": "标准相对选择器，不把编号作为可见文字。",
+            "type": "css",
+            "value": ":scope"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "read_attribute": "id",
+      "_comment_read_attribute": "读取卡片公开的id属性作为平台候选人编号。",
+      "description": "前程无忧候选人唯一编号"
+    }
+  },
+  "conversation_fields": {},
+  "_comment_conversation_fields": "未验证前程无忧消息页面，不保留复制来的其他平台节点。",
+  "pending_selectors": {
+    "_comment": "真实回归前仍需补齐的能力；不保留未经验证的其他平台选择器。",
+    "candidate.favorite": "收藏候选人按钮尚未取证。",
+    "candidate.reject": "不合适按钮尚未取证。",
+    "auto_reply": "消息、附件及信息索要尚未适配，自动回复启动前明确拒绝。"
+  }
+}

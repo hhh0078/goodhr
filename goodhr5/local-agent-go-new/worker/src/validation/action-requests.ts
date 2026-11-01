@@ -269,6 +269,9 @@ export function parseElementReadRequest(
     request.property = record.property;
   }
   assignString(request, "attribute", optionalString(record, "attribute"));
+  if (record.use_selector_read === true) {
+    request.use_selector_read = true;
+  }
   return request;
 }
 

@@ -7,11 +7,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"goodhr5/local-agent-go-new/internal/browser/client"
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
@@ -22,18 +22,18 @@ const (
 )
 
 // OpenPage 打开平台配置中的页面地址。
-func OpenPage(ctx context.Context, browser model.Browser, platformID string, rawURL string, label string) error {
-	_, err := openPage(ctx, browser, platformID, rawURL, label)
+func OpenPage(ctx context.Context, browser model.Browser, platformID string, rawURL string, label string, supportedURLs ...string) error {
+	_, err := openConfiguredPage(ctx, browser, platformID, rawURL, label, supportedURLs)
 	return err
 }
 
 // OpenVerifiedPage 打开平台页面并确认最终地址没有跳转到登录页等其他页面。
-func OpenVerifiedPage(ctx context.Context, browser model.Browser, platformID string, rawURL string, label string) error {
-	page, err := openPage(ctx, browser, platformID, rawURL, label)
+func OpenVerifiedPage(ctx context.Context, browser model.Browser, platformID string, rawURL string, label string, supportedURLs ...string) error {
+	page, err := openConfiguredPage(ctx, browser, platformID, rawURL, label, supportedURLs)
 	if err != nil {
 		return err
 	}
-	if !PageURLMatches(page.URL, rawURL) {
+	if !client.PageMatchesSupportedURLs(page.URL, rawURL, supportedURLs) {
 		return fmt.Errorf("平台 %s 没有停在%s，可能需要重新登录：%s", platformID, label, page.URL)
 	}
 	return nil
@@ -53,21 +53,7 @@ func openPage(ctx context.Context, browser model.Browser, platformID string, raw
 
 // PageURLMatches 判断最终页面地址是否包含配置页面地址。
 func PageURLMatches(pageURL string, targetURL string) bool {
-	page, pageErr := url.Parse(strings.TrimSpace(pageURL))
-	target, targetErr := url.Parse(strings.TrimSpace(targetURL))
-	if pageErr != nil || targetErr != nil || page.Scheme == "" || target.Scheme == "" {
-		return false
-	}
-	pagePath := strings.TrimRight(page.EscapedPath(), "/")
-	targetPath := strings.TrimRight(target.EscapedPath(), "/")
-	pathMatches := pagePath == targetPath ||
-		(targetPath != "" && strings.HasPrefix(pagePath, targetPath+"/"))
-	if !strings.EqualFold(page.Scheme, target.Scheme) ||
-		!strings.EqualFold(page.Host, target.Host) ||
-		!pathMatches {
-		return false
-	}
-	return target.RawQuery == "" || strings.Contains(page.RawQuery, target.RawQuery)
+	return client.PageURLMatches(pageURL, targetURL)
 }
 
 // ClickRequired 使用 Worker 完整点击能力点击必需选择器。
@@ -284,7 +270,7 @@ func ReadOptional(ctx context.Context, browser model.Browser, cfg model.Config, 
 		property = "text"
 	}
 	result, err := browser.Read(ctx, contract.ElementReadRequest{
-		Selector: selector, Property: property, Attribute: attribute,
+		Selector: selector, Property: property, Attribute: attribute, UseSelectorRead: len(selector.Alternatives) > 0,
 	})
 	if IsElementMissing(err) {
 		return "", false, nil
@@ -521,7 +507,10 @@ func IndexedSelector(cfg model.Config, key string, index int) (contract.Selector
 		return contract.SelectorSpec{}, err
 	}
 	indexValue := max(index, 0)
-	selector.Target.Index = &indexValue
+	selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+		variant.Target.Index = &indexValue
+		return variant
+	})
 	return selector, nil
 }
 
@@ -539,13 +528,19 @@ func CandidateSelector(cfg model.Config, candidate model.Candidate) (contract.Se
 	}
 	if len(identityTexts) == 0 {
 		index := max(candidate.Index, 0)
-		selector.Target.Index = &index
+		selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+			variant.Target.Index = &index
+			return variant
+		})
 		return selector, nil
 	}
-	selector.Target.Texts = append(selector.Target.Texts, identityTexts...)
 	occurrence := max(candidate.IdentityOccurrence, 0)
-	selector.Target.Index = &occurrence
-	selector.Description = firstNonEmpty(candidate.Name, selector.Description)
+	selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+		variant.Target.Texts = append(append([]string(nil), variant.Target.Texts...), identityTexts...)
+		variant.Target.Index = &occurrence
+		variant.Description = firstNonEmpty(candidate.Name, variant.Description)
+		return variant
+	})
 	return selector, nil
 }
 
@@ -558,6 +553,13 @@ func CandidateActionSelector(cfg model.Config, actionKey string, candidate model
 	action, ok := cfg.Selectors[actionKey]
 	if !ok {
 		return contract.SelectorSpec{}, fmt.Errorf("平台 %s 缺少选择器 %s", cfg.ID, actionKey)
+	}
+	if len(card.Alternatives) > 0 || len(action.Alternatives) > 0 {
+		action = action.WithinSelector(card).MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+			variant.Description = firstNonEmpty(variant.Description, actionKey)
+			return variant
+		})
+		return action, nil
 	}
 	parents := make([]contract.SelectorGroup, 0, len(card.Parents)+1+len(action.Parents))
 	parents = append(parents, card.Parents...)
@@ -585,7 +587,17 @@ func CandidateScopedSelectorWithParent(cfg model.Config, parentKey string, actio
 		return contract.SelectorSpec{}, fmt.Errorf("平台 %s 缺少选择器 %s", cfg.ID, actionKey)
 	}
 	indexValue := max(index, 0)
-	card.Target.Index = &indexValue
+	card = card.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+		variant.Target.Index = &indexValue
+		return variant
+	})
+	if len(card.Alternatives) > 0 || len(action.Alternatives) > 0 {
+		action = action.WithinSelector(card).MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+			variant.Description = actionKey
+			return variant
+		})
+		return action, nil
+	}
 	parents := make([]contract.SelectorGroup, 0, len(card.Parents)+1+len(action.Parents))
 	parents = append(parents, card.Parents...)
 	parents = append(parents, card.Target)
