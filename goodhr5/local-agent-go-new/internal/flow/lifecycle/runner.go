@@ -403,7 +403,9 @@ func (r *Runner) run(ctx context.Context, active *activeTask) {
 	runtime = newLoggedRuntime(runtime, prepared.Request.TaskID, r.logger)
 	switch prepared.Request.TaskType {
 	case "greeting":
-		stats, err = r.runGreetingWithAutoReply(ctx, prepared, runtime)
+		// 暂停打招呼时穿插自动回复，避免未上线的检查影响正常招聘任务。
+		// stats, err = r.runGreetingWithAutoReply(ctx, prepared, runtime)
+		stats, err = r.greeting.Run(ctx, prepared, runtime)
 	case "auto_reply":
 		stats, err = r.reply.Run(ctx, prepared, runtime)
 	default:
