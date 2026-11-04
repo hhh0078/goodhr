@@ -25,6 +25,77 @@ type searchListBrowser struct {
 	markerCount int
 }
 
+type manualSearchBrowser struct {
+	model.Browser
+	pageURL string
+	ready   bool
+	probes  []contract.ElementFindAllRequest
+}
+
+// ListPages 返回合成活动页和另一张推荐页。
+func (b *manualSearchBrowser) ListPages(context.Context) (contract.PageListResult, error) {
+	return contract.PageListResult{Pages: []contract.PageInfo{
+		{PageID: "recommend", URL: "https://rd6.zhaopin.com/app/recommend"},
+		{PageID: "active", URL: b.pageURL, Current: true},
+	}}, nil
+}
+
+// FindAll 模拟首张搜索结果卡片并记录探测参数。
+func (b *manualSearchBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	b.probes = append(b.probes, request)
+	if b.ready {
+		return []contract.FindAllItem{{Index: 0}}, nil
+	}
+	return nil, nil
+}
+
+// TestManualSearchKeepsConditions 验证搜索页只探测首卡，并跳过选岗和配置筛选。
+func TestManualSearchKeepsConditions(t *testing.T) {
+	cfg, err := platform.LoadConfig("zhaopin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ManualSearchURL != "https://rd6.zhaopin.com/app/search" {
+		t.Fatalf("手动搜索地址不正确：%s", cfg.ManualSearchURL)
+	}
+	cfg.FilterActions = []model.ConfiguredAction{{Type: "input", SelectorKey: "position.input", Value: "新的筛选条件"}}
+	cfg.GreetingInitActions = cfg.FilterActions
+	browser := &manualSearchBrowser{pageURL: cfg.ManualSearchURL + "/?keyword=manual#filters", ready: true}
+	runtime := zhaopin.NewRuntime()
+	ctx := context.Background()
+	position := model.Position{Name: "其他岗位", Keyword: "任务关键词"}
+	if err = runtime.InitializeGreetingPage(ctx, browser, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err = runtime.SelectPosition(ctx, browser, cfg, position); err != nil {
+		t.Fatal(err)
+	}
+	if err = runtime.ApplyBasicFilters(ctx, browser, cfg, position); err != nil {
+		t.Fatal(err)
+	}
+	if len(browser.probes) != 1 || !browser.probes[0].ProbeOnly || browser.probes[0].MaxItems != 1 || len(browser.probes[0].Fields) != 0 {
+		t.Fatalf("搜索准备只需轻量确认一张搜索卡片：%+v", browser.probes)
+	}
+}
+
+// TestManualSearchRequiresResults 验证搜索页没有已知结果时给出提示，登录跳转时不碰网页。
+func TestManualSearchRequiresResults(t *testing.T) {
+	cfg, err := platform.LoadConfig("zhaopin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	runtime := zhaopin.NewRuntime()
+	browser := &manualSearchBrowser{pageURL: cfg.ManualSearchURL}
+	if err = runtime.InitializeGreetingPage(ctx, browser, cfg); err == nil || !strings.Contains(err.Error(), "请先在平台里筛选") {
+		t.Fatalf("智联未知空白应提示先准备搜索结果：%v", err)
+	}
+	browser = &manualSearchBrowser{pageURL: "https://passport.zhaopin.com"}
+	if err = runtime.SelectPosition(ctx, browser, cfg, model.Position{Name: "其他岗位"}); err == nil || len(browser.probes) != 0 {
+		t.Fatalf("登录跳转不应读取候选人或选岗：%v", err)
+	}
+}
+
 // FindAll 模拟搜索分页栏、下一页禁用状态以及翻页或追加后的新名单。
 func (b *searchListBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	switch request.Selector.Description {

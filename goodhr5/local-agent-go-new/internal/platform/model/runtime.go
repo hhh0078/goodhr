@@ -41,6 +41,7 @@ type Config struct {
 	Name                string                           `json:"name"`
 	LoginURL            string                           `json:"login_url"`
 	EntryURL            string                           `json:"entry_url"`
+	ManualSearchURL     string                           `json:"manual_search_url"`
 	MessagesURL         string                           `json:"messages_url"`
 	LoginURLs           []string                         `json:"-"` // 仅数组格式启用多页面复用，旧字符串和对象继续使用单地址。
 	EntryURLs           []string                         `json:"-"`

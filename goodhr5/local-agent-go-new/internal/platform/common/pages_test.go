@@ -11,6 +11,44 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
+// TestCurrentPageUsesManualSearch 验证手动搜索仅匹配配置的活动页地址，兼容旧配置并拒绝不明确的页状态。
+func TestCurrentPageUsesManualSearch(t *testing.T) {
+	const recommend = "https://example.com/recommend"
+	const search = "https://example.com/talent/search"
+	activePage := func(rawURL string) contract.PageInfo {
+		return contract.PageInfo{URL: rawURL, Current: true}
+	}
+	cfg := model.Config{EntryURL: recommend, EntryURLs: []string{recommend, search, search + "/other"}, ManualSearchURL: search}
+	for _, test := range []struct {
+		name      string
+		pages     []contract.PageInfo
+		manual    bool
+		wantError bool
+	}{
+		{name: "搜索页带手动筛选参数", pages: []contract.PageInfo{activePage(search + "/?keyword=manual#filters")}, manual: true},
+		{name: "搜索标签页未激活", pages: []contract.PageInfo{{URL: search}, activePage(recommend)}},
+		{name: "支持数组内的其他地址", pages: []contract.PageInfo{activePage(search + "/other")}, wantError: true},
+		{name: "搜索路径相似", pages: []contract.PageInfo{activePage(search + "-history")}, wantError: true},
+		{name: "搜索地址不同域", pages: []contract.PageInfo{activePage("https://other.example.com/talent/search")}, wantError: true},
+		{name: "登录重定向", pages: []contract.PageInfo{activePage("https://example.com/login")}, wantError: true},
+		{name: "无活动页", pages: []contract.PageInfo{{URL: search}}, wantError: true},
+		{name: "活动页地址为空", pages: []contract.PageInfo{activePage("")}, wantError: true},
+		{name: "两个活动页", pages: []contract.PageInfo{activePage(search), activePage(recommend)}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			browser := &configuredPageBrowser{pages: test.pages}
+			manual, err := CurrentPageUsesManualSearch(context.Background(), browser, cfg)
+			if manual != test.manual || (err != nil) != test.wantError {
+				t.Fatalf("手动搜索判断 = %v, %v", manual, err)
+			}
+		})
+	}
+	manual, err := CurrentPageUsesManualSearch(context.Background(), nil, model.Config{EntryURL: recommend})
+	if err != nil || manual {
+		t.Fatalf("旧配置不应探测活动页：%v, %v", manual, err)
+	}
+}
+
 type configuredPageBrowser struct {
 	model.Browser
 	pages     []contract.PageInfo

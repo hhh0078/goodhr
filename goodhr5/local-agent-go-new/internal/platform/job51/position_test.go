@@ -1,4 +1,4 @@
-// Package job51 文件作用：验证前程无忧同岗保留、两页岗位选择、空名称和关键词筛选边界，不操作真实招聘页面。
+// Package job51 文件作用：验证前程无忧推荐页选岗、搜索页保留筛选及结果就绪。
 package job51
 
 import (
@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
@@ -15,6 +16,7 @@ import (
 type positionBrowserStub struct {
 	model.Browser
 	current             string
+	pageURL             string
 	search              bool
 	jobs                []contract.FindAllItem
 	cards               []contract.FindAllItem
@@ -24,13 +26,24 @@ type positionBrowserStub struct {
 	empty               bool
 	fullReads           int
 	currentDelay        int
+	positionReads       int
 	detailOpened        bool
 	detailCount         int
 	readWhileDetailOpen bool
 }
 
+// ListPages 返回合成活动标签页，让地址判断独立于页面元素。
+func (s *positionBrowserStub) ListPages(context.Context) (contract.PageListResult, error) {
+	active := s.pageURL
+	if active == "" {
+		active = "https://mall.51job.com/Revision/online/talentRecommend"
+	}
+	return contract.PageListResult{Pages: []contract.PageInfo{{PageID: "test", URL: active, Current: true}}}, nil
+}
+
 // Read 返回合成当前岗位，不从浏览器读取真实资料。
 func (s *positionBrowserStub) Read(context.Context, contract.ElementReadRequest) (contract.ReadResult, error) {
+	s.positionReads++
 	if s.detailOpened {
 		s.readWhileDetailOpen = true
 	}
@@ -147,11 +160,12 @@ func TestSelectPositionKeepsCurrent(t *testing.T) {
 	}
 }
 
-// TestSelectPositionSupportsInlineAndDropdown 验证两页都按名称选中目标岗位，推荐页不多点下拉，搜索页不输入岗位搜索词。
-func TestSelectPositionSupportsInlineAndDropdown(t *testing.T) {
+// TestLegacySelectPositionSupportsInlineAndDropdown 验证未配置手动搜索地址时沿用旧的两页选岗方式。
+func TestLegacySelectPositionSupportsInlineAndDropdown(t *testing.T) {
 	for _, search := range []bool{false, true} {
 		t.Run(map[bool]string{false: "推荐内联列表", true: "搜索岗位下拉"}[search], func(t *testing.T) {
 			cfg := loadPositionConfig(t)
+			cfg.ManualSearchURL = ""
 			browser := &positionBrowserStub{current: "其他岗位", search: search,
 				jobs:  []contract.FindAllItem{{Index: 0, Fields: map[string]string{"position_name": "其他岗位"}}, {Index: 2, Fields: map[string]string{"position_name": "高级软件工程（半导体）"}}},
 				cards: []contract.FindAllItem{{Index: 0, Text: "合成人选甲 30岁", Fields: map[string]string{"name": "合成人选甲", "age": "30"}}},
@@ -186,15 +200,17 @@ func TestSelectPositionMissingStops(t *testing.T) {
 	}
 }
 
-// TestApplyFiltersPreservesManualSearch 验证空关键词和推荐页不动用户筛选，搜索页只提交明确提供的关键词。
-func TestApplyFiltersPreservesManualSearch(t *testing.T) {
+// TestLegacyKeywordFilters 验证未配置手动搜索地址时，旧版仍只在搜索页提交明确提供的关键词。
+func TestLegacyKeywordFilters(t *testing.T) {
+	cfg := loadPositionConfig(t)
+	cfg.ManualSearchURL = ""
 	for _, item := range []struct {
 		search  bool
 		keyword string
 		want    int
 	}{{true, "", 0}, {false, "Java", 0}, {true, "Java C++", 1}} {
 		browser := &positionBrowserStub{search: item.search, cards: []contract.FindAllItem{{Index: 0, Text: "合成人选 30岁", Fields: map[string]string{"name": "合成人选", "age": "30"}}}}
-		if err := NewRuntime().ApplyBasicFilters(context.Background(), browser, loadPositionConfig(t), model.Position{Keyword: item.keyword}); err != nil {
+		if err := NewRuntime().ApplyBasicFilters(context.Background(), browser, cfg, model.Position{Keyword: item.keyword}); err != nil {
 			t.Fatal(err)
 		}
 		if len(browser.inputs) != item.want || len(browser.clicks) != item.want {
@@ -203,6 +219,49 @@ func TestApplyFiltersPreservesManualSearch(t *testing.T) {
 		if item.want > 0 && browser.inputs[0].Text != item.keyword {
 			t.Fatal("提交了任务以外的关键词")
 		}
+	}
+}
+
+// TestManualSearchKeepsFilters 验证已筛选的搜索页沿用页面条件，即使任务中提供了其他岗位、关键词或平台动作。
+func TestManualSearchKeepsFilters(t *testing.T) {
+	cfg := loadPositionConfig(t)
+	cfg.FilterActions = []model.ConfiguredAction{{Type: "input", SelectorKey: "search.input", Value: "平台动作关键词"}}
+	cfg.GreetingInitActions = cfg.FilterActions
+	position := model.Position{Name: "其他岗位", Keyword: "任务关键词"}
+	for _, empty := range []bool{false, true} {
+		browser := &positionBrowserStub{
+			pageURL: cfg.ManualSearchURL + "/?keyword=manual#filters",
+			search:  true, loadingReads: 1, empty: empty,
+		}
+		if !empty {
+			browser.cards = []contract.FindAllItem{{Index: 0}}
+		}
+		ctx := context.Background()
+		runtime := NewRuntime()
+		if err := runtime.InitializeGreetingPage(ctx, browser, cfg); err != nil {
+			t.Fatal(err)
+		}
+		if err := runtime.SelectPosition(ctx, browser, cfg, position); err != nil {
+			t.Fatal(err)
+		}
+		if err := runtime.ApplyBasicFilters(ctx, browser, cfg, position); err != nil {
+			t.Fatal(err)
+		}
+		if browser.positionReads != 0 || len(browser.clicks) != 0 || len(browser.inputs) != 0 || browser.fullReads != 0 || browser.loadingReads != 0 {
+			t.Fatalf("搜索准备只能探测就绪，不能改筛选或读取全量名单：%+v", browser)
+		}
+	}
+}
+
+// TestManualSearchDoesNotTreatMissingCardsAsEmpty 验证没有首卡或明确空态时，提示结果尚未准备好。
+func TestManualSearchDoesNotTreatMissingCardsAsEmpty(t *testing.T) {
+	cfg := loadPositionConfig(t)
+	browser := &positionBrowserStub{pageURL: cfg.ManualSearchURL, search: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	err := NewRuntime().InitializeGreetingPage(ctx, browser, cfg)
+	if err == nil || !strings.Contains(err.Error(), "列表还没加载好") {
+		t.Fatalf("未知结果不应视为空态：%v", err)
 	}
 }
 
@@ -235,7 +294,9 @@ func TestPositionVerificationUsesActualName(t *testing.T) {
 // TestKeywordWaitOnlyProbesReadiness 验证搜索提交后等待加载结束，但不会重复读取整批五十人正文。
 func TestKeywordWaitOnlyProbesReadiness(t *testing.T) {
 	browser := &positionBrowserStub{search: true, loadingReads: 2, cards: []contract.FindAllItem{{Index: 0, Fields: map[string]string{"name": "合成人选", "age": "30"}}}}
-	if err := NewRuntime().ApplyBasicFilters(context.Background(), browser, loadPositionConfig(t), model.Position{Keyword: "Java"}); err != nil {
+	cfg := loadPositionConfig(t)
+	cfg.ManualSearchURL = ""
+	if err := NewRuntime().ApplyBasicFilters(context.Background(), browser, cfg, model.Position{Keyword: "Java"}); err != nil {
 		t.Fatal(err)
 	}
 	if browser.loadingReads != 0 || browser.fullReads != 0 {

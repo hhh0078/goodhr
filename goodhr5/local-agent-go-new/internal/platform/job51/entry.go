@@ -26,13 +26,27 @@ func (r *Runtime) OpenGreetingPage(ctx context.Context, browser model.Browser, c
 	return common.OpenVerifiedPage(ctx, browser, r.PlatformID(), cfg.EntryURL, "打招呼页", cfg.EntryURLs...)
 }
 
-// InitializeGreetingPage 关闭前程无忧推荐页可选弹框。
+// InitializeGreetingPage 关闭遗留弹层并等待当前推荐页或手动搜索结果准备好。
 func (r *Runtime) InitializeGreetingPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	manualSearch, err := common.CurrentPageUsesManualSearch(ctx, browser, cfg)
+	if err != nil {
+		return err
+	}
 	if err := r.CloseCandidateDetail(ctx, browser, cfg, model.Candidate{}); err != nil {
 		return fmt.Errorf("前程无忧上一份简历还没收好，请关闭详情后再开始：%w", err)
 	}
 	if err := common.CloseCandidatePanels(ctx, browser, cfg); err != nil {
 		return fmt.Errorf("前程无忧遗留聊天还没收好，请关闭后再开始：%w", err)
+	}
+	if manualSearch {
+		ready, err := common.SelectorExists(ctx, browser, cfg, "search.input")
+		if err != nil {
+			return err
+		}
+		if !ready {
+			return fmt.Errorf("前程无忧人才搜索页还没准备好，请确认筛选结果已经加载后再试")
+		}
+		return waitForCandidateResults(ctx, browser, cfg)
 	}
 	if len(cfg.GreetingInitActions) > 0 {
 		if err := common.ApplyConfiguredActions(ctx, browser, cfg, cfg.GreetingInitActions); err != nil {

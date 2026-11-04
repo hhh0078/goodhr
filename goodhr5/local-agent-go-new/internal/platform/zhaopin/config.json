@@ -39,6 +39,8 @@
     }
   ],
   "_comment_entry_url": "支持推荐页和搜索页；数组优先沿用当前或已打开的支持页，没有匹配页时才打开第一条默认地址。",
+  "manual_search_url": "https://rd6.zhaopin.com/app/search",
+  "_comment_manual_search_url": "在此搜索页沿用已筛选的人才结果，不通过网页自动选岗位或修改搜索条件。",
   "messages_url": "https://rd6.zhaopin.com/app/recommend",
   "_comment_messages_url": "自动回复继续复用推荐页右侧联系人组件，不跳转独立沟通页面。",
   "scroll_distance": 620,
@@ -60,11 +62,11 @@
     "attachment_allowed_path": "/resumeapi/parsev2/downloadFileTemporary",
     "_comment_attachment_allowed_path": "智联附件页只允许使用官方临时下载路径，查询参数由平台临时生成。",
     "skip_position_selection": false,
-    "_comment_skip_position_selection": "开始任务时需要通过职位弹层选择岗位。",
+    "_comment_skip_position_selection": "推荐页开始任务时需要通过职位弹层选择岗位，手动搜索页保留现有条件。",
     "direct_position_selection": true,
     "_comment_direct_position_selection": "智联每次直接通过职位弹层选择岗位，不读取不稳定的当前岗位文字。",
     "select_first_position_result": true,
-    "_comment_select_first_position_result": "智联搜索岗位后沿用旧版规则点击第一条结果。",
+    "_comment_select_first_position_result": "智联推荐页搜索岗位后沿用旧版规则点击第一条结果。",
     "needs_detail": true,
     "_comment_needs_detail": "候选人判断需要打开详情。"
   },

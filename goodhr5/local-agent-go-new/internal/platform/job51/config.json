@@ -33,6 +33,8 @@
     "https://mall.51job.com/Revision/online/talent/search"
   ],
   "_comment_entry_url": "优先保留当前已开的人才推荐或搜索人才页面，没有时打开第一项。",
+  "manual_search_url": "https://mall.51job.com/Revision/online/talent/search",
+  "_comment_manual_search_url": "在此搜索页沿用已筛选的人才结果，不通过网页自动选岗位、覆盖关键词或修改筛选。",
   "messages_url": "",
   "_comment_messages_url": "本次仅适配主动打招呼；自动回复尚未验证，启动前由配置校验明确拦截。",
   "scroll_distance": 620,
@@ -40,13 +42,13 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
-    "_comment": "两页共用无限滚动列表，当前岗位一致时保留页面与筛选；独立自动回复与附件下载尚未适配。",
+    "_comment": "两页共用无限滚动列表，搜索页保留用户筛选，推荐页沿用原选岗流程；独立自动回复与附件下载尚未适配。",
     "supports_paging": false,
     "_comment_supports_paging": "两页均用真实滚轮追加候选人。",
     "candidate_list_mode": "infinite_scroll",
     "_comment_candidate_list_mode": "保留推荐与搜索页面的无限加载方式。",
     "skip_position_selection": false,
-    "_comment_skip_position_selection": "按岗位名称选择平台已发布岗位。",
+    "_comment_skip_position_selection": "推荐页按岗位名称选择平台已发布岗位，手动搜索页保留现有条件。",
     "direct_position_selection": false,
     "_comment_direct_position_selection": "先读取当前岗位，同岗不重复切换。",
     "select_first_position_result": false,
@@ -71,7 +73,7 @@
   "message_init_actions": [],
   "_comment_message_init_actions": "自动回复未适配，不配置猜测动作。",
   "filter_actions": [],
-  "_comment_filter_actions": "不修改用户手动筛选；仅在任务明确提供关键词时搜索。",
+  "_comment_filter_actions": "推荐页的基础筛选动作；手动搜索页保留用户设置。",
   "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
   "selectors": {
     "position.current": {

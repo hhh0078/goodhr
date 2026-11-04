@@ -11,8 +11,12 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// SelectPosition 保留同一岗位；推荐页直接选内联岗位，搜索页先展开下拉，不清理用户手动筛选。
+// SelectPosition 保留手动搜索结果；推荐页保留同一岗位，或在内联列表切换岗位。
 func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config, position model.Position) error {
+	manualSearch, err := common.CurrentPageUsesManualSearch(ctx, browser, cfg)
+	if err != nil || manualSearch {
+		return err
+	}
 	name := strings.TrimSpace(position.Name)
 	if name == "" {
 		return fmt.Errorf("岗位名称还没填，请复制平台里的完整岗位名称后再开始")
@@ -91,8 +95,12 @@ func samePositionName(current string, target string) bool {
 	return current != "" && target != "" && strings.EqualFold(current, target)
 }
 
-// ApplyBasicFilters 仅在搜索页且岗位明确提供关键词时搜索；其他手动筛选保持原样。
+// ApplyBasicFilters 保留手动搜索条件，并兼容未配置手动搜索地址时的旧筛选方式。
 func (r *Runtime) ApplyBasicFilters(ctx context.Context, browser model.Browser, cfg model.Config, position model.Position) error {
+	manualSearch, err := common.CurrentPageUsesManualSearch(ctx, browser, cfg)
+	if err != nil || manualSearch {
+		return err
+	}
 	if keyword := strings.TrimSpace(position.Keyword); keyword != "" {
 		searchPage, err := common.ProbeSelectorExists(ctx, browser, cfg, "search.input")
 		if err != nil {

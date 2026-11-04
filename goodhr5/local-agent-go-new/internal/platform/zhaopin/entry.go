@@ -3,6 +3,7 @@ package zhaopin
 
 import (
 	"context"
+	"fmt"
 
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
@@ -23,8 +24,22 @@ func (r *Runtime) OpenGreetingPage(ctx context.Context, browser model.Browser, c
 	return common.OpenVerifiedPage(ctx, browser, r.PlatformID(), cfg.EntryURL, "打招呼页", cfg.EntryURLs...)
 }
 
-// InitializeGreetingPage 关闭智联推荐页可选弹框。
+// InitializeGreetingPage 检查手动搜索结果，或沿用智联推荐页的初始化动作。
 func (r *Runtime) InitializeGreetingPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	manualSearch, err := common.CurrentPageUsesManualSearch(ctx, browser, cfg)
+	if err != nil {
+		return err
+	}
+	if manualSearch {
+		ready, err := common.SelectorExists(ctx, browser, cfg, "candidate.item")
+		if err != nil {
+			return err
+		}
+		if !ready {
+			return fmt.Errorf("智联还没读到人才搜索结果，请先在平台里筛选并确认结果已加载，再开始任务")
+		}
+		return nil
+	}
 	if len(cfg.GreetingInitActions) > 0 {
 		return common.ApplyConfiguredActions(ctx, browser, cfg, cfg.GreetingInitActions)
 	}
