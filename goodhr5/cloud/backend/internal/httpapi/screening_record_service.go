@@ -133,11 +133,11 @@ func (s *ScreeningRecordService) writeError(w http.ResponseWriter, err error) {
 	}
 }
 
-// parseScreeningQuery 解析白名单范围参数，保留零值并拒绝无限页长和重复歧义参数。
+// parseScreeningQuery 解析白名单筛选参数，保留零值并拒绝无限页长和重复歧义参数。
 func parseScreeningQuery(r *http.Request) (ScreeningRecordQuery, error) {
 	values := r.URL.Query()
-	query := ScreeningRecordQuery{Page: 1}
-	allowed := map[string]bool{"page": true, "page_size": true, "first_score_min": true, "first_score_max": true, "second_score_min": true, "second_score_max": true, "first_started_from": true, "first_started_to": true, "second_started_from": true, "second_started_to": true}
+	query := ScreeningRecordQuery{Page: 1, CandidateName: values.Get("candidate_name")}
+	allowed := map[string]bool{"page": true, "page_size": true, "candidate_name": true, "first_score_min": true, "first_score_max": true, "second_score_min": true, "second_score_max": true, "first_started_from": true, "first_started_to": true, "second_started_from": true, "second_started_to": true}
 	for key, list := range values {
 		if !allowed[key] || len(list) != 1 {
 			return query, screeningInput("查询参数重复或不支持")

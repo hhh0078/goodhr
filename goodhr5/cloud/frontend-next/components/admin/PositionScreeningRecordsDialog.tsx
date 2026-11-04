@@ -1,6 +1,6 @@
-/** 文件作用说明：展示当前本人岗位的两轮筛选历史，支持独立分数、开始时间查询和固定二十条分页。 */
+/** 文件作用说明：展示本人岗位的两轮筛选历史，支持姓名、分数、开始时间查询和固定二十条分页。 */
 "use client";
-import { Alert, Button, DatePicker, Flex, Form, InputNumber, Pagination, Table, Tag, Typography } from "antd";
+import { Alert, Button, DatePicker, Flex, Form, Input, InputNumber, Pagination, Table, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useId, useRef, useState } from "react";
 import AdminDialog from "./AdminDialog";
@@ -38,6 +38,7 @@ function RoundFilters({ name, value, onChange }: { name: string; value: Screenin
 
 /** PositionScreeningRecordsDialog 只读服务端历史；父级按账号和岗位提供 key，切换时不保留前一身份内容。 */
 export default function PositionScreeningRecordsDialog({ position, onClose }: { position: { id: string; name: string }; onClose: () => void }) {
+  const nameInputID = useId();
   const [filters, setFilters] = useState(emptyScreeningFilters);
   const [applied, setApplied] = useState(emptyScreeningFilters);
   const [items, setItems] = useState<ScreeningRecord[]>([]);
@@ -63,7 +64,13 @@ export default function PositionScreeningRecordsDialog({ position, onClose }: { 
   }
   return <AdminDialog open title="岗位筛选记录" description={`当前岗位：${position.name} · 最新在前，每页 20 条。时间按本机时区显示。`} maxWidth="lg" cancelText="关闭" onClose={onClose}>
     <div data-testid="position-screening-records">
-      <div className={styles.filters}><RoundFilters name="第一轮" value={filters.first} onChange={(value) => setFilters({ ...filters, first: value })} /><RoundFilters name="第二轮" value={filters.second} onChange={(value) => setFilters({ ...filters, second: value })} /></div>
+      <div className={styles.filters}>
+        <Form.Item className={styles.nameFilter} layout="vertical" label="候选人姓名" htmlFor={nameInputID}>
+          <Input id={nameInputID} value={filters.candidateName} placeholder="输入部分姓名" allowClear onChange={(event) => setFilters({ ...filters, candidateName: event.target.value })} onPressEnter={(event) => { if (!event.nativeEvent.isComposing) query(); }} />
+        </Form.Item>
+        <RoundFilters name="第一轮" value={filters.first} onChange={(value) => setFilters({ ...filters, first: value })} />
+        <RoundFilters name="第二轮" value={filters.second} onChange={(value) => setFilters({ ...filters, second: value })} />
+      </div>
       <Flex gap={8} className="goodhr-compact-toolbar"><Button type="primary" onClick={() => query()}>查询</Button><Button onClick={() => query(true)}>清空</Button><Typography.Text type="secondary" className={styles.meta}>第一轮为列表预筛，第二轮为详情评分；未执行不会记成零分。</Typography.Text></Flex>
       {filterError ? <Alert type="warning" showIcon title={filterError} className={styles.alert} /> : null}
       {error ? <Alert type="warning" showIcon title={error} className={styles.alert} action={<Button onClick={() => void load(page, applied)}>重试</Button>} /> : null}

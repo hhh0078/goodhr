@@ -65,6 +65,7 @@ func TestScreeningPostgresIsolation(t *testing.T) {
 	store := NewPostgresScreeningRecordStore(db)
 	ctx := context.Background()
 	snapshot := screeningTestSnapshot(0)
+	nameQuery := ScreeningRecordQuery{CandidateName: "人选"}
 	if _, err := store.Save(ctx, scope, snapshot); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func TestScreeningPostgresIsolation(t *testing.T) {
 		if _, err := store.Save(ctx, bad, snapshot); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("bad write scope=%+v err=%v", bad, err)
 		}
-		if _, err := store.List(ctx, bad, ScreeningRecordQuery{}); !errors.Is(err, ErrNotFound) {
+		if _, err := store.List(ctx, bad, nameQuery); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("bad read scope=%+v err=%v", bad, err)
 		}
 	}
@@ -84,7 +85,7 @@ func TestScreeningPostgresIsolation(t *testing.T) {
 	}
 	member := scope
 	member.UserEmail = "screening-member@example.com"
-	list, err := store.List(ctx, member, ScreeningRecordQuery{})
+	list, err := store.List(ctx, member, nameQuery)
 	if err != nil || list.Total != 0 {
 		t.Fatalf("new owner read old sensitive rows=%+v err=%v", list, err)
 	}
@@ -102,7 +103,7 @@ func TestScreeningPostgresIsolation(t *testing.T) {
 	}
 	moved := scope
 	moved.TenantID = other.TenantID
-	list, err = store.List(ctx, moved, ScreeningRecordQuery{})
+	list, err = store.List(ctx, moved, nameQuery)
 	if err != nil || list.Total != 0 {
 		t.Fatalf("moved tenant old record=%+v err=%v", list, err)
 	}

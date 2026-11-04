@@ -13,6 +13,16 @@ test("固定二十条分页，空条件不作为零分发送", () => {
   assert.equal(filters.second.scoreMin, null); assert.equal(emptyScreeningFilters().first.scoreMin, null);
 });
 
+test("姓名搜索省略纯空白，保留中文和字面符号，并限制长度", () => {
+  const filters = emptyScreeningFilters();
+  filters.candidateName = "　 ";
+  assert.equal(screeningQuery(1, filters).has("candidate_name"), false);
+  filters.candidateName = "  林%_  ";
+  assert.equal(new URLSearchParams(screeningQuery(2, filters).toString()).get("candidate_name"), "林%_");
+  filters.candidateName = "林".repeat(501);
+  assert.throws(() => screeningQuery(1, filters), /500/);
+});
+
 test("两轮独立分数与单侧时间转为UTC，时间上限不包含由服务端执行", () => {
   const filters = emptyScreeningFilters(); filters.first = { scoreMin: 0, scoreMax: 60, startedFrom: "2026-10-26T08:00:00+08:00", startedTo: "" };
   filters.second = { scoreMin: 70, scoreMax: 100, startedFrom: "", startedTo: "2026-10-27T00:00:00+08:00" };

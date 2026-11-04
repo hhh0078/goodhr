@@ -5,6 +5,7 @@ import (
 	"context"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -122,8 +123,11 @@ func screeningTimeMatches(value, from, to *time.Time) bool {
 	return from == nil && to == nil || value != nil && (from == nil || !value.Before(*from)) && (to == nil || value.Before(*to))
 }
 
-// screeningQueryMatches 对两轮分数与开始时间同时应用过滤，与PostgreSQL查询保持一致。
+// screeningQueryMatches 对姓名及两轮分数与开始时间同时应用过滤，与PostgreSQL查询保持一致。
 func screeningQueryMatches(item ScreeningRecord, query ScreeningRecordQuery) bool {
+	if query.CandidateName != "" && !strings.Contains(strings.ToLower(item.CandidateName), strings.ToLower(query.CandidateName)) {
+		return false
+	}
 	return screeningNumberMatches(item.First.Score, query.FirstScoreMin, query.FirstScoreMax) && screeningNumberMatches(item.Second.Score, query.SecondScoreMin, query.SecondScoreMax) && screeningTimeMatches(item.First.StartedAt, query.FirstStartedFrom, query.FirstStartedTo) && screeningTimeMatches(item.Second.StartedAt, query.SecondStartedFrom, query.SecondStartedTo)
 }
 
