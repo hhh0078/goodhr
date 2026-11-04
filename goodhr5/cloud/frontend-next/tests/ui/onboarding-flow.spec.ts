@@ -663,8 +663,11 @@ test("本地连接和组件安装只占一个必要弹框，公告更新不盖�
   await openAdmin(page);
   await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
   await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
-  await expectStep(page, "agent-menu");
-  await page.getByRole("menuitem", { name: "组件信息", exact: true }).click();
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "agent-menu");
+  await expect(page).toHaveURL(/\/admin\?local_port=43130$/);
+  const connectionHelp = page.getByRole("dialog", { name: "本地小助手还没连上", exact: true });
+  await expect(connectionHelp.getByRole("img", { name: "Chrome 设备上的应用权限开关位置" })).toBeVisible();
+  await connectionHelp.getByRole("button", { name: "前往组件信息", exact: true }).click();
   await expectStep(page, "agent-download");
   await page.locator('[data-onboarding="onboarding-agent-download"]').click();
   await expectStep(page, "agent-connect");

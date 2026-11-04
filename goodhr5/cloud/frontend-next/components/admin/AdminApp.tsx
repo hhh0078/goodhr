@@ -91,7 +91,7 @@ type AdminContextValue = {
   appConfig: any;
   onboardingConfig: any;
   agentBase: string;
-  refreshAgent: () => Promise<void>;
+  refreshAgent: () => Promise<boolean>;
   refreshSession: () => Promise<void>;
   wechatOfficialStatus: WechatOfficialStatus | null;
   refreshWechatOfficialStatus: () => Promise<void>;
@@ -229,7 +229,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [agentDetected, setAgentDetected] = useState(false);
   const agentBaseRef = useRef("");
   const initialPath = useRef(pathname);
-  const agentChecking = useRef<Promise<void> | null>(null);
+  const agentChecking = useRef<Promise<boolean> | null>(null);
   const [notice, setNotice] = useState({
     open: false,
     message: "",
@@ -264,7 +264,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       !localAgentInstallNoticeClosed,
   );
 
-  /** refreshAgent 合并正在进行的探测，让更新完成等调用等待实际绑定和状态同步。 */
+  /** refreshAgent 合并正在进行的探测，并返回本地程序是否已连上。 */
   const refreshAgent = useCallback(() => {
     if (agentChecking.current) return agentChecking.current;
     const request = (async () => {
@@ -274,7 +274,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           agentBaseRef.current = "";
           setAgentBase("");
           setAgentVersion("");
-          return;
+          return false;
         }
         agentBaseRef.current = nextBase;
         setAgentBase(nextBase);
@@ -327,6 +327,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             source: "frontend_agent_probe",
           });
         }
+        return true;
       } finally {
         setAgentDetected(true);
         agentChecking.current = null;

@@ -8,7 +8,7 @@ export function onboardingTargetSelector(step: OnboardingStep, positionId: strin
   const position = positionId.replace(/[^a-zA-Z0-9_-]/g, "");
   const selectors: Record<OnboardingStep, string> = {
     "agent-menu": "[data-onboarding='menu-agent-download']",
-    "agent-download": "[data-onboarding='onboarding-agent-download']",
+    "agent-download": "[data-onboarding='onboarding-agent-options']",
     "agent-connect": "[data-onboarding='onboarding-agent-connect']",
     "runtime-install": "[data-onboarding='runtime-install']",
     "runtime-system": "[data-onboarding='runtime-system-actions']",

@@ -13,6 +13,7 @@ export type OnboardingActions = {
   closeHelp: () => void;
   choosePlatform: (platformId: string) => void;
   openPlatform: () => void;
+  openAgentComponents: () => void;
   downloadAgent: () => void;
   checkAgent: () => void;
   checkResult: () => void;
@@ -28,6 +29,7 @@ export type OnboardingExperienceProps = {
   phase: OnboardingPhase;
   state: OnboardingState;
   step: OnboardingStep;
+  agentConnectionMissing: boolean;
   target: HTMLElement | null;
   targetGeometry: string;
   title: string;
@@ -63,7 +65,7 @@ export const ONBOARDING_FILTER_MODE_OPTIONS = [
 ];
 const stepCopy: Record<OnboardingStep, StepCopy> = {
   "agent-menu": { title: "先把本地小助手请到岗", description: "点击左侧“组件信息”。GoodHR 的浏览器操作在你的电脑上完成，需要先安装并启动本地程序。", hint: "装过也没关系，连接成功后我会自动跳过。", estimate: "首次安装约 3–8 分钟" },
-  "agent-download": { title: "下载并安装本地程序", description: "点击“下载本地程序”，在下载页选择你的电脑系统。安装完成后，双击 GoodHR 图标启动，再回到这里。", hint: "下载页会另外打开，这里的教程进度会留着。", estimate: "约 3–8 分钟，取决于网络" },
+  "agent-download": { title: "下载并安装本地程序", description: "还没安装就点“下载本地程序”，选择你的电脑系统。装好了就双击 GoodHR 图标启动，回来检查连接。", hint: "下载页会另外打开，这里的教程进度会留着。", estimate: "约 3–8 分钟，取决于网络" },
   "agent-connect": { title: "我在等本地小助手打卡", description: "安装好了就双击 GoodHR 图标。点击“检查连接”，连接好后会自动往下走，不需要重新注册。", hint: "程序开着仍连不上？看看浏览器是否允许“设备上的应用”。", estimate: "启动后通常约 10–30 秒" },
   "runtime-install": { title: "把必要组件准备好", description: "点击现有弹框的“安装必要组件”。组件负责打开浏览器和读取页面，安装结束后我会自动接着带路。", hint: "如果还有 Windows 运行库提示，按弹框安装或修复后重新检查。", estimate: "约 2–8 分钟，取决于网络" },
   "runtime-system": { title: "先把 Windows 运行库补齐", description: "点击“下载微软运行库”，打开安装包并选择安装；如果已经装过，就选择修复。完成后回来点击“安装或修复后重新检查”。", hint: "运行库检查通过后，再安装剩余必要组件。我会接着带路，进度不用重来。", estimate: "约 1–3 分钟，取决于安装情况" },
