@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -90,7 +91,7 @@ func TestScreeningSnapshotValidation(t *testing.T) {
 	}
 }
 
-// screeningStoreContract 在内存与真实PostgreSQL共同验证版本幂等、迟到、冲突、并发和四类范围查询。
+// screeningStoreContract 在内存与真实PostgreSQL共同验证版本幂等、迟到、冲突、并发和分页筛选。
 func screeningStoreContract(t *testing.T, store ScreeningRecordStore, scope ScreeningScope) {
 	t.Helper()
 	ctx := context.Background()
@@ -166,6 +167,14 @@ func screeningStoreContract(t *testing.T, store ScreeningRecordStore, scope Scre
 		item.First.Score = screeningTestPointer(float64(index))
 		item.Second = recruitmentClone(item.First)
 		item.Second.Score = screeningTestPointer(float64(100 - index))
+		switch index {
+		case 1:
+			item.CandidateName = "张小明·Alice%_"
+		case 2:
+			item.CandidateName = "张小明·Alicexy"
+		case 25:
+			item.CandidateName = ""
+		}
 		if index == 25 {
 			item.First.Kind = "keyword"
 			item.First.Score = nil
@@ -210,11 +219,21 @@ func screeningStoreContract(t *testing.T, store ScreeningRecordStore, scope Scre
 		{"四组条件同时", ScreeningRecordQuery{FirstScoreMin: screeningTestPointer(float64(6)), SecondScoreMax: screeningTestPointer(float64(93)), FirstStartedFrom: &from, SecondStartedTo: &to}, 3},
 		{"单边上界不包含null", ScreeningRecordQuery{FirstScoreMax: screeningTestPointer(float64(100))}, 25},
 		{"第二轮单边不包含null", ScreeningRecordQuery{SecondScoreMin: screeningTestPointer(float64(0))}, 24},
+		{"空白姓名不限制", ScreeningRecordQuery{CandidateName: " 　"}, 26},
+		{"跨原始页匹配中文片段", ScreeningRecordQuery{CandidateName: " 小明　"}, 2},
+		{"英文忽略大小写", ScreeningRecordQuery{CandidateName: "ALICE"}, 2},
+		{"百分号和下划线按字面匹配", ScreeningRecordQuery{CandidateName: "alice%_"}, 1},
+		{"姓名与分数时间一起生效", ScreeningRecordQuery{CandidateName: "小明", FirstScoreMin: screeningTestPointer(float64(2)), FirstStartedTo: &from}, 1},
+		{"姓名无命中", ScreeningRecordQuery{CandidateName: "王小明"}, 0},
 	} {
 		result, err := store.List(ctx, scope, item.query)
 		if err != nil || result.Total != item.want {
 			t.Errorf("%s total=%d want=%d err=%v", item.name, result.Total, item.want, err)
 		}
+	}
+	namePage2, err := store.List(ctx, scope, ScreeningRecordQuery{CandidateName: "成人", Page: 2})
+	if err != nil || namePage2.Total != 23 || namePage2.Page != 2 || len(namePage2.Records) != 3 || namePage2.Records[0].AttemptID != screeningTestSnapshot(4).AttemptID {
+		t.Fatalf("name page2=%+v err=%v", namePage2, err)
 	}
 }
 
@@ -247,10 +266,11 @@ func TestScreeningHTTPPermissionAndContract(t *testing.T) {
 	service, _ := screeningHTTPFixture(t)
 	handler := http.HandlerFunc(service.Collection)
 	path := "/api/positions/own/screening-records"
+	nameQuery := "candidate_name=" + url.QueryEscape(" 成人　")
 	for _, item := range []struct {
 		token, method, path string
 		want                int
-	}{{"", http.MethodGet, path, 401}, {"member", http.MethodGet, path, 404}, {"outsider", http.MethodPost, path, 404}, {"plugin", http.MethodPost, path, 403}, {"owner", http.MethodGet, "/api/positions/member/screening-records", 404}} {
+	}{{"", http.MethodGet, path, 401}, {"member", http.MethodGet, path + "?" + nameQuery, 404}, {"outsider", http.MethodGet, path + "?" + nameQuery, 404}, {"outsider", http.MethodPost, path, 404}, {"plugin", http.MethodGet, path + "?" + nameQuery, 403}, {"plugin", http.MethodPost, path, 403}, {"owner", http.MethodGet, "/api/positions/member/screening-records", 404}} {
 		status, _ := candidateTestRequest(t, handler, item.token, item.method, item.path, screeningTestSnapshot(0))
 		if status != item.want {
 			t.Fatalf("permission %+v status=%d", item, status)
@@ -260,7 +280,7 @@ func TestScreeningHTTPPermissionAndContract(t *testing.T) {
 	if status != 200 || ack["revision"] != float64(1) || ack["id"] == "" {
 		t.Fatalf("post=%d %v", status, ack)
 	}
-	status, response := candidateTestRequest(t, handler, "owner", http.MethodGet, path+"?first_score_min=0&first_score_max=0&page_size=20", nil)
+	status, response := candidateTestRequest(t, handler, "owner", http.MethodGet, path+"?first_score_min=0&first_score_max=0&page_size=20&"+nameQuery, nil)
 	if status != 200 || response["total"] != float64(1) || response["page_size"] != float64(20) {
 		t.Fatalf("list=%d %v", status, response)
 	}
@@ -282,7 +302,10 @@ func TestScreeningHTTPPermissionAndContract(t *testing.T) {
 	if status != 409 {
 		t.Fatalf("conflict status=%d", status)
 	}
-	for _, query := range []string{"page_size=21", "page=0", "page=-1", "first_score_min=NaN", "first_score_max=101", "second_score_min=80&second_score_max=20", "first_started_from=bad", "page=1&page=2", "tenant_id=other"} {
+	for _, query := range []string{
+		"page_size=21", "page=0", "page=-1", "first_score_min=NaN", "first_score_max=101", "second_score_min=80&second_score_max=20", "first_started_from=bad", "page=1&page=2", "tenant_id=other",
+		"candidate_name=a&candidate_name=b", "candidate_name=%00", "candidate_name=%FF", "candidate_name=" + url.QueryEscape(strings.Repeat("名", 501)),
+	} {
 		status, _ := candidateTestRequest(t, handler, "owner", http.MethodGet, path+"?"+query, nil)
 		if status != 400 {
 			t.Errorf("query=%s status=%d", query, status)

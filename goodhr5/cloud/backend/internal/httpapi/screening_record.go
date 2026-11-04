@@ -17,6 +17,7 @@ import (
 )
 
 const screeningRecordPageSize = 20
+const screeningCandidateNameLimit = 500
 
 // screeningRecordLimit 限制同一租户岗位保留的筛选次数，历史所有者记录也计入总数。
 const screeningRecordLimit = 500
@@ -68,9 +69,10 @@ type ScreeningRecord struct {
 // ScreeningScope 只由服务端正常登录会话与本人岗位生成，不接受payload覆盖。
 type ScreeningScope struct{ TenantID, PositionID, UserEmail string }
 
-// ScreeningRecordQuery 使用固定字段过滤，两轮空分数与空开始时间不会命中范围比较。
+// ScreeningRecordQuery 按姓名片段和两轮范围过滤，空分数与空开始时间不会命中范围比较。
 type ScreeningRecordQuery struct {
 	Page                                                                 int
+	CandidateName                                                        string
 	FirstScoreMin, FirstScoreMax, SecondScoreMin, SecondScoreMax         *float64
 	FirstStartedFrom, FirstStartedTo, SecondStartedFrom, SecondStartedTo *time.Time
 }
@@ -171,7 +173,7 @@ func validateScreeningSnapshot(snapshot *ScreeningSnapshot) error {
 	if !screeningUUIDPattern.MatchString(snapshot.AttemptID) || snapshot.AttemptID == "00000000-0000-0000-0000-000000000000" {
 		return screeningInput("请提供本次筛选的有效UUID编号")
 	}
-	if strings.TrimSpace(snapshot.TaskID) == "" || len(snapshot.TaskID) > 200 || snapshot.PlatformID == "" || len(snapshot.PlatformID) > 80 || strings.TrimSpace(snapshot.CandidateKey) == "" || len(snapshot.CandidateKey) > 2048 || len(snapshot.PlatformCandidateID) > 1000 || utf8.RuneCountInString(snapshot.CandidateName) > 500 {
+	if strings.TrimSpace(snapshot.TaskID) == "" || len(snapshot.TaskID) > 200 || snapshot.PlatformID == "" || len(snapshot.PlatformID) > 80 || strings.TrimSpace(snapshot.CandidateKey) == "" || len(snapshot.CandidateKey) > 2048 || len(snapshot.PlatformCandidateID) > 1000 || utf8.RuneCountInString(snapshot.CandidateName) > screeningCandidateNameLimit {
 		return screeningInput("任务、平台或候选人标识不完整或过长")
 	}
 	if snapshot.Revision < 1 || snapshot.OccurredAt.IsZero() || utf8.RuneCountInString(snapshot.TerminationReason) > 16000 {
@@ -215,13 +217,20 @@ func newScreeningRecordID() string {
 	return text[:8] + "-" + text[8:12] + "-" + text[12:16] + "-" + text[16:20] + "-" + text[20:]
 }
 
-// validateScreeningQuery 限定安全分页及各轮范围，不将零分当成未设置。
+// validateScreeningQuery 规范姓名片段并限定安全分页及各轮范围，不将零分当成未设置。
 func validateScreeningQuery(query *ScreeningRecordQuery) error {
 	if query.Page == 0 {
 		query.Page = 1
 	}
 	if query.Page < 1 || query.Page > int(^uint(0)>>1)/screeningRecordPageSize {
 		return screeningInput("页码超出可用范围")
+	}
+	query.CandidateName = strings.TrimSpace(query.CandidateName)
+	if !utf8.ValidString(query.CandidateName) || strings.ContainsRune(query.CandidateName, 0) {
+		return screeningInput("姓名里有读不了的字符，请再检查一下")
+	}
+	if utf8.RuneCountInString(query.CandidateName) > screeningCandidateNameLimit {
+		return screeningInput("候选人姓名最多输入500个字符")
 	}
 	for _, pair := range [][2]*float64{{query.FirstScoreMin, query.FirstScoreMax}, {query.SecondScoreMin, query.SecondScoreMax}} {
 		if !screeningNumberValid(pair[0]) || !screeningNumberValid(pair[1]) || pair[0] != nil && pair[1] != nil && *pair[0] > *pair[1] {

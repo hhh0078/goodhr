@@ -12,18 +12,21 @@ export type ScreeningRecord = {
   first: ScreeningRound; second: ScreeningRound; created_at: string; updated_at: string;
 };
 export type ScreeningRoundFilters = { scoreMin: number | null; scoreMax: number | null; startedFrom: string; startedTo: string };
-export type ScreeningFilters = { first: ScreeningRoundFilters; second: ScreeningRoundFilters };
+export type ScreeningFilters = { candidateName: string; first: ScreeningRoundFilters; second: ScreeningRoundFilters };
 export const screeningPageSize = 20;
 export const screeningStatusLabels: Record<ScreeningRound["status"], string> = { not_executed: "未执行", running: "进行中", passed: "通过", rejected: "不通过", failed: "失败", cancelled: "已取消" };
 
-/** emptyScreeningFilters 返回独立的两轮空条件，避免重置时共享可变对象。 */
+/** emptyScreeningFilters 返回空姓名和独立的两轮空条件，避免重置时共享可变对象。 */
 export function emptyScreeningFilters(): ScreeningFilters {
-  return { first: { scoreMin: null, scoreMax: null, startedFrom: "", startedTo: "" }, second: { scoreMin: null, scoreMax: null, startedFrom: "", startedTo: "" } };
+  return { candidateName: "", first: { scoreMin: null, scoreMax: null, startedFrom: "", startedTo: "" }, second: { scoreMin: null, scoreMax: null, startedFrom: "", startedTo: "" } };
 }
 
-/** screeningQuery 校验各轮独立范围并生成服务端分页条件；零分保留，空值不发送，时间上限不包含。 */
+/** screeningQuery 生成姓名与各轮范围的服务端分页条件，保留真实零分并忽略空条件。 */
 export function screeningQuery(page: number, filters: ScreeningFilters): URLSearchParams {
   const query = new URLSearchParams({ page: String(Number.isSafeInteger(page) && page > 0 ? page : 1), page_size: String(screeningPageSize) });
+  const candidateName = filters.candidateName.trim();
+  if ([...candidateName].length > 500) throw new Error("姓名搜索最多输入 500 个字符。");
+  if (candidateName) query.set("candidate_name", candidateName);
   for (const key of ["first", "second"] as const) {
     const filter = filters[key]; const label = key === "first" ? "第一轮" : "第二轮";
     for (const value of [filter.scoreMin, filter.scoreMax]) if (value !== null && (!Number.isFinite(value) || value < 0 || value > 100)) throw new Error(`${label}分数需要在 0～100 之间。`);

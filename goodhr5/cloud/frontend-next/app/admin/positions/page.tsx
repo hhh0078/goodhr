@@ -393,7 +393,7 @@ export default function PositionsPage() {
         cloudRequest("/api/platforms/config/", { auth: false }),
       ]);
       if (current !== loadGeneration.current) return;
-      setItems(sortTeamPositions(positions.positions || [], user?.email));
+      setItems(sortPositionsByUpdate(positions.positions || []));
       setDefaults(normalizePrompts(prompts.prompts || prompts || {}));
       setPlatformConfigs(platformData.platforms || platformData.configs || []);
     } catch (error) {
@@ -3091,16 +3091,22 @@ function isCurrentUserPosition(item: any, currentEmail: unknown) {
     .toLowerCase();
   return !creator || (Boolean(current) && creator === current);
 }
-/** sortTeamPositions 按当前账号优先、创建时间从新到旧排列团队岗位。 */
-function sortTeamPositions(items: any[], currentEmail: unknown) {
+/** positionTimestamp 解析岗位的有效时间，缺失或格式无效时交给调用方兜底。 */
+function positionTimestamp(value: unknown): number | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+/** sortPositionsByUpdate 按更新时间从新到旧排列可见岗位，时间相同时以创建时间和编号保持顺序。 */
+function sortPositionsByUpdate(items: any[]) {
   return [...items].sort((left, right) => {
-    const ownDifference =
-      Number(isCurrentUserPosition(right, currentEmail)) -
-      Number(isCurrentUserPosition(left, currentEmail));
-    if (ownDifference !== 0) return ownDifference;
-    const leftCreatedAt = new Date(left?.created_at || 0).getTime();
-    const rightCreatedAt = new Date(right?.created_at || 0).getTime();
-    return rightCreatedAt - leftCreatedAt;
+    const leftCreatedAt = positionTimestamp(left?.created_at) ?? Number.NEGATIVE_INFINITY;
+    const rightCreatedAt = positionTimestamp(right?.created_at) ?? Number.NEGATIVE_INFINITY;
+    const leftUpdatedAt = positionTimestamp(left?.updated_at) ?? leftCreatedAt;
+    const rightUpdatedAt = positionTimestamp(right?.updated_at) ?? rightCreatedAt;
+    if (rightUpdatedAt !== leftUpdatedAt) return rightUpdatedAt - leftUpdatedAt;
+    if (rightCreatedAt !== leftCreatedAt) return rightCreatedAt - leftCreatedAt;
+    return String(right?.id ?? "").localeCompare(String(left?.id ?? ""));
   });
 }
 /** fillPrompts 为岗位空提示词补充系统默认值。 */

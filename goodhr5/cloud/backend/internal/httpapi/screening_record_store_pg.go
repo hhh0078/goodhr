@@ -107,10 +107,14 @@ func screeningPrunePositionRecords(ctx context.Context, tx *sql.Tx, scope Screen
 	return err
 }
 
-// screeningSQLWhere 仅从固定白名单字段构建参数化SQL，分数闭区间和时间左闭右开不会把空值当成零。
+// screeningSQLWhere 构建参数化筛选，姓名按字面匹配，分数闭区间和时间左闭右开保留空值语义。
 func screeningSQLWhere(scope ScreeningScope, ownerID string, query ScreeningRecordQuery) (string, []any) {
 	args := []any{scope.TenantID, scope.PositionID, ownerID}
 	parts := []string{"r.tenant_id=$1::uuid", "r.position_id=$2::uuid", "r.owner_user_id=$3"}
+	if query.CandidateName != "" {
+		args = append(args, query.CandidateName)
+		parts = append(parts, fmt.Sprintf("strpos(lower(r.snapshot->>'candidate_name'),lower($%d))>0", len(args)))
+	}
 	for _, item := range []struct {
 		column, op string
 		value      *float64

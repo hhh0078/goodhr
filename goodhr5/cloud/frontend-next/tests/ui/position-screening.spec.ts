@@ -33,6 +33,8 @@ async function fixture(page: Page) {
     if (state.holdNext) { state.holdNext = false; await new Promise<void>((resolve) => { state.release = resolve; }); }
     if (state.fail) return route.fulfill({ status: 403, headers, json: { error: "这个岗位暂时无权查看，请确认当前账号。" } });
     let records = Array.from({ length: 45 }, (_, index) => record(index + 1, match[1]));
+    const candidateName = url.searchParams.get("candidate_name")?.toLowerCase();
+    if (candidateName) records = records.filter((item) => item.candidate_name.toLowerCase().includes(candidateName));
     for (const key of ["first", "second"] as const) records = records.filter((item) => {
       const value = item[key]; const min = url.searchParams.get(`${key}_score_min`), max = url.searchParams.get(`${key}_score_max`), from = url.searchParams.get(`${key}_started_from`), to = url.searchParams.get(`${key}_started_to`);
       return (!min || value.score !== null && value.score >= Number(min)) && (!max || value.score !== null && value.score <= Number(max)) && (!from || value.started_at !== null && Date.parse(value.started_at) >= Date.parse(from)) && (!to || value.started_at !== null && Date.parse(value.started_at) < Date.parse(to));
@@ -54,6 +56,8 @@ test("开始停止旁图标仅本人可见，固定二十条和两轮空值真�
   await expect(page.getByRole("button", { name: "筛选记录", exact: true })).toHaveCount(2);
   const icon = page.locator('.ant-card[data-position-id="position-one"]').getByRole("button", { name: "筛选记录", exact: true }); await expect(icon).toHaveText(""); expect((await icon.boundingBox())?.width).toBe(28);
   const dialog = await openRecords(page); await expect(dialog.getByText("甲合成人选1", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("textbox", { name: "候选人姓名", exact: true })).toBeInViewport();
+  mkdirSync(output, { recursive: true }); await page.screenshot({ path: resolve(output, "records-desktop.png"), fullPage: true, animations: "disabled" });
   await expect(dialog.locator("tbody > tr[data-row-key]")).toHaveCount(20);
   const first = dialog.locator("tbody > tr[data-row-key]").first(); await expect(first).toContainText("甲合成人选1");
   await expect(first.getByRole("group", { name: "第一轮结果", exact: true })).toContainText("0 分"); await expect(first.getByRole("group", { name: "第一轮结果", exact: true })).toContainText("耗时：0 秒");
@@ -61,19 +65,23 @@ test("开始停止旁图标仅本人可见，固定二十条和两轮空值真�
   await first.getByRole("button", { name: "展开原因", exact: true }).click(); await expect(first).toContainText("完整原因末尾");
   await expect(dialog.getByText("关键词判断，不评分", { exact: true })).toBeVisible(); await expect(dialog.getByText("调用中断，完成时间未知", { exact: true })).toBeVisible();
   expect(state.queries[0].query.toString()).toBe("page=1&page_size=20"); expect(base.writes).toEqual([]); expect(base.errors).toEqual([]);
-  mkdirSync(output, { recursive: true }); await page.screenshot({ path: resolve(output, "records-desktop.png"), fullPage: true, animations: "disabled" });
 });
 
 test("翻页请求云端第二页，各轮范围独立传递，查询和清空回第一页", async ({ page }) => {
   const { state, base } = await fixture(page); await page.goto("/admin/positions"); const dialog = await openRecords(page);
   await dialog.locator(".ant-pagination-item-2").click(); await expect(dialog.getByText("甲合成人选21", { exact: true })).toBeVisible();
+  const name = dialog.getByRole("textbox", { name: "候选人姓名", exact: true });
+  await name.fill("  人选2  ");
   await dialog.getByRole("spinbutton", { name: "第一轮最低分", exact: true }).fill("0"); await dialog.getByRole("spinbutton", { name: "第一轮最高分", exact: true }).fill("90");
   await dialog.getByRole("spinbutton", { name: "第二轮最低分", exact: true }).fill("70"); await dialog.getByRole("spinbutton", { name: "第二轮最高分", exact: true }).fill("80");
   for (const [name, text] of [["第一轮开始时间从", "2026-10-26 00:00:00"], ["第一轮开始时间至", "2026-10-27 00:00:00"], ["第二轮开始时间从", "2026-10-26 00:00:00"], ["第二轮开始时间至", "2026-10-27 00:00:00"]]) { const input = dialog.getByRole("textbox", { name, exact: true }); await input.fill(text); await input.press("Enter"); }
-  await dialog.getByRole("button", { name: "查询", exact: true }).click(); await expect.poll(() => state.queries.at(-1)?.query.get("second_score_min")).toBe("70");
+  await name.press("Enter"); await expect.poll(() => state.queries.at(-1)?.query.get("second_score_min")).toBe("70");
   const query = state.queries.at(-1)!.query; expect(query.get("page")).toBe("1"); expect(query.get("first_score_min")).toBe("0"); expect(query.get("first_score_max")).toBe("90"); expect(query.get("second_score_max")).toBe("80");
+  expect(query.get("candidate_name")).toBe("人选2");
+  await expect(dialog.getByText("共 10 条", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("甲合成人选21", { exact: true })).toBeVisible();
   for (const round of ["first", "second"]) for (const side of ["from", "to"]) expect(query.get(`${round}_started_${side}`)).toMatch(/Z$/);
-  await dialog.getByRole("button", { name: "清空", exact: true }).click(); await expect.poll(() => state.queries.at(-1)?.query.toString()).toBe("page=1&page_size=20"); await expect(dialog.getByRole("spinbutton", { name: "第一轮最低分", exact: true })).toHaveValue(""); expect(base.writes).toEqual([]);
+  await dialog.getByRole("button", { name: "清空", exact: true }).click(); await expect.poll(() => state.queries.at(-1)?.query.toString()).toBe("page=1&page_size=20"); await expect(name).toHaveValue(""); await expect(dialog.getByRole("spinbutton", { name: "第一轮最低分", exact: true })).toHaveValue(""); expect(base.writes).toEqual([]);
 });
 
 test("反向分数范围不发请求，失败重试仅重新读取记录", async ({ page }) => {
@@ -94,6 +102,7 @@ test("读取中能关闭，切换岗位后旧响应不覆盖新岗位", async ({
 test("手机筛选分页和长原因可访问，表格仅在弹框内部横向滚动", async ({ page }) => {
   const { base } = await fixture(page); await page.setViewportSize({ width: 390, height: 844 }); await page.goto("/admin/positions"); const dialog = await openRecords(page);
   await expect(dialog.getByText("甲合成人选1", { exact: true })).toBeAttached(); const box = (await dialog.boundingBox())!; expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(390);
+  await expect(dialog.getByRole("textbox", { name: "候选人姓名", exact: true })).toBeVisible();
   await expect(dialog.getByRole("textbox", { name: "第一轮开始时间从", exact: true })).toBeVisible(); mkdirSync(output, { recursive: true }); await page.screenshot({ path: resolve(output, "records-mobile-filters.png"), fullPage: true, animations: "disabled" });
   await dialog.locator("table").scrollIntoViewIfNeeded(); await page.screenshot({ path: resolve(output, "records-mobile-table.png"), fullPage: true, animations: "disabled" });
   await dialog.locator(".ant-table-content").hover(); await page.mouse.wheel(1100, 0);
