@@ -19,7 +19,7 @@ export type InteractiveOnboardingOptions = {
   identity: string;
   agentBase: string;
   agentDetected: boolean;
-  refreshAgent: () => Promise<void>;
+  refreshAgent: () => Promise<boolean>;
   blocked: boolean;
   onActivityChange: (activity: OnboardingActivity) => void;
 };
@@ -35,6 +35,8 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   const phaseRef = useRef(phase);
   const [environmentChecked, setEnvironmentChecked] = useState(false);
   const [connectionAlive, setConnectionAlive] = useState(Boolean(agentBase));
+  const [agentCheckFailed, setAgentCheckFailed] = useState(false);
+  const [agentReconnectAfterDownload, setAgentReconnectAfterDownload] = useState(false);
   const [runtimeReady, setRuntimeReady] = useState(false);
   const [systemRuntimeMissing, setSystemRuntimeMissing] = useState(false);
   const [systemDownloadAvailable, setSystemDownloadAvailable] = useState(true);
@@ -134,7 +136,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     setCloudConfirmed(false); setFormOpen(false); setStartOpen(false);
     pendingStartBackRef.current = ""; recoveryFailureRef.current = "";
     pendingRecoveryRef.current = ""; pendingStopRef.current = "";
-    setBusy(false); resultRequestRef.current = null; changePhase("loading");
+    setBusy(false); setAgentCheckFailed(false); setAgentReconnectAfterDownload(false); resultRequestRef.current = null; changePhase("loading");
     const cached = readOnboardingState(identity);
     // 先取消缓存的完成标记，防止云端完成事实返回前，旧缓存触发完成同步。
     const restored: OnboardingState = cached.status === "completed" ? { ...cached, status: "active", completionKind: undefined, step: cached.positionId ? "first-result" : "position-menu" } : cached;
@@ -462,6 +464,13 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
   }, [phase, agentBase, agentDetected, refreshAgent, update, celebrate, readResultTask]);
 
   useEffect(() => {
+    if (!connectionAlive) return;
+    setAgentCheckFailed(false);
+    setAgentReconnectAfterDownload(false);
+    setHelpOpen(false);
+  }, [connectionAlive]);
+
+  useEffect(() => {
     if (state.status !== "completed" || cloudConfirmed || !state.completionKind || !state.positionId) return;
     let active = true; let timer: number | undefined;
     /** syncCompletion 兼容旧本地程序，仅把无敏感详情的真实结果事实同步到既有云端接口。 */
@@ -479,7 +488,9 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
 
   let step = state.step;
   if (phase === "active") {
-    if (environmentChecked && !connectionAlive) step = pathname.startsWith("/admin/agent-download") ? state.step === "agent-connect" ? "agent-connect" : "agent-download" : "agent-menu";
+    if (environmentChecked && !connectionAlive) {
+      step = pathname.startsWith("/admin/agent-download") ? state.step === "agent-connect" || agentReconnectAfterDownload ? "agent-connect" : "agent-download" : "agent-menu";
+    }
     else if (connectionAlive && !runtimeReady) step = systemRuntimeMissing ? "runtime-system" : "runtime-install";
       else if (step.startsWith("agent-") || step.startsWith("runtime-") || step === "platform-select") step = state.reviewPosition && state.positionId ? "position-edit" : "position-menu";
     else if (step === "platform-open") step = state.positionId ? "position-start" : "position-menu";
@@ -565,6 +576,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     pendingStartBackRef.current = ""; pendingRecoveryRef.current = ""; recoveryFailureRef.current = "";
     setBusy(false); setFormOpen(false); setFormSaving(false); setStartOpen(false);
     setTaskStopped(false); setResultState("waiting"); setResultLogsOpen(false); setHelpOpen(false); setRestartOpen(false); setCelebration(null);
+    setAgentReconnectAfterDownload(false);
     setError(""); setStatusText("");
     update(() => restartOnboardingState(current, connectionAlive && runtimeReady));
     changePhase("invite");
@@ -632,6 +644,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       update((value) => ({ ...value, step: "position-menu" })); router.push("/admin"); return;
     }
     if (step === "position-menu") { changePhase("invite"); return; }
+    if (step === "agent-connect" && agentReconnectAfterDownload) { setAgentReconnectAfterDownload(false); return; }
     if (step === "position-platform" && formOpen) {
       publishOnboardingEvent({ type: "position-form-close-requested" });
       update((value) => ({ ...value, step: value.reviewPosition && value.positionId ? "position-edit" : "position-create" }));
@@ -645,18 +658,53 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     const previous: Partial<Record<OnboardingStep, OnboardingStep>> = { "agent-connect": "agent-download", "platform-login": "platform-filter", "position-create": "position-menu", "position-platform": "position-create", "position-name": "position-platform", "position-filter-mode": "position-name", "position-detail-mode": "position-filter-mode", "position-requirement": "position-detail-mode", "position-keywords": needsPositionRequirement(current) ? "position-requirement" : "position-detail-mode", "position-save": current.filterMode === "keyword" ? "position-keywords" : "position-requirement", "platform-filter": "position-start", "position-run": "platform-filter", "first-result": "position-start" };
     update((value) => ({ ...value, step: previous[step] || value.step })); setError("");
   }
-  /** checkAgent 主动重新探测，复用已有绑定流程，不重复打开安装提示弹框。 */
-  async function checkAgent() {
-    if (busy) return; setBusy(true); clearLocalAgentDetectCache();
-    try { await refreshAgent(); } catch { setError("还没连上。确认本地 GoodHR 已启动，再检查浏览器的设备应用权限。"); }
-    finally { if (aliveRef.current) setBusy(false); }
+  /** openAgentComponents 仅在用户主动选择时前往组件页，保留当前教程和岗位进度。 */
+  function openAgentComponents() {
+    loginRequestRef.current?.abort();
+    setFormOpen(false);
+    setStartOpen(false);
+    setStartDialogStatus("ready");
+    setHelpOpen(false);
+    setAgentCheckFailed(false);
+    router.push("/admin/agent-download");
   }
-  return { phase, state, step, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error, busy, resultState, resultLogsOpen, helpOpen, restartOpen, restartBlockedReason, resumeAboveDialog: !blocked && (formOpen || startOpen), formSaving, blocked, storageUnavailable, availablePlatforms: ["boss", "zhaopin", "liepin", "hliepin", "51job"].filter((platformId) => isPlatformOpen(platformConfigs, platformId)), platformsLoading, celebration, actions: {
+
+  /** downloadAgent 在新页打开下载，掉线期间只暂时切换连接提示，保留原岗位步骤。 */
+  function downloadAgent() {
+    window.open("/download", "_blank", "noopener,noreferrer");
+    if (stateRef.current.step.startsWith("agent-")) {
+      update((value) => ({ ...value, step: "agent-connect" }));
+    } else {
+      setAgentReconnectAfterDownload(true);
+    }
+  }
+
+  /** checkAgent 主动重新探测，并将未连接反馈限制在本地程序步骤。 */
+  async function checkAgent() {
+    if (busy) return;
+    const epoch = sessionEpochRef.current;
+    setBusy(true);
+    setAgentCheckFailed(false);
+    clearLocalAgentDetectCache();
+    let connected = false;
+    try {
+      connected = await refreshAgent();
+    } catch {
+      // 本地程序不可达和连接校验失败都给出可重试的提示。
+    } finally {
+      if (aliveRef.current && epoch === sessionEpochRef.current) {
+        setAgentCheckFailed(!connected);
+        setBusy(false);
+      }
+    }
+  }
+  const stepError = step.startsWith("agent-") && agentCheckFailed ? "这次还没连上。确认 GoodHR 已启动、浏览器允许访问后，再检查一次。" : error;
+  return { phase, state, step, agentConnectionMissing: environmentChecked && !connectionAlive && !agentBase, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error: stepError, busy, resultState, resultLogsOpen, helpOpen, restartOpen, restartBlockedReason, resumeAboveDialog: !blocked && (formOpen || startOpen), formSaving, blocked, storageUnavailable, availablePlatforms: ["boss", "zhaopin", "liepin", "hliepin", "51job"].filter((platformId) => isPlatformOpen(platformConfigs, platformId)), platformsLoading, celebration, actions: {
     recoverResult: () => recoverResultTarget("start"), reviewResultPosition: () => recoverResultTarget("edit"), viewResultLogs, checkResult: () => void checkResult(), stopResult,
     requestRestart, cancelRestart, confirmRestart,
-    accept, back, choosePlatform, openPlatform: () => void openPlatform(), checkAgent: () => void checkAgent(),
+    accept, back, choosePlatform, openPlatform: () => void openPlatform(), openAgentComponents, checkAgent: () => void checkAgent(),
     openHelp: () => setHelpOpen(true), closeHelp: () => setHelpOpen(false),
-    downloadAgent: () => { window.open("/download", "_blank", "noopener,noreferrer"); update((value) => ({ ...value, step: "agent-connect" })); },
+    downloadAgent,
     finishClose: () => changePhase("silent"), dismissCelebration: () => setCelebration(null),
     refreshPlatforms: () => void readPlatformAvailability(),
   } };

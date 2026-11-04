@@ -19,12 +19,26 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
   const { phase, state, step, target, targetGeometry, title, description, hint, estimate, remaining, doneCount, statusText, error, busy, helpOpen, restartOpen, restartBlockedReason, formSaving, blocked, storageUnavailable, celebration, actions } = props;
   const [mobileMenuPlacement, setMobileMenuPlacement] = useState<"top" | "bottom" | null>(null);
   const [modePopupLayout, setModePopupLayout] = useState<{ placement: "top" | "bottom"; maxHeight: number } | null>(null);
+  const [connectionHelpDismissed, setConnectionHelpDismissed] = useState(false);
   const actionsRef = useRef(actions);
   const progressBarRef = useRef<HTMLElement | null>(null);
   actionsRef.current = actions;
   const stage = onboardingStage(step);
   const active = phase === "active";
+  const connectionHelpStep = active && step === "agent-menu";
+  const automaticConnectionHelp = connectionHelpStep && props.agentConnectionMissing && !connectionHelpDismissed && !helpOpen && !restartOpen && !props.resultLogsOpen;
+  const showHelp = helpOpen || automaticConnectionHelp;
   const stageDone = [state.environmentReady, Boolean(state.positionId) && !state.reviewPosition, state.platformLoggedIn && !state.reviewPosition, state.positionStarted, state.status === "completed"];
+
+  useEffect(() => {
+    if (!connectionHelpStep) setConnectionHelpDismissed(false);
+  }, [connectionHelpStep]);
+
+  /** closeHelp 收起自动出现的连接指引，让用户仍可按原来的菜单引导操作。 */
+  function closeHelp() {
+    if (connectionHelpStep) setConnectionHelpDismissed(true);
+    actions.closeHelp();
+  }
 
   useLayoutEffect(() => {
     if (!active || !target || !["position-filter-mode", "first-result"].includes(step)) { setModePopupLayout(null); return; }
@@ -159,7 +173,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       ) : null}
 
       {operationPanel}
-      {active && !operationPanel && !helpOpen && !restartOpen && !props.resultLogsOpen && (!target || blocked) ? (
+      {active && !operationPanel && !showHelp && !restartOpen && !props.resultLogsOpen && (!target || blocked) ? (
         <section className={`${styles.operationPanel} ${styles.passivePanel}`} data-testid="onboarding-target-loading" aria-live="polite">
           <Typography.Text strong>{blocked ? "先处理当前必要检查，进度已保存" : "正在定位操作位置"}</Typography.Text>
           <Typography.Paragraph type="secondary">{blocked ? "完成当前弹框里的检查后，我会从这一步继续带路。" : error || statusText || "当前页面准备好后，我会继续高亮操作位置。你也可以先按说明操作。"}</Typography.Paragraph>
@@ -172,7 +186,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       <Tour
         key={`${step}:${targetGeometry}`}
         rootClassName={styles.tourPopup}
-        open={active && Boolean(target) && !helpOpen && !restartOpen && !blocked && !props.resultLogsOpen}
+        open={active && Boolean(target) && !showHelp && !restartOpen && !blocked && !props.resultLogsOpen}
         current={0}
         steps={[{
           target,
@@ -208,22 +222,27 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       </Modal>
 
       <Modal
-        open={active && helpOpen && !blocked}
+        open={active && showHelp && !blocked}
         zIndex={1700}
-        title={`这一步怎么做：${title}`}
+        title={automaticConnectionHelp ? "本地小助手还没连上" : `这一步怎么做：${title}`}
         width={560}
         centered
         styles={{ body: { maxHeight: "min(560px, calc(100dvh - 220px))", overflowY: "auto", overscrollBehavior: "contain" } }}
-        onCancel={actions.closeHelp}
-        footer={<Flex justify="flex-end" gap={8} wrap><Button disabled={formSaving} onClick={actions.back}>上一步</Button><Button onClick={actions.requestRestart}>从头开始</Button><Button type="primary" onClick={actions.closeHelp}>我再试试</Button></Flex>}
+        onCancel={closeHelp}
+        footer={automaticConnectionHelp ? (
+          <Flex justify="flex-end" gap={8} wrap>
+            <Button disabled={busy || formSaving} onClick={actions.openAgentComponents}>前往组件信息</Button>
+            <Button type="primary" loading={busy} onClick={actions.checkAgent}>检查连接</Button>
+          </Flex>
+        ) : <Flex justify="flex-end" gap={8} wrap><Button disabled={formSaving} onClick={actions.back}>上一步</Button><Button onClick={actions.requestRestart}>从头开始</Button><Button type="primary" onClick={closeHelp}>我再试试</Button></Flex>}
       >
-        <Typography.Paragraph>{description}</Typography.Paragraph>
+        <Typography.Paragraph>{automaticConnectionHelp ? "双击桌面或程序坞上的 GoodHR 图标启动，再点“检查连接”。还没安装，可以前往“组件信息”下载。" : description}</Typography.Paragraph>
         {step === "position-filter-mode" ? <FilterModeExplanation /> : null}
-        <Typography.Paragraph type="secondary">{hint}</Typography.Paragraph>
+        {!automaticConnectionHelp ? <Typography.Paragraph type="secondary">{hint}</Typography.Paragraph> : null}
         {error || blocked ? <Alert type="warning" showIcon title="我目前看到的卡点" description={error || statusText || "先按当前页面提示完成检查，再回来继续。"} className={styles.helpAlert} /> : null}
-        {step === "agent-connect" ? <div><Typography.Paragraph>启动本地 GoodHR 程序后，如果还连不上，点击地址栏左侧的网站设置，允许“设备上的应用”，再检查一次连接。</Typography.Paragraph><ClickableImagePreview src={permissionImage} alt="Chrome 设备上的应用权限开关位置" /></div> : null}
+        {step.startsWith("agent-") ? <div><Typography.Paragraph>程序开着还是连不上？可能是浏览器权限。点击地址栏左侧的网站设置，允许“设备上的应用”，再检查一次连接。</Typography.Paragraph><ClickableImagePreview src={permissionImage} alt="Chrome 设备上的应用权限开关位置" /></div> : null}
         {step === "first-result" ? <div className={styles.helpResultActions}><Typography.Paragraph>“不合适，已跳过”也是筛选结果。还没判断完、只扫描到候选人，都不会算教程完成。</Typography.Paragraph><ResultActions {...props} /></div> : null}
-        <AuthorContact />
+        {!automaticConnectionHelp ? <AuthorContact /> : null}
       </Modal>
 
       <Modal
@@ -279,8 +298,9 @@ function OperationPanel(props: OnboardingExperienceProps) {
     <section className={styles.operationPanel} aria-label="当前教程操作" aria-live="polite">
       <Typography.Title level={5} className={styles.panelTitle}>{title}</Typography.Title>
       <Typography.Paragraph type="secondary" className={styles.panelDescription}>{description}</Typography.Paragraph>
-      {step === "agent-download" ? <Button data-onboarding="onboarding-agent-download" type="primary" onClick={actions.downloadAgent}>下载本地程序</Button> : null}
-      {step === "agent-connect" ? <div><Button data-onboarding="onboarding-agent-connect" type="primary" loading={busy} onClick={actions.checkAgent}>检查连接</Button><Typography.Paragraph type="secondary" className={styles.connectHint}>程序已经启动仍连不上？点击“遇到问题”查看浏览器权限图。</Typography.Paragraph></div> : null}
+      {step === "agent-download" ? <Flex data-onboarding="onboarding-agent-options" gap={8} wrap><Button data-onboarding="onboarding-agent-download" type="primary" onClick={actions.downloadAgent}>下载本地程序</Button><Button loading={busy} onClick={actions.checkAgent}>检查连接</Button></Flex> : null}
+      {step === "agent-connect" ? <Button data-onboarding="onboarding-agent-connect" type="primary" loading={busy} onClick={actions.checkAgent}>检查连接</Button> : null}
+      {step.startsWith("agent-") ? <Typography.Paragraph type="secondary" className={styles.connectHint}>程序已经启动仍连不上？点击“遇到问题”查看浏览器权限图。</Typography.Paragraph> : null}
       {statusText && !["platform-login", "first-result"].includes(step) ? <Typography.Paragraph type="secondary" className={styles.panelStatus}>{statusText}</Typography.Paragraph> : null}
       {error ? <Alert type="warning" showIcon title={error} className={styles.panelStatus} /> : null}
     </section>

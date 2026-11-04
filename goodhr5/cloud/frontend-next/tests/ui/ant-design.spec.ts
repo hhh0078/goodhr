@@ -1,5 +1,6 @@
 /** 本文件回归验证账号主题选择、激活与本地绑定、表单取消、嵌套图片预览和不可关闭的系统弹窗。 */
 import { test, expect, type Locator, type Page } from "@playwright/test";
+import { createOnboardingState, onboardingStorageKey } from "../../lib/onboarding-state";
 
 const {
   runHeavyChecks,
@@ -23,6 +24,7 @@ type MockOptions = {
   member?: string;
   memberName?: string;
   disconnected?: boolean;
+  tutorialState?: "pending" | "completed";
   missingRuntime?: boolean;
   update?: string;
   passwordSetup?: boolean;
@@ -144,6 +146,8 @@ async function mockSession(page: Page, options: MockOptions = {}) {
               features: [],
             },
           };
+        else if (path === "/api/user-flow" && options.tutorialState)
+          data = { flow: { state: options.tutorialState } };
         else if (path === "/api/system/app-config") data = { config: {} };
         else if (path === "/api/runtime/config")
           data = {
@@ -541,7 +545,7 @@ test("删除确认的取消与确认分别返回正确结果", async ({ page }) 
 });
 
 test("嵌套图片预览关闭后仍保留父弹窗", async ({ page }) => {
-  await mockSession(page, { disconnected: true });
+  await mockSession(page, { disconnected: true, tutorialState: "completed" });
   await page.goto("/admin/accounts");
   const parent = page.getByRole("dialog", { name: "请先安装本地程序" });
   await expect(parent).toBeVisible();
@@ -567,6 +571,85 @@ test("嵌套图片预览关闭后仍保留父弹窗", async ({ page }) => {
   await expect(parent).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(parent).not.toBeVisible();
+});
+
+for (const width of [1440, 390]) {
+  test(`教程未连接先在当前页提示并可重试 ${width}px`, async ({ page }, testInfo) => {
+    const options: MockOptions = { disconnected: true, tutorialState: "pending" };
+    await mockSession(page, options);
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 960 });
+    await page.goto("/admin/accounts");
+    await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
+    const prompt = page.getByRole("dialog", { name: "本地小助手还没连上", exact: true });
+    const image = prompt.getByRole("img", { name: "Chrome 设备上的应用权限开关位置" });
+    await expect(prompt).toBeVisible();
+    await expect(page).toHaveURL(/\/admin\/accounts$/);
+    await expect(prompt).toContainText("可能是浏览器权限");
+    await expect(image).toBeVisible();
+    await expect(prompt.getByRole("button", { name: "前往组件信息" })).toBeInViewport();
+    await prompt.getByRole("button", { name: "检查连接", exact: true }).click();
+    await expect(prompt).toContainText("这次还没连上");
+    await page.screenshot({ path: testInfo.outputPath(`agent-connection-${width}.png`) });
+
+    if (width === 1440) {
+      await prompt.getByRole("button", { name: "前往组件信息" }).click();
+      await expect(page).toHaveURL(/\/admin\/agent-download$/);
+      await expect(page.getByTestId("onboarding-tour")).toHaveAttribute("data-step", "agent-download");
+      const operation = page.getByRole("region", { name: "当前教程操作" });
+      await operation.getByRole("button", { name: "检查连接", exact: true }).click();
+      await expect(operation).toContainText("这次还没连上");
+      await page.locator(".ant-tour").getByRole("button", { name: "遇到问题" }).click();
+      const help = page.getByRole("dialog", { name: /这一步怎么做/ });
+      await expect(help.getByRole("img", { name: "Chrome 设备上的应用权限开关位置" })).toBeVisible();
+      await expect(help.getByRole("button", { name: "从头开始" })).toBeVisible();
+      await help.getByRole("button", { name: "我再试试" }).click();
+      await page.goBack();
+      await expect(page).toHaveURL(/\/admin\/accounts$/);
+      await expect(prompt).toBeVisible();
+    }
+
+    options.disconnected = false;
+    await expect(prompt).toBeHidden();
+    await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-menu");
+    await expect(page).toHaveURL(/\/admin\/accounts$/);
+  });
+}
+
+test("教程等首轮结果时掉线，去组件页下载后仍续读原岗位", async ({ page }) => {
+  const options: MockOptions = { disconnected: true, tutorialState: "pending" };
+  const calls = await mockSession(page, options);
+  const positionId = "saved-onboarding-job";
+  const key = onboardingStorageKey("test-user");
+  const state = {
+    ...createOnboardingState(),
+    status: "active",
+    step: "first-result",
+    positionId,
+    environmentReady: true,
+    platformLoggedIn: true,
+    positionStarted: true,
+  };
+  await page.addInitScript(({ key, state }) => localStorage.setItem(key, JSON.stringify(state)), { key, state });
+  await page.route("**/api/positions", (route) => route.fulfill({
+    json: { positions: [{ id: positionId, platform_id: "boss", is_open: true }] },
+    headers: { "access-control-allow-origin": "*" },
+  }));
+  await page.context().route("**/download", (route) => route.fulfill({ body: "本地程序下载测试页" }));
+  await page.goto("/admin/positions");
+  const prompt = page.getByRole("dialog", { name: "本地小助手还没连上", exact: true });
+  await prompt.getByRole("button", { name: "前往组件信息" }).click();
+  const popup = page.context().waitForEvent("page");
+  await page.getByRole("button", { name: "下载本地程序", exact: true }).click();
+  await (await popup).close();
+  await expect(page.getByTestId("onboarding-tour")).toHaveAttribute("data-step", "agent-connect");
+  await expect.poll(() => page.evaluate((key) => JSON.parse(localStorage.getItem(key) || "{}"), key))
+    .toMatchObject({ step: "first-result", positionId, positionStarted: true });
+  await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
+  await expect(page.getByTestId("onboarding-tour")).toHaveAttribute("data-step", "agent-download");
+  await page.goBack();
+  options.disconnected = false;
+  await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "first-result");
+  await expect.poll(() => calls.some(({ path }) => path === `/api/v1/local/positions/${positionId}/status`)).toBe(true);
 });
 
 test("必要组件缺失时不能用遮罩或 Escape 关闭弹窗", async ({ page }) => {
