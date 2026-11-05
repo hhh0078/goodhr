@@ -198,6 +198,24 @@
   font-size: 13px;
   line-height: 1.7;
 }
+.public-login-agreement {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.public-login-agreement .ant-checkbox-wrapper { font-size: 13px; }
+.public-agreement-link.ant-btn {
+  padding: 0;
+  height: auto;
+  white-space: normal;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: var(--goodhr-primary-dark, #0f754a);
+}
 .public-agreement-content {
   max-height: 68vh;
   overflow: auto;

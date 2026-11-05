@@ -1,5 +1,6 @@
 /** 本文件负责新版后台身份、悬浮布局、分类菜单、顶部状态和全局消息。 */
 "use client";
+import { trackAdminArrival } from "@/lib/conversion-analytics";
 
 import {
   Alert,
@@ -499,6 +500,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     try { localStorage.setItem(SESSION_EMAIL_KEY, String(nextUser?.email || "").trim().toLowerCase()); } catch { /* 邮箱缓存不可写时，流程记录仍会请求云端，不使用旧身份去重。 */ }
     setThemeAccount(String(nextUser?.email || nextUser?.id || ""));
     setUser(nextUser);
+    if (nextUser?.email || nextUser?.id) trackAdminArrival();
     const nextPasswordSetupRequired = Boolean(
       authPayload.requires_password_setup,
     );
@@ -674,7 +676,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   return (
     <AdminContext.Provider value={contextValue}>
       <AdminOverlayProvider>
-        <Layout data-admin-root className="goodhr-admin-layout">
+        <Layout data-admin-root data-clarity-mask="true" className="goodhr-admin-layout">
           <AdminOverlayActivity open={mobileOpen} />
           <aside className="goodhr-admin-sidebar">{drawer}</aside>
           <Drawer

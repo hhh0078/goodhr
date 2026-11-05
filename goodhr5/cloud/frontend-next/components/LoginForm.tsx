@@ -9,7 +9,8 @@ import {
 } from "@ant-design/icons";
 import { Alert, Button, Checkbox, Form, Input, Modal, Typography } from "antd";
 import "@/components/public-site.css";
-import { useEffect, useMemo, useState, type UIEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { classifyAuthFailure, markPendingAdminArrival, trackConversion } from "@/lib/conversion-analytics";
 import {
   apiRequest,
   INVITE_CACHE_KEY,
@@ -72,7 +73,13 @@ GoodHR 提供了模拟休息、打开概率、操作间隔等配置，但这些�
 
 本地浏览器数据、招聘平台登录状态、截图缓存等敏感数据主要保存在你的本地电脑中。
 
-### **8. 继续使用代表你已理解并同意**
+### **8. 网站使用情况统计**
+
+官网和登录页使用百度统计与 Microsoft Clarity，帮助我们了解访问、点击、页面滚动和注册步骤中的问题。Clarity 会生成热力图与操作回放，输入框内容会被遮盖。
+
+我们不向统计工具发送你的密码、验证码或登录令牌，不采集后台简历、聊天、私人分享和诊断页面的操作回放。微软隐私说明：https://privacy.microsoft.com/privacystatement
+
+### **9. 继续使用代表你已理解并同意**
 
 如果你勾选并继续登录，表示你已经阅读、理解并同意以上内容。
 
@@ -94,7 +101,7 @@ export default function LoginForm() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [agreementOpen, setAgreementOpen] = useState(false);
-  const [agreementScrolled, setAgreementScrolled] = useState(false);
+  const [continueAfterAgreement, setContinueAfterAgreement] = useState(false);
   const [agreementChecked, setAgreementChecked] = useState(false);
   const [acceptedEmail, setAcceptedEmail] = useState("");
   const [loginPreferencesLoaded, setLoginPreferencesLoaded] = useState(false);
@@ -105,12 +112,14 @@ export default function LoginForm() {
   const [resetCooldown, setResetCooldown] = useState(0);
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
+  const loginBusy = useRef(false);
 
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
   const agreementAcceptedForEmail = Boolean(
     normalizedEmail && acceptedEmail === normalizedEmail,
   );
   const agreementReady = agreementAcceptedForEmail || agreementChecked;
+  const authFlow = loginMode === "password" ? "existing_account" : isNewAccount === null ? "unknown" : isNewAccount ? "new_account" : "existing_account";
 
   useEffect(() => {
     captureLocalAgentPortFromURL();
@@ -157,7 +166,7 @@ export default function LoginForm() {
 
   useEffect(() => {
     setAgreementChecked(false);
-    setAgreementScrolled(false);
+    setContinueAfterAgreement(false);
     setAcceptedEmail((current) => (current === normalizedEmail ? current : ""));
   }, [normalizedEmail]);
 
@@ -170,16 +179,19 @@ export default function LoginForm() {
 
   /** sendCode 请求向当前邮箱发送登录验证码。 */
   async function sendCode() {
+    if (loading || cooldown > 0) return;
     setError("");
     setMessage("");
     if (!normalizedEmail) return setError("请先填写邮箱");
     setLoading(true);
+    trackConversion("code_request", { method: "code" });
     try {
       const data = await apiRequest("/api/auth/send-code", {
         method: "POST",
         body: JSON.stringify({ email: normalizedEmail }),
       });
       setIsNewAccount(Boolean(data.is_new_account));
+      trackConversion("code_sent", { method: "code", flow: data.is_new_account ? "new_account" : "existing_account" });
       if (data.debug_code) setCode(String(data.debug_code));
       setCooldown(60);
       setMessage(
@@ -188,6 +200,7 @@ export default function LoginForm() {
           : "验证码已发送，请查看邮箱",
       );
     } catch (requestError) {
+      trackConversion("code_failed", { reason: classifyAuthFailure(requestError), method: "code" });
       setError(errorMessage(requestError));
     } finally {
       setLoading(false);
@@ -262,8 +275,8 @@ export default function LoginForm() {
     }
   }
   /** ensureAgreementAccepted 确认当前邮箱是否已经完成协议确认。 */
-  async function ensureAgreementAccepted() {
-    if (acceptedEmail === normalizedEmail || agreementChecked) return true;
+  async function ensureAgreementAccepted(confirmed: boolean) {
+    if (confirmed || acceptedEmail === normalizedEmail || agreementChecked) return true;
     const data = await apiRequest(
       `/api/auth/agreement-status?email=${encodeURIComponent(normalizedEmail)}`,
       { method: "GET" },
@@ -273,7 +286,8 @@ export default function LoginForm() {
       return true;
     }
     setAgreementOpen(true);
-    setError("我小声提醒一下：首次登录前需要先读完并同意协议。");
+    setContinueAfterAgreement(true);
+    trackConversion("agreement_opened", { flow: authFlow, method: loginMode });
     return false;
   }
 
@@ -284,7 +298,10 @@ export default function LoginForm() {
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(SESSION_EMAIL_KEY, normalizedEmail);
     localStorage.removeItem(INVITE_CACHE_KEY);
+    trackConversion(loginMode === "code" && isNewAccount ? "register_success" : "login_success", { flow: authFlow, method: loginMode });
+    markPendingAdminArrival(authFlow);
     if (data.requires_password_setup) {
+      trackConversion("password_setup_required", { flow: authFlow, method: loginMode });
       setPasswordSetupRequired(true);
       setMessage("验证码通过了，再补一个密码就能继续");
       return;
@@ -294,27 +311,29 @@ export default function LoginForm() {
   }
 
   /** login 根据当前方式提交验证码或密码登录。 */
-  async function login() {
-    if (loading) return;
+  async function login(confirmed = false) {
+    if (loading || loginBusy.current) return;
     setError("");
     setMessage("");
-    if (!normalizedEmail) return setError("请先填写邮箱");
-    if (loginMode === "password" && !password) return setError("请输入密码");
+    if (!normalizedEmail) return validationError("请先填写邮箱", "email");
+    if (loginMode === "password" && !password) return validationError("请输入密码", "password");
     if (loginMode === "code" && code.trim().length !== 4)
-      return setError("请输入 4 位验证码");
+      return validationError("请输入 4 位验证码", "code");
     if (loginMode === "code" && isNewAccount === null)
-      return setError("请先发送验证码");
+      return validationError("请先发送验证码", "send_code_first");
     if (loginMode === "code" && isNewAccount && [...password].length < 2)
-      return setError("首次注册需要设置至少 2 个字符的密码");
+      return validationError("首次注册需要设置至少 2 个字符的密码", "password");
     if (
       loginMode === "code" &&
       isNewAccount &&
       password !== passwordConfirmation
     )
-      return setError("两次密码不一样，我先不敢注册");
+      return validationError("两次密码不一样，我先不敢注册", "password_confirmation");
+    loginBusy.current = true;
     setLoading(true);
+    if (!confirmed) trackConversion("login_submit", { flow: authFlow, method: loginMode });
     try {
-      if (!(await ensureAgreementAccepted())) return;
+      if (!(await ensureAgreementAccepted(confirmed))) return;
       const inviterID = localStorage.getItem(INVITE_CACHE_KEY) || "";
       const data = await apiRequest(
         loginMode === "password"
@@ -327,40 +346,57 @@ export default function LoginForm() {
               ? {
                   email: normalizedEmail,
                   password,
-                  agreement_accepted: agreementChecked,
+                  agreement_accepted: confirmed || agreementChecked,
                 }
               : {
                   email: normalizedEmail,
                   code: code.trim(),
                   password: isNewAccount ? password : "",
                   inviter_id: inviterID,
-                  agreement_accepted: agreementChecked,
+                  agreement_accepted: confirmed || agreementChecked,
                 },
           ),
         },
       );
       finishLogin(data);
     } catch (requestError) {
+      trackConversion("login_failed", { flow: authFlow, method: loginMode, reason: classifyAuthFailure(requestError) });
       setError(errorMessage(requestError));
     } finally {
+      loginBusy.current = false;
       setLoading(false);
     }
   }
 
-  /** handleAgreementScroll 判断协议内容是否已经滚动到底部。 */
-  function handleAgreementScroll(event: UIEvent<HTMLDivElement>) {
-    const target = event.currentTarget;
-    const reachedBottom =
-      target.scrollTop + target.clientHeight >= target.scrollHeight - 8;
-    if (reachedBottom) setAgreementScrolled(true);
+  /** validationError 显示表单问题并记录固定字段分类，不上传用户填写内容。 */
+  function validationError(message: string, reason: "email" | "code" | "password" | "send_code_first" | "password_confirmation") {
+    setError(message);
+    trackConversion("validation_failed", { flow: authFlow, method: loginMode, reason });
   }
 
-  /** acceptAgreement 在弹框内确认协议勾选。 */
+  /** acceptAgreement 确认协议并自动继续待完成的登录，不再要求用户重复点击。 */
   function acceptAgreement() {
     setAgreementChecked(true);
     setAcceptedEmail(normalizedEmail);
     setAgreementOpen(false);
     setError("");
+    trackConversion("agreement_accepted", { flow: authFlow, method: loginMode });
+    setContinueAfterAgreement(false);
+    if (continueAfterAgreement) void login(true);
+  }
+
+  /** openAgreement 单独预览协议，不在用户只阅读协议时发起登录。 */
+  function openAgreement() {
+    setContinueAfterAgreement(false);
+    setAgreementOpen(true);
+    trackConversion("agreement_opened", { flow: authFlow, method: loginMode });
+  }
+
+  /** cancelAgreement 关闭协议并取消待续登录，保留用户已填的表单。 */
+  function cancelAgreement() {
+    setContinueAfterAgreement(false);
+    setAgreementOpen(false);
+    trackConversion("agreement_cancelled", { flow: authFlow, method: loginMode });
   }
 
   return (
@@ -484,16 +520,27 @@ export default function LoginForm() {
               忘记密码
             </Button>
             <Button
-              type="text"
+              type="link"
               size="small"
-              onClick={() => {
-                setAgreementOpen(true);
-                setAgreementScrolled(false);
-              }}
+              onClick={openAgreement}
             >
               阅读协议
             </Button>
           </div>
+        </div>
+        <div className="public-login-agreement">
+          <Checkbox
+            checked={agreementReady}
+            disabled={loading}
+            onChange={(event) => {
+              setAgreementChecked(event.target.checked);
+              if (!event.target.checked) setAcceptedEmail("");
+              else trackConversion("agreement_accepted", { flow: authFlow, method: loginMode });
+            }}
+          >我已阅读并同意</Checkbox>
+          <Button type="link" className="public-agreement-link" onClick={openAgreement} disabled={loading}>
+            《使用协议与隐私说明》
+          </Button>
         </div>
         {error ? (
           <Alert
@@ -547,28 +594,18 @@ export default function LoginForm() {
       </Typography.Paragraph>
       <Modal
         open={agreementOpen}
-        onCancel={() => setAgreementOpen(false)}
+        onCancel={cancelAgreement}
         title="GoodHR 使用协议与隐私说明"
         width={900}
         footer={
           <div className="public-agreement-footer">
-            <Checkbox
-              checked={agreementReady}
-              disabled={!agreementScrolled && !agreementAcceptedForEmail}
-              onChange={(event) => setAgreementChecked(event.target.checked)}
-            >
-              {agreementScrolled || agreementAcceptedForEmail
-                ? "我已阅读并同意"
-                : "请先滚动到最下面，我再让你勾"}
-            </Checkbox>
             <div className="public-login-actions">
-              <Button onClick={() => setAgreementOpen(false)}>先不登录</Button>
+              <Button onClick={cancelAgreement}>先不登录</Button>
               <Button
                 type="primary"
-                disabled={!agreementReady}
                 onClick={acceptAgreement}
               >
-                同意并继续
+                我已阅读
               </Button>
             </div>
           </div>
@@ -576,7 +613,6 @@ export default function LoginForm() {
       >
         <div
           className="public-agreement-content"
-          onScroll={handleAgreementScroll}
           tabIndex={0}
           aria-label="使用协议内容"
         >
@@ -689,6 +725,7 @@ export default function LoginForm() {
             body: JSON.stringify({ password: nextPassword }),
           });
           setPasswordSetupRequired(false);
+          trackConversion("password_setup_completed", { flow: authFlow, method: loginMode });
           window.location.assign(resolveNextPath());
         }}
       />

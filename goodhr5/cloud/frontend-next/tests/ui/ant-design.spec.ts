@@ -841,7 +841,7 @@ test("分享日志的参数、任务编号和 AI 原文都能独立展开", asyn
   ).toHaveText(fullAIReply);
 });
 
-test("手机协议弹窗可滚动，读到底部前不能勾选", async ({ page }) => {
+test("手机协议弹窗可滚动，不滚到底部也能确认", async ({ page }) => {
   await mockSession(page, { signedOut: true });
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/login");
@@ -849,15 +849,10 @@ test("手机协议弹窗可滚动，读到底部前不能勾选", async ({ page 
   const dialog = page.getByRole("dialog", {
     name: "GoodHR 使用协议与隐私说明",
   });
-  await expect(dialog.getByRole("checkbox")).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "我已阅读", exact: true })).toBeEnabled();
   const box = await dialog.boundingBox();
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(376);
-  await dialog.locator(".public-agreement-content").press("Control+End");
-  await expect(dialog.getByRole("checkbox")).toBeEnabled();
-  await expect(
-    dialog.getByRole("button", { name: "同意并继续", exact: true }),
-  ).toBeDisabled();
   await page.screenshot({
     path: "artifacts/antd-login-agreement-mobile.png",
     animations: "disabled",
