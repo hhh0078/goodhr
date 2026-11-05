@@ -2,7 +2,9 @@
 package zhaopin
 
 // Runtime 是智联招聘平台运行时。
-type Runtime struct{}
+type Runtime struct {
+	positionName string
+}
 
 // NewRuntime 创建智联招聘平台运行时。
 func NewRuntime() *Runtime {

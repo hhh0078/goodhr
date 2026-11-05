@@ -531,6 +531,116 @@
       "timeout_ms": 5000,
       "description": "智联招呼语发送按钮"
     },
+    "candidate.greet_job_dialog": {
+      "_comment": "智联搜索页首次沟通时打开的职位选择弹窗。",
+      "parents": [],
+      "target": {
+        "_comment": "只识别已打开且标题完整等于选择沟通职位的弹窗。",
+        "selectors": [
+          { "_comment": "智联可见的沟通职位弹窗。", "type": "css", "value": ".km-modal--open:has(.resume-buttons-chat__title:text-is(\"选择沟通职位\")):visible" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "智联沟通职位弹窗"
+    },
+    "candidate.greet_job_open": {
+      "_comment": "点击沟通职位弹窗内的职位输入框，打开职位下拉层。",
+      "parents": [
+        {
+          "_comment": "已打开且标题完整匹配的沟通职位弹窗。",
+          "selectors": [
+            { "_comment": "沟通职位输入框所属弹窗。", "type": "css", "value": ".km-modal--open:has(.resume-buttons-chat__title:text-is(\"选择沟通职位\")):visible" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "按专属占位文字定位弹窗内的可用职位输入框。",
+        "selectors": [
+          { "_comment": "点击后展开沟通职位下拉层的输入框。", "type": "css", "value": ".jsn-job-selector__input[placeholder=\"请选择沟通职位\"]:visible" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联沟通职位下拉入口"
+    },
+    "candidate.greet_job_input": {
+      "_comment": "在挂载到弹窗外部的当前可见职位下拉层内搜索职位。",
+      "parents": [
+        {
+          "_comment": "只使用可见的职位下拉层，排除隐藏的旧下拉层。",
+          "selectors": [
+            { "_comment": "当前展开的职位下拉层。", "type": "css", "value": ".jsn-job-selector-popper:visible" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "按职位名称或发布地的占位文字定位输入框。",
+        "selectors": [
+          { "_comment": "当前下拉层的职位搜索输入框。", "type": "css", "value": "input[placeholder=\"职位名称 / 发布地\"]:visible" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联沟通职位搜索输入框"
+    },
+    "candidate.greet_job_name": {
+      "_comment": "在当前可见的职位下拉层内精确匹配职位标题，供唯一性检查和点击复用。",
+      "parents": [],
+      "target": {
+        "_comment": "只匹配可见职位选项的标题节点，排除搜索框和弹窗内已选标题。",
+        "selectors": [
+          { "_comment": "可见职位选项内的独立职位标题。", "type": "css", "value": ".jsn-job-selector-popper:visible .jsn-job-selector__option .jsn-job-selector__option--title:visible" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联沟通职位选项标题"
+    },
+    "candidate.greet_job_selected": {
+      "_comment": "读取弹窗内已选职位标题，确认与目标职位一致后再继续。",
+      "parents": [
+        {
+          "_comment": "已打开且标题完整匹配的沟通职位弹窗。",
+          "selectors": [
+            { "_comment": "已选职位所属的沟通职位弹窗。", "type": "css", "value": ".km-modal--open:has(.resume-buttons-chat__title:text-is(\"选择沟通职位\")):visible" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "只读取弹窗内职位输入控件显示的当前标题。",
+        "selectors": [
+          { "_comment": "已选沟通职位的可见标题。", "type": "css", "value": ".jsn-job-selector__label .jsn-job-selector__option--title:visible" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联已选沟通职位"
+    },
+    "candidate.greet_job_confirm": {
+      "_comment": "在沟通职位弹窗内点击确定，提交已核对的职位。",
+      "parents": [
+        {
+          "_comment": "已打开且标题完整匹配的沟通职位弹窗。",
+          "selectors": [
+            { "_comment": "确认按钮所属的沟通职位弹窗。", "type": "css", "value": ".km-modal--open:has(.resume-buttons-chat__title:text-is(\"选择沟通职位\")):visible" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "只匹配此弹窗内名称完整等于确定的可用按钮。",
+        "text": "确定",
+        "_comment_text": "智联沟通职位弹窗的确认按钮文字。",
+        "exact_text": true,
+        "_comment_exact_text": "完整匹配按钮名称，排除其他操作。",
+        "selectors": [
+          { "_comment": "以按钮角色定位弹窗确认操作。", "type": "role", "value": "button" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联沟通职位确认按钮"
+    },
     "candidate.continue": [
       {
         "_comment": "智联候选人卡片内继续沟通按钮。",

@@ -4,6 +4,7 @@ package zhaopin
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
@@ -12,8 +13,12 @@ import (
 // SelectPosition 沿用智联手动搜索结果，推荐页仍在职位选择弹层选择任务岗位。
 func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config, position model.Position) error {
 	manualSearch, err := common.CurrentPageUsesManualSearch(ctx, browser, cfg)
-	if err != nil || manualSearch {
+	if err != nil {
 		return err
+	}
+	r.positionName = strings.TrimSpace(position.Name)
+	if manualSearch {
+		return nil
 	}
 	before, err := common.FindCandidates(ctx, browser, cfg, cfg.ID, model.CandidateListOptions{})
 	if err != nil && !common.IsElementMissing(err) {
