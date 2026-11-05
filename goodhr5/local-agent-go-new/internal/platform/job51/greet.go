@@ -11,7 +11,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// GreetCandidate 沿用公共招呼动作，必须确认当前卡片进入已沟通状态才返回成功。
+// GreetCandidate 只点击一次目标卡片，出现招呼职位弹框才选岗，同一稳定编号变为已沟通才返回成功。
 func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.GreetRequest) error {
 	if _, configured := cfg.Selectors["candidate.continue"]; !configured {
 		return fmt.Errorf("%w：前程无忧招呼完成状态还没配置，这次先不发送，请更新后再试", model.ErrGreetingUnconfirmed)
@@ -22,6 +22,13 @@ func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg
 	}
 	if blocked {
 		return fmt.Errorf("%w：平台聊天点数提示挡住按钮，请先关闭提示并重新开始，我不会自动重发", model.ErrGreetingUnconfirmed)
+	}
+	jobDialog, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_job_dialog")
+	if err != nil {
+		return fmt.Errorf("%w：检查招呼职位弹框失败：%w", model.ErrGreetingUnconfirmed, err)
+	}
+	if jobDialog {
+		return fmt.Errorf("%w：页面上还有未处理的招呼职位弹框，请先关闭后再试", model.ErrGreetingUnconfirmed)
 	}
 	scopedConfig, scopedCandidate, err := scopeCandidate(ctx, browser, cfg, candidate)
 	if err != nil {
@@ -47,24 +54,41 @@ func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg
 		}
 		return fmt.Errorf("%w：前程无忧招呼操作没有确认完成：%w", model.ErrGreetingUnconfirmed, err)
 	}
-	for attempt := 0; attempt < 10; attempt++ {
+	deadline := time.Now().Add(10 * time.Second)
+	confirmedJob := false
+	for time.Now().Before(deadline) {
+		jobDialog, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_job_dialog")
+		if err != nil {
+			return fmt.Errorf("%w：检查招呼职位弹框失败：%w", model.ErrGreetingUnconfirmed, err)
+		}
+		if jobDialog && !confirmedJob {
+			if err := selectGreetingJob(ctx, browser, cfg, r.positionName); err != nil {
+				return fmt.Errorf("%w：%w", model.ErrGreetingUnconfirmed, err)
+			}
+			confirmedJob = true
+			deadline = time.Now().Add(10 * time.Second)
+			continue
+		}
 		scopedConfig, scopedCandidate, scopeErr := scopeCandidate(ctx, browser, cfg, candidate)
 		if scopeErr != nil && !errors.Is(scopeErr, errCandidateCardMissing) {
 			return fmt.Errorf("%w：确认招呼卡片身份失败：%w", model.ErrGreetingUnconfirmed, scopeErr)
 		}
 		confirmed := false
-		var err error
 		if scopeErr == nil {
 			confirmed, err = common.CandidateActionExists(ctx, browser, scopedConfig, scopedCandidate, "candidate.continue")
 		}
 		if err != nil {
 			return fmt.Errorf("%w：前程无忧招呼后的状态没读到：%w", model.ErrGreetingUnconfirmed, err)
 		}
-		if confirmed {
-			return nil
-		}
-		if attempt == 9 {
-			break
+		if confirmed && !jobDialog {
+			jobDialog, err = common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_job_dialog")
+			if err != nil {
+				return fmt.Errorf("%w：复核招呼职位弹框失败：%w", model.ErrGreetingUnconfirmed, err)
+			}
+			if !jobDialog {
+				return nil
+			}
+			continue
 		}
 		timer := time.NewTimer(300 * time.Millisecond)
 		select {

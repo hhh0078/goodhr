@@ -11,13 +11,17 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// SelectPosition 保留手动搜索结果；推荐页保留同一岗位，或在内联列表切换岗位。
+// SelectPosition 记录任务岗位供招呼弹框使用，保留手动搜索结果；推荐页保留同一岗位，或在内联列表切换岗位。
 func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config, position model.Position) error {
 	manualSearch, err := common.CurrentPageUsesManualSearch(ctx, browser, cfg)
-	if err != nil || manualSearch {
+	if err != nil {
 		return err
 	}
 	name := strings.TrimSpace(position.Name)
+	r.positionName = name
+	if manualSearch {
+		return nil
+	}
 	if name == "" {
 		return fmt.Errorf("岗位名称还没填，请复制平台里的完整岗位名称后再开始")
 	}

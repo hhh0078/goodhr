@@ -2,7 +2,9 @@
 package job51
 
 // Runtime 是前程无忧平台运行时。
-type Runtime struct{}
+type Runtime struct {
+	positionName string
+}
 
 // NewRuntime 创建前程无忧平台运行时。
 func NewRuntime() *Runtime {

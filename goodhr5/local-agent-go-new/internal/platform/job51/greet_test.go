@@ -37,6 +37,9 @@ func greetCandidateFixture() model.Candidate {
 
 // FindAll 只模拟被测卡片是否出现已沟通按钮，不查询真实页面。
 func (s *greetBrowserStub) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if request.Selector.Description == "前程无忧招呼职位选择层" {
+		return nil, nil
+	}
 	if request.Selector.Description == "前程无忧聊天点数浮层" {
 		if s.blocked {
 			return []contract.FindAllItem{{Index: 0}}, nil

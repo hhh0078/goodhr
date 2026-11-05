@@ -4,6 +4,7 @@ package job51
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ type positionBrowserStub struct {
 	model.Browser
 	current             string
 	pageURL             string
+	listPagesErr        error
 	search              bool
 	jobs                []contract.FindAllItem
 	cards               []contract.FindAllItem
@@ -34,6 +36,9 @@ type positionBrowserStub struct {
 
 // ListPages 返回合成活动标签页，让地址判断独立于页面元素。
 func (s *positionBrowserStub) ListPages(context.Context) (contract.PageListResult, error) {
+	if s.listPagesErr != nil {
+		return contract.PageListResult{}, s.listPagesErr
+	}
 	active := s.pageURL
 	if active == "" {
 		active = "https://mall.51job.com/Revision/online/talentRecommend"
@@ -152,11 +157,17 @@ func TestSelectPositionKeepsCurrent(t *testing.T) {
 	if err := runtime.SelectPosition(context.Background(), browser, cfg, model.Position{Name: browser.current}); err != nil {
 		t.Fatal(err)
 	}
+	if runtime.positionName != browser.current {
+		t.Fatal("推荐页也必须记录本次任务的完整岗位名称")
+	}
 	if len(browser.clicks) != 0 || len(browser.inputs) != 0 {
 		t.Fatal("同岗不应重复点击或改写搜索")
 	}
 	if err := runtime.SelectPosition(context.Background(), browser, cfg, model.Position{}); err == nil {
 		t.Fatal("空岗位名称必须停止")
+	}
+	if runtime.positionName != "" {
+		t.Fatal("空岗位不能沿用上一次的任务岗位名称")
 	}
 }
 
@@ -244,11 +255,60 @@ func TestManualSearchKeepsFilters(t *testing.T) {
 		if err := runtime.SelectPosition(ctx, browser, cfg, position); err != nil {
 			t.Fatal(err)
 		}
+		if runtime.positionName != position.Name {
+			t.Fatal("手动搜索页必须记录任务岗位，留给招呼时核对")
+		}
 		if err := runtime.ApplyBasicFilters(ctx, browser, cfg, position); err != nil {
 			t.Fatal(err)
 		}
 		if browser.positionReads != 0 || len(browser.clicks) != 0 || len(browser.inputs) != 0 || browser.fullReads != 0 || browser.loadingReads != 0 {
 			t.Fatalf("搜索准备只能探测就绪，不能改筛选或读取全量名单：%+v", browser)
+		}
+	}
+}
+
+// TestManualSearchRecordsTaskPosition 验证连续任务替换完整岗位名，空名称清空旧值，且任何岗位或关键词均不触发页面动作。
+func TestManualSearchRecordsTaskPosition(t *testing.T) {
+	cfg := loadPositionConfig(t)
+	cfg.FilterActions = []model.ConfiguredAction{{Type: "input", SelectorKey: "search.input", Value: "配置关键词"}}
+	browser := &positionBrowserStub{pageURL: cfg.ManualSearchURL + "?keyword=用户手动条件", search: true}
+	runtime := NewRuntime()
+	for _, position := range []model.Position{
+		{Name: "  软件工程师（半导体） \t", Keyword: "任务关键词"},
+		{Name: "Java 开发（自动化）", Keyword: "另一组关键词"},
+		{Name: "", Keyword: "只有关键词"},
+		{Name: " \t\n", Keyword: "   "},
+	} {
+		if err := runtime.SelectPosition(context.Background(), browser, cfg, position); err != nil {
+			t.Fatal(err)
+		}
+		if runtime.positionName != strings.TrimSpace(position.Name) {
+			t.Fatalf("没有保存当前任务的完整岗位名：%q", runtime.positionName)
+		}
+		if err := runtime.ApplyBasicFilters(context.Background(), browser, cfg, position); err != nil {
+			t.Fatal(err)
+		}
+		if browser.positionReads != 0 || len(browser.clicks) != 0 || len(browser.inputs) != 0 || browser.fullReads != 0 {
+			t.Fatal("手动搜索只记录岗位名，不能读取选岗内容或改写页面条件")
+		}
+	}
+}
+
+// TestSelectPositionPageFailureKeepsTaskPosition 验证页面识别失败时不覆盖已保存岗位，也不触发网页动作。
+func TestSelectPositionPageFailureKeepsTaskPosition(t *testing.T) {
+	cfg := loadPositionConfig(t)
+	pageError := errors.New("合成标签页读取失败")
+	for _, browser := range []*positionBrowserStub{
+		{listPagesErr: pageError},
+		{pageURL: "https://mall.51job.com/Revision/online/unknown"},
+	} {
+		runtime := &Runtime{positionName: "原任务岗位"}
+		err := runtime.SelectPosition(context.Background(), browser, cfg, model.Position{Name: "新任务岗位", Keyword: "任务关键词"})
+		if err == nil || (browser.listPagesErr != nil && !errors.Is(err, pageError)) {
+			t.Fatalf("页面无法确认时必须返回原始读取错误或页面识别错误：%v", err)
+		}
+		if runtime.positionName != "原任务岗位" || browser.positionReads != 0 || len(browser.clicks) != 0 || len(browser.inputs) != 0 {
+			t.Fatal("页面识别失败时不能覆盖旧任务岗位或操作网页")
 		}
 	}
 }

@@ -398,6 +398,67 @@
       "timeout_ms": 5000,
       "description": "前程无忧打招呼按钮"
     },
+    "candidate.greet_job_dialog": {
+      "_comment": "仅识别前程原生沟通职位选择层，不操作人才搜索栏或预先展开岗位列表。",
+      "parents": [],
+      "target": {
+        "_comment": "只探测当前可见的原生职位选择层。",
+        "selectors": [
+          { "_comment": "真实聊天沟通职位组件的弹出层，不匹配人才搜索栏。", "type": "css", "value": ".im-position-filter.position-filter-dialog:visible" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "前程无忧招呼职位选择层"
+    },
+    "candidate.greet_job_input": {
+      "_comment": "职位层已有可见搜索框，输入只发生在该弹出层内，不修改人才搜索关键词。",
+      "parents": [
+        {
+          "_comment": "限制在当前可见原生职位选择层内。",
+          "selectors": [{ "_comment": "当前可见的原生职位选择层。", "type": "css", "value": ".im-position-filter.position-filter-dialog:visible" }]
+        }
+      ],
+      "target": {
+        "_comment": "职位选择层自带的职位搜索输入框。",
+        "selectors": [{ "_comment": "真实职位选择组件中的输入框。", "type": "css", "value": ".position-search input.el-input__inner" }]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "前程无忧招呼职位搜索框"
+    },
+    "candidate.greet_job_name": {
+      "_comment": "精确读取并选择职位层中的完整岗位名；Go逐次附加完整文字并检查唯一性。",
+      "parents": [
+        {
+          "_comment": "岗位选项只从当前可见原生职位层读取。",
+          "selectors": [{ "_comment": "当前可见的原生职位选择层。", "type": "css", "value": ".im-position-filter.position-filter-dialog:visible" }]
+        }
+      ],
+      "target": {
+        "_comment": "实际职位选项的完整名称，不包含薪资和城市。",
+        "selectors": [{ "_comment": "真实职位列表选项中的名称节点。", "type": "css", "value": ".position-list-box .position-item .position-name" }]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "前程无忧招呼职位完整名称"
+    },
+    "candidate.greet_job_selected": {
+      "_comment": "前程点击职位后直接收起选择层，以当前聊天区域完整岗位回显核对；没有额外发送或确认按钮。",
+      "parents": [
+        {
+          "_comment": "只核对当前可见聊天框内的沟通职位组件。",
+          "selectors": [{ "_comment": "当前聊天框内真实可见的沟通职位组件。", "type": "css", "value": ".chat-container:visible #PositionEmbedOperator:visible" }]
+        }
+      ],
+      "target": {
+        "_comment": "选择完成后显示的完整沟通职位名称。",
+        "selectors": [{ "_comment": "真实沟通职位组件的已选岗位回显。", "type": "css", "value": ".change-position-box .change-position" }]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "前程无忧已选沟通职位"
+    },
     "candidate.loading": {
       "_comment": "前程无忧候选列表加载层；先确认加载结束再判断空态。",
       "parents": [],

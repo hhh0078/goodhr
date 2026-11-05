@@ -39,13 +39,6 @@ func (r *Runtime) InitializeGreetingPage(ctx context.Context, browser model.Brow
 		return fmt.Errorf("前程无忧遗留聊天还没收好，请关闭后再开始：%w", err)
 	}
 	if manualSearch {
-		ready, err := common.SelectorExists(ctx, browser, cfg, "search.input")
-		if err != nil {
-			return err
-		}
-		if !ready {
-			return fmt.Errorf("前程无忧人才搜索页还没准备好，请确认筛选结果已经加载后再试")
-		}
 		return waitForCandidateResults(ctx, browser, cfg)
 	}
 	if len(cfg.GreetingInitActions) > 0 {
