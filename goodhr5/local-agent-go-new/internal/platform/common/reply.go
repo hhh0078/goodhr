@@ -59,7 +59,7 @@ func FindConfiguredConversationItems(ctx context.Context, browser model.Browser,
 	}
 	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
 		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100),
-		Fields: cfg.ConversationFields, ExpectedMissing: expectedMissing,
+		Fields: configuredContactFields(cfg), ExpectedMissing: expectedMissing,
 	})
 	if expectedMissing && IsElementMissing(err) {
 		return nil, nil
@@ -101,7 +101,7 @@ func ReadConfiguredConversationMessages(ctx context.Context, browser model.Brows
 		return nil, err
 	}
 	return browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector: selector, MaxItems: 5000, FromEnd: true, Fields: cfg.ConversationFields,
+		Selector: selector, MaxItems: 5000, FromEnd: true, Fields: configuredMessageFields(cfg),
 	})
 }
 
@@ -138,7 +138,7 @@ func ScanUnreadConversations(ctx context.Context, browser model.Browser, cfg mod
 		return nil, err
 	}
 	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100), Fields: cfg.ConversationFields,
+		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100), Fields: configuredContactFields(cfg),
 	})
 	if err != nil {
 		return nil, err
