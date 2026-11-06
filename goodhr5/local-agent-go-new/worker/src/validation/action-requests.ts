@@ -457,6 +457,10 @@ export function parseScreenshotRequest(
   if (record.target !== undefined) {
     request.target = parseSelectorSpec(record.target, traceId, action);
   }
+  assignBoolean(request, "viewport_only", optionalBoolean(record, "viewport_only"));
+  if (record.clip_container !== undefined) {
+    request.clip_container = parseSelectorSpec(record.clip_container, traceId, action);
+  }
   assignBoolean(
     request,
     "full_page",

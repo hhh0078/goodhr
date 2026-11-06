@@ -28,6 +28,7 @@ const (
 	toolSendMessages        = "send_messages"
 	toolSuggestConfig       = "suggest_config_change"
 	toolNotifyHR            = "notify_hr"
+	toolFinishReview        = "finish_review"
 )
 
 // toolArgumentError 表示允许 AI 根据错误信息修正的工具名称或参数错误。
@@ -80,6 +81,16 @@ type toolExecutionState struct {
 	manualKey           string
 	confirmationUpdates []cloud.CandidateConfirmationItem
 	suggestions         []cloud.AutoReplyConfigSuggestion
+	reviewFinished      bool
+}
+
+// autoReplyToolsForContext 复用同一条件工具；内部补审只允许条件提议和完成信号，不暴露发送能力。
+func autoReplyToolsForContext(input ReplyContext) []ai.ToolDefinition {
+	tools := autoReplyToolDefinitions()
+	if !input.ConditionsOnly {
+		return tools
+	}
+	return []ai.ToolDefinition{tools[0], newToolDefinition(toolFinishReview, "结束本次内部条件复核，不发送任何候选人消息。", `{"type":"object","properties":{},"additionalProperties":false}`)}
 }
 
 // autoReplyToolDefinitions 返回只产生提议的四个动作工具，不重复提供已有上下文的查询工具。
@@ -104,6 +115,9 @@ func (s *toolExecutionState) execute(ctx context.Context, call ai.ToolCall) (jso
 	if strings.TrimSpace(call.Type) != "" && call.Type != "function" {
 		return nil, argumentError("工具类型只支持 function")
 	}
+	if s.input.ConditionsOnly && call.Function.Name != toolUpsertConfirmations && call.Function.Name != toolFinishReview {
+		return nil, argumentError("本轮只复核内部条件，不允许准备消息或通知，请使用 finish_review 结束")
+	}
 	switch strings.TrimSpace(call.Function.Name) {
 	case toolUpsertConfirmations:
 		return s.upsertConfirmations(ctx, call)
@@ -113,6 +127,16 @@ func (s *toolExecutionState) execute(ctx context.Context, call ai.ToolCall) (jso
 		return s.saveSuggestion(ctx, call)
 	case toolNotifyHR:
 		return s.prepareManualHandoff(call)
+	case toolFinishReview:
+		if !s.input.ConditionsOnly {
+			return nil, argumentError("普通问答不能使用内部复核完成工具")
+		}
+		var args struct{}
+		if err := decodeToolArguments(call, &args); err != nil {
+			return nil, err
+		}
+		s.reviewFinished = true
+		return json.RawMessage(`{"ok":true}`), nil
 	default:
 		return nil, argumentError("不支持的工具：" + strings.TrimSpace(call.Function.Name))
 	}
@@ -258,7 +282,7 @@ func (s *toolExecutionState) validateConfirmationEvidence(item cloud.CandidateCo
 			return nil
 		}
 	}
-	if ref == "resume" && s.input.CandidateState.Candidate != nil {
+	if ref == "resume" && s.input.CandidateState.Candidate != nil && s.input.CandidateState.Candidate.ResumeStructured {
 		raw, _ := json.Marshal(s.input.CandidateState.Candidate)
 		if strings.Contains(string(raw), evidence) {
 			return nil

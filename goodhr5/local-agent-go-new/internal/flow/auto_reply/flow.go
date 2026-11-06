@@ -52,6 +52,7 @@ type ReplyContext struct {
 	PageSnapshot      model.AutoReplyConversationSnapshot
 	Resume            *model.AutoReplyResumeBundle
 	BasedOnMessageKey string
+	ConditionsOnly    bool // 简历待办恢复只复核内部条件，禁止生成或发送历史回复。
 }
 
 // ResumeStructureContext 表示结构化简历请求需要的会话、AI配置和页面原文。

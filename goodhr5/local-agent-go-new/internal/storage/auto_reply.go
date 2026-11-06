@@ -255,13 +255,17 @@ func (t *AutoReplyTx) DueAutoReplyRows(kind string, limit int) ([]AutoReplyRow, 
 func (t *AutoReplyTx) PendingConversations(platformID, accountID string) ([]AutoReplyRow, error) {
 	rows, err := t.tx.QueryContext(t.ctx, `SELECT c.id,c.payload_json,c.revision FROM auto_reply_conversations c
 		WHERE c.owner_id=? AND c.platform_id=? AND c.account_id=?
-		AND (json_type(c.payload_json,'$.capture_intent')='object' OR EXISTS(
+		AND (json_type(c.payload_json,'$.capture_intent')='object'
+		OR (json_type(c.payload_json,'$.resume_retry')='object'
+			AND COALESCE(json_extract(c.payload_json,'$.resume_retry.attempts'),0)<3
+			AND julianday(json_extract(c.payload_json,'$.resume_retry.next_attempt_at'))<=julianday(?))
+		OR EXISTS(
 			SELECT 1 FROM auto_reply_messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id
 			AND m.direction='candidate' AND m.processed_status=''
 			AND m.message_order>COALESCE((SELECT MAX(s.message_order) FROM auto_reply_messages s
 				WHERE s.owner_id=c.owner_id AND s.conversation_id=c.id AND s.direction='self'
 				AND s.processed_status NOT IN ('history_backfill','legacy_unverified')),0)))
-		ORDER BY c.sequence LIMIT 100`, t.owner, platformID, accountID)
+		ORDER BY c.sequence LIMIT 100`, t.owner, platformID, accountID, time.Now().UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return nil, err
 	}

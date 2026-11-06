@@ -7,6 +7,12 @@ import type { Locator, Page } from "playwright-core";
 
 /** ScreenshotPrimitive 封装页面和元素截图最小操作。 */
 export class ScreenshotPrimitive {
+  /** clippedPage 只裁剪当前页面视口，不调用会自动滚动的元素截图。 */
+  async clippedPage(page: Page, filePath: string, clip: { x: number; y: number; width: number; height: number }): Promise<number> {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await traceOperation("screenshot_capture", () => page.screenshot({ path: filePath, clip, fullPage: false, type: "png", timeout: 5_000 }));
+    return (await fs.stat(filePath)).size;
+  }
   /** pageBuffer 截取当前页面视口并返回内存中的 PNG，不写入本地文件。 */
   async pageBuffer(page: Page): Promise<Buffer> {
     return traceOperation("screenshot_capture", () => page.screenshot({ type: "png", timeout: 5_000 }));

@@ -176,6 +176,8 @@ export interface ScreenshotRequest {
   directory: string;
   filename: string;
   full_page?: boolean;
+  viewport_only?: boolean;
+  clip_container?: SelectorSpec;
 }
 
 /** ScreenshotResult 表示截图保存结果。 */

@@ -405,11 +405,7 @@ func TestEnsureResumePreservesAttachmentBeforeCandidateValidation(t *testing.T) 
 			if testCase.wantError == "" && err != nil {
 				t.Fatalf("缺少手机号不应阻断问答：%v", err)
 			}
-			wantFailures := 0
-			if testCase.wantError != "" {
-				wantFailures = 1
-			}
-			if stats.Failed != wantFailures {
+			if stats.Failed != 0 || !errors.Is(err, errAutoReplyResumeDeferred) {
 				t.Fatalf("失败统计不正确：%+v", stats)
 			}
 			if uploadCount != 1 || candidateSaveCount != 0 {

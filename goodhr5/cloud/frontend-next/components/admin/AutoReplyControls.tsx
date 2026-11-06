@@ -20,6 +20,7 @@ type ReplyTask = {
   greeted_count?: number;
   skipped_count?: number;
   blocked_report_count?: number;
+  blocked_resume_count?: number;
   analysis?: Record<string, unknown>;
 };
 
@@ -53,6 +54,7 @@ export function AutoReplyGlobalControl() {
   currentAgent.current = agentBase;
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
   const running = task?.status === "running";
+  const blockedCount = (task?.blocked_report_count || 0) + (task?.blocked_resume_count || 0);
   const failureReason = task?.error_message?.trim() || (task?.current_step !== "finished" ? task?.current_step?.trim() : "") || "这次没跑顺，请检查本地程序和招聘页面。";
   const currentStep = task?.status === "failed" ? failureReason : task?.current_step;
   useEffect(() => {
@@ -106,18 +108,20 @@ export function AutoReplyGlobalControl() {
       if (base === currentAgent.current) notify(cause instanceof Error ? cause.message : "这次没跑顺，可以再试一次。", "error");
     } finally { operation.current = false; setBusy(false); }
   }
-  /** retryReports 由HR明确确认后重新生成失败报告，沿用当前登录凭证和本地待办。 */
+  /** retryReports 由HR确认后重试报告和简历待办，复用当前账号；不重新发送已处理的聊天。 */
   async function retryReports() {
     if (!agentBase || operation.current) return;
-    if (!await confirm("重试推荐报告", "重新生成失败报告会使用 AI 余额。确认后，我再试一次。")) return;
+    if (!await confirm("重试待办", "重新整理简历或生成报告会使用 AI 余额，不会重发已回复的消息。简历待办会在自动回复运行时继续处理。确认后，我再试一次。")) return;
     const base = agentBase;
     operation.current = true; setBusy(true);
     try {
       const result = await localRequest(base, "/api/v1/local/auto-reply/retry-reports", { method: "POST", body: { token: getToken() }, timeoutMS: 15000 });
       if (base !== currentAgent.current) return;
       const count = Math.max(0, Number(result?.retried_count) || 0);
-      setTask((current) => current ? { ...current, blocked_report_count: Math.max(0, (current.blocked_report_count || 0) - count) } : current);
-      notify(count ? `已安排重试 ${count} 份报告，生成后可在简历库查看。` : "暂未安排新的重试，报告可能仍在处理中，请稍后再试。", "success");
+      const resumeCount = Math.max(0, Number(result?.resume_count) || 0);
+      const reportCount = Math.max(0, Number(result?.report_count ?? count) || 0);
+      setTask((current) => current ? { ...current, blocked_report_count: Math.max(0, (current.blocked_report_count || 0) - reportCount), blocked_resume_count: Math.max(0, (current.blocked_resume_count || 0) - resumeCount) } : current);
+      notify(count ? `已重新安排 ${count} 项待办，简历处理需保持自动回复运行。` : "暂未安排新的重试，待办可能仍在处理中，请稍后再试。", "success");
     } catch (cause) {
       if (base === currentAgent.current) notify(cause instanceof Error ? cause.message : "这次没安排成功，可以稍后再试。", "error");
     } finally { operation.current = false; setBusy(false); }
@@ -131,7 +135,7 @@ export function AutoReplyGlobalControl() {
         {running ? "停止自动回复" : "开始自动回复"}
       </Button>
     </Tooltip>
-    {(task?.blocked_report_count || 0) > 0 && <Button disabled={busy} onClick={() => void retryReports()}>重试报告（{task?.blocked_report_count}）</Button>}
+    {blockedCount > 0 && <Button disabled={busy} onClick={() => void retryReports()}>重试待办（{blockedCount}）</Button>}
     </Flex>
     {task?.status === "failed" && <Alert type="error" showIcon role="alert" data-testid="auto-reply-failure"
       title="自动回复已停止" description={<>{failureReason}<br />处理后点击“开始自动回复”重试。</>}

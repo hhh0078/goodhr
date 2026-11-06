@@ -200,22 +200,61 @@ func (r *Runtime) ReadOpenAutoReplyLatestMessage(ctx context.Context, browser mo
 	return latest, true, err
 }
 
-// readLiepinLatestAutoReplyMessage 读取当前聊天框最后一条候选人或 HR 消息，不改变页面状态。
+// readLiepinLatestAutoReplyMessage 从尾部逐步扩窗找最后一条候选人或HR消息，保留同一解析器和读取期间的新消息复核。
 func readLiepinLatestAutoReplyMessage(ctx context.Context, browser model.Browser, cfg model.Config) (model.ConversationMessage, error) {
-	items, err := common.ReadConfiguredConversationMessages(ctx, browser, cfg)
+	selector, err := common.RequiredSelector(cfg, "message.item")
 	if err != nil {
 		return model.ConversationMessage{}, err
 	}
-	messages, err := liepinMessages(items)
-	if err != nil {
-		return model.ConversationMessage{}, err
+	fields := map[string]contract.SelectorSpec{}
+	if metadata, found := cfg.ConversationFields["message_meta"]; found {
+		fields["message_meta"] = metadata
 	}
-	for index := len(messages) - 1; index >= 0; index-- {
-		if messages[index].Direction == "candidate" || messages[index].Direction == "self" {
-			return messages[index], nil
+	for attempt := 0; attempt < 3; attempt++ {
+		for size := 1; ; size = min(5000, size*2) {
+			if err = ctx.Err(); err != nil {
+				return model.ConversationMessage{}, err
+			}
+			items, readErr := common.ReadConfiguredConversationMessageTail(ctx, browser, cfg, size)
+			if readErr != nil {
+				return model.ConversationMessage{}, readErr
+			}
+			messages, parseErr := liepinMessages(items)
+			if parseErr != nil {
+				return model.ConversationMessage{}, parseErr
+			}
+			covered, coverageErr := liepinLatestMessageGroupCovered(items)
+			if coverageErr != nil {
+				return model.ConversationMessage{}, coverageErr
+			}
+			var latest model.ConversationMessage
+			for index := len(messages) - 1; index >= 0; index-- {
+				if messages[index].Direction == "candidate" || messages[index].Direction == "self" {
+					latest = messages[index]
+					break
+				}
+			}
+			if latest.Direction != "" && covered {
+				// 正文字段读取期间可能又来消息；轻读真正末条，变化时重读而不返回旧决定依据。
+				tail, readErr := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1, FromEnd: true, Fields: fields})
+				if readErr != nil {
+					return model.ConversationMessage{}, readErr
+				}
+				last := items[len(items)-1]
+				if len(tail) == 1 && tail[0].TotalMatches == last.TotalMatches && tail[0].Text == last.Text && liepinHistoryItemKey(tail[0]) == liepinHistoryItemKey(last) {
+					return latest, nil
+				}
+				break
+			}
+			if len(items) < size || (len(items) > 0 && items[0].Index == 0) || size == 5000 {
+				if latest.Direction != "" && !covered {
+					return model.ConversationMessage{}, fmt.Errorf("聊天末条消息的重复编号还没确认完整，这轮先不发送")
+				}
+				return model.ConversationMessage{}, fmt.Errorf("%s当前聊天框没有读到候选人或 HR 消息", cfg.Name)
+			}
 		}
 	}
-	return model.ConversationMessage{}, fmt.Errorf("%s当前聊天框没有读到候选人或 HR 消息", cfg.Name)
+	return model.ConversationMessage{}, fmt.Errorf("聊天末条消息还在变化，这轮先不发送，稍后再核对")
 }
 
 // ensureLiepinAutoReplyConversation 在在线简历关闭聊天弹框后，通过稳定会话编号重新打开原候选人。

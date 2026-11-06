@@ -292,10 +292,12 @@ type ScrollResult struct {
 
 // ScreenshotRequest 表示页面或元素截图请求。
 type ScreenshotRequest struct {
-	Target    *SelectorSpec `json:"target,omitempty"`
-	Directory string        `json:"directory"`
-	Filename  string        `json:"filename"`
-	FullPage  *bool         `json:"full_page,omitempty"`
+	Target        *SelectorSpec `json:"target,omitempty"`
+	Directory     string        `json:"directory"`
+	Filename      string        `json:"filename"`
+	FullPage      *bool         `json:"full_page,omitempty"`
+	ViewportOnly  bool          `json:"viewport_only,omitempty"`  // 只截当前可见区域，不允许元素截图自动滚动。
+	ClipContainer *SelectorSpec `json:"clip_container,omitempty"` // 可选的真实裁剪容器，头像必须完整位于其可见交集内。
 }
 
 // ScreenshotResult 表示截图保存结果。

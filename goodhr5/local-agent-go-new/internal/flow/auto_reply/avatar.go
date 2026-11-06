@@ -32,7 +32,7 @@ type avatarScreenshotBrowser interface {
 
 // syncCandidateAvatarBestEffort 在候选人编号确认后同步头像，失败只记警告且不阻断回复流程。
 // 返回值表示本轮已经处理过头像，避免同一候选人在正式入库前后重复上传。
-func (f *Flow) syncCandidateAvatarBestEffort(ctx context.Context, prepared shared.PreparedTask, snapshot model.AutoReplyConversationSnapshot, candidate *cloud.AutoReplyStoredCandidate) bool {
+func (f *Flow) syncCandidateAvatarBestEffort(ctx context.Context, prepared shared.PreparedTask, snapshot model.AutoReplyConversationSnapshot, candidate *cloud.AutoReplyStoredCandidate, runtime model.AutoReplyRuntime) bool {
 	if candidate == nil || strings.TrimSpace(candidate.ID) == "" {
 		return false
 	}
@@ -40,7 +40,7 @@ func (f *Flow) syncCandidateAvatarBestEffort(ctx context.Context, prepared share
 		return true
 	}
 	startedAt := time.Now()
-	if err := f.syncCandidateAvatar(ctx, prepared, snapshot, candidate.ID); err != nil {
+	if err := f.syncCandidateAvatar(ctx, prepared, snapshot, candidate.ID, runtime); err != nil {
 		f.log(prepared.Request.TaskID, "sync_candidate_avatar", "warning", startedAt, err)
 		return true
 	}
@@ -49,14 +49,31 @@ func (f *Flow) syncCandidateAvatarBestEffort(ctx context.Context, prepared share
 }
 
 // syncCandidateAvatar 优先截图当前会话头像，再用页面已读取的 HTTPS 地址安全下载作为后备。
-func (f *Flow) syncCandidateAvatar(ctx context.Context, prepared shared.PreparedTask, snapshot model.AutoReplyConversationSnapshot, candidateID string) error {
+func (f *Flow) syncCandidateAvatar(ctx context.Context, prepared shared.PreparedTask, snapshot model.AutoReplyConversationSnapshot, candidateID string, runtime model.AutoReplyRuntime) error {
 	temporaryDir, err := os.MkdirTemp("", "goodhr-candidate-avatar-*")
 	if err != nil {
 		return fmt.Errorf("准备候选人头像临时目录失败")
 	}
 	defer os.RemoveAll(temporaryDir)
 
-	imageData, filePath, captureErr := f.captureCurrentCandidateAvatar(ctx, prepared.Platform, temporaryDir)
+	var imageData []byte
+	var filePath string
+	captureErr := fmt.Errorf("当前会话身份尚未确认，不截图头像")
+	if runtime != nil {
+		_, stillOpen, verifyErr := runtime.ReadOpenAutoReplyLatestMessage(ctx, f.Browser, prepared.Platform, snapshot)
+		if verifyErr == nil && stillOpen {
+			imageData, filePath, captureErr = f.captureCurrentCandidateAvatar(ctx, prepared.Platform, temporaryDir)
+			if captureErr == nil {
+				_, stillOpen, verifyErr = runtime.ReadOpenAutoReplyLatestMessage(ctx, f.Browser, prepared.Platform, snapshot)
+				if verifyErr != nil || !stillOpen {
+					captureErr = fmt.Errorf("头像截图后会话已变化，不保存这张截图")
+				}
+			}
+		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if captureErr != nil {
 		imageData, err = downloadSafeCandidateAvatar(ctx, snapshot.AvatarURL)
 		if err != nil {
@@ -80,8 +97,23 @@ func (f *Flow) captureCurrentCandidateAvatar(ctx context.Context, cfg model.Conf
 	if !ok {
 		return nil, "", fmt.Errorf("浏览器截图能力还没准备好")
 	}
+	// 多条候选人消息头像只取当前最后一条；不触碰页面滚动，离屏时交给安全下载后备。
+	items, err := f.Browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1, FromEnd: true, ProbeOnly: true})
+	if err != nil || len(items) != 1 {
+		return nil, "", fmt.Errorf("当前候选人头像没有唯一定位")
+	}
+	index := items[0].Index
+	selector.Target.Index = &index
+	var container *contract.SelectorSpec
+	if key := cfg.Behavior.AutoReplyAvatarContainerKey; key != "" {
+		value, found := cfg.Selectors[key]
+		if !found {
+			return nil, "", fmt.Errorf("头像可见容器没有配置完整")
+		}
+		container = &value
+	}
 	result, err := browser.Screenshot(ctx, contract.ScreenshotRequest{
-		Target: &selector, Directory: directory, Filename: "candidate-avatar.png",
+		Target: &selector, Directory: directory, Filename: "candidate-avatar.png", ViewportOnly: true, ClipContainer: container,
 	})
 	if err != nil {
 		return nil, "", err

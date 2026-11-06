@@ -125,8 +125,8 @@ func TestAutoReplyRetryReportsIsAccountScoped(t *testing.T) {
 		t.Fatal("报告重试重置了聊天发送记录", status, claimed, err)
 	}
 	s.extensionToken, s.extensionUserID = "", ""
-	if count, err := s.currentBlockedAutoReplyReports(ctx); err != nil || count != 0 {
-		t.Fatal("未绑定账号仍显示报告数量", count, err)
+	if count, resumes, err := s.currentBlockedAutoReplyReports(ctx); err != nil || count != 0 || resumes != 0 {
+		t.Fatal("未绑定账号仍显示待办数量", count, resumes, err)
 	}
 }
 

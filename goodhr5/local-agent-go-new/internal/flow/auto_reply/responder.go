@@ -141,7 +141,7 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 		}
 		r.report(input, "loading", "ai", fmt.Sprintf("AI 正在分析第%d轮", round), false)
 		result, chatErr := r.AI.ChatWithTools(ctx, input.AIConfig, ai.ToolChatRequest{
-			Messages: messages, Tools: autoReplyToolDefinitions(), EnableThinking: input.EnableThinking,
+			Messages: messages, Tools: autoReplyToolsForContext(input), EnableThinking: input.EnableThinking,
 		})
 		if chatErr != nil {
 			return ReplyDecision{}, r.failRun(input, run, assistantMessages, totalTokens, "AI_TOOL_REQUEST_FAILED", chatErr)
@@ -156,10 +156,14 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 			if protocolRepairs > maxAutoReplyProtocolRepairs {
 				return ReplyDecision{}, r.failRun(input, run, assistantMessages, totalTokens, "AI_TOOL_ACTION_MISSING", protocolErr)
 			}
+			correction := "请根据错误重新处理，禁止直接返回普通文本；有证据变化才调用 upsert_confirmation_items，再调用 send_messages 准备回复，或调用 notify_hr 请求人工协助。"
+			if input.ConditionsOnly {
+				correction = "请仅使用 upsert_confirmation_items 提议有证据的条件变化，再调用 finish_review，不准备候选人回复。"
+			}
 			messages = append(messages, ai.ToolMessage{
 				Role: "user",
 				Content: "上一次输出没有通过工具协议校验，错误信息：" + protocolErr.Error() +
-					"。请根据错误重新处理，禁止直接返回普通文本；有证据变化才调用 upsert_confirmation_items，再调用 send_messages 准备回复，或调用 notify_hr 请求人工协助。",
+					"。" + correction,
 			})
 			continue
 		}
@@ -185,6 +189,9 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 			messages = append(messages, ai.ToolMessage{
 				Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: string(resultJSON),
 			})
+		}
+		if state.reviewFinished {
+			return r.completeRun(input, run, assistantMessages, totalTokens, ReplyDecision{ConfirmationUpdates: state.confirmationUpdates})
 		}
 		if len(state.pendingMessages) > 0 {
 			decision := ReplyDecision{Messages: append([]ReplyMessage(nil), state.pendingMessages...), ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions}
@@ -250,7 +257,9 @@ func (r *AIResponder) completeRun(input ReplyContext, run cloud.AutoReplyAIRun, 
 	if _, err = r.Cloud.FinishAutoReplyAIRun(context.Background(), input.Credentials, run); err != nil {
 		return ReplyDecision{}, fmt.Errorf("保存 AI 总记录完成状态失败：%w", err)
 	}
-	if len(decision.Messages) > 0 {
+	if input.ConditionsOnly {
+		r.report(input, "result", "resume_review", "简历补审已完成，没有重复发送聊天", true)
+	} else if len(decision.Messages) > 0 {
 		parts := make([]string, 0, len(decision.Messages))
 		for _, item := range decision.Messages {
 			parts = append(parts, item.Content)
@@ -335,6 +344,7 @@ func toolDisplayName(name string) string {
 		toolGetResume: "查看简历", toolGetConfirmations: "查看确认项",
 		toolUpsertConfirmations: "更新确认项", toolRequestResume: "核对简历状态",
 		toolSendMessages: "准备回复", toolSuggestConfig: "提交资料建议", toolNotifyHR: "转人工",
+		toolFinishReview: "完成简历补审",
 	}
 	if label := labels[strings.TrimSpace(name)]; label != "" {
 		return label

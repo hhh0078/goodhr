@@ -16,7 +16,7 @@ func boundedReplyContext(input ReplyContext) (ReplyContext, error) {
 	result := input
 	result.Messages = append([]cloud.AutoReplyMessage(nil), input.Messages...)
 	result.PendingMessages = append([]cloud.AutoReplyMessage(nil), input.PendingMessages...)
-	if len(result.PendingMessages) == 0 {
+	if len(result.PendingMessages) == 0 && !input.ConditionsOnly {
 		latest, found := findBasedOnMessage(result.Messages, result.BasedOnMessageKey)
 		if !found {
 			return result, fmt.Errorf("本轮候选人消息暂时没有读完整，请重新读取后再回复")
@@ -40,6 +40,16 @@ func boundedReplyContext(input ReplyContext) (ReplyContext, error) {
 		if !present[key] {
 			result.Messages = append(result.Messages, message)
 			present[key] = true
+		}
+	}
+	if input.ConditionsOnly {
+		message, found := findBasedOnMessage(input.Messages, input.BasedOnMessageKey)
+		if !found {
+			return result, fmt.Errorf("简历补审缺少来源消息，暂时不能继续")
+		}
+		key := firstNonEmpty(message.PlatformMessageID, message.Fingerprint, message.ID)
+		if !present[key] {
+			result.Messages = append(result.Messages, message)
 		}
 	}
 	result.CandidateState.Attachments = nil
@@ -77,8 +87,8 @@ func boundedReplyContext(input ReplyContext) (ReplyContext, error) {
 		}
 		removed := false
 		for index, message := range result.Messages {
-			isPending := false
 			key := firstNonEmpty(message.PlatformMessageID, message.Fingerprint, message.ID)
+			isPending := key == input.BasedOnMessageKey || message.ID == input.BasedOnMessageKey
 			for _, pending := range result.PendingMessages {
 				if key == firstNonEmpty(pending.PlatformMessageID, pending.Fingerprint, pending.ID) {
 					isPending = true

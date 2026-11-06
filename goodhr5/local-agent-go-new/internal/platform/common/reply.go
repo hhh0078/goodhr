@@ -96,12 +96,17 @@ func OpenConfiguredConversationItem(ctx context.Context, browser model.Browser, 
 
 // ReadConfiguredConversationMessages 读取当前聊天框中的全部已加载消息和结构化字段。
 func ReadConfiguredConversationMessages(ctx context.Context, browser model.Browser, cfg model.Config) ([]contract.FindAllItem, error) {
+	return ReadConfiguredConversationMessageTail(ctx, browser, cfg, 5000)
+}
+
+// ReadConfiguredConversationMessageTail 从末尾读取指定数量的消息，复用完整消息的字段和五千条安全上限。
+func ReadConfiguredConversationMessageTail(ctx context.Context, browser model.Browser, cfg model.Config, maxItems int) ([]contract.FindAllItem, error) {
 	selector, err := RequiredSelector(cfg, "message.item")
 	if err != nil {
 		return nil, err
 	}
 	return browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector: selector, MaxItems: 5000, FromEnd: true, Fields: configuredMessageFields(cfg),
+		Selector: selector, MaxItems: min(5000, max(1, maxItems)), FromEnd: true, Fields: configuredMessageFields(cfg),
 	})
 }
 

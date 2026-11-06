@@ -208,7 +208,7 @@ func mergeLocalAutoReplyCandidate(target *AutoReplyStoredCandidate, input AutoRe
 	for _, pair := range []struct {
 		target *string
 		value  string
-	}{{&target.CandidateName, input.CandidateName}, {&target.AvatarURL, input.AvatarURL}, {&target.Gender, input.Gender}, {&target.BirthYM, input.BirthYM}, {&target.BirthYMPrecision, input.BirthYMPrecision}, {&target.Phone, input.Phone}, {&target.Email, input.Email}, {&target.Wechat, input.Wechat}, {&target.WorkRegion, input.WorkRegion}, {&target.WorkYears, input.WorkYears}, {&target.BasicInfo, input.BasicInfo}, {&target.EducationLevel, input.EducationLevel}, {&target.ExpectedPosition, input.ExpectedPosition}, {&target.OnlineStatus, input.OnlineStatus}, {&target.PersonalDescription, input.PersonalDescription}, {&target.WorkStatus, input.WorkStatus}, {&target.RawText, input.RawText}} {
+	}{{&target.ResumeSourceMessageID, input.ResumeSourceMessageID}, {&target.CandidateName, input.CandidateName}, {&target.AvatarURL, input.AvatarURL}, {&target.Gender, input.Gender}, {&target.BirthYM, input.BirthYM}, {&target.BirthYMPrecision, input.BirthYMPrecision}, {&target.Phone, input.Phone}, {&target.Email, input.Email}, {&target.Wechat, input.Wechat}, {&target.WorkRegion, input.WorkRegion}, {&target.WorkYears, input.WorkYears}, {&target.BasicInfo, input.BasicInfo}, {&target.EducationLevel, input.EducationLevel}, {&target.ExpectedPosition, input.ExpectedPosition}, {&target.OnlineStatus, input.OnlineStatus}, {&target.PersonalDescription, input.PersonalDescription}, {&target.WorkStatus, input.WorkStatus}, {&target.RawText, input.RawText}} {
 		if strings.TrimSpace(pair.value) != "" {
 			*pair.target = pair.value
 		}

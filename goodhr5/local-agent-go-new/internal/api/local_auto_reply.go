@@ -138,7 +138,7 @@ func (s *Server) handleLocalAutoReplyStatus(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", fmt.Errorf("这个接口只支持 GET"))
 		return
 	}
-	blocked, err := s.currentBlockedAutoReplyReports(r.Context())
+	blocked, resumes, err := s.currentBlockedAutoReplyReports(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "AUTO_REPLY_REPORT_STATUS_FAILED", err)
 		return
@@ -148,7 +148,8 @@ func (s *Server) handleLocalAutoReplyStatus(w http.ResponseWriter, r *http.Reque
 		writeSuccess(w, http.StatusOK, struct {
 			Status             string `json:"status"`
 			BlockedReportCount int    `json:"blocked_report_count"`
-		}{Status: "stopped", BlockedReportCount: blocked})
+			BlockedResumeCount int    `json:"blocked_resume_count"`
+		}{Status: "stopped", BlockedReportCount: blocked, BlockedResumeCount: resumes})
 		return
 	}
 	if err != nil {
@@ -158,27 +159,34 @@ func (s *Server) handleLocalAutoReplyStatus(w http.ResponseWriter, r *http.Reque
 	writeSuccess(w, http.StatusOK, struct {
 		lifecycle.TaskSnapshot
 		BlockedReportCount int `json:"blocked_report_count"`
-	}{TaskSnapshot: snapshot, BlockedReportCount: blocked})
+		BlockedResumeCount int `json:"blocked_resume_count"`
+	}{TaskSnapshot: snapshot, BlockedReportCount: blocked, BlockedResumeCount: resumes})
 }
 
 // currentBlockedAutoReplyReports 只读取当前已绑定账号的失败报告数量，退出后返回零且不沿用历史凭证。
-func (s *Server) currentBlockedAutoReplyReports(ctx context.Context) (int, error) {
+func (s *Server) currentBlockedAutoReplyReports(ctx context.Context) (int, int, error) {
 	if s.cloud == nil || !s.cloud.LocalAutoReplyEnabled() {
-		return 0, nil
+		return 0, 0, nil
 	}
 	s.extensionMu.Lock()
 	defer s.extensionMu.Unlock()
 	if s.extensionToken == "" || s.extensionUserID == "" {
-		return 0, nil
+		return 0, 0, nil
 	}
 	machineID, err := s.currentMachineID()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return s.cloud.CountBlockedAutoReplyRecommendations(ctx, cloudintegration.AgentCredentials{Token: s.extensionToken, MachineID: machineID})
+	credentials := cloudintegration.AgentCredentials{Token: s.extensionToken, MachineID: machineID}
+	reports, err := s.cloud.CountBlockedAutoReplyRecommendations(ctx, credentials)
+	if err != nil {
+		return 0, 0, err
+	}
+	resumes, err := s.cloud.CountBlockedAutoReplyResumeRetries(ctx, credentials)
+	return reports, resumes, err
 }
 
-// handleLocalAutoReplyRetryReports 校验当前登录会话后仅恢复失败报告，不启动浏览器任务或修改聊天发送记录。
+// handleLocalAutoReplyRetryReports 校验当前登录会话后恢复报告和简历待办，不启动浏览器任务或修改聊天发送记录；保留旧路由兼容。
 func (s *Server) handleLocalAutoReplyRetryReports(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", fmt.Errorf("这个接口只支持 POST"))
@@ -195,7 +203,7 @@ func (s *Server) handleLocalAutoReplyRetryReports(w http.ResponseWriter, r *http
 		return
 	}
 	if s.cloud == nil || !s.cloud.LocalAutoReplyEnabled() {
-		writeError(w, http.StatusServiceUnavailable, "AUTO_REPLY_STORAGE_UNAVAILABLE", fmt.Errorf("本机报告还没准备好，请稍后再试"))
+		writeError(w, http.StatusServiceUnavailable, "AUTO_REPLY_STORAGE_UNAVAILABLE", fmt.Errorf("本机待办还没准备好，请稍后再试"))
 		return
 	}
 	s.extensionMu.Lock()
@@ -203,7 +211,7 @@ func (s *Server) handleLocalAutoReplyRetryReports(w http.ResponseWriter, r *http
 	current := owner != "" && extensionSecretsEqual(request.Token, s.extensionToken)
 	s.extensionMu.Unlock()
 	if !current {
-		writeError(w, http.StatusConflict, "SESSION_CHANGED", fmt.Errorf("当前登录账号变了，请刷新页面后再重试报告"))
+		writeError(w, http.StatusConflict, "SESSION_CHANGED", fmt.Errorf("当前登录账号变了，请刷新页面后再重试待办"))
 		return
 	}
 	session, err := s.cloud.ValidateSession(r.Context(), request.Token)
@@ -212,7 +220,7 @@ func (s *Server) handleLocalAutoReplyRetryReports(w http.ResponseWriter, r *http
 		return
 	}
 	if session.SessionKind == "browser_extension" || session.UserID != owner {
-		writeError(w, http.StatusForbidden, "SESSION_NOT_ALLOWED", fmt.Errorf("请在当前登录的管理页面重试报告"))
+		writeError(w, http.StatusForbidden, "SESSION_NOT_ALLOWED", fmt.Errorf("请在当前登录的管理页面重试待办"))
 		return
 	}
 	machineID, err := s.currentMachineID()
@@ -223,13 +231,17 @@ func (s *Server) handleLocalAutoReplyRetryReports(w http.ResponseWriter, r *http
 	// 网络校验完成后再次核对绑定；短本地事务期间禁止切号，避免旧页面恢复错误账号的任务。
 	s.extensionMu.Lock()
 	current = generation == s.extensionGeneration && owner == s.extensionUserID && extensionSecretsEqual(request.Token, s.extensionToken)
-	count := 0
+	count, resumeCount := 0, 0
 	if current {
-		count, err = s.cloud.RetryBlockedAutoReplyRecommendations(r.Context(), cloudintegration.AgentCredentials{Token: request.Token, MachineID: machineID})
+		credentials := cloudintegration.AgentCredentials{Token: request.Token, MachineID: machineID}
+		count, err = s.cloud.RetryBlockedAutoReplyRecommendations(r.Context(), credentials)
+		if err == nil {
+			resumeCount, err = s.cloud.ResetAutoReplyResumeRetries(r.Context(), credentials)
+		}
 	}
 	s.extensionMu.Unlock()
 	if !current {
-		writeError(w, http.StatusConflict, "SESSION_CHANGED", fmt.Errorf("当前登录账号变了，请刷新页面后再重试报告"))
+		writeError(w, http.StatusConflict, "SESSION_CHANGED", fmt.Errorf("当前登录账号变了，请刷新页面后再重试待办"))
 		return
 	}
 	if err != nil {
@@ -238,7 +250,9 @@ func (s *Server) handleLocalAutoReplyRetryReports(w http.ResponseWriter, r *http
 	}
 	writeSuccess(w, http.StatusOK, struct {
 		RetriedCount int `json:"retried_count"`
-	}{RetriedCount: count})
+		ReportCount  int `json:"report_count"`
+		ResumeCount  int `json:"resume_count"`
+	}{RetriedCount: count + resumeCount, ReportCount: count, ResumeCount: resumeCount})
 }
 
 // currentAutoReplyPlatformID 根据当前浏览器页面地址识别自动回复平台。

@@ -135,10 +135,23 @@ func openLiepinAttachmentPreview(ctx context.Context, browser model.Browser, cfg
 	if err != nil {
 		return err
 	}
+	// 附件可能位于数十条旧消息之前；先用真实滚轮抵达已识别的卡片，避免点击内部的小步滚动反复耗尽。
+	// Worker 会按目标位置决定方向、进入可操作区域即停止，停滞和取消仍直接返回错误。
+	requireFull := false
+	if _, err = browser.Scroll(ctx, contract.ScrollRequest{
+		Target: &entry, WheelAnchor: &historyScroll, Distance: 1600,
+		MaxAttempts: 40, WaitMS: 150, RequireFull: &requireFull,
+	}); err != nil {
+		return fmt.Errorf("定位%s附件简历失败：%w", cfg.Name, err)
+	}
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
+		if err = ctx.Err(); err != nil {
+			return err
+		}
 		_, lastErr = browser.Click(ctx, contract.ElementClickRequest{
 			Selector: entry, WheelAnchor: &historyScroll, ViewportMargin: 0,
+			Diagnostic: true, DiagnosticAttempt: attempt,
 			Verify: &contract.ClickVerification{TargetVisible: &preview, TimeoutMS: 2500},
 		})
 		if lastErr == nil {

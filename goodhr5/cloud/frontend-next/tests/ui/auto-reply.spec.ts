@@ -10,7 +10,7 @@ test.use({ storageState: { cookies: [], origins: [{ origin: uniformOrigin, local
 /** fixture 在内存中模拟岗位配置和本地任务，未列入的写操作不会触达任何服务。 */
 async function fixture(page: Page) {
   const base = await mockUniformAdmin(page);
-  const reports = { blocked: 0, retries: 0, failure: "" };
+  const reports = { blocked: 0, resumeBlocked: 0, retries: 0, failure: "" };
   const state = { running: false, starts: 0, stops: 0, config: { position_id: "uniform-position-1", company_profile_id: "company-one", enabled: false, position_description: "合成岗位说明", resume_request_message: "你好，方便发一份简历吗？", conditions: [], poll_interval_seconds: 5, max_threads_per_checkpoint: 3, version: 1 }, profiles: [{ id: "company-one", name: "合成公司", address: "合成测试地址", contact: "", overview: "合成公司介绍", extra_info: "", updated_at: "2026-10-30T08:00:00Z" }] };
   await page.route(/\/api\/(?:auto-reply\/|v1\/local\/auto-reply\/)/, async (route) => {
     const request = route.request(); const path = new URL(request.url()).pathname; const method = request.method();
@@ -19,11 +19,11 @@ async function fixture(page: Page) {
     let data: unknown;
     if (path.endsWith("/auto-reply/start")) { expect(request.postDataJSON().platform_account_id).toBe("合成招聘账号"); state.starts++; state.running = true; data = { ok: true, data: { status: "running", task_id: "synthetic-auto-reply" } }; }
     else if (path.endsWith("/auto-reply/stop")) { state.stops++; state.running = false; data = { ok: true, data: { status: "stopped" } }; }
-    else if (path.endsWith("/auto-reply/status")) data = { ok: true, data: { status: state.running ? "running" : reports.failure ? "failed" : "stopped", current_step: reports.failure ? "finished" : "合成任务状态", error_code: reports.failure ? "TASK_FLOW_FAILED" : "", error_message: reports.failure, blocked_report_count: reports.blocked } };
+    else if (path.endsWith("/auto-reply/status")) data = { ok: true, data: { status: state.running ? "running" : reports.failure ? "failed" : "stopped", current_step: reports.failure ? "finished" : "合成任务状态", error_code: reports.failure ? "TASK_FLOW_FAILED" : "", error_message: reports.failure, blocked_report_count: reports.blocked, blocked_resume_count: reports.resumeBlocked } };
     else if (path.endsWith("/auto-reply/retry-reports")) {
       expect(request.postDataJSON().token).toBe("auto-reply-synthetic-token");
-      const count = reports.blocked; reports.retries++; reports.blocked = 0;
-      data = { ok: true, data: { retried_count: count } };
+      const count = reports.blocked, resumeCount = reports.resumeBlocked; reports.retries++; reports.blocked = 0; reports.resumeBlocked = 0;
+      data = { ok: true, data: { retried_count: count + resumeCount, report_count: count, resume_count: resumeCount } };
     }
     else if (/\/positions\/[^/]+\/status$/.test(path)) data = { configured_enabled: state.config.enabled, enabled: state.config.enabled, version: 1, subscription: { allow_auto_reply: true } };
     else if (path.endsWith("/config")) {
@@ -98,20 +98,21 @@ for (const width of [1366, 390]) {
     expect(base.errors).toEqual([]); expect(base.writes).toEqual([]); expect(base.unknown).toEqual([]);
   });
 
-  test(`失败报告 ${width}px 确认后才重新安排生成`, async ({ page }) => {
+  test(`失败待办 ${width}px 确认后才重试且不启动消息发送`, async ({ page }) => {
     const { reports, state } = await fixture(page);
-    reports.blocked = 2;
+    reports.blocked = 1; reports.resumeBlocked = 1;
     await page.setViewportSize({ width, height: 960 });
     await page.goto("/admin/positions");
-    await page.getByRole("button", { name: "重试报告（2）", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "重试推荐报告", exact: true });
+    await page.getByRole("button", { name: "重试待办（2）", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "重试待办", exact: true });
     await expect(dialog).toContainText("使用 AI 余额");
+    await expect(dialog).toContainText("不会重发已回复的消息");
     expect(reports.retries).toBe(0);
     await expect(dialog).not.toHaveClass(/zoom.*(?:appear|enter)/);
     mkdirSync(output, { recursive: true });
     await page.screenshot({ path: resolve(output, `retry-report-${width}.png`), fullPage: true, animations: "disabled" });
     await dialog.getByRole("button", { name: "确认", exact: true }).click();
-    await expect(page.getByRole("button", { name: "重试报告（2）", exact: true })).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "重试待办（2）", exact: true })).not.toBeVisible();
     expect(reports.retries).toBe(1); expect(state.starts).toBe(0);
   });
 }

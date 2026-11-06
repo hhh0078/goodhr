@@ -138,6 +138,16 @@ type AutoReplyConversation struct {
 	CreatedAt               time.Time               `json:"created_at"`
 	UpdatedAt               time.Time               `json:"updated_at"`
 	CaptureIntent           *AutoReplyCaptureIntent `json:"capture_intent,omitempty"`
+	ResumeRetry             *AutoReplyResumeRetry   `json:"resume_retry,omitempty"`
+}
+
+// AutoReplyResumeRetry 保存尚未完成的简历采集或补审；次数在操作前落盘，最多自动尝试三次。
+type AutoReplyResumeRetry struct {
+	LeaseUntil      *time.Time `json:"lease_until,omitempty"` // 当前领取的占用期限，运行中不可被人工重置。
+	Attempts        int        `json:"attempts"`              // 已领取的采集或补审次数。
+	LastError       string     `json:"last_error"`            // 最近一次失败的简短原因。
+	NextAttemptAt   time.Time  `json:"next_attempt_at"`       // 下次可领取时间，领取期间也作为租约截止时间。
+	SourceMessageID string     `json:"source_message_id"`     // 已核实简历来源消息；新来源可以单独重试。
 }
 
 // AutoReplyCaptureIntent 仅保存列表提供的恢复线索；岗位编号用于恢复调度，不代表已核实的会话岗位。
@@ -338,33 +348,34 @@ type AutoReplyCandidateLookup struct {
 // AutoReplyStoredCandidate 表示云端已有的正式简历。
 // 当前候选人存储模型仍使用 Go 字段名输出，因此这里显式兼容该现有协议。
 type AutoReplyStoredCandidate struct {
-	ResumeStructured    bool                         `json:"resume_structured,omitempty"` // 本地已成功解析简历，不依赖是否有手机号。
-	ID                  string                       `json:"ID"`
-	CandidateName       string                       `json:"CandidateName"`
-	AvatarURL           string                       `json:"AvatarURL"`
-	Gender              string                       `json:"Gender"`
-	BirthYM             string                       `json:"BirthYM"`
-	BirthYMPrecision    string                       `json:"BirthYMPrecision"`
-	Phone               string                       `json:"Phone"`
-	Email               string                       `json:"Email"`
-	Wechat              string                       `json:"Wechat"`
-	WorkRegion          string                       `json:"WorkRegion"`
-	WorkYears           string                       `json:"WorkYears"`
-	ExpectedSalaryMin   *float64                     `json:"ExpectedSalaryMin"`
-	ExpectedSalaryMax   *float64                     `json:"ExpectedSalaryMax"`
-	BasicInfo           string                       `json:"BasicInfo"`
-	EducationLevel      string                       `json:"EducationLevel"`
-	ExpectedPosition    string                       `json:"ExpectedPosition"`
-	OnlineStatus        string                       `json:"OnlineStatus"`
-	PersonalDescription string                       `json:"PersonalDescription"`
-	WorkStatus          string                       `json:"WorkStatus"`
-	RawText             string                       `json:"RawText"`
-	WorkExperiences     []CandidateWorkExperience    `json:"WorkExperiences"`
-	Educations          []CandidateEducation         `json:"Educations"`
-	Certificates        []CandidateCertificate       `json:"Certificates"`
-	Honors              []CandidateHonor             `json:"Honors"`
-	ProjectExperiences  []CandidateProjectExperience `json:"ProjectExperiences"`
-	Communications      []CandidateCommunication     `json:"Communications"`
+	ResumeSourceMessageID string                       `json:"resume_source_message_id,omitempty"` // 本地结构化资料对应的平台来源消息键。
+	ResumeStructured      bool                         `json:"resume_structured,omitempty"`        // 本地已成功解析简历，不依赖是否有手机号。
+	ID                    string                       `json:"ID"`
+	CandidateName         string                       `json:"CandidateName"`
+	AvatarURL             string                       `json:"AvatarURL"`
+	Gender                string                       `json:"Gender"`
+	BirthYM               string                       `json:"BirthYM"`
+	BirthYMPrecision      string                       `json:"BirthYMPrecision"`
+	Phone                 string                       `json:"Phone"`
+	Email                 string                       `json:"Email"`
+	Wechat                string                       `json:"Wechat"`
+	WorkRegion            string                       `json:"WorkRegion"`
+	WorkYears             string                       `json:"WorkYears"`
+	ExpectedSalaryMin     *float64                     `json:"ExpectedSalaryMin"`
+	ExpectedSalaryMax     *float64                     `json:"ExpectedSalaryMax"`
+	BasicInfo             string                       `json:"BasicInfo"`
+	EducationLevel        string                       `json:"EducationLevel"`
+	ExpectedPosition      string                       `json:"ExpectedPosition"`
+	OnlineStatus          string                       `json:"OnlineStatus"`
+	PersonalDescription   string                       `json:"PersonalDescription"`
+	WorkStatus            string                       `json:"WorkStatus"`
+	RawText               string                       `json:"RawText"`
+	WorkExperiences       []CandidateWorkExperience    `json:"WorkExperiences"`
+	Educations            []CandidateEducation         `json:"Educations"`
+	Certificates          []CandidateCertificate       `json:"Certificates"`
+	Honors                []CandidateHonor             `json:"Honors"`
+	ProjectExperiences    []CandidateProjectExperience `json:"ProjectExperiences"`
+	Communications        []CandidateCommunication     `json:"Communications"`
 }
 
 // AutoReplyCandidateState 表示已有简历、身份、会话和附件状态。
@@ -381,7 +392,8 @@ type AutoReplyCandidateState struct {
 
 // AutoReplyCandidateInput 表示本地清洗并校验后准备正式入库的简历。
 type AutoReplyCandidateInput struct {
-	LocalCandidateID string `json:"-"` // 已有本机候选人标识，不上传云端。
+	ResumeSourceMessageID string `json:"resume_source_message_id,omitempty"` // 已核实的简历来源消息键。
+	LocalCandidateID      string `json:"-"`                                  // 已有本机候选人标识，不上传云端。
 	StructuredCandidate
 	PositionID          string `json:"position_id"`
 	PlatformID          string `json:"platform_id"`

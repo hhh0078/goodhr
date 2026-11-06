@@ -104,12 +104,32 @@ func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Brow
 		}
 		if cachedItems != nil {
 			result = cachedResult
-			if boundary := liepinKnownMessageBoundary(result.Messages, knownMessageKeys); boundary >= 0 {
-				result.Messages = result.Messages[boundary+1:]
+			if boundary := liepinKnownMessageBoundary(result.Messages, knownMessageKeys); boundary >= 0 && (atTop || result.Messages[boundary].PlatformMessageID != "" || boundary >= liepinLeadingMessageGroupEnd(result.Messages)) {
+				firstStable := 0
+				if !atTop {
+					firstStable = liepinLeadingMessageGroupEnd(result.Messages)
+				}
+				// 旧版本曾合并同分钟同文消息；带上可证明完整的重复组及后续锚点，让本机幂等补齐历史而不新增待答。
+				start := liepinDuplicateRepairStart(result.Messages, boundary, firstStable)
+				result.Messages = result.Messages[start:]
 				result.Messages = result.Messages[max(0, len(result.Messages)-maxHistory):]
 				return result, nil
 			}
 			if atLimit || len(result.Messages) >= maxHistory || cachedItems[0].TotalMatches > len(cachedItems) {
+				if !atTop || cachedItems[0].Index > 0 {
+					// 截尾窗口最早一分钟可能还藏着同文消息，不能猜出现次数或把它用作差量边界。
+					end := liepinLeadingMessageGroupEnd(result.Messages)
+					anchored := make([]model.ConversationMessage, 0, len(result.Messages))
+					for index, message := range result.Messages {
+						if index >= end || message.PlatformMessageID != "" {
+							anchored = append(anchored, message)
+						}
+					}
+					result.Messages = anchored
+					if len(result.Messages) == 0 {
+						return liepinConversationHistory{}, fmt.Errorf("聊天截尾范围内还没有可核实的时间边界，暂不猜测重复消息编号")
+					}
+				}
 				result.Messages = result.Messages[max(0, len(result.Messages)-maxHistory):]
 				return result, nil
 			}
@@ -247,17 +267,89 @@ func liepinMessages(items []contract.FindAllItem) ([]model.ConversationMessage, 
 // liepinMessagesAt 使用同一个基准时间解析整批消息，避免跨零点时同批指纹前后不一致。
 func liepinMessagesAt(items []contract.FindAllItem, now time.Time) ([]model.ConversationMessage, error) {
 	result := make([]model.ConversationMessage, 0, len(items))
+	occurrences := make(map[string]int)
 	for _, item := range items {
 		message, baseKey, err := liepinMessage(item, now)
 		if err != nil {
 			return nil, fmt.Errorf("解析第%d条猎聘消息失败：%w", item.Index+1, err)
 		}
 		if message.PlatformMessageID == "" {
+			occurrences[baseKey]++
+			if occurrences[baseKey] > 1 {
+				baseKey += fmt.Sprintf("|occurrence:%d", occurrences[baseKey])
+			}
 			message.Key = common.StableAutoReplyMessageKey(baseKey)
 		}
 		result = append(result, message)
 	}
 	return result, nil
+}
+
+// liepinLeadingMessageGroupEnd 找到首组分钟消息的结束位置；首组来源不全时，不能确定同分钟重复项的次序。
+func liepinLeadingMessageGroupEnd(messages []model.ConversationMessage) int {
+	if len(messages) == 0 {
+		return 0
+	}
+	first := messages[0].SentAt
+	if first == nil {
+		return len(messages)
+	}
+	for index, message := range messages {
+		if message.SentAt != nil && !message.SentAt.Equal(*first) {
+			return index
+		}
+	}
+	return len(messages)
+}
+
+// liepinDuplicateRepairStart 为已知边界前的重复组保留原始顺序锚点；未完整首分钟不参与旧记录修复。
+func liepinDuplicateRepairStart(messages []model.ConversationMessage, boundary, firstStable int) int {
+	start := boundary + 1
+	firstOccurrences := make(map[string]int)
+	for index := firstStable; index <= boundary; index++ {
+		message := messages[index]
+		if message.PlatformMessageID != "" {
+			continue
+		}
+		minute := ""
+		if message.SentAt != nil {
+			minute = message.SentAt.UTC().Format(time.RFC3339)
+		}
+		key := strings.Join([]string{message.Direction, message.MessageType, message.TextContent, minute}, "|")
+		if first, ok := firstOccurrences[key]; ok {
+			start = min(start, first)
+		} else {
+			firstOccurrences[key] = index
+		}
+	}
+	return start
+}
+
+// liepinLatestMessageGroupCovered 确认末个候选人或HR消息的分钟组已从左侧完整覆盖，尾窗不足时要求继续扩窗。
+func liepinLatestMessageGroupCovered(items []contract.FindAllItem) (bool, error) {
+	messages, err := liepinMessages(items)
+	if err != nil {
+		return false, err
+	}
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.Direction != "candidate" && message.Direction != "self" {
+			continue
+		}
+		if message.PlatformMessageID != "" || items[0].Index == 0 {
+			return true, nil
+		}
+		if message.SentAt == nil {
+			return false, nil
+		}
+		for _, previous := range messages[:index] {
+			if previous.SentAt != nil && previous.SentAt.Before(*message.SentAt) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	return false, nil
 }
 
 // liepinMessage 解析一条猎聘消息的方向、卡片、时间和平台编号。

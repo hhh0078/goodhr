@@ -31,6 +31,8 @@ const autoReplySystemPrompt = `你就是当前岗位的招聘方 HR，正在招�
 16. 工具参数错误时根据工具返回修正；最多修正2次。整轮最多调用8次工具。
 17. 不输出隐藏思考过程，只通过工具给出可审计动作。`
 
+const autoReplyConditionsOnlyPrompt = `本轮是简历补齐后的内部条件复核，没有新的待回复消息。只根据已成功读取的简历和真实聊天证据，使用 upsert_confirmation_items 提议必要的条件变化，最后调用 finish_review。没有新证据的条件保持原样，缺少资料保持 pending。不得回答已处理的聊天、准备发送消息、索要资料、通知候选人或修改岗位。`
+
 // replyPromptInput 表示只放在 user 消息中的动态岗位、候选人和聊天数据。
 type replyPromptInput struct {
 	Position          cloud.AutoReplyPositionSnapshot   `json:"position"`
@@ -60,10 +62,13 @@ func initialToolMessages(input ReplyContext) ([]ai.ToolMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("整理自动回复动态上下文失败：%w", err)
 	}
-	return []ai.ToolMessage{
+	result := []ai.ToolMessage{
 		{Role: "system", Content: autoReplySystemPrompt},
-		{Role: "user", Content: string(dynamic)},
-	}, nil
+	}
+	if input.ConditionsOnly {
+		result = append(result, ai.ToolMessage{Role: "system", Content: autoReplyConditionsOnlyPrompt})
+	}
+	return append(result, ai.ToolMessage{Role: "user", Content: string(dynamic)}), nil
 }
 
 // findBasedOnMessage 按云端稳定消息键唯一找出本轮候选人消息，避免 AI 自己从长历史中猜。

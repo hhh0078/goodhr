@@ -37,6 +37,7 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "auto_reply_avatar_container_key": "message.history_scroll",
     "_comment": "猎聘企业端页面行为开关。",
     "supports_paging": false,
     "_comment_supports_paging": "当前推荐页按滚动加载。",
@@ -1307,7 +1308,7 @@
       "description": "猎聘企业端附件简历正文"
     },
     "message.current_avatar": {
-      "_comment": "当前聊天框候选人消息里的头像；固定取第一条候选人消息头像，同一会话头像一致。",
+      "_comment": "当前聊天框候选人消息里的头像；由标准尾窗选最后一条，仅在聊天容器内完整可见时截图。",
       "parents": [
         {
           "_comment": "限定在当前猎聘聊天框内。",
@@ -1321,15 +1322,14 @@
         }
       ],
       "target": {
-        "_comment": "候选人消息头像，序号从 0 开始。",
+        "_comment": "候选人消息头像，读取时取当前列表最后一项。",
         "selectors": [
           {
             "_comment": "猎聘候选人消息头像图片。",
             "type": "css",
             "value": ".im-ui-message-item-receive .im-ui-avatar-img"
           }
-        ],
-        "index": 0
+        ]
       },
       "state": "attached",
       "timeout_ms": 3000,

@@ -113,11 +113,15 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	if err != nil {
 		return fmt.Errorf("读取待回复消息失败：%w", err)
 	}
-	if len(pending) == 0 {
+	resumeOnly := len(pending) == 0
+	if resumeOnly && !autoReplyResumeRetryDue(cloudConversation.ResumeRetry, time.Now()) {
 		stats.Skipped++
 		return nil
 	}
-	latestCandidateKey = firstNonEmpty(pending[len(pending)-1].PlatformMessageID, pending[len(pending)-1].Fingerprint)
+	latestCandidateKey = cloudConversation.LastCandidateMessageKey
+	if !resumeOnly {
+		latestCandidateKey = firstNonEmpty(pending[len(pending)-1].PlatformMessageID, pending[len(pending)-1].Fingerprint)
+	}
 	if positionErr != nil {
 		stats.Skipped++
 		if err = f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, positionErr.Error(), "position_unresolved", latestCandidateKey); err != nil {
@@ -136,6 +140,10 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return fmt.Errorf("读取完整聊天记录失败：%w", err)
 	}
 	pageSnapshot = mergeCloudResumeCard(pageSnapshot, messages)
+	if retry := cloudConversation.ResumeRetry; retry != nil && retry.SourceMessageID != "" && pageSnapshot.ResumeSourceMessageID == "" {
+		pageSnapshot.ResumeCardAvailable = true
+		pageSnapshot.ResumeSourceMessageID = retry.SourceMessageID
+	}
 	if openSnapshot != nil {
 		*openSnapshot = pageSnapshot
 	}
@@ -147,10 +155,46 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		state.Candidate = &candidate
 		cloudConversation.CandidateID = candidate.ID
 	}
-	avatarHandled := f.syncCandidateAvatarBestEffort(ctx, prepared, pageSnapshot, state.Candidate)
-	resume, handled, err := f.ensureResume(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, stats)
-	if err != nil || handled {
-		return err
+	avatarHandled := f.syncCandidateAvatarBestEffort(ctx, prepared, pageSnapshot, state.Candidate, runtime)
+	var resume *model.AutoReplyResumeBundle
+	resumePrepared := false
+	needsResume := pageSnapshot.ResumeCardAvailable || state.HasResumeAttachment
+	newResumeSource := cloudConversation.ResumeRetry != nil && pageSnapshot.ResumeSourceMessageID != "" && pageSnapshot.ResumeSourceMessageID != cloudConversation.ResumeRetry.SourceMessageID
+	canCollect := needsResume && (cloudConversation.ResumeRetry == nil || newResumeSource || autoReplyResumeRetryDue(cloudConversation.ResumeRetry, time.Now()))
+	if canCollect {
+		if state.Candidate == nil || !state.Candidate.ResumeStructured || cloudConversation.ResumeRetry != nil ||
+			(pageSnapshot.ResumeSourceMessageID != "" && state.Candidate.ResumeSourceMessageID != pageSnapshot.ResumeSourceMessageID) {
+			canCollect, err = f.beginResumeRetry(ctx, prepared, &cloudConversation, pageSnapshot.ResumeSourceMessageID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if canCollect {
+		resume, _, err = f.ensureResume(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, stats)
+		resumePrepared = err == nil
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if !errors.Is(err, errAutoReplyResumeDeferred) {
+				return err
+			}
+			if saveErr := f.recordResumeRetryFailure(ctx, prepared, &cloudConversation, pageSnapshot, err); saveErr != nil {
+				return saveErr
+			}
+			if resumeOnly {
+				return nil
+			}
+			// 采集可能打开浮层或被切换会话；只在原聊天和候选人消息仍可验证时继续问答。
+			unchanged, checkErr := f.latestCandidateMessageUnchanged(ctx, runtime, prepared, pageSnapshot, latestCandidateKey)
+			if checkErr != nil || !unchanged {
+				return checkErr
+			}
+		}
+	}
+	if resumeOnly && !canCollect {
+		return nil
 	}
 	state, err = f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
 		PlatformID: prepared.Platform.ID, PlatformAccountID: pageSnapshot.PlatformAccountID,
@@ -162,8 +206,13 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		return fmt.Errorf("刷新正式简历状态失败：%w", err)
 	}
+	if cloudConversation.ResumeRetry != nil && !resumePrepared && state.Candidate != nil {
+		candidate := *state.Candidate
+		candidate.ResumeStructured = false
+		state.Candidate = &candidate
+	}
 	if !avatarHandled {
-		f.syncCandidateAvatarBestEffort(ctx, prepared, pageSnapshot, state.Candidate)
+		f.syncCandidateAvatarBestEffort(ctx, prepared, pageSnapshot, state.Candidate, runtime)
 	}
 	confirmations, err := f.Cloud.AutoReplyConfirmationItems(ctx, credentials(prepared), cloudConversation.ID)
 	if err != nil {
@@ -178,6 +227,15 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	if f.Responder == nil {
 		stats.Failed++
 		return fmt.Errorf("自动回复 AI 处理器没有准备完整")
+	}
+	if resumeOnly {
+		return f.reviewRecoveredResume(ctx, prepared, runtime, ReplyContext{
+			TaskID: prepared.Request.TaskID, Credentials: credentials(prepared), Position: position,
+			AIConfig: prepared.Position.AI, EnableThinking: prepared.Position.EnableThinking,
+			Conversation: cloudConversation, CandidateState: state, Messages: messages,
+			ConfirmationItems: confirmations, PageSnapshot: pageSnapshot, Resume: resume,
+			BasedOnMessageKey: latestCandidateKey, ConditionsOnly: true,
+		})
 	}
 	for refreshes := 0; ; refreshes++ {
 		shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
@@ -264,6 +322,11 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		}
 		if err = f.Cloud.CommitAutoReplyProposal(ctx, credentials(prepared), cloudConversation.ID, latestCandidateKey, position.Config.Version, decision.ConfirmationUpdates, decision.Suggestions); err != nil {
 			return fmt.Errorf("保存本轮已复核结果失败：%w", err)
+		}
+		if resumePrepared && state.Candidate != nil && state.Candidate.ResumeStructured && cloudConversation.ResumeRetry != nil {
+			if err = f.finishResumeRetry(ctx, prepared, &cloudConversation); err != nil {
+				return err
+			}
 		}
 		confirmations, err = f.Cloud.AutoReplyConfirmationItems(ctx, credentials(prepared), cloudConversation.ID)
 		if err != nil {
@@ -446,6 +509,7 @@ func (f *Flow) saveCloudConversation(ctx context.Context, prepared shared.Prepar
 		item.EngagementID = state.Conversation.EngagementID
 		item.LastSyncedMessageKey = state.Conversation.LastSyncedMessageKey
 		item.LastCandidateMessageKey = state.Conversation.LastCandidateMessageKey
+		item.ResumeRetry = state.Conversation.ResumeRetry
 		if status := preservedAutoReplyConversationStatus(state.Conversation.Status); status != "" {
 			item.Status = status
 		}

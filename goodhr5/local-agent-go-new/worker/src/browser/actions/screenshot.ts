@@ -11,7 +11,7 @@ import type {
   ScreenshotResult,
 } from "../../contracts/actions.js";
 import type { ActionContext } from "../../contracts/common.js";
-import { normalizeWorkerError } from "../../errors/worker-error.js";
+import { normalizeWorkerError, WorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { ScreenshotPrimitive } from "../primitives/screenshot.js";
 import { MousePrimitive } from "../primitives/mouse.js";
@@ -48,7 +48,9 @@ export class ScreenshotAction {
     });
     try {
       const page = await this.session.requirePage(actionContext, step);
-      const size = request.target
+      const size = request.viewport_only
+        ? await this.captureVisibleTarget(page, request, filePath, actionContext)
+        : request.target
         ? await this.primitive.element(
             (
               await this.find.one(
@@ -87,6 +89,28 @@ export class ScreenshotAction {
       this.logger.failure(actionContext, normalized);
       throw normalized;
     }
+  }
+
+  /** captureVisibleTarget 核对目标与容器的可见交集，只截完整露出的目标，绝不为截图移动聊天。 */
+  private async captureVisibleTarget(page: import("playwright-core").Page, request: ScreenshotRequest, filePath: string, context: ActionContext): Promise<number> {
+    if (!request.target) throw new Error("仅视口截图需要指定目标");
+    const found = await this.find.one(request.target, context, true);
+    const view = found.resolved.view;
+    const container = request.clip_container ? (await this.find.one(request.clip_container, context, true)).resolved.view : undefined;
+    const box = view.box;
+    const left = Math.max(0, container?.box.x ?? 0), top = Math.max(0, container?.box.y ?? 0);
+    const right = Math.min(view.viewport.width, container ? container.box.x + container.box.width : view.viewport.width);
+    const bottom = Math.min(view.viewport.height, container ? container.box.y + container.box.height : view.viewport.height);
+    if (!view.visible || !view.fully_in_viewport || (container && !container.visible) || box.width <= 0 || box.height <= 0 ||
+        box.x < left || box.y < top || box.x + box.width > right || box.y + box.height > bottom) {
+      throw new WorkerError({ code: "ELEMENT_NOT_VISIBLE", message: "目标没有完整露出，这次不为截图滚动页面", action: context.action, step: "screenshot", trace_id: context.trace_id, retryable: false });
+    }
+    const size = await this.primitive.clippedPage(page, filePath, box);
+    const after = await found.resolved.locator.boundingBox();
+    if (!after || ["x", "y", "width", "height"].some(key => after[key as keyof typeof after] !== box[key as keyof typeof box])) {
+      throw new WorkerError({ code: "SCREENSHOT_FAILED", message: "截图期间目标位置发生变化，这张图片没有采用", action: context.action, step: "screenshot", trace_id: context.trace_id, retryable: false });
+    }
+    return size;
   }
 
   /** long 平铺执行查找、单次分段截图、真实滚轮和重复画面验证。 */

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -26,11 +27,21 @@ type candidateAvatarBrowserStub struct {
 	autoReplyBrowserStub
 	imageData []byte
 	target    *contract.SelectorSpec
+	request   contract.ScreenshotRequest
+}
+
+// FindAll 模拟最后一条候选人头像的真实序号，避免默认取历史第一条。
+func (b *candidateAvatarBrowserStub) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if !request.FromEnd || request.MaxItems != 1 || !request.ProbeOnly {
+		return nil, fmt.Errorf("头像未使用标准尾窗")
+	}
+	return []contract.FindAllItem{{Index: 88, TotalMatches: 89}}, nil
 }
 
 // Screenshot 保存测试头像并记录公共流程传入的平台选择器。
 func (b *candidateAvatarBrowserStub) Screenshot(_ context.Context, request contract.ScreenshotRequest) (contract.ScreenshotResult, error) {
 	b.target = request.Target
+	b.request = request
 	path := filepath.Join(request.Directory, request.Filename)
 	if err := os.WriteFile(path, b.imageData, 0o600); err != nil {
 		return contract.ScreenshotResult{}, err
@@ -64,15 +75,30 @@ func TestSyncCandidateAvatarUsesConfiguredElementScreenshot(t *testing.T) {
 	prepared := shared.PreparedTask{
 		MachineID: "goodhr-device-v1-test",
 		Request:   shared.StartRequest{Token: "test-token"},
-		Platform: model.Config{ID: "liepin", Name: "猎聘企业", Selectors: map[string]contract.SelectorSpec{
+		Platform: model.Config{ID: "liepin", Name: "猎聘企业", Behavior: model.Behavior{AutoReplyAvatarContainerKey: "message.history_scroll"}, Selectors: map[string]contract.SelectorSpec{
 			currentAutoReplyAvatarSelectorKey: {Description: "当前候选人头像"},
+			"message.history_scroll":          {Description: "聊天可见区"},
 		}},
 	}
-	if err := flow.syncCandidateAvatar(context.Background(), prepared, model.AutoReplyConversationSnapshot{}, "candidate-1"); err != nil {
+	runtime := &autoReplyRuntimeStub{}
+	if err := flow.syncCandidateAvatar(context.Background(), prepared, model.AutoReplyConversationSnapshot{}, "candidate-1", runtime); err != nil {
 		t.Fatalf("候选人头像同步失败：%v", err)
 	}
 	if browser.target == nil || browser.target.Description != "当前候选人头像" {
 		t.Fatalf("没有使用平台当前头像选择器：%+v", browser.target)
+	}
+	if !browser.request.ViewportOnly || browser.request.ClipContainer == nil || browser.request.ClipContainer.Description != "聊天可见区" || browser.target.Target.Index == nil || *browser.target.Target.Index != 88 || runtime.openReadCount != 2 {
+		t.Fatalf("头像没有使用末条、不滚动截图和前后身份复核：%+v reads=%d", browser.request, runtime.openReadCount)
+	}
+}
+
+// TestAvatarUnknownConversationDoesNotCapture 验证无法证明当前聊天归属时不截图，并继续执行已有HTTPS地址安全校验。
+func TestAvatarUnknownConversationDoesNotCapture(t *testing.T) {
+	browser := &candidateAvatarBrowserStub{}
+	f := &Flow{Browser: browser}
+	err := f.syncCandidateAvatar(context.Background(), shared.PreparedTask{}, model.AutoReplyConversationSnapshot{AvatarURL: "http://127.0.0.1/avatar.png"}, "candidate", &autoReplyRuntimeStub{openChatClosed: true})
+	if err == nil || browser.target != nil || !strings.Contains(err.Error(), "HTTPS") {
+		t.Fatalf("身份不明仍截图或绕过下载保护：target=%+v err=%v", browser.target, err)
 	}
 }
 

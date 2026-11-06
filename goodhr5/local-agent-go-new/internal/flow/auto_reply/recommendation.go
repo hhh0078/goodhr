@@ -20,6 +20,9 @@ func (r *AIResponder) QueueRecommendation(ctx context.Context, input ReplyContex
 	if r == nil || r.Cloud == nil || !r.Cloud.LocalAutoReplyEnabled() || input.CandidateState.Candidate == nil || normalizeAutoReplyPhone(input.CandidateState.Candidate.Phone) == "" {
 		return nil
 	}
+	if input.CandidateState.Conversation != nil && input.CandidateState.Conversation.ResumeRetry != nil {
+		return nil
+	}
 	items, err := r.Cloud.AutoReplyConfirmationItems(ctx, input.Credentials, input.Conversation.ID)
 	if err != nil {
 		return err
@@ -209,7 +212,7 @@ func (r *AIResponder) recommendationJobCurrent(ctx context.Context, credentials 
 	if err != nil {
 		return false, err
 	}
-	if state.Candidate == nil || state.Candidate.ID != job.CandidateID {
+	if state.Candidate == nil || state.Candidate.ID != job.CandidateID || (state.Conversation != nil && state.Conversation.ResumeRetry != nil) {
 		return false, nil
 	}
 	validation := toolExecutionState{input: ReplyContext{Messages: messages, CandidateState: state}}
@@ -228,6 +231,9 @@ func (r *AIResponder) recommendationJobCurrent(ctx context.Context, credentials 
 
 // recommendationSource 仅根据有效且有证据的必要条件建立报告源，不允许模型凭空生成候选人和岗位原件。
 func recommendationSource(position cloud.AutoReplyPositionSnapshot, candidate cloud.AutoReplyStoredCandidate, items []cloud.CandidateConfirmationItem) (cloud.AutoReplyRecommendationReport, bool) {
+	if !candidate.ResumeStructured {
+		return cloud.AutoReplyRecommendationReport{}, false
+	}
 	conditions := []cloud.AutoReplyReportCondition{}
 	required := 0
 	for _, item := range items {

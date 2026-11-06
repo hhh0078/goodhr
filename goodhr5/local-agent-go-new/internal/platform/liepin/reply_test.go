@@ -630,7 +630,7 @@ func TestLiepinMessageKeysSurvivePrependedHistory(t *testing.T) {
 		t.Fatalf("解析猎聘当前消息失败：%v", err)
 	}
 	withHistoryItems := append([]contract.FindAllItem{{Index: 0, Fields: map[string]string{
-		"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "你好", "message_time": "10:00",
+		"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "你好", "message_time": "09:59",
 	}}}, recentItems...)
 	withHistory, err := liepinMessagesAt(withHistoryItems, now)
 	if err != nil {
