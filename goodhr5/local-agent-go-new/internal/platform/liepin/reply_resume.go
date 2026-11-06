@@ -225,7 +225,8 @@ func openLiepinAttachmentPreview(ctx context.Context, browser model.Browser, cfg
 	}
 	// 附件可能位于数十条旧消息之前；先用真实滚轮抵达已识别的卡片，避免点击内部的小步滚动反复耗尽。
 	// Worker 会按目标位置决定方向、进入可操作区域即停止，停滞和取消仍直接返回错误。
-	requireFull := false
+	// 入口只有一行文字，必须完整露出聊天滚动区，避免半行被顶部栏裁剪后误点。
+	requireFull := true
 	if _, err = browser.Scroll(ctx, contract.ScrollRequest{
 		Target: &entry, WheelAnchor: &historyScroll, Distance: 1600,
 		MaxAttempts: 40, WaitMS: 150, RequireFull: &requireFull,

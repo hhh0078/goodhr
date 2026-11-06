@@ -110,6 +110,8 @@ interface SelectorCandidate {
 
 `ReadAction` 的文本、HTML 和属性读取使用内部 `state` 定位模式，复用列表读取的状态检查，不采集边界和视口截图。框架、父级、文本、属性、序号、状态筛选、取消检查及短期引用均保留；只读结果不返回几何信息，日志标记 `geometry_read: false`，不报告未测量的视口状态。普通查找、点击、输入和滚动仍默认使用完整几何模式。此优化不增加协议字段或系统分支，Windows x64、macOS arm64 与 amd64 共用相同 Worker 实现；合成回归见 `worker/test/read-without-geometry.test.mjs`，实际页面速度与各系统安装运行仍须分别验收。
 
+点击的 `ensureVisible` 将可见区域读取方法交给 `MoveAction`，目标连续稳定后以及原生移动恢复重试时，标准 Locator 重新读取已有 `wheel_anchor` 容器边界。落点必须同时处于目标、窗口和容器交集内；容器隐藏或交集为空时不按鼠标。普通行和超大目标仍可使用安全的部分可见区域，不要求全部露出。输入复用相同动态视口边界，但其现有协议没有容器选择器，本次不新增；实现无平台名、系统分支或页面脚本，回归见 `worker/test/click-container-intersection.test.mjs`。
+
 `element_ref` 规则：
 
 - 只在当前 Page 和短时间操作内有效。

@@ -58,7 +58,7 @@ export class InputAction {
         actionContext,
         true,
       );
-      await this.scroll.ensureVisible(
+      const visibleArea = await this.scroll.ensureVisible(
         found,
         {
           distance: 160,
@@ -68,7 +68,7 @@ export class InputAction {
         actionContext,
       );
       await waitForStablePosition(found, this.locator);
-      await this.move.toElement(found.resolved, actionContext);
+      await this.move.toElement(found.resolved, actionContext, { visibleArea });
       try {
         await this.mouse.down(found.resolved.page, "left");
         await delay(randomInteger(FOCUS_HOLD_MIN_MS, FOCUS_HOLD_MAX_MS));

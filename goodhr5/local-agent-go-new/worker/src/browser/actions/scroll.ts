@@ -13,11 +13,12 @@ import { LocatorPrimitive, type ResolvedElement } from "../primitives/locator.js
 import { MousePrimitive } from "../primitives/mouse.js";
 import { ScreenshotPrimitive } from "../primitives/screenshot.js";
 import { ViewportPrimitive } from "../primitives/viewport.js";
+import { assertRequestActive } from "../primitives/request-lifecycle.js";
 import { BrowserSession } from "../session/browser-session.js";
 import type { FindAction, FoundElement } from "./find.js";
 import { MoveAction } from "./move.js";
 import { variedDistance, wheelGesture, readingPause } from "./wheel-gesture.js";
-import { assertTargetCanFit, directedWheel, intersectsViewport, targetGap, viewAccepted, visibleArea as calculateVisibleArea } from "./scroll-geometry.js";
+import { assertTargetCanFit, directedWheel, intersectsViewport, targetGap, viewAccepted, visibleArea as calculateVisibleArea, type VisibleArea } from "./scroll-geometry.js";
 
 /** ScrollResult 表示真实滚轮滚动次数和前后状态。 */
 export interface ScrollResult extends JsonObject {
@@ -267,7 +268,7 @@ export class ScrollAction {
     }
   }
 
-  /** ensureVisible 让已经找到的目标进入视口，不重新查找目标。 */
+  /** ensureVisible 让目标进入视口，并返回移动前重读容器交集的方法；目标稳定和原生恢复后也不沿用旧裁剪区。 */
   async ensureVisible(
     found: FoundElement,
     request: {
@@ -278,7 +279,7 @@ export class ScrollAction {
       require_full?: boolean;
     },
     actionContext: ActionContext,
-  ): Promise<void> {
+  ): Promise<() => Promise<VisibleArea>> {
     let anchor: FoundElement | undefined;
     if (request.wheel_anchor) {
       anchor = await this.find.one(
@@ -287,6 +288,22 @@ export class ScrollAction {
         true,
       );
     }
+    /** readVisibleArea 在目标坐标稳定后刷新容器；仅读取，不再次滚动或重新定位目标。 */
+    const readVisibleArea = async (): Promise<VisibleArea> => {
+      assertRequestActive(actionContext);
+      const currentAnchor = anchor ? await this.refreshTarget(anchor.resolved) : undefined;
+      assertRequestActive(actionContext);
+      const container = scrollContainerView(anchor, currentAnchor);
+      if (container && (!container.visible || container.box.width <= 0 || container.box.height <= 0)) {
+        throw new WorkerError({ code: "ELEMENT_NOT_VISIBLE", message: "目标所在区域已经隐藏，鼠标没有继续操作",
+          action: actionContext.action, step: "ensure_visible", trace_id: actionContext.trace_id, retryable: true });
+      }
+      if (currentAnchor) found.resolved.view.viewport = currentAnchor.viewport;
+      const area = calculateVisibleArea(found.resolved.view, container, request.viewport_margin ?? 0);
+      assertTargetCanFit(found.resolved.view, area, false, actionContext);
+      this.logGeometry(actionContext, "before_move", found.resolved.view, anchor, area, currentAnchor);
+      return area;
+    };
     let visibleArea = calculateVisibleArea(
       found.resolved.view,
       scrollContainerView(anchor),
@@ -306,7 +323,7 @@ export class ScrollAction {
         visibleArea,
       )
     ) {
-      return;
+      return readVisibleArea;
     }
     if (anchor && intersectsViewport(anchor.resolved.view)) {
       await this.move.toElement(anchor.resolved, actionContext, { centered: true });
@@ -385,7 +402,7 @@ export class ScrollAction {
           visibleArea,
         )
       ) {
-        return;
+        return readVisibleArea;
       }
     }
     throw new Error("元素滚动后仍未进入可操作区域");

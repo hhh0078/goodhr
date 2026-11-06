@@ -58,7 +58,7 @@ export class ClickAction {
         actionContext,
         true,
       );
-      await this.scroll.ensureVisible(
+      const visibleArea = await this.scroll.ensureVisible(
         found,
         {
           wheel_anchor: request.wheel_anchor,
@@ -80,7 +80,7 @@ export class ClickAction {
         });
       }
       // 点击收紧到可见区域中部，避免随机落在被悬浮入口覆盖的按钮边缘。
-      const landing = await this.move.toElement(found.resolved, actionContext, { centered: true });
+      const landing = await this.move.toElement(found.resolved, actionContext, { centered: true, visibleArea });
       if (request.diagnostic) this.logger.info(actionContext, "click_landing", "ready", {
         diagnostic: true, input: diagnosticInput, output: { x: landing.x, y: landing.y, target_view: this.logger.fromUnknown(landing.view) },
       });

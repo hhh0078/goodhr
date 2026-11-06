@@ -762,6 +762,9 @@ func TestCollectAutoReplyResumeKeepsDownloadedAttachmentWithoutOnlinePanel(t *te
 	if attachmentClicks != 2 || !browser.attachmentVerify || browser.attachmentAnchor != "测试聊天滚动区域" {
 		t.Fatalf("附件入口没有在滚动区内重试并验证弹框：clicks=%v verified=%t anchor=%q", browser.clicks, browser.attachmentVerify, browser.attachmentAnchor)
 	}
+	if len(browser.historyScrolls) != 1 || browser.historyScrolls[0].RequireFull == nil || !*browser.historyScrolls[0].RequireFull {
+		t.Fatalf("小型附件入口没有先完整滚入聊天可见区：scrolls=%+v", browser.historyScrolls)
+	}
 	if !browser.conversationOpen || browser.attachmentOpen || browser.detailOpen {
 		t.Fatalf("附件采集完成后未保留可用聊天框：conversation_open=%t attachment_open=%t detail_open=%t", browser.conversationOpen, browser.attachmentOpen, browser.detailOpen)
 	}
