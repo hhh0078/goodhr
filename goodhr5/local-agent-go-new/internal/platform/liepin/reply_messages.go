@@ -17,6 +17,10 @@ import (
 
 const liepinHistoryStableReadAttempts = 3
 
+// 距离交给跨平台标准真实滚轮执行，不在Go中猜测系统缩放倍率；每轮仍按实际首尾和几何位置确认进度。
+const liepinHistoryWheelDistance = 1600
+const liepinLatestWheelDistance = 2400
+
 // liepinConversationHistory 保存猎聘差量消息以及当前完整页面中发现的简历卡片。
 type liepinConversationHistory struct {
 	Messages              []model.ConversationMessage
@@ -123,7 +127,12 @@ func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Brow
 		if selectorErr != nil {
 			return liepinConversationHistory{}, selectorErr
 		}
-		progress, err = browser.Scroll(ctx, contract.ScrollRequest{WheelAnchor: &anchor, ProgressTarget: &headSelector, Distance: -620, MaxAttempts: 1, WaitMS: 800})
+		waitMS := 300
+		if progress.ProgressTargetVisible != nil && *progress.ProgressTargetVisible {
+			// 首条已经露出时留足异步追加历史的时间；最终仍需连续三次无位移且数量、首尾不变。
+			waitMS = 800
+		}
+		progress, err = browser.Scroll(ctx, contract.ScrollRequest{WheelAnchor: &anchor, ProgressTarget: &headSelector, Distance: -liepinHistoryWheelDistance, MaxAttempts: 1, WaitMS: waitMS})
 		if err != nil {
 			return liepinConversationHistory{}, fmt.Errorf("向上读取%s聊天历史失败：%w", cfg.Name, err)
 		}
@@ -212,7 +221,7 @@ func restoreLiepinLatestMessages(ctx context.Context, browser model.Browser, cfg
 		if selectorErr != nil {
 			return selectorErr
 		}
-		progress, scrollErr := browser.Scroll(ctx, contract.ScrollRequest{WheelAnchor: &anchor, ProgressTarget: &tail, Distance: 620, MaxAttempts: 100, WaitMS: 150, StopWhenProgressVisible: true})
+		progress, scrollErr := browser.Scroll(ctx, contract.ScrollRequest{WheelAnchor: &anchor, ProgressTarget: &tail, Distance: liepinLatestWheelDistance, MaxAttempts: 100, WaitMS: 150, StopWhenProgressVisible: true})
 		if scrollErr != nil {
 			return fmt.Errorf("回到最新聊天消息失败：%w", scrollErr)
 		}

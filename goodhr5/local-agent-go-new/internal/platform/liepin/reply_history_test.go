@@ -72,6 +72,43 @@ func TestLiepinHistoryLoadsEightyMessagesWithoutRepeatingFullReads(t *testing.T)
 	}
 }
 
+// TestLiepinHistoryLargerWheelsKeepAllMessagesAndTopProof 验证加快真实滚轮后仍完整读取89条，顶部等待和最新端核验不减省。
+func TestLiepinHistoryLargerWheelsKeepAllMessagesAndTopProof(t *testing.T) {
+	all := make([]contract.FindAllItem, 89)
+	for i := range all {
+		all[i] = historyAuditMessage(fmt.Sprintf("message-%d", i))
+	}
+	browser := &countingHistoryBrowser{liepinReplyBrowserStub: liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{all[69:], all[49:], all[29:], all}}}
+	result, err := readLiepinConversationHistoryDetail(context.Background(), browser, historyAuditConfig(), nil, 5000)
+	if err != nil || !result.HistoryComplete || len(result.Messages) != 89 || result.Messages[88].PlatformMessageID != "message-88" || browser.fullReads != 1 {
+		t.Fatalf("增大滚轮距离后漏读记录：count=%d full=%d complete=%v err=%v", len(result.Messages), browser.fullReads, result.HistoryComplete, err)
+	}
+	travel, edge := 0, 0
+	for _, request := range browser.historyScrolls {
+		if request.Distance >= 0 {
+			continue
+		}
+		if request.Distance != -1600 || request.ProgressTarget == nil || request.WheelAnchor == nil || request.MaxAttempts != 1 {
+			t.Fatalf("向上加载绕过了逐轮真实进度：%+v", request)
+		}
+		switch request.WaitMS {
+		case 300:
+			travel++
+		case 800:
+			edge++
+		default:
+			t.Fatalf("历史等待时间不正确：%d", request.WaitMS)
+		}
+	}
+	if travel == 0 || edge < 2 {
+		t.Fatalf("没有保留顶部异步加载等待：travel=%d edge=%d", travel, edge)
+	}
+	last := browser.historyScrolls[len(browser.historyScrolls)-1]
+	if last.Distance != 2400 || !last.StopWhenProgressVisible || last.ProgressTarget == nil || *last.ProgressTarget.Target.Index != 88 {
+		t.Fatalf("没有按真正末条恢复最新端：%+v", last)
+	}
+}
+
 // TestLiepinHistoryChecksKnownBoundaryOnlyWhenWindowChanges 验证纯滚动不重复核对全量字段，已知消息加载出来后立即停止。
 func TestLiepinHistoryChecksKnownBoundaryOnlyWhenWindowChanges(t *testing.T) {
 	recent := []contract.FindAllItem{historyAuditMessage("new")}
