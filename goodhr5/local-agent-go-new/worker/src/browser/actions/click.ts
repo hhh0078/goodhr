@@ -15,6 +15,8 @@ import { ScrollAction } from "./scroll.js";
 import { waitForStablePosition } from "./stable-position.js";
 import { NewPageWaiter } from "./new-page-waiter.js";
 import { clickActionability, pageDiagnostic, selectorDiagnostic } from "./diagnostic-state.js";
+import type { Page } from "playwright-core";
+import { assertInputAllowed } from "../primitives/input-lifecycle.js";
 
 /** ClickResult 表示封装点击的查找、移动和验证结果。 */
 export interface ClickResult extends JsonObject {
@@ -36,6 +38,7 @@ export class ClickAction {
     private readonly locator: LocatorPrimitive,
     private readonly mouse: MousePrimitive,
     private readonly logger: WorkerLogger,
+    private readonly activatePage: (page: Page, context: ActionContext) => Promise<void> = page => page.bringToFront(),
   ) {}
 
   /** execute 平铺执行查找、滚动、移动、按下、松开和验证。 */
@@ -119,7 +122,9 @@ export class ClickAction {
             timeout: request.new_page_timeout_ms ?? 10_000,
           })
           .catch(() => undefined);
-        await newPage.bringToFront();
+        assertInputAllowed(actionContext);
+        await this.activatePage(newPage, actionContext);
+        assertInputAllowed(actionContext);
       }
       const verified = await this.verify(
         request,

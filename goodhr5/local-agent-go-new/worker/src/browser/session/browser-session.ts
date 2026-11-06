@@ -267,7 +267,6 @@ export class BrowserSession {
       if (request.new_tab) {
         const context = this.requireContext(actionContext, step);
         page = await context.newPage();
-        this.currentPage = page;
         this.registerPage(page);
       } else {
         const context = this.requireContext(actionContext, step);
@@ -279,11 +278,8 @@ export class BrowserSession {
               pageURLContainsTarget(item.url(), request.url),
           );
         if (reusable) {
-          this.currentPage = reusable;
-          this.registerPage(reusable);
           this.elements.clear();
-          assertInputAllowed(actionContext);
-          await reusable.bringToFront();
+          await this.activatePage(reusable, actionContext);
           const reusedResult = await this.pageInfo(reusable);
           this.logger.info(actionContext, step, "success", {
             page_id: reusedResult.page_id,
@@ -300,8 +296,7 @@ export class BrowserSession {
         waitUntil: request.wait_until ?? "domcontentloaded",
         timeout: request.timeout_ms ?? 30_000,
       });
-      assertInputAllowed(actionContext);
-      await page.bringToFront();
+      await this.activatePage(page, actionContext);
       this.elements.clearPage(page);
       const result = await this.pageInfo(page);
       this.lifecycle.lastPageURL = safeURL(result.url);
@@ -361,10 +356,26 @@ export class BrowserSession {
         details: { page_id: pageID },
       });
     }
-    this.currentPage = page;
-    this.registerPage(page);
-    await page.bringToFront();
+    await this.activatePage(page, actionContext);
     return this.pageInfo(page);
+  }
+
+  /** activatePage 仅在显式动作激活成功且请求仍有效时提交操作页，晚到的新标签事件不能抢占归属。 */
+  async activatePage(page: Page, actionContext: ActionContext): Promise<void> {
+    const context = this.requireContext(actionContext, "activate_page");
+    assertInputAllowed(actionContext);
+    if (page.isClosed() || page.context() !== context) {
+      throw new WorkerError({ code: "PAGE_NOT_AVAILABLE", message: "要切换的标签页已经不在当前会话中，请重新打开",
+        action: actionContext.action, step: "activate_page", trace_id: actionContext.trace_id, retryable: false });
+    }
+    await page.bringToFront();
+    assertInputAllowed(actionContext);
+    if (this.context !== context || page.isClosed()) {
+      throw new WorkerError({ code: "PAGE_NOT_AVAILABLE", message: "切换时浏览器页面发生了变化，请重新确认页面",
+        action: actionContext.action, step: "activate_page", trace_id: actionContext.trace_id, retryable: false });
+    }
+    this.registerPage(page);
+    this.currentPage = page;
   }
 
   /** reactivatePage 先激活当前 Worker 的桌面窗口，再尝试标签切换；不触碰招聘页面脚本或重放输入。 */
@@ -534,7 +545,7 @@ export class BrowserSession {
     }
     context.on("page", (page) => {
       if (!this.lifecycle.isCurrent(context)) return;
-      this.currentPage = page;
+      // 下载、弹窗或窗口恢复都可能延迟产生新页；登记不等于业务动作选择了该页。
       this.registerPage(page);
     });
   }

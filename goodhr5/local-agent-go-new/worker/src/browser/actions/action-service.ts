@@ -65,6 +65,7 @@ export class ActionService {
     this.locator,
     this.mouse,
     this.logger,
+    (page, context) => this.session.activatePage(page, context),
   );
   private readonly inputAction = new InputAction(
     this.findAction,
