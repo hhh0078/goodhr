@@ -170,6 +170,9 @@ func validateRequest(_ context.Context, prepared *shared.PreparedTask) error {
 	if request.TaskType != "greeting" && request.TaskType != "auto_reply" {
 		return fmt.Errorf("任务类型只支持打招呼或自动回复")
 	}
+	if request.TaskType == "auto_reply" && (strings.TrimSpace(request.PlatformAccountID) == "" || len([]rune(request.PlatformAccountID)) > 200) {
+		return fmt.Errorf("开始前请确认并填写当前招聘账号，切换账号前请先停止自动回复")
+	}
 	if request.EnableGreet != nil && !*request.EnableGreet && request.TaskType == "auto_reply" {
 		return fmt.Errorf("只检查候选人不能用于自动回复，请选择打招呼任务")
 	}
@@ -232,6 +235,9 @@ func (c *Checker) loadPosition(ctx context.Context, prepared *shared.PreparedTas
 		return err
 	}
 	prepared.Position = position
+	if prepared.Request.TaskType == "auto_reply" {
+		prepared.Request.PlatformAccountID = shared.AutoReplyAccountKey(position.PlatformID, prepared.Request.PlatformAccountID)
+	}
 	if prepared.Request.ProfileID == "" {
 		prepared.Request.ProfileID = position.ProfileID
 	}

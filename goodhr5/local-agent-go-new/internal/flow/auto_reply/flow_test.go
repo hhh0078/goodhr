@@ -301,66 +301,19 @@ func TestStoredAttachmentTextDeduplicatesContent(t *testing.T) {
 	}
 }
 
-// TestEnsureResumePersistsWaitingStatusBeforeSending 验证索要按钮成功后先保存等待状态，发送失败和下一轮都不会重复点击。
-func TestEnsureResumePersistsWaitingStatusBeforeSending(t *testing.T) {
-	store, err := storage.Open(filepath.Join(t.TempDir(), "auto-reply.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	statuses := make([]string, 0, 2)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/api/auto-reply/agent/conversations" {
-			http.NotFound(w, r)
-			return
-		}
-		var item cloud.AutoReplyConversation
-		if decodeErr := json.NewDecoder(r.Body).Decode(&item); decodeErr != nil {
-			t.Fatal(decodeErr)
-		}
-		statuses = append(statuses, item.Status)
-		item.ID = firstNonEmpty(item.ID, "conversation-1")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "conversation": item})
-	}))
-	defer server.Close()
-
-	prepared := shared.PreparedTask{
-		Request:   shared.StartRequest{TaskID: "task-waiting-resume", Token: "token"},
-		MachineID: "machine", Platform: model.Config{ID: "liepin", Name: "猎聘企业端"},
-	}
-	runtime := &autoReplyRuntimeStub{
-		latestBefore: model.ConversationMessage{Key: "message-1", Direction: "candidate", TextContent: "你好"},
-		sendErr:      fmt.Errorf("模拟输入框暂时不可用"),
-	}
-	flow := &Flow{Store: store, Cloud: cloud.New(server.URL)}
-	conversation := cloud.AutoReplyConversation{
-		ID: "conversation-1", PlatformID: "liepin", PlatformThreadID: "thread-1", Status: "active",
-	}
-	state := cloud.AutoReplyCandidateState{Conversation: &cloud.AutoReplyConversation{
-		ID: "conversation-1", PlatformID: "liepin", PlatformThreadID: "thread-1", Status: "active",
-	}}
-	stats := shared.Stats{}
-	_, handled, err := flow.ensureResume(
-		context.Background(), prepared, runtime,
-		cloud.AutoReplyPositionSnapshot{Config: cloud.PositionAutoReplyConfig{ResumeRequestMessage: "你好，能发一份简历吗？"}},
-		&conversation, model.AutoReplyConversationSnapshot{CandidateName: "邓云川"}, state, "message-1", &stats,
-	)
-	if err == nil || handled || runtime.resumeRequests != 1 {
-		t.Fatalf("第一次索要结果不正确：handled=%t requests=%d err=%v", handled, runtime.resumeRequests, err)
-	}
-	if len(statuses) != 1 || statuses[0] != "waiting_resume" || conversation.Status != "waiting_resume" {
-		t.Fatalf("按钮成功后没有先保存等待状态：statuses=%v conversation=%+v", statuses, conversation)
-	}
-
-	waiting := conversation
-	state.Conversation = &waiting
-	_, handled, err = flow.ensureResume(
-		context.Background(), prepared, runtime, cloud.AutoReplyPositionSnapshot{},
-		&conversation, model.AutoReplyConversationSnapshot{CandidateName: "邓云川"}, state, "message-1", &stats,
-	)
-	if err != nil || !handled || runtime.resumeRequests != 1 || len(statuses) != 1 {
-		t.Fatalf("等待简历状态仍重复索要：handled=%t requests=%d statuses=%v err=%v", handled, runtime.resumeRequests, statuses, err)
+// TestEnsureResumeDoesNotBlockQuestions 验证首次缺简历和等待简历状态都允许候选人继续询问岗位问题。
+func TestEnsureResumeDoesNotBlockQuestions(t *testing.T) {
+	for _, status := range []string{"active", "waiting_resume"} {
+		t.Run(status, func(t *testing.T) {
+			flow := &Flow{}
+			runtime := &autoReplyRuntimeStub{}
+			conversation := cloud.AutoReplyConversation{ID: "conversation", Status: status}
+			snapshot := model.AutoReplyConversationSnapshot{CandidateName: "候选人甲", Messages: []model.ConversationMessage{{Direction: "candidate", TextContent: "先说下薪资多少？"}}}
+			_, handled, err := flow.ensureResume(context.Background(), shared.PreparedTask{}, runtime, cloud.AutoReplyPositionSnapshot{}, &conversation, snapshot, cloud.AutoReplyCandidateState{Conversation: &conversation}, "salary-question", &shared.Stats{})
+			if err != nil || handled || runtime.resumeRequests != 0 {
+				t.Fatalf("岗位问题不应被简历门槛吞掉：handled=%t requests=%d err=%v", handled, runtime.resumeRequests, err)
+			}
+		})
 	}
 }
 
@@ -401,7 +354,6 @@ func TestEnsureResumePreservesAttachmentBeforeCandidateValidation(t *testing.T) 
 		wantError string
 	}{
 		{name: "结构化失败", responder: resumeResponderStub{err: fmt.Errorf("AI 返回格式不正确")}, wantError: "整理候选人正式简历失败"},
-		{name: "缺少手机号", responder: resumeResponderStub{structured: StructuredResume{Candidate: cloud.StructuredCandidate{WorkYears: "7"}}}, wantError: "没找到可用手机号"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -447,10 +399,17 @@ func TestEnsureResumePreservesAttachmentBeforeCandidateValidation(t *testing.T) 
 				context.Background(), prepared, runtime, position, &conversation,
 				snapshot, cloud.AutoReplyCandidateState{}, "message-1", &stats,
 			)
-			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+			if testCase.wantError != "" && (err == nil || !strings.Contains(err.Error(), testCase.wantError)) {
 				t.Fatalf("没有返回真正的简历入库错误：%v", err)
 			}
-			if stats.Failed != 1 {
+			if testCase.wantError == "" && err != nil {
+				t.Fatalf("缺少手机号不应阻断问答：%v", err)
+			}
+			wantFailures := 0
+			if testCase.wantError != "" {
+				wantFailures = 1
+			}
+			if stats.Failed != wantFailures {
 				t.Fatalf("失败统计不正确：%+v", stats)
 			}
 			if uploadCount != 1 || candidateSaveCount != 0 {
@@ -702,7 +661,12 @@ func TestSendVerifiedMessageChecksLatestAndAvoidsDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	flow := &Flow{Browser: &autoReplyBrowserStub{}, Cloud: cloud.New(server.URL), Store: store}
+	localCloud := cloud.New(server.URL)
+	localCloud.EnableLocalAutoReply(store, t.TempDir())
+	if _, err := localCloud.SaveAutoReplyConversation(context.Background(), cloud.AgentCredentials{Token: "token", MachineID: "goodhr-device-v1-test"}, cloud.AutoReplyConversation{ID: "conversation-1", PlatformID: "liepin", PlatformThreadID: "thread-1"}); err != nil {
+		t.Fatal(err)
+	}
+	flow := &Flow{Browser: &autoReplyBrowserStub{}, Cloud: localCloud, Store: store}
 	prepared := shared.PreparedTask{
 		Request: shared.StartRequest{TaskID: "task-1", Token: "token"}, MachineID: "goodhr-device-v1-test",
 		Platform: model.Config{ID: "liepin", Name: "猎聘企业端"},
@@ -908,22 +872,10 @@ func TestProcessConversationKeepsConversationOpen(t *testing.T) {
 
 // TestProcessCheckpointReadsOpenConversationWithoutUnreadBadge 验证聊天框把新消息标成已读后仍优先处理当前会话。
 func TestProcessCheckpointReadsOpenConversationWithoutUnreadBadge(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/auto-reply/agent/candidate-state" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"found":true,"recent_message_keys":["self-1"],"conversation":{"id":"conversation-1","last_synced_message_key":"self-1"},"attachments":[]}`))
-	}))
-	defer server.Close()
 	runtime := &autoReplyRuntimeStub{latestBefore: model.ConversationMessage{
 		PlatformMessageID: "candidate-2", Direction: "candidate", MessageType: "text", TextContent: "刚刚又发了一条",
 	}}
-	flow := &Flow{Cloud: cloud.New(server.URL)}
-	prepared := shared.PreparedTask{
-		Request: shared.StartRequest{TaskID: "task-1", Token: "token"}, MachineID: "machine",
-		Platform: model.Config{ID: "liepin"},
-	}
+	flow, prepared := newReliabilityFlow(t, "")
 	current := &openAutoReplyConversation{
 		conversation: model.Conversation{Key: "thread-1", PlatformThreadID: "thread-1", Name: "邓云川"},
 		snapshot: model.AutoReplyConversationSnapshot{
@@ -1006,7 +958,7 @@ func TestReplyWhileMonitoringDetectsNewMessage(t *testing.T) {
 		context.Background(), shared.PreparedTask{Platform: model.Config{ID: "liepin"}}, runtime,
 		model.AutoReplyConversationSnapshot{CandidateName: "邓云川"}, ReplyContext{BasedOnMessageKey: "old-message"},
 	)
-	if err != nil || !changed || len(decision.Messages) != 1 || decision.Messages[0].Content != "旧回复" {
+	if err != nil || !changed || len(decision.Messages) != 0 {
 		t.Fatalf("decision=%+v changed=%t err=%v", decision, changed, err)
 	}
 }

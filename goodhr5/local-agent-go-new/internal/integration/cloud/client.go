@@ -32,6 +32,7 @@ type Client struct {
 	localAutoConfigured bool
 	localAutoMu         sync.Mutex
 	localAutoOwners     sync.Map
+	localAutoMigrated   sync.Map
 }
 
 // New 创建 GoodHR 云端客户端。

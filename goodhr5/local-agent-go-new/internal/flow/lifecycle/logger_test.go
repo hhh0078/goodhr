@@ -239,3 +239,30 @@ func TestAutoReplyLogUploadOmitsPrivateContents(t *testing.T) {
 		t.Fatalf("本地排错详情被错误删除：%+v %v", local, err)
 	}
 }
+
+// TestAutoReplyLogsUseActualPosition 验证全局回复的同步日志与后台显式日志各自归属实际岗位。
+func TestAutoReplyLogsUseActualPosition(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "logs.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	if err = store.SaveTask(ctx, storage.TaskRun{TaskID: "task", PositionID: "first-position", PlatformID: "boss", TaskType: "auto_reply", Status: "running", StartedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	logger := NewTaskLogger(store, nil)
+	logger.SetTaskPosition("task", "second-position")
+	logger.ReportAnalysis("task", shared.AnalysisStatus{Kind: "auto_reply", Stage: "sent", Phase: "result", Terminal: true, CandidateName: "候选人乙", Reason: "已回复"})
+	logger.ReportAnalysis("task", shared.AnalysisStatus{PositionID: "third-position", Kind: "auto_reply", Stage: "recommendation", Phase: "result", CandidateName: "候选人丙", Reason: "报告已保存"})
+	for _, positionID := range []string{"second-position", "third-position"} {
+		logs, err := store.ListPositionLogs(ctx, positionID, 100)
+		if err != nil || len(logs) != 1 {
+			t.Fatalf("实际岗位日志归属不正确：position=%s logs=%d err=%v", positionID, len(logs), err)
+		}
+	}
+	logs, err := store.ListPositionLogs(ctx, "first-position", 100)
+	if err != nil || len(logs) != 0 {
+		t.Fatalf("不应落到全局任务首岗：logs=%d err=%v", len(logs), err)
+	}
+}

@@ -1,5 +1,15 @@
 /* 本文件负责公开候选人推荐报告的 A4、移动端、弹框和打印样式。 */
 
+.privatePreview {
+  min-width: 0;
+}
+
+.privatePreview .paper {
+  width: 100%;
+  margin: 0;
+  box-shadow: none;
+}
+
 .pageShell {
   min-height: 100vh;
   padding: 24px 16px 56px;

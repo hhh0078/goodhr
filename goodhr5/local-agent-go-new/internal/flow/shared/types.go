@@ -2,7 +2,10 @@
 package shared
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
+	"strings"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
@@ -11,13 +14,14 @@ import (
 
 // StartRequest 表示本地任务统一启动参数。
 type StartRequest struct {
-	TaskID      string `json:"task_id"`
-	PositionID  string `json:"position_id"`
-	TaskType    string `json:"task_type"`
-	Token       string `json:"token"`
-	ProfileID   string `json:"profile_id,omitempty"`
-	Headless    bool   `json:"headless"`
-	EnableGreet *bool  `json:"enable_greet,omitempty"` // 未指定或为 true 时照常发送，false 只检查候选人。
+	TaskID            string `json:"task_id"`
+	PositionID        string `json:"position_id"`
+	TaskType          string `json:"task_type"`
+	Token             string `json:"token"`
+	ProfileID         string `json:"profile_id,omitempty"`
+	PlatformAccountID string `json:"platform_account_id,omitempty"`
+	Headless          bool   `json:"headless"`
+	EnableGreet       *bool  `json:"enable_greet,omitempty"` // 未指定或为 true 时照常发送，false 只检查候选人。
 }
 
 // PreparedTask 表示启动前检查生成且后续流程直接复用的快照。
@@ -51,6 +55,7 @@ type AnalysisEvent struct {
 
 // AnalysisStatus 表示悬浮窗展示的 AI 或关键词判断状态。
 type AnalysisStatus struct {
+	PositionID      string          `json:"position_id,omitempty"`
 	Kind            string          `json:"kind"`
 	Phase           string          `json:"phase"`
 	Stage           string          `json:"stage,omitempty"`
@@ -147,4 +152,10 @@ func (StandardLogger) Step(taskID string, flow string, step string, status strin
 		errorText = err.Error()
 	}
 	log.Printf("task_id=%s flow=%s step=%s status=%s duration_ms=%d error=%q", taskID, flow, step, status, time.Since(startedAt).Milliseconds(), errorText)
+}
+
+// AutoReplyAccountKey 把用户本次明确选择的平台账号标记转换为本地隔离键，不代表平台身份已自动核验。
+func AutoReplyAccountKey(platformID, label string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(platformID) + "\n" + strings.TrimSpace(label)))
+	return "bound:" + hex.EncodeToString(sum[:])
 }

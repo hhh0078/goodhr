@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/resume_import"
@@ -26,10 +27,11 @@ const (
 
 // AIResponder 组装 AI 客户端、本地审计和运行小窗日志。
 type AIResponder struct {
-	AI     *ai.Client
-	Cloud  *cloud.Client
-	Logger shared.Logger
-	OCR    resume_import.OCRReader
+	AI               *ai.Client
+	Cloud            *cloud.Client
+	Logger           shared.Logger
+	OCR              resume_import.OCRReader
+	recommendationMu sync.Mutex
 }
 
 type aiReplyAuditOutput struct {
@@ -84,7 +86,7 @@ func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructure
 // reportResume 把简历结构化请求状态同步到当前运行小窗。
 func (r *AIResponder) reportResume(input ResumeStructureContext, phase string, reason string, terminal bool) {
 	shared.ReportAnalysis(r.Logger, input.TaskID, shared.AnalysisStatus{
-		Kind: "auto_reply", Phase: phase, Stage: "resume_ai", Terminal: terminal,
+		Kind: "auto_reply", PositionID: input.Position.Position.ID, Phase: phase, Stage: "resume_ai", Terminal: terminal,
 		CandidateName: input.PageSnapshot.CandidateName, Reason: reason,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	})
@@ -97,6 +99,10 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 	}
 	if strings.TrimSpace(input.Conversation.ID) == "" || strings.TrimSpace(input.BasedOnMessageKey) == "" {
 		return ReplyDecision{}, fmt.Errorf("自动回复 AI 缺少会话或候选人消息编号")
+	}
+	input, err := boundedReplyContext(input)
+	if err != nil {
+		return ReplyDecision{}, err
 	}
 	messages, err := initialToolMessages(input)
 	if err != nil {
@@ -120,9 +126,8 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 	}
 
 	state := &toolExecutionState{
-		input: input, cloud: r.Cloud,
-		confirmations:            append([]cloud.CandidateConfirmationItem(nil), input.ConfirmationItems...),
-		reviewedAllConfirmations: len(input.ConfirmationItems) == 0,
+		input:         input,
+		confirmations: append([]cloud.CandidateConfirmationItem(nil), input.ConfirmationItems...),
 	}
 	assistantMessages := make([]ai.ToolMessage, 0, 4)
 	totalTokens := 0
@@ -130,6 +135,10 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 	argumentRepairs := 0
 	protocolRepairs := 0
 	for round := 1; ; round++ {
+		encodedContext, encodeErr := json.Marshal(messages)
+		if encodeErr != nil || len(encodedContext) > maxReplyContextBytes {
+			return ReplyDecision{}, r.failRun(input, run, assistantMessages, totalTokens, "AI_CONTEXT_LIMIT", fmt.Errorf("本轮模型上下文已达到预算，请人工处理"))
+		}
 		r.report(input, "loading", "ai", fmt.Sprintf("AI 正在分析第%d轮", round), false)
 		result, chatErr := r.AI.ChatWithTools(ctx, input.AIConfig, ai.ToolChatRequest{
 			Messages: messages, Tools: autoReplyToolDefinitions(), EnableThinking: input.EnableThinking,
@@ -150,7 +159,7 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 			messages = append(messages, ai.ToolMessage{
 				Role: "user",
 				Content: "上一次输出没有通过工具协议校验，错误信息：" + protocolErr.Error() +
-					"。请根据错误重新处理，禁止直接返回普通文本；先调用 upsert_confirmation_items 复核全部条件，再调用 send_messages 准备回复，或调用 notify_hr 转人工。",
+					"。请根据错误重新处理，禁止直接返回普通文本；有证据变化才调用 upsert_confirmation_items，再调用 send_messages 准备回复，或调用 notify_hr 请求人工协助。",
 			})
 			continue
 		}
@@ -178,11 +187,11 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 			})
 		}
 		if len(state.pendingMessages) > 0 {
-			decision := ReplyDecision{Messages: append([]ReplyMessage(nil), state.pendingMessages...)}
+			decision := ReplyDecision{Messages: append([]ReplyMessage(nil), state.pendingMessages...), ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions}
 			return r.completeRun(input, run, assistantMessages, totalTokens, decision)
 		}
 		if state.manualReason != "" {
-			decision := ReplyDecision{ManualReason: state.manualReason, ReasonKey: state.manualKey}
+			decision := ReplyDecision{ManualReason: state.manualReason, ReasonKey: state.manualKey, ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions}
 			return r.completeRun(input, run, assistantMessages, totalTokens, decision)
 		}
 	}
@@ -250,9 +259,6 @@ func (r *AIResponder) completeRun(input ReplyContext, run cloud.AutoReplyAIRun, 
 	} else {
 		r.report(input, "result", "manual", "转人工："+truncateRunText(decision.ManualReason, 120), true)
 	}
-	if r.Cloud.LocalAutoReplyEnabled() {
-		go r.generateRecommendation(input)
-	}
 	return decision, nil
 }
 
@@ -275,7 +281,7 @@ func (r *AIResponder) failRun(input ReplyContext, run cloud.AutoReplyAIRun, assi
 // report 把当前 AI 轮次、工具和结果同步给本地运行小窗。
 func (r *AIResponder) report(input ReplyContext, phase string, stage string, reason string, terminal bool) {
 	shared.ReportAnalysis(r.Logger, input.TaskID, shared.AnalysisStatus{
-		Kind: "auto_reply", Phase: phase, Stage: stage, Terminal: terminal,
+		Kind: "auto_reply", PositionID: input.Position.Position.ID, Phase: phase, Stage: stage, Terminal: terminal,
 		CandidateName: input.PageSnapshot.CandidateName, Reason: reason,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	})

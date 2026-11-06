@@ -29,10 +29,10 @@ type responderTestState struct {
 	chatCallNumber          int
 }
 
-// TestAutoReplyToolDefinitionsAreStableAndUnique 验证九个工具名称唯一且每份参数定义都是合法 JSON。
+// TestAutoReplyToolDefinitionsAreStableAndUnique 验证四个工具名称唯一且每份参数定义都是合法 JSON。
 func TestAutoReplyToolDefinitionsAreStableAndUnique(t *testing.T) {
 	definitions := autoReplyToolDefinitions()
-	if len(definitions) != 9 {
+	if len(definitions) != 4 {
 		t.Fatalf("tool count = %d", len(definitions))
 	}
 	seen := make(map[string]struct{}, len(definitions))
@@ -53,13 +53,13 @@ func TestAutoReplySystemPromptKeepsHumanHRReplyBoundaries(t *testing.T) {
 	requiredRules := []string{
 		"你就是当前岗位的招聘方 HR",
 		"对话中不存在另一个需要你转达的“招聘方”",
-		"based_on_message 是本轮唯一待回复消息",
-		"复核 confirmation_items 中的全部现有条件",
+		"pending_messages 是本轮尚未处理的连续消息批次",
+		"不要重写未变化条件",
 		"条件状态只能是 pending、matched、unmatched",
 		"资料和聊天没有提到时必须是 pending",
 		"bonus 只是低权重加分项",
 		"回答完成后，用独立的第二条 confirmation 消息询问一个",
-		"如果最新问题没有可靠答案，只调用 notify_hr",
+		"如果本轮问题都没有可靠答案，只调用 notify_hr",
 		"禁止提及 GoodHR、AI、系统、工具、岗位资料或另一个“招聘方”",
 		"单条优先120字以内、最多200字",
 	}
@@ -88,7 +88,7 @@ func TestAutoReplyActionToolsExplainDirectReplyOrInternalHandoff(t *testing.T) {
 
 // TestPrepareMessageRejectsRepliesOverTwoHundredRunes 验证自动回复发送工具拒绝超过二百字的长消息。
 func TestPrepareMessageRejectsRepliesOverTwoHundredRunes(t *testing.T) {
-	state := &toolExecutionState{reviewedAllConfirmations: true}
+	state := &toolExecutionState{}
 	arguments, err := json.Marshal(sendMessagesToolArgs{Messages: []ReplyMessage{{Type: "answer", Content: strings.Repeat("招", maxAutoReplyMessageRunes+1)}}})
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +108,6 @@ func TestPrepareMessageRejectsRepliesOverTwoHundredRunes(t *testing.T) {
 // TestPrepareMessagesAllowsAnswerThenOnePendingConfirmation 验证 AI 可以先回答最新问题，再单独询问一条未确认条件。
 func TestPrepareMessagesAllowsAnswerThenOnePendingConfirmation(t *testing.T) {
 	state := &toolExecutionState{
-		reviewedAllConfirmations: true,
 		confirmations: []cloud.CandidateConfirmationItem{{
 			ID: "confirmation-1", ItemType: "required", Content: "是否能接受出差", Status: "pending",
 		}},
@@ -130,8 +129,8 @@ func TestPrepareMessagesAllowsAnswerThenOnePendingConfirmation(t *testing.T) {
 	}
 }
 
-// TestConfirmationReviewCoverageRejectsMissingExistingItem 验证 AI 漏掉任一现有条件时会收到可修正错误。
-func TestConfirmationReviewCoverageRejectsMissingExistingItem(t *testing.T) {
+// TestConfirmationReviewCoverageAllowsIncrementalItems 验证只更新有新证据的一条条件，不要求反复提交其他条件。
+func TestConfirmationReviewCoverageAllowsIncrementalItems(t *testing.T) {
 	state := &toolExecutionState{confirmations: []cloud.CandidateConfirmationItem{
 		{ID: "confirmation-1", ItemType: "required", Content: "必须统招本科", Status: "pending"},
 		{ID: "confirmation-2", ItemType: "confirm", Content: "是否接受出差", Status: "pending"},
@@ -139,14 +138,14 @@ func TestConfirmationReviewCoverageRejectsMissingExistingItem(t *testing.T) {
 	err := state.validateConfirmationReviewCoverage([]confirmationToolItem{{
 		ID: "confirmation-1", ItemType: "required", Content: "必须统招本科", Status: "matched", StatusReason: "简历显示本科",
 	}})
-	if err == nil || !strings.Contains(err.Error(), "是否接受出差") {
-		t.Fatalf("漏掉条件时没有返回明确信息：%v", err)
+	if err != nil {
+		t.Fatalf("增量复核不该要求完整覆盖：%v", err)
 	}
 }
 
 // TestPrepareMessageKeepsSimpleInterestReplyShort 验证纯求职兴趣不会被 AI 扩展成岗位介绍或匹配判断。
 func TestPrepareMessageKeepsSimpleInterestReplyShort(t *testing.T) {
-	state := &toolExecutionState{reviewedAllConfirmations: true, input: ReplyContext{
+	state := &toolExecutionState{input: ReplyContext{
 		Messages: []cloud.AutoReplyMessage{{
 			Fingerprint: "message-interest", Direction: "candidate",
 			TextContent: "我目前正在看机会，对这个职位很感兴趣，希望可以详聊~",
@@ -169,7 +168,7 @@ func TestPrepareMessageKeepsSimpleInterestReplyShort(t *testing.T) {
 
 // TestPrepareMessageDoesNotOverrideCandidateQuestion 验证候选人提出具体问题时仍保留 AI 的针对性回答。
 func TestPrepareMessageDoesNotOverrideCandidateQuestion(t *testing.T) {
-	state := &toolExecutionState{reviewedAllConfirmations: true, input: ReplyContext{
+	state := &toolExecutionState{input: ReplyContext{
 		Messages: []cloud.AutoReplyMessage{{
 			Fingerprint: "message-question", Direction: "candidate",
 			TextContent: "我对岗位感兴趣，薪资多少",
@@ -278,7 +277,7 @@ func TestAIResponderStopsAfterTwoArgumentRepairs(t *testing.T) {
 	}
 }
 
-// TestAIResponderStopsBeforeNinthTool 验证单轮返回九个工具时不会执行任何越限动作。
+// TestAIResponderStopsBeforeNinthTool 验证单轮返回四个工具时不会执行任何越限动作。
 func TestAIResponderStopsBeforeNinthTool(t *testing.T) {
 	state := &responderTestState{aiResponses: []string{manyToolCallsResponse(9)}}
 	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))

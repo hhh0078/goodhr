@@ -15,6 +15,31 @@ type agentBindRequest struct {
 	Token string `json:"token"`
 }
 
+// handleAgentUnbind 在网页主动退出时清理匹配的内存凭证；延迟到达的旧账号请求不能清掉新账号。
+func (s *Server) handleAgentUnbind(w http.ResponseWriter, r *http.Request) {
+	var request agentBindRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	if strings.TrimSpace(request.Token) == "" {
+		writeError(w, http.StatusBadRequest, "TOKEN_REQUIRED", fmt.Errorf("退出凭证缺失，请关闭本地程序停止后台处理"))
+		return
+	}
+	s.extensionMu.Lock()
+	matched := s.extensionToken == "" || extensionSecretsEqual(request.Token, s.extensionToken)
+	if matched {
+		// 即使首次绑定仍在云端等待，退出也让该次绑定失效。
+		s.extensionGeneration++
+		s.bindExtensionSessionLocked("", "")
+		if s.incidents != nil {
+			s.incidents.Bind("", "")
+		}
+	}
+	s.extensionMu.Unlock()
+	writeSuccess(w, http.StatusOK, map[string]bool{"unbound": matched})
+}
+
 // handleAgentBind 读取本机设备编号并使用当前浏览器 Token 请求云端绑定。
 func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
 	var request agentBindRequest
@@ -30,6 +55,10 @@ func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "DEVICE_BINDING_UNAVAILABLE", fmt.Errorf("设备绑定能力还没准备好，请重启本地程序后再试"))
 		return
 	}
+	s.extensionMu.Lock()
+	s.extensionGeneration++
+	generation := s.extensionGeneration
+	s.extensionMu.Unlock()
 	machineID, err := s.deviceID()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DEVICE_ID_UNAVAILABLE", fmt.Errorf("这台电脑的设备编号暂时没读出来：%w", err))
@@ -52,12 +81,17 @@ func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
 	}
 	if session, err := s.cloud.ValidateSession(r.Context(), request.Token); err == nil {
 		s.extensionMu.Lock()
-		s.bindExtensionSessionLocked(request.Token, session.UserID)
+		current := generation == s.extensionGeneration
+		if current {
+			s.bindExtensionSessionLocked(request.Token, session.UserID)
+		}
 		s.extensionMu.Unlock()
-		if s.incidents != nil {
+		if current && s.incidents != nil {
 			s.incidents.Bind(session.UserID, request.Token)
 		}
-		s.startupSync.start(request.Token)
+		if current {
+			s.startupSync.start(request.Token)
+		}
 	}
 	writeSuccess(w, http.StatusOK, binding)
 }

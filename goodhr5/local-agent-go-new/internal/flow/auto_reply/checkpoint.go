@@ -100,6 +100,34 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		}
 		conversations = unreadConversations
 	}
+	if f.Cloud != nil && f.Cloud.LocalAutoReplyEnabled() {
+		pending, err := f.Cloud.ListPendingAutoReplyConversations(ctx, credentials(prepared), prepared.Platform.ID, prepared.Request.PlatformAccountID)
+		if err != nil {
+			return 0, openConversation, err
+		}
+		seen := make(map[string]bool)
+		restored := make([]model.Conversation, 0, len(pending)+len(conversations))
+		for _, saved := range pending {
+			enabled := false
+			for _, position := range positions {
+				if position.Position.ID == saved.PositionID {
+					enabled = true
+					break
+				}
+			}
+			if !enabled {
+				continue
+			}
+			seen[saved.PlatformThreadID] = true
+			restored = append(restored, model.Conversation{Key: saved.PlatformThreadID, PlatformThreadID: saved.PlatformThreadID, PlatformAccountID: saved.PlatformAccountID, Name: saved.CandidateName, CommunicationPosition: saved.PagePositionText})
+		}
+		for _, item := range conversations {
+			if !seen[persistentConversationThreadID(item.PlatformThreadID, item.Key)] {
+				restored = append(restored, item)
+			}
+		}
+		conversations = restored
+	}
 	if len(conversations) == 0 {
 		if !checkpointHadError {
 			errorPolicy.Reset()
@@ -116,7 +144,7 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 			return processed, openConversation, nil
 		}
 		current := &openAutoReplyConversation{conversation: conversation}
-		if reuseOpenConversation {
+		if openConversation != nil && persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key) == persistentConversationThreadID(openConversation.conversation.PlatformThreadID, openConversation.conversation.Key) {
 			current = openConversation
 		}
 		startedAt := time.Now()
@@ -152,7 +180,7 @@ func (f *Flow) openConversationHasNewMessage(ctx context.Context, prepared share
 		return false, false, nil
 	}
 	state, err := f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
-		PlatformID: prepared.Platform.ID, PlatformAccountID: firstNonEmpty(current.snapshot.PlatformAccountID, current.conversation.PlatformAccountID),
+		PlatformID: prepared.Platform.ID, PlatformAccountID: firstNonEmpty(prepared.Request.PlatformAccountID, current.snapshot.PlatformAccountID, current.conversation.PlatformAccountID),
 		PlatformCandidateID: firstNonEmpty(current.snapshot.PlatformCandidateID, current.conversation.PlatformCandidateID),
 		PlatformThreadID: persistentConversationThreadID(
 			firstNonEmpty(current.snapshot.PlatformThreadID, current.conversation.PlatformThreadID),
@@ -165,6 +193,15 @@ func (f *Flow) openConversationHasNewMessage(ctx context.Context, prepared share
 	}
 	if strings.ToLower(strings.TrimSpace(latest.Direction)) != "candidate" {
 		return true, false, nil
+	}
+	if state.Conversation != nil && f.Cloud.LocalAutoReplyEnabled() {
+		pending, err := f.Cloud.PendingAutoReplyMessages(ctx, credentials(prepared), state.Conversation.ID)
+		if err != nil {
+			return true, false, err
+		}
+		if len(pending) > 0 {
+			return true, true, nil
+		}
 	}
 	latestKeys := cleanMessageKeys([]string{firstNonEmpty(latest.PlatformMessageID, latest.Key, messageFingerprint(latest, 0))})
 	if len(latestKeys) == 0 {

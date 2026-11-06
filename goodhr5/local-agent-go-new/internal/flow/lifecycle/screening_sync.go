@@ -3,10 +3,20 @@ package lifecycle
 
 import "context"
 
-// BindScreeningSession 只接收已经通过云端验证的账号和临时凭证；切换账号会取消旧账号在途请求。
+// BindScreeningSession 为筛选补传和自动回复待办绑定已验证账号，切换账号取消旧请求。
 func (r *Runner) BindScreeningSession(ownerID, token string) {
 	if r != nil && r.screenings != nil {
 		r.screenings.Bind(ownerID, token)
+	}
+	if r != nil && r.autoReplyBackground != nil {
+		r.autoReplyBackground.Bind(ownerID, token)
+	}
+}
+
+// RunAutoReplyBackground 独立恢复自动回复通知及报告，不依赖招聘任务正在运行。
+func (r *Runner) RunAutoReplyBackground(ctx context.Context) {
+	if r != nil && r.autoReplyBackground != nil {
+		r.autoReplyBackground.Run(ctx)
 	}
 }
 

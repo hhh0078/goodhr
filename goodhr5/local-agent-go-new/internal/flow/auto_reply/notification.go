@@ -14,7 +14,6 @@ import (
 
 // notifyUnresolved 发送包含岗位、候选人、性别、平台和原因的幂等人工接管通知。
 func (f *Flow) notifyUnresolved(ctx context.Context, prepared shared.PreparedTask, position cloud.AutoReplyPositionSnapshot, conversation cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, reason string, reasonKey string, basedOnMessageKey string) error {
-	f.saveLocalReplyRecord(ctx, prepared, conversation, replyRecordHash(basedOnMessageKey, "manual:"+reasonKey), "manual")
 	latestMessage := ""
 	for index := len(snapshot.Messages) - 1; index >= 0; index-- {
 		if strings.EqualFold(strings.TrimSpace(snapshot.Messages[index].Direction), "candidate") {
@@ -30,12 +29,18 @@ func (f *Flow) notifyUnresolved(ctx context.Context, prepared shared.PreparedTas
 	})
 	if err != nil {
 		f.log(prepared.Request.TaskID, "notify_manual_handoff", "warning", time.Now(), err)
+		if !result.Queued {
+			return fmt.Errorf("人工协助通知尚未入队，已保留待处理消息：%w", err)
+		}
+	}
+	if !result.EmailSent && !result.Queued {
+		return fmt.Errorf("人工协助通知尚未送达，已保留待处理消息供重试")
 	}
 	if result.Warning != "" {
 		f.log(prepared.Request.TaskID, "notify_manual_handoff", "warning", time.Now(), fmt.Errorf("%s", result.Warning))
 	}
 	shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
-		Kind: "auto_reply", Phase: "result", Stage: "manual", Terminal: true,
+		PositionID: position.Position.ID, Kind: "auto_reply", Phase: "result", Stage: "manual", Terminal: true,
 		CandidateName: snapshot.CandidateName, Accepted: boolPointer(false), Reason: reason,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	})

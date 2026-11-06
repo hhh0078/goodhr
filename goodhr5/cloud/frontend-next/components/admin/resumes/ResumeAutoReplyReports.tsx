@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { useAdmin } from "../AdminApp";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
 import { normalizeRecommendation, type CandidateRecommendation } from "@/lib/recommendation";
+import AdminDialog from "../AdminDialog";
+import RecommendationReportClient from "@/app/recommendations/[publicId]/RecommendationReportClient";
 
 /** ResumeAutoReplyReports 展示本地生成并获准同步的报告，允许复制公开链接或撤销分享。 */
 export default function ResumeAutoReplyReports({ candidateID }: { candidateID: string }) {
@@ -14,6 +16,7 @@ export default function ResumeAutoReplyReports({ candidateID }: { candidateID: s
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [revoking, setRevoking] = useState("");
+  const [preview, setPreview] = useState<CandidateRecommendation | null>(null);
   const generation = useRef(0);
   /** load 只请求当前候选人的授权报告，忽略切换候选人后迟到的响应。 */
   async function load() {
@@ -27,7 +30,7 @@ export default function ResumeAutoReplyReports({ candidateID }: { candidateID: s
     } catch (cause) { if (current === generation.current) setError(cause instanceof Error ? cause.message : "推荐报告没读出来，请重试。"); }
     finally { if (current === generation.current) setLoading(false); }
   }
-  useEffect(() => { setReports([]); void load(); return () => { generation.current += 1; }; }, [candidateID]);
+  useEffect(() => { setReports([]); setPreview(null); void load(); return () => { generation.current += 1; }; }, [candidateID]);
   /** reportURL 使用当前站点生成可访问的公开报告地址。 */
   function reportURL(publicID: string) { return `${window.location.origin}/recommendations/${encodeURIComponent(publicID)}`; }
   /** copyLink 将当前报告的公开地址复制给 HR，失败时提供手动复制路径。 */
@@ -58,10 +61,13 @@ export default function ResumeAutoReplyReports({ candidateID }: { candidateID: s
       <Flex gap={8} wrap align="center"><Typography.Text strong>{item.report.position.name || "推荐岗位"}</Typography.Text><Tag>{item.shareEnabled ? "可分享" : "未公开"}</Tag><Typography.Text type="secondary">{formatDate(item.generatedAt)}</Typography.Text></Flex>
       <Typography.Paragraph style={{ marginBlock: 8 }}>{item.report.executiveSummary || item.summary || "报告已生成，打开后查看详细结果。"}</Typography.Paragraph>
       <Flex gap={8} wrap>
-        <Button icon={<ExportOutlined aria-hidden="true" />} disabled={!item.shareEnabled} href={`/recommendations/${encodeURIComponent(item.publicID)}`} target="_blank" rel="noopener noreferrer">查看报告</Button>
+        <Button icon={<ExportOutlined aria-hidden="true" />} onClick={() => setPreview(item)}>查看报告</Button>
         <Button icon={<CopyOutlined aria-hidden="true" />} disabled={!item.shareEnabled} onClick={() => void copyLink(item.publicID)}>复制链接</Button>
         {item.shareEnabled ? <Button aria-label="撤销分享" danger loading={revoking === item.publicID} disabled={Boolean(revoking)} onClick={() => void changeSharing(item.publicID, false)}>撤销分享</Button> : <Button aria-label="开启分享" loading={revoking === item.publicID} disabled={Boolean(revoking)} onClick={() => void changeSharing(item.publicID, true)}>开启分享</Button>}
       </Flex>
     </section>)}
+    <AdminDialog open={Boolean(preview)} title="推荐报告 · 私有预览" maxWidth="lg" cancelText="关闭" onClose={() => setPreview(null)}>
+      {preview ? <RecommendationReportClient recommendation={preview} privatePreview /> : null}
+    </AdminDialog>
   </Flex>;
 }

@@ -1,8 +1,10 @@
-// Package auto_reply 本文件定义自动回复九个标准 AI 工具及其强类型参数校验和本地执行。
+// Package auto_reply 本文件定义自动回复动作提议工具及其强类型参数校验；业务变更由固定流程统一提交。
 package auto_reply
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,10 +40,6 @@ func (e *toolArgumentError) Error() string {
 	return e.message
 }
 
-type historyToolArgs struct {
-	Limit int `json:"limit"`
-}
-
 type confirmationToolItem struct {
 	ID                  string `json:"id"`
 	PositionConditionID string `json:"position_condition_id"`
@@ -75,25 +73,20 @@ type notifyHRToolArgs struct {
 }
 
 type toolExecutionState struct {
-	input                    ReplyContext
-	cloud                    *cloud.Client
-	confirmations            []cloud.CandidateConfirmationItem
-	pendingMessages          []ReplyMessage
-	reviewedAllConfirmations bool
-	manualReason             string
-	manualKey                string
+	input               ReplyContext
+	confirmations       []cloud.CandidateConfirmationItem
+	pendingMessages     []ReplyMessage
+	manualReason        string
+	manualKey           string
+	confirmationUpdates []cloud.CandidateConfirmationItem
+	suggestions         []cloud.AutoReplyConfigSuggestion
 }
 
-// autoReplyToolDefinitions 返回自动回复固定的九个标准 OpenAI 函数工具。
+// autoReplyToolDefinitions 返回只产生提议的四个动作工具，不重复提供已有上下文的查询工具。
 func autoReplyToolDefinitions() []ai.ToolDefinition {
 	return []ai.ToolDefinition{
-		newToolDefinition(toolGetContext, "查看当前岗位、公司、候选人和会话身份上下文。", `{"type":"object","properties":{},"additionalProperties":false}`),
-		newToolDefinition(toolGetChatHistory, "查看按时间排序的聊天记录，limit 默认200，最大5000。", `{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":5000}},"additionalProperties":false}`),
-		newToolDefinition(toolGetResume, "查看云端正式简历、附件元数据和本轮页面简历。", `{"type":"object","properties":{},"additionalProperties":false}`),
-		newToolDefinition(toolGetConfirmations, "查看候选人与当前岗位之间的结构化确认项。", `{"type":"object","properties":{},"additionalProperties":false}`),
-		newToolDefinition(toolUpsertConfirmations, "每轮必须用一次：批量复核全部现有确认项，也可追加新的去重确认项。", `{"type":"object","properties":{"items":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":128},"position_condition_id":{"type":"string","maxLength":128},"item_type":{"type":"string","enum":["required","confirm","bonus"]},"content":{"type":"string","minLength":1,"maxLength":1000},"status":{"type":"string","enum":["pending","matched","unmatched"]},"status_reason":{"type":"string","minLength":1,"maxLength":500},"source_ref":{"type":"string","maxLength":256},"evidence_text":{"type":"string","maxLength":2000}},"required":["item_type","content","status","status_reason"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false}`),
-		newToolDefinition(toolRequestResume, "查询固定流程是否已经索要或取得简历。", `{"type":"object","properties":{},"additionalProperties":false}`),
-		newToolDefinition(toolSendMessages, "复核全部确认项后，准备最多两条候选人消息：可先回答最新问题，再询问一个未确认条件。信息不足时改用 notify_hr。", `{"type":"object","properties":{"messages":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","properties":{"type":{"type":"string","enum":["answer","confirmation"]},"content":{"type":"string","minLength":1,"maxLength":200},"confirmation_item_id":{"type":"string","maxLength":128}},"required":["type","content"],"additionalProperties":false}}},"required":["messages"],"additionalProperties":false}`),
+		newToolDefinition(toolUpsertConfirmations, "只提议有新证据的条件变化；未变化项保留。每批最多50项，可分批。matched/unmatched必须提供存在的source_ref和证据原文。", `{"type":"object","properties":{"items":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":128},"position_condition_id":{"type":"string","maxLength":128},"item_type":{"type":"string","enum":["required","confirm","bonus"]},"content":{"type":"string","minLength":1,"maxLength":1000},"status":{"type":"string","enum":["pending","matched","unmatched"]},"status_reason":{"type":"string","minLength":1,"maxLength":500},"source_ref":{"type":"string","maxLength":256},"evidence_text":{"type":"string","maxLength":2000}},"required":["item_type","content","status","status_reason","source_ref","evidence_text"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false}`),
+		newToolDefinition(toolSendMessages, "准备最多两条候选人消息：可先回答最新问题，再询问一个未确认条件。信息不足时改用 notify_hr。", `{"type":"object","properties":{"messages":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","properties":{"type":{"type":"string","enum":["answer","confirmation"]},"content":{"type":"string","minLength":1,"maxLength":200},"confirmation_item_id":{"type":"string","maxLength":128}},"required":["type","content"],"additionalProperties":false}}},"required":["messages"],"additionalProperties":false}`),
 		newToolDefinition(toolSuggestConfig, "提交岗位或公司资料的新增、修改或删除建议，等待 HR 审核。", `{"type":"object","properties":{"suggestion_type":{"type":"string","enum":["position","company"]},"operation":{"type":"string","enum":["create","update","delete"]},"target_id":{"type":"string","maxLength":128},"proposed_value":{"type":"object"},"reason":{"type":"string","minLength":1,"maxLength":1000}},"required":["suggestion_type","operation","proposed_value","reason"],"additionalProperties":false}`),
 		newToolDefinition(toolNotifyHR, "没有可靠答案或问题与招聘无关时，通知当前招聘团队人工接管；这是内部通知，候选人不会收到任何占位回复。", `{"type":"object","properties":{"reason":{"type":"string","minLength":1,"maxLength":500},"reason_key":{"type":"string","minLength":1,"maxLength":100}},"required":["reason","reason_key"],"additionalProperties":false}`),
 	}
@@ -112,64 +105,8 @@ func (s *toolExecutionState) execute(ctx context.Context, call ai.ToolCall) (jso
 		return nil, argumentError("工具类型只支持 function")
 	}
 	switch strings.TrimSpace(call.Function.Name) {
-	case toolGetContext:
-		if err := decodeToolArguments(call, &struct{}{}); err != nil {
-			return nil, err
-		}
-		return marshalToolResult(struct {
-			Position     cloud.AutoReplyPosition       `json:"position"`
-			Config       cloud.PositionAutoReplyConfig `json:"config"`
-			Company      cloud.CompanyProfile          `json:"company"`
-			Conversation cloud.AutoReplyConversation   `json:"conversation"`
-			Candidate    cloud.AutoReplyCandidateState `json:"candidate"`
-		}{s.input.Position.Position, s.input.Position.Config, s.input.Position.CompanyProfile, s.input.Conversation, s.input.CandidateState})
-	case toolGetChatHistory:
-		var args historyToolArgs
-		if err := decodeToolArguments(call, &args); err != nil {
-			return nil, err
-		}
-		if args.Limit == 0 {
-			args.Limit = 200
-		}
-		if args.Limit < 1 || args.Limit > cloud.AutoReplyMaxHistoryMessages {
-			return nil, argumentError("limit 需要在1到5000之间")
-		}
-		start := max(0, len(s.input.Messages)-args.Limit)
-		return marshalToolResult(struct {
-			Messages  []cloud.AutoReplyMessage `json:"messages"`
-			Truncated bool                     `json:"truncated"`
-		}{s.input.Messages[start:], start > 0})
-	case toolGetResume:
-		if err := decodeToolArguments(call, &struct{}{}); err != nil {
-			return nil, err
-		}
-		return marshalToolResult(struct {
-			Stored *cloud.AutoReplyStoredCandidate `json:"stored,omitempty"`
-			Files  []cloud.StoredResumeAttachment  `json:"attachments"`
-			Page   *modelAutoReplyResumeBundle     `json:"page,omitempty"`
-		}{s.input.CandidateState.Candidate, s.input.CandidateState.Attachments, resumeForTool(s.input.Resume)})
-	case toolGetConfirmations:
-		if err := decodeToolArguments(call, &struct{}{}); err != nil {
-			return nil, err
-		}
-		return marshalToolResult(struct {
-			Items []cloud.CandidateConfirmationItem `json:"items"`
-		}{s.confirmations})
 	case toolUpsertConfirmations:
 		return s.upsertConfirmations(ctx, call)
-	case toolRequestResume:
-		if err := decodeToolArguments(call, &struct{}{}); err != nil {
-			return nil, err
-		}
-		available := s.input.Resume != nil || s.input.CandidateState.HasResumeAttachment
-		status := "固定流程还没有拿到简历，请转人工核对"
-		if available {
-			status = "固定流程已经取得简历或附件"
-		}
-		return marshalToolResult(struct {
-			Available bool   `json:"available"`
-			Status    string `json:"status"`
-		}{available, status})
 	case toolSendMessages:
 		return s.prepareMessages(call)
 	case toolSuggestConfig:
@@ -205,7 +142,7 @@ func resumeForTool(value *model.AutoReplyResumeBundle) *modelAutoReplyResumeBund
 	}
 }
 
-// upsertConfirmations 校验全部确认项后逐条幂等保存，并刷新本轮内存快照。
+// upsertConfirmations 校验增量证据后仅更新本轮提议，消息与配置复核通过前不修改持久状态。
 func (s *toolExecutionState) upsertConfirmations(ctx context.Context, call ai.ToolCall) (json.RawMessage, error) {
 	var args confirmationToolArgs
 	if err := decodeToolArguments(call, &args); err != nil {
@@ -230,7 +167,7 @@ func (s *toolExecutionState) upsertConfirmations(ctx context.Context, call ai.To
 		if item.Status != "pending" && strings.TrimSpace(item.SourceRef) == strings.TrimSpace(s.input.BasedOnMessageKey) {
 			lastAnsweredAt = &now
 		}
-		result, err := s.cloud.SaveAutoReplyConfirmationItem(ctx, s.input.Credentials, cloud.CandidateConfirmationItem{
+		result := cloud.CandidateConfirmationItem{
 			ID: existing.ID, PositionConditionID: firstNonEmpty(existing.PositionConditionID, item.PositionConditionID),
 			ConversationID: s.input.Conversation.ID, CandidateID: s.input.Conversation.CandidateID,
 			PositionID: s.input.Position.Position.ID, ItemType: item.ItemType,
@@ -240,14 +177,20 @@ func (s *toolExecutionState) upsertConfirmations(ctx context.Context, call ai.To
 			EvidenceText: strings.TrimSpace(item.EvidenceText), Summary: strings.TrimSpace(item.StatusReason),
 			CreatedByKind: "ai", AskCount: existing.AskCount, LastAskedAt: existing.LastAskedAt,
 			LastAnsweredAt: lastAnsweredAt, LastReviewedAt: &now,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("保存候选人确认项失败：%w", err)
+		}
+		if result.ID == "" {
+			result.ID = proposedConfirmationID(result)
+		}
+		if err := s.validateConfirmationEvidence(result); err != nil {
+			return nil, err
 		}
 		saved = append(saved, result)
+	}
+	// 整批校验通过才合并到本轮状态，参数修正不会留下半批判断。
+	for _, result := range saved {
+		s.addConfirmationProposal(result)
 		s.replaceConfirmation(result)
 	}
-	s.reviewedAllConfirmations = true
 	return marshalToolResult(struct {
 		Items []cloud.CandidateConfirmationItem `json:"items"`
 	}{saved})
@@ -273,28 +216,58 @@ func validateConfirmationToolItem(item confirmationToolItem) error {
 	return nil
 }
 
-// validateConfirmationReviewCoverage 确认 AI 本轮逐条复核了全部现有确认项，避免漏掉关键条件。
+// validateConfirmationReviewCoverage 只核对本次增量中已有条件的身份和正文，允许分批而不强迫重写所有条件。
 func (s *toolExecutionState) validateConfirmationReviewCoverage(items []confirmationToolItem) error {
-	missing := make(map[string]string, len(s.confirmations))
-	for _, item := range s.confirmations {
-		missing[item.ID] = item.Content
-	}
 	for _, item := range items {
-		if existing, found := s.findConfirmation(item); found {
-			if existing.ItemType != item.ItemType || strings.TrimSpace(existing.Content) != strings.TrimSpace(item.Content) {
-				return argumentError("已有确认项的类型和内容不能被 AI 偷偷改写")
-			}
-			delete(missing, existing.ID)
+		if existing, found := s.findConfirmation(item); found && (existing.ItemType != item.ItemType || strings.TrimSpace(existing.Content) != strings.TrimSpace(item.Content)) {
+			return argumentError("已有确认项的类型和内容不能被 AI 偷偷改写")
 		}
 	}
-	if len(missing) == 0 {
+	return nil
+}
+
+// proposedConfirmationID 为新增提议生成稳定本地编号，使发送后的次数更新能定位同一条件。
+func proposedConfirmationID(item cloud.CandidateConfirmationItem) string {
+	sum := sha256.Sum256([]byte(item.CandidateID + "|" + item.PositionID + "|" + strings.Join(strings.Fields(item.Content), "")))
+	return "condition-" + hex.EncodeToString(sum[:])
+}
+
+// addConfirmationProposal 合并同轮同一条件的最后一次有效判断，不写入本地或云端。
+func (s *toolExecutionState) addConfirmationProposal(item cloud.CandidateConfirmationItem) {
+	for index, current := range s.confirmationUpdates {
+		if current.ID == item.ID {
+			s.confirmationUpdates[index] = item
+			return
+		}
+	}
+	s.confirmationUpdates = append(s.confirmationUpdates, item)
+}
+
+// validateConfirmationEvidence 要求确定性判断引用本轮可见真实消息或简历原文，不能凭空标记符合。
+func (s *toolExecutionState) validateConfirmationEvidence(item cloud.CandidateConfirmationItem) error {
+	if item.Status == "pending" {
 		return nil
 	}
-	contents := make([]string, 0, len(missing))
-	for _, content := range missing {
-		contents = append(contents, truncateRunText(content, 40))
+	evidence := strings.TrimSpace(item.EvidenceText)
+	ref := strings.TrimSpace(item.SourceRef)
+	if evidence == "" || ref == "" {
+		return argumentError("符合或不符合需要真实来源编号和证据原文；没有证据请保持pending")
 	}
-	return argumentError("本轮必须同时复核全部确认项，还漏了：" + strings.Join(contents, "；"))
+	for _, message := range s.input.Messages {
+		if (ref == message.ID || ref == message.PlatformMessageID || ref == message.Fingerprint) && message.Direction == "candidate" && strings.Contains(message.TextContent, evidence) {
+			return nil
+		}
+	}
+	if ref == "resume" && s.input.CandidateState.Candidate != nil {
+		raw, _ := json.Marshal(s.input.CandidateState.Candidate)
+		if strings.Contains(string(raw), evidence) {
+			return nil
+		}
+	}
+	if ref == "resume" && s.input.Resume != nil && strings.Contains(s.input.Resume.OnlineResumeText, evidence) {
+		return nil
+	}
+	return argumentError("证据没有对应到本轮可见的候选人消息或简历，请引用真实原文，否则保持pending")
 }
 
 // findConfirmation 按内部编号、岗位条件编号或标准化正文找到已有确认项。
@@ -318,7 +291,7 @@ func normalizeConfirmationContent(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), ""))
 }
 
-// replaceConfirmation 用云端返回的去重键更新本轮确认项快照。
+// replaceConfirmation 用已验证的提议更新本轮确认项快照。
 func (s *toolExecutionState) replaceConfirmation(saved cloud.CandidateConfirmationItem) {
 	for index, item := range s.confirmations {
 		if item.ID == saved.ID || (item.DedupeKey != "" && item.DedupeKey == saved.DedupeKey) {
@@ -335,9 +308,7 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 	if err := decodeToolArguments(call, &args); err != nil {
 		return nil, err
 	}
-	if !s.reviewedAllConfirmations {
-		return nil, argumentError("发送前必须先调用 upsert_confirmation_items 复核全部确认项")
-	}
+
 	if len(args.Messages) == 0 || len(args.Messages) > 2 {
 		return nil, argumentError("messages 需要包含1到2条消息")
 	}
@@ -368,6 +339,9 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 			if !found || confirmation.Status != "pending" || !oneOf(confirmation.ItemType, "required", "confirm") {
 				return nil, argumentError("确认消息必须关联一条仍未确认的 required 或 confirm 条件")
 			}
+			if confirmation.AskCount >= 3 {
+				return nil, argumentError("这条条件已经询问三次，请先回答问题或请求人工协助")
+			}
 		}
 		prepared = append(prepared, item)
 	}
@@ -389,6 +363,9 @@ func (s *toolExecutionState) confirmationByID(id string) (cloud.CandidateConfirm
 
 // normalizeSimpleCandidateReply 防止 AI 对纯问候、致谢或求职兴趣主动扩展岗位和简历信息。
 func normalizeSimpleCandidateReply(input ReplyContext, proposed string) string {
+	if len(input.PendingMessages) > 1 {
+		return strings.TrimSpace(proposed)
+	}
 	message, found := findBasedOnMessage(input.Messages, input.BasedOnMessageKey)
 	latest := strings.TrimSpace(message.TextContent)
 	if !found || latest == "" || looksLikeCandidateQuestion(latest) {
@@ -423,7 +400,7 @@ func containsAnyText(value string, keywords ...string) bool {
 	return false
 }
 
-// saveSuggestion 校验并保存一条等待 HR 审核的岗位或公司资料建议。
+// saveSuggestion 校验并暂存一条等待 HR 审核的岗位或公司资料建议。
 func (s *toolExecutionState) saveSuggestion(ctx context.Context, call ai.ToolCall) (json.RawMessage, error) {
 	var args suggestionToolArgs
 	if err := decodeToolArguments(call, &args); err != nil {
@@ -443,16 +420,16 @@ func (s *toolExecutionState) saveSuggestion(ctx context.Context, call ai.ToolCal
 	if args.SuggestionType == "company" {
 		companyID = s.input.Position.CompanyProfile.ID
 	}
-	result, err := s.cloud.SaveAutoReplySuggestion(ctx, s.input.Credentials, cloud.AutoReplyConfigSuggestion{
+	result := cloud.AutoReplyConfigSuggestion{
 		ConversationID: s.input.Conversation.ID, PositionID: s.input.Position.Position.ID,
 		CompanyProfileID: companyID, SuggestionType: args.SuggestionType,
 		Operation: args.Operation, TargetID: strings.TrimSpace(args.TargetID),
 		ProposedValue: args.ProposedValue, Reason: strings.TrimSpace(args.Reason),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("保存配置建议失败：%w", err)
 	}
-	return marshalToolResult(result)
+	s.suggestions = append(s.suggestions, result)
+	return marshalToolResult(struct {
+		Prepared bool `json:"prepared"`
+	}{true})
 }
 
 // prepareManualHandoff 记录转人工原因，由固定流程统一发送幂等邮件。
@@ -466,9 +443,7 @@ func (s *toolExecutionState) prepareManualHandoff(call ai.ToolCall) (json.RawMes
 	if reason == "" || len([]rune(reason)) > 500 || key == "" || len([]rune(key)) > 100 {
 		return nil, argumentError("reason 和 reason_key 不能为空，且长度不能超限")
 	}
-	if !s.reviewedAllConfirmations {
-		return nil, argumentError("转人工前也要先调用 upsert_confirmation_items 复核全部确认项")
-	}
+
 	if len(s.pendingMessages) > 0 {
 		return nil, argumentError("已经准备发送消息，不能同时转人工")
 	}

@@ -103,6 +103,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	mux.HandleFunc("POST /api/v1/resume-library/settings/refresh", server.handleResumeDownloadSettingsRefresh)
 	mux.HandleFunc("GET /health", server.handleHealth)
 	mux.HandleFunc("POST /api/v1/session/bind", server.handleAgentBind)
+	mux.HandleFunc("POST /api/v1/session/unbind", server.handleAgentUnbind)
 	mux.HandleFunc("POST /api/v1/extensions/pair/start", server.handleExtensionPairStart)
 	mux.HandleFunc("POST /api/v1/extensions/pair/approve", server.handleExtensionPairApprove)
 	mux.HandleFunc("POST /api/v1/extensions/pair/status", server.handleExtensionPairStatus)

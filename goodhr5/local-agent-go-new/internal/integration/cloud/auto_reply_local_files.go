@@ -1,14 +1,14 @@
-// Package cloud 本文件负责本机简历附件、候选人入库和脱敏通知，完整文件不会上传云端。
+// Package cloud 本文件管理本机附件相对路径和独立候选人身份，所有网络同步通过持久待办执行。
 package cloud
 
 import (
-	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
+	"goodhr5/local-agent-go-new/internal/storage"
 	"io"
 	"net/http"
 	"os"
@@ -17,28 +17,33 @@ import (
 	"time"
 )
 
-// saveLocalAutoReplyAttachment 校验并复制真实附件到私有本地目录，再记录哈希和归属。
+// localAttachment 将附件内容元数据与账号私有目录下的相对路径一起持久化。
+type localAttachment struct {
+	StoredResumeAttachment
+	RelativePath string `json:"relative_path"`
+}
+
+// localCloudLink 保存本地实体与已授权云端结果的关联或同步摘要。
+type localCloudLink struct {
+	Value string `json:"value"`
+}
+
+// saveLocalAutoReplyAttachment 先复制并校验文件，再用短事务登记引用；支持Windows和两种Mac架构。
 func (c *Client) saveLocalAutoReplyAttachment(ctx context.Context, credentials AgentCredentials, upload AutoReplyAttachmentUpload) (StoredResumeAttachment, error) {
 	if !c.LocalAutoReplyEnabled() {
 		return StoredResumeAttachment{}, fmt.Errorf("本地自动回复存储尚未准备好")
 	}
-	c.localAutoMu.Lock()
-	defer c.localAutoMu.Unlock()
+	if !filepath.IsAbs(c.localAutoDir) {
+		return StoredResumeAttachment{}, fmt.Errorf("本地简历目录尚未准备好")
+	}
 	file, stat, err := openAutoReplyAttachment(upload.FilePath)
 	if err != nil {
 		return StoredResumeAttachment{}, err
 	}
 	defer file.Close()
-	data, err := c.loadLocalAutoReply(ctx, credentials)
-	if err != nil {
-		return StoredResumeAttachment{}, err
-	}
-	if !filepath.IsAbs(c.localAutoDir) {
-		return StoredResumeAttachment{}, fmt.Errorf("本地简历目录尚未准备好")
-	}
 	directory := filepath.Join(c.localAutoDir, autoReplyDigest(c.localAutoReplyKey(credentials)), "attachments")
-	if err = os.MkdirAll(directory, 0o700); err != nil {
-		return StoredResumeAttachment{}, fmt.Errorf("准备本地简历目录失败")
+	if err = os.MkdirAll(directory, 0700); err != nil {
+		return StoredResumeAttachment{}, err
 	}
 	temporary, err := os.CreateTemp(directory, "resume-*")
 	if err != nil {
@@ -53,183 +58,209 @@ func (c *Client) saveLocalAutoReplyAttachment(ctx context.Context, credentials A
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
 	id := "attachment-" + autoReplyDigest(upload.ConversationID+digest)
-	if existing, ok := data.Attachments[id]; ok {
-		return existing, nil
-	}
 	path := filepath.Join(directory, digest+strings.ToLower(filepath.Ext(upload.FilePath)))
-	if err = os.Rename(temporary.Name(), path); err != nil {
-		return StoredResumeAttachment{}, fmt.Errorf("保存本地简历附件失败")
-	}
-	item := StoredResumeAttachment{ID: id, CandidateID: upload.CandidateID, ConversationID: upload.ConversationID, SourceMessageID: upload.SourceMessageID, PlatformID: upload.PlatformID, OriginalName: filepath.Base(upload.FilePath), SHA256: digest, SizeBytes: size, ExtractedText: upload.ExtractedText, CreatedAt: time.Now().UTC()}
-	data.Attachments[id] = item
-	data.AttachmentPaths[id] = path
-	if err = c.saveLocalAutoReply(ctx, credentials, data); err != nil {
+	// Windows不能以Rename覆盖已有文件；同哈希内容已经存在时直接复用，macOS保持相同行为。
+	if _, err = os.Stat(path); os.IsNotExist(err) {
+		if err = os.Rename(temporary.Name(), path); err != nil {
+			return StoredResumeAttachment{}, fmt.Errorf("保存本地简历附件失败：%w", err)
+		}
+	} else if err != nil {
 		return StoredResumeAttachment{}, err
 	}
-	return item, nil
+	relative, err := filepath.Rel(c.localAutoDir, path)
+	if err != nil {
+		return StoredResumeAttachment{}, err
+	}
+	item := StoredResumeAttachment{ID: id, CandidateID: upload.CandidateID, ConversationID: upload.ConversationID, SourceMessageID: upload.SourceMessageID, PlatformID: upload.PlatformID, OriginalName: filepath.Base(upload.FilePath), SHA256: digest, SizeBytes: size, ExtractedText: upload.ExtractedText, CreatedAt: time.Now().UTC()}
+	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		old, exists, err := getAutoReplyEntity[localAttachment](tx, "attachments", id)
+		if err != nil {
+			return err
+		}
+		if exists {
+			item = old.StoredResumeAttachment
+			return nil
+		}
+		return tx.Put("attachments", id, localAttachment{StoredResumeAttachment: item, RelativePath: relative})
+	})
+	return item, err
 }
 
-// LocalAutoReplyAttachmentPaths 仅向本地解析器返回已确认归属的持久附件路径。
+// LocalAutoReplyAttachmentPaths 从当前数据目录解析相对路径，并复核归属与文件哈希以安全支持数据搬家。
 func (c *Client) LocalAutoReplyAttachmentPaths(ctx context.Context, credentials AgentCredentials, conversationID string, ids []string) ([]string, error) {
-	if !c.LocalAutoReplyEnabled() {
-		return nil, fmt.Errorf("本地自动回复存储尚未准备好")
-	}
-	c.localAutoMu.Lock()
-	defer c.localAutoMu.Unlock()
-	data, err := c.loadLocalAutoReply(ctx, credentials)
+	records := []localAttachment{}
+	err := c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		for _, id := range ids {
+			item, ok, err := getAutoReplyEntity[localAttachment](tx, "attachments", id)
+			if err != nil {
+				return err
+			}
+			if !ok || item.ConversationID != conversationID {
+				return fmt.Errorf("简历附件与当前会话不一致")
+			}
+			records = append(records, item)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 	paths := []string{}
-	for _, id := range ids {
-		item, ok := data.Attachments[id]
-		if !ok || item.ConversationID != conversationID {
-			return nil, fmt.Errorf("简历附件与当前候选人不一致")
+	for _, item := range records {
+		clean := filepath.Clean(item.RelativePath)
+		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("本地附件目录归属不正确")
 		}
-		path := data.AttachmentPaths[id]
-		if path == "" {
-			return nil, fmt.Errorf("本地简历附件没找到")
+		path := filepath.Join(c.localAutoDir, clean)
+		file, stat, err := openAutoReplyAttachment(path)
+		if err != nil {
+			return nil, err
+		}
+		hash := sha256.New()
+		_, readErr := io.Copy(hash, file)
+		file.Close()
+		if readErr != nil || stat.Size() != item.SizeBytes || hex.EncodeToString(hash.Sum(nil)) != item.SHA256 {
+			return nil, fmt.Errorf("本地附件校验未通过，请重新获取附件")
 		}
 		paths = append(paths, path)
 	}
 	return paths, nil
 }
 
-// saveLocalAutoReplyCandidate 先保存本机简历，仅在岗位明确授权后异步同步去原文的结构化资料。
-func (c *Client) saveLocalAutoReplyCandidate(ctx context.Context, credentials AgentCredentials, input AutoReplyCandidateInput) (AutoReplyCandidateSaveResult, error) {
-	if !c.LocalAutoReplyEnabled() {
-		return AutoReplyCandidateSaveResult{}, fmt.Errorf("本地自动回复存储尚未准备好")
+// newLocalAutoReplyCandidateID 生成不依赖手机号和云端入库的本地稳定编号。
+func newLocalAutoReplyCandidateID() (string, error) {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
 	}
-	c.localAutoMu.Lock()
-	defer c.localAutoMu.Unlock()
-	data, err := c.loadLocalAutoReply(ctx, credentials)
-	if err != nil {
-		return AutoReplyCandidateSaveResult{}, err
-	}
-	id := "candidate-" + autoReplyDigest(input.Phone)
-	identityID := "identity-" + autoReplyDigest(input.PlatformID+"|"+input.PlatformAccountID+"|"+input.PlatformCandidateID)
-	if previous, ok := data.Identities[identityID]; ok && previous.CandidateID != "" {
-		id = previous.CandidateID
-	}
-	candidate := AutoReplyStoredCandidate{ID: id, CandidateName: input.CandidateName, AvatarURL: input.AvatarURL, Gender: input.Gender, BirthYM: input.BirthYM, BirthYMPrecision: input.BirthYMPrecision, Phone: input.Phone, Email: input.Email, Wechat: input.Wechat, WorkRegion: input.WorkRegion, WorkYears: input.WorkYears, ExpectedSalaryMin: input.ExpectedSalaryMin, ExpectedSalaryMax: input.ExpectedSalaryMax, BasicInfo: input.BasicInfo, EducationLevel: input.EducationLevel, ExpectedPosition: input.ExpectedPosition, OnlineStatus: input.OnlineStatus, PersonalDescription: input.PersonalDescription, WorkStatus: input.WorkStatus, RawText: input.RawText, WorkExperiences: input.WorkExperiences, Educations: input.Educations, Certificates: input.Certificates, Honors: input.Honors, ProjectExperiences: input.ProjectExperiences, Communications: input.ColleagueCommunications}
-	data.Candidates[id] = candidate
-	identity := data.Identities[identityID]
-	identity.ID = identityID
-	identity.CandidateID = id
-	identity.PlatformID = input.PlatformID
-	identity.PlatformAccountID = input.PlatformAccountID
-	identity.PlatformCandidateID = input.PlatformCandidateID
-	identity.CandidateName = input.CandidateName
-	identity.NormalizedPhone = input.Phone
-	data.Identities[identityID] = identity
-	if err = c.saveLocalAutoReply(ctx, credentials, data); err != nil {
-		return AutoReplyCandidateSaveResult{}, err
-	}
-	return AutoReplyCandidateSaveResult{OK: true, CandidateID: id, PlatformIdentity: identity}, nil
+	return "candidate-" + hex.EncodeToString(raw), nil
 }
 
-// SyncAutoReplyStructuredCandidate 在当前岗位授权后同步结构化资料；失败由调用方记录而不回滚本地结果。
-func (c *Client) SyncAutoReplyStructuredCandidate(ctx context.Context, credentials AgentCredentials, localCandidateID string, input AutoReplyCandidateInput) error {
-	if !c.LocalAutoReplyEnabled() {
+// saveLocalAutoReplyCandidate 按已有身份定位本地资料，并只用本轮非空字段补充，不以空值覆盖旧来源。
+func (c *Client) saveLocalAutoReplyCandidate(ctx context.Context, credentials AgentCredentials, input AutoReplyCandidateInput) (result AutoReplyCandidateSaveResult, err error) {
+	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		identityID := "identity-" + autoReplyDigest(input.PlatformID+"|"+input.PlatformAccountID+"|"+input.PlatformCandidateID)
+		identity, _, err := getAutoReplyEntity[CandidatePlatformIdentity](tx, "identities", identityID)
+		if err != nil {
+			return err
+		}
+		id := input.LocalCandidateID
+		if id == "" {
+			id = identity.CandidateID
+		}
+		if identity.CandidateID != "" && id != identity.CandidateID {
+			return fmt.Errorf("简历与当前平台身份不一致，请人工确认")
+		}
+		if id == "" && input.Phone != "" {
+			items, err := scopedAutoReplyPhoneCandidates(tx, input.PlatformID, input.PlatformAccountID, input.Phone)
+			if err != nil {
+				return err
+			}
+			if len(items) > 1 {
+				return fmt.Errorf("同手机号对应多份资料，请人工确认")
+			}
+			if len(items) == 1 {
+				id = items[0].ID
+			}
+		}
+		var candidate AutoReplyStoredCandidate
+		if id != "" {
+			candidate, _, err = getAutoReplyEntity[AutoReplyStoredCandidate](tx, "candidates", id)
+			if err != nil {
+				return err
+			}
+		} else {
+			id, err = newLocalAutoReplyCandidateID()
+			if err != nil {
+				return err
+			}
+		}
+		candidate.ID = id
+		candidate.ResumeStructured = true
+		mergeLocalAutoReplyCandidate(&candidate, input)
+		if err = tx.Put("candidates", id, candidate); err != nil {
+			return err
+		}
+		if input.PlatformCandidateID != "" {
+			identity.ID = identityID
+			identity.CandidateID = id
+			identity.PlatformID = input.PlatformID
+			identity.PlatformAccountID = input.PlatformAccountID
+			identity.PlatformCandidateID = input.PlatformCandidateID
+			identity.CandidateName = candidate.CandidateName
+			identity.NormalizedPhone = candidate.Phone
+			identity.LastSeenAt = time.Now().UTC()
+			if identity.FirstSeenAt.IsZero() {
+				identity.FirstSeenAt = identity.LastSeenAt
+			}
+			if err = tx.Put("identities", identityID, identity); err != nil {
+				return err
+			}
+		}
+		result = AutoReplyCandidateSaveResult{OK: true, CandidateID: id, PlatformIdentity: identity}
 		return nil
-	}
-	safe := input
-	safe.RawText = ""
-	safe.BasicInfo = ""
-	safe.ColleagueCommunications = nil
-	safe.AvatarURL = ""
-	encoded, err := json.Marshal(safe)
-	if err != nil {
-		return err
-	}
-	cacheKey := localCandidateID + "|" + input.PositionID
-	hash := autoReplyDigest(string(encoded))
-	c.localAutoMu.Lock()
-	cached, cacheErr := c.loadLocalAutoReply(ctx, credentials)
-	c.localAutoMu.Unlock()
-	if cacheErr != nil {
-		return cacheErr
-	}
-	if cached.CloudCandidateHashes[cacheKey] == hash {
-		return nil
-	}
-	var result AutoReplyCandidateSaveResult
-	if err = c.doBody(ctx, http.MethodPost, autoReplyAgentBasePath+"/candidates", credentials.Token, credentials.MachineID, "application/json", bytes.NewReader(encoded), &result); err != nil {
-		return err
-	}
-	if result.CandidateID == "" {
-		return fmt.Errorf("云端没有确认结构化简历保存结果")
-	}
-	c.localAutoMu.Lock()
-	defer c.localAutoMu.Unlock()
-	data, err := c.loadLocalAutoReply(ctx, credentials)
-	if err != nil {
-		return err
-	}
-	data.CloudCandidates[localCandidateID] = result.CandidateID
-	data.CloudCandidateHashes[cacheKey] = hash
-	return c.saveLocalAutoReply(ctx, credentials, data)
+	})
+	return
 }
 
-// saveLocalAutoReplyAvatar 把真实头像作为本地图片数据保存，不产生公开文件或远程地址。
-func (c *Client) saveLocalAutoReplyAvatar(ctx context.Context, credentials AgentCredentials, id string, imageData []byte) (AutoReplyAvatarUploadResult, error) {
-	if !c.LocalAutoReplyEnabled() {
-		return AutoReplyAvatarUploadResult{}, fmt.Errorf("本地自动回复存储尚未准备好")
+// mergeLocalAutoReplyCandidate 保留已有资料，只接受本轮有值的结构化字段。
+func mergeLocalAutoReplyCandidate(target *AutoReplyStoredCandidate, input AutoReplyCandidateInput) {
+	for _, pair := range []struct {
+		target *string
+		value  string
+	}{{&target.CandidateName, input.CandidateName}, {&target.AvatarURL, input.AvatarURL}, {&target.Gender, input.Gender}, {&target.BirthYM, input.BirthYM}, {&target.BirthYMPrecision, input.BirthYMPrecision}, {&target.Phone, input.Phone}, {&target.Email, input.Email}, {&target.Wechat, input.Wechat}, {&target.WorkRegion, input.WorkRegion}, {&target.WorkYears, input.WorkYears}, {&target.BasicInfo, input.BasicInfo}, {&target.EducationLevel, input.EducationLevel}, {&target.ExpectedPosition, input.ExpectedPosition}, {&target.OnlineStatus, input.OnlineStatus}, {&target.PersonalDescription, input.PersonalDescription}, {&target.WorkStatus, input.WorkStatus}, {&target.RawText, input.RawText}} {
+		if strings.TrimSpace(pair.value) != "" {
+			*pair.target = pair.value
+		}
 	}
-	c.localAutoMu.Lock()
-	defer c.localAutoMu.Unlock()
-	data, err := c.loadLocalAutoReply(ctx, credentials)
-	if err != nil {
-		return AutoReplyAvatarUploadResult{}, err
+	if input.ExpectedSalaryMin != nil {
+		target.ExpectedSalaryMin = input.ExpectedSalaryMin
 	}
-	candidate, ok := data.Candidates[id]
-	if !ok {
-		return AutoReplyAvatarUploadResult{}, fmt.Errorf("本地候选人还没保存")
+	if input.ExpectedSalaryMax != nil {
+		target.ExpectedSalaryMax = input.ExpectedSalaryMax
 	}
+	if len(input.WorkExperiences) > 0 {
+		target.WorkExperiences = input.WorkExperiences
+	}
+	if len(input.Educations) > 0 {
+		target.Educations = input.Educations
+	}
+	if len(input.Certificates) > 0 {
+		target.Certificates = input.Certificates
+	}
+	if len(input.Honors) > 0 {
+		target.Honors = input.Honors
+	}
+	if len(input.ProjectExperiences) > 0 {
+		target.ProjectExperiences = input.ProjectExperiences
+	}
+	if len(input.ColleagueCommunications) > 0 {
+		target.Communications = input.ColleagueCommunications
+	}
+}
+
+// saveLocalAutoReplyAvatar 只更新一位候选人的本地头像，不产生公开地址。
+func (c *Client) saveLocalAutoReplyAvatar(ctx context.Context, credentials AgentCredentials, id string, imageData []byte) (result AutoReplyAvatarUploadResult, err error) {
 	mime := http.DetectContentType(imageData)
 	if mime != "image/png" && mime != "image/jpeg" {
-		return AutoReplyAvatarUploadResult{}, fmt.Errorf("候选人头像需要PNG或JPEG图片")
+		return result, fmt.Errorf("候选人头像需要PNG或JPEG图片")
 	}
-	candidate.AvatarURL = "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(imageData)
-	data.Candidates[id] = candidate
-	if err = c.saveLocalAutoReply(ctx, credentials, data); err != nil {
-		return AutoReplyAvatarUploadResult{}, err
-	}
-	return AutoReplyAvatarUploadResult{AvatarURL: candidate.AvatarURL}, nil
+	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		candidate, ok, err := getAutoReplyEntity[AutoReplyStoredCandidate](tx, "candidates", id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("本地候选人还没保存")
+		}
+		candidate.AvatarURL = "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(imageData)
+		result.AvatarURL = candidate.AvatarURL
+		return tx.Put("candidates", id, candidate)
+	})
+	return
 }
 
-// notifyLocalAutoReply 先在本机去重，云端只收到人工协助摘要，不接收聊天原文或AI输出。
-func (c *Client) notifyLocalAutoReply(ctx context.Context, credentials AgentCredentials, input AutoReplyNotification) (AutoReplyNotificationResult, error) {
-	if !c.LocalAutoReplyEnabled() {
-		return AutoReplyNotificationResult{}, fmt.Errorf("本地自动回复存储尚未准备好")
-	}
-	c.localAutoMu.Lock()
-	defer c.localAutoMu.Unlock()
-	data, err := c.loadLocalAutoReply(ctx, credentials)
-	if err != nil {
-		return AutoReplyNotificationResult{}, err
-	}
-	id := autoReplyDigest(input.ConversationID + input.BasedOnMessageKey + input.ReasonKey)
-	if result, ok := data.Notifications[id]; ok && result.EmailSent {
-		result.Duplicate = true
-		return result, nil
-	}
-	safe := input
-	safe.ID = id
-	safe.ConversationID = ""
-	safe.LatestMessage = ""
-	safe.Reason = "需要人工协助，请在本地运行记录查看详情。"
-	safe.ReasonKey = autoReplyDigest(input.ReasonKey)
-	safe.BasedOnMessageKey = autoReplyDigest(input.BasedOnMessageKey)
-	encoded, _ := json.Marshal(safe)
-	var result AutoReplyNotificationResult
-	if err = c.doBody(ctx, http.MethodPost, autoReplyAgentBasePath+"/notifications", credentials.Token, credentials.MachineID, "application/json", bytes.NewReader(encoded), &result); err != nil {
-		return result, err
-	}
-	result.Notification = input
-	data.Notifications[id] = result
-	if err = c.saveLocalAutoReply(ctx, credentials, data); err != nil {
-		return result, err
-	}
-	return result, nil
+// structuredLocalAutoReplyCandidate 从当前已提交的本地资料生成同步快照，防止旧后台调用覆盖新资料。
+func structuredLocalAutoReplyCandidate(candidate AutoReplyStoredCandidate) StructuredCandidate {
+	return StructuredCandidate{CandidateName: candidate.CandidateName, BirthYM: candidate.BirthYM, Phone: candidate.Phone, Email: candidate.Email, Wechat: candidate.Wechat, WorkRegion: candidate.WorkRegion, WorkYears: candidate.WorkYears, ExpectedSalaryMin: candidate.ExpectedSalaryMin, ExpectedSalaryMax: candidate.ExpectedSalaryMax, EducationLevel: candidate.EducationLevel, ExpectedPosition: candidate.ExpectedPosition, OnlineStatus: candidate.OnlineStatus, PersonalDescription: candidate.PersonalDescription, WorkStatus: candidate.WorkStatus, RawText: candidate.RawText, WorkExperiences: candidate.WorkExperiences, Educations: candidate.Educations, Certificates: candidate.Certificates, Honors: candidate.Honors, ProjectExperiences: candidate.ProjectExperiences, ColleagueCommunications: candidate.Communications}
 }

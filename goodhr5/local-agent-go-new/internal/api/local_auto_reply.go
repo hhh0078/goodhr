@@ -19,8 +19,9 @@ import (
 )
 
 type localAutoReplyStartRequest struct {
-	Token    string `json:"token"`
-	Headless bool   `json:"headless"`
+	Token             string `json:"token"`
+	Headless          bool   `json:"headless"`
+	PlatformAccountID string `json:"platform_account_id"`
 }
 
 // handleLocalAutoReply 分发自动回复全局启动、停止和状态接口。
@@ -32,6 +33,8 @@ func (s *Server) handleLocalAutoReply(w http.ResponseWriter, r *http.Request) {
 		s.handleLocalAutoReplyStop(w, r)
 	case "status":
 		s.handleLocalAutoReplyStatus(w, r)
+	case "retry-reports":
+		s.handleLocalAutoReplyRetryReports(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "NOT_FOUND", fmt.Errorf("这个自动回复接口不存在"))
 	}
@@ -46,6 +49,11 @@ func (s *Server) handleLocalAutoReplyStart(w http.ResponseWriter, r *http.Reques
 	var request localAutoReplyStartRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	request.PlatformAccountID = strings.TrimSpace(request.PlatformAccountID)
+	if request.PlatformAccountID == "" || len([]rune(request.PlatformAccountID)) > 200 {
+		writeError(w, http.StatusBadRequest, "PLATFORM_ACCOUNT_REQUIRED", fmt.Errorf("开始前请确认并填写当前招聘账号，切换账号前请先停止自动回复"))
 		return
 	}
 	request.Token = strings.TrimSpace(request.Token)
@@ -77,7 +85,7 @@ func (s *Server) handleLocalAutoReplyStart(w http.ResponseWriter, r *http.Reques
 	taskID := "auto-reply-" + platformID + "-" + strconvNano36()
 	result, err := s.runner.StartTask(r.Context(), shared.StartRequest{
 		TaskID: taskID, PositionID: positions[0].Position.ID, TaskType: "auto_reply",
-		Token: request.Token, Headless: request.Headless,
+		Token: request.Token, Headless: request.Headless, PlatformAccountID: request.PlatformAccountID,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusConflict, struct {
@@ -123,18 +131,107 @@ func (s *Server) handleLocalAutoReplyStatus(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", fmt.Errorf("这个接口只支持 GET"))
 		return
 	}
+	blocked, err := s.currentBlockedAutoReplyReports(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "AUTO_REPLY_REPORT_STATUS_FAILED", err)
+		return
+	}
 	snapshot, err := s.runner.TaskTypeStatus(r.Context(), "auto_reply")
 	if errors.Is(err, sql.ErrNoRows) {
 		writeSuccess(w, http.StatusOK, struct {
-			Status string `json:"status"`
-		}{Status: "stopped"})
+			Status             string `json:"status"`
+			BlockedReportCount int    `json:"blocked_report_count"`
+		}{Status: "stopped", BlockedReportCount: blocked})
 		return
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "AUTO_REPLY_STATUS_FAILED", err)
 		return
 	}
-	writeSuccess(w, http.StatusOK, snapshot)
+	writeSuccess(w, http.StatusOK, struct {
+		lifecycle.TaskSnapshot
+		BlockedReportCount int `json:"blocked_report_count"`
+	}{TaskSnapshot: snapshot, BlockedReportCount: blocked})
+}
+
+// currentBlockedAutoReplyReports 只读取当前已绑定账号的失败报告数量，退出后返回零且不沿用历史凭证。
+func (s *Server) currentBlockedAutoReplyReports(ctx context.Context) (int, error) {
+	if s.cloud == nil || !s.cloud.LocalAutoReplyEnabled() {
+		return 0, nil
+	}
+	s.extensionMu.Lock()
+	defer s.extensionMu.Unlock()
+	if s.extensionToken == "" || s.extensionUserID == "" {
+		return 0, nil
+	}
+	machineID, err := s.currentMachineID()
+	if err != nil {
+		return 0, err
+	}
+	return s.cloud.CountBlockedAutoReplyRecommendations(ctx, cloudintegration.AgentCredentials{Token: s.extensionToken, MachineID: machineID})
+}
+
+// handleLocalAutoReplyRetryReports 校验当前登录会话后仅恢复失败报告，不启动浏览器任务或修改聊天发送记录。
+func (s *Server) handleLocalAutoReplyRetryReports(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", fmt.Errorf("这个接口只支持 POST"))
+		return
+	}
+	var request agentBindRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	request.Token = strings.TrimSpace(request.Token)
+	if request.Token == "" {
+		writeError(w, http.StatusBadRequest, "TOKEN_REQUIRED", fmt.Errorf("登录凭证不能为空，请重新登录"))
+		return
+	}
+	if s.cloud == nil || !s.cloud.LocalAutoReplyEnabled() {
+		writeError(w, http.StatusServiceUnavailable, "AUTO_REPLY_STORAGE_UNAVAILABLE", fmt.Errorf("本机报告还没准备好，请稍后再试"))
+		return
+	}
+	s.extensionMu.Lock()
+	generation, owner := s.extensionGeneration, s.extensionUserID
+	current := owner != "" && extensionSecretsEqual(request.Token, s.extensionToken)
+	s.extensionMu.Unlock()
+	if !current {
+		writeError(w, http.StatusConflict, "SESSION_CHANGED", fmt.Errorf("当前登录账号变了，请刷新页面后再重试报告"))
+		return
+	}
+	session, err := s.cloud.ValidateSession(r.Context(), request.Token)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "SESSION_INVALID", err)
+		return
+	}
+	if session.SessionKind == "browser_extension" || session.UserID != owner {
+		writeError(w, http.StatusForbidden, "SESSION_NOT_ALLOWED", fmt.Errorf("请在当前登录的管理页面重试报告"))
+		return
+	}
+	machineID, err := s.currentMachineID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DEVICE_ID_UNAVAILABLE", err)
+		return
+	}
+	// 网络校验完成后再次核对绑定；短本地事务期间禁止切号，避免旧页面恢复错误账号的任务。
+	s.extensionMu.Lock()
+	current = generation == s.extensionGeneration && owner == s.extensionUserID && extensionSecretsEqual(request.Token, s.extensionToken)
+	count := 0
+	if current {
+		count, err = s.cloud.RetryBlockedAutoReplyRecommendations(r.Context(), cloudintegration.AgentCredentials{Token: request.Token, MachineID: machineID})
+	}
+	s.extensionMu.Unlock()
+	if !current {
+		writeError(w, http.StatusConflict, "SESSION_CHANGED", fmt.Errorf("当前登录账号变了，请刷新页面后再重试报告"))
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "AUTO_REPLY_REPORT_RETRY_FAILED", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, struct {
+		RetriedCount int `json:"retried_count"`
+	}{RetriedCount: count})
 }
 
 // currentAutoReplyPlatformID 根据当前浏览器页面地址识别自动回复平台。

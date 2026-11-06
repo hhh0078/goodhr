@@ -14,10 +14,10 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// ensureResume 在进入 AI 回复前确保已经索要简历，或收集并保存页面已有简历。
-// handled 为 true 表示本轮已经发送索要简历话术，不应继续生成第二条回复。
+// ensureResume 收集页面已有简历；缺少附件或手机号时保留临时状态，不阻断岗位问答。
+// handled 保留旧接口形状，索要简历改为固定流程在回答之后执行。
 func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, position cloud.AutoReplyPositionSnapshot, conversation *cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, state cloud.AutoReplyCandidateState, basedOnMessageKey string, stats *shared.Stats) (*model.AutoReplyResumeBundle, bool, error) {
-	if state.HasResumeAttachment && state.Candidate != nil {
+	if state.HasResumeAttachment && state.Candidate != nil && (state.Candidate.ResumeStructured || strings.TrimSpace(state.Candidate.Phone) != "") {
 		f.queueStructuredCandidateSync(ctx, prepared, position, state.Candidate.ID, cloud.AutoReplyCandidateInput{StructuredCandidate: storedStructuredCandidate(state.Candidate), PositionID: position.Position.ID, PlatformID: prepared.Platform.ID, PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID, Gender: state.Candidate.Gender, BirthYMPrecision: state.Candidate.BirthYMPrecision})
 
 		if preservedAutoReplyConversationStatus(conversation.Status) == "waiting_resume" {
@@ -30,54 +30,8 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	}
 	storedResumeText := storedAttachmentText(state.Attachments)
 	if !snapshot.ResumeCardAvailable && storedResumeText == "" && !state.HasResumeAttachment {
-		if state.Conversation != nil && preservedAutoReplyConversationStatus(state.Conversation.Status) == "waiting_resume" {
-			stats.Skipped++
-			return nil, true, nil
-		}
-		requestMessage := firstNonEmpty(position.Config.ResumeRequestMessage, "你好，能发一份简历吗？")
-		unchanged, err := f.latestCandidateMessageUnchanged(ctx, runtime, prepared, snapshot, basedOnMessageKey)
-		if err != nil {
-			stats.Failed++
-			return nil, false, err
-		}
-		if !unchanged {
-			stats.Skipped++
-			f.reportChangedMessage(prepared.Request.TaskID, snapshot.CandidateName)
-			return nil, true, nil
-		}
-		duplicate, err := f.replyAlreadyRecorded(ctx, prepared, *conversation, basedOnMessageKey, requestMessage)
-		if err != nil {
-			stats.Failed++
-			return nil, false, err
-		}
-		if duplicate {
-			stats.Skipped++
-			return nil, true, nil
-		}
-		if err = runtime.RequestAutoReplyResume(ctx, f.Browser, prepared.Platform, snapshot); err != nil {
-			stats.Failed++
-			return nil, false, fmt.Errorf("索要候选人简历失败：%w", err)
-		}
-		if err = f.saveResumeConversationStatus(ctx, prepared, conversation, "waiting_resume"); err != nil {
-			stats.Failed++
-			return nil, false, err
-		}
-		sent, err := f.sendVerifiedMessage(ctx, prepared, runtime, *conversation, snapshot, basedOnMessageKey, requestMessage, false)
-		if err != nil {
-			stats.Failed++
-			return nil, false, err
-		}
-		if sent {
-			stats.Succeeded++
-		} else {
-			stats.Skipped++
-		}
-		shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
-			Kind: "auto_reply", Phase: "result", Stage: "resume_requested", Terminal: true,
-			CandidateName: snapshot.CandidateName, Accepted: boolPointer(sent),
-			Reason: "还缺一份简历，我已经礼貌问候了", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		})
-		return nil, true, nil
+		// 没有简历只限制正式评估与推荐，候选人的岗位问题仍由 AI 根据配置回答。
+		return nil, false, nil
 	}
 
 	bundle := model.AutoReplyResumeBundle{
@@ -154,16 +108,16 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		return nil, false, fmt.Errorf("整理候选人正式简历失败，本地附件已经保留：%w", structureErr)
 	}
 	if strings.TrimSpace(bundle.Phone) == "" {
-		stats.Failed++
-		return nil, false, fmt.Errorf("候选人简历里暂时没找到可用手机号，本地附件已经保留，暂时不能入库")
+		f.log(prepared.Request.TaskID, "resume_waiting_phone", "warning", time.Now(), fmt.Errorf("简历已留在本机，手机号尚未确认，先继续回答岗位问题"))
+		// 继续保存已结构化的本地临时候选，后台同步仍独立检查手机号。
 	}
 	candidateID := ""
 	if state.Candidate != nil {
 		candidateID = state.Candidate.ID
 	}
 	input := cloud.AutoReplyCandidateInput{
-		StructuredCandidate: structured,
-		PositionID:          position.Position.ID, PlatformID: prepared.Platform.ID,
+		StructuredCandidate: structured, LocalCandidateID: candidateID,
+		PositionID: position.Position.ID, PlatformID: prepared.Platform.ID,
 		PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID,
 		AvatarURL: "",
 		Gender:    firstNonEmpty(bundle.Gender, snapshot.Gender), BirthYMPrecision: bundle.BirthYMPrecision,

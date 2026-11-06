@@ -9,10 +9,12 @@ import styles from "./recommendation.module.css";
 
 type RecommendationReportClientProps = {
   recommendation: CandidateRecommendation;
+  /** 私有预览复用已鉴权的数据，不生成公开链接或打印整个后台。 */
+  privatePreview?: boolean;
 };
 
 /** RecommendationReportClient 展示面试官需要的完整推荐快照。 */
-export default function RecommendationReportClient({ recommendation }: RecommendationReportClientProps) {
+export default function RecommendationReportClient({ recommendation, privatePreview = false }: RecommendationReportClientProps) {
   const [notice, setNotice] = useState("");
   const { candidate, position } = recommendation.report;
   const avatarURL = avatarSource(candidate.avatarURL);
@@ -27,14 +29,14 @@ export default function RecommendationReportClient({ recommendation }: Recommend
     }
   }
 
-  return <main className={styles.pageShell}>
-    <nav className={styles.toolbar} aria-label="推荐报告操作">
+  return <div className={privatePreview ? styles.privatePreview : styles.pageShell}>
+    {!privatePreview ? <nav className={styles.toolbar} aria-label="推荐报告操作">
       <div><strong>GoodHR 候选人推荐</strong><span>{notice}</span></div>
       <div className={styles.toolbarActions}>
         <button type="button" onClick={copyDetails}>复制详情</button>
         <button type="button" className={styles.primaryButton} onClick={() => window.print()}>打印 / 导出 PDF</button>
       </div>
-    </nav>
+    </nav> : null}
 
     <article className={styles.paper}>
       <header className={styles.hero}>
@@ -123,7 +125,7 @@ export default function RecommendationReportClient({ recommendation }: Recommend
     </article>
 
 
-  </main>;
+  </div>;
 }
 
 /** ReportSection 渲染报告中的统一章节。 */

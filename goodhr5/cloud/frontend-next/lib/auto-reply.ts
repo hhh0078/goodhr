@@ -122,6 +122,7 @@ export async function savePositionAutoReplyConfig(
       {
         method: "PUT",
         body: {
+          version: item.version,
           company_profile_id: item.company_profile_id,
           enabled: item.enabled,
           position_description: item.position_description.trim(),

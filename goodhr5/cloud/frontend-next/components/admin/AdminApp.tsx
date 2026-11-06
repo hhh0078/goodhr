@@ -603,11 +603,18 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     (group) => !group.superOnly || user?.role === "super_admin",
   );
 
-  /** logout 清除登录状态并返回登录页。 */
-  function logout() {
+  /** logout 先撤销本地内存会话再退出网页，避免后台使用旧凭证继续收费处理。 */
+  async function logout() {
     wechatStatusRequestRef.current?.abort();
     wechatStatusRequestRef.current = null;
     setWechatOfficialStatus(null);
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (agentBase && token) {
+      try { await localRequest(agentBase, "/api/v1/session/unbind", { method: "POST", body: { token }, timeoutMS: 3000 }); }
+      catch { notify("本地程序暂未收到退出通知。如需停止后台处理，请关闭本地程序。", "warning"); }
+    }
+    // 退出请求等待期间若其他标签页已切号，不清除新账号的登录状态。
+    if (localStorage.getItem(TOKEN_KEY) !== token) return;
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(SESSION_EMAIL_KEY);
     setThemeAccount("");

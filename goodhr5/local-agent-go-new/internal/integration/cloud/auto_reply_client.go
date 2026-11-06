@@ -101,7 +101,7 @@ func (c *Client) SaveAutoReplyCandidate(ctx context.Context, credentials AgentCr
 	if strings.TrimSpace(candidate.PositionID) == "" || strings.TrimSpace(candidate.PlatformID) == "" {
 		return AutoReplyCandidateSaveResult{}, fmt.Errorf("正式简历缺少岗位或招聘平台")
 	}
-	if strings.TrimSpace(candidate.Phone) == "" {
+	if strings.TrimSpace(candidate.Phone) == "" && !c.localAutoConfigured {
 		return AutoReplyCandidateSaveResult{}, fmt.Errorf("没有手机号时只能保存临时会话，暂时不能进入正式简历库")
 	}
 	if c.localAutoConfigured {

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,12 +14,17 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
-	"goodhr5/local-agent-go-new/internal/storage"
 )
 
 // processConversation 平铺执行页面读取、岗位归属、云端同步、简历门槛、AI决定和安全发送。
 func (f *Flow) processConversation(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, positions []cloud.AutoReplyPositionSnapshot, conversation model.Conversation, openSnapshot *model.AutoReplyConversationSnapshot, stats *shared.Stats) error {
 	stats.Processed++
+	if prepared.Request.PlatformAccountID != "" {
+		if conversation.PlatformAccountID != "" && conversation.PlatformAccountID != prepared.Request.PlatformAccountID {
+			return fmt.Errorf("招聘账号绑定发生变化，请停止后重新确认账号")
+		}
+		conversation.PlatformAccountID = prepared.Request.PlatformAccountID
+	}
 	initialState, err := f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
 		PlatformID: prepared.Platform.ID, PlatformAccountID: conversation.PlatformAccountID,
 		PlatformCandidateID: conversation.PlatformCandidateID,
@@ -52,11 +58,13 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		return err
 	}
-	if len(messages) == 0 {
-		stats.Skipped++
-		return nil
-	}
 	position, positionErr := resolvePosition(positions, pageSnapshot.CommunicationPosition)
+	if positionErr == nil {
+		prepared.Position.ID = position.Position.ID
+		if binder, ok := f.Logger.(interface{ SetTaskPosition(string, string) }); ok {
+			binder.SetTaskPosition(prepared.Request.TaskID, position.Position.ID)
+		}
+	}
 	state := initialState
 	if persistentConversationThreadID(pageSnapshot.PlatformThreadID, pageSnapshot.Conversation.Key) != persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key) ||
 		pageSnapshot.PlatformCandidateID != conversation.PlatformCandidateID ||
@@ -88,16 +96,24 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		return fmt.Errorf("同步候选人聊天记录失败：%w", err)
 	}
-	if latestCandidateKey == "" {
-		stats.Skipped++
-		return f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, "没有读到候选人的最新消息", "candidate_message_missing", messageFingerprint(model.ConversationMessage{Direction: "candidate", TextContent: pageSnapshot.PlatformThreadID}, 0))
+	pending, err := f.Cloud.PendingAutoReplyMessages(ctx, credentials(prepared), cloudConversation.ID)
+	if err != nil {
+		return fmt.Errorf("读取待回复消息失败：%w", err)
 	}
+	if len(pending) == 0 {
+		stats.Skipped++
+		return nil
+	}
+	latestCandidateKey = firstNonEmpty(pending[len(pending)-1].PlatformMessageID, pending[len(pending)-1].Fingerprint)
 	if positionErr != nil {
 		stats.Skipped++
-		return f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, positionErr.Error(), "position_unresolved", latestCandidateKey)
+		if err = f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, positionErr.Error(), "position_unresolved", latestCandidateKey); err != nil {
+			return err
+		}
+		return f.Cloud.CompleteAutoReplyMessage(ctx, credentials(prepared), cloudConversation.ID, latestCandidateKey, "manual")
 	}
 	shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
-		Kind: "auto_reply", Phase: "loading", Stage: "sync", CandidateName: pageSnapshot.CandidateName,
+		PositionID: position.Position.ID, Kind: "auto_reply", Phase: "loading", Stage: "sync", CandidateName: pageSnapshot.CandidateName,
 		Reason: "聊天记录已经同步，正在核对简历", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	})
 
@@ -109,6 +125,14 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	pageSnapshot = mergeCloudResumeCard(pageSnapshot, messages)
 	if openSnapshot != nil {
 		*openSnapshot = pageSnapshot
+	}
+	if state.Candidate == nil {
+		candidate, candidateErr := f.Cloud.EnsureLocalAutoReplyCandidate(ctx, credentials(prepared), cloudConversation)
+		if candidateErr != nil {
+			return candidateErr
+		}
+		state.Candidate = &candidate
+		cloudConversation.CandidateID = candidate.ID
 	}
 	avatarHandled := f.syncCandidateAvatarBestEffort(ctx, prepared, pageSnapshot, state.Candidate)
 	resume, handled, err := f.ensureResume(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, stats)
@@ -144,16 +168,17 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	}
 	for refreshes := 0; ; refreshes++ {
 		shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
-			Kind: "auto_reply", Phase: "loading", Stage: "ai", CandidateName: pageSnapshot.CandidateName,
+			PositionID: position.Position.ID, Kind: "auto_reply", Phase: "loading", Stage: "ai", CandidateName: pageSnapshot.CandidateName,
 			Reason: "AI 正在认真看消息", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		})
-		decision, changed, replyErr := f.replyWhileMonitoring(ctx, prepared, runtime, pageSnapshot, ReplyContext{
+		replyInput := ReplyContext{
 			TaskID: prepared.Request.TaskID, Credentials: credentials(prepared), Position: position,
 			AIConfig: prepared.Position.AI, EnableThinking: prepared.Position.EnableThinking,
-			Conversation: cloudConversation, CandidateState: state, Messages: messages,
+			Conversation: cloudConversation, CandidateState: state, Messages: messages, PendingMessages: pending,
 			ConfirmationItems: confirmations, PageSnapshot: pageSnapshot, Resume: resume,
 			BasedOnMessageKey: latestCandidateKey,
-		})
+		}
+		decision, changed, replyErr := f.replyWhileMonitoring(ctx, prepared, runtime, pageSnapshot, replyInput)
 		if replyErr != nil {
 			stats.Failed++
 			return fmt.Errorf("AI 自动回复判断失败：%w", replyErr)
@@ -211,13 +236,33 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 				stats.Failed++
 				return fmt.Errorf("刷新候选人确认项失败：%w", err)
 			}
+			pending, err = f.Cloud.PendingAutoReplyMessages(ctx, credentials(prepared), cloudConversation.ID)
+			if err != nil {
+				return err
+			}
+			if len(pending) == 0 {
+				return nil
+			}
 			latestCandidateKey = nextCandidateKey
 			continue
+		}
+		if err = f.verifyCurrentReplyConfiguration(ctx, prepared, position); err != nil {
+			return err
+		}
+		if err = f.Cloud.CommitAutoReplyProposal(ctx, credentials(prepared), cloudConversation.ID, latestCandidateKey, position.Config.Version, decision.ConfirmationUpdates, decision.Suggestions); err != nil {
+			return fmt.Errorf("保存本轮已复核结果失败：%w", err)
+		}
+		confirmations, err = f.Cloud.AutoReplyConfirmationItems(ctx, credentials(prepared), cloudConversation.ID)
+		if err != nil {
+			return err
 		}
 		if strings.TrimSpace(decision.ManualReason) != "" {
 			stats.Skipped++
 			reasonKey := firstNonEmpty(decision.ReasonKey, "ai_manual_handoff")
-			return f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, decision.ManualReason, reasonKey, latestCandidateKey)
+			if err = f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, decision.ManualReason, reasonKey, latestCandidateKey); err != nil {
+				return err
+			}
+			return f.completeReplyBatch(ctx, prepared, replyInput, "manual")
 		}
 		if len(decision.Messages) == 0 || len(decision.Messages) > 2 {
 			stats.Failed++
@@ -237,12 +282,21 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 					break
 				}
 			}
+			if err = f.verifyCurrentReplyConfiguration(ctx, prepared, position); err != nil {
+				return err
+			}
 			content := strings.TrimSpace(reply.Content)
 			if !oneOf(reply.Type, "answer", "confirmation") || content == "" || len([]rune(content)) > maxAutoReplyMessageRunes {
 				stats.Failed++
 				return fmt.Errorf("AI 第%d条消息类型不正确、内容为空或超过200字", index+1)
 			}
 			sent, sendErr := f.sendVerifiedMessage(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, content, index == 0, index+1)
+			if errors.Is(sendErr, errAutoReplySendNeedsReview) {
+				if err = f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, sendErr.Error(), "send_unknown", latestCandidateKey); err != nil {
+					return err
+				}
+				return f.completeReplyBatch(ctx, prepared, replyInput, "manual")
+			}
 			if sendErr != nil {
 				stats.Failed++
 				return sendErr
@@ -263,9 +317,24 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			stats.Skipped++
 			return nil
 		}
+		if sentCount == 1 && len(decision.Messages) == 1 {
+			if err = f.requestResumeAfterAnswer(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, previousContent); err != nil {
+				return err
+			}
+		}
+		changedAfterSend, syncErr := f.syncReplyChangesBeforeCompletion(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, messages)
+		if syncErr != nil {
+			return syncErr
+		}
+		if changedAfterSend {
+			return f.Cloud.CompleteAutoReplyMessage(ctx, credentials(prepared), cloudConversation.ID, latestCandidateKey, "sent")
+		}
+		if err = f.completeReplyBatch(ctx, prepared, replyInput, "sent"); err != nil {
+			return err
+		}
 		stats.Succeeded++
 		shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
-			Kind: "auto_reply", Phase: "result", Stage: "sent", Terminal: true,
+			PositionID: position.Position.ID, Kind: "auto_reply", Phase: "result", Stage: "sent", Terminal: true,
 			CandidateName: pageSnapshot.CandidateName, Accepted: boolPointer(true),
 			Reason: fmt.Sprintf("候选人消息已经回复，共%d条", sentCount), UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		})
@@ -494,14 +563,4 @@ func resumePhone(value *model.AutoReplyResumeBundle) string {
 		return ""
 	}
 	return strings.TrimSpace(value.Phone)
-}
-
-// saveLocalReplyRecord 保存不含消息正文的本地重复发送摘要。
-func (f *Flow) saveLocalReplyRecord(ctx context.Context, prepared shared.PreparedTask, conversation cloud.AutoReplyConversation, replyHash string, result string) {
-	if err := f.Store.SaveConversation(context.WithoutCancel(ctx), storage.ConversationRecord{
-		TaskID: prepared.Request.TaskID, ConversationKey: conversation.PlatformThreadID,
-		PlatformID: prepared.Platform.ID, ReplyHash: replyHash, Result: result,
-	}); err != nil {
-		f.log(prepared.Request.TaskID, "save_conversation", "warning", time.Now(), err)
-	}
 }

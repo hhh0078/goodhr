@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 )
 
 // ErrAutoReplyForbidden 表示当前用户不属于目标团队或没有自动回复数据权限。
@@ -137,7 +138,7 @@ func (s *PostgresAutoReplyStore) DeleteCompanyProfile(ctx context.Context, tenan
 }
 
 // SavePositionAutoReplyConfig 原子保存岗位自动回复配置并全量替换条件。
-func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context, userEmail string, item PositionAutoReplyConfig) (PositionAutoReplyConfig, error) {
+func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context, userEmail string, item PositionAutoReplyConfig, expectedVersion ...int) (PositionAutoReplyConfig, error) {
 	applyAutoReplyConfigDefaults(&item)
 	if err := validatePositionAutoReplyConfig(item); err != nil {
 		return PositionAutoReplyConfig{}, err
@@ -152,6 +153,27 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 	}
 	defer tx.Rollback()
 	if err = ensurePositionAndCompanyForAutoReply(ctx, tx, item); err != nil {
+		return PositionAutoReplyConfig{}, err
+	}
+	// 同一岗位串行保存；配置尚不存在时也由岗位行锁保护首次写入。
+	var lockedID string
+	if err = tx.QueryRowContext(ctx, `SELECT id::text FROM positions WHERE id=$1 FOR UPDATE`, item.PositionID).Scan(&lockedID); err != nil {
+		return PositionAutoReplyConfig{}, err
+	}
+	var currentVersion int
+	err = tx.QueryRowContext(ctx, `SELECT version FROM position_auto_reply_configs WHERE position_id=$1`, item.PositionID).Scan(&currentVersion)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return PositionAutoReplyConfig{}, err
+	}
+	version, compareVersion := item.Version, item.Version > 0
+	// 新客户端明确传入0时也保护首次保存；未传版本的旧客户端保持兼容。
+	if len(expectedVersion) > 0 {
+		version, compareVersion = expectedVersion[0], true
+	}
+	if compareVersion && version != currentVersion {
+		return PositionAutoReplyConfig{}, newAutoReplyValidationError("岗位配置刚刚有更新，请重新打开设置后再保存")
+	}
+	if err = preserveAutoReplyConditionIDs(ctx, tx, &item); err != nil {
 		return PositionAutoReplyConfig{}, err
 	}
 	_, err = tx.ExecContext(ctx, `
@@ -182,13 +204,21 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 	}
 	for index, condition := range item.Conditions {
 		condition.SortOrder = index
+		createdAt := condition.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = time.Now().UTC()
+		}
+		createdBy := condition.CreatedByUserID
+		if createdBy == "" {
+			createdBy = userID
+		}
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO position_reply_conditions (
-				tenant_id, position_id, condition_type, content, dedupe_key,
-				sort_order, enabled, created_by_user_id, updated_by_user_id
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
+				id, tenant_id, position_id, condition_type, content, dedupe_key,
+				sort_order, enabled, created_by_user_id, updated_by_user_id, created_at
+			) VALUES (COALESCE(NULLIF($9,'')::uuid,gen_random_uuid()),$1,$2,$3,$4,$5,$6,$7,$10,$8,$11)
 		`, item.TenantID, item.PositionID, condition.Type, strings.TrimSpace(condition.Content),
-			normalizeAutoReplyDedupeKey(condition.Content), index, condition.Enabled, userID)
+			normalizeAutoReplyDedupeKey(condition.Content), index, condition.Enabled, userID, condition.ID, createdBy, createdAt)
 		if err != nil {
 			return PositionAutoReplyConfig{}, err
 		}
@@ -197,6 +227,47 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 		return PositionAutoReplyConfig{}, err
 	}
 	return s.GetPositionAutoReplyConfig(ctx, item.TenantID, item.PositionID)
+}
+
+// preserveAutoReplyConditionIDs 保留当前岗位条件的稳定编号，兼容未提交编号的旧客户端，拒绝外部或重复编号。
+func preserveAutoReplyConditionIDs(ctx context.Context, tx *sql.Tx, item *PositionAutoReplyConfig) error {
+	rows, err := tx.QueryContext(ctx, `SELECT id::text,dedupe_key,COALESCE(created_by_user_id::text,''),created_at FROM position_reply_conditions WHERE position_id=$1`, item.PositionID)
+	if err != nil {
+		return err
+	}
+	ids, contents := map[string]PositionReplyCondition{}, map[string]string{}
+	for rows.Next() {
+		var saved PositionReplyCondition
+		if err = rows.Scan(&saved.ID, &saved.DedupeKey, &saved.CreatedByUserID, &saved.CreatedAt); err != nil {
+			rows.Close()
+			return err
+		}
+		ids[saved.ID], contents[saved.DedupeKey] = saved, saved.ID
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	used := map[string]bool{}
+	for index := range item.Conditions {
+		condition := &item.Conditions[index]
+		condition.CreatedAt, condition.CreatedByUserID = time.Time{}, ""
+		condition.ID = strings.TrimSpace(condition.ID)
+		if condition.ID == "" {
+			condition.ID = contents[normalizeAutoReplyDedupeKey(condition.Content)]
+		}
+		if condition.ID == "" {
+			continue
+		}
+		saved, exists := ids[condition.ID]
+		if !exists || used[condition.ID] {
+			return newAutoReplyValidationError("岗位条件已变化，请重新打开设置后再保存")
+		}
+		used[condition.ID] = true
+		condition.CreatedAt, condition.CreatedByUserID = saved.CreatedAt, saved.CreatedByUserID
+	}
+	return nil
 }
 
 // GetPositionAutoReplyConfig 读取岗位自动回复配置和有序条件。

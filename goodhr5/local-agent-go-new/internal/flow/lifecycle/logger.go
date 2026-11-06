@@ -20,6 +20,8 @@ const analysisResultHoldDuration = 8 * time.Second
 // TaskLogger 同时输出日志并更新任务当前步骤。
 type TaskLogger struct {
 	store              *storage.Store
+	positionMu         sync.RWMutex
+	taskPositions      map[string]string
 	next               shared.Logger
 	candidateMu        sync.RWMutex
 	candidateTaskID    string
@@ -188,8 +190,11 @@ func (l *TaskLogger) saveAnalysisLog(taskID string, status shared.AnalysisStatus
 		stepStatus = "success"
 	}
 	step := strings.Trim(strings.Join([]string{"analysis", status.Kind, status.Stage}, "."), ".")
+	if status.PositionID == "" {
+		status.PositionID = l.taskPosition(taskID)
+	}
 	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
-		TaskID: taskID, Flow: "analysis", Step: step, Status: stepStatus, Level: level, Message: message,
+		TaskID: taskID, PositionID: status.PositionID, Flow: "analysis", Step: step, Status: stepStatus, Level: level, Message: message,
 	}); err != nil {
 		log.Printf("task_id=%s flow=analysis step=save_log status=warning error=%q", taskID, err)
 	}
@@ -305,7 +310,7 @@ func (l *TaskLogger) Step(taskID string, flow string, step string, status string
 			}
 		}
 		saved, saveErr := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
-			TaskID: taskID, Flow: flow, Step: step, Status: status,
+			TaskID: taskID, PositionID: l.taskPosition(taskID), Flow: flow, Step: step, Status: status,
 			Message: message, DurationMS: time.Since(startedAt).Milliseconds(), Category: category,
 			IsError: isError, ErrorMessage: errorMessage,
 			Input: input, Output: output,
@@ -403,7 +408,7 @@ func (l *TaskLogger) CandidateActivity(taskID string, candidateName string, acti
 		log.Print(string(line))
 	}
 	saved, saveErr := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
-		TaskID: taskID, Flow: "candidate", Step: action, Status: status,
+		TaskID: taskID, PositionID: l.taskPosition(taskID), Flow: "candidate", Step: action, Status: status,
 		Message:  message,
 		Category: category, IsError: isError,
 		ErrorMessage: errorMessage, Input: input, Output: output,
@@ -614,4 +619,25 @@ func userStepLabel(step string) string {
 		return label
 	}
 	return "执行任务步骤"
+}
+
+// SetTaskPosition 为串行浏览器步骤绑定实际处理岗位；空编号清理任务的临时关联。
+func (l *TaskLogger) SetTaskPosition(taskID, positionID string) {
+	l.positionMu.Lock()
+	defer l.positionMu.Unlock()
+	if l.taskPositions == nil {
+		l.taskPositions = make(map[string]string)
+	}
+	if positionID == "" {
+		delete(l.taskPositions, taskID)
+	} else {
+		l.taskPositions[taskID] = positionID
+	}
+}
+
+// taskPosition 返回当前串行步骤的实际岗位，未绑定时由存储层使用任务原岗位。
+func (l *TaskLogger) taskPosition(taskID string) string {
+	l.positionMu.RLock()
+	defer l.positionMu.RUnlock()
+	return l.taskPositions[taskID]
 }

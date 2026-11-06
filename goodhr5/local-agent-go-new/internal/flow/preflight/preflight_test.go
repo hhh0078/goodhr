@@ -143,7 +143,7 @@ func TestValidateGreetingSetting(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			prepared := &shared.PreparedTask{Request: shared.StartRequest{
 				TaskID: "task-1", PositionID: "position-1", Token: "fixture",
-				TaskType: test.taskType, EnableGreet: test.setting,
+				TaskType: test.taskType, EnableGreet: test.setting, PlatformAccountID: "fixture-account",
 			}}
 			err := validateRequest(context.Background(), prepared)
 			if (err != nil) != test.wantError {
@@ -174,5 +174,20 @@ func TestLoadPositionPreservesDisabledGreeting(t *testing.T) {
 	}
 	if prepared.Request.EnableGreet == nil || *prepared.Request.EnableGreet || prepared.Request.TaskType != "greeting" || prepared.Request.ProfileID != "profile-1" {
 		t.Fatal("岗位快照覆盖了任务请求的只检查设置")
+	}
+}
+
+// TestAutoReplyRequiresExplicitAccount 验证所有自动回复启动入口都必须明确绑定当前招聘账号。
+func TestAutoReplyRequiresExplicitAccount(t *testing.T) {
+	prepared := &shared.PreparedTask{Request: shared.StartRequest{TaskID: "task", PositionID: "position", TaskType: "auto_reply", Token: "token"}}
+	if err := validateRequest(context.Background(), prepared); err == nil {
+		t.Fatal("自动回复不应接受缺失账号绑定")
+	}
+	prepared.Request.PlatformAccountID = "账号甲"
+	if err := validateRequest(context.Background(), prepared); err != nil {
+		t.Fatal(err)
+	}
+	if shared.AutoReplyAccountKey("boss", "账号甲") == shared.AutoReplyAccountKey("boss", "账号乙") || shared.AutoReplyAccountKey("boss", "账号甲") == shared.AutoReplyAccountKey("liepin", "账号甲") {
+		t.Fatal("账号隔离键未包含平台或账号")
 	}
 }

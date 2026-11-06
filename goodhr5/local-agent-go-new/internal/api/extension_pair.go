@@ -244,8 +244,12 @@ func (s *Server) bindExtensionSessionLocked(token, userID string) {
 		s.extensionGeneration++
 		// 完整登录会话已被替换，旧凭证发起的收费调用只能停止，不能把结果交给新会话。
 		if s.extensionToken != "" {
-			s.resumeSummaries.CancelActive("")
-			s.resumeImports.CancelActive()
+			if s.resumeSummaries != nil {
+				s.resumeSummaries.CancelActive("")
+			}
+			if s.resumeImports != nil {
+				s.resumeImports.CancelActive()
+			}
 		}
 	}
 	s.extensionToken, s.extensionUserID = token, userID

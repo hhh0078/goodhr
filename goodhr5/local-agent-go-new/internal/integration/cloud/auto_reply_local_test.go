@@ -4,6 +4,7 @@ package cloud
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"net/http"
@@ -150,7 +151,7 @@ func TestLocalAutoReplyReportClaimsSurviveRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, claimed, err := client.ClaimAutoReplyReport(ctx, credentials, "retry"); err != nil || claimed {
+	if _, claimed, err := client.ClaimAutoReplyReport(ctx, credentials, "retry"); !errors.Is(err, ErrAutoReplyReportRetriesExhausted) || claimed {
 		t.Fatalf("超过三次仍重复调用AI：%t %v", claimed, err)
 	}
 	report := AutoReplyRecommendationReport{ExecutiveSummary: "本机报告"}

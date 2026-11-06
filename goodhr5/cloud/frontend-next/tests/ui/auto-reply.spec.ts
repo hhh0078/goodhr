@@ -10,15 +10,21 @@ test.use({ storageState: { cookies: [], origins: [{ origin: uniformOrigin, local
 /** fixture 在内存中模拟岗位配置和本地任务，未列入的写操作不会触达任何服务。 */
 async function fixture(page: Page) {
   const base = await mockUniformAdmin(page);
+  const reports = { blocked: 0, retries: 0 };
   const state = { running: false, starts: 0, stops: 0, config: { position_id: "uniform-position-1", company_profile_id: "company-one", enabled: false, position_description: "合成岗位说明", resume_request_message: "你好，方便发一份简历吗？", conditions: [], poll_interval_seconds: 5, max_threads_per_checkpoint: 3, version: 1 }, profiles: [{ id: "company-one", name: "合成公司", address: "合成测试地址", contact: "", overview: "合成公司介绍", extra_info: "", updated_at: "2026-10-30T08:00:00Z" }] };
   await page.route(/\/api\/(?:auto-reply\/|v1\/local\/auto-reply\/)/, async (route) => {
     const request = route.request(); const path = new URL(request.url()).pathname; const method = request.method();
     const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
     let data: unknown;
-    if (path.endsWith("/auto-reply/start")) { state.starts++; state.running = true; data = { ok: true, data: { status: "running", task_id: "synthetic-auto-reply" } }; }
+    if (path.endsWith("/auto-reply/start")) { expect(request.postDataJSON().platform_account_id).toBe("合成招聘账号"); state.starts++; state.running = true; data = { ok: true, data: { status: "running", task_id: "synthetic-auto-reply" } }; }
     else if (path.endsWith("/auto-reply/stop")) { state.stops++; state.running = false; data = { ok: true, data: { status: "stopped" } }; }
-    else if (path.endsWith("/auto-reply/status")) data = { ok: true, data: { status: state.running ? "running" : "stopped", current_step: "合成任务状态" } };
+    else if (path.endsWith("/auto-reply/status")) data = { ok: true, data: { status: state.running ? "running" : "stopped", current_step: "合成任务状态", blocked_report_count: reports.blocked } };
+    else if (path.endsWith("/auto-reply/retry-reports")) {
+      expect(request.postDataJSON().token).toBe("auto-reply-synthetic-token");
+      const count = reports.blocked; reports.retries++; reports.blocked = 0;
+      data = { ok: true, data: { retried_count: count } };
+    }
     else if (/\/positions\/[^/]+\/status$/.test(path)) data = { configured_enabled: state.config.enabled, enabled: state.config.enabled, version: 1, subscription: { allow_auto_reply: true } };
     else if (path.endsWith("/config")) {
       if (method === "PUT") state.config = { ...state.config, ...request.postDataJSON() };
@@ -28,7 +34,7 @@ async function fixture(page: Page) {
     else throw new Error(`自动回复测试遗漏接口 ${method} ${path}`);
     return route.fulfill({ headers, json: data });
   });
-  return { state, base };
+  return { state, base, reports };
 }
 
 for (const width of [1366, 390]) {
@@ -49,6 +55,14 @@ for (const width of [1366, 390]) {
     await expect(dialog).not.toBeVisible();
     expect(state.config.position_description).toContain("合成新说明"); expect(state.config.enabled).toBe(true);
     await page.getByRole("button", { name: "开始自动回复", exact: true }).click();
+    const account = page.getByRole("dialog", { name: "确认当前招聘账号", exact: true });
+    await expect(account.getByRole("button", { name: "确认账号并开始", exact: true })).toBeDisabled();
+    await account.getByRole("textbox", { name: "当前招聘账号", exact: true }).fill("合成招聘账号");
+    await expect(account).not.toHaveClass(/zoom.*(?:appear|enter)/);
+    await expect(account).toHaveCSS("opacity", "1");
+    await expect(page.getByText("自动回复配置保存好了，我会按这份内容老实回答。", { exact: true })).not.toBeVisible();
+    await page.screenshot({ path: resolve(output, `account-${width}.png`), fullPage: true, animations: "disabled" });
+    await account.getByRole("button", { name: "确认账号并开始", exact: true }).click();
     await expect(page.getByRole("button", { name: "停止自动回复", exact: true })).toBeVisible(); expect(state.starts).toBe(1);
     await page.reload();
     await page.getByRole("button", { name: "停止自动回复", exact: true }).click();
@@ -57,6 +71,23 @@ for (const width of [1366, 390]) {
     const create = await page.getByRole("button", { name: "新建岗位", exact: true }).boundingBox();
     expect(create!.x + create!.width).toBeLessThanOrEqual(width);
     expect(base.errors).toEqual([]); expect(base.writes).toEqual([]); expect(base.unknown).toEqual([]);
+  });
+
+  test(`失败报告 ${width}px 确认后才重新安排生成`, async ({ page }) => {
+    const { reports, state } = await fixture(page);
+    reports.blocked = 2;
+    await page.setViewportSize({ width, height: 960 });
+    await page.goto("/admin/positions");
+    await page.getByRole("button", { name: "重试报告（2）", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "重试推荐报告", exact: true });
+    await expect(dialog).toContainText("使用 AI 余额");
+    expect(reports.retries).toBe(0);
+    await expect(dialog).not.toHaveClass(/zoom.*(?:appear|enter)/);
+    mkdirSync(output, { recursive: true });
+    await page.screenshot({ path: resolve(output, `retry-report-${width}.png`), fullPage: true, animations: "disabled" });
+    await dialog.getByRole("button", { name: "确认", exact: true }).click();
+    await expect(page.getByRole("button", { name: "重试报告（2）", exact: true })).not.toBeVisible();
+    expect(reports.retries).toBe(1); expect(state.starts).toBe(0);
   });
 }
 
@@ -79,6 +110,20 @@ test("授权报告默认未公开，HR明确确认后可分享并撤销，页面
   await page.getByRole("tab", { name: "自动回复", exact: true }).click();
   await expect(page.getByText("合成候选人符合已确认条件", { exact: true })).toBeVisible();
   expect(actions).toEqual([]);
+  await page.getByRole("button", { name: "查看报告", exact: true }).click();
+  const preview = page.getByRole("dialog", { name: "推荐报告 · 私有预览", exact: true });
+  await expect(preview.getByRole("heading", { name: "合成候选人1", exact: true })).toBeVisible();
+  await expect(preview.getByRole("heading", { name: "联系方式", exact: true })).toBeVisible();
+  for (const width of [1366, 390]) {
+    await page.setViewportSize({ width, height: 960 });
+    await page.screenshot({ path: resolve(output, `private-report-${width}.png`), fullPage: true, animations: "disabled" });
+    const box = await preview.boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+  }
+  expect(actions).toEqual([]);
+  await preview.getByRole("button", { name: "关闭", exact: true }).last().click();
+  await expect(preview).not.toBeVisible();
   await page.getByRole("button", { name: "开启分享", exact: true }).click();
   const sharing = page.getByRole("dialog", { name: "开启报告分享", exact: true });
   await expect(sharing).toContainText("完整简历、联系方式和推荐结论");
@@ -90,4 +135,21 @@ test("授权报告默认未公开，HR明确确认后可分享并撤销，页面
   expect(actions).toEqual(["/api/auto-reply/recommendations/synthetic-public-report/share", "/api/auto-reply/recommendations/synthetic-public-report/revoke"]);
   expect(base.calls.some((call) => /conversations|attachments|ai_records/.test(call.query))).toBe(false);
   expect(base.errors).toEqual([]); expect(base.writes).toEqual([]); expect(base.unknown).toEqual([]);
+});
+
+test("主动退出先撤销本机内存凭证再返回登录页", async ({ page }) => {
+  await fixture(page);
+  let unbound = false;
+  await page.route("**/api/v1/session/unbind", async (route) => {
+    const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    expect(route.request().postDataJSON().token).toBe("auto-reply-synthetic-token");
+    unbound = true;
+    await route.fulfill({ headers, json: { ok: true, data: { unbound: true } } });
+  });
+  await page.goto("/admin/positions");
+  await expect(page.getByRole("button", { name: "开始自动回复", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  expect(unbound).toBe(true);
 });

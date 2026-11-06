@@ -56,30 +56,38 @@ type activeTask struct {
 
 // Runner 管理当前本地任务和两个独立主流程。
 type Runner struct {
-	mu                sync.Mutex
-	active            map[string]*activeTask
-	stoppingPositions map[string]int
-	stopVersions      map[string]uint64 // 记录岗位停止代数，阻止停止前发起的慢启动继续运行。
-	checker           *preflight.Checker
-	greeting          *greeting.Flow
-	reply             *auto_reply.Flow
-	store             *storage.Store
-	profiles          *profile.Manager
-	power             *power.Guard
-	cloud             *cloud.Client
-	notifier          *notification.Notifier
-	logger            shared.Logger
-	screenings        *screeningsync.Uploader
+	mu                  sync.Mutex
+	active              map[string]*activeTask
+	stoppingPositions   map[string]int
+	stopVersions        map[string]uint64 // 记录岗位停止代数，阻止停止前发起的慢启动继续运行。
+	checker             *preflight.Checker
+	greeting            *greeting.Flow
+	reply               *auto_reply.Flow
+	store               *storage.Store
+	profiles            *profile.Manager
+	power               *power.Guard
+	cloud               *cloud.Client
+	notifier            *notification.Notifier
+	logger              shared.Logger
+	screenings          *screeningsync.Uploader
+	autoReplyBackground *auto_reply.Background
 }
 
 // New 创建任务生命周期管理器。
 func New(checker *preflight.Checker, greetingFlow *greeting.Flow, replyFlow *auto_reply.Flow, store *storage.Store, profiles *profile.Manager, powerGuard *power.Guard, cloudClient *cloud.Client, notifier *notification.Notifier, logger shared.Logger) *Runner {
+	var background *auto_reply.Background
+	if checker != nil && replyFlow != nil {
+		if responder, ok := replyFlow.Responder.(*auto_reply.AIResponder); ok {
+			background = auto_reply.NewBackground(cloudClient, responder, checker.AgentBind.MachineID)
+		}
+	}
 	return &Runner{
 		active: make(map[string]*activeTask), checker: checker,
 		greeting: greetingFlow, reply: replyFlow, store: store,
 		profiles: profiles, power: powerGuard, cloud: cloudClient,
 		notifier: notifier, logger: logger,
-		screenings: screeningsync.New(store, cloudClient),
+		screenings:          screeningsync.New(store, cloudClient),
+		autoReplyBackground: background,
 	}
 }
 

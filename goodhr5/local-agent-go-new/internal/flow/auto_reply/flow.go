@@ -47,6 +47,7 @@ type ReplyContext struct {
 	Conversation      cloud.AutoReplyConversation
 	CandidateState    cloud.AutoReplyCandidateState
 	Messages          []cloud.AutoReplyMessage
+	PendingMessages   []cloud.AutoReplyMessage
 	ConfirmationItems []cloud.CandidateConfirmationItem
 	PageSnapshot      model.AutoReplyConversationSnapshot
 	Resume            *model.AutoReplyResumeBundle
@@ -84,9 +85,11 @@ type ReplyMessage struct {
 
 // ReplyDecision 表示 AI 工具循环最终决定发送最多两条消息或转人工。
 type ReplyDecision struct {
-	Messages     []ReplyMessage `json:"messages"`
-	ManualReason string         `json:"manual_reason,omitempty"`
-	ReasonKey    string         `json:"reason_key,omitempty"`
+	Messages            []ReplyMessage                    `json:"messages"`
+	ManualReason        string                            `json:"manual_reason,omitempty"`
+	ReasonKey           string                            `json:"reason_key,omitempty"`
+	ConfirmationUpdates []cloud.CandidateConfirmationItem `json:"confirmation_updates,omitempty"`
+	Suggestions         []cloud.AutoReplyConfigSuggestion `json:"suggestions,omitempty"`
 }
 
 // Flow 组装自动回复主流程依赖。
@@ -110,6 +113,12 @@ type flowStep struct {
 // Run 按平铺步骤复用浏览器、确认当前平台、初始化页面并持续处理未读会话。
 func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime) (shared.Stats, error) {
 	stats := shared.Stats{}
+	if strings.TrimSpace(prepared.Request.PlatformAccountID) == "" {
+		return stats, fmt.Errorf("开始前请确认当前招聘账号")
+	}
+	if binder, ok := f.Logger.(interface{ SetTaskPosition(string, string) }); ok {
+		defer binder.SetTaskPosition(prepared.Request.TaskID, "")
+	}
 	replyRuntime, ok := runtime.(model.AutoReplyRuntime)
 	if !ok {
 		return stats, fmt.Errorf("%s 自动回复页面能力还没有准备完整", prepared.Platform.Name)
@@ -150,6 +159,9 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 func (f *Flow) validateDependencies() error {
 	if f.Browser == nil || f.Store == nil || f.Cloud == nil {
 		return fmt.Errorf("自动回复运行组件没有准备完整")
+	}
+	if !f.Cloud.LocalAutoReplyEnabled() {
+		return fmt.Errorf("本地自动回复存储还没准备好")
 	}
 	if f.Responder == nil {
 		return fmt.Errorf("自动回复 AI 处理器没有准备完整")

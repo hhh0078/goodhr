@@ -176,9 +176,18 @@ func (s *AutoReplyService) savePositionConfig(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	var item PositionAutoReplyConfig
-	if err := decodeAutoReplyJSON(w, r, &item); err != nil {
+	var payload struct {
+		PositionAutoReplyConfig
+		Version *int `json:"version"`
+	}
+	if err := decodeAutoReplyJSON(w, r, &payload); err != nil {
 		return
+	}
+	item := payload.PositionAutoReplyConfig
+	var expectedVersion []int
+	if payload.Version != nil {
+		item.Version = *payload.Version
+		expectedVersion = []int{*payload.Version}
 	}
 	item.PositionID = position.ID
 	item.TenantID = requestContext.Tenant.ID
@@ -186,7 +195,7 @@ func (s *AutoReplyService) savePositionConfig(w http.ResponseWriter, r *http.Req
 		writeAutoReplyError(w, http.StatusForbidden, "AUTO_REPLY_MAX_REQUIRED", "自动回复属于 Max 全能版，当前套餐暂时不能开启")
 		return
 	}
-	saved, err := s.store.SavePositionAutoReplyConfig(r.Context(), requestContext.Session.Email, item)
+	saved, err := s.store.SavePositionAutoReplyConfig(r.Context(), requestContext.Session.Email, item, expectedVersion...)
 	if err != nil {
 		writeAutoReplyStoreError(w, err, "岗位自动回复配置没保存成功")
 		return

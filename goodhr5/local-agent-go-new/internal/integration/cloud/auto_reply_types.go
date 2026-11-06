@@ -308,6 +308,7 @@ type AutoReplyNotification struct {
 
 // AutoReplyNotificationResult 表示人工接管邮件的幂等发送结果。
 type AutoReplyNotificationResult struct {
+	Queued       bool                  `json:"queued"` // 已在本机可靠登记，发送失败由后台恢复。
 	Notification AutoReplyNotification `json:"notification"`
 	EmailSent    bool                  `json:"email_sent"`
 	Duplicate    bool                  `json:"duplicate"`
@@ -326,6 +327,7 @@ type AutoReplyCandidateLookup struct {
 // AutoReplyStoredCandidate 表示云端已有的正式简历。
 // 当前候选人存储模型仍使用 Go 字段名输出，因此这里显式兼容该现有协议。
 type AutoReplyStoredCandidate struct {
+	ResumeStructured    bool                         `json:"resume_structured,omitempty"` // 本地已成功解析简历，不依赖是否有手机号。
 	ID                  string                       `json:"ID"`
 	CandidateName       string                       `json:"CandidateName"`
 	AvatarURL           string                       `json:"AvatarURL"`
@@ -368,6 +370,7 @@ type AutoReplyCandidateState struct {
 
 // AutoReplyCandidateInput 表示本地清洗并校验后准备正式入库的简历。
 type AutoReplyCandidateInput struct {
+	LocalCandidateID string `json:"-"` // 已有本机候选人标识，不上传云端。
 	StructuredCandidate
 	PositionID          string `json:"position_id"`
 	PlatformID          string `json:"platform_id"`
