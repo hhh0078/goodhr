@@ -199,14 +199,28 @@
   line-height: 1.7;
 }
 .public-login-agreement {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.public-login-agreement-label {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
-  margin-bottom: 16px;
-  font-size: 13px;
+  min-width: 0;
 }
 .public-login-agreement .ant-checkbox-wrapper { font-size: 13px; }
+.public-login-forgot.ant-btn {
+  height: auto;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
 .public-agreement-link.ant-btn {
   padding: 0;
   height: auto;

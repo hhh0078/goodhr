@@ -95,6 +95,14 @@ for (const width of [1440, 375]) {
     await page.setViewportSize({ width, height: 900 });
     await mockLogin(page);
     const link = page.getByRole("button", { name: "《使用协议与隐私说明》", exact: true });
+    await expect(page.getByRole("button", { name: "阅读协议", exact: true })).toHaveCount(0);
+    const forgot = page.getByRole("button", { name: "忘记密码", exact: true });
+    await expect(forgot).toBeVisible();
+    const checkbox = page.getByRole("checkbox", { name: "我已阅读并同意", exact: true });
+    const checkboxBox = await checkbox.boundingBox();
+    const forgotBox = await forgot.boundingBox();
+    expect(Math.abs((checkboxBox!.y + checkboxBox!.height / 2) - (forgotBox!.y + forgotBox!.height / 2))).toBeLessThan(6);
+    expect(forgotBox!.x + forgotBox!.width).toBeLessThanOrEqual(width);
     await expect(link).toHaveCSS("text-decoration-line", "underline");
     await expect(page.getByRole("checkbox", { name: "我已阅读并同意", exact: true })).not.toBeChecked();
     await page.screenshot({ path: `artifacts/login-conversion-${width}.png`, fullPage: true, animations: "disabled" });

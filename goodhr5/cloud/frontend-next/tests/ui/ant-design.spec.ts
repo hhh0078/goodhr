@@ -845,7 +845,7 @@ test("手机协议弹窗可滚动，不滚到底部也能确认", async ({ page 
   await mockSession(page, { signedOut: true });
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/login");
-  await page.getByRole("button", { name: "阅读协议", exact: true }).click();
+  await page.getByRole("button", { name: "《使用协议与隐私说明》", exact: true }).click();
   const dialog = page.getByRole("dialog", {
     name: "GoodHR 使用协议与隐私说明",
   });

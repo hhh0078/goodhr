@@ -510,25 +510,9 @@ export default function LoginForm() {
           >
             同一账号支持多处登录，不会再互相挤下线。
           </Typography.Paragraph>
-          <div className="public-login-actions">
-            <Button
-              type="text"
-              size="small"
-              onClick={openReset}
-              disabled={loading}
-            >
-              忘记密码
-            </Button>
-            <Button
-              type="link"
-              size="small"
-              onClick={openAgreement}
-            >
-              阅读协议
-            </Button>
-          </div>
         </div>
         <div className="public-login-agreement">
+          <div className="public-login-agreement-label">
           <Checkbox
             checked={agreementReady}
             disabled={loading}
@@ -540,6 +524,10 @@ export default function LoginForm() {
           >我已阅读并同意</Checkbox>
           <Button type="link" className="public-agreement-link" onClick={openAgreement} disabled={loading}>
             《使用协议与隐私说明》
+          </Button>
+          </div>
+          <Button type="text" size="small" className="public-login-forgot" onClick={openReset} disabled={loading}>
+            忘记密码
           </Button>
         </div>
         {error ? (
