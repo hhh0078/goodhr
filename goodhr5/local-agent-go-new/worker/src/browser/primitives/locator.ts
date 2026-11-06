@@ -31,7 +31,7 @@ const SELECTOR_RETRY_DELAY_MS = 300;
 export class LocatorPrimitive {
   private readonly viewport = new ViewportPrimitive();
 
-  /** resolve 按 iframe、父级和目标顺序解析一个元素。 */
+  /** resolve 按 iframe、父级和目标顺序解析元素；只读模式复用状态检查，不采集交互所需几何。 */
   async resolve(
     page: Page,
     spec: SelectorSpec,
@@ -40,6 +40,7 @@ export class LocatorPrimitive {
       action: string;
       step: string;
       require_unique: boolean;
+      view_mode?: "geometry" | "state";
     },
   ): Promise<ResolvedElement> {
     return this.resolveWithPolling(
@@ -425,7 +426,7 @@ export class LocatorPrimitive {
     spec: SelectorSpec,
     attempts: SelectorAttempt[],
     requireUnique: boolean,
-    context: { trace_id: string; action: string; step: string; frame_path?: number },
+    context: { trace_id: string; action: string; step: string; frame_path?: number; view_mode?: "geometry" | "state" },
   ): Promise<ResolvedElement> {
     const scope = await this.resolveScope(page, spec, attempts, context);
     const selected = await this.selectFromGroup(
@@ -436,7 +437,9 @@ export class LocatorPrimitive {
       requireUnique,
       context,
     );
-    const view = await this.view(page, selected.locator);
+    const view = context.view_mode === "state"
+      ? await this.readView(selected.locator, spec)
+      : await this.view(page, selected.locator);
     if (!(await this.matchesState(selected.locator, spec, view))) {
       throw new WorkerError({
         code:

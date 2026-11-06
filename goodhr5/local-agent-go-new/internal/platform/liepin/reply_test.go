@@ -700,8 +700,8 @@ func TestCollectLiepinOnlineResumeUsesSamePagePanel(t *testing.T) {
 	}
 }
 
-// TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel 验证附件先于会关闭聊天框的在线简历浮层处理。
-func TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel(t *testing.T) {
+// TestCollectAutoReplyResumeKeepsDownloadedAttachmentWithoutOnlinePanel 验证真实附件完成后不再依赖在线简历入口。
+func TestCollectAutoReplyResumeKeepsDownloadedAttachmentWithoutOnlinePanel(t *testing.T) {
 	downloadPath := t.TempDir() + "/resume.pdf"
 	if err := os.WriteFile(downloadPath, []byte("test resume"), 0o600); err != nil {
 		t.Fatalf("准备测试附件失败：%v", err)
@@ -746,24 +746,23 @@ func TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel(t *testing.T
 	if len(bundle.AttachmentPaths) != 1 || bundle.AttachmentPaths[0] != downloadPath {
 		t.Fatalf("附件没有完成落盘：%v", bundle.AttachmentPaths)
 	}
-	attachmentIndex, attachmentClicks, onlineIndex := -1, 0, -1
-	for index, click := range browser.clicks {
+	attachmentClicks := 0
+	for _, click := range browser.clicks {
 		if click == "测试附件入口" {
-			attachmentIndex = index
 			attachmentClicks++
 		}
 		if click == "测试在线简历入口" {
-			onlineIndex = index
+			t.Fatalf("真实附件已下载，仍打开在线简历：clicks=%v", browser.clicks)
 		}
-	}
-	if attachmentIndex < 0 || onlineIndex < 0 || attachmentIndex >= onlineIndex {
-		t.Fatalf("简历处理顺序不正确：clicks=%v", browser.clicks)
 	}
 	if attachmentClicks != 2 || !browser.attachmentVerify || browser.attachmentAnchor != "测试聊天滚动区域" {
 		t.Fatalf("附件入口没有在滚动区内重试并验证弹框：clicks=%v verified=%t anchor=%q", browser.clicks, browser.attachmentVerify, browser.attachmentAnchor)
 	}
-	if !browser.conversationOpen || !browser.allSelected {
-		t.Fatalf("在线简历关闭后没有恢复原候选人聊天框：conversation_open=%t all_selected=%t clicks=%v", browser.conversationOpen, browser.allSelected, browser.clicks)
+	if !browser.conversationOpen || browser.attachmentOpen || browser.detailOpen {
+		t.Fatalf("附件采集完成后未保留可用聊天框：conversation_open=%t attachment_open=%t detail_open=%t", browser.conversationOpen, browser.attachmentOpen, browser.detailOpen)
+	}
+	if bundle.Email != "test@example.com" || bundle.Phone != "" || !strings.Contains(bundle.OnlineResumeText, "附件简历") {
+		t.Fatalf("没有保留附件正文，或误混入在线简历资料：%+v", bundle)
 	}
 }
 

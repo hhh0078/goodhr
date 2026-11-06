@@ -108,6 +108,8 @@ interface SelectorCandidate {
 - 可见、启用和视口状态。
 - 当前页面编号和 URL 摘要。
 
+`ReadAction` 的文本、HTML 和属性读取使用内部 `state` 定位模式，复用列表读取的状态检查，不采集边界和视口截图。框架、父级、文本、属性、序号、状态筛选、取消检查及短期引用均保留；只读结果不返回几何信息，日志标记 `geometry_read: false`，不报告未测量的视口状态。普通查找、点击、输入和滚动仍默认使用完整几何模式。此优化不增加协议字段或系统分支，Windows x64、macOS arm64 与 amd64 共用相同 Worker 实现；合成回归见 `worker/test/read-without-geometry.test.mjs`，实际页面速度与各系统安装运行仍须分别验收。
+
 `element_ref` 规则：
 
 - 只在当前 Page 和短时间操作内有效。

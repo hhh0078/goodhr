@@ -41,6 +41,8 @@ export class ReadAction {
         request.selector,
         actionContext,
         false,
+        true,
+        "state",
       );
       let value: string;
       let property: string;

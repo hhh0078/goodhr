@@ -32,8 +32,8 @@ func (r *Runtime) RequestAutoReplyResume(ctx context.Context, browser model.Brow
 	return common.RequestCandidateInfo(ctx, browser, cfg, model.CandidateInfoRequest{RequestResume: true})
 }
 
-// CollectAutoReplyResume 先下载附件，再读取在线简历并整理联系方式。
-// 猎聘关闭在线简历浮层时会同时关闭聊天框，因此在线简历必须放在最后读取。
+// CollectAutoReplyResume 优先返回已核实落盘的真实附件，由公共流程解析正文和联系方式。
+// 在线简历是补充来源，不能在附件下载成功后再占用采集预算、导致整个结果丢失。
 func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (model.AutoReplyResumeBundle, error) {
 	if !snapshot.ResumeCardAvailable {
 		return model.AutoReplyResumeBundle{}, fmt.Errorf("%s当前会话没有候选人简历卡片", cfg.Name)
@@ -53,14 +53,16 @@ func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Brow
 	if err != nil {
 		return model.AutoReplyResumeBundle{}, err
 	}
-	onlineText, err := collectLiepinOnlineResume(ctx, browser, cfg)
-	if err != nil {
+	if err = ctx.Err(); err != nil {
 		return model.AutoReplyResumeBundle{}, err
 	}
 	if err = ensureLiepinAutoReplyConversation(ctx, browser, cfg, snapshot); err != nil {
 		return model.AutoReplyResumeBundle{}, fmt.Errorf("恢复%s候选人聊天框失败：%w", cfg.Name, err)
 	}
-	resumeText := joinLiepinResumeText(onlineText, attachmentText)
+	if err = ctx.Err(); err != nil {
+		return model.AutoReplyResumeBundle{}, err
+	}
+	resumeText := joinLiepinResumeText("", attachmentText)
 	phone, email, wechat := parseLiepinContacts(resumeText)
 	birthYM, precision := parseLiepinBirthYM(resumeText, time.Now())
 	return model.AutoReplyResumeBundle{
@@ -97,7 +99,7 @@ func collectLiepinOnlineResume(ctx context.Context, browser model.Browser, cfg m
 }
 
 // collectLiepinAttachment 打开附件预览，读取 iframe 正文并通过下载监听取得本地文件。
-func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg model.Config) (string, []string, error) {
+func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg model.Config) (text string, paths []string, returnErr error) {
 	downloader, ok := browser.(liepinDownloadBrowser)
 	if !ok {
 		return "", nil, fmt.Errorf("%s简历下载监听没有准备好", cfg.Name)
@@ -109,10 +111,14 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 	if err := openLiepinAttachmentPreview(ctx, browser, cfg); err != nil {
 		return "", nil, err
 	}
-	defer common.CloseOptionalPanel(
-		context.WithoutCancel(ctx), browser, cfg,
-		"message.attachment_preview", "message.attachment_preview_close", cfg.Name+"附件预览",
-	)
+	defer func() {
+		if closeErr := common.CloseOptionalPanel(
+			context.WithoutCancel(ctx), browser, cfg,
+			"message.attachment_preview", "message.attachment_preview_close", cfg.Name+"附件预览",
+		); closeErr != nil && returnErr == nil {
+			returnErr = fmt.Errorf("关闭%s附件预览失败：%w", cfg.Name, closeErr)
+		}
+	}()
 	attachmentText := ""
 	if body, selectorErr := common.RequiredSelector(cfg, "message.attachment_body"); selectorErr == nil {
 		if read, readErr := browser.Read(ctx, contract.ElementReadRequest{Selector: body, Property: "text"}); readErr == nil {

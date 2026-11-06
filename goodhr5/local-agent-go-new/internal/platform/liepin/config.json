@@ -40,6 +40,7 @@
     "auto_reply_resume_loads_history": true,
     "_comment_auto_reply_resume_loads_history": "简历采集在平台内部轻量加载来源卡片，核验后直接打开附件，不先恢复最新端。",
     "auto_reply_avatar_container_key": "message.history_scroll",
+    "_comment_auto_reply_avatar_container_key": "头像截图必须完整位于聊天滚动区域内，避免截图操作滚动到旧消息；不可见时沿用安全下载兜底。",
     "_comment": "猎聘企业端页面行为开关。",
     "supports_paging": false,
     "_comment_supports_paging": "当前推荐页按滚动加载。",

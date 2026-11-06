@@ -41,12 +41,13 @@ export class FindAction {
     private readonly logger: WorkerLogger,
   ) {}
 
-  /** one 查找一个元素并生成短生命周期引用。 */
+  /** one 查找元素并生成短生命周期引用；state 仅供只读动作使用，交互默认保留几何检查。 */
   async one(
     spec: SelectorSpec,
     actionContext: ActionContext,
     requireUnique = false,
     logFailure = true,
+    viewMode: "geometry" | "state" = "geometry",
   ): Promise<FoundElement> {
     const step = "find";
     this.logger.info(actionContext, step, "start", {
@@ -63,6 +64,7 @@ export class FindAction {
         action: actionContext.action,
         step,
         require_unique: requireUnique,
+        view_mode: viewMode,
       });
       assertRequestActive(actionContext);
       const elementRef = this.session.elements.remember(
@@ -85,7 +87,9 @@ export class FindAction {
         target_description: spec.description,
         matched_selector: resolved.matched_selector.value,
         matches_checked: resolved.attempts.length,
-        in_viewport: resolved.view.in_viewport,
+        ...(viewMode === "geometry"
+          ? { in_viewport: resolved.view.in_viewport }
+          : { geometry_read: false, state_checked: spec.state ?? "visible" }),
       });
       return { resolved, result };
     } catch (error) {
