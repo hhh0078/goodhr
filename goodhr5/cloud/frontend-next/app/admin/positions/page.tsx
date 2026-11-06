@@ -393,7 +393,7 @@ export default function PositionsPage() {
         cloudRequest("/api/platforms/config/", { auth: false }),
       ]);
       if (current !== loadGeneration.current) return;
-      setItems(sortPositionsByUpdate(positions.positions || []));
+      setItems(sortPositionsByUpdate(positions.positions || [], user?.email));
       setDefaults(normalizePrompts(prompts.prompts || prompts || {}));
       setPlatformConfigs(platformData.platforms || platformData.configs || []);
     } catch (error) {
@@ -3097,9 +3097,11 @@ function positionTimestamp(value: unknown): number | null {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : null;
 }
-/** sortPositionsByUpdate 按更新时间从新到旧排列可见岗位，时间相同时以创建时间和编号保持顺序。 */
-function sortPositionsByUpdate(items: any[]) {
+/** sortPositionsByUpdate 优先排列当前账号的岗位，组内按更新时间倒序，时间相同时以创建时间和编号保持顺序。 */
+function sortPositionsByUpdate(items: any[], currentEmail: unknown) {
   return [...items].sort((left, right) => {
+    const ownership = Number(isCurrentUserPosition(right, currentEmail)) - Number(isCurrentUserPosition(left, currentEmail));
+    if (ownership !== 0) return ownership;
     const leftCreatedAt = positionTimestamp(left?.created_at) ?? Number.NEGATIVE_INFINITY;
     const rightCreatedAt = positionTimestamp(right?.created_at) ?? Number.NEGATIVE_INFINITY;
     const leftUpdatedAt = positionTimestamp(left?.updated_at) ?? leftCreatedAt;
