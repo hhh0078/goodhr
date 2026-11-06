@@ -10,6 +10,7 @@ import {
   type ResolvedElement,
 } from "../primitives/locator.js";
 import { ReadPrimitive } from "../primitives/read.js";
+import { assertRequestActive } from "../primitives/request-lifecycle.js";
 import { BrowserSession } from "../session/browser-session.js";
 import { safeURL } from "../session/navigation.js";
 import { pageDiagnostic, selectorDiagnostic } from "./diagnostic-state.js";
@@ -55,6 +56,7 @@ export class FindAction {
       frame_levels: spec.frames?.length ?? 0,
     });
     try {
+      assertRequestActive(actionContext);
       const page = await this.session.requirePage(actionContext, step);
       const resolved = await this.primitive.resolve(page, spec, {
         trace_id: actionContext.trace_id,
@@ -62,11 +64,13 @@ export class FindAction {
         step,
         require_unique: requireUnique,
       });
+      assertRequestActive(actionContext);
       const elementRef = this.session.elements.remember(
         page,
         resolved.locator,
       );
       const pages = await this.session.listPages();
+      assertRequestActive(actionContext);
       const current = pages.pages.find((item) => item.current);
       const result: FindResult = {
         element_ref: elementRef,
@@ -127,6 +131,7 @@ export class FindAction {
       });
     }
     try {
+      assertRequestActive(actionContext);
       const page = await this.session.requirePage(actionContext, step);
       const resolvedItems = await this.primitive.resolveAll(
         page,
@@ -140,6 +145,7 @@ export class FindAction {
         startIndex,
         fromEnd,
       );
+      assertRequestActive(actionContext);
       if (diagnostic.diagnostic) this.logger.info(actionContext, "selector_probe", "success", {
         diagnostic: true, input: diagnosticInput, output: { count: resolvedItems.length,
           selector_attempts: this.logger.fromUnknown(resolvedItems[0]?.attempts ?? []).value ?? [], page_state: pageDiagnostic(page) },
@@ -149,7 +155,7 @@ export class FindAction {
       }));
       const diagnoseNames = report && Object.hasOwn(fields, "name");
       // 限制整批同时进行的页面读取，避免每张卡片的多个字段把浏览器命令队列挤满。
-      const readWithSlot = createReadLimiter(Math.min(readConcurrency, 4));
+      const readWithSlot = createReadLimiter(Math.min(readConcurrency, 4), actionContext);
       if (diagnoseNames) {
         this.logger.info(actionContext, "list_name_diagnostics", "resolved", {
           page_url: safeURL(page.url()),
@@ -169,7 +175,7 @@ export class FindAction {
       const readItem = async (resolved: ResolvedElement, index: number): Promise<FindAllItem | null> => {
         const beforeText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, index, "before", diagnoseNames));
         if (beforeText === null) return null;
-        const fieldEntries = await Promise.all(
+        const fieldEntries = await waitForAllReads(
           Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
             fieldName,
             await readWithSlot(() => this.readRelativeField(
@@ -269,8 +275,10 @@ export class FindAction {
   private async readListText(root: Locator, context: ActionContext, index: number, phase: string, diagnose: boolean): Promise<string | null> {
     const started = Date.now();
     try {
+      assertRequestActive(context);
       return await this.readPrimitive.text(root);
     } catch (error) {
+      assertRequestActive(context);
       if (diagnose) this.logger.warn(context, "read_list_item", "read_failed", {
         index, phase, read_elapsed_ms: Date.now() - started, text_timeout_ms: 1500,
         ...readFailureDetails(error),
@@ -293,6 +301,7 @@ export class FindAction {
     let phase = "locate";
     let resolved: ResolvedElement | undefined;
     try {
+      assertRequestActive(actionContext);
       const fieldSpec: SelectorSpec = {
         ...spec,
         timeout_ms: 0,
@@ -308,6 +317,7 @@ export class FindAction {
           require_unique: false,
         },
       );
+      assertRequestActive(actionContext);
       phase = "read";
       const selectedSpec = resolved.resolved_spec ?? spec;
       if (selectedSpec.read_attribute) {
@@ -329,6 +339,7 @@ export class FindAction {
       });
       return value;
     } catch (error) {
+      assertRequestActive(actionContext);
       if (diagnose && (fieldName === "name" || fieldName === "card_text")) this.logger.warn(actionContext, `read_field:${fieldName}`, "failed", {
         index, phase, field_elapsed_ms: Date.now() - started,
         configured_timeout_ms: spec.timeout_ms ?? null, effective_locator_timeout_ms: 0, text_timeout_ms: 1500,
@@ -376,13 +387,19 @@ export class FindAction {
 }
 
 /** createReadLimiter 为一次列表请求分配有限的浏览器读取槽位，避免并发字段读取排队超时。 */
-function createReadLimiter(limit: number): <T>(operation: () => Promise<T>) => Promise<T> {
+function createReadLimiter(limit: number, context: ActionContext): <T>(operation: () => Promise<T>) => Promise<T> {
   let available = Math.max(1, limit);
   const waiting: Array<() => void> = [];
   return async <T>(operation: () => Promise<T>): Promise<T> => {
+    assertRequestActive(context);
     if (available > 0) available--;
     else await new Promise<void>(resolve => waiting.push(resolve));
-    try { return await operation(); }
+    try {
+      assertRequestActive(context);
+      const value = await operation();
+      assertRequestActive(context);
+      return value;
+    }
     finally {
       const next = waiting.shift();
       if (next) next();
@@ -409,7 +426,7 @@ async function mapWithConcurrency<T, R>(
       }
     },
   );
-  await Promise.all(workers);
+  await waitForAllReads(workers);
   return results;
 }
 
@@ -429,4 +446,15 @@ function readFailureDetails(error: unknown): JsonObject {
   }
   const name = error instanceof Error ? error.name : "UnknownError";
   return { error_type: ["TimeoutError", "Error", "TypeError"].includes(name) ? name : "UnknownError", error_code: name === "TimeoutError" ? "READ_TIMEOUT" : "READ_ERROR" };
+}
+
+/** waitForAllReads 失败时也等所有已发出的读取结束，避免请求返回后还留下旧的浏览器负载。 */
+async function waitForAllReads<T>(promises: Promise<T>[]): Promise<T[]> {
+  const settled = await Promise.allSettled(promises);
+  const failure = settled.find(item => item.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
+  return settled.map(item => {
+    if (item.status === "rejected") throw item.reason;
+    return item.value;
+  });
 }

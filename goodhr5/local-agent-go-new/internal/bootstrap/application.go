@@ -91,9 +91,9 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 	notifier := &notification.Notifier{}
 	logger := lifecycle.NewTaskLogger(store, shared.StandardLogger{})
 	incidents := diagnostics.NewBrowserIncidentRecorder(store, cloudClient)
+	runLog.SetUploadSink(incidents.WorkerLine, incidents.Flush)
 	runtimeLog := diagnostics.WorkerLine(runLog, func(line []byte) {
 		logger.WorkerLine(line)
-		incidents.WorkerLine(line)
 	})
 	ocrClient := ocr.NewWithExecutableResolver(runtimeManager.OCRPath, runtimeLog)
 	incidents.RecordLifecycle("agent.start", "本地程序已启动，版本 "+version.Value, false)

@@ -1,4 +1,4 @@
-// Package diagnostics 文件作用：浏览器进程消失时同步落盘异常退出日志，并在网络恢复后上传。
+// Package diagnostics 文件作用：将本地程序、浏览器和 OCR 诊断自动上传，不写本地日志文件或离线日志表。
 package diagnostics
 
 import (
@@ -6,7 +6,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"log"
+	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -14,159 +15,206 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
-// BrowserEventUploader 是浏览器异常日志的云端上传接口。
+// BrowserEventUploader 是运行诊断的云端上传接口。
 type BrowserEventUploader interface {
 	UploadBrowserEvents(context.Context, string, []storage.BrowserEvent) error
 }
 
-// BrowserIncidentRecorder 保存无岗位时也能观察到的浏览器异常退出事件。
+// LogUploadStatus 提供可观察的上传结果，失败不能伪装成已经上传。
+type LogUploadStatus struct {
+	Pending   int    `json:"pending"`
+	LastError string `json:"last_error,omitempty"`
+	Dropped   int    `json:"dropped"`
+}
+
+// BrowserIncidentRecorder 复用运行日志接口，只在内存中等待批量上传。
 type BrowserIncidentRecorder struct {
-	store    *storage.Store
-	cloud    BrowserEventUploader
-	mu       sync.RWMutex
-	uploadMu sync.Mutex
-	ownerID  string
-	token    string
+	store             *storage.Store
+	cloud             BrowserEventUploader
+	mu                sync.Mutex
+	uploadMu          sync.Mutex
+	ownerID           string
+	token             string
+	pending           []storage.BrowserEvent
+	pendingBytes      int
+	lastError         string
+	dropped           int
+	reportedDropped   int
+	wake              chan struct{}
+	positionID        string
+	positionCheckedAt time.Time
 }
 
-// NewBrowserIncidentRecorder 创建浏览器异常退出记录器。
+// NewBrowserIncidentRecorder 创建在线诊断上传器；SQLite 只用于查询当前岗位，不保存日志队列。
 func NewBrowserIncidentRecorder(store *storage.Store, cloud BrowserEventUploader) *BrowserIncidentRecorder {
-	return &BrowserIncidentRecorder{store: store, cloud: cloud}
+	return &BrowserIncidentRecorder{store: store, cloud: cloud, wake: make(chan struct{}, 1)}
 }
 
-// Bind 记录已验证的账号并触发等待上传的异常日志补传。
+// Bind 接收已验证的账号，启动日志只归属首次绑定账号；退出时立即停用凭证。
 func (r *BrowserIncidentRecorder) Bind(ownerID, token string) {
-	if r == nil || strings.TrimSpace(ownerID) == "" || strings.TrimSpace(token) == "" {
+	if r == nil {
 		return
 	}
 	r.mu.Lock()
-	r.ownerID, r.token = ownerID, token
-	r.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	if err := r.store.ClaimUnownedBrowserEvents(ctx, ownerID); err != nil {
-		log.Printf("关联浏览器退出日志失败：%v", err)
+	if strings.TrimSpace(ownerID) == "" || strings.TrimSpace(token) == "" {
+		r.token = ""
+	} else {
+		r.ownerID, r.token = ownerID, token
+		for i := range r.pending {
+			if r.pending[i].OwnerID == "" {
+				r.pending[i].OwnerID = ownerID
+			}
+		}
 	}
-	cancel()
-	go r.Flush(context.Background())
+	r.mu.Unlock()
+	r.notify()
 }
 
-// WorkerLine 只提取浏览器或 Worker 意外退出日志，先同步写入 SQLite 再异步上传。
+// WorkerLine 接收每条运行诊断，保留原始动作与错误证据，并限制内存占用。
 func (r *BrowserIncidentRecorder) WorkerLine(line []byte) {
-	if r == nil || r.store == nil {
+	if r == nil {
 		return
 	}
-	var item struct {
-		Action    string `json:"action"`
-		Status    string `json:"status"`
-		Timestamp string `json:"timestamp"`
-	}
-	if json.Unmarshal(line, &item) != nil {
+	var item map[string]any
+	if json.Unmarshal(normalizeIncident(Normalize(line)), &item) != nil {
 		return
 	}
-	if item.Action != "browser.exit" && item.Action != "browser.crash" && item.Action != "browser.process_exit" &&
-		item.Action != "worker.crash" && item.Action != "worker.exit" && item.Action != "ocr.exit" && item.Action != "agent.previous_exit" &&
-		item.Action != "agent.start" && item.Action != "agent.exit" &&
-		!((item.Action == "browser.start" || item.Action == "browser.stop") && (item.Status == "success" || item.Status == "failed")) {
-		return
+	// 统一接收运行诊断；原动作另外保留，不把普通超时冒充浏览器崩溃。
+	if action, ok := item["action"].(string); ok && action != "" {
+		item["source_action"] = action
+	} else {
+		item["source_action"] = "agent.log"
 	}
+	item["action"] = "runtime.log"
+	safe := UploadSafeDiagnostic(item)
+	line, _ = json.Marshal(safe)
 	line = normalizeIncident(line)
-	var bytes [16]byte
-	if _, err := rand.Read(bytes[:]); err != nil {
-		log.Printf("创建浏览器退出日志编号失败：%v", err)
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
 		return
 	}
-	r.mu.RLock()
-	ownerID := r.ownerID
-	r.mu.RUnlock()
-	createdAt, err := time.Parse(time.RFC3339Nano, item.Timestamp)
-	if err != nil {
+	createdAt, _ := time.Parse(time.RFC3339Nano, fmt.Sprint(item["timestamp"]))
+	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	event := storage.BrowserEvent{
-		EventID: hex.EncodeToString(bytes[:]), OwnerID: ownerID,
-		PositionID: r.store.RunningPositionID(ctx), Payload: append(json.RawMessage(nil), line...), CreatedAt: createdAt,
+	positionID := r.currentPosition()
+	r.mu.Lock()
+	event := storage.BrowserEvent{EventID: hex.EncodeToString(id[:]), OwnerID: r.ownerID, PositionID: positionID, Payload: line, CreatedAt: createdAt}
+	r.pending = append(r.pending, event)
+	r.pendingBytes += len(line)
+	// 只保留最多 4 MiB 的在线在途日志；优先移除普通记录，并公开丢弃数量。
+	for len(r.pending) > 2000 || r.pendingBytes > 4<<20 {
+		index := 0
+		for i, e := range r.pending {
+			if !strings.Contains(string(e.Payload), `"is_error":true`) {
+				index = i
+				break
+			}
+		}
+		r.pendingBytes -= len(r.pending[index].Payload)
+		r.pending = append(r.pending[:index], r.pending[index+1:]...)
+		r.dropped++
 	}
-	if err := r.store.SaveBrowserEvent(ctx, event); err != nil {
-		log.Printf("保存浏览器异常退出日志失败：%v", err)
-		return
+	r.mu.Unlock()
+	if item["is_error"] == true {
+		r.notify()
 	}
-	go r.Flush(context.Background())
 }
 
-// RecordLifecycle 把本地程序启动、正常退出和上次异常退出保存到相同上传队列。
+// notify 合并上传唤醒，避免每条字段日志都创建一个上传协程。
+func (r *BrowserIncidentRecorder) notify() {
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+}
+
+// Status 返回内存中等待上传的数量和最近失败原因。
+func (r *BrowserIncidentRecorder) Status() LogUploadStatus {
+	if r == nil {
+		return LogUploadStatus{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return LogUploadStatus{Pending: len(r.pending), LastError: r.lastError, Dropped: r.dropped}
+}
+
+// RecordLifecycle 把启动、正常退出和可捕获崩溃送入同一上传通道。
 func (r *BrowserIncidentRecorder) RecordLifecycle(action, message string, abnormal bool) {
 	r.RecordLifecycleDetails(action, message, abnormal, nil)
 }
 
-// RecordLifecycleDetails 给主程序生命周期附加调用栈、退出步骤和上次运行证据。
+// RecordLifecycleDetails 保留退出步骤、调用栈和耗时，不依赖用户读取本地文件。
 func (r *BrowserIncidentRecorder) RecordLifecycleDetails(action, message string, abnormal bool, details map[string]any) {
 	category, status := "运行", "success"
 	if abnormal {
 		category, status = "异常退出", "failed"
 	}
-	item := map[string]any{
-		"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": category,
-		"action": action, "step": "process_lifecycle", "status": status,
-		"is_error": abnormal, "error_message": "", "message": message,
-		"input": map[string]any{}, "output": map[string]any{"reason": message}, "diagnostics": details,
-	}
+	item := map[string]any{"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": category, "action": action, "step": "process_lifecycle", "status": status, "is_error": abnormal, "message": message, "diagnostics": details}
 	if abnormal {
 		item["error_message"] = message
 	}
-	encoded, _ := json.Marshal(item)
-	r.WorkerLine(Normalize(encoded))
+	line, _ := json.Marshal(item)
+	r.WorkerLine(line)
 }
 
-// Flush 按当前账号批量补传已持久保存的异常事件，失败时保留原记录。
+// Flush 在线批量上传，只有云端确认后才释放内存；上传本身的错误不得递归写回日志器。
 func (r *BrowserIncidentRecorder) Flush(ctx context.Context) {
 	if r == nil || r.cloud == nil {
 		return
 	}
 	r.uploadMu.Lock()
 	defer r.uploadMu.Unlock()
-	r.mu.RLock()
-	ownerID, token := r.ownerID, r.token
-	r.mu.RUnlock()
-	if ownerID == "" || token == "" {
-		return
-	}
-	claimCtx, cancelClaim := context.WithTimeout(ctx, 3*time.Second)
-	if err := r.store.ClaimUnownedBrowserEvents(claimCtx, ownerID); err != nil {
-		log.Printf("关联待传浏览器日志失败：%v", err)
-	}
-	cancelClaim()
-	for {
-		batchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		items, err := r.store.PendingBrowserEvents(batchCtx, ownerID)
-		if err == nil && len(items) > 0 {
-			for index := range items {
-				items[index].Payload = normalizeIncident(items[index].Payload)
-			}
-			err = r.cloud.UploadBrowserEvents(batchCtx, token, items)
+	for ctx.Err() == nil {
+		r.mu.Lock()
+		owner, token := r.ownerID, r.token
+		batch := make([]storage.BrowserEvent, 0, 200)
+		dropped := r.dropped
+		if dropped > r.reportedDropped && owner != "" {
+			batch = append(batch, overflowEvent(owner, dropped))
 		}
-		if err == nil && len(items) > 0 {
-			ids := make([]string, 0, len(items))
-			for _, item := range items {
-				ids = append(ids, item.EventID)
+		for _, e := range r.pending {
+			if e.OwnerID == owner && owner != "" && len(batch) < 200 {
+				batch = append(batch, e)
 			}
-			err = r.store.DeleteBrowserEvents(batchCtx, ids)
 		}
+		r.mu.Unlock()
+		if token == "" || len(batch) == 0 {
+			return
+		}
+		uploadCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := r.cloud.UploadBrowserEvents(uploadCtx, token, batch)
 		cancel()
+		r.mu.Lock()
 		if err != nil {
-			log.Printf("浏览器异常退出日志暂未传到云端，稍后重试：%v", err)
+			r.lastError = diagnosticText(string(Redact([]byte(err.Error()))), 500)
+			r.mu.Unlock()
+			_, _ = fmt.Fprintln(os.Stderr, "运行日志尚未上传成功：", diagnosticText(string(Redact([]byte(err.Error()))), 500))
 			return
 		}
-		if len(items) < 200 {
-			return
+		ids := make(map[string]bool, len(batch))
+		for _, e := range batch {
+			ids[e.EventID] = true
 		}
+		kept := r.pending[:0]
+		for _, e := range r.pending {
+			if ids[e.EventID] {
+				r.pendingBytes -= len(e.Payload)
+			} else {
+				kept = append(kept, e)
+			}
+		}
+		clear(r.pending[len(kept):])
+		r.pending = kept
+		r.reportedDropped = dropped
+		r.lastError = ""
+		r.mu.Unlock()
 	}
 }
 
-// Run 每三十秒尝试补传异常日志，直到本地程序退出。
+// Run 每秒上传普通运行日志，错误到达时立即唤醒，整个进程只运行一个上传循环。
 func (r *BrowserIncidentRecorder) Run(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -174,6 +222,37 @@ func (r *BrowserIncidentRecorder) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			r.Flush(ctx)
+		case <-r.wake:
+			r.Flush(ctx)
 		}
 	}
+}
+
+// currentPosition 最多每秒查询一次当前岗位，避免大量日志反过来拖慢任务数据库。
+func (r *BrowserIncidentRecorder) currentPosition() string {
+	r.mu.Lock()
+	refresh := time.Since(r.positionCheckedAt) >= time.Second
+	if refresh {
+		r.positionCheckedAt = time.Now()
+	}
+	position := r.positionID
+	r.mu.Unlock()
+	if refresh && r.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		position = r.store.RunningPositionID(ctx)
+		cancel()
+		r.mu.Lock()
+		r.positionID = position
+		r.mu.Unlock()
+	}
+	return position
+}
+
+// overflowEvent 将内存缓冲溢出显式报告到云端，避免只在用户本机留下丢失数量。
+func overflowEvent(owner string, dropped int) storage.BrowserEvent {
+	var id [16]byte
+	_, _ = rand.Read(id[:])
+	now := time.Now().UTC()
+	payload, _ := json.Marshal(map[string]any{"action": "runtime.log", "source_action": "agent.log_upload", "timestamp": now.Format(time.RFC3339Nano), "category": "错误", "is_error": true, "error_code": "LOG_UPLOAD_BUFFER_OVERFLOW", "error_message": "日志上传未及时完成，内存在途缓冲已满", "output": map[string]int{"dropped": dropped}})
+	return storage.BrowserEvent{EventID: hex.EncodeToString(id[:]), OwnerID: owner, Payload: payload, CreatedAt: now}
 }

@@ -9,6 +9,11 @@ func TestValidRuntimeEvent(t *testing.T) {
 		action, category string
 		isError, valid   bool
 	}{
+		{"runtime.log", "运行", false, true},
+		{"runtime.log", "错误", true, true},
+		{"runtime.log", "异常退出", true, true},
+		{"runtime.log", "运行", true, false},
+		{"runtime.log", "错误", false, false},
 		{"browser.exit", "异常退出", true, true},
 		{"worker.exit", "异常退出", true, true},
 		{"worker.exit", "错误", true, true},

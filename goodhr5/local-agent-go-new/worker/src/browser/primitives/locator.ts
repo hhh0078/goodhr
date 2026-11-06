@@ -20,6 +20,7 @@ import type {
   ResolvedElement,
 } from "./locator-types.js";
 import { ViewportPrimitive } from "./viewport.js";
+import { assertRequestActive } from "./request-lifecycle.js";
 
 export type { ResolvedElement } from "./locator-types.js";
 
@@ -103,9 +104,11 @@ export class LocatorPrimitive {
   ): Promise<ResolvedElement[]> {
     const scope = await this.resolveScope(page, spec, attempts, context);
     for (const candidate of spec.target.selectors) {
+      assertRequestActive();
       const locator = this.candidateLocator(scope, candidate, spec.target);
       let queryError: string | undefined;
       const count = await locator.count().catch(error => { queryError = queryErrorType(error); return 0; });
+      assertRequestActive();
       const attempt: SelectorAttempt = {
         ...(context.frame_path !== undefined ? { frame_path: context.frame_path } : {}),
         level: "target",
@@ -128,6 +131,7 @@ export class LocatorPrimitive {
       if (spec.target.index === undefined && start >= count) return [];
       const results: ResolvedElement[] = [];
       for (let index = start; index < end; index += 1) {
+        assertRequestActive();
         const item = locator.nth(index);
         if (!(await this.matchesAttributes(item, spec.target))) {
           continue;
@@ -259,13 +263,18 @@ export class LocatorPrimitive {
       [variant, ...(variant.frame_fallbacks ?? []).map(frames => ({ ...variant, frames }))],
     );
     while (true) {
+      assertRequestActive();
       pollAttempts += 1;
       const attempts: SelectorAttempt[] = [];
       // 每次轮询完整检查主路径与备用路径，所有路径共用一个等待期限。
       for (const [framePath, variant] of variants.entries()) {
         try {
-          return await resolveOnce(attempts, variant, framePath);
+          assertRequestActive();
+          const result = await resolveOnce(attempts, variant, framePath);
+          assertRequestActive();
+          return result;
         } catch (error) {
+          assertRequestActive();
           lastError = error;
           lastAttempts = attempts;
           if (error instanceof WorkerError && error.code === "ELEMENT_AMBIGUOUS") {
@@ -311,7 +320,9 @@ export class LocatorPrimitive {
 
   /** view 读取元素位置和可见状态。 */
   async view(page: Page, locator: Locator): Promise<ElementView> {
+    assertRequestActive();
     const visible = await locator.isVisible().catch(() => false);
+    assertRequestActive();
     if (!visible) {
       return {
         box: { x: 0, y: 0, width: 0, height: 0 },
@@ -327,6 +338,7 @@ export class LocatorPrimitive {
       this.viewport.size(page).catch(() => ({ width: 0, height: 0 })),
       locator.isEnabled().catch(() => false),
     ]);
+    assertRequestActive();
     const normalizedBox: ElementBox = box
       ? {
           x: box.x,
@@ -361,7 +373,9 @@ export class LocatorPrimitive {
 
   /** box 只读取元素最新边界，供点击前的轻量稳定检查使用。 */
   async box(locator: Locator): Promise<ElementBox | null> {
+    assertRequestActive();
     const box = await locator.boundingBox().catch(() => null);
+    assertRequestActive();
     if (!box) {
       return null;
     }
@@ -378,6 +392,7 @@ export class LocatorPrimitive {
     locator: Locator,
     spec: SelectorSpec,
   ): Promise<ElementView & { visibility_error_type?: string }> {
+    assertRequestActive();
     const state = spec.state ?? "visible";
     let visibilityErrorType: string | undefined;
     const visible =
@@ -387,10 +402,12 @@ export class LocatorPrimitive {
             visibilityErrorType = error instanceof Error && error.name === "TimeoutError" ? "TimeoutError" : "Error";
             return false;
           });
+    assertRequestActive();
     const enabled =
       state === "enabled"
         ? await locator.isEnabled().catch(() => false)
         : visible;
+    assertRequestActive();
     return {
       box: { x: 0, y: 0, width: 0, height: 0 },
       viewport: { width: 0, height: 0 },
@@ -493,9 +510,11 @@ export class LocatorPrimitive {
     context: { trace_id: string; action: string; step: string; frame_path?: number },
   ): Promise<{ locator: Locator; candidate: SelectorCandidate }> {
     for (const candidate of group.selectors) {
+      assertRequestActive();
       const locator = this.candidateLocator(scope, candidate, group);
       let queryError: string | undefined;
       const count = await locator.count().catch(error => { queryError = queryErrorType(error); return 0; });
+      assertRequestActive();
       const selectedIndex = group.index ?? 0;
       attempts.push({
         ...(context.frame_path !== undefined ? { frame_path: context.frame_path } : {}),
@@ -592,7 +611,9 @@ export class LocatorPrimitive {
     group: SelectorGroup,
   ): Promise<boolean> {
     for (const [name, expected] of Object.entries(group.attributes ?? {})) {
+      assertRequestActive();
       const actual = await locator.getAttribute(name).catch(() => null);
+      assertRequestActive();
       if (actual !== expected) {
         return false;
       }
@@ -606,9 +627,13 @@ export class LocatorPrimitive {
     spec: SelectorSpec,
     view: ElementView,
   ): Promise<boolean> {
+    assertRequestActive();
     switch (spec.state ?? "visible") {
-      case "attached":
-        return (await locator.count().catch(() => 0)) > 0;
+      case "attached": {
+        const count = await locator.count().catch(() => 0);
+        assertRequestActive();
+        return count > 0;
+      }
       case "enabled":
         return view.visible && view.enabled;
       case "visible":

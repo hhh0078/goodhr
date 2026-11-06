@@ -56,9 +56,9 @@ func (r *Runner) UploadPositionLogs(ctx context.Context, token, positionID strin
 		}
 
 		if localReplyDetail {
-			message = "自动回复步骤已记录，详细内容保存在本机"
-			errorMessage = ""
-			input, output = json.RawMessage(`{}`), json.RawMessage(`{}`)
+			message = "浏览器步骤已记录，正文已隐藏"
+			input = uploadPrivateDiagnostic(input)
+			output = uploadPrivateDiagnostic(output)
 		}
 		logs = append(logs, cloud.PositionDiagnosticLog{
 			Timestamp: item.CreatedAt, Category: uploadLogText(category), IsError: item.IsError,
@@ -129,4 +129,20 @@ func (r *Runner) retryPendingLogUploads(token string) {
 			continue
 		}
 	}
+}
+
+// uploadPrivateDiagnostic 隐藏自动回复正文，同时保留失败步骤、错误码、超时与原生诊断。
+func uploadPrivateDiagnostic(value json.RawMessage) json.RawMessage {
+	var fields map[string]any
+	if json.Unmarshal(value, &fields) != nil {
+		return json.RawMessage(`{}`)
+	}
+	allowed := map[string]any{}
+	for _, key := range []string{"action", "step", "status", "error_code", "error_message", "original_error", "timeout_ms", "duration_ms", "request_id", "trace_id", "reason", "input_wait", "page_state", "diagnostics", "queue", "native_mouse", "stack"} {
+		if v, ok := fields[key]; ok {
+			allowed[key] = v
+		}
+	}
+	safe, _ := json.Marshal(diagnostics.UploadSafeDiagnostic(allowed))
+	return safe
 }

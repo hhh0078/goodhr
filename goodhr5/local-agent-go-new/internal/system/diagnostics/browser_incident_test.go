@@ -1,4 +1,4 @@
-// Package diagnostics 文件作用：验证无岗位浏览器退出也能先持久化并在网络恢复后补传。
+// Package diagnostics 文件作用：验证无岗位日志只在内存等待上传，不再写入本地日志表。
 package diagnostics
 
 import (
@@ -25,7 +25,7 @@ func (u *fakeBrowserUploader) UploadBrowserEvents(_ context.Context, _ string, e
 	return nil
 }
 
-// TestBrowserIncidentPersistsWithoutTaskAndRetries 验证浏览器退出即使无任务也保存，失败后仍可补传。
+// TestBrowserIncidentPersistsWithoutTaskAndRetries 验证无任务错误自动上传，失败状态可见且不会写本地日志表。
 func TestBrowserIncidentPersistsWithoutTaskAndRetries(t *testing.T) {
 	store, err := storage.Open(filepath.Join(t.TempDir(), "agent.db"))
 	if err != nil {
@@ -38,18 +38,18 @@ func TestBrowserIncidentPersistsWithoutTaskAndRetries(t *testing.T) {
 	recorder.WorkerLine(Normalize([]byte(`{"action":"browser.exit","category":"异常退出","is_error":true,"error_message":"连接断开"}`)))
 	ctx := context.Background()
 	pending, err := store.PendingBrowserEvents(ctx, "")
-	if err != nil || len(pending) != 1 || pending[0].PositionID != "" {
+	if err != nil || len(pending) != 0 || recorder.Status().Pending != 1 {
 		t.Fatalf("无岗位日志未保存：%v %+v", err, pending)
 	}
 	recorder.Bind("user-1", "valid-token")
 	pending, err = store.PendingBrowserEvents(ctx, "user-1")
-	if err != nil || len(pending) != 1 {
+	if err != nil || len(pending) != 0 || recorder.Status().Pending != 1 {
 		t.Fatalf("日志未归属账号：%v %+v", err, pending)
 	}
 	uploader.failing.Store(false)
 	recorder.Flush(ctx)
 	pending, err = store.PendingBrowserEvents(ctx, "user-1")
-	if err != nil || len(pending) != 0 {
+	if err != nil || len(pending) != 0 || recorder.Status().Pending != 0 {
 		t.Fatalf("补传成功后队列未清空：%v %+v", err, pending)
 	}
 }
@@ -70,7 +70,7 @@ func TestBrowserIncidentIncludesRunningPosition(t *testing.T) {
 	recorder.Bind("user-1", "valid-token")
 	recorder.WorkerLine(Normalize([]byte(`{"action":"browser.exit","category":"异常退出","is_error":true,"error_message":"连接断开"}`)))
 	pending, err := store.PendingBrowserEvents(context.Background(), "user-1")
-	if err != nil || len(pending) != 1 || pending[0].PositionID != "position-1" {
+	if err != nil || len(pending) != 0 || len(recorder.pending) != 1 || recorder.pending[0].PositionID != "position-1" {
 		t.Fatalf("运行岗位关联失败：%v %+v", err, pending)
 	}
 }

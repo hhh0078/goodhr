@@ -74,3 +74,20 @@ func TestNormalStartupDefersFirefoxPreparation(t *testing.T) {
 		}
 	}
 }
+
+// TestNormalStartupUsesOnlineLogs 验证正式启动入口不再创建用户日志或崩溃日志文件。
+func TestNormalStartupUsesOnlineLogs(t *testing.T) {
+	content, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(content)
+	for _, forbidden := range []string{"diagnostics.Open(", "os.OpenFile(", "SetCrashOutput(", "diagnostics.MarkRun("} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("启动入口仍创建本地日志：%s", forbidden)
+		}
+	}
+	if !strings.Contains(source, "diagnostics.NewOnlineWriter()") {
+		t.Fatal("缺少自动上传日志入口")
+	}
+}

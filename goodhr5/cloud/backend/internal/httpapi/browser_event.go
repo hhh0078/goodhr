@@ -15,6 +15,7 @@ import (
 	"time"
 )
 
+// maxBrowserEventsPerAccount 对每个账号的普通记录和错误记录分别保留一千条。
 const maxBrowserEventsPerAccount = 1000
 
 var browserEventIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
@@ -113,7 +114,7 @@ func (s *BrowserEventService) Upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM browser_events WHERE user_id=$1 AND event_id NOT IN (SELECT event_id FROM browser_events WHERE user_id=$1 ORDER BY created_at DESC,event_id DESC LIMIT $2)`, userID, maxBrowserEventsPerAccount); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM browser_events WHERE user_id=$1 AND event_id IN (SELECT event_id FROM (SELECT event_id,row_number() OVER (PARTITION BY (payload->>'is_error'='true') ORDER BY created_at DESC,event_id DESC) AS sequence FROM browser_events WHERE user_id=$1) ranked WHERE sequence>$2)`, userID, maxBrowserEventsPerAccount); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to trim events")
 		return
 	}
@@ -238,6 +239,8 @@ func (s *BrowserEventService) AdminLogs(w http.ResponseWriter, r *http.Request) 
 // validRuntimeEvent 只接受本地程序和浏览器生命周期的运行或退出事件。
 func validRuntimeEvent(action, category string, isError bool) bool {
 	switch action {
+	case "runtime.log":
+		return (category == "运行" && !isError) || ((category == "错误" || category == "异常退出") && isError)
 	case "browser.exit", "browser.crash", "worker.crash", "agent.previous_exit":
 		return category == "异常退出" && isError
 	case "worker.exit", "browser.process_exit", "ocr.exit":
