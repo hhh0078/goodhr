@@ -184,21 +184,23 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // handleHealth 返回本地程序健康状态。
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeSuccess(w, http.StatusOK, struct {
-		Status         string   `json:"status"`
-		Version        string   `json:"version"`
-		AgentVersion   string   `json:"agent_version"`
-		Port           int      `json:"port"`
-		DataDir        string   `json:"dataDir"`
-		DataDirAlias   string   `json:"data_dir"`
-		LogsDir        string   `json:"logsDir"`
-		ProfilesDir    string   `json:"profilesDir"`
-		ExtensionsDir  string   `json:"extensionsDir"`
-		ExtensionPaths []string `json:"extensionPaths"`
-		DownloadsDir   string   `json:"downloadsDir"`
-		ScreenshotsDir string   `json:"screenshotsDir"`
-		DatabasePath   string   `json:"dbPath"`
+		LogUpload      diagnostics.LogUploadStatus `json:"log_upload"`
+		Status         string                      `json:"status"`
+		Version        string                      `json:"version"`
+		AgentVersion   string                      `json:"agent_version"`
+		Port           int                         `json:"port"`
+		DataDir        string                      `json:"dataDir"`
+		DataDirAlias   string                      `json:"data_dir"`
+		LogsDir        string                      `json:"logsDir"`
+		ProfilesDir    string                      `json:"profilesDir"`
+		ExtensionsDir  string                      `json:"extensionsDir"`
+		ExtensionPaths []string                    `json:"extensionPaths"`
+		DownloadsDir   string                      `json:"downloadsDir"`
+		ScreenshotsDir string                      `json:"screenshotsDir"`
+		DatabasePath   string                      `json:"dbPath"`
 	}{
-		Status: "ok", Version: version.Value, AgentVersion: version.Value,
+		LogUpload: s.incidents.Status(),
+		Status:    "ok", Version: version.Value, AgentVersion: version.Value,
 		Port: s.cfg.Port, DataDir: s.cfg.DataDir, DataDirAlias: s.cfg.DataDir,
 		LogsDir: s.cfg.LogsDir, ProfilesDir: s.cfg.ProfilesDir,
 		ExtensionsDir: s.cfg.ExtensionsDir, ExtensionPaths: s.cfg.ExtensionPaths(),

@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -94,23 +93,11 @@ func run() (runErr error) {
 	if view != nil {
 		view.Update(config.DataProgress{Stage: "initializing", Message: "数据已准备好，正在启动小助手"})
 	}
-	crashPath := filepath.Join(cfg.LogsDir, "crash.log")
-	previousBeforeReset := diagnostics.ReadPreviousRun(cfg.LogsDir, crashPath)
-	logsReset, err := diagnostics.ResetLegacyLogs(cfg.LogsDir)
-	if err != nil {
-		return fmt.Errorf("清理旧格式日志失败：%w", err)
-	}
 	log.SetFlags(0)
-	runLog, err := diagnostics.Open(cfg.LogsDir, "goodhr.jsonl")
-	if err != nil {
-		return fmt.Errorf("创建运行日志失败：%w", err)
-	}
+	runLog := diagnostics.NewOnlineWriter()
 	log.SetOutput(runLog)
-	var marker *diagnostics.RunMarker
 	defer func() {
-		panicked := false
 		if recovered := recover(); recovered != nil {
-			panicked = true
 			runErr = fmt.Errorf("本地程序发生未捕获异常：%v", recovered)
 			stack := debug.Stack()
 			if len(stack) > 8000 {
@@ -125,40 +112,12 @@ func run() (runErr error) {
 			reason = "收到退出信号"
 		}
 		logAgentLifecycle("agent_exit", "本地程序已退出", reason, runErr != nil, map[string]any{"pid": os.Getpid()})
-		if !panicked && runErr == nil {
-			if err := marker.Clear(); err != nil {
-				log.Printf("event=agent_run_marker_clear_failed error=%q", err)
-			}
-		}
 		log.SetOutput(os.Stderr)
 		_ = runLog.Close()
 	}()
-	crash, err := os.OpenFile(crashPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		return fmt.Errorf("创建崩溃日志失败：%w", err)
-	}
-	if err = debug.SetCrashOutput(crash, debug.CrashOptions{}); err != nil {
-		log.Printf("启用崩溃日志失败：%v", err)
-	}
-	crashInfo, _ := crash.Stat()
-	_ = crash.Close()
 	debug.SetTraceback("all")
-	crashOffset := int64(0)
-	if crashInfo != nil {
-		crashOffset = crashInfo.Size()
-	}
-	marker, previous, err := diagnostics.MarkRun(cfg.LogsDir, crashPath, crashOffset)
-	if err != nil {
-		log.Printf("event=agent_run_marker_failed error=%q", err)
-	}
-	if logsReset {
-		previous = previousBeforeReset
-	}
-	if previous != nil {
-		logAgentLifecycle("agent_previous_run_unclean", "检测到上次异常退出", previous.Reason, true, map[string]any{"previous_pid": previous.PID, "previous_started_at": previous.StartedAt})
-	}
 	logAgentLifecycle("agent_start", "本地程序已启动", "", false, map[string]any{"pid": os.Getpid(), "version": version.Value})
-	application, err := bootstrap.New(cfg, runLog, previous)
+	application, err := bootstrap.New(cfg, runLog)
 	if err != nil {
 		return fmt.Errorf("初始化本地程序失败：%w", err)
 	}

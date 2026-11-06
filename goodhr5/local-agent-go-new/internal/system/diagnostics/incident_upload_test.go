@@ -1,4 +1,4 @@
-// Package diagnostics 文件作用：使用真实 SQLite 和 HTTP 客户端验证无岗位崩溃、旧日志与离线补传。
+// Package diagnostics 文件作用：使用真实 HTTP 客户端验证运行日志自动上传与失败可见，不依赖用户本地文件。
 package diagnostics
 
 import (
@@ -10,13 +10,12 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
-// TestDetailedIncidentsSurviveOfflineAndUpload 验证故障时保留队列、恢复后传完整错误且不会被旧类别阻断。
+// TestDetailedIncidentsSurviveOfflineAndUpload 验证在线失败状态、完整错误和敏感内容过滤。
 func TestDetailedIncidentsSurviveOfflineAndUpload(t *testing.T) {
 	var offline atomic.Bool
 	offline.Store(true)
@@ -61,36 +60,30 @@ func TestDetailedIncidentsSurviveOfflineAndUpload(t *testing.T) {
 	} {
 		recorder.WorkerLine(Normalize([]byte(line)))
 	}
-	legacy, _ := json.Marshal(map[string]any{"action": "worker.exit", "category": "错误", "is_error": true, "stack": "legacy original stack", "input": strings.Repeat("x", 30000)})
-	if err := store.SaveBrowserEvent(context.Background(), storage.BrowserEvent{EventID: strings.Repeat("a", 32), Payload: legacy, CreatedAt: time.Now().UTC()}); err != nil {
-		t.Fatal(err)
-	}
 	recorder.Bind("user-fixture", "session-fixture")
 	recorder.Flush(context.Background())
 	pending, err := store.PendingBrowserEvents(context.Background(), "user-fixture")
-	if err != nil || len(pending) != 5 {
+	if err != nil || len(pending) != 0 || recorder.Status().Pending != 4 || recorder.Status().LastError == "" {
 		t.Fatalf("离线时记录丢失：%v count=%d", err, len(pending))
 	}
 	offline.Store(false)
 	recorder.Flush(context.Background())
 	pending, err = store.PendingBrowserEvents(context.Background(), "user-fixture")
-	if err != nil || len(pending) != 0 {
+	if err != nil || len(pending) != 0 || recorder.Status().Pending != 0 || recorder.Status().LastError != "" {
 		t.Fatalf("补传失败，队列未清空：%v count=%d", err, len(pending))
 	}
 	select {
 	case events := <-accepted:
-		if len(events) != 5 {
+		if len(events) != 4 {
 			t.Fatalf("上传数量错误：%d", len(events))
 		}
 		for _, event := range events {
 			var payload map[string]any
 			_ = json.Unmarshal(event.Payload, &payload)
-			if payload["action"] == "worker.crash" && (!strings.Contains(string(event.Payload), "Mouse.down") || strings.Contains(string(event.Payload), "private-secret")) {
+			if payload["source_action"] == "worker.crash" && (!strings.Contains(string(event.Payload), "Mouse.down") || strings.Contains(string(event.Payload), "private-secret")) {
 				t.Fatal("原始栈丢失或凭据未隐藏")
 			}
-			if event.EventID == strings.Repeat("a", 32) && (payload["category"] != "异常退出" || payload["stack"] != "legacy original stack") {
-				t.Fatalf("旧记录未修正：%s", event.Payload)
-			}
+
 		}
 	default:
 		t.Fatal("真实 HTTP 客户端未完成上传")

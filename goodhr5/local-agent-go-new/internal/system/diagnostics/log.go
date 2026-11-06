@@ -1,4 +1,4 @@
-// Package diagnostics 文件作用：持久保存脱敏运行日志和 Worker 原始诊断，并按大小轮转限制磁盘占用。
+// Package diagnostics 文件作用：统一脱敏运行日志；正式客户端使用在线上传，文件写入仅供历史诊断工具使用。
 package diagnostics
 
 import (
@@ -37,16 +37,17 @@ var browserSearchSettingsOutput = regexp.MustCompile(`^console\.error: SearchSet
 var browserProgressListenerOutput = regexp.MustCompile(`^JavaScript error: chrome://juggler/content/Helper\.js, line [0-9]+: NS_ERROR_FAILURE: Component returned failure code: 0x80004005 \(NS_ERROR_FAILURE\) \[nsIWebProgress\.removeProgressListener\]$`)
 var browserRecordTypeContinuation = regexp.MustCompile(`^- (?:message = reason: |reason = )` + searchRecordTypePattern + `$`)
 
-// Writer 保存独立日志文件，所有写入先脱敏，超过上限自动轮转。
+// Writer 统一接入在线上传日志器，并兼容历史工具的有界文件输出。
 type Writer struct {
-	mu    sync.Mutex
-	path  string
-	file  *os.File
-	size  int64
-	limit int64
+	online *onlineLogBuffer
+	mu     sync.Mutex
+	path   string
+	file   *os.File
+	size   int64
+	limit  int64
 }
 
-// Open 创建日志目录并以追加方式打开日志，不覆盖先前故障证据。
+// Open 为历史诊断工具打开日志文件；正式客户端必须使用 NewOnlineWriter。
 func Open(directory, name string) (*Writer, error) {
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
@@ -75,6 +76,9 @@ func (w *Writer) open() error {
 
 // Write 脱敏后直接写入文件，使程序退出前的最后一个步骤也能保留下来。
 func (w *Writer) Write(data []byte) (int, error) {
+	if w.online != nil {
+		return w.online.write(data)
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	safe := Normalize(data)
@@ -178,6 +182,9 @@ func (w *Writer) rotate() error {
 
 // Close 关闭日志文件，允许重复清理。
 func (w *Writer) Close() error {
+	if w.online != nil {
+		return w.online.close()
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.file == nil {

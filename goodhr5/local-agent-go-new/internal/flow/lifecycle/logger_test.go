@@ -266,3 +266,16 @@ func TestAutoReplyLogsUseActualPosition(t *testing.T) {
 		t.Fatalf("不应落到全局任务首岗：logs=%d err=%v", len(logs), err)
 	}
 }
+
+// TestPrivateReadErrorsRetainDiagnosticEvidence 验证正文脱敏不会清空读取错误的超时、调用栈和原生诊断。
+func TestPrivateReadErrorsRetainDiagnosticEvidence(t *testing.T) {
+	safe := uploadPrivateDiagnostic(json.RawMessage(`{"text":"private-body","error_code":"READ_TIMEOUT","timeout_ms":45000,"stack":"at Read.text","queue":{"pending":2},"input_wait":{"stage":"playwright_input"}}`))
+	for _, required := range []string{"READ_TIMEOUT", "45000", "Read.text", "pending", "playwright_input"} {
+		if !strings.Contains(string(safe), required) {
+			t.Fatalf("诊断字段丢失 %s: %s", required, safe)
+		}
+	}
+	if strings.Contains(string(safe), "private-body") {
+		t.Fatalf("正文没有隐藏：%s", safe)
+	}
+}
