@@ -209,16 +209,17 @@ type ClickVerification struct {
 
 // ElementClickRequest 表示完整封装点击请求。
 type ElementClickRequest struct {
-	Selector          SelectorSpec       `json:"selector"`
-	WheelAnchor       *SelectorSpec      `json:"wheel_anchor,omitempty"`
-	Diagnostic        bool               `json:"diagnostic,omitempty"`
-	DiagnosticAttempt int                `json:"diagnostic_attempt,omitempty"`
-	Button            string             `json:"button,omitempty"`
-	ClickCount        int                `json:"click_count,omitempty"`
-	ViewportMargin    int                `json:"viewport_margin,omitempty"`
-	WaitForNewPage    bool               `json:"wait_for_new_page,omitempty"`
-	NewPageTimeoutMS  int                `json:"new_page_timeout_ms,omitempty"`
-	Verify            *ClickVerification `json:"verify,omitempty"`
+	Selector               SelectorSpec       `json:"selector"`
+	WheelAnchor            *SelectorSpec      `json:"wheel_anchor,omitempty"`
+	Diagnostic             bool               `json:"diagnostic,omitempty"`
+	DiagnosticAttempt      int                `json:"diagnostic_attempt,omitempty"`
+	Button                 string             `json:"button,omitempty"`
+	ClickCount             int                `json:"click_count,omitempty"`
+	ViewportMargin         int                `json:"viewport_margin,omitempty"`
+	WaitForNewPage         bool               `json:"wait_for_new_page,omitempty"`
+	NewPageTimeoutMS       int                `json:"new_page_timeout_ms,omitempty"`
+	MoveToCenterAfterClick bool               `json:"move_to_center_after_click,omitempty"` // 松开鼠标后立即移到当前页面中央，再验证点击结果。
+	Verify                 *ClickVerification `json:"verify,omitempty"`
 }
 
 // ClickResult 表示完整封装点击结果。

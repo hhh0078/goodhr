@@ -314,6 +314,7 @@ export function parseElementClickRequest(
     "wait_for_new_page",
     optionalBoolean(record, "wait_for_new_page"),
   );
+  assignBoolean(request, "move_to_center_after_click", optionalBoolean(record, "move_to_center_after_click"));
   assignNumber(
     request,
     "new_page_timeout_ms",

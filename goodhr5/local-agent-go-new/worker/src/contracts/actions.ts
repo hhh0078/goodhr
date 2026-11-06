@@ -125,6 +125,8 @@ export interface ElementClickRequest {
   viewport_margin?: number;
   wait_for_new_page?: boolean;
   new_page_timeout_ms?: number;
+  /** 松开鼠标后立即移到页面中央，早于页面等待和结果验证；默认关闭。 */
+  move_to_center_after_click?: boolean;
   verify?: ClickVerification;
 }
 

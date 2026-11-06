@@ -45,6 +45,7 @@ export class ClickAction {
   ): Promise<ClickResult> {
     let newPageWaiter: NewPageWaiter | undefined;
     let clickStarted = false;
+    let movingAfterClick = false;
     const diagnosticInput: JsonObject = request.diagnostic ? { selector: selectorDiagnostic(request.selector), attempt: request.diagnostic_attempt ?? 0,
       verification_configured: Boolean(request.verify) } : {};
     this.logger.info(actionContext, "click", "start", {
@@ -106,6 +107,11 @@ export class ClickAction {
           await delay(randomInteger(80, 160));
         }
       }
+      if (request.move_to_center_after_click) {
+        movingAfterClick = true;
+        await this.move.toViewportCenter(found.resolved.page, landing.view.viewport.width, landing.view.viewport.height, actionContext);
+        movingAfterClick = false;
+      }
       const newPage = newPageWaiter ? await newPageWaiter.wait() : null;
       if (newPage) {
         await newPage
@@ -160,6 +166,7 @@ export class ClickAction {
         details: { target_description: request.selector.description },
       });
       normalized.details.click_started = clickStarted;
+      if (movingAfterClick) normalized.details.post_click_move_failed = true;
       this.logger.failure(actionContext, normalized);
       throw normalized;
     } finally {

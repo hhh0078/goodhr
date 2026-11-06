@@ -52,7 +52,7 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 | POST | `/api/v1/element/find` | 查找单个元素 |
 | POST | `/api/v1/element/find-all` | 查找列表并读取字段 |
 | POST | `/api/v1/element/read` | 读取文本、HTML 或属性 |
-| POST | `/api/v1/element/click` | 查找、滚动、移动、原子点击、验证 |
+| POST | `/api/v1/element/click` | 查找、滚动、移动、原子点击、验证；可选 `move_to_center_after_click` 在松开后立即移到页面中央，早于后续等待和验证，默认关闭 |
 | POST | `/api/v1/element/input` | 查找、滚动、移动、聚焦、清空、原子输入、验证 |
 | POST | `/api/v1/page/scroll` | 页面真实鼠标滚轮 |
 | POST | `/api/v1/element/scroll` | 元素区域真实鼠标滚轮 |

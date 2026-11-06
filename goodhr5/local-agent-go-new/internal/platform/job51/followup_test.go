@@ -25,6 +25,8 @@ type followupBrowserStub struct {
 	resumeClicks   int
 	resumeErr      error
 	resumeVerified bool
+	closeMoves     int
+	closeErr       error
 }
 
 // Read 返回合成聊天框姓名，不读取真实候选人资料。
@@ -69,8 +71,14 @@ func (s *followupBrowserStub) FindAll(_ context.Context, request contract.Elemen
 // Click 模拟先关闭旧聊天，再从当前卡片打开聊天，不发送实际消息。
 func (s *followupBrowserStub) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
 	s.clicks = append(s.clicks, request.Selector.Description)
+	if request.MoveToCenterAfterClick {
+		s.closeMoves++
+	}
 	if request.Selector.Description == "candidate.chat_close" {
 		s.opened = false
+		if s.closeErr != nil {
+			return contract.ClickResult{}, s.closeErr
+		}
 	}
 	if request.Selector.Description == "candidate.continue" {
 		s.opened = true
@@ -132,7 +140,7 @@ func TestFollowupRequestsDoNotBuyPhone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(browser.sent) != 1 || browser.sent[0] != cfg.Behavior.RequestPhoneMessage || browser.wechatSent != 1 || browser.wechatConfirm || browser.resumeClicks != 1 || !browser.resumeVerified {
+	if len(browser.sent) != 1 || browser.sent[0] != cfg.Behavior.RequestPhoneMessage || browser.wechatSent != 1 || browser.wechatConfirm || browser.resumeClicks != 1 || !browser.resumeVerified || browser.closeMoves != 0 {
 		t.Fatal("电话消息、微信确认与邀投递没有按配置完成")
 	}
 	for _, click := range browser.clicks {
@@ -191,8 +199,18 @@ func TestCloseConversationAlsoFoldsDrawer(t *testing.T) {
 	if err := NewRuntime().CloseCandidateConversation(context.Background(), browser, followupConfigFixture(t), model.Candidate{}); err != nil {
 		t.Fatal(err)
 	}
-	if browser.opened || browser.drawer || len(browser.clicks) != 2 {
+	if browser.opened || browser.drawer || len(browser.clicks) != 2 || browser.closeMoves != 2 {
 		t.Fatal("聊天框和联系人侧栏都必须确认关闭")
+	}
+}
+
+// TestCloseConversationPreservesMouseMoveFailure 验证聊天框关闭后的鼠标移动失败会返回错误，且不重放关闭点击。
+func TestCloseConversationPreservesMouseMoveFailure(t *testing.T) {
+	failure := &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "MOVE_FAILED", Details: []byte(`{"post_click_move_failed":true}`)}}
+	browser := &followupBrowserStub{opened: true, closeErr: failure}
+	err := NewRuntime().CloseCandidateConversation(context.Background(), browser, followupConfigFixture(t), model.Candidate{})
+	if !errors.Is(err, failure) || browser.opened || len(browser.clicks) != 1 || browser.closeMoves != 1 {
+		t.Fatalf("聊天关闭不能掩盖移走失败或重复点击：clicks=%v err=%v", browser.clicks, err)
 	}
 }
 

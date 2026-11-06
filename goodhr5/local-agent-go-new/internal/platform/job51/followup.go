@@ -13,7 +13,7 @@ import (
 
 // EnsureCandidateConversation 从当前唯一稳定卡片重新打开聊天；页面未公开会话身份编号，不能仅凭同姓或脱敏名复用旧会话。
 func (r *Runtime) EnsureCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
-	if err := common.CloseCandidatePanels(ctx, browser, cfg); err != nil {
+	if err := closeCandidatePanels(ctx, browser, cfg); err != nil {
 		return fmt.Errorf("前程无忧旧聊天框还没收好，消息先不发送：%w", err)
 	}
 	if err := r.scrollCandidateAction(ctx, browser, cfg, candidate, "candidate.continue"); err != nil {
@@ -100,5 +100,5 @@ func (r *Runtime) SendCandidateMessage(ctx context.Context, browser model.Browse
 
 // CloseCandidateConversation 关闭前程无忧候选人聊天框；卡片继续沟通路径不会打开联系人列表。
 func (r *Runtime) CloseCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, _ model.Candidate) error {
-	return common.CloseCandidatePanels(ctx, browser, cfg)
+	return closeCandidatePanels(ctx, browser, cfg)
 }

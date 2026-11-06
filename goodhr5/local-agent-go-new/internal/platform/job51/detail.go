@@ -47,7 +47,11 @@ func (r *Runtime) CloseCandidateDetail(ctx context.Context, browser model.Browse
 	if !visible {
 		return nil
 	}
-	firstErr := common.CloseCandidateDetail(ctx, browser, cfg)
+	closing := &closeMouseBrowser{Browser: browser}
+	firstErr := common.CloseCandidateDetail(ctx, closing, cfg)
+	if closing.moveErr != nil {
+		return errors.Join(firstErr, closing.moveErr)
+	}
 	if firstErr == nil || ctx.Err() != nil || contract.IsSessionUnavailable(firstErr) {
 		return firstErr
 	}
@@ -58,8 +62,8 @@ func (r *Runtime) CloseCandidateDetail(ctx context.Context, browser model.Browse
 	if !visible {
 		return nil
 	}
-	if retryErr := common.CloseCandidateDetail(ctx, browser, cfg); retryErr != nil {
-		return errors.Join(firstErr, retryErr)
+	if retryErr := common.CloseCandidateDetail(ctx, closing, cfg); retryErr != nil || closing.moveErr != nil {
+		return errors.Join(firstErr, retryErr, closing.moveErr)
 	}
 	return nil
 }
