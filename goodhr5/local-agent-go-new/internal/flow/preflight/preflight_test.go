@@ -3,6 +3,10 @@ package preflight
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
@@ -61,6 +65,69 @@ func TestCheckDeviceBindingUsesStableMachineID(t *testing.T) {
 	}
 	if cloudStub.request.MachineID != "goodhr-device-v1-test" || cloudStub.request.LocalPort != 43129 {
 		t.Fatalf("binding request = %+v", cloudStub.request)
+	}
+	if prepared.MachineID != cloudStub.request.MachineID {
+		t.Fatal("绑定成功的设备编号没有传入后续流程快照")
+	}
+}
+
+// TestPreflightBindingCredentialsReachAutoReplyHTTP 验证正式检查顺序和HTTP客户端把真实绑定编号带到后续自动回复请求，不依赖手填PreparedTask。
+func TestPreflightBindingCredentialsReachAutoReplyHTTP(t *testing.T) {
+	t.Setenv(shared.AutoReplyTargetEnvironment, "")
+	for _, bindingOK := range []bool{true, false} {
+		t.Run(map[bool]string{true: "绑定成功", false: "绑定失败"}[bindingOK], func(t *testing.T) {
+			const machineID = "synthetic-preflight-machine"
+			positionReads := 0
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/auth/me":
+					_ = json.NewEncoder(w).Encode(map[string]any{"user": map[string]string{"id": "synthetic-owner"}})
+				case "/api/agents/bind":
+					var request cloud.AgentBindRequest
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.MachineID != machineID {
+						t.Error("绑定没有携带实际设备编号", err)
+					}
+					if !bindingOK {
+						w.WriteHeader(http.StatusForbidden)
+						_, _ = w.Write([]byte(`{"error":"合成绑定拒绝"}`))
+						return
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"agent": map[string]string{"machine_id": machineID}})
+				case "/api/auto-reply/agent/positions":
+					positionReads++
+					if r.Header.Get("X-GoodHR-Machine-ID") != machineID || r.Header.Get("Authorization") != "Bearer synthetic-token" {
+						t.Error("自动回复请求丢失启动前检查的设备或账号凭证")
+					}
+					_, _ = w.Write([]byte(`{"positions":[]}`))
+				default:
+					// 主动在后续岗位加载停止，前面的真实检查快照仍应完整返回；不启动任何浏览器。
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = w.Write([]byte(`{"error":"合成岗位边界停止"}`))
+				}
+			}))
+			defer remote.Close()
+			client := cloud.New(remote.URL)
+			checker := &Checker{Cloud: client, AgentBind: cloud.AgentBindRequest{MachineID: machineID}}
+			result, err := checker.RunPreflightChecks(context.Background(), shared.StartRequest{
+				TaskID: "synthetic-task", PositionID: "synthetic-position", TaskType: "auto_reply", Token: "synthetic-token", PlatformAccountID: "合成平台账号",
+			})
+			if err == nil {
+				t.Fatal("合成边界没有停止检查")
+			}
+			if !bindingOK {
+				if result.Prepared.MachineID != "" || !strings.Contains(err.Error(), "设备绑定") {
+					t.Fatal("绑定失败仍授权了设备快照", err)
+				}
+				return
+			}
+			if result.Prepared.MachineID != machineID || !strings.Contains(err.Error(), "岗位配置") {
+				t.Fatal("设备编号未保留到正式检查结果", err)
+			}
+			_, err = client.AutoReplySnapshots(context.Background(), cloud.AgentCredentials{Token: result.Prepared.Request.Token, MachineID: result.Prepared.MachineID}, "liepin")
+			if err != nil || positionReads != 1 {
+				t.Fatalf("检查快照无法发起后续岗位读取：calls=%d err=%v", positionReads, err)
+			}
+		})
 	}
 }
 

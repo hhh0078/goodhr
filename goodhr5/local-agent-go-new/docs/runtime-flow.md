@@ -77,6 +77,8 @@ StartTask
 
 后台流程必须持有可取消的 Context。
 
+设备绑定检查成功后，必须把本次 `Checker.AgentBind.MachineID` 写入 `PreparedTask.MachineID`；失败时保持空。自动回复运行期间的 `credentials(prepared)` 只复用这份已核验快照，不能依赖 HTTP 启动入口先前取过设备编号。回归覆盖正式检查顺序、真实本机 HTTP 绑定响应与后续岗位列表的 `X-GoodHR-Machine-ID`，防止启动检查通过但循环第一次请求缺凭证。
+
 ## 3. 启动前检查
 
 `RunPreflightChecks` 使用顺序步骤列表：

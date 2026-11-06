@@ -85,6 +85,9 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 		}
 	}
 	conversation.HistoryComplete = conversation.HistoryComplete || input.HistoryComplete
+	if input.CaptureCompleted {
+		conversation.CaptureIntent = nil
+	}
 	conversation.UpdatedAt = now
 	if err = tx.Put("conversations", conversation.ID, conversation); err != nil {
 		return result, false, err

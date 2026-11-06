@@ -251,9 +251,17 @@ func (t *AutoReplyTx) DueAutoReplyRows(kind string, limit int) ([]AutoReplyRow, 
 	return result, rows.Err()
 }
 
-// PendingConversations 用关联索引一次读取待答会话，不逐个加载账号历史聊天。
+// PendingConversations 按招聘账号读取尚未完成采集或仍有待答消息的会话，不逐个加载账号历史聊天。
 func (t *AutoReplyTx) PendingConversations(platformID, accountID string) ([]AutoReplyRow, error) {
-	rows, err := t.tx.QueryContext(t.ctx, `SELECT c.id,c.payload_json,c.revision FROM auto_reply_conversations c WHERE c.owner_id=? AND c.platform_id=? AND c.account_id=? AND EXISTS(SELECT 1 FROM auto_reply_messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id AND m.direction='candidate' AND m.processed_status='' AND m.message_order>COALESCE((SELECT MAX(s.message_order) FROM auto_reply_messages s WHERE s.owner_id=c.owner_id AND s.conversation_id=c.id AND s.direction='self' AND s.processed_status NOT IN ('history_backfill','legacy_unverified')),0)) ORDER BY c.sequence LIMIT 100`, t.owner, platformID, accountID)
+	rows, err := t.tx.QueryContext(t.ctx, `SELECT c.id,c.payload_json,c.revision FROM auto_reply_conversations c
+		WHERE c.owner_id=? AND c.platform_id=? AND c.account_id=?
+		AND (json_type(c.payload_json,'$.capture_intent')='object' OR EXISTS(
+			SELECT 1 FROM auto_reply_messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id
+			AND m.direction='candidate' AND m.processed_status=''
+			AND m.message_order>COALESCE((SELECT MAX(s.message_order) FROM auto_reply_messages s
+				WHERE s.owner_id=c.owner_id AND s.conversation_id=c.id AND s.direction='self'
+				AND s.processed_status NOT IN ('history_backfill','legacy_unverified')),0)))
+		ORDER BY c.sequence LIMIT 100`, t.owner, platformID, accountID)
 	if err != nil {
 		return nil, err
 	}

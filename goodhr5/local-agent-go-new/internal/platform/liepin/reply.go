@@ -117,14 +117,10 @@ func ensureLiepinUnreadConversationDrawer(ctx context.Context, browser model.Bro
 
 // OpenAutoReplyConversation 重新按稳定会话编号定位联系人，并读取身份、岗位、聊天和简历卡片。
 func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation, knownMessageKeys []string, maxHistory int) (model.AutoReplyConversationSnapshot, error) {
-	ready, _, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
-	if err != nil {
+	if err := ensureLiepinConversationDrawer(ctx, browser, cfg); err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
 	}
-	if !ready {
-		return model.AutoReplyConversationSnapshot{}, fmt.Errorf("%s未读联系人列表没有打开", cfg.Name)
-	}
-	if err = openLiepinConversation(ctx, browser, cfg, conversation); err != nil {
+	if err := openLiepinConversation(ctx, browser, cfg, conversation); err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
 	}
 	name, position, err := waitLiepinConversation(ctx, browser, cfg, conversation.Name)

@@ -100,7 +100,7 @@ func (c *Client) PendingAutoReplyMessages(ctx context.Context, credentials Agent
 	return
 }
 
-// ListPendingAutoReplyConversations 返回当前招聘账号仍有待答消息的会话，用于恢复已读和重启任务。
+// ListPendingAutoReplyConversations 返回当前招聘账号待采集或待答的会话，用于恢复已读和重启任务。
 func (c *Client) ListPendingAutoReplyConversations(ctx context.Context, credentials AgentCredentials, platformID, accountID string) (items []AutoReplyConversation, err error) {
 	items = []AutoReplyConversation{}
 	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {

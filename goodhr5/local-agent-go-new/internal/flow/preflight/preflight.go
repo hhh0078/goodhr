@@ -207,10 +207,15 @@ func (c *Checker) checkCloudSession(ctx context.Context, prepared *shared.Prepar
 
 // checkDeviceBinding 在每次任务开始前复查当前电脑仍然属于登录账号。
 func (c *Checker) checkDeviceBinding(ctx context.Context, prepared *shared.PreparedTask) error {
+	prepared.MachineID = ""
 	if strings.TrimSpace(c.AgentBind.MachineID) == "" {
 		return fmt.Errorf("这台电脑的设备编号暂时没读出来，请重启本地程序后再试")
 	}
 	_, err := c.Cloud.BindAgent(ctx, prepared.Request.Token, c.AgentBind)
+	if err == nil {
+		// 后续自动回复只读取检查快照，必须带上这次真实绑定成功的本机编号。
+		prepared.MachineID = strings.TrimSpace(c.AgentBind.MachineID)
+	}
 	return err
 }
 

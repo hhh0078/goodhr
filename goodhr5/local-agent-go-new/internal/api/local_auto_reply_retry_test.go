@@ -8,10 +8,36 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/storage"
 )
+
+// TestAutoReplyStatusPreservesFailureReason 验证任务收尾步骤为 finished 时仍向前端返回真实错误。
+func TestAutoReplyStatusPreservesFailureReason(t *testing.T) {
+	s := newAutoReplyRetryServer(t, nil)
+	reason := "当前平台还不能核对单会话稳定身份，本次限制任务没有启动"
+	if err := s.store.SaveTask(context.Background(), storage.TaskRun{
+		TaskID: "failed-reply", PositionID: "position", PlatformID: "liepin", TaskType: "auto_reply",
+		Status: "failed", CurrentStep: "finished", ErrorCode: "TASK_FLOW_FAILED", ErrorMessage: reason,
+		StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.handleLocalAutoReplyStatus(w, httptest.NewRequest(http.MethodGet, "/api/v1/local/auto-reply/status", nil))
+	var response struct {
+		Data storage.TaskRun `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("读取状态失败：status=%d err=%v", w.Code, err)
+	}
+	if response.Data.Status != "failed" || response.Data.CurrentStep != "finished" || response.Data.ErrorCode != "TASK_FLOW_FAILED" || response.Data.ErrorMessage != reason {
+		t.Fatalf("状态没有保留真实失败原因：%+v", response.Data)
+	}
+}
 
 // newAutoReplyRetryServer 创建仅有本机SQLite与合成登录态的报告重试接口。
 func newAutoReplyRetryServer(t *testing.T, remote http.Handler) *Server {

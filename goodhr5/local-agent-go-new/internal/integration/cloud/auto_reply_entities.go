@@ -113,6 +113,8 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 				item.LastSyncedMessageKey = old.LastSyncedMessageKey
 				item.LastCandidateMessageKey = old.LastCandidateMessageKey
 				item.HistoryComplete = item.HistoryComplete || old.HistoryComplete
+				// 只有通过身份核验后的消息同步事务可以结束采集，保存页面元数据不能提前清除恢复意图。
+				item.CaptureIntent = old.CaptureIntent
 				if item.CandidateID == "" {
 					item.CandidateID = old.CandidateID
 				}

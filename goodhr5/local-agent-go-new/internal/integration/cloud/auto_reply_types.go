@@ -118,25 +118,35 @@ type CandidatePlatformIdentity struct {
 
 // AutoReplyConversation 表示可以先于正式简历存在的平台聊天会话。
 type AutoReplyConversation struct {
-	ID                      string     `json:"id"`
-	CandidateID             string     `json:"candidate_id"`
-	PlatformIdentityID      string     `json:"platform_identity_id"`
-	EngagementID            string     `json:"engagement_id"`
-	PositionID              string     `json:"position_id"`
-	PlatformAccountID       string     `json:"platform_account_id"`
-	PlatformID              string     `json:"platform_id"`
-	PlatformThreadID        string     `json:"platform_thread_id"`
-	CandidateName           string     `json:"candidate_name"`
-	Gender                  string     `json:"gender"`
-	PagePositionText        string     `json:"page_position_text"`
-	Status                  string     `json:"status"`
-	HistoryComplete         bool       `json:"history_complete"`
-	LastSyncedMessageKey    string     `json:"last_synced_message_key"`
-	LastCandidateMessageKey string     `json:"last_candidate_message_key"`
-	UnresolvedReason        string     `json:"unresolved_reason"`
-	LastCheckedAt           *time.Time `json:"last_checked_at"`
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	ID                      string                  `json:"id"`
+	CandidateID             string                  `json:"candidate_id"`
+	PlatformIdentityID      string                  `json:"platform_identity_id"`
+	EngagementID            string                  `json:"engagement_id"`
+	PositionID              string                  `json:"position_id"`
+	PlatformAccountID       string                  `json:"platform_account_id"`
+	PlatformID              string                  `json:"platform_id"`
+	PlatformThreadID        string                  `json:"platform_thread_id"`
+	CandidateName           string                  `json:"candidate_name"`
+	Gender                  string                  `json:"gender"`
+	PagePositionText        string                  `json:"page_position_text"`
+	Status                  string                  `json:"status"`
+	HistoryComplete         bool                    `json:"history_complete"`
+	LastSyncedMessageKey    string                  `json:"last_synced_message_key"`
+	LastCandidateMessageKey string                  `json:"last_candidate_message_key"`
+	UnresolvedReason        string                  `json:"unresolved_reason"`
+	LastCheckedAt           *time.Time              `json:"last_checked_at"`
+	CreatedAt               time.Time               `json:"created_at"`
+	UpdatedAt               time.Time               `json:"updated_at"`
+	CaptureIntent           *AutoReplyCaptureIntent `json:"capture_intent,omitempty"`
+}
+
+// AutoReplyCaptureIntent 仅保存列表提供的恢复线索；岗位编号用于恢复调度，不代表已核实的会话岗位。
+type AutoReplyCaptureIntent struct {
+	PositionID          string `json:"position_id"`
+	PlatformThreadID    string `json:"platform_thread_id"`
+	PlatformCandidateID string `json:"platform_candidate_id"`
+	CandidateName       string `json:"candidate_name"`
+	PagePositionText    string `json:"page_position_text"`
 }
 
 // AutoReplyMessage 表示一条经过本地清洗的聊天消息。
@@ -157,9 +167,10 @@ type AutoReplyMessage struct {
 
 // AutoReplyMessageSyncRequest 表示一次首次或差量聊天同步。
 type AutoReplyMessageSyncRequest struct {
-	ConversationID  string             `json:"conversation_id"`
-	HistoryComplete bool               `json:"history_complete"`
-	Messages        []AutoReplyMessage `json:"messages"`
+	ConversationID   string             `json:"conversation_id"`
+	HistoryComplete  bool               `json:"history_complete"`
+	Messages         []AutoReplyMessage `json:"messages"`
+	CaptureCompleted bool               `json:"capture_completed,omitempty"`
 }
 
 // AutoReplyMessageSyncResult 表示云端幂等保存后的差量游标。

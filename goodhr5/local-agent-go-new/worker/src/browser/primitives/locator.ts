@@ -511,7 +511,11 @@ export class LocatorPrimitive {
   ): Promise<{ locator: Locator; candidate: SelectorCandidate }> {
     for (const candidate of group.selectors) {
       assertRequestActive();
-      const locator = this.candidateLocator(scope, candidate, group);
+      let locator = this.candidateLocator(scope, candidate, group);
+      if (group.index === undefined && Object.keys(group.attributes ?? {}).length > 0) {
+        // 无序号时属性用于收紧候选集；显式序号继续针对原列表定位，再按原有规则核验属性。
+        locator = locator.and(scope.locator(attributeFilter(group.attributes!)));
+      }
       let queryError: string | undefined;
       const count = await locator.count().catch(error => { queryError = queryErrorType(error); return 0; });
       assertRequestActive();
@@ -680,6 +684,15 @@ function selectorVariants(spec: SelectorSpec): SelectorSpec[] {
 function exactTextPattern(value: string): RegExp {
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`^\\s*${escaped}\\s*$`, "u");
+}
+
+/** attributeFilter 把属性等值条件编码为标准 CSS，转义名称、引号、反斜线和控制字符，防止正文扩展选择范围。 */
+function attributeFilter(attributes: Record<string, string>): string {
+  return Object.entries(attributes).map(([name, value]) => {
+    const safeName = Array.from(name, char => `\\${char.codePointAt(0)!.toString(16)} `).join("");
+    const safeValue = value.replace(/[\0-\x1f\x7f"\\]/g, char => `\\${char.codePointAt(0)!.toString(16)} `);
+    return `[${safeName}="${safeValue}"]`;
+  }).join("");
 }
 
 /** safeAttempts 把内部选择器尝试记录转换成可安全返回的 JSON 字段。 */

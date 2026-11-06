@@ -38,6 +38,16 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return fmt.Errorf("读取候选人差量游标失败：%w", err)
 	}
 	knownMessageKeys := knownMessageKeysFromState(initialState)
+	if f.Cloud.LocalAutoReplyEnabled() {
+		if err = f.Cloud.BeginAutoReplyCapture(ctx, credentials(prepared), prepared.Platform.ID, conversation.PlatformAccountID,
+			persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key), cloud.AutoReplyCaptureIntent{
+				PositionID: firstNonEmpty(prepared.Position.ID, prepared.Request.PositionID), PlatformThreadID: conversation.PlatformThreadID,
+				PlatformCandidateID: conversation.PlatformCandidateID, CandidateName: conversation.Name, PagePositionText: conversation.CommunicationPosition,
+			}); err != nil {
+			stats.Failed++
+			return fmt.Errorf("保存候选人会话采集进度失败，尚未打开聊天：%w", err)
+		}
+	}
 	pageSnapshot := model.AutoReplyConversationSnapshot{}
 	if openSnapshot != nil && openSnapshot.CandidateName != "" {
 		pageSnapshot = *openSnapshot
@@ -94,7 +104,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return err
 	}
 	if _, err = f.Cloud.SyncAutoReplyMessages(ctx, credentials(prepared), cloud.AutoReplyMessageSyncRequest{
-		ConversationID: cloudConversation.ID, HistoryComplete: pageSnapshot.HistoryComplete, Messages: messages,
+		ConversationID: cloudConversation.ID, HistoryComplete: pageSnapshot.HistoryComplete, Messages: messages, CaptureCompleted: true,
 	}); err != nil {
 		stats.Failed++
 		return fmt.Errorf("同步候选人聊天记录失败：%w", err)

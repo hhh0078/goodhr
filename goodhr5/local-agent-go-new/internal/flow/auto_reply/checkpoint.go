@@ -111,9 +111,13 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		seen := make(map[string]bool)
 		restored := make([]model.Conversation, 0, len(pending)+len(conversations))
 		for _, saved := range pending {
-			enabled := false
+			positionID := saved.PositionID
+			if saved.CaptureIntent != nil {
+				positionID = saved.CaptureIntent.PositionID
+			}
+			enabled := positionID == "" && saved.CaptureIntent != nil && len(positions) > 0
 			for _, position := range positions {
-				if position.Position.ID == saved.PositionID {
+				if position.Position.ID == positionID {
 					enabled = true
 					break
 				}
@@ -122,7 +126,12 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 				continue
 			}
 			seen[saved.PlatformThreadID] = true
-			restored = append(restored, model.Conversation{Key: saved.PlatformThreadID, PlatformThreadID: saved.PlatformThreadID, PlatformAccountID: saved.PlatformAccountID, Name: saved.CandidateName, CommunicationPosition: saved.PagePositionText})
+			item := model.Conversation{Key: saved.PlatformThreadID, PlatformThreadID: saved.PlatformThreadID, PlatformAccountID: saved.PlatformAccountID, Name: saved.CandidateName, CommunicationPosition: saved.PagePositionText}
+			if intent := saved.CaptureIntent; intent != nil {
+				item.PlatformThreadID, item.PlatformCandidateID = intent.PlatformThreadID, intent.PlatformCandidateID
+				item.Name, item.CommunicationPosition = intent.CandidateName, intent.PagePositionText
+			}
+			restored = append(restored, item)
 		}
 		for _, item := range conversations {
 			if !seen[persistentConversationThreadID(item.PlatformThreadID, item.Key)] {

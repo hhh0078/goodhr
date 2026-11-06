@@ -15,6 +15,7 @@ import { loadPositionAutoReplyConfig, loadPositionAutoReplyStatus, savePositionA
 type ReplyTask = {
   status: PositionFloatingStatusValue;
   current_step?: string;
+  error_message?: string;
   scanned_count?: number;
   greeted_count?: number;
   skipped_count?: number;
@@ -52,6 +53,8 @@ export function AutoReplyGlobalControl() {
   currentAgent.current = agentBase;
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
   const running = task?.status === "running";
+  const failureReason = task?.error_message?.trim() || (task?.current_step !== "finished" ? task?.current_step?.trim() : "") || "这次没跑顺，请检查本地程序和招聘页面。";
+  const currentStep = task?.status === "failed" ? failureReason : task?.current_step;
   useEffect(() => {
     setTask(null); setStatusError(""); setAccountOpen(false); setReplyAccount("");
     if (!agentBase) return;
@@ -122,7 +125,7 @@ export function AutoReplyGlobalControl() {
   return <>
     <Flex vertical gap={8} style={{ minWidth: 0, maxWidth: "min(320px, 55vw)" }}>
     <Flex align="center" gap={8} wrap>
-    <Tooltip title={agentBase ? statusError || task?.current_step || "只处理当前招聘平台中已开启自动回复的岗位" : "先连接本地程序，再帮你盯消息"}>
+    <Tooltip title={agentBase ? statusError || currentStep || "只处理当前招聘平台中已开启自动回复的岗位" : "先连接本地程序，再帮你盯消息"}>
       <Button data-testid="auto-reply-global" icon={running ? <StopOutlined aria-hidden="true" /> : <PlayCircleOutlined aria-hidden="true" />}
         danger={running} loading={busy} disabled={!agentBase || task === null} onClick={() => void changeRunning()}>
         {running ? "停止自动回复" : "开始自动回复"}
@@ -131,7 +134,7 @@ export function AutoReplyGlobalControl() {
     {(task?.blocked_report_count || 0) > 0 && <Button disabled={busy} onClick={() => void retryReports()}>重试报告（{task?.blocked_report_count}）</Button>}
     </Flex>
     {task?.status === "failed" && <Alert type="error" showIcon role="alert" data-testid="auto-reply-failure"
-      title="自动回复已停止" description={<>{task.current_step?.trim() || "这次没跑顺。"}<br />处理后点击“开始自动回复”重试。</>}
+      title="自动回复已停止" description={<>{failureReason}<br />处理后点击“开始自动回复”重试。</>}
       style={{ overflowWrap: "anywhere" }} />}
     </Flex>
     <AdminDialog open={accountOpen} title="确认当前招聘账号" confirmText="确认账号并开始" loading={busy}
@@ -142,7 +145,7 @@ export function AutoReplyGlobalControl() {
         onChange={(event) => setReplyAccount(event.target.value)} style={{ marginBlock: 8 }} />
       <Alert type="info" showIcon title="聊天记录按这个账号分开保存。换账号前先停止，再修改这里。" />
     </AdminDialog>
-    <PositionFloatingStatus autoReply pipWindow={pipWindow} status={task?.status || "stopped"} currentStep={task?.current_step || "正在等待候选人消息"}
+    <PositionFloatingStatus autoReply pipWindow={pipWindow} status={task?.status || "stopped"} currentStep={currentStep || "正在等待候选人消息"}
       analysis={replyAnalysis(task)} scannedCount={Number(task?.scanned_count) || 0} greetedCount={Number(task?.greeted_count) || 0}
       skippedCount={Number(task?.skipped_count) || 0} onClosed={() => setPipWindow(null)} />
   </>;

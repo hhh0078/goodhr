@@ -19,7 +19,7 @@ async function fixture(page: Page) {
     let data: unknown;
     if (path.endsWith("/auto-reply/start")) { expect(request.postDataJSON().platform_account_id).toBe("合成招聘账号"); state.starts++; state.running = true; data = { ok: true, data: { status: "running", task_id: "synthetic-auto-reply" } }; }
     else if (path.endsWith("/auto-reply/stop")) { state.stops++; state.running = false; data = { ok: true, data: { status: "stopped" } }; }
-    else if (path.endsWith("/auto-reply/status")) data = { ok: true, data: { status: state.running ? "running" : reports.failure ? "failed" : "stopped", current_step: reports.failure || "合成任务状态", blocked_report_count: reports.blocked } };
+    else if (path.endsWith("/auto-reply/status")) data = { ok: true, data: { status: state.running ? "running" : reports.failure ? "failed" : "stopped", current_step: reports.failure ? "finished" : "合成任务状态", error_code: reports.failure ? "TASK_FLOW_FAILED" : "", error_message: reports.failure, blocked_report_count: reports.blocked } };
     else if (path.endsWith("/auto-reply/retry-reports")) {
       expect(request.postDataJSON().token).toBe("auto-reply-synthetic-token");
       const count = reports.blocked; reports.retries++; reports.blocked = 0;
@@ -40,12 +40,13 @@ async function fixture(page: Page) {
 for (const width of [1366, 390]) {
   test(`自动回复失败 ${width}px 持续显示原因并可重新开始`, async ({ page }) => {
     const { reports, state } = await fixture(page);
-    reports.failure = "当前招聘账号与已确认账号不一致，请先核对招聘页面账号。";
+    reports.failure = "当前平台还不能核对单会话稳定身份，本次限制任务没有启动";
     await page.setViewportSize({ width, height: 960 });
     await page.goto("/admin/positions");
     const alert = page.getByTestId("auto-reply-failure");
     await expect(alert).toBeVisible();
     await expect(alert).toContainText(reports.failure);
+    await expect(alert).not.toContainText("finished");
     await expect(alert).toContainText("处理后点击“开始自动回复”重试");
     await page.reload();
     await expect(alert).toBeVisible();
