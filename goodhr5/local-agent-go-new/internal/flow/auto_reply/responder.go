@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -79,8 +80,26 @@ func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructure
 	if candidate.IsResume != nil && !*candidate.IsResume {
 		return StructuredResume{}, fmt.Errorf("附件没有可确认的个人简历，请人工看一下")
 	}
+	birthYM, birthPrecision := explicitResumeBirthMonth(candidate.BirthYM, text)
+	candidate.BirthYM = birthYM
 	r.reportResume(input, "result", "候选人简历已经整理完成", true)
-	return StructuredResume{Candidate: candidate.StructuredCandidate, Gender: candidate.Gender, Wechat: candidate.Wechat, RawText: text}, nil
+	return StructuredResume{Candidate: candidate.StructuredCandidate, Gender: candidate.Gender, BirthYMPrecision: birthPrecision, Wechat: candidate.Wechat, RawText: text}, nil
+}
+
+// explicitResumeBirthMonth 只保留原文生日标签旁明确出现的年月；年份、年龄推算和工作日期不能补作出生月份。
+func explicitResumeBirthMonth(value, source string) (string, string) {
+	value = strings.TrimSpace(value)
+	parsed, err := time.Parse("2006-01", value)
+	if err != nil {
+		return "", ""
+	}
+	date := fmt.Sprintf(`%04d\s*(?:[-./]|年)\s*(?:%02d|%d)(?:\s*月)?`, parsed.Year(), parsed.Month(), parsed.Month())
+	label := `(?:出生(?:年月日|年月|日期|时间|于)?|生日|生于|date\s+of\s+birth|birth(?:day|date)?|dob)\s*[:：]?\s*`
+	pattern := `(?i)(?:` + label + date + `(?:[^0-9]|$)|(?:^|[^0-9])` + date + `\s*(?:出生|生(?:[，。;；\s]|$)))`
+	if !regexp.MustCompile(pattern).MatchString(source) {
+		return "", ""
+	}
+	return value, "month"
 }
 
 // reportResume 把简历结构化请求状态同步到当前运行小窗。

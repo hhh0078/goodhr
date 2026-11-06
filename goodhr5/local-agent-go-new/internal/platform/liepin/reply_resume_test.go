@@ -79,6 +79,7 @@ func TestCollectAttachmentFileOnlyAndUnsafeCompletion(t *testing.T) {
 			}
 			cfg := model.Config{Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
 				"message.current_name":             testLiepinSelector("测试当前候选人"),
+				"message.candidate_id_source":      testLiepinSelector("测试候选人编号"),
 				"message.current_position":         testLiepinSelector("测试当前岗位"),
 				"message.resume_attachment_entry":  testLiepinSelector("测试附件入口"),
 				"message.attachment_preview":       testLiepinSelector("测试附件预览"),
@@ -89,7 +90,7 @@ func TestCollectAttachmentFileOnlyAndUnsafeCompletion(t *testing.T) {
 				"message.resume_online_entry":      testLiepinSelector("测试在线简历入口"),
 			}}
 			bundle, err := (&Runtime{}).CollectAutoReplyResume(ctx, browser, cfg, model.AutoReplyConversationSnapshot{
-				CandidateName: "邓云川", CommunicationPosition: "测试岗位", ResumeCardAvailable: true,
+				CandidateName: "邓云川", PlatformCandidateID: "target-cid", CommunicationPosition: "测试岗位", ResumeCardAvailable: true,
 				ResumeSourceMessageID: "attachment-source",
 			})
 			if expectedErr == nil {

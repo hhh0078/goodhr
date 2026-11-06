@@ -131,6 +131,7 @@ type AutoReplyConversation struct {
 	PagePositionText        string                  `json:"page_position_text"`
 	Status                  string                  `json:"status"`
 	HistoryComplete         bool                    `json:"history_complete"`
+	MessageIdentityVersion  int                     `json:"message_identity_version,omitempty"` // 仅完整历史同步成功后记录已使用的消息键版本。
 	LastSyncedMessageKey    string                  `json:"last_synced_message_key"`
 	LastCandidateMessageKey string                  `json:"last_candidate_message_key"`
 	UnresolvedReason        string                  `json:"unresolved_reason"`
@@ -177,10 +178,11 @@ type AutoReplyMessage struct {
 
 // AutoReplyMessageSyncRequest 表示一次首次或差量聊天同步。
 type AutoReplyMessageSyncRequest struct {
-	ConversationID   string             `json:"conversation_id"`
-	HistoryComplete  bool               `json:"history_complete"`
-	Messages         []AutoReplyMessage `json:"messages"`
-	CaptureCompleted bool               `json:"capture_completed,omitempty"`
+	ConversationID         string             `json:"conversation_id"`
+	HistoryComplete        bool               `json:"history_complete"`
+	Messages               []AutoReplyMessage `json:"messages"`
+	CaptureCompleted       bool               `json:"capture_completed,omitempty"`
+	MessageIdentityVersion int                `json:"message_identity_version,omitempty"` // 新版本必须完整到顶且对上旧锚点，事务失败不得升级。
 }
 
 // AutoReplyMessageSyncResult 表示云端幂等保存后的差量游标。

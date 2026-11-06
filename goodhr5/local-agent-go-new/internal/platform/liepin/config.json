@@ -38,6 +38,8 @@
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
     "auto_reply_resume_loads_history": true,
+    "auto_reply_message_identity_version": 1,
+    "_comment_auto_reply_message_identity_version": "同分钟重复消息按出现次数生成稳定编号；旧会话须一次完整重采并安全回填，成功后恢复增量读取。",
     "_comment_auto_reply_resume_loads_history": "简历采集在平台内部轻量加载来源卡片，核验后直接打开附件，不先恢复最新端。",
     "auto_reply_avatar_container_key": "message.history_scroll",
     "_comment_auto_reply_avatar_container_key": "头像截图必须完整位于聊天滚动区域内，避免截图操作滚动到旧消息；不可见时沿用安全下载兜底。",

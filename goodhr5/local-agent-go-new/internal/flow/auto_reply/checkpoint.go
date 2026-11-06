@@ -27,6 +27,7 @@ type openAutoReplyConversation struct {
 func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, replyRuntime model.AutoReplyRuntime, stats *shared.Stats) error {
 	errorPolicy := &shared.ConsecutiveErrorPolicy{}
 	var openConversation *openAutoReplyConversation
+	historyRefreshQueued := false
 	for {
 		if shared.GracefulStopRequested(ctx) {
 			return nil
@@ -51,6 +52,12 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 			}
 			continue
 		}
+		if !historyRefreshQueued {
+			if err := f.queueHistoryRefresh(ctx, prepared, positions); err != nil {
+				return err
+			}
+			historyRefreshQueued = true
+		}
 		limit, waitSeconds := checkpointSettings(positions, prepared.Position.ID)
 		_, openConversation, err = f.processCheckpoint(
 			ctx, prepared, runtime, replyRuntime, positions, limit, stats, errorPolicy, openConversation,
@@ -66,6 +73,25 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 			return err
 		}
 	}
+}
+
+// queueHistoryRefresh 每次任务启动只登记一次旧版本重采，后续轮询直接复用持久采集意图。
+func (f *Flow) queueHistoryRefresh(ctx context.Context, prepared shared.PreparedTask, positions []cloud.AutoReplyPositionSnapshot) error {
+	if f.Cloud != nil && f.Cloud.LocalAutoReplyEnabled() && prepared.Platform.Behavior.AutoReplyMessageIdentityVersion > 0 {
+		scope := cloud.AutoReplyHistoryRefreshScope{PlatformID: prepared.Platform.ID, PlatformAccountID: prepared.Request.PlatformAccountID, Version: prepared.Platform.Behavior.AutoReplyMessageIdentityVersion}
+		for _, position := range positions {
+			if position.Config.Enabled {
+				scope.PositionIDs = append(scope.PositionIDs, position.Position.ID)
+			}
+		}
+		if target := prepared.Request.AutoReplyTarget; target != nil {
+			scope.Target = &cloud.AutoReplyCaptureIntent{PlatformThreadID: target.PlatformThreadID, PlatformCandidateID: target.PlatformCandidateID, CandidateName: target.CandidateName}
+		}
+		if err := f.Cloud.QueueAutoReplyHistoryRefresh(ctx, credentials(prepared), scope); err != nil {
+			return fmt.Errorf("登记旧聊天历史补采失败：%w", err)
+		}
+	}
+	return nil
 }
 
 // processCheckpoint 按页面顺序处理单轮最多三个未读会话。

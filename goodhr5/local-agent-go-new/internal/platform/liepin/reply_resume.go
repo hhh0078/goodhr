@@ -3,6 +3,7 @@ package liepin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -49,7 +50,7 @@ func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Brow
 			return model.AutoReplyResumeBundle{}, err
 		}
 	}
-	attachmentText, attachmentPaths, err := collectLiepinAttachment(ctx, browser, cfg)
+	attachmentText, attachmentPaths, err := collectLiepinAttachment(ctx, browser, cfg, snapshot)
 	if err != nil {
 		return model.AutoReplyResumeBundle{}, err
 	}
@@ -99,10 +100,14 @@ func collectLiepinOnlineResume(ctx context.Context, browser model.Browser, cfg m
 }
 
 // collectLiepinAttachment 打开附件预览，读取 iframe 正文并通过下载监听取得本地文件。
-func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg model.Config) (text string, paths []string, returnErr error) {
+func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (text string, paths []string, returnErr error) {
 	downloader, ok := browser.(liepinDownloadBrowser)
 	if !ok {
 		return "", nil, fmt.Errorf("%s简历下载监听没有准备好", cfg.Name)
+	}
+	returnURL, err := currentLiepinAttachmentPageURL(ctx, browser)
+	if err != nil {
+		return "", nil, err
 	}
 	if err := downloader.ClearDownloads(ctx); err != nil {
 		return "", nil, fmt.Errorf("清理旧下载记录失败：%w", err)
@@ -112,11 +117,20 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 		return "", nil, err
 	}
 	defer func() {
+		if ctx.Err() != nil && !errors.Is(returnErr, ctx.Err()) {
+			returnErr = errors.Join(returnErr, ctx.Err())
+		}
+		cleanupCtx := context.WithoutCancel(ctx)
+		// 下载可能打开 PDF 并改变 Worker 当前页；必须先回原页核对身份，不能在 PDF 上误判预览已关闭。
+		if restoreErr := restoreLiepinAttachmentPage(cleanupCtx, browser, cfg, snapshot, returnURL); restoreErr != nil {
+			returnErr = errors.Join(returnErr, restoreErr)
+			return
+		}
 		if closeErr := common.CloseOptionalPanel(
-			context.WithoutCancel(ctx), browser, cfg,
+			cleanupCtx, browser, cfg,
 			"message.attachment_preview", "message.attachment_preview_close", cfg.Name+"附件预览",
-		); closeErr != nil && returnErr == nil {
-			returnErr = fmt.Errorf("关闭%s附件预览失败：%w", cfg.Name, closeErr)
+		); closeErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("关闭%s附件预览失败：%w", cfg.Name, closeErr))
 		}
 	}()
 	attachmentText := ""
@@ -128,11 +142,71 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 	if err := common.ClickRequired(ctx, browser, cfg, "message.attachment_download"); err != nil {
 		return "", nil, fmt.Errorf("下载%s附件简历失败：%w", cfg.Name, err)
 	}
-	paths, err := waitLiepinDownloads(ctx, downloader)
+	paths, err = waitLiepinDownloads(ctx, downloader)
 	if err != nil {
 		return "", nil, err
 	}
 	return attachmentText, paths, nil
+}
+
+// currentLiepinAttachmentPageURL 保存下载前唯一活动页的完整地址，不缓存可能随标签关闭而变化的页面序号。
+func currentLiepinAttachmentPageURL(ctx context.Context, browser model.Browser) (string, error) {
+	pages, err := browser.ListPages(ctx)
+	if err != nil {
+		return "", fmt.Errorf("读取附件所属标签页失败：%w", err)
+	}
+	currentURL, currentCount := "", 0
+	for _, page := range pages.Pages {
+		if page.Current {
+			currentURL = strings.TrimSpace(page.URL)
+			currentCount++
+		}
+	}
+	if currentCount != 1 || currentURL == "" {
+		return "", fmt.Errorf("附件所属标签页无法唯一确认，暂不开始下载")
+	}
+	matches := 0
+	for _, page := range pages.Pages {
+		if strings.TrimSpace(page.URL) == currentURL {
+			matches++
+		}
+	}
+	if matches != 1 {
+		return "", fmt.Errorf("发现地址相同的招聘标签页，暂不猜测附件归属")
+	}
+	return currentURL, nil
+}
+
+// restoreLiepinAttachmentPage 用实时标签列表恢复唯一原页，核对返回地址与候选人编号后才允许关闭预览。
+func restoreLiepinAttachmentPage(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot, returnURL string) error {
+	pages, err := browser.ListPages(ctx)
+	if err != nil {
+		return fmt.Errorf("下载后读取招聘标签页失败：%w", err)
+	}
+	var target contract.PageInfo
+	matches := 0
+	for _, page := range pages.Pages {
+		if strings.TrimSpace(page.URL) == returnURL {
+			target = page
+			matches++
+		}
+	}
+	if matches != 1 || target.PageID == "" {
+		return fmt.Errorf("下载后无法唯一找到原招聘标签页，暂不关闭任何页面或预览")
+	}
+	if !target.Current {
+		target, err = browser.UsePage(ctx, contract.PageUseRequest{PageID: target.PageID})
+		if err != nil {
+			return fmt.Errorf("切回附件所属招聘页失败：%w", err)
+		}
+		if strings.TrimSpace(target.URL) != returnURL || !target.Current {
+			return fmt.Errorf("切回后的页面地址不一致，暂不关闭预览")
+		}
+	}
+	if err = (&Runtime{}).VerifyAutoReplyConversationIdentity(ctx, browser, cfg, snapshot); err != nil {
+		return fmt.Errorf("下载后原聊天身份核对失败：%w", err)
+	}
+	return nil
 }
 
 // openLiepinAttachmentPreview 点击附件入口并验证弹框，第一次没打开时最多重试两次。

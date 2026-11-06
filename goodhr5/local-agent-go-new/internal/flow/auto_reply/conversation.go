@@ -38,6 +38,14 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return fmt.Errorf("读取候选人差量游标失败：%w", err)
 	}
 	knownMessageKeys := knownMessageKeysFromState(initialState)
+	messageIdentityVersion := 0
+	if f.Cloud.LocalAutoReplyEnabled() {
+		messageIdentityVersion = prepared.Platform.Behavior.AutoReplyMessageIdentityVersion
+		if messageIdentityVersion > 0 && (initialState.Conversation == nil || initialState.Conversation.MessageIdentityVersion < messageIdentityVersion) {
+			// 旧算法即使曾经读到顶部也可能合并过重复消息；本次不使用增量锚点提前结束。
+			knownMessageKeys = nil
+		}
+	}
 	if f.Cloud.LocalAutoReplyEnabled() {
 		if err = f.Cloud.BeginAutoReplyCapture(ctx, credentials(prepared), prepared.Platform.ID, conversation.PlatformAccountID,
 			persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key), cloud.AutoReplyCaptureIntent{
@@ -60,6 +68,10 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	if err != nil {
 		stats.Failed++
 		return fmt.Errorf("打开并读取候选人会话失败：%w", err)
+	}
+	if messageIdentityVersion > 0 && (initialState.Conversation == nil || initialState.Conversation.MessageIdentityVersion < messageIdentityVersion) && !pageSnapshot.HistoryComplete &&
+		(len(pageSnapshot.Messages) > 0 || (initialState.Conversation != nil && initialState.Conversation.LastSyncedMessageKey != "")) {
+		return fmt.Errorf("聊天历史还没有完整读到顶部，先保留采集待办；旧消息不会自动补发")
 	}
 	pageSnapshot = mergePageResumeCard(pageSnapshot, pageSnapshot.Messages)
 	pageSnapshot = normalizePageSnapshot(conversation, pageSnapshot)
@@ -105,6 +117,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	}
 	if _, err = f.Cloud.SyncAutoReplyMessages(ctx, credentials(prepared), cloud.AutoReplyMessageSyncRequest{
 		ConversationID: cloudConversation.ID, HistoryComplete: pageSnapshot.HistoryComplete, Messages: messages, CaptureCompleted: true,
+		MessageIdentityVersion: messageIdentityVersion,
 	}); err != nil {
 		stats.Failed++
 		return fmt.Errorf("同步候选人聊天记录失败：%w", err)

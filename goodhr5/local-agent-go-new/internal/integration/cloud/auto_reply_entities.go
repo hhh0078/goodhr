@@ -113,6 +113,7 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 				item.LastSyncedMessageKey = old.LastSyncedMessageKey
 				item.LastCandidateMessageKey = old.LastCandidateMessageKey
 				item.HistoryComplete = item.HistoryComplete || old.HistoryComplete
+				item.MessageIdentityVersion = old.MessageIdentityVersion
 				// 只有通过身份核验后的消息同步事务可以结束采集，保存页面元数据不能提前清除恢复意图。
 				item.CaptureIntent = old.CaptureIntent
 				// 简历待办只由领取、完成和补审事务改变，普通页面保存不能抹掉待办。
@@ -122,6 +123,7 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 				}
 			} else {
 				item.CreatedAt = now
+				item.MessageIdentityVersion = 0
 			}
 			item.UpdatedAt = now
 			if err = tx.Put("conversations", item.ID, item); err != nil {

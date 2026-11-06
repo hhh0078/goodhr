@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
@@ -407,6 +408,91 @@ func TestAIResponderStructuresResumeLocally(t *testing.T) {
 	}
 	if result.Candidate.CandidateName != "测试甲" || result.Candidate.Phone != "13800138000" || !strings.Contains(result.RawText, "真实附件正文") || cloudCalls != 0 || aiCalls != 1 {
 		t.Fatalf("本地处理结果不正确：%+v 云端请求=%d AI请求=%d", result, cloudCalls, aiCalls)
+	}
+}
+
+// TestAIResponderBirthMonthRequiresBirthContext 验证实际解析链保留明确年月精度，但不把年龄、仅年份或经历日期当作生日。
+func TestAIResponderBirthMonthRequiresBirthContext(t *testing.T) {
+	for _, item := range []struct {
+		name, original, parsed, want string
+	}{
+		{"年月", "出生年月：1990-05", "1990-05", "1990-05"},
+		{"中文年月", "出生日期：1990年5月", "1990-05", "1990-05"},
+		{"英文生日", "Date of birth: 1990/05/12", "1990-05", "1990-05"},
+		{"出生后缀", "1990年5月出生", "1990-05", "1990-05"},
+		{"仅年份", "出生年份：1990", "1990", ""},
+		{"年份不补月", "出生年份：1990", "1990-01", ""},
+		{"空值", "没有填写生日", "", ""},
+		{"非法月份", "出生年月：1990-13", "1990-13", ""},
+		{"仅年龄", "年龄：30岁", "1996-01", ""},
+		{"工作年月", "工作经历：1990-05至今", "1990-05", ""},
+		{"年份与工作年月混合", "出生年份：1990\n工作经历：1990-05至今", "1990-05", ""},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.URL.Path != "/v1/chat/completions" {
+					t.Errorf("不应访问云端：%s", r.URL.Path)
+				}
+				content, _ := json.Marshal(map[string]any{"candidate_name": "合成人选", "birth_ym": item.parsed, "age": 30, "is_resume": true})
+				encoded, _ := json.Marshal(string(content))
+				_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%s}}]}`, encoded)
+			}))
+			defer server.Close()
+			directory := t.TempDir()
+			store, err := storage.Open(filepath.Join(directory, "local.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			client := cloud.New(server.URL)
+			client.EnableLocalAutoReply(store, filepath.Join(directory, "private"))
+			credentials := cloud.AgentCredentials{Token: "synthetic", MachineID: "synthetic"}
+			ctx := context.Background()
+			conversation, err := client.SaveAutoReplyConversation(ctx, credentials, cloud.AutoReplyConversation{PlatformID: "liepin", PlatformAccountID: "account", PlatformThreadID: "thread", PositionID: "position", CandidateName: "合成人选"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate, err := client.EnsureLocalAutoReplyCandidate(ctx, credentials, conversation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			conversation.CandidateID = candidate.ID
+			path := filepath.Join(directory, "resume.txt")
+			if err := os.WriteFile(path, []byte("合成简历\n"+item.original), 0600); err != nil {
+				t.Fatal(err)
+			}
+			attachment, err := client.UploadAutoReplyAttachment(ctx, credentials, cloud.AutoReplyAttachmentUpload{ConversationID: conversation.ID, FilePath: path})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := (&AIResponder{AI: newAIClient(), Cloud: client}).StructureResume(context.Background(), ResumeStructureContext{
+				Credentials: credentials, Conversation: conversation, Attachments: []cloud.StoredResumeAttachment{attachment},
+				AIConfig: cloud.AIConfig{BaseURL: server.URL, APIKey: "synthetic", Model: "synthetic"},
+			})
+			precision := ""
+			if item.want != "" {
+				precision = "month"
+			}
+			if err != nil || calls != 1 || result.Candidate.BirthYM != item.want || result.BirthYMPrecision != precision || !strings.Contains(result.RawText, item.original) {
+				t.Fatalf("年月=%q 精度=%q calls=%d err=%v", result.Candidate.BirthYM, result.BirthYMPrecision, calls, err)
+			}
+			// 复用刚取得的真实解析结果走保存链，不再发模型请求，直接覆盖此前 ensureResume 丢年月的触发点。
+			flow := &Flow{Cloud: client, Responder: resumeResponderStub{structured: result}}
+			prepared := shared.PreparedTask{Request: shared.StartRequest{Token: credentials.Token, PlatformAccountID: "account"}, MachineID: credentials.MachineID, Platform: model.Config{ID: "liepin"}}
+			position := cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position", PlatformID: "liepin"}}
+			_, _, err = flow.ensureResume(ctx, prepared, &autoReplyRuntimeStub{}, position, &conversation,
+				model.AutoReplyConversationSnapshot{CandidateName: "合成人选", PlatformAccountID: "account"},
+				cloud.AutoReplyCandidateState{Candidate: &candidate, Attachments: []cloud.StoredResumeAttachment{attachment}, HasResumeAttachment: true}, "message", &shared.Stats{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			state, err := client.AutoReplyCandidateState(ctx, credentials, cloud.AutoReplyCandidateLookup{PlatformID: "liepin", PlatformAccountID: "account", PlatformThreadID: "thread"})
+			if err != nil || state.Candidate == nil || state.Candidate.BirthYM != item.want || state.Candidate.BirthYMPrecision != precision || calls != 1 {
+				t.Fatalf("解析年月在保存链丢失：candidate=%+v calls=%d err=%v", state.Candidate, calls, err)
+			}
+		})
 	}
 }
 

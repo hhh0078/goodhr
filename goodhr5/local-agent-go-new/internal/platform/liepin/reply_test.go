@@ -44,9 +44,9 @@ func (b *liepinReplyBrowserStub) OpenPage(context.Context, contract.PageOpenRequ
 	return contract.PageInfo{}, nil
 }
 
-// ListPages 返回空标签页列表，满足平台 Browser 测试契约。
+// ListPages 返回唯一原招聘页，供附件完成后核对页面归属。
 func (b *liepinReplyBrowserStub) ListPages(context.Context) (contract.PageListResult, error) {
-	return contract.PageListResult{}, nil
+	return contract.PageListResult{Pages: []contract.PageInfo{{PageID: "0", URL: "https://example.com/recruit", Current: true}}, Count: 1}, nil
 }
 
 // UsePage 返回空页面，满足平台 Browser 测试契约。
@@ -120,6 +120,9 @@ func (b *liepinReplyBrowserStub) FindAll(_ context.Context, request contract.Ele
 
 // Read 返回空读取结果，满足平台 Browser 测试契约。
 func (b *liepinReplyBrowserStub) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
+	if request.Selector.Description == "测试候选人编号" {
+		return contract.ReadResult{Value: "cid=target-cid"}, nil
+	}
 	if request.Selector.Description == "测试未读数字" {
 		return contract.ReadResult{Value: fmt.Sprintf("%d", b.unreadCount)}, nil
 	}
@@ -716,6 +719,7 @@ func TestCollectAutoReplyResumeKeepsDownloadedAttachmentWithoutOnlinePanel(t *te
 		ID: "liepin", Name: "猎聘企业端",
 		Selectors: map[string]contract.SelectorSpec{
 			"message.current_name":             testLiepinSelector("测试当前候选人"),
+			"message.candidate_id_source":      testLiepinSelector("测试候选人编号"),
 			"message.current_position":         testLiepinSelector("测试当前岗位"),
 			"message.drawer":                   testLiepinSelector("测试联系人抽屉"),
 			"message.entry":                    testLiepinSelector("测试联系人入口"),
@@ -737,7 +741,7 @@ func TestCollectAutoReplyResumeKeepsDownloadedAttachmentWithoutOnlinePanel(t *te
 	}
 	bundle, err := (&Runtime{}).CollectAutoReplyResume(context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
 		Conversation:  model.Conversation{Name: "邓云川", PlatformThreadID: "thread-target"},
-		CandidateName: "邓云川", PlatformThreadID: "thread-target", CommunicationPosition: "测试岗位",
+		CandidateName: "邓云川", PlatformCandidateID: "target-cid", PlatformThreadID: "thread-target", CommunicationPosition: "测试岗位",
 		ResumeCardAvailable: true,
 	})
 	if err != nil {

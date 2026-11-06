@@ -17,6 +17,14 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 	if !found {
 		return result, false, fmt.Errorf("本地会话没找到")
 	}
+	upgrading := input.MessageIdentityVersion > conversation.MessageIdentityVersion
+	if upgrading && len(input.Messages) == 0 && conversation.LastSyncedMessageKey == "" {
+		// 新的空会话没有历史可迁移，保持普通空同步；既不升级，也不制造反复采集待办。
+		upgrading = false
+	}
+	if upgrading && (!input.HistoryComplete || len(input.Messages) == 0) {
+		return result, false, fmt.Errorf("完整聊天历史尚未读到顶部，本轮消息标识版本没有升级")
+	}
 	known := make([]bool, len(input.Messages))
 	orders := make([]float64, len(input.Messages))
 	lastKnown := -1
@@ -39,6 +47,10 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 		}
 	}
 	unverified := conversation.LastSyncedMessageKey != "" && input.HistoryComplete && lastKnown < 0 && len(input.Messages) > 0
+	if upgrading && unverified {
+		// 迁移不能猜测新旧消息边界；保留采集意图和原版本，避免下一轮把隔离数据当成有效锚点。
+		return result, false, fmt.Errorf("完整历史没有对上旧消息锚点，本轮没有回填或升级，请人工核对")
+	}
 	now := time.Now().UTC()
 	for index, item := range input.Messages {
 		if known[index] {
@@ -85,6 +97,9 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 		}
 	}
 	conversation.HistoryComplete = conversation.HistoryComplete || input.HistoryComplete
+	if upgrading {
+		conversation.MessageIdentityVersion = input.MessageIdentityVersion
+	}
 	if input.CaptureCompleted {
 		conversation.CaptureIntent = nil
 	}
