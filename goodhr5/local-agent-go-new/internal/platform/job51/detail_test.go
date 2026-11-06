@@ -71,3 +71,17 @@ func TestDetailClosePreservesMouseMoveFailure(t *testing.T) {
 		t.Fatalf("移动失败不能被关闭成功吞掉：clicks=%d err=%v", browser.clicks, err)
 	}
 }
+
+// TestCloseMouseFilterLeavesOpeningUntouched 验证打开过程中仅异常清理的关闭点击会移走鼠标，正常打开点击不受影响。
+func TestCloseMouseFilterLeavesOpeningUntouched(t *testing.T) {
+	browser := &detailCloseStub{}
+	closing := &closeMouseBrowser{Browser: browser, closeDescription: "关闭目标"}
+	for _, description := range []string{"打开目标", "关闭目标"} {
+		if _, err := closing.Click(context.Background(), contract.ElementClickRequest{Selector: contract.SelectorSpec{Description: description}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if browser.clicks != 2 || browser.moveRequests != 1 {
+		t.Fatalf("只能为关闭目标移走鼠标：clicks=%d moves=%d", browser.clicks, browser.moveRequests)
+	}
+}

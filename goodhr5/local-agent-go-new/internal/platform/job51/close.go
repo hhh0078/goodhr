@@ -14,12 +14,16 @@ import (
 // closeMouseBrowser 只在前程无忧关闭流程中修饰点击，其余浏览器能力原样复用。
 type closeMouseBrowser struct {
 	model.Browser
-	moveErr error
+	moveErr          error
+	closeDescription string // 混合打开/关闭流程只为配置中的关闭目标启用；纯关闭流程留空。
 }
 
 // Click 要求 Worker 松开关闭按钮后立即移动鼠标；Windows 和 macOS 双架构使用同一原生鼠标能力。
 // 关闭已执行但移走失败时，保留错误供平台层返回，避免公共关闭逻辑重放已完成的点击或吞掉移动错误。
 func (b *closeMouseBrowser) Click(ctx context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
+	if b.closeDescription != "" && request.Selector.Description != b.closeDescription {
+		return b.Browser.Click(ctx, request)
+	}
 	if b.moveErr != nil {
 		return contract.ClickResult{}, b.moveErr
 	}

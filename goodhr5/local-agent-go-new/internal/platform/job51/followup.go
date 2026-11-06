@@ -3,6 +3,7 @@ package job51
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -23,7 +24,9 @@ func (r *Runtime) EnsureCandidateConversation(ctx context.Context, browser model
 	if err != nil {
 		return err
 	}
-	return common.EnsureCandidateConversationFromCard(ctx, browser, cfg, candidate)
+	closing := &closeMouseBrowser{Browser: browser, closeDescription: cfg.Selectors["candidate.chat_close"].Description}
+	err = common.EnsureCandidateConversationFromCard(ctx, closing, cfg, candidate)
+	return errors.Join(err, closing.moveErr)
 }
 
 // RequestCandidateInfo 在已确认身份的前程无忧聊天框内按岗位要求索要信息。

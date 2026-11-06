@@ -20,7 +20,12 @@ func (r *Runtime) OpenCandidateDetail(ctx context.Context, browser model.Browser
 	if err != nil {
 		return err
 	}
-	return common.OpenCandidateDetail(ctx, browser, cfg, candidate)
+	closing := &closeMouseBrowser{Browser: browser, closeDescription: cfg.Selectors["candidate.detail_close"].Description}
+	err = common.OpenCandidateDetail(ctx, closing, cfg, candidate)
+	if closing.moveErr != nil {
+		return errors.Join(err, model.ErrCandidateDetailCleanupFailed, closing.moveErr)
+	}
+	return err
 }
 
 // ExtractCandidateDetail 提取当前前程无忧候选人详情文本。
