@@ -31,14 +31,13 @@ func readLiepinConversationHistory(ctx context.Context, browser model.Browser, c
 	return result.Messages, result.HistoryComplete, err
 }
 
-// readLiepinConversationHistoryDetail 只有历史首节点可见、真实滚轮无位移且连续等待无新增时才确认读完。
+// readLiepinConversationHistoryDetail 加载时只读首尾稳定编号；到达已知边界、真实顶部或上限后才读取完整消息字段。
 func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Browser, cfg model.Config, knownMessageKeys []string, maxHistory int) (result liepinConversationHistory, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	if maxHistory <= 0 || maxHistory > 5000 {
 		maxHistory = 5000
 	}
-	// 成功读取后恢复最新端；已能看到末条消息时 Worker 不发送滚轮，取消后也不再操作页面。
 	defer func() {
 		if err == nil {
 			err = ctx.Err()
@@ -47,42 +46,23 @@ func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Brow
 			}
 		}
 	}()
-	previousSignature := ""
+	previousSignature, checkedSignature := "", ""
 	stableReadAttempts, blockedAttempts := 0, 0
 	var progress contract.ScrollResult
-	resumeAvailable, resumeSourceID := false, ""
+	var cachedItems []contract.FindAllItem
+	var cachedResult liepinConversationHistory
 	for round := 0; round < 120; round++ {
 		if err = ctx.Err(); err != nil {
 			return liepinConversationHistory{}, err
 		}
-		items, readErr := common.ReadConfiguredConversationMessages(ctx, browser, cfg)
+		head, tail, signature, readErr := readLiepinHistoryEdges(ctx, browser, cfg)
 		if readErr != nil {
 			return liepinConversationHistory{}, readErr
 		}
-		messages, parseErr := liepinMessages(items)
-		if parseErr != nil {
-			return liepinConversationHistory{}, parseErr
+		if signature != checkedSignature {
+			cachedItems, cachedResult = nil, liepinConversationHistory{}
+			checkedSignature = signature
 		}
-		if len(messages) == 0 {
-			return liepinConversationHistory{}, fmt.Errorf("%s当前聊天框没有读到消息", cfg.Name)
-		}
-		if available, sourceID := liepinResumeCard(messages); available {
-			resumeAvailable, resumeSourceID = true, sourceID
-		}
-		result = liepinConversationHistory{Messages: messages, ResumeCardAvailable: resumeAvailable, ResumeSourceMessageID: resumeSourceID}
-		if boundary := liepinKnownMessageBoundary(messages, knownMessageKeys); boundary >= 0 {
-			result.Messages = messages[boundary+1:]
-			if len(result.Messages) > maxHistory {
-				result.Messages = result.Messages[len(result.Messages)-maxHistory:]
-			}
-			return result, nil
-		}
-		if len(messages) >= maxHistory || items[0].TotalMatches > len(items) {
-			result.Messages = messages[max(0, len(messages)-maxHistory):]
-			return result, nil
-		}
-		signature := firstLiepinValue(messages[0].PlatformMessageID, messages[0].Key) + "|" +
-			firstLiepinValue(messages[len(messages)-1].PlatformMessageID, messages[len(messages)-1].Key) + "|" + strconv.Itoa(len(messages))
 		if round > 0 {
 			if progress.ProgressTargetMoved == nil || progress.ProgressTargetVisible == nil {
 				return liepinConversationHistory{}, fmt.Errorf("浏览器工具没有返回聊天顶部位置，请更新本地程序后重试")
@@ -98,16 +78,44 @@ func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Brow
 			} else {
 				stableReadAttempts, blockedAttempts = 0, 0
 			}
-			if stableReadAttempts >= liepinHistoryStableReadAttempts {
-				result.HistoryComplete = true
-				return result, nil
-			}
 			if blockedAttempts >= liepinHistoryStableReadAttempts {
 				return liepinConversationHistory{}, fmt.Errorf("聊天历史还没到顶部，滚轮却没有继续移动，我先不把它当成读完")
 			}
 		}
+		atTop := stableReadAttempts >= liepinHistoryStableReadAttempts
+		atLimit := tail.TotalMatches >= maxHistory
+		// 差量边界可能在中间；同一首尾和数量只完整核对一次，纯滚动不重复读取全部字段。
+		if atTop || atLimit || (cachedItems == nil && len(knownMessageKeys) > 0) {
+			cachedItems, cachedResult, err = readLiepinFullHistory(ctx, browser, cfg)
+			if err != nil {
+				return liepinConversationHistory{}, err
+			}
+			fullTail := cachedItems[len(cachedItems)-1]
+			if fullTail.TotalMatches != tail.TotalMatches || liepinHistoryItemKey(fullTail) != liepinHistoryItemKey(tail) || (!atLimit && liepinHistoryItemKey(cachedItems[0]) != liepinHistoryItemKey(head)) {
+				// 读取正文期间新增或替换了消息，重新确认首尾后再决定边界。
+				previousSignature, checkedSignature = "", ""
+				stableReadAttempts, blockedAttempts = 0, 0
+				continue
+			}
+		}
+		if cachedItems != nil {
+			result = cachedResult
+			if boundary := liepinKnownMessageBoundary(result.Messages, knownMessageKeys); boundary >= 0 {
+				result.Messages = result.Messages[boundary+1:]
+				result.Messages = result.Messages[max(0, len(result.Messages)-maxHistory):]
+				return result, nil
+			}
+			if atLimit || len(result.Messages) >= maxHistory || cachedItems[0].TotalMatches > len(cachedItems) {
+				result.Messages = result.Messages[max(0, len(result.Messages)-maxHistory):]
+				return result, nil
+			}
+			if atTop {
+				result.HistoryComplete = true
+				return result, nil
+			}
+		}
 		previousSignature = signature
-		head, selectorErr := common.IndexedSelector(cfg, "message.item", items[0].Index)
+		headSelector, selectorErr := common.IndexedSelector(cfg, "message.item", head.Index)
 		if selectorErr != nil {
 			return liepinConversationHistory{}, selectorErr
 		}
@@ -115,12 +123,68 @@ func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Brow
 		if selectorErr != nil {
 			return liepinConversationHistory{}, selectorErr
 		}
-		progress, err = browser.Scroll(ctx, contract.ScrollRequest{WheelAnchor: &anchor, ProgressTarget: &head, Distance: -620, MaxAttempts: 1, WaitMS: 800})
+		progress, err = browser.Scroll(ctx, contract.ScrollRequest{WheelAnchor: &anchor, ProgressTarget: &headSelector, Distance: -620, MaxAttempts: 1, WaitMS: 800})
 		if err != nil {
 			return liepinConversationHistory{}, fmt.Errorf("向上读取%s聊天历史失败：%w", cfg.Name, err)
 		}
 	}
 	return liepinConversationHistory{}, fmt.Errorf("聊天历史较长，这轮还没确认读完，请稍后重试")
+}
+
+// readLiepinHistoryEdges 通过标准首尾窗口只读消息编号和真实数量；不让每次滚动重读全部消息内容。
+func readLiepinHistoryEdges(ctx context.Context, browser model.Browser, cfg model.Config) (head, tail contract.FindAllItem, signature string, err error) {
+	selector, err := common.RequiredSelector(cfg, "message.item")
+	if err != nil {
+		return head, tail, "", err
+	}
+	fields := map[string]contract.SelectorSpec{}
+	if metadata, found := cfg.ConversationFields["message_meta"]; found {
+		fields["message_meta"] = metadata
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		first, readErr := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1, Fields: fields})
+		if readErr != nil {
+			return head, tail, "", readErr
+		}
+		last, readErr := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1, FromEnd: true, Fields: fields})
+		if readErr != nil {
+			return head, tail, "", readErr
+		}
+		if len(first) != 1 || len(last) != 1 {
+			return head, tail, "", fmt.Errorf("%s当前聊天框没有读到消息", cfg.Name)
+		}
+		head, tail = first[0], last[0]
+		if head.TotalMatches != tail.TotalMatches {
+			continue
+		}
+		return head, tail, liepinHistoryItemKey(head) + "|" + liepinHistoryItemKey(tail) + "|" + strconv.Itoa(tail.TotalMatches), nil
+	}
+	return head, tail, "", fmt.Errorf("聊天历史仍在加载，暂时不能确认首尾消息")
+}
+
+// liepinHistoryItemKey 优先使用平台编号，旧配置缺编号字段时以节点文字生成只用于加载进度的稳定键。
+func liepinHistoryItemKey(item contract.FindAllItem) string {
+	if id, err := parseLiepinMessageID(item.Fields["message_meta"]); err == nil && id != "" {
+		return id
+	}
+	return common.HashText(firstLiepinValue(item.Text, item.Fields["message_text"], item.Fields["resume_card"], item.Fields["common_card"]))
+}
+
+// readLiepinFullHistory 在加载完成或需要核对差量边界时读取一次完整消息字段，并识别简历卡片。
+func readLiepinFullHistory(ctx context.Context, browser model.Browser, cfg model.Config) ([]contract.FindAllItem, liepinConversationHistory, error) {
+	items, err := common.ReadConfiguredConversationMessages(ctx, browser, cfg)
+	if err != nil {
+		return nil, liepinConversationHistory{}, err
+	}
+	messages, err := liepinMessages(items)
+	if err != nil {
+		return nil, liepinConversationHistory{}, err
+	}
+	if len(messages) == 0 {
+		return nil, liepinConversationHistory{}, fmt.Errorf("%s当前聊天框没有读到消息", cfg.Name)
+	}
+	available, sourceID := liepinResumeCard(messages)
+	return items, liepinConversationHistory{Messages: messages, ResumeCardAvailable: available, ResumeSourceMessageID: sourceID}, nil
 }
 
 // restoreLiepinLatestMessages 通过末条节点和真实滚轮恢复最新端，已可见时不滚动，不靠页面脚本。

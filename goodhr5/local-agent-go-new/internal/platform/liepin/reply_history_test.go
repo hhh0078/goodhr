@@ -16,7 +16,71 @@ func historyAuditConfig() model.Config {
 	return model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
 		"message.item":           testLiepinSelector("测试聊天消息"),
 		"message.history_scroll": testLiepinSelector("测试聊天滚动区域"),
+	}, ConversationFields: map[string]contract.SelectorSpec{
+		"message_meta": testLiepinSelector("消息编号"), "body_class": testLiepinSelector("消息方向"), "message_text": testLiepinSelector("消息正文"),
 	}}
+}
+
+// countingHistoryBrowser 记录加载期间是否重复完整读取正文，并可模拟最终读取时插入新消息。
+type countingHistoryBrowser struct {
+	liepinReplyBrowserStub
+	fullReads         int
+	edgeReads         int
+	changeOnFirstFull bool
+}
+
+// FindAll 验证轻读只含消息编号，完整读取时可触发一次异步列表变化。
+func (b *countingHistoryBrowser) FindAll(ctx context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if !request.ProbeOnly && request.MaxItems > 1 {
+		b.fullReads++
+		if b.changeOnFirstFull && b.fullReads == 1 {
+			items := append([]contract.FindAllItem(nil), b.historyBatches[min(b.historyBatch, len(b.historyBatches)-1)]...)
+			b.historyBatches = [][]contract.FindAllItem{append(items, historyAuditMessage("concurrent-latest"))}
+			b.historyBatch = 0
+		}
+	} else if !request.ProbeOnly {
+		b.edgeReads++
+		if len(request.Fields) != 1 {
+			return nil, fmt.Errorf("轻读请求了 %d 个字段", len(request.Fields))
+		}
+		if _, found := request.Fields["message_meta"]; !found {
+			return nil, fmt.Errorf("轻读缺少消息编号")
+		}
+	}
+	return b.liepinReplyBrowserStub.FindAll(ctx, request)
+}
+
+// TestLiepinHistoryRechecksEdgesAfterFinalRead 验证完整读取期间新增消息时重新核实边界，不能返回旧首尾对应的结果。
+func TestLiepinHistoryRechecksEdgesAfterFinalRead(t *testing.T) {
+	browser := &countingHistoryBrowser{liepinReplyBrowserStub: liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{{historyAuditMessage("original")}}}, changeOnFirstFull: true}
+	result, err := readLiepinConversationHistoryDetail(context.Background(), browser, historyAuditConfig(), nil, 5000)
+	if err != nil || !result.HistoryComplete || len(result.Messages) != 2 || result.Messages[1].PlatformMessageID != "concurrent-latest" || browser.fullReads != 2 {
+		t.Fatalf("最终读取期间的新消息没有被重新核实：messages=%+v full=%d err=%v", result.Messages, browser.fullReads, err)
+	}
+}
+
+// TestLiepinHistoryLoadsEightyMessagesWithoutRepeatingFullReads 验证20→40→60→80累计加载只完整读一次，并保留真正最新消息。
+func TestLiepinHistoryLoadsEightyMessagesWithoutRepeatingFullReads(t *testing.T) {
+	all := make([]contract.FindAllItem, 80)
+	for i := range all {
+		all[i] = historyAuditMessage(fmt.Sprintf("message-%d", i))
+	}
+	browser := &countingHistoryBrowser{liepinReplyBrowserStub: liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{all[60:], all[40:], all[20:], all}}}
+	result, err := readLiepinConversationHistoryDetail(context.Background(), browser, historyAuditConfig(), nil, 5000)
+	if err != nil || !result.HistoryComplete || len(result.Messages) != 80 || result.Messages[79].PlatformMessageID != "message-79" || browser.fullReads != 1 || browser.edgeReads < 8 {
+		t.Fatalf("历史加载重复读取或丢失最新消息：count=%d full=%d edge=%d complete=%v err=%v", len(result.Messages), browser.fullReads, browser.edgeReads, result.HistoryComplete, err)
+	}
+}
+
+// TestLiepinHistoryChecksKnownBoundaryOnlyWhenWindowChanges 验证纯滚动不重复核对全量字段，已知消息加载出来后立即停止。
+func TestLiepinHistoryChecksKnownBoundaryOnlyWhenWindowChanges(t *testing.T) {
+	recent := []contract.FindAllItem{historyAuditMessage("new")}
+	older := []contract.FindAllItem{historyAuditMessage("older"), historyAuditMessage("known"), historyAuditMessage("new")}
+	browser := &countingHistoryBrowser{liepinReplyBrowserStub: liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{recent, recent, recent, recent, older}}}
+	result, err := readLiepinConversationHistoryDetail(context.Background(), browser, historyAuditConfig(), []string{"known"}, 5000)
+	if err != nil || result.HistoryComplete || len(result.Messages) != 1 || result.Messages[0].PlatformMessageID != "new" || browser.fullReads != 2 {
+		t.Fatalf("差量边界没有缓存或停止不正确：messages=%+v full=%d err=%v", result.Messages, browser.fullReads, err)
+	}
 }
 
 // historyAuditMessage 构造带稳定编号的候选人消息，避免依赖真实候选人资料。

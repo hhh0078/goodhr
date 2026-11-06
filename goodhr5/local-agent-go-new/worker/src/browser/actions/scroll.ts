@@ -148,7 +148,8 @@ export class ScrollAction {
         after = target
           ? await this.refreshTarget(target.resolved)
           : await this.screenshotState(page);
-        if (progress) {
+        // 最后一轮统一使用结束处的新鲜读取；只有继续下一轮时才在此复核，避免重复截图读取相同节点。
+        if (progress && index + 1 < maxAttempts) {
           progressAfter = await this.refreshTarget(progress.resolved);
           if (anchor) anchor.resolved.view = await this.refreshTarget(anchor.resolved);
         }

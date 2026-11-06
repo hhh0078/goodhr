@@ -52,11 +52,19 @@ test('读取起点必须是整数，滚动定位与进度观察不能混用', ()
 });
 
 /** progressHarness 模拟动画截图和候选人位置，确认底部判断使用元素位移而不是截图变化。 */
-function progressHarness(y, movement, containerHeight = 6000) {
+function progressHarness(y, movement, containerHeight = 6000, hooks = {}) {
   let position = y;
   let screenshots = 0;
+  const reads = [];
+  const metrics = { wheelCalls: 0, screenshots: 0 };
   const viewport = { width: 1200, height: 800 };
-  const page = { async screenshot() { return Buffer.from(`动画${screenshots++}`); }, viewportSize() { return viewport; } };
+  const page = { async screenshot() {
+    const image = Buffer.from(`动画${screenshots++}`);
+    metrics.screenshots++;
+    const nextPosition = await hooks.afterScreenshot?.(screenshots);
+    if (typeof nextPosition === 'number') position = nextPosition;
+    return image;
+  }, viewportSize() { return viewport; } };
   const progressView = () => ({ visible: true, box: { x: 100, y: position, width: 800, height: 160 }, viewport });
   const anchorView = { visible: true, box: { x: 100, y: 0, width: 800, height: containerHeight }, viewport };
   const progress = { locator: { kind: 'progress' }, view: progressView(), page, matched_selector: { type: 'css', value: '.row' } };
@@ -65,17 +73,19 @@ function progressHarness(y, movement, containerHeight = 6000) {
   const logger = { info() {}, failure() {} };
   const mouse = {
     async move(_page, x, y) { moves.push({ x, y }); },
-    async wheel(_page, _x, deltaY) { position -= deltaY * movement; },
+    async wheel(_page, _x, deltaY) { position -= deltaY * movement; metrics.wheelCalls++; hooks.onWheel?.(); },
   };
   const action = new ScrollAction(
     { async requirePage() { return page; } },
     { async one(spec) { return { resolved: spec.description === '列表项' ? progress : anchor }; } },
     new MoveAction(mouse, logger),
-    { async view(_page, locator) { return locator.kind === 'progress' ? progressView() : anchorView; } },
+    { async view(_page, locator) { reads.push(locator.kind); return locator.kind === 'progress' ? progressView() : anchorView; } },
     mouse,
     logger,
   );
   action.moves = moves;
+  action.reads = reads;
+  action.metrics = metrics;
   return action;
 }
 
@@ -141,4 +151,55 @@ test('尾部已可见时恢复最新端不发送多余滚轮', async () => {
   assert.equal(result.progress_target_visible, true);
   assert.equal(result.progress_target_moved, false);
   assert.throws(() => parseScrollRequest({ distance: 620, stop_when_progress_visible: true }, 'window', 'element.scroll'));
+});
+
+test('一次滚轮只做一次结束进度复核，保留原有前后截图与scrolled语义', async () => {
+  const action = progressHarness(4000, 1);
+  const result = await action.execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' }, distance: 620, max_attempts: 1, wait_ms: 0 }, context);
+  assert.deepEqual(action.reads, ['progress', 'anchor']);
+  assert.equal(action.metrics.screenshots, 2);
+  assert.equal(result.attempts, 1);
+  assert.equal(result.scrolled, true);
+  assert.equal(typeof result.before.screenshot_hash, 'string');
+  assert.equal(typeof result.after.screenshot_hash, 'string');
+  assert.equal(result.progress_target_moved, true);
+  assert.equal(result.progress_target_visible, false);
+});
+
+test('多轮滚动仍在继续前刷新进度，最后一轮不重复刷新', async () => {
+  const action = progressHarness(4000, 1);
+  const result = await action.execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' }, distance: 620, max_attempts: 2, wait_ms: 0 }, context);
+  assert.deepEqual(action.reads, ['progress', 'anchor', 'progress', 'anchor']);
+  assert.equal(result.attempts, 2);
+  assert.equal(action.metrics.screenshots, 3);
+});
+
+test('零轮滚动仍最终复核异步插入后的末条位置，不复用开始时的可见快照', async () => {
+  const action = progressHarness(600, 0, 6000, { async afterScreenshot() { await Promise.resolve(); return 1000; } });
+  const result = await action.execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' }, distance: 620, stop_when_progress_visible: true, max_attempts: 1, wait_ms: 0 }, context);
+  assert.equal(result.attempts, 0);
+  assert.equal(action.metrics.wheelCalls, 0);
+  assert.equal(result.scrolled, false);
+  assert.deepEqual(result.before, result.after);
+  assert.deepEqual(action.reads, ['progress', 'anchor']);
+  assert.equal(result.progress_target_moved, true);
+  assert.equal(result.progress_target_visible, false);
+});
+
+test('滚轮后异步插入更早消息时，结束复核仍按新的首边判断', async () => {
+  const action = progressHarness(-100, 0, 6000, { async afterScreenshot(count) { if (count === 2) { await Promise.resolve(); return -900; } } });
+  const result = await action.execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' }, distance: -620, max_attempts: 1, wait_ms: 0 }, context);
+  assert.deepEqual(action.reads, ['progress', 'anchor']);
+  assert.equal(result.attempts, 1);
+  assert.equal(result.progress_target_moved, true);
+  assert.equal(result.progress_target_visible, false);
+});
+
+test('滚轮期间取消后不补发滚轮或执行结束读取', async () => {
+  const controller = new AbortController();
+  const action = progressHarness(4000, 1, 6000, { onWheel() { controller.abort(); } });
+  await assert.rejects(action.execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' }, distance: 620, max_attempts: 1, wait_ms: 0 }, { ...context, signal: controller.signal }));
+  assert.equal(action.metrics.wheelCalls, 1);
+  assert.equal(action.metrics.screenshots, 1);
+  assert.deepEqual(action.reads, []);
 });
