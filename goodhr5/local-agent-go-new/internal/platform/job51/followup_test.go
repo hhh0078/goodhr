@@ -3,6 +3,7 @@ package job51
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
@@ -11,14 +12,19 @@ import (
 
 type followupBrowserStub struct {
 	model.Browser
-	opened        bool
-	name          string
-	clicks        []string
-	drawer        bool
-	input         string
-	sent          []string
-	wechatConfirm bool
-	wechatSent    int
+	opened         bool
+	name           string
+	clicks         []string
+	drawer         bool
+	input          string
+	sent           []string
+	wechatConfirm  bool
+	wechatSent     int
+	resumeSent     bool
+	resumePosition string
+	resumeClicks   int
+	resumeErr      error
+	resumeVerified bool
 }
 
 // Read 返回合成聊天框姓名，不读取真实候选人资料。
@@ -52,6 +58,10 @@ func (s *followupBrowserStub) FindAll(_ context.Context, request contract.Elemen
 		}
 	case "前程无忧主候选人卡片":
 		return []contract.FindAllItem{{Index: 0}}, nil
+	case "前程无忧已发送投递邀请":
+		if s.resumeSent && (len(request.Selector.Target.Texts) == 0 || request.Selector.Target.Texts[0] == s.resumePosition) {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
 	}
 	return nil, nil
 }
@@ -76,6 +86,19 @@ func (s *followupBrowserStub) Click(_ context.Context, request contract.ElementC
 	case "前程无忧发送微信请求":
 		s.wechatConfirm = false
 		s.wechatSent++
+	case "前程无忧邀投递入口":
+		s.resumeClicks++
+		if s.resumeErr != nil {
+			return contract.ClickResult{}, s.resumeErr
+		}
+		s.resumeVerified = request.Verify != nil && request.Verify.TargetVisible != nil && request.Verify.TargetVisible.Description == "前程无忧已发送投递邀请" && request.Verify.TimeoutMS > 0
+		if !s.resumeVerified {
+			return contract.ClickResult{}, errors.New("邀投递缺少发送结果验证")
+		}
+		s.resumeSent = true
+		if names := request.Verify.TargetVisible.Target.Texts; len(names) > 0 {
+			s.resumePosition = names[0]
+		}
 	}
 	return contract.ClickResult{Clicked: true}, nil
 }
@@ -98,7 +121,7 @@ func followupConfigFixture(t *testing.T) model.Config {
 	return cfg
 }
 
-// TestFollowupRequestsDoNotBuyPhone 验证电话和附件用已配置礼貌消息索要，微信走原生确认，绝不点付费获取电话。
+// TestFollowupRequestsDoNotBuyPhone 验证电话用礼貌消息索要、微信走原生确认、简历点击邀投递，绝不点付费获取电话。
 func TestFollowupRequestsDoNotBuyPhone(t *testing.T) {
 	cfg := followupConfigFixture(t)
 	paid := cfg.Selectors["candidate.greet"]
@@ -109,13 +132,56 @@ func TestFollowupRequestsDoNotBuyPhone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(browser.sent) != 2 || browser.sent[0] != cfg.Behavior.RequestPhoneMessage || browser.sent[1] != cfg.Behavior.RequestResumeMessage || browser.wechatSent != 1 || browser.wechatConfirm {
-		t.Fatal("索要消息与微信确认没有按配置完成")
+	if len(browser.sent) != 1 || browser.sent[0] != cfg.Behavior.RequestPhoneMessage || browser.wechatSent != 1 || browser.wechatConfirm || browser.resumeClicks != 1 || !browser.resumeVerified {
+		t.Fatal("电话消息、微信确认与邀投递没有按配置完成")
 	}
 	for _, click := range browser.clicks {
 		if click == "付费获取电话" {
 			t.Fatal("索要手机不能误买获取电话权益")
 		}
+	}
+}
+
+// TestRequestResumeInvitation 验证同岗去重、旧岗位不误判、失败不重发及身份不符时不触碰邀请按钮。
+func TestRequestResumeInvitation(t *testing.T) {
+	for _, item := range []struct {
+		name        string
+		chatName    string
+		oldPosition string
+		clickErr    error
+		wantClicks  int
+		wantErr     bool
+	}{
+		{name: "首次邀请", chatName: "合成人选", wantClicks: 1},
+		{name: "同岗已邀请", chatName: "合成人选", oldPosition: "目标岗位"},
+		{name: "其他岗位邀请不能代替本次", chatName: "合成人选", oldPosition: "旧岗位", wantClicks: 1},
+		{name: "未确认发送不重试", chatName: "合成人选", clickErr: errors.New("结果验证超时"), wantClicks: 1, wantErr: true},
+		{name: "候选人不符", chatName: "其他人选", wantErr: true},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			browser := &followupBrowserStub{
+				name: item.chatName, resumeSent: item.oldPosition != "", resumePosition: item.oldPosition, resumeErr: item.clickErr,
+			}
+			runtime := &Runtime{positionName: "目标岗位"}
+			err := runtime.RequestCandidateInfo(context.Background(), browser, followupConfigFixture(t), model.Candidate{Name: "合成人选"}, model.CandidateInfoRequest{RequestResume: true})
+			if (err != nil) != item.wantErr || browser.resumeClicks != item.wantClicks || len(browser.sent) != 0 || browser.input != "" {
+				t.Fatalf("邀投递结果不符：err=%v, clicks=%d, messages=%v", err, browser.resumeClicks, browser.sent)
+			}
+			if item.clickErr != nil && !errors.Is(err, item.clickErr) {
+				t.Fatalf("邀请失败必须保留原因：%v", err)
+			}
+		})
+	}
+}
+
+// TestRequestResumeRequiresConfiguredResult 验证缺失结果选择器时停止，不能点击后猜测成功或退回文字消息。
+func TestRequestResumeRequiresConfiguredResult(t *testing.T) {
+	cfg := followupConfigFixture(t)
+	delete(cfg.Selectors, "candidate.request_resume_sent")
+	browser := &followupBrowserStub{name: "合成人选"}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), browser, cfg, model.Candidate{Name: "合成人选"}, model.CandidateInfoRequest{RequestResume: true})
+	if err == nil || len(browser.clicks) != 0 || len(browser.sent) != 0 {
+		t.Fatal("缺少发送结果配置时必须在点击前停止")
 	}
 }
 

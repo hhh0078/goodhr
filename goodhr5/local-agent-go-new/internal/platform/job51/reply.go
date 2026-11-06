@@ -53,7 +53,10 @@ func (r *Runtime) ReadAutoReplyMessages(ctx context.Context, browser model.Brows
 
 // RequestAutoReplyResume 在前程无忧当前聊天框索要简历。
 func (r *Runtime) RequestAutoReplyResume(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) error {
-	return common.RequestConfiguredAutoReplyResume(ctx, browser, cfg, job51AutoReplyAdapter, snapshot)
+	if err := common.EnsureConfiguredAutoReplyConversation(ctx, browser, cfg, job51AutoReplyAdapter, snapshot); err != nil {
+		return err
+	}
+	return r.requestResume(ctx, browser, cfg)
 }
 
 // CollectAutoReplyResume 下载前程无忧真实 PDF 附件并恢复原候选人聊天框。

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
@@ -52,13 +53,42 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, browser model.Browse
 		}
 	}
 	if request.RequestResume {
-		message := strings.TrimSpace(cfg.Behavior.RequestResumeMessage)
-		if message == "" {
-			return fmt.Errorf("前程无忧简历索要文案还没配置，这次先不发送，请更新后重试")
-		}
-		if err = common.SendCandidateMessage(ctx, browser, cfg, candidate, message); err != nil {
+		if err = r.requestResume(ctx, browser, cfg); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// requestResume 点击当前聊天的邀投递入口，以同岗位邀请卡片确认结果；已有记录时不重复邀请。
+// Windows 和 macOS 双架构共用配置及 Worker 点击能力，不使用系统专属调用。
+func (r *Runtime) requestResume(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	entry, err := common.RequiredSelector(cfg, "candidate.request_resume")
+	if err != nil {
+		return err
+	}
+	sent, err := common.RequiredSelector(cfg, "candidate.request_resume_sent")
+	if err != nil {
+		return err
+	}
+	if name := strings.TrimSpace(r.positionName); name != "" {
+		sent.Target.Texts = []string{name}
+	}
+	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
+		Selector: sent, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true,
+	})
+	if err != nil && !common.IsElementMissing(err) {
+		return fmt.Errorf("检查前程无忧邀请记录失败：%w", err)
+	}
+	if len(items) > 0 {
+		return nil
+	}
+	_, err = browser.Click(ctx, contract.ElementClickRequest{
+		Selector: entry,
+		Verify:   &contract.ClickVerification{TargetVisible: &sent, TimeoutMS: 5000},
+	})
+	if err != nil {
+		return fmt.Errorf("前程无忧邀投递还没确认成功，请先检查平台提示，我不会自动重发：%w", err)
 	}
 	return nil
 }

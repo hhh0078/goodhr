@@ -62,9 +62,7 @@
     "message_send_verify_empty": true,
     "_comment_message_send_verify_empty": "发送后只读确认可编辑输入框清空，不能把点击当成成功或重复发送。",
     "request_phone_message": "您好，方便留个联系电话吗？想和您进一步沟通这个岗位。",
-    "_comment_request_phone_message": "仅发送礼貌索要消息，不点击获取电话等付费权益按钮。",
-    "request_resume_message": "方便发一份附件简历吗？我好更完整地了解您的经历。",
-    "_comment_request_resume_message": "在当前候选人聊天框索要附件简历，不猜测邀请投递或付费步骤。"
+    "_comment_request_phone_message": "仅发送礼貌索要消息，不点击获取电话等付费权益按钮。"
   },
   "login_init_actions": [],
   "_comment_login_init_actions": "登录页面初始化动作，当前旧版没有可确认的弹框动作。",
@@ -630,6 +628,41 @@
       "state": "enabled",
       "timeout_ms": 3000,
       "description": "前程无忧聊天发送按钮"
+    },
+    "candidate.request_resume": {
+      "_comment": "索要简历对应当前聊天工具栏的邀投递，不点击候选列表里的同名入口。",
+      "parents": [],
+      "target": {
+        "_comment": "当前可见聊天工具栏中的邀投递点击目标。",
+        "selectors": [
+          {
+            "_comment": "已在真实页面查看器核对的邀投递点击节点。",
+            "type": "css",
+            "value": ".chat-container:visible #chat_invite_guide .icon-hover-text-wrap:visible"
+          }
+        ],
+        "text": "邀投递",
+        "exact_text": true
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "前程无忧邀投递入口"
+    },
+    "candidate.request_resume_sent": {
+      "_comment": "只检查当前聊天正文中的平台邀请卡片，运行时补充任务岗位名称约束。",
+      "parents": [
+        {
+          "_comment": "只读取当前可见聊天正文，不包含右侧联系人摘要。",
+          "selectors": [{ "_comment": "当前聊天的可见消息区。", "type": "css", "value": ".chat-container:visible .chat-content:visible" }]
+        }
+      ],
+      "target": {
+        "_comment": "平台实际发送完成后显示的邀请卡片。",
+        "selectors": [{ "_comment": "邀请卡片中固定的已发送提示。", "type": "text", "value": "已邀请对方投递" }]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "前程无忧已发送投递邀请"
     },
     "candidate.request_wechat": {
       "_comment": "前程无忧交换微信入口。",
