@@ -75,7 +75,7 @@ func advanceResumeRetryFixture(t *testing.T, flow *Flow, prepared shared.Prepare
 	}
 }
 
-// TestResumeFailureAnswersThenRecoversWithoutNewMessage 验证读取附件失败仍回答岗位问题，重启后的到期待办只补审不重发。
+// TestResumeFailureAnswersThenRecoversWithoutNewMessage 验证先答问题再尝试附件，采集失败留待办，重启后只补审不重发。
 func TestResumeFailureAnswersThenRecoversWithoutNewMessage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/auto-reply/agent/positions/position/snapshot" {
@@ -101,8 +101,8 @@ func TestResumeFailureAnswersThenRecoversWithoutNewMessage(t *testing.T) {
 	}
 	lookup := cloud.AutoReplyCandidateLookup{PlatformID: prepared.Platform.ID, PlatformAccountID: prepared.Request.PlatformAccountID, PlatformThreadID: "thread"}
 	state, err := flow.Cloud.AutoReplyCandidateState(context.Background(), credentials(prepared), lookup)
-	if err != nil || state.Conversation == nil || state.Conversation.ResumeRetry == nil || state.Conversation.ResumeRetry.Attempts != 1 || !strings.Contains(state.Conversation.ResumeRetry.LastError, "CLICK_FAILED") {
-		t.Fatalf("简历失败未持久留待办：state=%+v err=%v", state.Conversation, err)
+	if err != nil || state.Conversation == nil || state.Conversation.ResumeRetry == nil || state.Conversation.ResumeRetry.Attempts != 0 || runtime.resumeCollects != 0 || responder.structures != 0 {
+		t.Fatalf("首条答疑提前采集或消费重试次数：state=%+v collects=%d structures=%d err=%v", state.Conversation, runtime.resumeCollects, responder.structures, err)
 	}
 	if len(runtime.replies) != 1 || runtime.resumeRequests != 0 || responder.answers != 1 || responder.firstInput.Resume != nil || state.Candidate.ResumeStructured || stats.Failed != 0 {
 		t.Fatalf("失败阻断答疑、重复索简历或伪造资料：replies=%v requests=%d answers=%d candidate=%+v stats=%+v", runtime.replies, runtime.resumeRequests, responder.answers, state.Candidate, stats)
@@ -117,6 +117,11 @@ func TestResumeFailureAnswersThenRecoversWithoutNewMessage(t *testing.T) {
 	if _, qualified := recommendationSource(position, *state.Candidate, items); qualified {
 		t.Fatal("未结构化资料不应生成报告")
 	}
+	processed, _, err := flow.processCheckpoint(context.Background(), prepared, unreadScannerStub{}, runtime, []cloud.AutoReplyPositionSnapshot{position}, 1, stats, &shared.ConsecutiveErrorPolicy{}, nil)
+	state, stateErr := flow.Cloud.AutoReplyCandidateState(context.Background(), credentials(prepared), lookup)
+	if err != nil || stateErr != nil || processed != 1 || state.Conversation.ResumeRetry == nil || state.Conversation.ResumeRetry.Attempts != 1 || !strings.Contains(state.Conversation.ResumeRetry.LastError, "CLICK_FAILED") || len(runtime.replies) != 1 || responder.answers != 1 {
+		t.Fatalf("下一轮附件失败未持久记录或重发答案：processed=%d state=%+v replies=%v err=%v/%v", processed, state.Conversation, runtime.replies, err, stateErr)
+	}
 	advanceResumeRetryFixture(t, flow, prepared, state.Conversation.ID)
 	path := filepath.Join(t.TempDir(), "synthetic-resume.txt")
 	if err = os.WriteFile(path, []byte("五年教学经验"), 0600); err != nil {
@@ -125,7 +130,7 @@ func TestResumeFailureAnswersThenRecoversWithoutNewMessage(t *testing.T) {
 	runtime.resumeErr = nil
 	runtime.resumeBundle = model.AutoReplyResumeBundle{OnlineResumeText: "五年教学经验", AttachmentPaths: []string{path}, ResumeSourceMessageID: card.PlatformMessageID}
 	prepared.Request.TaskID = "restarted-task"
-	processed, _, err := flow.processCheckpoint(context.Background(), prepared, unreadScannerStub{}, runtime, []cloud.AutoReplyPositionSnapshot{position}, 1, stats, &shared.ConsecutiveErrorPolicy{}, nil)
+	processed, _, err = flow.processCheckpoint(context.Background(), prepared, unreadScannerStub{}, runtime, []cloud.AutoReplyPositionSnapshot{position}, 1, stats, &shared.ConsecutiveErrorPolicy{}, nil)
 	if err != nil || processed != 1 || responder.reviews != 1 || responder.structures != 1 || responder.answers != 1 || len(runtime.replies) != 1 {
 		t.Fatalf("无新消息恢复未完成或重发：processed=%d answers=%d reviews=%d structures=%d replies=%v err=%v", processed, responder.answers, responder.reviews, responder.structures, runtime.replies, err)
 	}
@@ -158,8 +163,13 @@ func TestResumeFailureAnswersThenRecoversWithoutNewMessage(t *testing.T) {
 		t.Fatal("新附件失败不应阻断问答", err)
 	}
 	state, err = flow.Cloud.AutoReplyCandidateState(context.Background(), credentials(prepared), lookup)
-	if err != nil || state.Conversation.ResumeRetry == nil || state.Conversation.ResumeRetry.SourceMessageID != card.PlatformMessageID || state.Conversation.ResumeRetry.Attempts != 1 || len(runtime.replies) != 2 || responder.firstInput.CandidateState.Candidate.ResumeStructured {
+	if err != nil || state.Conversation.ResumeRetry == nil || state.Conversation.ResumeRetry.SourceMessageID != card.PlatformMessageID || state.Conversation.ResumeRetry.Attempts != 0 || runtime.resumeCollects != 2 || len(runtime.replies) != 2 || responder.firstInput.CandidateState.Candidate.ResumeStructured {
 		t.Fatalf("新来源被旧结构化资料绕过：retry=%+v replies=%v err=%v", state.Conversation.ResumeRetry, runtime.replies, err)
+	}
+	processed, _, err = flow.processCheckpoint(context.Background(), prepared, unreadScannerStub{}, runtime, []cloud.AutoReplyPositionSnapshot{position}, 1, stats, &shared.ConsecutiveErrorPolicy{}, nil)
+	state, stateErr = flow.Cloud.AutoReplyCandidateState(context.Background(), credentials(prepared), lookup)
+	if err != nil || stateErr != nil || processed != 1 || state.Conversation.ResumeRetry.Attempts != 1 || runtime.resumeCollects != 3 || len(runtime.replies) != 2 {
+		t.Fatalf("新来源下一轮采集失败被吞掉或重复回答：state=%+v replies=%v err=%v/%v", state.Conversation, runtime.replies, err, stateErr)
 	}
 	if err = (&AIResponder{Cloud: flow.Cloud}).QueueRecommendation(context.Background(), ReplyContext{Credentials: credentials(prepared), Position: position, Conversation: *state.Conversation, CandidateState: state, BasedOnMessageKey: question.PlatformMessageID}); err != nil {
 		t.Fatal(err)
@@ -190,6 +200,25 @@ func TestConditionsOnlyRejectsSendingAndUnparsedResume(t *testing.T) {
 	}
 	if _, err = state.execute(context.Background(), ai.ToolCall{Type: "function", Function: ai.ToolCallFunction{Name: toolFinishReview, Arguments: `{}`}}); err != nil || !state.reviewFinished {
 		t.Fatal("补审无法正常结束", err)
+	}
+}
+
+// TestResumeSourcePreparationUsesPlatformOwnership 验证已加载来源或平台自行寻源时跳过通用完整聊天预读。
+func TestResumeSourcePreparationUsesPlatformOwnership(t *testing.T) {
+	for _, platformLoads := range []bool{false, true} {
+		t.Run(fmt.Sprintf("platform_loads=%t", platformLoads), func(t *testing.T) {
+			flow := &Flow{}
+			runtime := &autoReplyRuntimeStub{resumeErr: fmt.Errorf("合成采集失败")}
+			prepared := shared.PreparedTask{Platform: model.Config{Behavior: model.Behavior{AutoReplyResumeLoadsHistory: platformLoads}}}
+			snapshot := model.AutoReplyConversationSnapshot{ResumeCardAvailable: true, ResumeSourceMessageID: "source"}
+			if !platformLoads {
+				snapshot.Messages = []model.ConversationMessage{{PlatformMessageID: "source", Direction: "candidate", MessageType: "resume"}}
+			}
+			_, _, err := flow.ensureResume(context.Background(), prepared, runtime, cloud.AutoReplyPositionSnapshot{}, &cloud.AutoReplyConversation{}, snapshot, cloud.AutoReplyCandidateState{}, "question", &shared.Stats{})
+			if !errors.Is(err, errAutoReplyResumeDeferred) || len(runtime.readKnownKeys) != 0 || runtime.resumeCollects != 1 {
+				t.Fatalf("重复预读或跳过平台采集：keys=%v collects=%d err=%v", runtime.readKnownKeys, runtime.resumeCollects, err)
+			}
+		})
 	}
 }
 

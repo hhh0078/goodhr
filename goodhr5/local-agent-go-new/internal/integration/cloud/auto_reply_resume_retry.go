@@ -11,6 +11,29 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
+// EnqueueAutoReplyResumeRetry 只登记稍后采集的来源，不占用尝试次数或租约；同来源已有待办原样保留。
+func (c *Client) EnqueueAutoReplyResumeRetry(ctx context.Context, credentials AgentCredentials, conversationID, sourceMessageID string) (conversation AutoReplyConversation, err error) {
+	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		var found bool
+		conversation, found, err = getAutoReplyEntity[AutoReplyConversation](tx, "conversations", conversationID)
+		if err != nil {
+			return err
+		}
+		if !found || conversation.CandidateID == "" {
+			return fmt.Errorf("会话候选人尚未核实，暂不登记简历待办")
+		}
+		sourceMessageID = strings.TrimSpace(sourceMessageID)
+		if conversation.ResumeRetry != nil && (sourceMessageID == "" || conversation.ResumeRetry.SourceMessageID == sourceMessageID) {
+			return nil
+		}
+		now := time.Now().UTC()
+		conversation.ResumeRetry = &AutoReplyResumeRetry{SourceMessageID: sourceMessageID, NextAttemptAt: now}
+		conversation.UpdatedAt = now
+		return tx.Put("conversations", conversation.ID, conversation)
+	})
+	return
+}
+
 // ClaimAutoReplyResumeRetry 在浏览器和模型操作前领取一次简历尝试；同来源最多三次，十分钟租约内不重复领取。
 func (c *Client) ClaimAutoReplyResumeRetry(ctx context.Context, credentials AgentCredentials, conversationID, sourceMessageID string) (conversation AutoReplyConversation, claimed bool, err error) {
 	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {

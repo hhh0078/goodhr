@@ -37,6 +37,8 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "auto_reply_resume_loads_history": true,
+    "_comment_auto_reply_resume_loads_history": "简历采集在平台内部轻量加载来源卡片，核验后直接打开附件，不先恢复最新端。",
     "auto_reply_avatar_container_key": "message.history_scroll",
     "_comment": "猎聘企业端页面行为开关。",
     "supports_paging": false,

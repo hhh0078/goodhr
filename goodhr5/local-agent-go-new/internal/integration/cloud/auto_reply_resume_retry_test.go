@@ -243,3 +243,29 @@ func TestResumeManualResetIsOwnerScopedAndDoesNotTouchSends(t *testing.T) {
 		t.Fatal("人工重置抢占了运行中尝试", count, err)
 	}
 }
+
+// TestResumeEnqueueDoesNotSpendAttemptsOrResetExistingWork 验证先答后采集的登记不收费，重复登记不清已有租约或耗尽次数。
+func TestResumeEnqueueDoesNotSpendAttemptsOrResetExistingWork(t *testing.T) {
+	c, cred, _ := entityTestClient(t)
+	ctx := context.Background()
+	v := entityTestConversation(t, c, cred)
+	if _, err := c.EnsureLocalAutoReplyCandidate(ctx, cred, v); err != nil {
+		t.Fatal(err)
+	}
+	v, err := c.EnqueueAutoReplyResumeRetry(ctx, cred, v.ID, "source")
+	if err != nil || v.ResumeRetry == nil || v.ResumeRetry.Attempts != 0 || v.ResumeRetry.LeaseUntil != nil || v.ResumeRetry.NextAttemptAt.After(time.Now()) {
+		t.Fatal("登记提前占用尝试", v, err)
+	}
+	claimed, ok, err := c.ClaimAutoReplyResumeRetry(ctx, cred, v.ID, "source")
+	if err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	v, err = c.EnqueueAutoReplyResumeRetry(ctx, cred, v.ID, "source")
+	if err != nil || v.ResumeRetry.Attempts != 1 || v.ResumeRetry.LeaseUntil == nil || !v.ResumeRetry.LeaseUntil.Equal(*claimed.ResumeRetry.LeaseUntil) {
+		t.Fatal("重复登记重置了执行中待办", v, err)
+	}
+	v, err = c.EnqueueAutoReplyResumeRetry(ctx, cred, v.ID, "new-source")
+	if err != nil || v.ResumeRetry.Attempts != 0 || v.ResumeRetry.LeaseUntil != nil || v.ResumeRetry.SourceMessageID != "new-source" {
+		t.Fatal("新来源未独立登记", v, err)
+	}
+}

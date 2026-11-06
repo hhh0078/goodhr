@@ -10,6 +10,7 @@ import { waitForNativeInputs } from "../primitives/input-lifecycle.js";
 export class ActionQueue {
   private tail: Promise<void> = Promise.resolve();
   private fault: WorkerError | undefined;
+  private scrollDrainFault: WorkerError | undefined;
   private faultSignal = new AbortController();
   private active: ActionContext | undefined;
   private pending = 0;
@@ -37,6 +38,7 @@ export class ActionQueue {
         details: { browser_retained: true, output: { queue: this.status() } },
       }));
       this.fault = undefined;
+      this.scrollDrainFault = undefined;
       this.faultSignal = new AbortController();
       this.logger.info(context, "queue_recovery", "success", { browser_retained: true, input_replayed: false });
     }
@@ -45,13 +47,38 @@ export class ActionQueue {
 
   /** runRead 让查找和读取共用操作队列；取消后排空旧读取再自动解除只读隔离，不重放输入。 */
   runRead<T>(operation: () => Promise<T>, context: ActionContext): Promise<T> {
+    if (this.fault && this.fault === this.scrollDrainFault) return this.readAfterScrollDrain(operation, context);
+    return this.run(operation, context, true);
+  }
+
+  /** runScroll 只允许预算耗尽的真实滚轮在完全排空后恢复，点击、输入和真实协议故障仍保持隔离。 */
+  runScroll<T>(operation: () => Promise<T>, context: ActionContext): Promise<T> {
+    return this.run(operation, context, false, true);
+  }
+
+  /** readAfterScrollDrain 让紧随取消到达的身份读取短暂等待旧滚动结束，不重放旧请求或提前发送输入。 */
+  private async readAfterScrollDrain<T>(operation: () => Promise<T>, context: ActionContext): Promise<T> {
+    const fault = this.fault!;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    try {
+      await Promise.race([this.tail, new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(fault), Math.max(1, Math.min(2000, (context.deadline_at ?? Infinity) - Date.now())));
+        onAbort = () => reject(this.cancelError(context, false));
+        context.signal?.addEventListener("abort", onAbort, { once: true });
+        if (context.signal?.aborted) onAbort();
+      })]);
+    } finally {
+      clearTimeout(timer);
+      if (onAbort) context.signal?.removeEventListener("abort", onAbort);
+    }
     return this.run(operation, context, true);
   }
 
   /** run 排队执行；超时后保留浏览器并隔离输入，等待底层旧操作结束后才允许明确恢复。 */
   run<T>(operation: () => Promise<T>, context: ActionContext = {
     trace_id: "", action: "interaction", started_at: Date.now(),
-  }, readOnly = false): Promise<T> {
+  }, readOnly = false, recoverCancelledScroll = false): Promise<T> {
     if (this.fault) return Promise.reject(this.fault);
     const requestSignal = context.signal;
     const executionCancel = new AbortController();
@@ -77,6 +104,8 @@ export class ActionQueue {
           const value = await actionContextStorage.run(executionContext, operation);
           if (!finished) resolve(value);
         } catch (error) {
+          // 只有本队列主动取消的同一错误可安全恢复；原生限时、断连和其他真实错误不能借预算取消放行。
+          if (recoverCancelledScroll && this.scrollDrainFault && !causedBy(error, this.scrollDrainFault)) this.scrollDrainFault = undefined;
           if (error instanceof WorkerError && error.code === "WORKER_UNRESPONSIVE") {
             this.isolate(context, error, executionCancel);
             if (readOnly) readFault = this.fault;
@@ -97,6 +126,12 @@ export class ActionQueue {
           this.faultSignal = new AbortController();
           this.logger.info(context, "read_queue_drained", "success", { input_replayed: false });
         }
+        if (recoverCancelledScroll && this.scrollDrainFault && this.fault === this.scrollDrainFault && !requestSignal?.aborted) {
+          this.fault = undefined;
+          this.scrollDrainFault = undefined;
+          this.faultSignal = new AbortController();
+          this.logger.info(context, "scroll_queue_drained", "success", { input_replayed: false });
+        }
       });
     });
     /** cancel 取消未执行请求；已开始的动作无法安全撤销，因此隔离整个队列。 */
@@ -104,6 +139,7 @@ export class ActionQueue {
       if (finished) return;
       const error = this.cancelError(context, started);
       if (started) {
+        if (recoverCancelledScroll && !this.fault && !requestSignal?.aborted) this.scrollDrainFault = error;
         this.isolate(context, error, executionCancel);
         if (readOnly) readFault = this.fault;
       }
@@ -147,4 +183,13 @@ export class ActionQueue {
         output: { queue: this.status(), diagnostics: exitDiagnostics(context.trace_id) } },
     });
   }
+}
+
+/** causedBy 只按错误对象及标准cause链确认主动取消，不用错误文案猜测浏览器是否安全。 */
+function causedBy(error: unknown, expected: Error): boolean {
+  for (let depth = 0; depth < 5 && error instanceof Error; depth++) {
+    if (error === expected) return true;
+    error = error.cause;
+  }
+  return false;
 }

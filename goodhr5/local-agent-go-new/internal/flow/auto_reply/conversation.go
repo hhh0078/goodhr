@@ -157,22 +157,21 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	}
 	avatarHandled := f.syncCandidateAvatarBestEffort(ctx, prepared, pageSnapshot, state.Candidate, runtime)
 	var resume *model.AutoReplyResumeBundle
-	resumePrepared := false
 	needsResume := pageSnapshot.ResumeCardAvailable || state.HasResumeAttachment
-	newResumeSource := cloudConversation.ResumeRetry != nil && pageSnapshot.ResumeSourceMessageID != "" && pageSnapshot.ResumeSourceMessageID != cloudConversation.ResumeRetry.SourceMessageID
-	canCollect := needsResume && (cloudConversation.ResumeRetry == nil || newResumeSource || autoReplyResumeRetryDue(cloudConversation.ResumeRetry, time.Now()))
-	if canCollect {
-		if state.Candidate == nil || !state.Candidate.ResumeStructured || cloudConversation.ResumeRetry != nil ||
-			(pageSnapshot.ResumeSourceMessageID != "" && state.Candidate.ResumeSourceMessageID != pageSnapshot.ResumeSourceMessageID) {
-			canCollect, err = f.beginResumeRetry(ctx, prepared, &cloudConversation, pageSnapshot.ResumeSourceMessageID)
-			if err != nil {
-				return err
-			}
+	if !resumeOnly && needsResume && (state.Candidate == nil || !state.Candidate.ResumeStructured || cloudConversation.ResumeRetry != nil ||
+		(pageSnapshot.ResumeSourceMessageID != "" && state.Candidate.ResumeSourceMessageID != pageSnapshot.ResumeSourceMessageID)) {
+		// 新问题先答；这里只登记待办，不点击附件、不读历史来源、不调用简历AI，也不消耗重试次数。
+		cloudConversation, err = f.Cloud.EnqueueAutoReplyResumeRetry(ctx, credentials(prepared), cloudConversation.ID, pageSnapshot.ResumeSourceMessageID)
+		if err != nil {
+			return fmt.Errorf("登记简历待办失败：%w", err)
 		}
 	}
-	if canCollect {
+	if resumeOnly {
+		claimed, claimErr := f.beginResumeRetry(ctx, prepared, &cloudConversation, pageSnapshot.ResumeSourceMessageID)
+		if claimErr != nil || !claimed {
+			return claimErr
+		}
 		resume, _, err = f.ensureResume(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, stats)
-		resumePrepared = err == nil
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -180,21 +179,8 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			if !errors.Is(err, errAutoReplyResumeDeferred) {
 				return err
 			}
-			if saveErr := f.recordResumeRetryFailure(ctx, prepared, &cloudConversation, pageSnapshot, err); saveErr != nil {
-				return saveErr
-			}
-			if resumeOnly {
-				return nil
-			}
-			// 采集可能打开浮层或被切换会话；只在原聊天和候选人消息仍可验证时继续问答。
-			unchanged, checkErr := f.latestCandidateMessageUnchanged(ctx, runtime, prepared, pageSnapshot, latestCandidateKey)
-			if checkErr != nil || !unchanged {
-				return checkErr
-			}
+			return f.recordResumeRetryFailure(ctx, prepared, &cloudConversation, pageSnapshot, err)
 		}
-	}
-	if resumeOnly && !canCollect {
-		return nil
 	}
 	state, err = f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
 		PlatformID: prepared.Platform.ID, PlatformAccountID: pageSnapshot.PlatformAccountID,
@@ -206,7 +192,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		return fmt.Errorf("刷新正式简历状态失败：%w", err)
 	}
-	if cloudConversation.ResumeRetry != nil && !resumePrepared && state.Candidate != nil {
+	if cloudConversation.ResumeRetry != nil && !resumeOnly && state.Candidate != nil {
 		candidate := *state.Candidate
 		candidate.ResumeStructured = false
 		state.Candidate = &candidate
@@ -322,11 +308,6 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		}
 		if err = f.Cloud.CommitAutoReplyProposal(ctx, credentials(prepared), cloudConversation.ID, latestCandidateKey, position.Config.Version, decision.ConfirmationUpdates, decision.Suggestions); err != nil {
 			return fmt.Errorf("保存本轮已复核结果失败：%w", err)
-		}
-		if resumePrepared && state.Candidate != nil && state.Candidate.ResumeStructured && cloudConversation.ResumeRetry != nil {
-			if err = f.finishResumeRetry(ctx, prepared, &cloudConversation); err != nil {
-				return err
-			}
 		}
 		confirmations, err = f.Cloud.AutoReplyConfirmationItems(ctx, credentials(prepared), cloudConversation.ID)
 		if err != nil {

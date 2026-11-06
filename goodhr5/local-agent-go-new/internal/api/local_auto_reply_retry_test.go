@@ -82,8 +82,12 @@ func TestAutoReplyRetryReportsIsAccountScoped(t *testing.T) {
 	ctx := context.Background()
 	first := seedBlockedAutoReplyReport(t, s, "account-a")
 	second := seedBlockedAutoReplyReport(t, s, "account-b")
-	conversation, err := s.cloud.SaveAutoReplyConversation(ctx, first, cloud.AutoReplyConversation{PlatformID: "boss", PlatformAccountID: "bound-account", PlatformThreadID: "thread", PositionID: "position"})
+	seed := cloud.AutoReplyConversation{PlatformID: "boss", PlatformAccountID: "bound-account", PlatformThreadID: "thread", PositionID: "position", ResumeRetry: &cloud.AutoReplyResumeRetry{Attempts: 3, SourceMessageID: "resume-message", LastError: "合成附件失败"}}
+	conversation, err := s.cloud.SaveAutoReplyConversation(ctx, first, seed)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.cloud.SaveAutoReplyConversation(ctx, second, seed); err != nil {
 		t.Fatal(err)
 	}
 	if _, claimed, err := s.cloud.ClaimAutoReplySend(ctx, first, conversation.ID, "message", "已经发送", 0); err != nil || !claimed {
@@ -99,18 +103,21 @@ func TestAutoReplyRetryReportsIsAccountScoped(t *testing.T) {
 		Data struct {
 			Status  string `json:"status"`
 			Blocked int    `json:"blocked_report_count"`
+			Resumes int    `json:"blocked_resume_count"`
 		} `json:"data"`
 	}
-	if err = json.Unmarshal(w.Body.Bytes(), &status); err != nil || w.Code != http.StatusOK || status.Data.Status != "stopped" || status.Data.Blocked != 1 {
+	if err = json.Unmarshal(w.Body.Bytes(), &status); err != nil || w.Code != http.StatusOK || status.Data.Status != "stopped" || status.Data.Blocked != 1 || status.Data.Resumes != 1 {
 		t.Fatalf("状态未返回当前账号待处理数量：%d %s %v", w.Code, w.Body.String(), err)
 	}
 	w = extensionPairTestRequest(s, "/api/v1/local/auto-reply/retry-reports", agentBindRequest{Token: "account-a"})
 	var result struct {
 		Data struct {
-			Count int `json:"retried_count"`
+			Count   int `json:"retried_count"`
+			Reports int `json:"report_count"`
+			Resumes int `json:"resume_count"`
 		} `json:"data"`
 	}
-	if err = json.Unmarshal(w.Body.Bytes(), &result); err != nil || w.Code != http.StatusOK || result.Data.Count != 1 {
+	if err = json.Unmarshal(w.Body.Bytes(), &result); err != nil || w.Code != http.StatusOK || result.Data.Count != 2 || result.Data.Reports != 1 || result.Data.Resumes != 1 {
 		t.Fatalf("重试结果不正确：%d %s %v", w.Code, w.Body.String(), err)
 	}
 	firstCount, err := s.cloud.CountBlockedAutoReplyRecommendations(ctx, first)
@@ -120,6 +127,12 @@ func TestAutoReplyRetryReportsIsAccountScoped(t *testing.T) {
 	secondCount, err := s.cloud.CountBlockedAutoReplyRecommendations(ctx, second)
 	if err != nil || secondCount != 1 {
 		t.Fatal("重试改动了其他账号", secondCount, err)
+	}
+	if count, err := s.cloud.CountBlockedAutoReplyResumeRetries(ctx, first); err != nil || count != 0 {
+		t.Fatal("当前账号简历待办未重置", count, err)
+	}
+	if count, err := s.cloud.CountBlockedAutoReplyResumeRetries(ctx, second); err != nil || count != 1 {
+		t.Fatal("重试改动了其他账号的简历待办", count, err)
 	}
 	if status, claimed, err := s.cloud.ClaimAutoReplySend(ctx, first, conversation.ID, "message", "已经发送", 0); err != nil || claimed || status != "sent" {
 		t.Fatal("报告重试重置了聊天发送记录", status, claimed, err)

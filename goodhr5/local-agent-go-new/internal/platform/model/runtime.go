@@ -69,6 +69,7 @@ type ConfiguredAction struct {
 
 // Behavior 表示平台翻页、详情和岗位选择行为。
 type Behavior struct {
+	AutoReplyResumeLoadsHistory bool   `json:"auto_reply_resume_loads_history"` // 平台采集简历时自行加载并核验来源，公共流程无需先读历史再回到底部。
 	AutoReplyAvatarContainerKey string `json:"auto_reply_avatar_container_key"` // 聊天历史内的头像使用已有滚动容器限定截图；页头头像无需配置。
 	CandidateTopInset           int    `json:"candidate_top_inset"`             // 卡片操作需避让的固定页头高度，单位CSS像素；零表示无需平台额外避让。
 	CandidateBottomInset        int    `json:"candidate_bottom_inset"`          // 实际操作按钮需避让的底部浮层高度，单位CSS像素；零保持旧平台行为。

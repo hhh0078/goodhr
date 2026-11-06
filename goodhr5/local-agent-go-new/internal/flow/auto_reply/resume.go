@@ -69,7 +69,7 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 				break
 			}
 		}
-		if sourceMessageID != "" && !sourceLoaded {
+		if sourceMessageID != "" && !sourceLoaded && !prepared.Platform.Behavior.AutoReplyResumeLoadsHistory {
 			if _, _, err = runtime.ReadAutoReplyMessages(
 				collectCtx, f.Browser, prepared.Platform, snapshot,
 				[]string{sourceMessageID}, cloud.AutoReplyMaxHistoryMessages,

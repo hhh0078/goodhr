@@ -219,6 +219,8 @@ AutoReplyFlow
 
 以上编号、SQLite 事务和重试逻辑共用于 Windows x64、macOS arm64 和 macOS amd64，无系统专属调用；编译由最终候选统一执行。真实验证只覆盖本次 Mac 隔离环境，跨编译不代表 Windows 或 Intel Mac 安装、浏览器交互已经实测。
 
+简历待办可先通过 `EnqueueAutoReplyResumeRetry` 登记（次数为零、无租约），问答不必等待旧附件；真正采集时才领取次数。`Behavior.AutoReplyResumeLoadsHistory` 默认关闭，仅猎聘开启：公共流程跳过预先寻源，由 `CollectAutoReplyResume` 内部使用标准附件入口探测、首尾轻读和真实上翻。卡片出现后才完整读一次核对来源，保持当前位置进入既有附件滚轮，不先返回聊天底部。模拟 20→40→60→80 加载只读一次完整字段，错源、取消和到顶无卡片均停止；其他平台默认行为不变。
+
 ## 7. 平铺步骤规范
 
 每个主流程文件必须能从一个顶层方法看清主要顺序。

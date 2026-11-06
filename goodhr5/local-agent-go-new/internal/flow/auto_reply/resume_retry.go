@@ -50,19 +50,6 @@ func (f *Flow) recordResumeRetryFailure(ctx context.Context, prepared shared.Pre
 	return nil
 }
 
-// finishResumeRetry 只在结构化资料和条件提议都已持久提交后结束待办，避免中断后遗漏报告资格。
-func (f *Flow) finishResumeRetry(ctx context.Context, prepared shared.PreparedTask, conversation *cloud.AutoReplyConversation) error {
-	if conversation.ResumeRetry == nil {
-		return nil
-	}
-	err := f.Cloud.FinishAutoReplyResumeRetry(ctx, credentials(prepared), conversation.ID, conversation.ResumeRetry.SourceMessageID, true, "")
-	if err != nil {
-		return fmt.Errorf("结束简历待办失败：%w", err)
-	}
-	conversation.ResumeRetry = nil
-	return nil
-}
-
 // reviewRecoveredResume 只复核补齐简历后的内部条件；前后核对页面和配置，再提交报告收据，不调用发送方法。
 func (f *Flow) reviewRecoveredResume(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, input ReplyContext) error {
 	if input.CandidateState.Candidate == nil || !input.CandidateState.Candidate.ResumeStructured {

@@ -41,6 +41,14 @@ func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Brow
 	if _, _, err := waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName, snapshot.CommunicationPosition); err != nil {
 		return model.AutoReplyResumeBundle{}, err
 	}
+	if cfg.Behavior.AutoReplyResumeLoadsHistory {
+		if err := prepareLiepinResumeSource(ctx, browser, cfg, snapshot.ResumeSourceMessageID); err != nil {
+			return model.AutoReplyResumeBundle{}, err
+		}
+		if err := r.VerifyAutoReplyConversationIdentity(ctx, browser, cfg, snapshot); err != nil {
+			return model.AutoReplyResumeBundle{}, err
+		}
+	}
 	attachmentText, attachmentPaths, err := collectLiepinAttachment(ctx, browser, cfg)
 	if err != nil {
 		return model.AutoReplyResumeBundle{}, err

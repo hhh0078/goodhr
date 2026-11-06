@@ -190,7 +190,7 @@ export class ActionService {
 
   /** scroll 执行页面或元素真实滚轮滚动。 */
   scroll(request: ScrollRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.scrollAction.execute(request, context), context);
+    return this.interactionQueue.runScroll(() => this.scrollAction.execute(request, context), context);
   }
 
   /** pressKey 在当前页面执行通用按键。 */
