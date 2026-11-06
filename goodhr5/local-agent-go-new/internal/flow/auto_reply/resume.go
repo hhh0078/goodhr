@@ -16,7 +16,8 @@ import (
 
 var errAutoReplyResumeDeferred = errors.New("简历暂未处理完成")
 
-const autoReplyResumeCollectTimeout = 60 * time.Second
+// 独立补处理预算覆盖冷历史定位、下载及关闭后的聊天恢复；消息问答已在前轮完成。
+const autoReplyResumeCollectTimeout = 90 * time.Second
 const autoReplyResumeStructureTimeout = 45 * time.Second
 
 // ensureResume 收集页面已有简历；缺少附件或手机号时保留临时状态，不阻断岗位问答。
