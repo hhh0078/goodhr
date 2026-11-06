@@ -3,6 +3,7 @@ package auto_reply
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
@@ -147,6 +148,10 @@ func (r *targetedAutoReplyRuntime) ReadLatestAutoReplyMessage(ctx context.Contex
 // ReadOpenAutoReplyLatestMessage 只监控已确认的目标聊天，用户切换到其他候选人时不主动恢复页面。
 func (r *targetedAutoReplyRuntime) ReadOpenAutoReplyLatestMessage(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (model.ConversationMessage, bool, error) {
 	if err := r.checkPage(ctx, browser, cfg, snapshot); err != nil {
+		// 切换未读列表可能收起已读聊天；明确未打开时清除旧快照，由正常恢复入口重新打开指定目标。
+		if errors.Is(err, model.ErrAutoReplyConversationNotOpen) {
+			return model.ConversationMessage{}, false, nil
+		}
 		return model.ConversationMessage{}, false, err
 	}
 	return r.AutoReplyRuntime.ReadOpenAutoReplyLatestMessage(ctx, browser, cfg, snapshot)

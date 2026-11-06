@@ -19,6 +19,8 @@ var (
 	ErrCandidateDetailCleanupFailed = errors.New("详情弹窗还没有关好，岗位先停一下；重新开始后再试")
 	// ErrGreetingUnconfirmed 表示点击后未获得发送成功证据，必须停止以免重复发送或虚增计数。
 	ErrGreetingUnconfirmed = errors.New("尚未确认招呼发送成功，请检查平台权益或提示后再继续")
+	// ErrAutoReplyConversationNotOpen 仅表示平台明确未找到当前聊天，不代表身份冲突或浏览器读取失败。
+	ErrAutoReplyConversationNotOpen = errors.New("当前聊天暂未打开")
 )
 
 // Browser 定义平台适配层可以调用的 Worker 封装能力。

@@ -1,11 +1,13 @@
 // 文件作用：复现滚动子预算耗尽后立即进行身份读取，并验证排空、原生故障与点击发送隔离边界。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { ActionService } from '../dist/browser/actions/action-service.js';
 import { ActionQueue } from '../dist/browser/actions/action-queue.js';
 import { WorkerError } from '../dist/errors/worker-error.js';
 import { actionContextStorage } from '../dist/logging/operation.js';
 import { trackNativeInput } from '../dist/browser/primitives/input-lifecycle.js';
+import { WorkerRouter } from '../dist/http/router.js';
 
 /** deferred 提供受测试显式控制的异步结束点，不接触实际浏览器。 */
 function deferred() { let resolve; const promise = new Promise(value => { resolve = value; }); return { promise, resolve }; }
@@ -48,6 +50,32 @@ test('生产ScrollAction在阅读停顿耗尽预算后不会再发送下一轮�
     await actions.readElement({}, context('element.read'));
     assert.equal(wheels, 3); assert.equal(reads, 1); assert.equal(actions.healthStatus().queue.blocked, false);
   } finally { Math.random = random; }
+});
+
+test('HTTP预算响应先结束，客户端随后取消不会误判为控制断开', async t => {
+  const actions = new ActionService(), release = deferred(); let requestSignal, reads = 0;
+  const scroll = actions.scroll.bind(actions);
+  actions.scroll = (request, current) => { requestSignal = current.signal; return scroll(request, current); };
+  actions.scrollAction.execute = async () => { const execution = actionContextStorage.getStore(); await release.promise; execution.signal.throwIfAborted(); };
+  actions.readAction.execute = async () => { reads++; return { value: 'same-person' }; };
+  const router = new WorkerRouter(actions);
+  const server = http.createServer((request, response) => void router.handle(request, response));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { release.resolve(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const client = new AbortController();
+  const first = await fetch(`${base}/api/v1/element/scroll`, { method: 'POST', signal: client.signal,
+    headers: { 'Content-Type': 'application/json', 'X-Worker-Timeout-Ms': '30' }, body: JSON.stringify({ distance: 620 }) });
+  assert.equal((await first.json()).error.code, 'WORKER_UNRESPONSIVE');
+  client.abort(); await turn();
+  assert.equal(requestSignal.aborted, false, '完成的响应不应再因HTTP关闭取消原请求');
+  const second = fetch(`${base}/api/v1/element/read`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ selector: { target: { selectors: [{ type: 'css', value: '.name' }] } } }) });
+  await turn(); assert.equal(reads, 0);
+  release.resolve();
+  const response = await second;
+  assert.equal(response.status, 200); assert.equal((await response.json()).data.value, 'same-person');
+  assert.equal(reads, 1); assert.equal(actions.healthStatus().queue.blocked, false);
 });
 
 test('滚动取消后未排空的读取仍拒绝，不能与旧操作并发', async () => {

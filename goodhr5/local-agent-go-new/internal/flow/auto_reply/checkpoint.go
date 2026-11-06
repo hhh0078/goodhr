@@ -166,7 +166,23 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		}
 		current := &openAutoReplyConversation{conversation: conversation}
 		if openConversation != nil && persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key) == persistentConversationThreadID(openConversation.conversation.PlatformThreadID, openConversation.conversation.Key) {
-			current = openConversation
+			if !reuseOpenConversation {
+				// 扫描未读可能收起已读聊天；复用旧快照前重新确认，明确未打开才转入正常恢复入口。
+				_, stillOpen, err := replyRuntime.ReadOpenAutoReplyLatestMessage(ctx, f.Browser, prepared.Platform, openConversation.snapshot)
+				if err != nil {
+					f.log(prepared.Request.TaskID, "check_open_after_scan", "warning", time.Now(), err)
+					if stopErr := errorPolicy.Record(err); stopErr != nil {
+						return processed, openConversation, stopErr
+					}
+					continue
+				}
+				if !stillOpen {
+					openConversation = nil
+				}
+			}
+			if openConversation != nil {
+				current = openConversation
+			}
 		}
 		startedAt := time.Now()
 		f.log(prepared.Request.TaskID, "process_conversation", "start", startedAt, nil)

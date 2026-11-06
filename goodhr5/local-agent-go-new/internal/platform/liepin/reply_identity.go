@@ -16,11 +16,18 @@ func (r *Runtime) VerifyAutoReplyConversationIdentity(ctx context.Context, brows
 	if strings.TrimSpace(snapshot.CandidateName) == "" || strings.TrimSpace(snapshot.PlatformCandidateID) == "" {
 		return fmt.Errorf("指定候选人的姓名或平台编号不完整，已阻止页面动作")
 	}
+	// 缺少配置不能当成聊天关闭，只有 Worker 明确找不到姓名节点才允许流程重新打开目标。
+	if _, err := common.RequiredSelector(cfg, "message.current_name"); err != nil {
+		return err
+	}
 	name, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_name")
 	if err != nil {
 		return err
 	}
-	if !found || strings.TrimSpace(name) != snapshot.CandidateName {
+	if !found {
+		return model.ErrAutoReplyConversationNotOpen
+	}
+	if strings.TrimSpace(name) != snapshot.CandidateName {
 		return fmt.Errorf("当前聊天框不是指定候选人，已阻止页面动作")
 	}
 	actualID, err := readLiepinCandidateID(ctx, browser, cfg, nil)
