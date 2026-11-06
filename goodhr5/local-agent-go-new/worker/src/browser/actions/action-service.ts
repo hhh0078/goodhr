@@ -155,12 +155,12 @@ export class ActionService {
 
   /** findElement 查找一个元素并返回短生命周期引用。 */
   async findElement(request: ElementFindRequest, context: ActionContext) {
-    return (await this.findAction.one(request.selector, context)).result;
+    return this.interactionQueue.runRead(async () => (await this.findAction.one(request.selector, context)).result, context);
   }
 
   /** findElements 查找元素列表并读取配置字段。 */
   findElements(request: ElementFindAllRequest, context: ActionContext) {
-    return this.findAction.all(
+    return this.interactionQueue.runRead(() => this.findAction.all(
       request.selector,
       request.max_items ?? 100,
       request.fields ?? {},
@@ -169,12 +169,12 @@ export class ActionService {
       request.read_concurrency ?? 100,
       request.start_index ?? 0,
       { diagnostic: request.diagnostic ?? false, attempt: request.diagnostic_attempt ?? 0, probe_only: request.probe_only ?? false },
-    );
+    ), context);
   }
 
   /** readElement 查找并读取元素内容。 */
   readElement(request: ElementReadRequest, context: ActionContext) {
-    return this.readAction.execute(request, context);
+    return this.interactionQueue.runRead(() => this.readAction.execute(request, context), context);
   }
 
   /** clickElement 执行完整封装点击。 */

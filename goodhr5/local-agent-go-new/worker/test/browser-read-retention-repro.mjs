@@ -8,6 +8,7 @@ import { WorkerRouter } from '../dist/http/router.js';
 import { actionContextStorage } from '../dist/logging/operation.js';
 
 const binary = process.env.CAMOUFOX_BINARY_PATH;
+const expectFixed = process.argv.includes("--assert-fixed");
 if (!binary || !global.gc) throw new Error('请指定 CAMOUFOX_BINARY_PATH，并使用 node --expose-gc 运行');
 const rows = Array.from({ length: 150 }, (_, index) => `<article class="card">Synthetic ${index}</article>`).join('');
 const web = http.createServer((_request, response) => response.end(`<title>isolated reproduction</title>${rows}`));
@@ -18,7 +19,8 @@ try {
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${web.address().port}`);
   await retention(page, browser);
-  await cancellation(page, browser);
+  await cancellation(page, browser, "deadline");
+  await cancellation(page, browser, "disconnect");
 } finally {
   await browser?.close();
   await close(web);
@@ -38,14 +40,18 @@ async function retention(page, browser) {
   for (let round = 1; round <= 4; round++) {
     for (let index = 0; index < 25000; index++) registry.remember(page, page.locator('.card').nth(index % 150));
     global.gc();
-    console.log(JSON.stringify({ phase: 'retention', references: registry.entries.size,
+    const readStarted = performance.now();
+    await page.locator('.card').first().innerText();
+    console.log(JSON.stringify({ read_ms: Math.round(performance.now() - readStarted), phase: 'retention', references: registry.entries.size,
       heap_growth_mb: Math.round((process.memoryUsage().heapUsed - baseline) / 1048576), connected: browser.isConnected() }));
   }
   await new Promise(resolve => setTimeout(resolve, 31000));
   global.gc();
   const retained = registry.entries.size;
-  console.log(JSON.stringify({ phase: 'after_real_ttl', references: retained,
+  const heapGrowth = Math.round((process.memoryUsage().heapUsed - baseline) / 1048576);
+  console.log(JSON.stringify({ phase: 'after_real_ttl', references: retained, heap_growth_mb: heapGrowth,
     expired: [...registry.entries.values()].filter(entry => Date.now() - entry.created_at > 30000).length }));
+  if (expectFixed) { assert.equal(retained, 0); assert.ok(heapGrowth < 16, `过期后堆内存仍比基线高 ${heapGrowth} MiB`); }
   registry.clearPage(page);
   global.gc();
   console.log(JSON.stringify({ phase: 'after_clear', references: registry.entries.size,
@@ -53,7 +59,7 @@ async function retention(page, browser) {
 }
 
 /** cancellation 通过正式 Worker HTTP 路由取消请求并再次读取，观测旧读取是否结束及总并发；30ms 延迟只加在测试替身中。 */
-async function cancellation(page, browser) {
+async function cancellation(page, browser, mode) {
   const actions = new ActionService();
   actions.session.requirePage = async () => page;
   let active = 0, peak = 0, afterAbort = 0, oldFinished = false;
@@ -72,7 +78,10 @@ async function cancellation(page, browser) {
   actions.findElements = (request, context) => {
     const promise = find(request, context);
     inflight.add(promise);
-    void promise.then(() => { if (context.trace_id === 'cancelled-read') oldFinished = true; }, () => {}).finally(() => inflight.delete(promise));
+    void promise.then(() => {}, () => {}).finally(() => {
+      if (context.trace_id === 'cancelled-read') oldFinished = true;
+      inflight.delete(promise);
+    });
     return promise;
   };
   const router = new WorkerRouter(actions);
@@ -83,17 +92,24 @@ async function cancellation(page, browser) {
     const body = JSON.stringify({ selector: { target: { selectors: [{ type: 'css', value: '.card' }] }, description: 'synthetic cards', timeout_ms: 1000 }, max_items: 100, read_concurrency: 100 });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 150);
-    try { await fetch(endpoint, { method: 'POST', body, signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', 'X-Trace-ID': 'cancelled-read', 'X-Worker-Timeout-Ms': '100' } }); }
+    let firstResponse;
+    try { const response = await fetch(endpoint, { method: 'POST', body, signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', 'X-Trace-ID': 'cancelled-read', 'X-Worker-Timeout-Ms': mode === 'deadline' ? '100' : '40000' } }); firstResponse = await response.json(); }
     catch (error) { if (!controller.signal.aborted) throw error; }
     finally { clearTimeout(timer); }
     await new Promise(resolve => setTimeout(resolve, 150));
-    console.log(JSON.stringify({ phase: 'after_http_cancel', old_finished: oldFinished, active_reads: active, health: actions.healthStatus(), connected: browser.isConnected() }));
+    console.log(JSON.stringify({ mode, phase: 'after_http_cancel', old_finished: oldFinished, active_reads: active, health: actions.healthStatus(), connected: browser.isConnected() }));
+    if (expectFixed) {
+      assert.equal(oldFinished, true); assert.equal(active, 0);
+      if (mode === 'deadline') assert.equal(firstResponse?.error?.code, 'WORKER_UNRESPONSIVE');
+      else assert.equal(controller.signal.aborted, true);
+    }
     const response = await fetch(endpoint, { method: 'POST', body, headers: { 'Content-Type': 'application/json', 'X-Trace-ID': 'new-read' } });
     assert.equal(response.status, 200);
     await response.json();
     await Promise.allSettled([...inflight]);
-    console.log(JSON.stringify({ phase: 'after_second_read', old_finished: oldFinished, peak_reads: peak, reads_started_after_cancel: afterAbort, connected: browser.isConnected() }));
+    console.log(JSON.stringify({ mode, phase: 'after_second_read', old_finished: oldFinished, peak_reads: peak, reads_started_after_cancel: afterAbort, connected: browser.isConnected() }));
+    if (expectFixed) { assert.equal(afterAbort, 0); assert.ok(peak <= 4); assert.equal(active, 0); }
   } finally {
     await Promise.allSettled([...inflight]);
     await close(api);

@@ -43,10 +43,15 @@ export class ActionQueue {
     return this.run(operation, context);
   }
 
+  /** runRead 让查找和读取共用操作队列；取消后排空旧读取再自动解除只读隔离，不重放输入。 */
+  runRead<T>(operation: () => Promise<T>, context: ActionContext): Promise<T> {
+    return this.run(operation, context, true);
+  }
+
   /** run 排队执行；超时后保留浏览器并隔离输入，等待底层旧操作结束后才允许明确恢复。 */
   run<T>(operation: () => Promise<T>, context: ActionContext = {
     trace_id: "", action: "interaction", started_at: Date.now(),
-  }): Promise<T> {
+  }, readOnly = false): Promise<T> {
     if (this.fault) return Promise.reject(this.fault);
     const requestSignal = context.signal;
     const executionCancel = new AbortController();
@@ -55,6 +60,7 @@ export class ActionQueue {
     const faultSignal = this.faultSignal.signal;
     this.pending++;
     this.logger.info(context, "queue", "queued", this.status());
+    let readFault: WorkerError | undefined;
     let started = false;
     let finished = false;
     let rejectResult!: (error: Error) => void;
@@ -71,7 +77,10 @@ export class ActionQueue {
           const value = await actionContextStorage.run(executionContext, operation);
           if (!finished) resolve(value);
         } catch (error) {
-          if (error instanceof WorkerError && error.code === "WORKER_UNRESPONSIVE") this.isolate(context, error, executionCancel);
+          if (error instanceof WorkerError && error.code === "WORKER_UNRESPONSIVE") {
+            this.isolate(context, error, executionCancel);
+            if (readOnly) readFault = this.fault;
+          }
           reject(error);
         } finally {
           // 鼠标独立限时可能先返回，但原生 Promise 仍在执行，不能在这里提前放行下一次启动。
@@ -82,13 +91,22 @@ export class ActionQueue {
         reject(error);
       }).finally(() => {
         if (this.active === context) this.active = undefined;
+        // 只读请求排空后可以接收新请求；输入故障仍必须由明确启动恢复。
+        if (readFault && this.fault === readFault) {
+          this.fault = undefined;
+          this.faultSignal = new AbortController();
+          this.logger.info(context, "read_queue_drained", "success", { input_replayed: false });
+        }
       });
     });
     /** cancel 取消未执行请求；已开始的动作无法安全撤销，因此隔离整个队列。 */
     const cancel = (): void => {
       if (finished) return;
       const error = this.cancelError(context, started);
-      if (started) this.isolate(context, error, executionCancel);
+      if (started) {
+        this.isolate(context, error, executionCancel);
+        if (readOnly) readFault = this.fault;
+      }
       rejectResult(error);
     };
     /** rejectFault 让等待中的请求立即收到队列故障，不再各等一次超时。 */
