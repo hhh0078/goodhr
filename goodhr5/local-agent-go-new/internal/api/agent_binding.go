@@ -79,19 +79,31 @@ func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, code, err)
 		return
 	}
-	if session, err := s.cloud.ValidateSession(r.Context(), request.Token); err == nil {
-		s.extensionMu.Lock()
-		current := generation == s.extensionGeneration
-		if current {
-			s.bindExtensionSessionLocked(request.Token, session.UserID)
+	session, err := s.cloud.ValidateSession(r.Context(), request.Token)
+	if err != nil {
+		// 设备绑定成功不代表登录校验通过；明确返回失败，不能让网页继续等待未启动的组件检查。
+		status, code := http.StatusBadGateway, "SESSION_VALIDATION_FAILED"
+		var apiErr *cloud.APIError
+		if errors.As(err, &apiErr) {
+			status = apiErr.StatusCode
+			if strings.TrimSpace(apiErr.Code) != "" {
+				code = apiErr.Code
+			}
 		}
-		s.extensionMu.Unlock()
-		if current && s.incidents != nil {
-			s.incidents.Bind(session.UserID, request.Token)
-		}
-		if current {
-			s.startupSync.start(request.Token)
-		}
+		writeError(w, status, code, err)
+		return
+	}
+	s.extensionMu.Lock()
+	current := generation == s.extensionGeneration
+	if current {
+		s.bindExtensionSessionLocked(request.Token, session.UserID)
+	}
+	s.extensionMu.Unlock()
+	if current && s.incidents != nil {
+		s.incidents.Bind(session.UserID, request.Token)
+	}
+	if current {
+		s.startupSync.start(request.Token)
 	}
 	writeSuccess(w, http.StatusOK, binding)
 }

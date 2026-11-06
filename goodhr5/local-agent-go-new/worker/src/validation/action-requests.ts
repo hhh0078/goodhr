@@ -240,6 +240,10 @@ export function parseElementFindAllRequest(
     throw invalidRequest(traceId, action, "start_index 必须是整数");
   }
   assignNumber(request, "start_index", startIndex);
+  assignBoolean(request, "from_end", optionalBoolean(record, "from_end"));
+  if (request.from_end && (startIndex || request.selector.target.index !== undefined)) {
+    throw invalidRequest(traceId, action, "from_end 不能与读取起点或固定序号同时设置");
+  }
   const fields = parseFieldSelectors(record.fields, traceId, action);
   if (Object.keys(fields).length > 0) {
     request.fields = fields;
@@ -404,6 +408,10 @@ export function parseScrollRequest(
   if (record.progress_target !== undefined) {
     request.progress_target = parseSelectorSpec(record.progress_target, traceId, action);
     if (request.target) throw invalidRequest(traceId, action, "progress_target 与 target 不能同时设置");
+  }
+  assignBoolean(request, "stop_when_progress_visible", optionalBoolean(record, "stop_when_progress_visible"));
+  if (request.stop_when_progress_visible && !request.progress_target) {
+    throw invalidRequest(traceId, action, "stop_when_progress_visible 需要进度观察目标");
   }
   if (record.wheel_anchor !== undefined) {
     request.wheel_anchor = parseSelectorSpec(

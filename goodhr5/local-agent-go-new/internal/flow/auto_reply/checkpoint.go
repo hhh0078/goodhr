@@ -73,6 +73,9 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 	conversations := make([]model.Conversation, 0, limit)
 	reuseOpenConversation := false
 	checkpointHadError := false
+	if openConversation != nil && !targetConversationAllowed(prepared.Request.AutoReplyTarget, openConversation.conversation) {
+		openConversation = nil
+	}
 	if openConversation != nil {
 		stillOpen, hasNewMessage, err := f.openConversationHasNewMessage(ctx, prepared, replyRuntime, openConversation)
 		if err != nil {
@@ -127,6 +130,15 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 			}
 		}
 		conversations = restored
+	}
+	if target := prepared.Request.AutoReplyTarget; target != nil {
+		allowed := make([]model.Conversation, 0, 1)
+		for _, conversation := range conversations {
+			if targetConversationAllowed(target, conversation) {
+				allowed = append(allowed, conversation)
+			}
+		}
+		conversations = allowed
 	}
 	if len(conversations) == 0 {
 		if !checkpointHadError {

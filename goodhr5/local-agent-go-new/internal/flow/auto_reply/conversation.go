@@ -18,6 +18,9 @@ import (
 
 // processConversation 平铺执行页面读取、岗位归属、云端同步、简历门槛、AI决定和安全发送。
 func (f *Flow) processConversation(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, positions []cloud.AutoReplyPositionSnapshot, conversation model.Conversation, openSnapshot *model.AutoReplyConversationSnapshot, stats *shared.Stats) error {
+	if !targetConversationAllowed(prepared.Request.AutoReplyTarget, conversation) {
+		return fmt.Errorf("这个会话不在本次自动回复范围内，已跳过")
+	}
 	stats.Processed++
 	if prepared.Request.PlatformAccountID != "" {
 		if conversation.PlatformAccountID != "" && conversation.PlatformAccountID != prepared.Request.PlatformAccountID {

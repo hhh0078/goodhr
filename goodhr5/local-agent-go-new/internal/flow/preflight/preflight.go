@@ -160,6 +160,11 @@ func (c *Checker) steps() []checkStep {
 
 // validateRequest 校验任务统一入口参数。
 func validateRequest(_ context.Context, prepared *shared.PreparedTask) error {
+	target, err := shared.ResolveAutoReplyTarget(prepared.Request.TaskType, prepared.Request.AutoReplyTarget)
+	if err != nil {
+		return err
+	}
+	prepared.Request.AutoReplyTarget = target
 	request := prepared.Request
 	if strings.TrimSpace(request.TaskID) == "" {
 		return fmt.Errorf("任务编号不能为空")

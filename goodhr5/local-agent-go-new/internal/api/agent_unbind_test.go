@@ -3,12 +3,39 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+// TestAgentBindRejectsSessionValidationFailure 验证设备登记成功后登录校验失败仍明确报错，不恢复旧凭证、不假装完成绑定。
+func TestAgentBindRejectsSessionValidationFailure(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusServiceUnavailable} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/agents/bind" {
+					_ = json.NewEncoder(w).Encode(map[string]any{"agent": map[string]string{"machine_id": "synthetic-machine"}})
+					return
+				}
+				w.WriteHeader(status)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "合成登录校验失败", "code": "SYNTHETIC_SESSION_FAILURE"})
+			}))
+			defer remote.Close()
+			s := &Server{cloud: cloud.New(remote.URL), deviceID: func() (string, error) { return "synthetic-machine", nil }, extensionPairs: make(map[string]*extensionPair)}
+			w := httptest.NewRecorder()
+			s.handleAgentBind(w, httptest.NewRequest("POST", "/api/v1/session/bind", strings.NewReader(`{"token":"synthetic-token"}`)))
+			if w.Code != status || !strings.Contains(w.Body.String(), "SYNTHETIC_SESSION_FAILURE") {
+				t.Fatalf("登录校验失败被吞掉：%d %s", w.Code, w.Body.String())
+			}
+			if s.extensionToken != "" || s.extensionUserID != "" {
+				t.Fatal("登录校验失败仍保存了凭证")
+			}
+		})
+	}
+}
 
 // TestAgentUnbindSession 验证旧凭证隔离、当前会话撤销，以及首次绑定等待期间的退出代数。
 func TestAgentUnbindSession(t *testing.T) {

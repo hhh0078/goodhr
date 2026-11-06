@@ -16,23 +16,27 @@ import (
 )
 
 type liepinReplyBrowserStub struct {
-	items            []contract.FindAllItem
-	drawerOpen       bool
-	detailOpen       bool
-	attachmentOpen   bool
-	attachmentVerify bool
-	attachmentAnchor string
-	attachmentFails  int
-	conversationOpen bool
-	downloadPath     string
-	unreadCount      int
-	unreadSelected   bool
-	allSelected      bool
-	staleUnreadItems bool
-	refreshStarted   bool
-	clicks           []string
-	historyBatches   [][]contract.FindAllItem
-	historyBatch     int
+	items                  []contract.FindAllItem
+	drawerOpen             bool
+	detailOpen             bool
+	attachmentOpen         bool
+	attachmentVerify       bool
+	attachmentAnchor       string
+	attachmentFails        int
+	conversationOpen       bool
+	downloadPath           string
+	unreadCount            int
+	unreadSelected         bool
+	allSelected            bool
+	staleUnreadItems       bool
+	refreshStarted         bool
+	clicks                 []string
+	historyBatches         [][]contract.FindAllItem
+	historyBatch           int
+	historyScrolls         []contract.ScrollRequest
+	historyMissingProgress bool
+	historyBlocked         bool
+	historyAlwaysMoving    bool
 }
 
 // OpenPage 返回空页面，满足平台 Browser 测试契约。
@@ -56,7 +60,20 @@ func (b *liepinReplyBrowserStub) FindAll(_ context.Context, request contract.Ele
 	case "测试聊天消息":
 		if len(b.historyBatches) > 0 {
 			index := min(b.historyBatch, len(b.historyBatches)-1)
-			return b.historyBatches[index], nil
+			items := b.historyBatches[index]
+			start := request.StartIndex
+			if request.FromEnd {
+				start = max(0, len(items)-request.MaxItems)
+			}
+			end := min(len(items), start+request.MaxItems)
+			result := make([]contract.FindAllItem, 0, max(0, end-start))
+			for i := start; i < end; i++ {
+				item := items[i]
+				item.Index = i
+				item.TotalMatches = len(items)
+				result = append(result, item)
+			}
+			return result, nil
 		}
 	case "测试联系人抽屉":
 		if b.drawerOpen {
@@ -176,11 +193,20 @@ func (b *liepinReplyBrowserStub) Input(context.Context, contract.ElementInputReq
 }
 
 // Scroll 返回成功滚动结果，满足平台 Browser 测试契约。
-func (b *liepinReplyBrowserStub) Scroll(context.Context, contract.ScrollRequest) (contract.ScrollResult, error) {
-	if len(b.historyBatches) > 0 {
+func (b *liepinReplyBrowserStub) Scroll(_ context.Context, request contract.ScrollRequest) (contract.ScrollResult, error) {
+	b.historyScrolls = append(b.historyScrolls, request)
+	visible, moved := true, false
+	if len(b.historyBatches) > 0 && request.Distance < 0 {
+		moved = b.historyBatch < len(b.historyBatches)-1 || b.historyAlwaysMoving
+		visible = !moved && !b.historyBlocked
 		b.historyBatch++
 	}
-	return contract.ScrollResult{Scrolled: true}, nil
+	result := contract.ScrollResult{Scrolled: moved}
+	if !b.historyMissingProgress {
+		result.ProgressTargetMoved = &moved
+		result.ProgressTargetVisible = &visible
+	}
+	return result, nil
 }
 
 // PressKey 返回成功按键结果，满足平台 Browser 测试契约。
@@ -443,7 +469,8 @@ func TestReadLiepinConversationHistoryStopsAtRecentTwoMessageBoundary(t *testing
 	}
 	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{items}}
 	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
-		"message.item": testLiepinSelector("测试聊天消息"),
+		"message.item":           testLiepinSelector("测试聊天消息"),
+		"message.history_scroll": testLiepinSelector("测试聊天滚动区域"),
 	}}
 	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, []string{"old-1", "old-2"}, 5000)
 	if err != nil || complete || len(messages) != 1 || messages[0].PlatformMessageID != "new-1" || browser.historyBatch != 0 {
@@ -473,7 +500,8 @@ func TestReadLiepinConversationHistoryStopsAtNewestKnownBoundary(t *testing.T) {
 	}
 	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{items}}
 	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
-		"message.item": testLiepinSelector("测试聊天消息"),
+		"message.item":           testLiepinSelector("测试聊天消息"),
+		"message.history_scroll": testLiepinSelector("测试聊天滚动区域"),
 	}}
 	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, []string{"known-1", "known-2"}, 5000)
 	if err != nil || complete || len(messages) != 1 || messages[0].PlatformMessageID != "new-1" || browser.historyBatch != 0 {
@@ -499,7 +527,8 @@ func TestLiepinHistoryKeepsResumeCardBeforeKnownBoundary(t *testing.T) {
 	}
 	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{items}}
 	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
-		"message.item": testLiepinSelector("测试聊天消息"),
+		"message.item":           testLiepinSelector("测试聊天消息"),
+		"message.history_scroll": testLiepinSelector("测试聊天滚动区域"),
 	}}
 	history, err := readLiepinConversationHistoryDetail(context.Background(), browser, cfg, []string{"known-1"}, 5000)
 	if err != nil {

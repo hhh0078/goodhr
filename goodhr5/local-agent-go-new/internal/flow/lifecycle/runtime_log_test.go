@@ -220,5 +220,10 @@ func TestLoggedRuntimePreservesAutoReply(t *testing.T) {
 		if before != after {
 			t.Fatalf("%s 的详情能力变化", platformID)
 		}
+		_, beforeIdentity := runtime.(model.AutoReplyIdentityVerifier)
+		_, afterIdentity := wrapped.(model.AutoReplyIdentityVerifier)
+		if beforeIdentity != afterIdentity {
+			t.Fatalf("%s 的单会话身份核验能力被日志包装改变", platformID)
+		}
 	}
 }

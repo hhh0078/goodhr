@@ -101,7 +101,7 @@ func ReadConfiguredConversationMessages(ctx context.Context, browser model.Brows
 		return nil, err
 	}
 	return browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector: selector, MaxItems: 5000, Fields: cfg.ConversationFields,
+		Selector: selector, MaxItems: 5000, FromEnd: true, Fields: cfg.ConversationFields,
 	})
 }
 

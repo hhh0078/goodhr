@@ -204,6 +204,11 @@ type AutoReplyResumeBundle struct {
 	ResumeSourceMessageID string   `json:"resume_source_message_id"`
 }
 
+// AutoReplyIdentityVerifier 定义限制任务可选的实时身份核验能力，包装平台时必须保留，不能仅靠旧快照或姓名判断。
+type AutoReplyIdentityVerifier interface {
+	VerifyAutoReplyConversationIdentity(context.Context, Browser, Config, AutoReplyConversationSnapshot) error
+}
+
 // AutoReplyRuntime 定义自动回复独立主流程需要的平台页面能力。
 type AutoReplyRuntime interface {
 	InitializeAutoReplyPage(context.Context, Browser, Config) error

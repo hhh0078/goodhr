@@ -116,12 +116,21 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 	if strings.TrimSpace(prepared.Request.PlatformAccountID) == "" {
 		return stats, fmt.Errorf("开始前请确认当前招聘账号")
 	}
+	target, err := shared.ResolveAutoReplyTarget("auto_reply", prepared.Request.AutoReplyTarget)
+	if err != nil {
+		return stats, err
+	}
+	prepared.Request.AutoReplyTarget = target
 	if binder, ok := f.Logger.(interface{ SetTaskPosition(string, string) }); ok {
 		defer binder.SetTaskPosition(prepared.Request.TaskID, "")
 	}
 	replyRuntime, ok := runtime.(model.AutoReplyRuntime)
 	if !ok {
 		return stats, fmt.Errorf("%s 自动回复页面能力还没有准备完整", prepared.Platform.Name)
+	}
+	replyRuntime, err = restrictAutoReplyRuntime(replyRuntime, prepared.Request.AutoReplyTarget)
+	if err != nil {
+		return stats, err
 	}
 	if err := f.validateDependencies(); err != nil {
 		return stats, err

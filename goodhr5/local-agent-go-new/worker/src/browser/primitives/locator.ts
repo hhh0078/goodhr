@@ -67,6 +67,7 @@ export class LocatorPrimitive {
       step: string;
     },
     startIndex = 0,
+    fromEnd = false,
   ): Promise<ResolvedElement[]> {
     return this.resolveWithPolling(
       page,
@@ -80,6 +81,7 @@ export class LocatorPrimitive {
           attempts,
           { ...context, frame_path: framePath },
           startIndex,
+          fromEnd,
         ),
     );
   }
@@ -97,6 +99,7 @@ export class LocatorPrimitive {
       frame_path?: number;
     },
     startIndex: number,
+    fromEnd: boolean,
   ): Promise<ResolvedElement[]> {
     const scope = await this.resolveScope(page, spec, attempts, context);
     for (const candidate of spec.target.selectors) {
@@ -117,7 +120,7 @@ export class LocatorPrimitive {
       if (count === 0) {
         continue;
       }
-      const start = spec.target.index ?? Math.max(0, startIndex);
+      const start = spec.target.index ?? (fromEnd ? Math.max(0, count - Math.max(1, maxItems)) : Math.max(0, startIndex));
       const end =
         spec.target.index !== undefined
           ? Math.min(count, start + 1)
@@ -143,6 +146,7 @@ export class LocatorPrimitive {
           attempts: [...attempts],
           view,
           list_index: index,
+          list_total: count,
           resolved_spec: spec,
         });
       }

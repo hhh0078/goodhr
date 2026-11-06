@@ -168,6 +168,7 @@ type ElementFindAllRequest struct {
 	Selector          SelectorSpec            `json:"selector"`
 	MaxItems          int                     `json:"max_items,omitempty"`
 	StartIndex        int                     `json:"start_index,omitempty"`
+	FromEnd           bool                    `json:"from_end,omitempty"` // 从列表尾部取窗口，结果仍按原始顺序返回。
 	ReadConcurrency   int                     `json:"read_concurrency,omitempty"`
 	Fields            map[string]SelectorSpec `json:"fields,omitempty"`
 	ExpectedMissing   bool                    `json:"expected_missing,omitempty"`
@@ -178,10 +179,11 @@ type ElementFindAllRequest struct {
 
 // FindAllItem 表示列表查找中的一个元素。
 type FindAllItem struct {
-	Index      int               `json:"index"`
-	ElementRef string            `json:"element_ref"`
-	Text       string            `json:"text"`
-	Fields     map[string]string `json:"fields"`
+	TotalMatches int               `json:"total_matches,omitempty"` // 当前选择器的全部匹配数量。
+	Index        int               `json:"index"`
+	ElementRef   string            `json:"element_ref"`
+	Text         string            `json:"text"`
+	Fields       map[string]string `json:"fields"`
 }
 
 // ElementReadRequest 表示元素读取请求。
@@ -266,14 +268,15 @@ type KeyboardPressResult struct {
 
 // ScrollRequest 表示真实鼠标滚轮请求。
 type ScrollRequest struct {
-	Target         *SelectorSpec `json:"target,omitempty"`
-	ProgressTarget *SelectorSpec `json:"progress_target,omitempty"`
-	WheelAnchor    *SelectorSpec `json:"wheel_anchor,omitempty"`
-	Distance       int           `json:"distance"`
-	MaxAttempts    int           `json:"max_attempts,omitempty"`
-	WaitMS         int           `json:"wait_ms,omitempty"`
-	RequireFull    *bool         `json:"require_full,omitempty"`
-	ViewportMargin int           `json:"viewport_margin,omitempty"`
+	Target                  *SelectorSpec `json:"target,omitempty"`
+	ProgressTarget          *SelectorSpec `json:"progress_target,omitempty"`
+	StopWhenProgressVisible bool          `json:"stop_when_progress_visible,omitempty"` // 目标方向边缘已可见时不再发送滚轮。
+	WheelAnchor             *SelectorSpec `json:"wheel_anchor,omitempty"`
+	Distance                int           `json:"distance"`
+	MaxAttempts             int           `json:"max_attempts,omitempty"`
+	WaitMS                  int           `json:"wait_ms,omitempty"`
+	RequireFull             *bool         `json:"require_full,omitempty"`
+	ViewportMargin          int           `json:"viewport_margin,omitempty"`
 }
 
 // ScrollResult 表示真实滚轮次数和前后状态。

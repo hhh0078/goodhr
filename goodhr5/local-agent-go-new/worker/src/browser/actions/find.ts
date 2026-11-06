@@ -23,6 +23,7 @@ export interface FoundElement {
 /** FindAllItem 表示列表查找中的一个元素和字段。 */
 export interface FindAllItem extends JsonObject {
   index: number;
+  total_matches?: number;
   element_ref: string;
   text: string;
   fields: JsonObject;
@@ -110,6 +111,7 @@ export class FindAction {
     readConcurrency = 100,
     startIndex = 0,
     diagnostic = { diagnostic: false, attempt: 0, probe_only: false },
+    fromEnd = false,
   ): Promise<FindAllItem[]> {
     const step = "find_all";
     const diagnosticInput: JsonObject = diagnostic.diagnostic ? { selector: selectorDiagnostic(spec), attempt: diagnostic.attempt,
@@ -120,6 +122,7 @@ export class FindAction {
         target_description: spec.description,
         max_items: maxItems,
         start_index: startIndex,
+        from_end: fromEnd,
         field_count: Object.keys(fields).length,
       });
     }
@@ -135,13 +138,14 @@ export class FindAction {
           step,
         },
         startIndex,
+        fromEnd,
       );
       if (diagnostic.diagnostic) this.logger.info(actionContext, "selector_probe", "success", {
         diagnostic: true, input: diagnosticInput, output: { count: resolvedItems.length,
           selector_attempts: this.logger.fromUnknown(resolvedItems[0]?.attempts ?? []).value ?? [], page_state: pageDiagnostic(page) },
       });
       if (diagnostic.probe_only) return resolvedItems.map((resolved, index) => ({
-        index: resolved.list_index ?? index + startIndex, element_ref: "", text: "", fields: {},
+        index: resolved.list_index ?? index + startIndex, total_matches: resolved.list_total ?? resolvedItems.length, element_ref: "", text: "", fields: {},
       }));
       const diagnoseNames = report && Object.hasOwn(fields, "name");
       // 限制整批同时进行的页面读取，避免每张卡片的多个字段把浏览器命令队列挤满。
@@ -190,6 +194,7 @@ export class FindAction {
         }
         return {
           index: resolved.list_index ?? index + startIndex,
+          total_matches: resolved.list_total ?? resolvedItems.length,
           element_ref: this.session.elements.remember(
             page,
             resolved.locator,
@@ -226,8 +231,12 @@ export class FindAction {
         });
       }
       if (report) {
+        const returned = items.filter((item): item is FindAllItem => item !== null);
         this.logger.info(actionContext, step, "success", {
-          count: items.filter((item) => item !== null).length,
+          count: returned.length,
+          first_index: returned[0]?.index ?? -1,
+          last_index: returned.at(-1)?.index ?? -1,
+          total_matches: returned[0]?.total_matches ?? 0,
         });
       }
       return items.filter((item): item is FindAllItem => item !== null);

@@ -35,6 +35,18 @@ type loggedDetailAutoReplyRuntime struct {
 	detailBrowser model.DetailBrowser
 }
 
+// loggedVerifiedAutoReplyRuntime 只为确实支持实时身份核验的平台保留该能力，不扩大其他平台的限制任务支持范围。
+type loggedVerifiedAutoReplyRuntime struct {
+	*loggedAutoReplyRuntime
+	model.AutoReplyIdentityVerifier
+}
+
+// loggedVerifiedDetailAutoReplyRuntime 同时保留平台的详情、自动回复和实时身份核验能力。
+type loggedVerifiedDetailAutoReplyRuntime struct {
+	*loggedDetailAutoReplyRuntime
+	model.AutoReplyIdentityVerifier
+}
+
 // BrowseCandidateDetail 转发底层详情操作，不丢失自动回复接口。
 func (l *loggedDetailAutoReplyRuntime) BrowseCandidateDetail(ctx context.Context, browser model.Browser, config model.Config, candidate model.Candidate) (err error) {
 	defer l.record("browse_candidate_detail", time.Now(), &err)
@@ -46,8 +58,16 @@ func newLoggedRuntime(runtime model.Runtime, taskID string, logger shared.Logger
 	logged := &loggedRuntime{Runtime: runtime, taskID: taskID, logger: logger}
 	if replyRuntime, ok := runtime.(model.AutoReplyRuntime); ok {
 		reply := &loggedAutoReplyRuntime{loggedRuntime: logged, AutoReplyRuntime: replyRuntime}
+		identity, canVerify := runtime.(model.AutoReplyIdentityVerifier)
 		if detailBrowser, ok := runtime.(model.DetailBrowser); ok {
-			return &loggedDetailAutoReplyRuntime{loggedAutoReplyRuntime: reply, detailBrowser: detailBrowser}
+			detail := &loggedDetailAutoReplyRuntime{loggedAutoReplyRuntime: reply, detailBrowser: detailBrowser}
+			if canVerify {
+				return &loggedVerifiedDetailAutoReplyRuntime{loggedDetailAutoReplyRuntime: detail, AutoReplyIdentityVerifier: identity}
+			}
+			return detail
+		}
+		if canVerify {
+			return &loggedVerifiedAutoReplyRuntime{loggedAutoReplyRuntime: reply, AutoReplyIdentityVerifier: identity}
 		}
 		return reply
 	}

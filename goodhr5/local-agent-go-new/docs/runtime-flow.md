@@ -53,6 +53,12 @@ main
 
 固定端口已有实例时，必须先读取健康接口并核对状态、版本、端口和数据目录。确认是 GoodHR 后只打开现有控制台并退出；无法确认时不得结束占用端口的其他程序。
 
+网页保持打开、本地程序在同一端口重启时，顶部旧连接状态不能代替本次进程的账号绑定。前端共享 `admin-api.ts` 的 `ensureLocalAgentReady` 在打开浏览器和开始自动回复前复用绑定接口，再串行等待浏览器启动检查；检查失败或等待期间账号变化时停止该次操作。后台状态轮询不重复绑定，停止任务也不等待组件准备。`internal/api/agent_binding.go` 对设备绑定后的登录校验失败返回真实错误，保持现有并发绑定代数与启动门闩，不持久化凭证。
+
+前端通过 `camoufox_installed` 确认组件检查完成：`Manager.Status` 和 API 汇总都在 `StartupCamoufoxSyncPending()` 时将它置为 false。`camoufox_ready` 只在 Worker 在线并返回浏览器状态后为 true，不能作为首次打开的条件；现场冷启动允许 `camoufox_installed=true`、`camoufox_ready=false`、`worker_ready=false`。对应回归同时验证真实 Manager/API 的冷启动状态和启动门闩，不能只用浏览器已经运行的模拟状态。
+
+2026-11-07 重连回归：前端 151 项单测、类型检查、本地 API race 测试及 Windows amd64、macOS arm64/amd64 编译通过。三个系统共用绑定接口和前端检查流程，无新增系统专属调用；同端口重启、等待后再打开、鉴权失败、检查失败和中途换账号使用隔离模拟接口验证。真实系统重启入口与安装包验收另行记录，交叉编译不代表 Windows 或 Intel Mac 真机验证。
+
 ## 2. 任务启动入口
 
 所有任务统一进入：

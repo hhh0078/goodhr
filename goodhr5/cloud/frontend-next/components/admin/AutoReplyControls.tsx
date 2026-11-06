@@ -8,7 +8,7 @@ import { useAdmin } from "./AdminApp";
 import AutoReplyPositionDialog from "./AutoReplyPositionDialog";
 import AdminDialog from "./AdminDialog";
 import PositionFloatingStatus, { openPositionFloatingWindow, type PositionAnalysisStatus, type PositionFloatingStatusValue } from "./PositionFloatingStatus";
-import { getToken, localRequest } from "@/lib/admin-api";
+import { ensureLocalAgentReady, getToken, localRequest } from "@/lib/admin-api";
 import { canUseAutoReply } from "@/lib/subscription";
 import { loadPositionAutoReplyConfig, loadPositionAutoReplyStatus, savePositionAutoReplyConfig, type PositionAutoReplyStatus } from "@/lib/auto-reply";
 
@@ -84,6 +84,10 @@ export function AutoReplyGlobalControl() {
     operation.current = true; setBusy(true);
     const floating = stopping ? Promise.resolve(null) : openPositionFloatingWindow();
     try {
+      if (!stopping) {
+        await ensureLocalAgentReady(base);
+        if (base !== currentAgent.current) throw new Error("本地连接已变化，请重新开始");
+      }
       const result = await localRequest(base, `/api/v1/local/auto-reply/${stopping ? "stop" : "start"}`, {
         method: "POST", ...(stopping ? {} : { body: { token: getToken(), platform_account_id: account!.trim() } }), timeoutMS: stopping ? 220000 : 60000,
       });
@@ -116,6 +120,8 @@ export function AutoReplyGlobalControl() {
     } finally { operation.current = false; setBusy(false); }
   }
   return <>
+    <Flex vertical gap={8} style={{ minWidth: 0, maxWidth: "min(320px, 55vw)" }}>
+    <Flex align="center" gap={8} wrap>
     <Tooltip title={agentBase ? statusError || task?.current_step || "只处理当前招聘平台中已开启自动回复的岗位" : "先连接本地程序，再帮你盯消息"}>
       <Button data-testid="auto-reply-global" icon={running ? <StopOutlined aria-hidden="true" /> : <PlayCircleOutlined aria-hidden="true" />}
         danger={running} loading={busy} disabled={!agentBase || task === null} onClick={() => void changeRunning()}>
@@ -123,6 +129,11 @@ export function AutoReplyGlobalControl() {
       </Button>
     </Tooltip>
     {(task?.blocked_report_count || 0) > 0 && <Button disabled={busy} onClick={() => void retryReports()}>重试报告（{task?.blocked_report_count}）</Button>}
+    </Flex>
+    {task?.status === "failed" && <Alert type="error" showIcon role="alert" data-testid="auto-reply-failure"
+      title="自动回复已停止" description={<>{task.current_step?.trim() || "这次没跑顺。"}<br />处理后点击“开始自动回复”重试。</>}
+      style={{ overflowWrap: "anywhere" }} />}
+    </Flex>
     <AdminDialog open={accountOpen} title="确认当前招聘账号" confirmText="确认账号并开始" loading={busy}
       confirmDisabled={!replyAccount.trim()} onClose={() => setAccountOpen(false)} onConfirm={() => void changeRunning(replyAccount)}>
       <Typography.Paragraph>先打开并登录招聘平台，再填写当前账号名或手机号。我只处理这个平台里已开启自动回复的岗位。</Typography.Paragraph>

@@ -113,7 +113,11 @@ export class ScrollAction {
           ? targetGap(target.resolved.view, visibleArea, request.require_full ?? false)
           : 0;
       let noProgressCount = 0;
+      let progressAfter = progressBefore;
       for (let index = 0; index < maxAttempts; index += 1) {
+        if (request.stop_when_progress_visible && progressAfter && progressEdgeVisible(progressAfter, anchor, request.distance)) {
+          break;
+        }
         if (
           target &&
           visibleArea &&
@@ -144,6 +148,10 @@ export class ScrollAction {
         after = target
           ? await this.refreshTarget(target.resolved)
           : await this.screenshotState(page);
+        if (progress) {
+          progressAfter = await this.refreshTarget(progress.resolved);
+          if (anchor) anchor.resolved.view = await this.refreshTarget(anchor.resolved);
+        }
         if (target) {
           target.resolved.view = after as ElementView;
           const anchorView =
@@ -227,13 +235,13 @@ export class ScrollAction {
         result.progress_target_moved = (["x", "y", "width", "height"] as const).some(
           key => Math.abs(progressAfter.box[key] - progressBefore.box[key]) > 1,
         );
-        const area = calculateVisibleArea(progressAfter, request.wheel_anchor ? scrollContainerView(anchor, anchor ? await this.refreshTarget(anchor.resolved) : undefined) : undefined, 0);
-        const bottom = progressAfter.box.y + progressAfter.box.height;
-        result.progress_target_visible = progressAfter.visible && area.height > 0 &&
-          bottom <= area.bottom + 1 && bottom > area.top;
+        if (anchor) anchor.resolved.view = await this.refreshTarget(anchor.resolved);
+        result.progress_target_visible = progressEdgeVisible(progressAfter, anchor, request.distance);
         this.logger.info(actionContext, "scroll_progress", "success", {
           progress_target_visible: result.progress_target_visible,
           progress_target_moved: result.progress_target_moved,
+          direction: request.distance < 0 ? "up" : "down",
+          attempts,
           before_y: progressBefore.box.y, after_y: progressAfter.box.y,
         });
       }
@@ -430,6 +438,15 @@ export class ScrollAction {
       },
     });
   }
+}
+
+/** progressEdgeVisible 按滚轮方向核对首边或末边，长消息也能判断是否真正到达对应边缘。 */
+function progressEdgeVisible(view: ElementView, anchor: FoundElement | null | undefined, distance: number): boolean {
+  const area = calculateVisibleArea(view, scrollContainerView(anchor), 0);
+  const edge = distance < 0 ? view.box.y : view.box.y + view.box.height;
+  return view.visible && area.height > 0 && (distance < 0
+    ? edge >= area.top - 1 && edge < area.bottom
+    : edge <= area.bottom + 1 && edge > area.top);
 }
 
 /** scrollContainerView 只让真实滚动容器限制安全区域，整页锚点始终使用浏览器视口。 */

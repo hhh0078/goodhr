@@ -112,3 +112,57 @@ test("当前账号返回401仍清理自身Token并保留原来的返回地址", 
     assert.deepEqual(redirected, ["/login?next=%2Fadmin%2Fpositions%3Flocal_port%3D43139"]);
   });
 });
+
+test("同端口重启后每次打开先绑定，检查真正完成后才请求打开", async () => {
+  await withFakeAgent("43139", { storage: { goodhr5_access_token: "synthetic-rebind" } }, async (api) => {
+    const paths = [];
+    let waiting = true;
+    globalThis.fetch = async (url) => {
+      const path = new URL(url).pathname;
+      paths.push(path);
+      let data = {};
+      if (path.endsWith("/status")) {
+        data = { camoufox_ready: false, worker_ready: false, camoufox_installed: !waiting, camoufox_version: "", install_progress: { running: waiting, stage: waiting ? "queued" : "installed", message: "浏览器修补包已就绪，可以继续搬砖了" }, native_input_safety: { ready: true } };
+        waiting = false;
+      }
+      return { ok: true, text: async () => JSON.stringify({ ok: true, data }) };
+    };
+    const base = "http://127.0.0.1:43139";
+    await api.openLocalPage(base, { url: "https://example.invalid" });
+    waiting = true; // 模拟同一端口、同一版本的进程重新启动。
+    await api.openLocalPage(base, { url: "https://example.invalid" });
+    assert.deepEqual(paths, Array(2).fill(["/api/v1/session/bind", "/api/v1/runtime/status", "/api/v1/runtime/status", "/api/v1/page/open"]).flat());
+  });
+});
+
+test("绑定失败或启动检查未完成时禁止继续打开，在线旧Worker不能覆盖安装门闩", async () => {
+  for (const mode of ["unauthorized", "failed", "not-ready"]) {
+    await withFakeAgent("43139", { storage: { goodhr5_access_token: "synthetic-rebind" } }, async (api) => {
+      const paths = [];
+      globalThis.fetch = async (url) => {
+        const path = new URL(url).pathname; paths.push(path);
+        if (mode === "unauthorized") return { ok: false, status: 401, text: async () => JSON.stringify({ error: "请重新登录", code: "AUTH_EXPIRED" }) };
+        const data = path.endsWith("/status") ? { camoufox_ready: false, worker_ready: true, camoufox_installed: false, install_progress: { running: false, stage: mode === "failed" ? "failed" : "queued", message: "合成检查失败" } } : {};
+        return { ok: true, text: async () => JSON.stringify({ ok: true, data }) };
+      };
+      await assert.rejects(api.openLocalPage("http://127.0.0.1:43139", {}));
+      assert.equal(paths.includes("/api/v1/page/open"), false);
+      assert.equal(paths.length, mode === "unauthorized" ? 1 : 2);
+    });
+  }
+});
+
+test("组件等待期间退出或切换账号不会继续打开浏览器", async () => {
+  for (const replacement of ["", "synthetic-new-account"]) {
+    await withFakeAgent("43139", { storage: { goodhr5_access_token: "synthetic-old-account" } }, async (api, _calls, values) => {
+      const paths = [];
+      globalThis.fetch = async (url) => {
+        const path = new URL(url).pathname; paths.push(path);
+        if (path.endsWith("/status")) values.set("goodhr5_access_token", replacement);
+        return { ok: true, text: async () => JSON.stringify({ ok: true, data: { camoufox_ready: false, camoufox_installed: true } }) };
+      };
+      await assert.rejects(api.openLocalPage("http://127.0.0.1:43139", {}), /登录账号已变化/);
+      assert.deepEqual(paths, ["/api/v1/session/bind", "/api/v1/runtime/status"]);
+    });
+  }
+});

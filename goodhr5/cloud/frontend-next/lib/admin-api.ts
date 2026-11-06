@@ -124,6 +124,7 @@ export async function localRequest(
 
 /** openLocalPage 通过本地程序打开当前浏览器页面。 */
 export async function openLocalPage(baseURL: string, payload: unknown) {
+  await ensureLocalAgentReady(baseURL);
   return localRequest(baseURL, "/api/v1/page/open", {
     method: "POST",
     body: payload,
@@ -187,6 +188,27 @@ export async function bindDetectedLocalAgent(baseURL: string) {
     method: "POST",
     body: { token },
   });
+}
+
+/** ensureLocalAgentReady 在用户执行浏览器动作前重新绑定当前账号，并串行等待本次进程的浏览器检查，避免同端口重启后沿用旧连接状态。 */
+export async function ensureLocalAgentReady(baseURL: string) {
+  const token = getToken();
+  await bindDetectedLocalAgent(baseURL);
+  const deadline = Date.now() + 30 * 60 * 1000;
+  while (Date.now() < deadline) {
+    if (!token || getToken() !== token) throw new Error("登录账号已变化，请重新操作");
+    const status = await localRequest(baseURL, "/api/v1/runtime/status");
+    if (getToken() !== token) throw new Error("登录账号已变化，请重新操作");
+    const progress = status?.install_progress;
+    if (!progress?.running) {
+      if (progress?.stage === "failed") throw new Error(String(progress.message || "浏览器检查没完成，请再试一次"));
+      // installed 已由 Agent 按启动门闩过滤；ready 依赖在线 Worker，不能用它阻止尚未启动的浏览器。
+      if (status?.camoufox_installed === true) return;
+      throw new Error("浏览器组件还没准备好，请先完成组件安装，再试一次");
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error("浏览器准备等太久了，请查看本地程序状态后重试");
 }
 
 /** detectLocalAgentOnce 执行一次真实端口探测。 */

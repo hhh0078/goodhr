@@ -124,16 +124,17 @@ func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.B
 	if !ready {
 		return model.AutoReplyConversationSnapshot{}, fmt.Errorf("%s未读联系人列表没有打开", cfg.Name)
 	}
-	index, err := locateLiepinConversation(ctx, browser, cfg, conversation)
-	if err != nil {
-		return model.AutoReplyConversationSnapshot{}, err
-	}
-	if err = common.OpenConfiguredConversationItem(ctx, browser, cfg, index); err != nil {
+	if err = openLiepinConversation(ctx, browser, cfg, conversation); err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
 	}
 	name, position, err := waitLiepinConversation(ctx, browser, cfg, conversation.Name)
 	if err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
+	}
+	if conversation.PlatformCandidateID != "" {
+		if err = r.VerifyAutoReplyConversationIdentity(ctx, browser, cfg, model.AutoReplyConversationSnapshot{CandidateName: conversation.Name, PlatformCandidateID: conversation.PlatformCandidateID}); err != nil {
+			return model.AutoReplyConversationSnapshot{}, err
+		}
 	}
 	history, err := readLiepinConversationHistoryDetail(
 		ctx, browser, cfg, knownMessageKeys, maxHistory,
@@ -237,14 +238,13 @@ func ensureLiepinAutoReplyConversation(ctx context.Context, browser model.Browse
 	expected.Name = firstLiepinValue(expected.Name, snapshot.CandidateName)
 	expected.PlatformThreadID = firstLiepinValue(expected.PlatformThreadID, snapshot.PlatformThreadID)
 	expected.Key = firstLiepinValue(expected.Key, expected.PlatformThreadID)
-	index, err := locateLiepinConversation(ctx, browser, cfg, expected)
-	if err != nil {
-		return err
-	}
-	if err = common.OpenConfiguredConversationItem(ctx, browser, cfg, index); err != nil {
+	if err = openLiepinConversation(ctx, browser, cfg, expected); err != nil {
 		return err
 	}
 	_, _, err = waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName, snapshot.CommunicationPosition)
+	if err == nil && expected.PlatformCandidateID != "" {
+		err = (&Runtime{}).VerifyAutoReplyConversationIdentity(ctx, browser, cfg, snapshot)
+	}
 	return err
 }
 

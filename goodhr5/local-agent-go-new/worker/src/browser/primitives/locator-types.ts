@@ -34,6 +34,7 @@ export interface ResolvedElement {
   attempts: SelectorAttempt[];
   view: ElementView;
   list_index?: number;
+  list_total?: number;
   resolved_spec?: SelectorSpec;
 }
 

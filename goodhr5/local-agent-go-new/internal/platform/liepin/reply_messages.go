@@ -31,61 +31,139 @@ func readLiepinConversationHistory(ctx context.Context, browser model.Browser, c
 	return result.Messages, result.HistoryComplete, err
 }
 
-// readLiepinConversationHistoryDetail 保留完整已加载消息中的简历卡片，游标只裁剪待同步消息。
-func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Browser, cfg model.Config, knownMessageKeys []string, maxHistory int) (liepinConversationHistory, error) {
+// readLiepinConversationHistoryDetail 只有历史首节点可见、真实滚轮无位移且连续等待无新增时才确认读完。
+func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Browser, cfg model.Config, knownMessageKeys []string, maxHistory int) (result liepinConversationHistory, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	if maxHistory <= 0 || maxHistory > 5000 {
 		maxHistory = 5000
 	}
+	// 成功读取后恢复最新端；已能看到末条消息时 Worker 不发送滚轮，取消后也不再操作页面。
+	defer func() {
+		if err == nil {
+			err = ctx.Err()
+			if err == nil {
+				err = restoreLiepinLatestMessages(ctx, browser, cfg)
+			}
+		}
+	}()
 	previousSignature := ""
-	stableReadAttempts := 0
-	resumeAvailable := false
-	resumeSourceID := ""
-	for {
-		items, err := common.ReadConfiguredConversationMessages(ctx, browser, cfg)
-		if err != nil {
+	stableReadAttempts, blockedAttempts := 0, 0
+	var progress contract.ScrollResult
+	resumeAvailable, resumeSourceID := false, ""
+	for round := 0; round < 120; round++ {
+		if err = ctx.Err(); err != nil {
 			return liepinConversationHistory{}, err
 		}
-		messages, err := liepinMessages(items)
-		if err != nil {
-			return liepinConversationHistory{}, err
+		items, readErr := common.ReadConfiguredConversationMessages(ctx, browser, cfg)
+		if readErr != nil {
+			return liepinConversationHistory{}, readErr
+		}
+		messages, parseErr := liepinMessages(items)
+		if parseErr != nil {
+			return liepinConversationHistory{}, parseErr
 		}
 		if len(messages) == 0 {
 			return liepinConversationHistory{}, fmt.Errorf("%s当前聊天框没有读到消息", cfg.Name)
 		}
 		if available, sourceID := liepinResumeCard(messages); available {
-			resumeAvailable = true
-			resumeSourceID = sourceID
+			resumeAvailable, resumeSourceID = true, sourceID
 		}
+		result = liepinConversationHistory{Messages: messages, ResumeCardAvailable: resumeAvailable, ResumeSourceMessageID: resumeSourceID}
 		if boundary := liepinKnownMessageBoundary(messages, knownMessageKeys); boundary >= 0 {
-			return liepinConversationHistory{
-				Messages: messages[boundary+1:], ResumeCardAvailable: resumeAvailable,
-				ResumeSourceMessageID: resumeSourceID,
-			}, nil
-		}
-		if len(messages) >= maxHistory {
-			return liepinConversationHistory{
-				Messages: messages[len(messages)-maxHistory:], ResumeCardAvailable: resumeAvailable,
-				ResumeSourceMessageID: resumeSourceID,
-			}, nil
-		}
-		signature := firstLiepinValue(messages[0].PlatformMessageID, messages[0].Key) + "|" + strconv.Itoa(len(messages))
-		if signature == previousSignature {
-			stableReadAttempts++
-			if stableReadAttempts >= liepinHistoryStableReadAttempts {
-				return liepinConversationHistory{
-					Messages: messages, HistoryComplete: true, ResumeCardAvailable: resumeAvailable,
-					ResumeSourceMessageID: resumeSourceID,
-				}, nil
+			result.Messages = messages[boundary+1:]
+			if len(result.Messages) > maxHistory {
+				result.Messages = result.Messages[len(result.Messages)-maxHistory:]
 			}
-		} else {
-			previousSignature = signature
-			stableReadAttempts = 0
+			return result, nil
 		}
-		_, err = common.ScrollConversationHistory(ctx, browser, cfg)
+		if len(messages) >= maxHistory || items[0].TotalMatches > len(items) {
+			result.Messages = messages[max(0, len(messages)-maxHistory):]
+			return result, nil
+		}
+		signature := firstLiepinValue(messages[0].PlatformMessageID, messages[0].Key) + "|" +
+			firstLiepinValue(messages[len(messages)-1].PlatformMessageID, messages[len(messages)-1].Key) + "|" + strconv.Itoa(len(messages))
+		if round > 0 {
+			if progress.ProgressTargetMoved == nil || progress.ProgressTargetVisible == nil {
+				return liepinConversationHistory{}, fmt.Errorf("浏览器工具没有返回聊天顶部位置，请更新本地程序后重试")
+			}
+			if !*progress.ProgressTargetMoved && signature == previousSignature {
+				if *progress.ProgressTargetVisible {
+					stableReadAttempts++
+					blockedAttempts = 0
+				} else {
+					stableReadAttempts = 0
+					blockedAttempts++
+				}
+			} else {
+				stableReadAttempts, blockedAttempts = 0, 0
+			}
+			if stableReadAttempts >= liepinHistoryStableReadAttempts {
+				result.HistoryComplete = true
+				return result, nil
+			}
+			if blockedAttempts >= liepinHistoryStableReadAttempts {
+				return liepinConversationHistory{}, fmt.Errorf("聊天历史还没到顶部，滚轮却没有继续移动，我先不把它当成读完")
+			}
+		}
+		previousSignature = signature
+		head, selectorErr := common.IndexedSelector(cfg, "message.item", items[0].Index)
+		if selectorErr != nil {
+			return liepinConversationHistory{}, selectorErr
+		}
+		anchor, selectorErr := common.RequiredSelector(cfg, "message.history_scroll")
+		if selectorErr != nil {
+			return liepinConversationHistory{}, selectorErr
+		}
+		progress, err = browser.Scroll(ctx, contract.ScrollRequest{WheelAnchor: &anchor, ProgressTarget: &head, Distance: -620, MaxAttempts: 1, WaitMS: 800})
 		if err != nil {
 			return liepinConversationHistory{}, fmt.Errorf("向上读取%s聊天历史失败：%w", cfg.Name, err)
 		}
 	}
+	return liepinConversationHistory{}, fmt.Errorf("聊天历史较长，这轮还没确认读完，请稍后重试")
+}
+
+// restoreLiepinLatestMessages 通过末条节点和真实滚轮恢复最新端，已可见时不滚动，不靠页面脚本。
+func restoreLiepinLatestMessages(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	selector, err := common.RequiredSelector(cfg, "message.item")
+	if err != nil {
+		return err
+	}
+	anchor, err := common.RequiredSelector(cfg, "message.history_scroll")
+	if err != nil {
+		return err
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		items, readErr := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1, FromEnd: true, ProbeOnly: true})
+		if readErr != nil {
+			return readErr
+		}
+		if len(items) != 1 {
+			return fmt.Errorf("聊天末条消息没找到，暂时不能确认已经回到最新消息")
+		}
+		tail, selectorErr := common.IndexedSelector(cfg, "message.item", items[0].Index)
+		if selectorErr != nil {
+			return selectorErr
+		}
+		progress, scrollErr := browser.Scroll(ctx, contract.ScrollRequest{WheelAnchor: &anchor, ProgressTarget: &tail, Distance: 620, MaxAttempts: 100, WaitMS: 150, StopWhenProgressVisible: true})
+		if scrollErr != nil {
+			return fmt.Errorf("回到最新聊天消息失败：%w", scrollErr)
+		}
+		if progress.ProgressTargetVisible == nil || !*progress.ProgressTargetVisible {
+			return fmt.Errorf("还没看到聊天末条消息，这轮先不发送")
+		}
+		latest, readErr := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1, FromEnd: true, ProbeOnly: true})
+		if readErr != nil {
+			return readErr
+		}
+		if len(latest) == 1 && latest[0].Index == items[0].Index && latest[0].TotalMatches == items[0].TotalMatches {
+			return nil
+		}
+	}
+	return fmt.Errorf("聊天列表还在变化，暂时没有确认最新端，请稍后重试")
 }
 
 // liepinMessages 把页面消息列表转换为统一方向、类型和稳定指纹。

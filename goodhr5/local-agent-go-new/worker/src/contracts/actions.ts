@@ -98,6 +98,7 @@ export interface ElementFindAllRequest {
   selector: SelectorSpec;
   max_items?: number;
   start_index?: number;
+  from_end?: boolean;
   read_concurrency?: number;
   fields?: Record<string, SelectorSpec>;
   expected_missing?: boolean;
@@ -160,6 +161,7 @@ export interface KeyboardPressRequest {
 export interface ScrollRequest {
   target?: SelectorSpec;
   progress_target?: SelectorSpec;
+  stop_when_progress_visible?: boolean;
   wheel_anchor?: SelectorSpec;
   distance: number;
   max_attempts?: number;

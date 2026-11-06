@@ -10,7 +10,7 @@ test.use({ storageState: { cookies: [], origins: [{ origin: uniformOrigin, local
 /** fixture 在内存中模拟岗位配置和本地任务，未列入的写操作不会触达任何服务。 */
 async function fixture(page: Page) {
   const base = await mockUniformAdmin(page);
-  const reports = { blocked: 0, retries: 0 };
+  const reports = { blocked: 0, retries: 0, failure: "" };
   const state = { running: false, starts: 0, stops: 0, config: { position_id: "uniform-position-1", company_profile_id: "company-one", enabled: false, position_description: "合成岗位说明", resume_request_message: "你好，方便发一份简历吗？", conditions: [], poll_interval_seconds: 5, max_threads_per_checkpoint: 3, version: 1 }, profiles: [{ id: "company-one", name: "合成公司", address: "合成测试地址", contact: "", overview: "合成公司介绍", extra_info: "", updated_at: "2026-10-30T08:00:00Z" }] };
   await page.route(/\/api\/(?:auto-reply\/|v1\/local\/auto-reply\/)/, async (route) => {
     const request = route.request(); const path = new URL(request.url()).pathname; const method = request.method();
@@ -19,7 +19,7 @@ async function fixture(page: Page) {
     let data: unknown;
     if (path.endsWith("/auto-reply/start")) { expect(request.postDataJSON().platform_account_id).toBe("合成招聘账号"); state.starts++; state.running = true; data = { ok: true, data: { status: "running", task_id: "synthetic-auto-reply" } }; }
     else if (path.endsWith("/auto-reply/stop")) { state.stops++; state.running = false; data = { ok: true, data: { status: "stopped" } }; }
-    else if (path.endsWith("/auto-reply/status")) data = { ok: true, data: { status: state.running ? "running" : "stopped", current_step: "合成任务状态", blocked_report_count: reports.blocked } };
+    else if (path.endsWith("/auto-reply/status")) data = { ok: true, data: { status: state.running ? "running" : reports.failure ? "failed" : "stopped", current_step: reports.failure || "合成任务状态", blocked_report_count: reports.blocked } };
     else if (path.endsWith("/auto-reply/retry-reports")) {
       expect(request.postDataJSON().token).toBe("auto-reply-synthetic-token");
       const count = reports.blocked; reports.retries++; reports.blocked = 0;
@@ -38,6 +38,30 @@ async function fixture(page: Page) {
 }
 
 for (const width of [1366, 390]) {
+  test(`自动回复失败 ${width}px 持续显示原因并可重新开始`, async ({ page }) => {
+    const { reports, state } = await fixture(page);
+    reports.failure = "当前招聘账号与已确认账号不一致，请先核对招聘页面账号。";
+    await page.setViewportSize({ width, height: 960 });
+    await page.goto("/admin/positions");
+    const alert = page.getByTestId("auto-reply-failure");
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText(reports.failure);
+    await expect(alert).toContainText("处理后点击“开始自动回复”重试");
+    await page.reload();
+    await expect(alert).toBeVisible();
+    const bounds = await alert.boundingBox();
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    mkdirSync(output, { recursive: true });
+    await page.screenshot({ path: resolve(output, `failure-${width}.png`), fullPage: true, animations: "disabled" });
+    await page.getByRole("button", { name: "开始自动回复", exact: true }).click();
+    const account = page.getByRole("dialog", { name: "确认当前招聘账号", exact: true });
+    await account.getByRole("textbox", { name: "当前招聘账号", exact: true }).fill("合成招聘账号");
+    await account.getByRole("button", { name: "确认账号并开始", exact: true }).click();
+    await expect(page.getByRole("button", { name: "停止自动回复", exact: true })).toBeVisible();
+    await expect(alert).not.toBeVisible();
+    expect(state.starts).toBe(1);
+  });
+
   test(`自动回复 ${width}px 岗位配置全局启停与刷新恢复`, async ({ page }) => {
     const { state, base } = await fixture(page);
     await page.setViewportSize({ width, height: 960 });
@@ -152,4 +176,36 @@ test("主动退出先撤销本机内存凭证再返回登录页", async ({ page 
   await page.getByRole("button", { name: "退出登录", exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
   expect(unbound).toBe(true);
+});
+
+test("本地程序同端口重启后，开始自动回复重新绑定并等待启动检查", async ({ page }) => {
+  const { state } = await fixture(page);
+  await page.goto("/admin/positions");
+  await expect(page.getByRole("button", { name: "开始自动回复", exact: true })).toBeEnabled();
+  let bound = false;
+  let checks = 0;
+  let ready = false;
+  await page.route(/\/api\/v1\/(?:session\/bind|runtime\/status)$/, async (route) => {
+    const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    if (route.request().url().endsWith("/session/bind")) {
+      expect(route.request().postDataJSON().token).toBe("auto-reply-synthetic-token");
+      bound = true;
+      return route.fulfill({ headers, json: { ok: true, data: {} } });
+    }
+    if (bound) checks++;
+    return route.fulfill({ headers, json: { ok: true, data: { camoufox_ready: false, worker_ready: false, camoufox_installed: ready, camoufox_version: "", install_progress: { running: !ready, stage: ready ? "installed" : "queued" }, native_input_safety: { ready: true } } } });
+  });
+  await page.getByRole("button", { name: "开始自动回复", exact: true }).click();
+  const account = page.getByRole("dialog", { name: "确认当前招聘账号", exact: true });
+  await account.getByRole("textbox", { name: "当前招聘账号", exact: true }).fill("合成招聘账号");
+  await account.getByRole("button", { name: "确认账号并开始", exact: true }).click();
+  await expect.poll(() => checks).toBeGreaterThan(0);
+  expect(bound).toBe(true);
+  expect(state.starts).toBe(0);
+  ready = true;
+  await expect(page.getByRole("button", { name: "停止自动回复", exact: true })).toBeVisible();
+  expect(bound).toBe(true);
+  expect(checks).toBeGreaterThanOrEqual(2);
+  expect(state.starts).toBe(1);
 });

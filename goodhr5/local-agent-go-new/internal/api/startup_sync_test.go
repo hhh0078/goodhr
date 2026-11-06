@@ -464,3 +464,31 @@ func TestStartupSyncStatusCannotReuseOldWorker(t *testing.T) {
 		t.Fatalf("旧 Worker 越过门闩：%+v", status)
 	}
 }
+
+// TestStartupSyncStatusInstalledWithoutWorker 验证磁盘组件可用但 Worker 尚未启动时，installed 与 ready 含义不同，启动门闩仍优先。
+func TestStartupSyncStatusInstalledWithoutWorker(t *testing.T) {
+	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer worker.Close()
+	root := t.TempDir()
+	manager := runtime.New("", "", root, "", nil)
+	// Manager 初始化后才加入合成文件，只验证真实状态汇总，不执行或修补任何浏览器产物。
+	binary := filepath.Join(root, "synthetic-camoufox")
+	if err := os.WriteFile(binary, []byte("synthetic"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CAMOUFOX_BINARY_PATH", binary)
+	server := &Server{runtime: manager, browser: client.New(worker.URL)}
+	status := server.runtimeStatus(context.Background(), false)
+	if !status.CamoufoxInstalled || status.CamoufoxReady || status.WorkerReady {
+		t.Fatalf("未启动 Worker 时组件状态错误：%+v", status)
+	}
+	if goruntime.GOOS == "darwin" || goruntime.GOOS == "windows" && goruntime.GOARCH == "amd64" {
+		manager.EnableStartupCamoufoxSync()
+		status = server.runtimeStatus(context.Background(), false)
+		if status.CamoufoxInstalled || status.CamoufoxReady {
+			t.Fatalf("磁盘组件绕过了启动门闩：%+v", status)
+		}
+	}
+}

@@ -106,3 +106,39 @@ test('末尾被列表裁掉时鼠标留在容器内，部分露出时落点限�
   await partial.execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' }, distance: 620, wait_ms: 0 }, context);
   assert.ok(partial.moves[0].y > 550 && partial.moves[0].y < 600, '部分可见卡片的鼠标落点必须位于列表交集内');
 });
+
+
+test('从尾部读取超过五千条的消息，保留最新消息与真实总数', async () => {
+  const { action } = listHarness(5003);
+  const rows = await action.all(selector, 5000, {}, context, false, 100, 0, undefined, true);
+  assert.equal(rows.length, 5000);
+  assert.equal(rows[0].index, 3);
+  assert.equal(rows.at(-1).index, 5002);
+  assert.equal(rows.at(-1).text, '记录5002');
+  assert.equal(rows.at(-1).total_matches, 5003);
+  const last = await action.all(selector, 1, {}, context, false, 100, 0, undefined, true);
+  assert.equal(last[0].index, 5002);
+});
+
+test('尾部窗口不和起点或固定序号混用，默认读取仍从头开始', async () => {
+  assert.equal(parseElementFindAllRequest({ selector, from_end: true }, 'window', 'element.find_all').from_end, true);
+  assert.throws(() => parseElementFindAllRequest({ selector, from_end: true, start_index: 1 }, 'window', 'element.find_all'));
+  assert.throws(() => parseElementFindAllRequest({ selector: { ...selector, target: { ...selector.target, index: 0 } }, from_end: true }, 'window', 'element.find_all'));
+  const { action } = listHarness(5003);
+  assert.equal((await action.all(selector, 2, {}, context, false))[0].index, 0);
+});
+
+test('向上滚动检查首边，消息下半段露出不能证明已到顶部', async () => {
+  const hiddenHead = await progressHarness(-80, 0).execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' }, distance: -620, wait_ms: 0 }, context);
+  assert.equal(hiddenHead.progress_target_visible, false);
+  const visibleHead = await progressHarness(1, 0).execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' }, distance: -620, wait_ms: 0 }, context);
+  assert.equal(visibleHead.progress_target_visible, true);
+});
+
+test('尾部已可见时恢复最新端不发送多余滚轮', async () => {
+  const result = await progressHarness(600, 1).execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' }, distance: 620, stop_when_progress_visible: true, max_attempts: 100, wait_ms: 0 }, context);
+  assert.equal(result.attempts, 0);
+  assert.equal(result.progress_target_visible, true);
+  assert.equal(result.progress_target_moved, false);
+  assert.throws(() => parseScrollRequest({ distance: 620, stop_when_progress_visible: true }, 'window', 'element.scroll'));
+});

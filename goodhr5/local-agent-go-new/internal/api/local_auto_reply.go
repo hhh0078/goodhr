@@ -19,9 +19,10 @@ import (
 )
 
 type localAutoReplyStartRequest struct {
-	Token             string `json:"token"`
-	Headless          bool   `json:"headless"`
-	PlatformAccountID string `json:"platform_account_id"`
+	Token             string                  `json:"token"`
+	Headless          bool                    `json:"headless"`
+	PlatformAccountID string                  `json:"platform_account_id"`
+	AutoReplyTarget   *shared.AutoReplyTarget `json:"auto_reply_target,omitempty"`
 }
 
 // handleLocalAutoReply 分发自动回复全局启动、停止和状态接口。
@@ -51,6 +52,12 @@ func (s *Server) handleLocalAutoReplyStart(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
 		return
 	}
+	target, err := shared.ResolveAutoReplyTarget("auto_reply", request.AutoReplyTarget)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "AUTO_REPLY_TARGET_REQUIRED", err)
+		return
+	}
+	request.AutoReplyTarget = target
 	request.PlatformAccountID = strings.TrimSpace(request.PlatformAccountID)
 	if request.PlatformAccountID == "" || len([]rune(request.PlatformAccountID)) > 200 {
 		writeError(w, http.StatusBadRequest, "PLATFORM_ACCOUNT_REQUIRED", fmt.Errorf("开始前请确认并填写当前招聘账号，切换账号前请先停止自动回复"))
@@ -85,7 +92,7 @@ func (s *Server) handleLocalAutoReplyStart(w http.ResponseWriter, r *http.Reques
 	taskID := "auto-reply-" + platformID + "-" + strconvNano36()
 	result, err := s.runner.StartTask(r.Context(), shared.StartRequest{
 		TaskID: taskID, PositionID: positions[0].Position.ID, TaskType: "auto_reply",
-		Token: request.Token, Headless: request.Headless, PlatformAccountID: request.PlatformAccountID,
+		Token: request.Token, Headless: request.Headless, PlatformAccountID: request.PlatformAccountID, AutoReplyTarget: request.AutoReplyTarget,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusConflict, struct {
