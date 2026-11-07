@@ -39,7 +39,7 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 		return
 	}
 	profile, err := s.candidates.SaveCandidateProfile(CandidateProfileInput{
-		TenantID: requestContext.Tenant.ID, UserEmail: requestContext.Session.Email,
+		TenantID: requestContext.Tenant.ID, UserEmail: requestContext.Session.Email, AutoReplyPositionID: position.ID,
 		PlatformID: position.PlatformID, PlatformCandidateID: strings.TrimSpace(payload.PlatformCandidateID),
 		CandidateName: candidateString(fields, "candidate_name"), BirthYM: candidateString(fields, "birth_ym"),
 		Phone: candidateString(fields, "phone"), Email: candidateString(fields, "email"),

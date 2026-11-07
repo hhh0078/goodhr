@@ -78,7 +78,7 @@ func TestAutoReplyKeepsManualFieldsAndDecimalSalary(t *testing.T) {
 // TestAutoReplyPostgresConfigurationAndReports 验证旧简历表升级、新报告幂等及分享撤销，保持人工推荐表独立。
 func TestAutoReplyPostgresConfigurationAndReports(t *testing.T) {
 	db := candidatePostgresTestDB(t)
-	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'; ALTER TABLE positions ADD COLUMN user_id UUID REFERENCES users(id);`); err != nil {
+	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'; ALTER TABLE positions ADD COLUMN user_id UUID REFERENCES users(id), ADD COLUMN platform_id TEXT NOT NULL DEFAULT 'boss';`); err != nil {
 		t.Fatal(err)
 	}
 	for repeat := 0; repeat < 2; repeat++ {
@@ -116,6 +116,28 @@ func TestAutoReplyPostgresConfigurationAndReports(t *testing.T) {
 	if err != nil || candidate.ID != originalID || candidate.RowVersion != originalVersion+1 || candidate.CandidateName != "人工保护姓名" || candidate.ExpectedSalaryMin == nil || *candidate.ExpectedSalaryMin != 16.5 || len(candidate.Sources) != 2 {
 		t.Fatalf("cross-platform automatic update lost existing protections: candidate=%+v err=%v", candidate, err)
 	}
+	checkPositionList := func(total int) {
+		t.Helper()
+		result, listErr := candidates.ListPositionCandidates(tenantID, PositionCandidateQuery{UserEmail: "auto-owner@example.com", PositionID: positionID})
+		if listErr != nil || result.Total != total || len(result.Items) != total {
+			t.Fatalf("岗位简历列表和计数错误：total=%d items=%d err=%v", result.Total, len(result.Items), listErr)
+		}
+		if total == 1 && (result.Items[0].ID != candidate.ID || result.Items[0].PositionID != positionID || len(result.Items[0].Recommendations) != 0 || result.Items[0].GreetedAt != nil) {
+			t.Fatal("自动回复岗位关联改动了人工推荐或打招呼状态")
+		}
+	}
+	checkPositionList(0)
+	upload := CandidateProfileInput{UserEmail: "auto-owner@example.com", AutoReplyPositionID: positionID, PlatformID: "liepin", PlatformCandidateID: "second-platform-person", Ext: map[string]any{"structured_fields": map[string]any{}}}
+	for i := 0; i < 2; i++ {
+		if _, err := candidates.SaveCandidateProfile(upload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	checkPositionList(1)
+	// 重现旧版已入库但丢失岗位的实例，正常保存报告应该同时补回关联。
+	if _, err = db.Exec("DELETE FROM candidate_engagements WHERE candidate_id=$1 AND position_id=$2", candidate.ID, positionID); err != nil {
+		t.Fatal(err)
+	}
 	store := NewPostgresAutoReplyStore(db)
 	company, err := store.SaveCompanyProfile(context.Background(), tenantID, "auto-owner@example.com", CompanyProfile{Name: "测试公司"})
 	if err != nil {
@@ -132,6 +154,35 @@ func TestAutoReplyPostgresConfigurationAndReports(t *testing.T) {
 	retried, err := store.SaveAutoReplyReport(context.Background(), report)
 	if err != nil || retried.ID != saved.ID || retried.Version != 1 {
 		t.Fatalf("report retry was not idempotent: %+v %v", retried, err)
+	}
+	checkPositionList(1)
+	var engagements int
+	if err = db.QueryRow("SELECT count(*) FROM candidate_engagements WHERE candidate_id=$1 AND position_id=$2", candidate.ID, positionID).Scan(&engagements); err != nil || engagements != 1 {
+		t.Fatalf("重复报告未保持唯一岗位关联：%d %v", engagements, err)
+	}
+	// 老报告的版本迁移只恢复报告所证明的关系，再次执行也不覆盖已经存在的招呼状态。
+	if _, err = db.Exec("DELETE FROM candidate_engagements WHERE candidate_id=$1", candidate.ID); err != nil {
+		t.Fatal(err)
+	}
+	migration, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "0107_auto_reply_candidate_engagements.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(migration)); err != nil {
+		t.Fatal(err)
+	}
+	checkPositionList(1)
+	if _, err = db.Exec("UPDATE candidate_engagements SET status='greeted',greeted_at=now() WHERE candidate_id=$1", candidate.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = candidates.SaveCandidateProfile(upload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(migration)); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRow("SELECT count(*) FROM candidate_engagements WHERE candidate_id=$1 AND status='greeted' AND greeted_at IS NOT NULL", candidate.ID).Scan(&engagements); err != nil || engagements != 1 {
+		t.Fatalf("已存在的招呼状态被覆盖：%d %v", engagements, err)
 	}
 	if _, err = store.GetPublicAutoReplyReport(context.Background(), saved.PublicID); err != ErrNotFound {
 		t.Fatalf("new report unexpectedly public: %v", err)

@@ -56,3 +56,12 @@ func registerAutomaticCandidatePhone(ctx context.Context, tx *sql.Tx, tenantID, 
 	}
 	return err
 }
+
+// linkAutoReplyCandidatePosition 在已授权的入库事务内补充岗位关系，保留已有账号触达的状态、招呼时间和统计。
+func linkAutoReplyCandidatePosition(ctx context.Context, tx *sql.Tx, tenantID, candidateID, positionID, platformID string) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO candidate_engagements (tenant_id,candidate_id,position_id,platform_id,status)
+		SELECT $1::uuid,$2::uuid,$3::uuid,$4,'auto_reply'
+		WHERE NOT EXISTS (SELECT 1 FROM candidate_engagements WHERE tenant_id=$1 AND candidate_id=$2 AND position_id=$3)
+		ON CONFLICT DO NOTHING`, tenantID, candidateID, positionID, platformID)
+	return err
+}

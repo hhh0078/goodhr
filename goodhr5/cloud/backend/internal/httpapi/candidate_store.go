@@ -72,6 +72,7 @@ type PositionCandidate struct {
 
 // CandidateProfileInput 表示候选人主体保存参数。
 type CandidateProfileInput struct {
+	AutoReplyPositionID string // 云端核实过的自动回复岗位，用于建立本次沟通与结构化简历的关联。
 	// Tags 仅保存平台或AI提供的原始简历技能标签，不参与收藏夹创建和关联。
 	Tags                []string
 	TenantID            string
@@ -307,7 +308,21 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 	if item.Tags != nil {
 		profile.LibraryFields["tags"] = append([]string{}, item.Tags...)
 	}
-	return s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: item.TenantID, UserEmail: item.UserEmail, IsAdmin: true}, s.saveAutomaticProfileLocked(profile)), nil
+	saved := s.saveAutomaticProfileLocked(profile)
+	if item.AutoReplyPositionID != "" {
+		found := false
+		for _, existing := range s.engagements {
+			if existing.CandidateID == saved.ID && existing.PositionID == item.AutoReplyPositionID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			id := s.nextID("engagement")
+			s.engagements[id] = CandidateEngagement{ID: id, CandidateID: saved.ID, PositionID: item.AutoReplyPositionID, UserEmail: item.UserEmail, PlatformID: item.PlatformID, Status: "auto_reply", CreatedAt: now, UpdatedAt: now}
+		}
+	}
+	return s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: item.TenantID, UserEmail: item.UserEmail, IsAdmin: true}, saved), nil
 }
 
 // UpsertCandidateEngagement 新增或更新触达上下文。
@@ -412,6 +427,14 @@ func (s *MemoryCandidateStore) ListPositionCandidates(tenantID string, query Pos
 			continue
 		}
 		item = s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: tenantID, UserEmail: firstNonEmpty(query.ActorEmail, query.UserEmail), IsAdmin: query.UserEmail == ""}, s.decorateLibraryCandidateLocked(item))
+		if query.PositionID != "" {
+			for _, relation := range s.engagements {
+				if relation.CandidateID == item.ID && relation.PositionID == query.PositionID {
+					item.PositionID, item.EngagementID, item.EngagementStatus = relation.PositionID, relation.ID, relation.Status
+					break
+				}
+			}
+		}
 		if !candidateMatchesFilters(item, query) {
 			continue
 		}

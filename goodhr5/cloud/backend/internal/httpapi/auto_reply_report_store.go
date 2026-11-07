@@ -60,6 +60,10 @@ func (s *PostgresAutoReplyStore) SaveAutoReplyReport(ctx context.Context, item C
 	if err != nil {
 		return item, err
 	}
+	// 老客户端可能已经同步过简历但还没登记岗位；已授权的报告本身可以证明这份关系。
+	if err = linkAutoReplyCandidatePosition(ctx, tx, item.TenantID, item.CandidateID, item.PositionID, item.Report.Position.PlatformID); err != nil {
+		return item, err
+	}
 	saved, err := scanAutoReplyReport(tx.QueryRowContext(ctx, `SELECT `+autoReplyReportColumns+` FROM candidate_auto_reply_reports WHERE tenant_id=$1 AND candidate_id=$2 AND position_id=$3 AND input_hash=$4`, item.TenantID, item.CandidateID, item.PositionID, item.InputHash))
 	if err != nil {
 		return saved, err

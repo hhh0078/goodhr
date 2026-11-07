@@ -531,6 +531,11 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 			return PositionCandidate{}, err
 		}
 	}
+	if input.AutoReplyPositionID != "" {
+		if err = linkAutoReplyCandidatePosition(ctx, tx, tenantID, id, input.AutoReplyPositionID, input.PlatformID); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
 	if err = tx.Commit(); err != nil {
 		return PositionCandidate{}, err
 	}
