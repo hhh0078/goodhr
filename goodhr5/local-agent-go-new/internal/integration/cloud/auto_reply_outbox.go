@@ -128,7 +128,7 @@ func (c *Client) SyncAutoReplyStructuredCandidate(ctx context.Context, credentia
 
 // notifyLocalAutoReply 持久登记人工接管通知，失败状态与提示明确返回且不会持锁等待网络。
 func (c *Client) notifyLocalAutoReply(ctx context.Context, credentials AgentCredentials, input AutoReplyNotification) (result AutoReplyNotificationResult, err error) {
-	id := "notice:" + autoReplyDigest(input.ConversationID+"\x00"+input.BasedOnMessageKey+"\x00"+input.ReasonKey)
+	id := autoReplyNoticeID(input)
 	result.Notification = input
 	if err = c.enqueueAutoReplyOutbox(ctx, credentials, id, "notice", input); err != nil {
 		return result, err
@@ -250,14 +250,7 @@ func (c *Client) sendAutoReplyOutbox(ctx context.Context, credentials AgentCrede
 		if err := json.Unmarshal(item.Payload, &input); err != nil {
 			return err
 		}
-		safe := input
-		safe.ID = item.ID
-		safe.ConversationID = ""
-		safe.LatestMessage = ""
-		safe.Reason = "需要人工协助，请在本地运行记录查看详情。"
-		safe.ReasonKey = autoReplyDigest(input.ReasonKey)
-		safe.BasedOnMessageKey = autoReplyDigest(input.BasedOnMessageKey)
-		raw, err := json.Marshal(safe)
+		raw, err := json.Marshal(noticeCloudRequest(item.ID, input))
 		if err != nil {
 			return err
 		}
@@ -277,7 +270,7 @@ func (c *Client) sendAutoReplyOutbox(ctx context.Context, credentials AgentCrede
 		if err := json.Unmarshal(item.Payload, &input); err != nil {
 			return err
 		}
-		raw, err := json.Marshal(input.Input)
+		raw, err := json.Marshal(candidateCloudRequest(input.Input))
 		if err != nil {
 			return err
 		}

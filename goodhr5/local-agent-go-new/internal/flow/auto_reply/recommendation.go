@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
@@ -27,15 +26,7 @@ func (r *AIResponder) QueueRecommendation(ctx context.Context, input ReplyContex
 	if err != nil {
 		return err
 	}
-	for _, item := range items {
-		if item.ArchivedAt == nil && item.Status != "pending" {
-			validation := toolExecutionState{input: input}
-			if validation.validateConfirmationEvidence(item) != nil {
-				return nil
-			}
-		}
-	}
-	source, qualified := recommendationSource(input.Position, *input.CandidateState.Candidate, items)
+	source, qualified := recommendationSource(input, items)
 	if !qualified {
 		return nil
 	}
@@ -215,13 +206,7 @@ func (r *AIResponder) recommendationJobCurrent(ctx context.Context, credentials 
 	if state.Candidate == nil || state.Candidate.ID != job.CandidateID || (state.Conversation != nil && state.Conversation.ResumeRetry != nil) {
 		return false, nil
 	}
-	validation := toolExecutionState{input: ReplyContext{Messages: messages, CandidateState: state}}
-	for _, item := range items {
-		if item.ArchivedAt == nil && item.Status != "pending" && validation.validateConfirmationEvidence(item) != nil {
-			return false, nil
-		}
-	}
-	source, qualified := recommendationSource(snapshot, *state.Candidate, items)
+	source, qualified := recommendationSource(ReplyContext{Position: snapshot, CandidateState: state, Messages: messages}, items)
 	if !qualified {
 		return false, nil
 	}
@@ -230,21 +215,23 @@ func (r *AIResponder) recommendationJobCurrent(ctx context.Context, credentials 
 }
 
 // recommendationSource 仅根据有效且有证据的必要条件建立报告源，不允许模型凭空生成候选人和岗位原件。
-func recommendationSource(position cloud.AutoReplyPositionSnapshot, candidate cloud.AutoReplyStoredCandidate, items []cloud.CandidateConfirmationItem) (cloud.AutoReplyRecommendationReport, bool) {
-	if !candidate.ResumeStructured {
+func recommendationSource(input ReplyContext, items []cloud.CandidateConfirmationItem) (cloud.AutoReplyRecommendationReport, bool) {
+	position, candidate := input.Position, input.CandidateState.Candidate
+	configured, complete := configuredConfirmations(position, items)
+	if candidate == nil || !candidate.ResumeStructured || !complete {
 		return cloud.AutoReplyRecommendationReport{}, false
 	}
+	validation := toolExecutionState{input: input}
 	conditions := []cloud.AutoReplyReportCondition{}
 	required := 0
-	for _, item := range items {
-		if item.ArchivedAt != nil {
-			continue
-		}
+	for _, item := range configured {
 		if item.ItemType == "required" || item.ItemType == "confirm" {
 			required++
-			if item.Status != "matched" || strings.TrimSpace(item.EvidenceText) == "" {
+			if item.Status != "matched" || validation.validateConfirmationEvidence(item) != nil {
 				return cloud.AutoReplyRecommendationReport{}, false
 			}
+		} else if validation.validateConfirmationEvidence(item) != nil {
+			continue
 		}
 		conditions = append(conditions, cloud.AutoReplyReportCondition{ID: item.ID, ItemType: item.ItemType, Content: item.Content, Status: item.Status, StatusReason: item.StatusReason, Evidence: []string{item.EvidenceText}})
 	}

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -86,20 +87,31 @@ func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructure
 	return StructuredResume{Candidate: candidate.StructuredCandidate, Gender: candidate.Gender, BirthYMPrecision: birthPrecision, Wechat: candidate.Wechat, RawText: text}, nil
 }
 
-// explicitResumeBirthMonth 只保留原文生日标签旁明确出现的年月；年份、年龄推算和工作日期不能补作出生月份。
+// 生日标签允许 PDF 的中文排版空格；年月必须与标签相邻，不跨行搜索其他日期。
+const resumeBirthLabel = `(?:出[\t\p{Zs}]*生(?:年月日|年月|日期|时间|于)?|生[\t\p{Zs}]*日|生于|date[ \t]+of[ \t]+birth|birth(?:day|date)?|dob)`
+const resumeBirthDate = `([0-9]{4})[\t\p{Zs}]*(?:[-./]|年)[\t\p{Zs}]*(0?[1-9]|1[0-2])(?:[\t\p{Zs}]*月)?`
+
+var resumeBirthPrefix = regexp.MustCompile(`(?i)` + resumeBirthLabel + `[\t\p{Zs}]*[:：]?[\t\p{Zs}]*` + resumeBirthDate + `(?:[^0-9]|$)`)
+var resumeBirthSuffix = regexp.MustCompile(`(?:^|[^0-9])` + resumeBirthDate + `[\t\p{Zs}]*(?:出[\t\p{Zs}]*生|生(?:[，。;；\s]|$))`)
+
+// explicitResumeBirthMonth 提取原文唯一明确标注的出生年月；模型和原文冲突或出现不同生日时留空。
 func explicitResumeBirthMonth(value, source string) (string, string) {
 	value = strings.TrimSpace(value)
-	parsed, err := time.Parse("2006-01", value)
-	if err != nil {
+	month := ""
+	for _, pattern := range []*regexp.Regexp{resumeBirthPrefix, resumeBirthSuffix} {
+		for _, match := range pattern.FindAllStringSubmatch(source, -1) {
+			number, _ := strconv.Atoi(match[2])
+			date := fmt.Sprintf("%s-%02d", match[1], number)
+			if month != "" && month != date || value != "" && value != date {
+				return "", ""
+			}
+			month = date
+		}
+	}
+	if month == "" {
 		return "", ""
 	}
-	date := fmt.Sprintf(`%04d\s*(?:[-./]|年)\s*(?:%02d|%d)(?:\s*月)?`, parsed.Year(), parsed.Month(), parsed.Month())
-	label := `(?:出生(?:年月日|年月|日期|时间|于)?|生日|生于|date\s+of\s+birth|birth(?:day|date)?|dob)\s*[:：]?\s*`
-	pattern := `(?i)(?:` + label + date + `(?:[^0-9]|$)|(?:^|[^0-9])` + date + `\s*(?:出生|生(?:[，。;；\s]|$)))`
-	if !regexp.MustCompile(pattern).MatchString(source) {
-		return "", ""
-	}
-	return value, "month"
+	return month, "month"
 }
 
 // reportResume 把简历结构化请求状态同步到当前运行小窗。

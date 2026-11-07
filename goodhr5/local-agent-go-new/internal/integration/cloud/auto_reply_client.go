@@ -108,7 +108,7 @@ func (c *Client) SaveAutoReplyCandidate(ctx context.Context, credentials AgentCr
 		return c.saveLocalAutoReplyCandidate(ctx, credentials, candidate)
 	}
 	var result AutoReplyCandidateSaveResult
-	if err := c.doWithMachineID(ctx, http.MethodPost, autoReplyAgentBasePath+"/candidates", credentials.Token, credentials.MachineID, candidate, &result); err != nil {
+	if err := c.doWithMachineID(ctx, http.MethodPost, autoReplyAgentBasePath+"/candidates", credentials.Token, credentials.MachineID, candidateCloudRequest(candidate), &result); err != nil {
 		return AutoReplyCandidateSaveResult{}, err
 	}
 	if result.CandidateID == "" {
@@ -317,8 +317,12 @@ func (c *Client) NotifyAutoReplyManualHandoff(ctx context.Context, credentials A
 	if c.localAutoConfigured {
 		return c.notifyLocalAutoReply(ctx, credentials, notification)
 	}
+	id := notification.ID
+	if id == "" && notification.ConversationID != "" {
+		id = autoReplyNoticeID(notification)
+	}
 	var result AutoReplyNotificationResult
-	if err := c.doWithMachineID(ctx, http.MethodPost, autoReplyAgentBasePath+"/notifications", credentials.Token, credentials.MachineID, notification, &result); err != nil {
+	if err := c.doWithMachineID(ctx, http.MethodPost, autoReplyAgentBasePath+"/notifications", credentials.Token, credentials.MachineID, noticeCloudRequest(id, notification), &result); err != nil {
 		return AutoReplyNotificationResult{}, err
 	}
 	return result, nil

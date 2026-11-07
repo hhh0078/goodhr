@@ -3,8 +3,6 @@ package auto_reply
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -96,7 +94,7 @@ func autoReplyToolsForContext(input ReplyContext) []ai.ToolDefinition {
 // autoReplyToolDefinitions 返回只产生提议的四个动作工具，不重复提供已有上下文的查询工具。
 func autoReplyToolDefinitions() []ai.ToolDefinition {
 	return []ai.ToolDefinition{
-		newToolDefinition(toolUpsertConfirmations, "只提议有新证据的条件变化；未变化项保留。每批最多50项，可分批。matched/unmatched必须提供存在的source_ref和证据原文。", `{"type":"object","properties":{"items":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":128},"position_condition_id":{"type":"string","maxLength":128},"item_type":{"type":"string","enum":["required","confirm","bonus"]},"content":{"type":"string","minLength":1,"maxLength":1000},"status":{"type":"string","enum":["pending","matched","unmatched"]},"status_reason":{"type":"string","minLength":1,"maxLength":500},"source_ref":{"type":"string","maxLength":256},"evidence_text":{"type":"string","maxLength":2000}},"required":["item_type","content","status","status_reason","source_ref","evidence_text"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false}`),
+		newToolDefinition(toolUpsertConfirmations, "只更新 confirmation_items 中已有 id 的条件状态，不能新增或改变条件。每批最多50项，可分批。matched/unmatched必须提供存在的source_ref和证据原文。", `{"type":"object","properties":{"items":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":128},"position_condition_id":{"type":"string","maxLength":128},"item_type":{"type":"string","enum":["required","confirm","bonus"]},"content":{"type":"string","minLength":1,"maxLength":1000},"status":{"type":"string","enum":["pending","matched","unmatched"]},"status_reason":{"type":"string","minLength":1,"maxLength":500},"source_ref":{"type":"string","maxLength":256},"evidence_text":{"type":"string","maxLength":2000}},"required":["id","item_type","content","status","status_reason","source_ref","evidence_text"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false}`),
 		newToolDefinition(toolSendMessages, "准备最多两条候选人消息：可先回答最新问题，再询问一个未确认条件。信息不足时改用 notify_hr。", `{"type":"object","properties":{"messages":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","properties":{"type":{"type":"string","enum":["answer","confirmation"]},"content":{"type":"string","minLength":1,"maxLength":200},"confirmation_item_id":{"type":"string","maxLength":128}},"required":["type","content"],"additionalProperties":false}}},"required":["messages"],"additionalProperties":false}`),
 		newToolDefinition(toolSuggestConfig, "提交岗位或公司资料的新增、修改或删除建议，等待 HR 审核。", `{"type":"object","properties":{"suggestion_type":{"type":"string","enum":["position","company"]},"operation":{"type":"string","enum":["create","update","delete"]},"target_id":{"type":"string","maxLength":128},"proposed_value":{"type":"object"},"reason":{"type":"string","minLength":1,"maxLength":1000}},"required":["suggestion_type","operation","proposed_value","reason"],"additionalProperties":false}`),
 		newToolDefinition(toolNotifyHR, "没有可靠答案或问题与招聘无关时，通知当前招聘团队人工接管；这是内部通知，候选人不会收到任何占位回复。", `{"type":"object","properties":{"reason":{"type":"string","minLength":1,"maxLength":500},"reason_key":{"type":"string","minLength":1,"maxLength":100}},"required":["reason","reason_key"],"additionalProperties":false}`),
@@ -175,35 +173,25 @@ func (s *toolExecutionState) upsertConfirmations(ctx context.Context, call ai.To
 	if len(args.Items) == 0 || len(args.Items) > 50 {
 		return nil, argumentError("items 需要包含1到50条确认项")
 	}
+	saved := make([]cloud.CandidateConfirmationItem, 0, len(args.Items))
 	for index, item := range args.Items {
 		if err := validateConfirmationToolItem(item); err != nil {
 			return nil, argumentError(fmt.Sprintf("第%d条确认项%s", index+1, err.Error()))
 		}
-	}
-	if err := s.validateConfirmationReviewCoverage(args.Items); err != nil {
-		return nil, err
-	}
-	saved := make([]cloud.CandidateConfirmationItem, 0, len(args.Items))
-	for _, item := range args.Items {
-		existing, _ := s.findConfirmation(item)
+		result, found := s.confirmationByID(item.ID)
+		if !found || (item.PositionConditionID != "" && item.PositionConditionID != result.PositionConditionID) {
+			return nil, argumentError("只能更新 confirmation_items 中已有的条件 id，请忽略未配置的要求")
+		}
+		if result.ItemType != item.ItemType || strings.TrimSpace(result.Content) != strings.TrimSpace(item.Content) {
+			return nil, argumentError("条件类型与正文必须与该 id 的岗位配置一致")
+		}
 		now := time.Now().UTC()
-		lastAnsweredAt := existing.LastAnsweredAt
-		if item.Status != "pending" && strings.TrimSpace(item.SourceRef) == strings.TrimSpace(s.input.BasedOnMessageKey) {
-			lastAnsweredAt = &now
-		}
-		result := cloud.CandidateConfirmationItem{
-			ID: existing.ID, PositionConditionID: firstNonEmpty(existing.PositionConditionID, item.PositionConditionID),
-			ConversationID: s.input.Conversation.ID, CandidateID: s.input.Conversation.CandidateID,
-			PositionID: s.input.Position.Position.ID, ItemType: item.ItemType,
-			Content: strings.TrimSpace(item.Content), Status: item.Status,
-			StatusReason: strings.TrimSpace(item.StatusReason), SourceType: firstNonEmpty(existing.SourceType, "ai"),
-			SourceRef:    firstNonEmpty(item.SourceRef, s.input.BasedOnMessageKey),
-			EvidenceText: strings.TrimSpace(item.EvidenceText), Summary: strings.TrimSpace(item.StatusReason),
-			CreatedByKind: "ai", AskCount: existing.AskCount, LastAskedAt: existing.LastAskedAt,
-			LastAnsweredAt: lastAnsweredAt, LastReviewedAt: &now,
-		}
-		if result.ID == "" {
-			result.ID = proposedConfirmationID(result)
+		result.ConversationID = s.input.Conversation.ID
+		result.Status, result.StatusReason = item.Status, strings.TrimSpace(item.StatusReason)
+		result.SourceRef, result.EvidenceText = strings.TrimSpace(item.SourceRef), strings.TrimSpace(item.EvidenceText)
+		result.Summary, result.LastReviewedAt = result.StatusReason, &now
+		if result.Status != "pending" && result.SourceRef == s.input.BasedOnMessageKey {
+			result.LastAnsweredAt = &now
 		}
 		if err := s.validateConfirmationEvidence(result); err != nil {
 			return nil, err
@@ -238,22 +226,6 @@ func validateConfirmationToolItem(item confirmationToolItem) error {
 		return fmt.Errorf("证据或摘要过长")
 	}
 	return nil
-}
-
-// validateConfirmationReviewCoverage 只核对本次增量中已有条件的身份和正文，允许分批而不强迫重写所有条件。
-func (s *toolExecutionState) validateConfirmationReviewCoverage(items []confirmationToolItem) error {
-	for _, item := range items {
-		if existing, found := s.findConfirmation(item); found && (existing.ItemType != item.ItemType || strings.TrimSpace(existing.Content) != strings.TrimSpace(item.Content)) {
-			return argumentError("已有确认项的类型和内容不能被 AI 偷偷改写")
-		}
-	}
-	return nil
-}
-
-// proposedConfirmationID 为新增提议生成稳定本地编号，使发送后的次数更新能定位同一条件。
-func proposedConfirmationID(item cloud.CandidateConfirmationItem) string {
-	sum := sha256.Sum256([]byte(item.CandidateID + "|" + item.PositionID + "|" + strings.Join(strings.Fields(item.Content), "")))
-	return "condition-" + hex.EncodeToString(sum[:])
 }
 
 // addConfirmationProposal 合并同轮同一条件的最后一次有效判断，不写入本地或云端。
@@ -292,22 +264,6 @@ func (s *toolExecutionState) validateConfirmationEvidence(item cloud.CandidateCo
 		return nil
 	}
 	return argumentError("证据没有对应到本轮可见的候选人消息或简历，请引用真实原文，否则保持pending")
-}
-
-// findConfirmation 按内部编号、岗位条件编号或标准化正文找到已有确认项。
-func (s *toolExecutionState) findConfirmation(input confirmationToolItem) (cloud.CandidateConfirmationItem, bool) {
-	for _, item := range s.confirmations {
-		if strings.TrimSpace(input.ID) != "" && input.ID == item.ID {
-			return item, true
-		}
-		if strings.TrimSpace(input.PositionConditionID) != "" && input.PositionConditionID == item.PositionConditionID {
-			return item, true
-		}
-		if normalizeConfirmationContent(input.Content) == normalizeConfirmationContent(item.Content) {
-			return item, true
-		}
-	}
-	return cloud.CandidateConfirmationItem{}, false
 }
 
 // normalizeConfirmationContent 生成仅用于本轮匹配的稳定确认项正文。

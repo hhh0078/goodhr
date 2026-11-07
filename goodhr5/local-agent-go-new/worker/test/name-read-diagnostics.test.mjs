@@ -15,7 +15,7 @@ function harness(rows) {
     return {
       page, view: { visible: true }, matched_selector: { type: "css", value: ".card" },
       attempts: [{ level: "target", selector_type: "css", selector_value: ".card", matches: rows.length, selected_index: index }],
-      locator: { index, async innerText() {
+      locator: { index, count: async () => 1, async innerText() {
         reads++;
         if (reads === 1 && row.beforeError) throw row.beforeError;
         if (reads === 2 && row.afterError) throw row.afterError;
@@ -102,12 +102,41 @@ test("卡片正文连续读取失败时明确报错，不能把这张卡片静�
   const page = { url: () => "https://example.com/list" };
   const action = new FindAction(
     { requirePage: async () => page, elements: { remember: () => "ref" } },
-    { resolveAll: async () => [{ list_index: 7, locator: { innerText: async () => { throw timeoutError(); } } }] },
+    { resolveAll: async () => [{ list_index: 7, locator: { count: async () => 1, innerText: async () => { throw timeoutError(); } } }] },
     { info() {}, warn() {}, failure() {} },
   );
   await assert.rejects(action.all({ description: "列表" }, 1, {},
     { action: "element.find_all", trace_id: "unreadable", started_at: Date.now() }),
   error => error.code === "ACTION_TIMEOUT" && error.details.unreadable_indices[0] === 7);
+});
+
+test("联系人列表从40行刷新到25行，放弃旧批次，下一轮独立读取当前25行", async () => {
+  let size = 40;
+  let absentReads = 0;
+  const page = { url: () => "https://example.com/list" };
+  const action = new FindAction(
+    { requirePage: async () => page, elements: { remember: () => "ref" } },
+    { resolveAll: async () => {
+      const previousSize = size;
+      size = 25;
+      return Array.from({ length: previousSize }, (_, index) => ({
+        list_index: index, list_total: previousSize,
+        locator: { count: async () => Number(index < size), innerText: async () => {
+          if (index < size) return `当前联系人${index}`;
+          absentReads++;
+          throw timeoutError();
+        } },
+      }));
+    } },
+    { info() {}, warn() {}, failure() {} },
+  );
+  const context = { action: "element.find_all", trace_id: "list-change", started_at: Date.now() };
+  await assert.rejects(action.all({ description: "联系人" }, 40, {}, context, false, 4),
+    error => error.code === "ACTION_TIMEOUT" && error.retryable && error.details.reason === "list_item_disappeared" &&
+      error.details.unreadable_indices[0] >= 25 && error.details.unreadable_indices[0] < 29);
+  assert.ok(absentReads > 0 && absentReads <= 4, "只有已经在读取的并发行可能遇到缺失，其他旧行不再逐项重试");
+  const items = await action.all({ description: "联系人" }, 40, {}, context, false, 4);
+  assert.deepEqual(items.map(item => item.index), Array.from({ length: 25 }, (_, index) => index));
 });
 
 test("可见性探测超时会保留类别，而不是只剩节点不可见", async () => {

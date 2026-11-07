@@ -130,20 +130,6 @@ func TestPrepareMessagesAllowsAnswerThenOnePendingConfirmation(t *testing.T) {
 	}
 }
 
-// TestConfirmationReviewCoverageAllowsIncrementalItems 验证只更新有新证据的一条条件，不要求反复提交其他条件。
-func TestConfirmationReviewCoverageAllowsIncrementalItems(t *testing.T) {
-	state := &toolExecutionState{confirmations: []cloud.CandidateConfirmationItem{
-		{ID: "confirmation-1", ItemType: "required", Content: "必须统招本科", Status: "pending"},
-		{ID: "confirmation-2", ItemType: "confirm", Content: "是否接受出差", Status: "pending"},
-	}}
-	err := state.validateConfirmationReviewCoverage([]confirmationToolItem{{
-		ID: "confirmation-1", ItemType: "required", Content: "必须统招本科", Status: "matched", StatusReason: "简历显示本科",
-	}})
-	if err != nil {
-		t.Fatalf("增量复核不该要求完整覆盖：%v", err)
-	}
-}
-
 // TestPrepareMessageKeepsSimpleInterestReplyShort 验证纯求职兴趣不会被 AI 扩展成岗位介绍或匹配判断。
 func TestPrepareMessageKeepsSimpleInterestReplyShort(t *testing.T) {
 	state := &toolExecutionState{input: ReplyContext{
@@ -417,6 +403,11 @@ func TestAIResponderBirthMonthRequiresBirthContext(t *testing.T) {
 		name, original, parsed, want string
 	}{
 		{"年月", "出生年月：1990-05", "1990-05", "1990-05"},
+		{"PDF分散标签", "出 生：1990-05", "1990-05", "1990-05"},
+		{"模型遗漏", "出 生：1990-05", "", "1990-05"},
+		{"月份冲突", "出生：1990-05", "1990-06", ""},
+		{"不同简历日期冲突", "出生：1990-05\n生日：1991-05", "", ""},
+		{"PDF全角空格", "出　生：1990-05", "1990-05", "1990-05"},
 		{"中文年月", "出生日期：1990年5月", "1990-05", "1990-05"},
 		{"英文生日", "Date of birth: 1990/05/12", "1990-05", "1990-05"},
 		{"出生后缀", "1990年5月出生", "1990-05", "1990-05"},

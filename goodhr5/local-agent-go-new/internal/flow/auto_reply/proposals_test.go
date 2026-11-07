@@ -30,18 +30,19 @@ func proposalState() *toolExecutionState {
 // TestConfirmationProposalRejectsInventedEvidence 阻止模型无证据、虚构来源或引用不相符原文时写入符合状态。
 func TestConfirmationProposalRejectsInventedEvidence(t *testing.T) {
 	for _, item := range []confirmationToolItem{
-		{ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "模型判断", SourceRef: "message-1"},
-		{ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "模型判断", SourceRef: "invented", EvidenceText: "我可以接受出差"},
-		{ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "模型判断", SourceRef: "message-1", EvidenceText: "完全不存在的证据"},
+		{ID: "travel", ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "模型判断", SourceRef: "message-1"},
+		{ID: "travel", ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "模型判断", SourceRef: "invented", EvidenceText: "我可以接受出差"},
+		{ID: "travel", ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "模型判断", SourceRef: "message-1", EvidenceText: "完全不存在的证据"},
 	} {
 		state := proposalState()
+		state.confirmations = []cloud.CandidateConfirmationItem{{ID: "travel", ItemType: "required", Content: "接受出差", Status: "pending"}, {ID: "other", ItemType: "confirm", Content: "其他待确认条件", Status: "pending"}}
 		_, err := state.upsertConfirmations(context.Background(), proposalCall(t, []confirmationToolItem{item}))
 		if err == nil || len(state.confirmationUpdates) != 0 {
 			t.Fatalf("虚构证据被接受：%+v %v", state.confirmationUpdates, err)
 		}
-		valid := confirmationToolItem{ItemType: "confirm", Content: "其他待确认条件", Status: "pending", StatusReason: "尚未说明"}
+		valid := confirmationToolItem{ID: "other", ItemType: "confirm", Content: "其他待确认条件", Status: "pending", StatusReason: "尚未说明"}
 		_, err = state.upsertConfirmations(context.Background(), proposalCall(t, []confirmationToolItem{valid, item}))
-		if err == nil || len(state.confirmationUpdates) != 0 || len(state.confirmations) != 0 {
+		if err == nil || len(state.confirmationUpdates) != 0 || state.confirmations[0].Status != "pending" {
 			t.Fatalf("失败参数留下半批判断：%+v %v", state.confirmationUpdates, err)
 		}
 	}
@@ -62,20 +63,37 @@ func TestConfirmationProposalIsLocalAndIncremental(t *testing.T) {
 	}
 }
 
-// TestNewConfirmationProposalCanBeAskedImmediately 验证新条件只提议到内存，发送提议能引用将来持久化的相同编号。
-func TestNewConfirmationProposalCanBeAskedImmediately(t *testing.T) {
-	state := proposalState()
-	_, err := state.upsertConfirmations(context.Background(), proposalCall(t, []confirmationToolItem{{ItemType: "confirm", Content: "到岗时间", Status: "pending", StatusReason: "尚未说明"}}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	item := state.confirmationUpdates[0]
-	if !strings.HasPrefix(item.ID, "condition-") {
-		t.Fatal(item.ID)
-	}
-	raw, _ := json.Marshal(sendMessagesToolArgs{Messages: []ReplyMessage{{Type: "confirmation", Content: "方便什么时候到岗呢？", ConfirmationItemID: item.ID}}})
-	if _, err = state.prepareMessages(ai.ToolCall{Function: ai.ToolCallFunction{Arguments: string(raw)}}); err != nil {
-		t.Fatal(err)
+// TestUnconfiguredConditionCannotBeReviewedOrAsked 验证普通问答和简历补审均拒绝凭岗位名称新增门槛，并忽略旧 AI 条目。
+func TestUnconfiguredConditionCannotBeReviewedOrAsked(t *testing.T) {
+	for _, review := range []bool{false, true} {
+		input := proposalState().input
+		input.ConditionsOnly = review
+		input.Position.Position.Name = "高中数学老师"
+		input.Position.Config.Conditions = []cloud.PositionReplyCondition{{ID: "location", Type: "confirm", Content: "可以在成都工作", Enabled: true}}
+		input.ConfirmationItems = []cloud.CandidateConfirmationItem{
+			{ID: "chengdu", PositionID: "position", SourceType: "position", PositionConditionID: "location", ItemType: "confirm", Content: "可以在成都工作", Status: "pending"},
+			{ID: "old-ai", PositionID: "position", SourceType: "ai", ItemType: "confirm", Content: "具备高中数学教学经验", Status: "pending"},
+		}
+		bounded, err := boundedReplyContext(input)
+		if err != nil || len(bounded.ConfirmationItems) != 1 || bounded.ConfirmationItems[0].ID != "chengdu" {
+			t.Fatalf("模型上下文包含未配置条件：%+v %v", bounded.ConfirmationItems, err)
+		}
+		state := toolExecutionState{input: bounded, confirmations: bounded.ConfirmationItems}
+		location := confirmationToolItem{ID: "chengdu", ItemType: "confirm", Content: "可以在成都工作", Status: "pending", StatusReason: "待确认"}
+		for _, unauthorized := range []confirmationToolItem{
+			{ItemType: "confirm", Content: "具备高中数学教学经验", Status: "pending", StatusReason: "岗位名称推断"},
+			{ID: "old-ai", ItemType: "confirm", Content: "具备高中数学教学经验", Status: "pending", StatusReason: "沿用旧条件"},
+			{ID: "chengdu", ItemType: "confirm", Content: "具备高中数学教学经验", Status: "pending", StatusReason: "借用有效编号"},
+			{ID: "chengdu", PositionConditionID: "not-location", ItemType: "confirm", Content: "可以在成都工作", Status: "pending", StatusReason: "编号冲突"},
+		} {
+			if _, err = state.upsertConfirmations(context.Background(), proposalCall(t, []confirmationToolItem{location, unauthorized})); err == nil || len(state.confirmationUpdates) != 0 {
+				t.Fatalf("越权条件或半批更新被接受：%+v %v", state.confirmationUpdates, err)
+			}
+		}
+		raw, _ := json.Marshal(sendMessagesToolArgs{Messages: []ReplyMessage{{Type: "confirmation", Content: "有高中数学教学经验吗？", ConfirmationItemID: "old-ai"}}})
+		if _, err = state.prepareMessages(ai.ToolCall{Function: ai.ToolCallFunction{Arguments: string(raw)}}); err == nil || len(state.pendingMessages) != 0 {
+			t.Fatal("允许引用旧 AI 条目发起追问")
+		}
 	}
 }
 

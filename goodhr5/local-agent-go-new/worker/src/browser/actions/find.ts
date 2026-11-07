@@ -177,7 +177,8 @@ export class FindAction {
       }
       /** readItem 读取单张卡片，并在读取前后核对正文，避免列表变化后串人。 */
       const readItem = async (resolved: ResolvedElement, index: number): Promise<FindAllItem | null> => {
-        const beforeText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, index, "before", diagnoseNames));
+        const listIndex = resolved.list_index ?? index + startIndex;
+        const beforeText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, listIndex, "before", diagnoseNames));
         if (beforeText === null) return null;
         const fieldEntries = await waitForAllReads(
           Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
@@ -194,7 +195,7 @@ export class FindAction {
           ] as const),
         );
         const values: JsonObject = Object.fromEntries(fieldEntries);
-        const afterText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, index, "after", diagnoseNames));
+        const afterText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, listIndex, "after", diagnoseNames));
         if (afterText === null) return null;
         if (afterText !== beforeText) {
           this.logger.warn(actionContext, "read_list_item", "changed", {
@@ -283,6 +284,12 @@ export class FindAction {
       return await this.readPrimitive.text(root);
     } catch (error) {
       assertRequestActive(context);
+      // 页面缩短后旧序号已经消失，整批作废并交回上层重扫，避免逐行超时或拼出新旧混杂的联系人。
+      if (await root.count() === 0) {
+        throw new WorkerError({ code: "ACTION_TIMEOUT", message: "页面列表已经变化，请重新读取", action: context.action,
+          step: "read_list_item", trace_id: context.trace_id, retryable: true,
+          details: { unreadable_indices: [index], reason: "list_item_disappeared" } });
+      }
       if (diagnose) this.logger.warn(context, "read_list_item", "read_failed", {
         index, phase, read_elapsed_ms: Date.now() - started, text_timeout_ms: 1500,
         ...readFailureDetails(error),

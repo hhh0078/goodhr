@@ -38,7 +38,20 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	}
 	if state.HasResumeAttachment && state.Candidate != nil && state.Candidate.ResumeStructured &&
 		(snapshot.ResumeSourceMessageID == "" || state.Candidate.ResumeSourceMessageID == snapshot.ResumeSourceMessageID) {
-		f.queueStructuredCandidateSync(ctx, prepared, position, state.Candidate.ID, cloud.AutoReplyCandidateInput{StructuredCandidate: storedStructuredCandidate(state.Candidate), PositionID: position.Position.ID, PlatformID: prepared.Platform.ID, PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID, Gender: state.Candidate.Gender, BirthYMPrecision: state.Candidate.BirthYMPrecision})
+		input := cloud.AutoReplyCandidateInput{StructuredCandidate: storedStructuredCandidate(state.Candidate), LocalCandidateID: state.Candidate.ID, PositionID: position.Position.ID, PlatformID: prepared.Platform.ID, PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID, Gender: state.Candidate.Gender, BirthYMPrecision: state.Candidate.BirthYMPrecision}
+		if f.Cloud.LocalAutoReplyEnabled() && input.BirthYM == "" {
+			// 老版本可能漏掉被排版空格分开的生日标签，只用同份已核实附件的本地原文补齐。
+			if month, precision := explicitResumeBirthMonth("", input.RawText); month != "" {
+				repair := cloud.AutoReplyCandidateInput{LocalCandidateID: state.Candidate.ID, PositionID: input.PositionID, PlatformID: input.PlatformID, PlatformAccountID: input.PlatformAccountID, PlatformCandidateID: input.PlatformCandidateID, BirthYMPrecision: precision}
+				repair.BirthYM = month
+				if _, err := f.Cloud.SaveAutoReplyCandidate(ctx, credentials(prepared), repair); err != nil {
+					return nil, false, err
+				}
+				input.BirthYM, input.BirthYMPrecision = month, precision
+				state.Candidate.BirthYM, state.Candidate.BirthYMPrecision = month, precision
+			}
+		}
+		f.queueStructuredCandidateSync(ctx, prepared, position, state.Candidate.ID, input)
 
 		if preservedAutoReplyConversationStatus(conversation.Status) == "waiting_resume" {
 			if err := f.saveResumeConversationStatus(ctx, prepared, conversation, "ready"); err != nil {

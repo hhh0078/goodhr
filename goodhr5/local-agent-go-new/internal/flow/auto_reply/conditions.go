@@ -83,7 +83,34 @@ func (f *Flow) syncPositionConfirmationItems(ctx context.Context, credentials cl
 		}
 		existing = append(existing, saved)
 	}
-	return existing, nil
+	activeItems, _ := configuredConfirmations(position, existing)
+	return activeItems, nil
+}
+
+// configuredConfirmations 按 HR 当前启用的配置筛选可询问、可评估的确认项，并检查每个必要条件都有唯一对应记录。
+func configuredConfirmations(position cloud.AutoReplyPositionSnapshot, items []cloud.CandidateConfirmationItem) ([]cloud.CandidateConfirmationItem, bool) {
+	byID := make(map[string][]cloud.CandidateConfirmationItem)
+	for _, item := range items {
+		if item.ArchivedAt == nil && item.ID != "" && item.PositionID == position.Position.ID && item.SourceType == "position" && item.PositionConditionID != "" {
+			byID[item.PositionConditionID] = append(byID[item.PositionConditionID], item)
+		}
+	}
+	active := make([]cloud.CandidateConfirmationItem, 0, len(position.Config.Conditions))
+	complete := true
+	for _, condition := range position.Config.Conditions {
+		if !condition.Enabled {
+			continue
+		}
+		rows := byID[condition.ID]
+		if len(rows) != 1 || rows[0].ItemType != condition.Type || strings.TrimSpace(rows[0].Content) != strings.TrimSpace(condition.Content) {
+			if condition.Type == "required" || condition.Type == "confirm" {
+				complete = false
+			}
+			continue
+		}
+		active = append(active, rows[0])
+	}
+	return active, complete
 }
 
 // findPositionConfirmation 按岗位条件编号、去重键或正文找到已经存在的长期确认项。

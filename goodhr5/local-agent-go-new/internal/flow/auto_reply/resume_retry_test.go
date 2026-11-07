@@ -114,7 +114,7 @@ func TestResumeFailureAnswersThenRecoversWithoutNewMessage(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].Status != "pending" {
 		t.Fatalf("无简历时擅自满足条件：items=%+v err=%v", items, err)
 	}
-	if _, qualified := recommendationSource(position, *state.Candidate, items); qualified {
+	if _, qualified := recommendationSource(ReplyContext{Position: position, CandidateState: state}, items); qualified {
 		t.Fatal("未结构化资料不应生成报告")
 	}
 	processed, _, err := flow.processCheckpoint(context.Background(), prepared, unreadScannerStub{}, runtime, []cloud.AutoReplyPositionSnapshot{position}, 1, stats, &shared.ConsecutiveErrorPolicy{}, nil)
@@ -142,7 +142,7 @@ func TestResumeFailureAnswersThenRecoversWithoutNewMessage(t *testing.T) {
 	if err != nil || items[0].Status != "matched" {
 		t.Fatalf("内部条件未补审：%+v %v", items, err)
 	}
-	if _, qualified := recommendationSource(position, *state.Candidate, items); !qualified {
+	if _, qualified := recommendationSource(ReplyContext{Position: position, CandidateState: state}, items); !qualified {
 		t.Fatal("成功补审后没有恢复推荐资格")
 	}
 	if len(state.Attachments) != 1 || state.Attachments[0].SourceMessageID == "" || state.Attachments[0].SourceMessageID == card.PlatformMessageID {

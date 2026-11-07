@@ -15,6 +15,32 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
+// TestRecommendationRequiresEveryEnabledHRGate 验证有证据的旧 AI 条目不能单独触发推荐，也不能替代缺失或变更的有效条件。
+func TestRecommendationRequiresEveryEnabledHRGate(t *testing.T) {
+	input := proposalState().input
+	input.CandidateState.Candidate = &cloud.AutoReplyStoredCandidate{ID: "candidate", ResumeStructured: true}
+	configured := cloud.PositionReplyCondition{ID: "travel", Type: "confirm", Content: "接受出差", Enabled: true}
+	legitimate := cloud.CandidateConfirmationItem{ID: "configured", SourceType: "position", PositionConditionID: "travel", PositionID: "position", ItemType: "confirm", Content: "接受出差", Status: "matched", SourceRef: "message-1", EvidenceText: "我可以接受出差"}
+	old := legitimate
+	old.ID, old.SourceType, old.PositionConditionID = "legacy", "ai", ""
+	for _, scenario := range []struct {
+		name   string
+		config []cloud.PositionReplyCondition
+		items  []cloud.CandidateConfirmationItem
+	}{
+		{"零配置", nil, []cloud.CandidateConfirmationItem{old}},
+		{"必要项缺失", []cloud.PositionReplyCondition{configured}, []cloud.CandidateConfirmationItem{old}},
+		{"重复绑定不唯一", []cloud.PositionReplyCondition{configured}, []cloud.CandidateConfirmationItem{legitimate, legitimate}},
+		{"正文变更", []cloud.PositionReplyCondition{{ID: "travel", Type: "confirm", Content: "接受出国出差", Enabled: true}}, []cloud.CandidateConfirmationItem{legitimate}},
+		{"停用", []cloud.PositionReplyCondition{{ID: "travel", Type: "confirm", Content: "接受出差", Enabled: false}}, []cloud.CandidateConfirmationItem{legitimate}},
+	} {
+		input.Position.Config.Conditions = scenario.config
+		if _, qualified := recommendationSource(input, scenario.items); qualified {
+			t.Errorf("%s 不能生成推荐", scenario.name)
+		}
+	}
+}
+
 // TestRecommendationRecoveryChecksCurrentVersion 验证没有新聊天也会恢复队列，生成期间岗位变化时不保存或发布旧报告。
 func TestRecommendationRecoveryChecksCurrentVersion(t *testing.T) {
 	for _, changeDuringAI := range []string{"none", "config", "company", "message", "expired", "config_outage"} {
@@ -31,6 +57,7 @@ func TestRecommendationRecoveryChecksCurrentVersion(t *testing.T) {
 				}
 				defer store.Close()
 				snapshot := cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position", Name: "合成岗位", PlatformID: "boss"}, Config: cloud.PositionAutoReplyConfig{PositionID: "position", Enabled: true, Version: 1}, CompanyProfile: cloud.CompanyProfile{ID: "company", Name: "合成公司"}, Subscription: cloud.AutoReplySubscription{Active: true, AllowAutoReply: true}}
+				snapshot.Config.Conditions = []cloud.PositionReplyCondition{{ID: "configured-travel", Type: "required", Content: "接受出差", Enabled: true}}
 				var mu sync.Mutex
 				calls := 0
 				configReads := 0
@@ -96,7 +123,16 @@ func TestRecommendationRecoveryChecksCurrentVersion(t *testing.T) {
 				if _, err = client.SyncAutoReplyMessages(ctx, creds, cloud.AutoReplyMessageSyncRequest{ConversationID: conv.ID, Messages: messages}); err != nil {
 					t.Fatal(err)
 				}
-				_, err = client.SaveAutoReplyConfirmationItem(ctx, creds, cloud.CandidateConfirmationItem{ID: "condition", ConversationID: conv.ID, CandidateID: conv.CandidateID, PositionID: "position", ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "候选人已明确答复", SourceRef: "message", EvidenceText: "我接受出差"})
+				_, err = client.SaveAutoReplyConfirmationItem(ctx, creds, cloud.CandidateConfirmationItem{ID: "condition", SourceType: "position", PositionConditionID: "configured-travel", ConversationID: conv.ID, CandidateID: conv.CandidateID, PositionID: "position", ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "候选人已明确答复", SourceRef: "message", EvidenceText: "我接受出差"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				// 旧版会从岗位名称擅自增加门槛；即使旧证据不可用，新生成及发布也只复核已配置的出差条件。
+				_, err = client.SaveAutoReplyConfirmationItem(ctx, creds, cloud.CandidateConfirmationItem{
+					ID: "legacy-ai", SourceType: "ai", ConversationID: conv.ID, CandidateID: conv.CandidateID,
+					PositionID: "position", ItemType: "confirm", Content: "具备高中数学教学经验", Status: "unmatched",
+					SourceRef: "legacy", EvidenceText: "历史原文不可用",
+				})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -130,9 +166,9 @@ func TestRecommendationRecoveryChecksCurrentVersion(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				source, qualified := recommendationSource(snapshot, *state.Candidate, items)
-				if !qualified {
-					t.Fatal("合成条件应满足推荐资格")
+				source, qualified := recommendationSource(input, items)
+				if !qualified || len(source.Conditions) != 1 || source.Conditions[0].ID != "condition" {
+					t.Fatalf("推荐应只评估 HR 设置的条件：%+v", source.Conditions)
 				}
 				hash, err := recommendationInputHash(source)
 				if err != nil {
