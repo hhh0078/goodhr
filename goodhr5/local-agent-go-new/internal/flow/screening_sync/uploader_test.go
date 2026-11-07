@@ -40,6 +40,29 @@ func uploadFixture(t *testing.T, owner string) (*storage.Store, string, screenin
 	return store, path, item
 }
 
+// TestPurgeRejectedScreeningStopsRetry 验证离线期间写入的旧筛选收到明确删除回执后不再上传。
+func TestPurgeRejectedScreeningStopsRetry(t *testing.T) {
+	store, _, item := uploadFixture(t, "owner-a")
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth/me" {
+			fmt.Fprint(w, `{"user":{"id":"owner-a"}}`)
+			return
+		}
+		calls.Add(1)
+		w.WriteHeader(http.StatusGone)
+		fmt.Fprint(w, `{"code":"CANDIDATE_DELETED"}`)
+	}))
+	defer server.Close()
+	u := New(store, cloud.New(server.URL))
+	u.Bind("owner-a", "fixture")
+	u.Flush(context.Background())
+	u.Flush(context.Background())
+	if _, err := store.ScreeningRecord(context.Background(), item.AttemptID); err == nil || calls.Load() != 1 {
+		t.Fatal("已删除的筛选仍在补传", calls.Load(), err)
+	}
+}
+
 // TestScreeningUploadAckDoesNotClearNewRevision 验证慢上传期间新增二轮结果，旧回包只能确认已发送版本。
 func TestScreeningUploadAckDoesNotClearNewRevision(t *testing.T) {
 	store, path, item := uploadFixture(t, "owner-a")

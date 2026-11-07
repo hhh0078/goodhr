@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import AdminDialog from "../AdminDialog";
 import { useAdmin } from "../AdminApp";
 import { saveResume } from "@/lib/resume-api";
-import { requestResumeSummary, ResumeSummaryRequestError, summarySource, type ResumeSummaryTask } from "@/lib/resume-summary-api";
+import { requestResumeSummary, ResumeSummaryRequestError, summaryCacheKey, summarySource, type ResumeSummaryTask } from "@/lib/resume-summary-api";
 import type { Resume } from "@/lib/resume-types";
 import { isReadOnlyResume } from "@/lib/resume-types";
 
@@ -23,7 +23,7 @@ export default function ResumeSummaryDialog({ open, candidate, onClose, onSaved 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cache = useRef<SummaryCache>({ key: "" });
   const saveKey = useRef("");
-  const cacheKey = `goodhr5_resume_summary:${user?.id || user?.email || "anonymous"}:${candidate.id}`;
+  const cacheKey = summaryCacheKey(user, candidate.id);
   const running = task?.status === "queued" || task?.status === "running";
   const readOnly = isReadOnlyResume(candidate);
   const stale = version !== candidate.row_version;
@@ -85,7 +85,7 @@ export default function ResumeSummaryDialog({ open, candidate, onClose, onSaved 
         cache.current = { key: crypto.randomUUID(), version: candidate.row_version, saveKey: crypto.randomUUID() };
         setTask(null); setSummary(""); saveKey.current = cache.current.saveKey!;
       }
-      cache.current.source ||= JSON.parse(JSON.stringify(summarySource(candidate)));
+      cache.current.source = { ...(cache.current.source || summarySource(candidate)), id: candidate.id };
       cache.current.pending = true; setPending(true);
       setVersion(cache.current.version); persistCache();
       requestSent = true;

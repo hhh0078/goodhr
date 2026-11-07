@@ -19,6 +19,7 @@ type screeningStoredRecord struct {
 
 // MemoryScreeningRecordStore 通过一把锁原子完成同一筛选的身份验证、版本比较和快照替换。
 type MemoryScreeningRecordStore struct {
+	purged  map[string]bool
 	mu      sync.Mutex
 	records map[string]screeningStoredRecord
 	now     func() time.Time
@@ -26,7 +27,7 @@ type MemoryScreeningRecordStore struct {
 
 // NewMemoryScreeningRecordStore 创建独立内存存储，不借用可清除的岗位日志。
 func NewMemoryScreeningRecordStore() *MemoryScreeningRecordStore {
-	return &MemoryScreeningRecordStore{records: make(map[string]screeningStoredRecord), now: time.Now}
+	return &MemoryScreeningRecordStore{purged: map[string]bool{}, records: make(map[string]screeningStoredRecord), now: time.Now}
 }
 
 // screeningStorageKey 将租户、岗位和本次筛选UUID组成不可跨范围命中的唯一键。
@@ -76,6 +77,9 @@ func (s *MemoryScreeningRecordStore) Save(ctx context.Context, scope ScreeningSc
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := screeningStorageKey(scope, snapshot.AttemptID)
+	if s.purged[key] || s.purged[scope.TenantID+"|source|"+purgeSourceHash(snapshot.PlatformID, snapshot.PlatformCandidateID)] {
+		return ScreeningRecord{}, errCandidateDeleted
+	}
 	next, err := screeningApplySnapshot(s.records[key], scope, snapshot, hash, s.now())
 	if err != nil {
 		return ScreeningRecord{}, err

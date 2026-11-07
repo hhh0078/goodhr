@@ -20,6 +20,10 @@ func (s *CandidateService) Route(w http.ResponseWriter, r *http.Request) {
 	if s.handleBuiltinCandidate(w, r, path) {
 		return
 	}
+	if path == "deletions/check" {
+		s.checkDeletedCandidates(w, r)
+		return
+	}
 	if path == "duplicates" {
 		s.Duplicates(w, r)
 		return
@@ -93,6 +97,9 @@ func candidateHTTPKey(r *http.Request, input map[string]any) (string, error) {
 func writeCandidateError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
+	case errors.Is(err, errCandidateDeleted):
+		writeAutoReplyError(w, 410, "CANDIDATE_DELETED", err.Error())
+		return
 	case errors.Is(err, ErrCandidatePositionClosed):
 		status = http.StatusConflict
 	case errors.Is(err, ErrCandidateFolderInvalid):

@@ -25,9 +25,11 @@ type AutoReplyFilter struct{ Field, Value string }
 
 // AutoReplyTx 在一个短事务中访问指定账号的实体；不得在回调内请求网络。
 type AutoReplyTx struct {
-	tx    *sql.Tx
-	ctx   context.Context
-	owner string
+	tx               *sql.Tx
+	ctx              context.Context
+	owner            string
+	purgeKeysChecked bool
+	hasPurgeKeys     bool
 }
 
 var autoReplyFields = map[string]string{
@@ -122,6 +124,9 @@ func (t *AutoReplyTx) Put(kind, id string, value any) error {
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
+		return err
+	}
+	if err = t.checkPurgedWrite(kind, id, raw); err != nil {
 		return err
 	}
 	_, err = t.tx.ExecContext(t.ctx, "INSERT INTO "+table+"(owner_id,id,payload_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(owner_id,id) DO UPDATE SET payload_json=excluded.payload_json,revision="+table+".revision+1,updated_at=excluded.updated_at", t.owner, id, string(raw), time.Now().UTC().Format(time.RFC3339Nano))

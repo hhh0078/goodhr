@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"io"
@@ -60,14 +61,6 @@ func (c *Client) saveLocalAutoReplyAttachment(ctx context.Context, credentials A
 	digest := hex.EncodeToString(hash.Sum(nil))
 	id := "attachment-" + autoReplyDigest(upload.ConversationID+digest)
 	path := filepath.Join(directory, digest+strings.ToLower(filepath.Ext(upload.FilePath)))
-	// Windows不能以Rename覆盖已有文件；同哈希内容已经存在时直接复用，macOS保持相同行为。
-	if _, err = os.Stat(path); os.IsNotExist(err) {
-		if err = os.Rename(temporary.Name(), path); err != nil {
-			return StoredResumeAttachment{}, fmt.Errorf("保存本地简历附件失败：%w", err)
-		}
-	} else if err != nil {
-		return StoredResumeAttachment{}, err
-	}
 	relative, err := filepath.Rel(c.localAutoDir, path)
 	if err != nil {
 		return StoredResumeAttachment{}, err
@@ -80,9 +73,20 @@ func (c *Client) saveLocalAutoReplyAttachment(ctx context.Context, credentials A
 		}
 		if exists {
 			item = old.StoredResumeAttachment
-			return nil
 		}
-		return tx.Put("attachments", id, localAttachment{StoredResumeAttachment: item, RelativePath: relative})
+		// 先在同一写事务核对删除墓碑，再发布暂存副本；共享附件的引用核验和最后一次回收由SQLite串行。
+		if err := tx.Put("attachments", id, localAttachment{StoredResumeAttachment: item, RelativePath: relative}); err != nil {
+			return err
+		}
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			// Windows不能Rename覆盖已有文件；macOS采用相同的按摘要复用约定。
+			if err := os.Rename(temporary.Name(), path); err != nil {
+				return fmt.Errorf("保存本地简历附件失败")
+			}
+		} else if err != nil {
+			return err
+		}
+		return nil
 	})
 	return item, err
 }

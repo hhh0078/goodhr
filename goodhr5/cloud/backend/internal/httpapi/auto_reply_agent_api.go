@@ -49,6 +49,8 @@ func (s *AutoReplyService) Agent(w http.ResponseWriter, r *http.Request) {
 		s.agentPositionSnapshot(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "positions/"), "/snapshot"))
 	case path == "positions":
 		s.agentPositionSnapshots(w, r)
+	case path == "candidate-deletions":
+		s.agentCandidateDeletions(w, r)
 	case path == "candidates":
 		s.agentSaveCandidate(w, r)
 	case path == "notifications":

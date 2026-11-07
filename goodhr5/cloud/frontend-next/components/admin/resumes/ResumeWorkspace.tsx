@@ -6,7 +6,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, loadRecommendations, loadResume, loadResumeNotes } from "@/lib/resume-api";
 import { formatDate } from "@/lib/admin-api";
-import { isReadOnlyResume, latestRecommendationEvent, recommendationStages, recordTime, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeNote } from "@/lib/resume-types";
+import { canDeleteResume, isReadOnlyResume, latestRecommendationEvent, recommendationStages, recordTime, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeNote } from "@/lib/resume-types";
 import ResumeEditor from "./ResumeEditor";
 import ResumeSummaryDialog from "./ResumeSummaryDialog";
 import ResumeRecruitmentPanel from "../recruitment/ResumeRecruitmentPanel";
@@ -22,8 +22,8 @@ function entryTab(value: string) {
 }
 
 /** ResumeWorkspace 在详情地址与抽屉间复用同一候选人记录和维护入口。 */
-export default function ResumeWorkspace({ candidateID, engagementID = "", positions, initialTab = "resume", initialPositionID = "", onChanged }: {
-  candidateID: string; engagementID?: string; positions: PositionOption[]; initialTab?: string; initialPositionID?: string; onChanged?: () => void;
+export default function ResumeWorkspace({ candidateID, engagementID = "", positions, initialTab = "resume", initialPositionID = "", onChanged, onRequestDelete }: {
+  candidateID: string; engagementID?: string; positions: PositionOption[]; initialTab?: string; initialPositionID?: string; onChanged?: () => void; onRequestDelete?: (candidate: Resume) => void;
 }) {
   const { notify, user } = useAdmin();
   const accountIdentity = String(user?.id || user?.email || "").trim();
@@ -218,6 +218,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
           </div> : <Typography.Title level={5} className={detailStyles.cardTitle}>操作</Typography.Title>}
           <Button type="primary" block disabled={readOnly} onClick={() => { if (readOnly) return; setRecommendationEntryScope(recommendationEntryKey); setActiveTab("recommendations"); }}>推荐到岗位</Button>
           <div className={detailStyles.actionGrid}><Button icon={<ShareAltOutlined aria-hidden="true" />} disabled={readOnly} onClick={() => { if (!readOnly) setShareOpen(true); }}>分享简历</Button><Button disabled={readOnly} onClick={() => { if (!readOnly) setSummaryOpen(true); }}>AI 摘要</Button></div>
+          {onRequestDelete && canDeleteResume(candidate) ? <Button type="text" danger onClick={() => onRequestDelete(candidate)}>永久删除简历</Button> : null}
         </section>
         <section className={detailStyles.sideCard} data-testid="resume-recommendations-section" aria-label="推荐">
           <Flex gap={8} align="center" justify="space-between" className={styles.recommendationHeading}><Typography.Title level={5} className={detailStyles.cardTitle}>推荐跟进</Typography.Title><Button type="text" onClick={toggleRecommendations} aria-expanded={recommendationsVisible} aria-controls={recommendationContentID}>{recommendationsVisible ? "隐藏推荐" : "显示推荐"}</Button></Flex>

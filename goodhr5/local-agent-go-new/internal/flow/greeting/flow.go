@@ -271,7 +271,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 					),
 				)
 				f.saveCandidate(
-					candidateCtx,
+					context.WithValue(candidateCtx, screeningContextKey{}, item.AttemptID),
 					prepared,
 					candidate,
 					"detail_precheck",
@@ -838,15 +838,15 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 
 // saveCandidate 保存不含候选人详情的动作摘要。
 func (f *Flow) saveCandidate(ctx context.Context, prepared shared.PreparedTask, candidate model.Candidate, action string, result string, reason string) {
-	if result == "skipped" || result == "failed" {
-		if id, ok := ctx.Value(screeningContextKey{}).(string); ok {
-			if err := f.completeScreeningAttempt(ctx, id, reason); err != nil {
-				f.log(prepared.Request.TaskID, "save_screening_result", "warning", time.Now(), err)
-			}
+	attemptID, _ := ctx.Value(screeningContextKey{}).(string)
+	if attemptID != "" && (result == "skipped" || result == "failed") {
+		if err := f.completeScreeningAttempt(ctx, attemptID, reason); err != nil {
+			f.log(prepared.Request.TaskID, "save_screening_result", "warning", time.Now(), err)
 		}
 	}
 	if err := f.Store.SaveCandidate(context.WithoutCancel(ctx), storage.CandidateRecord{
-		TaskID: prepared.Request.TaskID, Fingerprint: candidate.Fingerprint,
+		ScreeningAttemptID: attemptID,
+		TaskID:             prepared.Request.TaskID, Fingerprint: candidate.Fingerprint,
 		PlatformID: prepared.Position.PlatformID, DisplayName: candidate.Name,
 		Action: action, Result: result, Reason: reason,
 	}); err != nil {

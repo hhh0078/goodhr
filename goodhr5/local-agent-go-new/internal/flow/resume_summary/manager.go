@@ -71,6 +71,7 @@ func (m *Manager) Create(owner, scope, key, token string, candidate cloud.Librar
 	if owner == "" || scope == "" || len(key) < 8 || len(key) > 128 || token == "" || check == nil {
 		return Task{}, fmt.Errorf("摘要请求信息不完整，请重新发起")
 	}
+	candidateID := candidate.ID
 	candidate, err := summaryCandidate(candidate)
 	if err != nil {
 		return Task{}, err
@@ -83,13 +84,32 @@ func (m *Manager) Create(owner, scope, key, token string, candidate cloud.Librar
 	if m.closed {
 		return Task{}, fmt.Errorf("本地程序正在退出，请稍后再试")
 	}
+	if candidateID != "" {
+		deleted, err := m.store.GetSetting(context.Background(), summaryDeletionKey(owner, candidateID))
+		if err != nil {
+			return Task{}, err
+		}
+		if deleted != "" {
+			return Task{}, ErrNotFound
+		}
+	}
 	if old := m.tasks[id]; old != nil {
-		if old.Fingerprint != fingerprint {
+		if old.Task.Status == "deleted" {
+			return Task{}, ErrNotFound
+		}
+		if old.Fingerprint != fingerprint || old.CandidateID != "" && old.CandidateID != candidateID {
 			return Task{}, ErrConflict
+		}
+		if old.CandidateID == "" && candidateID != "" {
+			old.CandidateID = candidateID
+			if err := m.persistLocked(old); err != nil {
+				old.CandidateID = ""
+				return Task{}, err
+			}
 		}
 		return old.Task, nil
 	}
-	stored := &storedTask{Owner: owner, Scope: scope, Fingerprint: fingerprint, Candidate: candidate, Task: Task{ID: id, Status: "queued"}}
+	stored := &storedTask{Owner: owner, Scope: scope, Fingerprint: fingerprint, Candidate: candidate, CandidateID: candidateID, Task: Task{ID: id, Status: "queued"}}
 	m.tasks[id] = stored
 	if err := m.persistLocked(stored); err != nil {
 		delete(m.tasks, id)
@@ -332,10 +352,45 @@ func (m *Manager) finishStopped(id string) {
 // findLocked 将账号和安装范围作为权限边界，任务编号本身不提供访问权。
 func (m *Manager) findLocked(owner, scope, id string) (*storedTask, error) {
 	task := m.tasks[id]
-	if task == nil || owner == "" || task.Owner != owner || task.Scope != scope {
+	if task == nil || task.Task.Status == "deleted" || owner == "" || task.Owner != owner || task.Scope != scope {
 		return nil, ErrNotFound
 	}
 	return task, nil
+}
+
+// PurgeCandidate 清除已知归属的摘要及职业资料，运行中的任务先取消，待退出后再清理，避免旧回包写回。
+func (m *Manager) PurgeCandidate(ctx context.Context, owner, candidateID string) error {
+	if m == nil || owner == "" || candidateID == "" {
+		return ErrNotFound
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.store.SetSetting(ctx, summaryDeletionKey(owner, candidateID), "1"); err != nil {
+		return err
+	}
+	for id, item := range m.tasks {
+		if item.Owner != owner || item.CandidateID != candidateID {
+			continue
+		}
+		if cancel := m.active[id]; cancel != nil {
+			cancel()
+			return ErrBusy
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		empty := &storedTask{Owner: owner, Task: Task{ID: id, Status: "deleted"}}
+		if err := m.persistLocked(empty); err != nil {
+			return err
+		}
+		m.tasks[id] = empty
+	}
+	return nil
+}
+
+// summaryDeletionKey 将已删除的归属编号留作拒绝迟到请求的标记，职业资料不进入标记。
+func summaryDeletionKey(owner, id string) string {
+	return "resume_summary_deleted_v1:" + digest(owner+"\x00"+id)
 }
 
 // persistLocked 写入现有SQLite设置表；存储模型中没有任何密钥或会话。

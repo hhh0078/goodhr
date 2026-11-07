@@ -152,6 +152,10 @@ func (s *AttachmentImportService) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	record, err := s.parses.store.Get(r.Context(), owner, id)
+	if errors.Is(err, errCandidateDeleted) {
+		attachmentParseError(w, 410, "CANDIDATE_DELETED", err.Error())
+		return
+	}
 	if errors.Is(err, ErrNotFound) || (err == nil && record.Import == nil) {
 		attachmentParseError(w, 404, "TASK_NOT_FOUND", "这次入库任务没找到，或不属于当前账号")
 		return
@@ -193,6 +197,9 @@ func (s *AttachmentImportService) create(w http.ResponseWriter, r *http.Request,
 		}
 		s.writeTask(w, 200, s.reconcile(old))
 		return
+	} else if errors.Is(err, errCandidateDeleted) {
+		attachmentParseError(w, 410, "CANDIDATE_DELETED", err.Error())
+		return
 	} else if !errors.Is(err, ErrNotFound) {
 		attachmentParseError(w, 503, "TASK_STORE_UNAVAILABLE", "保存回执暂时没读到，请保留原请求编号重试")
 		return
@@ -227,6 +234,10 @@ func (s *AttachmentImportService) create(w http.ResponseWriter, r *http.Request,
 	}
 	record := attachmentParseRecord{Owner: owner, Fingerprint: fingerprint, Version: 1, LeaseUntil: time.Now().Add(aiRequestTimeout + time.Minute).UnixMilli(), Task: attachmentParseTask{ID: id, Phase: "import", CaptureID: input.CaptureID, TextHash: input.TextHash, RequestKey: input.RequestKey, Status: "queued"}, Import: &attachmentImportState{CreatedAt: time.Now().UnixMilli(), Input: input, Scope: scope, Stage: "queued", Fields: fields}}
 	actual, created, err := s.parses.store.Reserve(r.Context(), record)
+	if errors.Is(err, errCandidateDeleted) {
+		attachmentParseError(w, 410, "CANDIDATE_DELETED", err.Error())
+		return
+	}
 	if errors.Is(err, errAttachmentBusy) {
 		attachmentParseError(w, 429, "TASK_BUSY", err.Error())
 		return

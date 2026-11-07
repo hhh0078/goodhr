@@ -3,6 +3,7 @@ package auto_reply
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/storage"
 )
 
 // unreadConversationScanner 定义检查点读取未读会话所需的最小平台能力。
@@ -182,11 +184,11 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		return 0, openConversation, nil
 	}
 	limit = min(max(limit, 1), defaultCheckpointLimit)
-	if len(conversations) > limit {
-		conversations = conversations[:limit]
-	}
 	processed := 0
 	for _, conversation := range conversations {
+		if processed >= limit {
+			break
+		}
 		if shared.GracefulStopRequested(ctx) {
 			return processed, openConversation, nil
 		}
@@ -212,7 +214,17 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		}
 		startedAt := time.Now()
 		f.log(prepared.Request.TaskID, "process_conversation", "start", startedAt, nil)
+		countBefore := stats.Processed
 		err := f.processConversation(ctx, prepared, replyRuntime, positions, conversation, &current.snapshot, stats)
+		// 已删除的会话不会打开、重新入库或占用名额；同列表后面的其他候选人仍能正常处理。
+		if errors.Is(err, storage.ErrAutoReplyCandidateDeleted) {
+			stats.Processed = countBefore
+			if openConversation == current {
+				openConversation = nil
+			}
+			f.log(prepared.Request.TaskID, "process_conversation", "skipped", startedAt, nil)
+			continue
+		}
 		processed++
 		if current.snapshot.CandidateName != "" {
 			openConversation = current

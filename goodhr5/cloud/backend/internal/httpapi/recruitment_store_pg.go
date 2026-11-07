@@ -209,7 +209,25 @@ func (s *PostgresRecruitmentStore) CreateApplication(item RecruitmentApplication
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	data, _ := json.Marshal(item)
-	_, err := s.db.ExecContext(ctx, `INSERT INTO recruitment_applications(id,tenant_id,candidate_id,position_key,status,revision,payload) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)`, item.ID, item.TenantID, item.CandidateID, item.PositionID, item.Status, item.Revision, string(data))
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return item, err
+	}
+	defer tx.Rollback()
+	if err = lockCandidateDeletion(ctx, tx, item.TenantID, false); err != nil {
+		return item, err
+	}
+	var deleted bool
+	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM candidate_deletions WHERE tenant_id=$1 AND candidate_id::text=$2)", item.TenantID, item.CandidateID).Scan(&deleted); err != nil {
+		return item, err
+	}
+	if deleted {
+		return item, ErrNotFound
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO recruitment_applications(id,tenant_id,candidate_id,position_key,status,revision,payload) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)`, item.ID, item.TenantID, item.CandidateID, item.PositionID, item.Status, item.Revision, string(data))
+	if err == nil {
+		err = tx.Commit()
+	}
 	return item, recruitmentDBError(err)
 }
 

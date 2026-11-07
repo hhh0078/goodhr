@@ -42,13 +42,14 @@ type TaskRun struct {
 
 // CandidateRecord 表示候选人动作摘要，不保存详情正文。
 type CandidateRecord struct {
-	TaskID      string
-	Fingerprint string
-	PlatformID  string
-	DisplayName string
-	Action      string
-	Result      string
-	Reason      string
+	ScreeningAttemptID string // 已登记的筛选尝试编号，旧入口无筛选记录时为空。
+	TaskID             string
+	Fingerprint        string
+	PlatformID         string
+	DisplayName        string
+	Action             string
+	Result             string
+	Reason             string
 }
 
 // ConversationRecord 表示自动回复去重摘要。
@@ -412,7 +413,7 @@ func (s *Store) CleanupExpired(ctx context.Context, cutoff time.Time) (int64, er
 		`DELETE FROM screening_records WHERE completed=1 AND acked_revision>=revision AND updated_at < ?`,
 		`DELETE FROM candidate_records WHERE created_at < ?`,
 		`DELETE FROM conversation_records WHERE created_at < ?`,
-		`DELETE FROM download_records WHERE created_at < ?`,
+		`DELETE FROM download_records WHERE created_at < ? AND status<>'purged'`,
 		`DELETE FROM task_logs WHERE created_at < ?`,
 		`DELETE FROM task_runs WHERE status != 'running' AND updated_at < ?`,
 	}
@@ -434,7 +435,7 @@ func (s *Store) CleanupExpired(ctx context.Context, cutoff time.Time) (int64, er
 	return deleted, nil
 }
 
-// SaveCandidate 保存候选人动作摘要并自动去重。
+// SaveCandidate 原子核对已登记的筛选尝试并保存动作；删除先完成时丢弃迟到结果，旧入口继续独立记账。
 func (s *Store) SaveCandidate(ctx context.Context, record CandidateRecord) error {
 	record.Fingerprint = strings.TrimSpace(record.Fingerprint)
 	if record.Fingerprint == "" {
@@ -443,7 +444,8 @@ func (s *Store) SaveCandidate(ctx context.Context, record CandidateRecord) error
 	_, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO candidate_records (
 			task_id, fingerprint, platform_id, display_name, action, result, reason, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE ?='' OR EXISTS
+			(SELECT 1 FROM screening_records WHERE attempt_id=? AND task_id=?)`,
 		record.TaskID,
 		record.Fingerprint,
 		record.PlatformID,
@@ -452,6 +454,7 @@ func (s *Store) SaveCandidate(ctx context.Context, record CandidateRecord) error
 		record.Result,
 		record.Reason,
 		time.Now().UTC().Format(time.RFC3339Nano),
+		record.ScreeningAttemptID, record.ScreeningAttemptID, record.TaskID,
 	)
 	return err
 }

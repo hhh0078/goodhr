@@ -73,7 +73,7 @@ func (s *Store) ListDownloads(ctx context.Context) ([]DownloadRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, url, page_url, file_path, file_name, suggested_filename,
 		       size, status, error, created_at, updated_at
-		FROM download_records
+		FROM download_records WHERE status != 'purged'
 		ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("读取下载记录失败：%w", err)
@@ -104,4 +104,11 @@ func (s *Store) ListDownloads(ctx context.Context) ([]DownloadRecord, error) {
 		return nil, fmt.Errorf("遍历下载记录失败：%w", err)
 	}
 	return records, nil
+}
+
+// HidePurgedDownload 抹去已核对的下载元数据，只保留编号阻止旧 Worker 下载列表重新写入。
+func (s *Store) HidePurgedDownload(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO download_records(id,status,created_at,updated_at) VALUES(?,'purged','','')
+		ON CONFLICT(id) DO UPDATE SET status='purged',url='',page_url='',file_path='',file_name='',suggested_filename='',size=0,error='',created_at='',updated_at=''`, id)
+	return err
 }

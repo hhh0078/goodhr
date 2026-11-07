@@ -197,6 +197,9 @@ type PositionCandidateListResult struct {
 
 // MemoryCandidateStore 提供开发期候选人内存存储。
 type MemoryCandidateStore struct {
+	deletions       []memoryCandidateDeletion
+	purgeLinks      memoryCandidatePurgeLinks
+	purgeKeys       map[string]bool
 	mu              sync.Mutex
 	profiles        map[string]PositionCandidate
 	engagements     map[string]CandidateEngagement
@@ -214,7 +217,7 @@ type MemoryCandidateStore struct {
 func NewMemoryCandidateStore() *MemoryCandidateStore {
 	seq := 0
 	return &MemoryCandidateStore{
-		profiles:        map[string]PositionCandidate{},
+		purgeKeys: map[string]bool{}, profiles: map[string]PositionCandidate{},
 		folders:         map[string]CandidateFolder{},
 		folderLinks:     map[string]map[string]bool{},
 		engagements:     map[string]CandidateEngagement{},
@@ -236,6 +239,12 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.purgeKeys[item.TenantID+"|source|"+purgeSourceHash(item.PlatformID, candidateIdentityKey(item))] {
+		return PositionCandidate{}, errCandidateDeleted
+	}
+	if phone := normalizeCandidatePhone(item.Phone); phone != "" && s.purgeKeys[item.TenantID+"|phone|"+purgeDigest(item.TenantID, phone)] {
+		return PositionCandidate{}, errCandidateDeleted
+	}
 	if structuredCandidateInput(item) {
 		matches := map[string]bool{}
 		phone := normalizeCandidatePhone(item.Phone)

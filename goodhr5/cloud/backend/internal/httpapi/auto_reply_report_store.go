@@ -51,6 +51,16 @@ func (s *PostgresAutoReplyStore) SaveAutoReplyReport(ctx context.Context, item C
 		return item, err
 	}
 	defer tx.Rollback()
+	if err = lockCandidateDeletion(ctx, tx, item.TenantID, false); err != nil {
+		return item, err
+	}
+	var deleted bool
+	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM candidate_deletions WHERE tenant_id=$1 AND candidate_id::text=$2)", item.TenantID, item.CandidateID).Scan(&deleted); err != nil {
+		return item, err
+	}
+	if deleted {
+		return item, errCandidateDeleted
+	}
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, item.TenantID+":"+item.CandidateID+":"+item.PositionID); err != nil {
 		return item, err
 	}

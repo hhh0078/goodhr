@@ -1,6 +1,7 @@
 /** 本文件负责新版后台身份、悬浮布局、分类菜单、顶部状态和全局消息。 */
 "use client";
 
+import { reconcileResumeDrafts } from "@/lib/resume-draft-purge";
 import {
   Alert,
   App,
@@ -263,6 +264,29 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       !agentBase &&
       !localAgentInstallNoticeClosed,
   );
+
+  // 网页登录、回到前台或重新联网时复核本账号草稿；同一批只发一次，失败留到下次恢复重查。
+  useEffect(() => {
+    if (!user?.email) return;
+    const sessionToken = localStorage.getItem(TOKEN_KEY);
+    let active = true, busy = false;
+    /** checkDrafts 仅在窗口可见时启动对账，卸载或切换账号后不应用旧结果。 */
+    function checkDrafts() {
+      if (!active || busy || !sessionToken || sessionToken !== localStorage.getItem(TOKEN_KEY) || document.visibilityState === "hidden") return;
+      busy = true;
+      void reconcileResumeDrafts(user, () => active).catch(() => {}).finally(() => { busy = false; });
+    }
+    checkDrafts();
+    window.addEventListener("pageshow", checkDrafts);
+    window.addEventListener("online", checkDrafts);
+    document.addEventListener("visibilitychange", checkDrafts);
+    return () => {
+      active = false;
+      window.removeEventListener("pageshow", checkDrafts);
+      window.removeEventListener("online", checkDrafts);
+      document.removeEventListener("visibilitychange", checkDrafts);
+    };
+  }, [user]);
 
   /** refreshAgent 合并正在进行的探测，并返回本地程序是否已连上。 */
   const refreshAgent = useCallback(() => {

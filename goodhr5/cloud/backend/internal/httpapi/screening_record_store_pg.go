@@ -34,6 +34,9 @@ func screeningPositionOwner(ctx context.Context, tx *sql.Tx, scope ScreeningScop
 
 // Save 串行化同一租户岗位的保存与裁剪；迟到旧版本不覆盖结果，保留窗口内的历史版本冲突仍可识别。
 func (s *PostgresScreeningRecordStore) Save(ctx context.Context, scope ScreeningScope, snapshot ScreeningSnapshot) (ScreeningRecord, error) {
+	if !screeningScopeValid(scope) {
+		return ScreeningRecord{}, ErrNotFound
+	}
 	if err := validateScreeningSnapshot(&snapshot); err != nil {
 		return ScreeningRecord{}, err
 	}
@@ -46,6 +49,15 @@ func (s *PostgresScreeningRecordStore) Save(ctx context.Context, scope Screening
 		return ScreeningRecord{}, err
 	}
 	defer tx.Rollback()
+	if err = lockCandidateDeletion(ctx, tx, scope.TenantID, false); err != nil {
+		return ScreeningRecord{}, err
+	}
+	if err = rejectPurgedKey(ctx, tx, scope.TenantID, "source", purgeSourceHash(snapshot.PlatformID, snapshot.PlatformCandidateID)); err != nil {
+		return ScreeningRecord{}, err
+	}
+	if err = rejectPurgedKey(ctx, tx, scope.TenantID, "screening", purgeDigest(scope.PositionID, snapshot.AttemptID)); err != nil {
+		return ScreeningRecord{}, err
+	}
 	ownerID, err := screeningPositionOwner(ctx, tx, scope)
 	if err != nil {
 		return ScreeningRecord{}, err

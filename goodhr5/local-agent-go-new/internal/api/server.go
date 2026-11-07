@@ -96,6 +96,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	server.initResumeImports(dependencies.ResumeImports)
 	server.initResumeSummaries(dependencies.ResumeSummaries)
 	server.initResumeDownloads()
+	server.runner.ConfigureCandidatePurge(server.resumeImports, server.resumeSummaries, server.resumeDownloads)
 	server.startupSync = newStartupCamoufoxSync(server)
 	mux := http.NewServeMux()
 	server.registerResumeImportRoutes(mux)

@@ -143,6 +143,16 @@ func NewServer() (*Server, error) {
 	if db != nil && config.RedisAddr == "" {
 		attachmentService.store = nil
 	}
+	if guard, ok := candidateStore.(attachmentRevocationReader); ok && attachmentService.store != nil {
+		raw := attachmentService.store
+		if cache, ok := raw.(*redisAttachmentParseStore); ok && db != nil {
+			startAttachmentPurge(context.Background(), db, cache)
+		}
+		if memory, ok := candidateStore.(*MemoryCandidateStore); ok {
+			memory.purgeLinks.attachments, _ = raw.(*memoryAttachmentParseStore)
+		}
+		attachmentService.store = &guardedAttachmentStore{inner: raw, guard: guard}
+	}
 	attachmentImports := NewAttachmentImportService(attachmentService, candidates, messages)
 	attachmentImports.StartRecovery(context.Background())
 	// 客户业务岗位独立于平台自动招聘配置，复用当前团队与成员权限。
@@ -160,6 +170,14 @@ func NewServer() (*Server, error) {
 	assistant := NewAssistantService(candidates, aiWalletService, headhunterService, searchIndex, vectorStore)
 	if db != nil && config.RedisAddr == "" {
 		assistant.store = nil
+	}
+	shareStore := NewCandidateShareStore(db)
+	if memory, ok := candidateStore.(*MemoryCandidateStore); ok {
+		memory.purgeLinks.recruitment, _ = recruitmentStore.(*MemoryRecruitmentStore)
+		memory.purgeLinks.mail, _ = recruitmentMailStore.(*MemoryRecruitmentMailStore)
+		memory.purgeLinks.shares, _ = shareStore.(*MemoryCandidateShareStore)
+		memory.purgeLinks.screening, _ = screeningStore.(*MemoryScreeningRecordStore)
+		memory.purgeLinks.vectors, _ = vectorStore.(*memoryResumeVectorStore)
 	}
 	return &Server{
 		autoReply:             autoReplyService,
@@ -186,7 +204,7 @@ func NewServer() (*Server, error) {
 		candidates:            candidates,
 		recruitment:           recruitment,
 		recruitmentMail:       recruitmentMail,
-		candidateShares:       NewCandidateShareService(candidates, NewCandidateShareStore(db)),
+		candidateShares:       NewCandidateShareService(candidates, shareStore),
 		messages:              messages,
 		resumeLibrarySettings: NewResumeLibrarySettingsService(auth, config.ResumeLibrarySettingsStore(db)),
 		subscriptions:         NewSubscriptionService(auth, subscriptionStore, systemConfigStore),

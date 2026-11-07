@@ -19,6 +19,34 @@ type memorySummaryStore struct {
 	values map[string]string
 }
 
+// TestPurgeSummaryStopsReplay 验证一次删除同时清掉私有职业资料并拒绝旧页面重新生成。
+func TestPurgeSummaryStopsReplay(t *testing.T) {
+	ctx := context.Background()
+	store := &memorySummaryStore{values: map[string]string{}}
+	m := newSummaryTestManager(t, store, &summaryTestAI{})
+	target := summaryFixture()
+	target.ID = "cloud-id"
+	task, err := m.Create("account-a", "web", "request-original", "fixture", target, summaryAllow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitSummary(t, m, task.ID, "completed")
+	m.wg.Wait()
+	if err = m.PurgeCandidate(ctx, "account-a", target.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Get("account-a", "web", task.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatal("删除后的摘要仍可见", err)
+	}
+	raw, _ := store.GetSetting(ctx, storageKey(task.ID))
+	if strings.Contains(raw, "职业正文") || strings.Contains(raw, "五年产品经验") {
+		t.Fatal("删除后仍保存简历或摘要")
+	}
+	if _, err = m.Create("account-a", "web", "request-late", "fixture", target, summaryAllow); !errors.Is(err, ErrNotFound) {
+		t.Fatal("旧页重新生成了摘要", err)
+	}
+}
+
 // GetSetting 读取线程安全的测试存储。
 func (s *memorySummaryStore) GetSetting(_ context.Context, key string) (string, error) {
 	s.mu.Lock()

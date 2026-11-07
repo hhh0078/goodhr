@@ -80,7 +80,7 @@ func (m *Manager) confirmOne(ctx context.Context, owner, token, id string, input
 		m.mu.Unlock()
 		return nil
 	}
-	if m.saving[input.ID] || item.Status == "queued" || item.Status == "parsing" {
+	if _, busy := m.saving[input.ID]; busy || item.Status == "queued" || item.Status == "parsing" {
 		m.mu.Unlock()
 		return ErrBusy
 	}
@@ -149,7 +149,7 @@ func (m *Manager) confirmOne(ctx context.Context, owner, token, id string, input
 			return err
 		}
 	}
-	m.saving[input.ID] = true
+	m.saving[input.ID] = receipt.CandidateID
 	m.mu.Unlock()
 	defer func() { m.mu.Lock(); delete(m.saving, input.ID); m.mu.Unlock() }()
 	if !receipt.CandidateSaved {
@@ -252,11 +252,11 @@ func (m *Manager) MarkSaved(ctx context.Context, owner, token, id string, items 
 			m.mu.Unlock()
 			continue
 		}
-		if m.saving[input.ID] || stored.Confirmations[input.ID] != nil || item.Status == "queued" || item.Status == "parsing" {
+		if _, busy := m.saving[input.ID]; busy || stored.Confirmations[input.ID] != nil || item.Status == "queued" || item.Status == "parsing" {
 			m.mu.Unlock()
 			return Task{}, ErrBusy
 		}
-		m.saving[input.ID] = true
+		m.saving[input.ID] = input.CandidateID
 		m.mu.Unlock()
 		result, cloudErr := m.cloud.LibraryCandidateDetail(ctx, token, input.CandidateID)
 		m.mu.Lock()

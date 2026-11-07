@@ -37,6 +37,19 @@ func (s *AutoReplyService) agentSaveRecommendation(w http.ResponseWriter, r *htt
 	}
 	candidate, err := s.candidates.GetPositionCandidate(requestContext.Tenant.ID, payload.CandidateID, "", requestContext.Session.Email, requestContext.IsAdmin)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			if store, ok := s.candidates.(candidatePurgeStore); ok {
+				deleted, lookupErr := store.candidateWasDeleted(r.Context(), CandidateLibraryScope{TenantID: requestContext.Tenant.ID, UserEmail: requestContext.Session.Email, IsAdmin: requestContext.IsAdmin}, payload.CandidateID)
+				if lookupErr != nil {
+					writeAutoReplyStoreError(w, lookupErr, "删除状态暂时没读出来")
+					return
+				}
+				if deleted {
+					writeAutoReplyStoreError(w, errCandidateDeleted, "")
+					return
+				}
+			}
+		}
 		writeAutoReplyStoreError(w, err, "这份简历暂时没找到，请先同步结构化简历")
 		return
 	}

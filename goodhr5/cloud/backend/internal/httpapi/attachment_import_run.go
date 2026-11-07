@@ -294,6 +294,8 @@ func (s *AttachmentImportService) finish(record *attachmentParseRecord, status, 
 // attachmentImportSaveError 将业务冲突与未知提交结果分开，绝不因行版本或重复手机号退回新建。
 func attachmentImportSaveError(err error) string {
 	switch {
+	case errors.Is(err, errCandidateDeleted):
+		return "CANDIDATE_DELETED"
 	case errors.Is(err, ErrCandidateDuplicate):
 		return "CANDIDATE_DUPLICATE"
 	case errors.Is(err, ErrCandidateVersion):

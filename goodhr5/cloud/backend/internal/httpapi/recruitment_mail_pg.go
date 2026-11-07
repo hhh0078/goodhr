@@ -196,11 +196,26 @@ func (s *PostgresRecruitmentMailStore) ClaimDelivery(item RecruitmentMailDeliver
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	saved, err := scanRecruitmentMailDelivery(s.db.QueryRowContext(ctx, `INSERT INTO recruitment_mail_deliveries(tenant_id,actor_email,application_id,interview_id,template_id,idempotency_key,fingerprint,snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb) ON CONFLICT(tenant_id,actor_email,idempotency_key) DO NOTHING RETURNING `+recruitmentMailDeliveryColumns, item.TenantID, item.ActorEmail, item.ApplicationID, item.InterviewID, item.TemplateID, item.IdempotencyKey, item.Fingerprint, string(raw)))
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return item, false, err
+	}
+	defer tx.Rollback()
+	if err = lockCandidateDeletion(ctx, tx, item.TenantID, false); err != nil {
+		return item, false, err
+	}
+	if err = rejectPurgedKey(ctx, tx, item.TenantID, "application", purgeDigest(item.ApplicationID)); err != nil {
+		return item, false, err
+	}
+	saved, err := scanRecruitmentMailDelivery(tx.QueryRowContext(ctx, `INSERT INTO recruitment_mail_deliveries(tenant_id,actor_email,application_id,interview_id,template_id,idempotency_key,fingerprint,snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb) ON CONFLICT(tenant_id,actor_email,idempotency_key) DO NOTHING RETURNING `+recruitmentMailDeliveryColumns, item.TenantID, item.ActorEmail, item.ApplicationID, item.InterviewID, item.TemplateID, item.IdempotencyKey, item.Fingerprint, string(raw)))
 	if err == nil {
-		return saved, true, nil
+		err = tx.Commit()
+		return saved, err == nil, err
 	}
 	if !errors.Is(err, ErrNotFound) {
+		return saved, false, err
+	}
+	if err = tx.Commit(); err != nil {
 		return saved, false, err
 	}
 	saved, found, err := s.FindDelivery(item.TenantID, item.ActorEmail, item.IdempotencyKey)

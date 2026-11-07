@@ -21,6 +21,21 @@ func (s *PostgresCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScop
 		return PositionCandidate{}, err
 	}
 	defer tx.Rollback()
+	if isDeferredCandidateImport(key) || candidateString(fields, "platform_candidate_id") != "" {
+		if err = lockCandidateDeletion(ctx, tx, scope.TenantID, false); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
+	if isDeferredCandidateImport(key) {
+		if err = rejectPurgedKey(ctx, tx, scope.TenantID, "source", purgeSourceHash(candidateString(fields, "platform_id"), candidateString(fields, "platform_candidate_id"))); err != nil {
+			return PositionCandidate{}, err
+		}
+		if phone := normalizeCandidatePhone(candidateString(fields, "phone")); id == "" && phone != "" {
+			if err = rejectPurgedKey(ctx, tx, scope.TenantID, "phone", purgeDigest(scope.TenantID, phone)); err != nil {
+				return PositionCandidate{}, err
+			}
+		}
+	}
 	operation := "candidate:" + id
 	fingerprint := candidateFingerprint(fields)
 	locks := []string{"request:" + scope.UserEmail + ":" + operation + ":" + key}
@@ -120,6 +135,11 @@ func (s *PostgresCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScop
 	item, err := candidateReadTx(ctx, tx, scope, id, false)
 	if err != nil {
 		return PositionCandidate{}, err
+	}
+	if source := purgeSourceHash(platform, sourceID); source != "" && !isDeferredCandidateImport(key) {
+		if _, err = tx.ExecContext(ctx, "UPDATE candidate_deletion_keys SET replacement_candidate_id=$3 WHERE tenant_id=$1 AND kind='source' AND identity_hash=$2", scope.TenantID, source, id); err != nil {
+			return PositionCandidate{}, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return PositionCandidate{}, err
@@ -458,6 +478,12 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 		return PositionCandidate{}, err
 	}
 	defer tx.Rollback()
+	if err = lockCandidateDeletion(ctx, tx, tenantID, false); err != nil {
+		return PositionCandidate{}, err
+	}
+	if err = rejectPurgedKey(ctx, tx, tenantID, "source", purgeSourceHash(input.PlatformID, candidateIdentityKey(input))); err != nil {
+		return PositionCandidate{}, err
+	}
 	// 自动回复先锁手机号，再锁来源，与现有人工入口保持一致的加锁顺序。
 	if structuredCandidateInput(input) && normalizeCandidatePhone(input.Phone) != "" {
 		if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, tenantID+":phone:"+normalizeCandidatePhone(input.Phone)); err != nil {
@@ -476,6 +502,11 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	if structuredCandidateInput(input) {
 		id, err = automaticCandidatePhoneID(ctx, tx, tenantID, id, input.Phone)
 		if err != nil {
+			return PositionCandidate{}, err
+		}
+	}
+	if phone := normalizeCandidatePhone(input.Phone); id == "" && phone != "" {
+		if err = rejectPurgedKey(ctx, tx, tenantID, "phone", purgeDigest(tenantID, phone)); err != nil {
 			return PositionCandidate{}, err
 		}
 	}

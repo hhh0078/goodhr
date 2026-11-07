@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"goodhr5/local-agent-go-new/internal/storage"
 	"strings"
 	"time"
 
@@ -52,7 +53,9 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 				PositionID: firstNonEmpty(prepared.Position.ID, prepared.Request.PositionID), PlatformThreadID: conversation.PlatformThreadID,
 				PlatformCandidateID: conversation.PlatformCandidateID, CandidateName: conversation.Name, PagePositionText: conversation.CommunicationPosition,
 			}); err != nil {
-			stats.Failed++
+			if !errors.Is(err, storage.ErrAutoReplyCandidateDeleted) {
+				stats.Failed++
+			}
 			return fmt.Errorf("保存候选人会话采集进度失败，尚未打开聊天：%w", err)
 		}
 	}

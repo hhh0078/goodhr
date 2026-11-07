@@ -2,12 +2,20 @@
 "use client";
 import { cloudRequest } from "./admin-api";
 import type { DuplicateMatch, DuplicateResult, PositionOption, Recommendation, RecommendationRecord, Resume, ResumeDraft, ResumeNote, ResumeFolder } from "./resume-types";
-import { isReadOnlyResume } from "./resume-types";
+import { canDeleteResume, isReadOnlyResume } from "./resume-types";
 
 /** loadResume 读取候选人详情，可保留旧自动任务详情参数。 */
 export async function loadResume(id: string, engagementID = ""): Promise<Resume> {
   const data = await cloudRequest(`/api/candidates/${encodeURIComponent(id)}${engagementID ? `?engagement_id=${encodeURIComponent(engagementID)}` : ""}`);
   return data.candidate || data;
+}
+/** deleteResume 只删除确认时看到的单份简历版本，并核对回执中的候选人编号。 */
+export async function deleteResume(candidate: Resume): Promise<void> {
+  if (!canDeleteResume(candidate)) throw new Error("当前简历无法删除，请回简历库核对。");
+  const result = await cloudRequest(`/api/candidates/${encodeURIComponent(candidate.id)}?row_version=${candidate.row_version}`, { method: "DELETE" });
+  if (result.ok !== true || result.deleted !== true || result.candidate_id !== candidate.id) {
+    throw new Error("删除回执没能核对上，请回简历库查看最新状态。");
+  }
 }
 /** loadResumePositions 逐页获取有权访问的岗位，不截断岗位选择范围。 */
 export async function loadResumePositions(): Promise<PositionOption[]> {

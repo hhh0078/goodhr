@@ -230,6 +230,11 @@ func (s *AutoReplyService) currentRequestContext(w http.ResponseWriter, r *http.
 		writeAutoReplyError(w, http.StatusServiceUnavailable, "AUTO_REPLY_STORAGE_UNAVAILABLE", "自动回复存储还没准备好，请稍后再试")
 		return autoReplyRequestContext{}, false
 	}
+	return s.authenticatedRequestContext(w, r, requireAutoReply, requireAgent)
+}
+
+// authenticatedRequestContext 核对会话和设备；删除事件独立于岗位配置存储。
+func (s *AutoReplyService) authenticatedRequestContext(w http.ResponseWriter, r *http.Request, requireAutoReply, requireAgent bool) (autoReplyRequestContext, bool) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
 		writeAutoReplyError(w, http.StatusUnauthorized, "SESSION_REQUIRED", "登录状态暂时没认出来，请重新登录")
@@ -316,6 +321,8 @@ func decodeAutoReplyJSON(w http.ResponseWriter, r *http.Request, target any) err
 func writeAutoReplyStoreError(w http.ResponseWriter, err error, fallback string) {
 	var validationError *autoReplyValidationError
 	switch {
+	case errors.Is(err, errCandidateDeleted):
+		writeAutoReplyError(w, 410, "CANDIDATE_DELETED", err.Error())
 	case errors.Is(err, ErrNotFound):
 		writeAutoReplyError(w, http.StatusNotFound, "AUTO_REPLY_DATA_NOT_FOUND", "相关数据没找到，可能刚刚被删除了")
 	case errors.Is(err, ErrCandidateDuplicate):

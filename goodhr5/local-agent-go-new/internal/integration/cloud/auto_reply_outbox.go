@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"net/http"
@@ -183,7 +184,7 @@ func (c *Client) RetryAutoReplyOutbox(ctx context.Context, credentials AgentCred
 			first = err
 		}
 	}
-	return first
+	return errors.Join(first, c.retryPurgedEventFiles(ctx, credentials))
 }
 
 // processAutoReplyOutbox 使用短租约领取单项任务，成功或失败分别持久记录，失败按退避时间恢复。
@@ -218,7 +219,11 @@ func (c *Client) processAutoReplyOutbox(ctx context.Context, credentials AgentCr
 		if readErr != nil {
 			return readErr
 		}
-		if found && !bytes.Equal(current.Payload, item.Payload) {
+		if !found {
+			// 删除事件可能在网络请求期间清空本行，迟到响应不能重新建回含简历的上传任务。
+			return nil
+		}
+		if !bytes.Equal(current.Payload, item.Payload) {
 			current.LeaseUntil = time.Time{}
 			current.Status = "pending"
 			current.NextAttemptAt = time.Time{}
@@ -276,14 +281,23 @@ func (c *Client) sendAutoReplyOutbox(ctx context.Context, credentials AgentCrede
 		}
 		var result AutoReplyCandidateSaveResult
 		if err = c.doBody(ctx, http.MethodPost, autoReplyAgentBasePath+"/candidates", credentials.Token, credentials.MachineID, "application/json", bytes.NewReader(raw), &result); err != nil {
+			if IsCandidateDeleted(err) {
+				// 云端按稳定来源拒绝了本次具体上传，即使还没有取得云ID，也能准确清理这个本地候选人。
+				return c.purgeAutoReplyCandidate(ctx, credentials, "", nil, input.LocalCandidateID)
+			}
 			return err
 		}
 		if result.CandidateID == "" {
 			return fmt.Errorf("云端没有确认结构化简历保存结果")
 		}
-		return c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		linkErr := c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
 			return tx.Put("cloud_links", "candidate:"+input.LocalCandidateID, localCloudLink{Value: result.CandidateID})
 		})
+		if errors.Is(linkErr, storage.ErrAutoReplyCandidateDeleted) {
+			// 删除事件早于首次上传回执时，同一份请求给出了精确映射，补清其本地资料。
+			return c.purgeAutoReplyCandidate(ctx, credentials, result.CandidateID, nil, input.LocalCandidateID)
+		}
+		return linkErr
 	case "report":
 		var input autoReplyReportUpload
 		if err := json.Unmarshal(item.Payload, &input); err != nil {

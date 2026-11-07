@@ -3,6 +3,7 @@ package auto_reply
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -20,6 +21,12 @@ type Background struct {
 	validate                func(context.Context, string) (cloud.UserSession, error)
 	outbox                  func(context.Context, cloud.AgentCredentials) error
 	recommendations         func(context.Context, cloud.AgentCredentials) error
+	purge                   func(context.Context, string, cloud.AgentCredentials) error
+}
+
+// SetCandidatePurge 在应用启动时绑定账号清理流程，复用现有登录唤醒与退出机制。
+func (b *Background) SetCandidatePurge(purge func(context.Context, string, cloud.AgentCredentials) error) {
+	b.purge = purge
 }
 
 // NewBackground 复用既有客户端和报告处理器；Windows与Mac均仅使用Go上下文与本机SQLite。
@@ -92,6 +99,14 @@ func (b *Background) flush(parent context.Context) {
 		return
 	}
 	credentials := cloud.AgentCredentials{Token: token, MachineID: b.machineID}
+	if b.purge != nil {
+		if err = b.purge(ctx, owner, credentials); err != nil && ctx.Err() == nil {
+			log.Printf("简历本机清理未完成，下轮重试：%v", err)
+		}
+	}
+	if ctx.Err() != nil {
+		return
+	}
 	// 通知失败不阻断独立报告；每个待办自身保存重试状态和退避时间。
 	_ = b.outbox(ctx, credentials)
 	if ctx.Err() == nil {

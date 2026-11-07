@@ -1,5 +1,7 @@
 <!-- 文件作用：说明 GoodHR 简历插件当前版本的附件读取、后台保存与安全恢复方式。 -->
-# GoodHR 简历插件 1.0.16
+# GoodHR 简历插件 1.0.17
+
+1.0.17 在登录、浏览器启动及再次打开草稿时，核对当前账号在 GoodHR 永久删除的简历。优先按云端简历编号清理，未绑定编号的旧草稿只接受稳定的平台身份摘要；姓名或手机号不会触发清理。
 
 安装方式见 [Chrome 安装说明](INSTALL.md) 和 [Firefox 安装说明](FIREFOX-INSTALL.md)，数据用途见插件中的“数据说明”。
 
@@ -23,4 +25,4 @@ Vue头像只接受实测的 `img.bosszhipin.com/beijin/upload/avatar/` 图片，
 
 运行 `npm test` 验证合成场景；运行 `npm run build` 生成同版本 Chrome 开发包和 Firefox 未签名临时包。未签名 Firefox 包不能当成正式签名安装包发布。
 
-本次独立交付 `goodhr-resume-chrome-1.0.16.zip`、`goodhr-resume-firefox-unsigned-1.0.16.zip` 和同名 `.xpi`。Firefox 1.0.16 未签名包仅供 `about:debugging` 临时加载测试；不覆盖已有 1.0.9 签名包，不冒充正式自动更新版本。Mozilla 签名完成前，Firefox 正式发布版本由服务器现有签名配置维持。
+上一版独立交付 `goodhr-resume-chrome-1.0.16.zip`、`goodhr-resume-firefox-unsigned-1.0.16.zip` 和同名 `.xpi`。Firefox 1.0.16 未签名包仅供 `about:debugging` 临时加载测试；不覆盖已有 1.0.9 签名包，不冒充正式自动更新版本。Mozilla 签名完成前，Firefox 正式发布版本由服务器现有签名配置维持。

@@ -30,6 +30,7 @@ func builtinCandidate() PositionCandidate {
 func publicBuiltinCandidate() map[string]any {
 	result := publicPositionCandidate(builtinCandidate())
 	result["is_builtin"], result["readonly"], result["builtin_notice"] = true, true, builtinCandidateNotice
+	result["can_delete"] = false
 	result["user_email"] = ""
 	return result
 }

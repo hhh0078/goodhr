@@ -122,6 +122,8 @@ func (s *ScreeningRecordService) Collection(w http.ResponseWriter, r *http.Reque
 // writeError 将输入与幂等冲突映射为稳定状态码，不将底层SQL或内部所有者信息返回客户端。
 func (s *ScreeningRecordService) writeError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, errCandidateDeleted):
+		writeAutoReplyError(w, 410, "CANDIDATE_DELETED", err.Error())
 	case errors.Is(err, ErrScreeningRecordInput):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrScreeningRecordConflict):

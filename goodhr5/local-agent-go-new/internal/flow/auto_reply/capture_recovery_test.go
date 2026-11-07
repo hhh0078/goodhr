@@ -3,7 +3,12 @@ package auto_reply
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
@@ -113,5 +118,48 @@ func TestCaptureRecoveryKeepsTargetAndEnabledPositionScope(t *testing.T) {
 	processed, _, err := flow.processCheckpoint(ctx, prepared, captureUnreadScanner{}, runtime, []cloud.AutoReplyPositionSnapshot{{Position: cloud.AutoReplyPosition{ID: "position"}}}, 3, &shared.Stats{}, &shared.ConsecutiveErrorPolicy{}, nil)
 	if err != nil || processed != 0 || runtime.opens != 0 {
 		t.Fatalf("恢复越过目标或岗位开关：processed=%d opens=%d err=%v", processed, runtime.opens, err)
+	}
+}
+
+// TestCheckpointSkipsPurgedUnreadConversation 验证已删除的采集目标即使长期位于未读首位，也不会占据名额或停止其他会话。
+func TestCheckpointSkipsPurgedUnreadConversation(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auth/me" {
+			t.Errorf("未预期的请求 %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"user": cloud.UserSession{UserID: "test-owner"}})
+	}))
+	defer server.Close()
+	store, err := storage.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	client := cloud.New(server.URL)
+	client.EnableLocalAutoReply(store, dir)
+	prepared := shared.PreparedTask{Request: shared.StartRequest{Token: "token", TaskID: "test", PlatformAccountID: "account"}, MachineID: "machine", Platform: model.Config{ID: "liepin", Name: "猎聘"}}
+	if _, err = client.ValidateSession(ctx, "token"); err != nil {
+		t.Fatal(err)
+	}
+	if err = client.BeginAutoReplyCapture(ctx, credentials(prepared), "liepin", "account", "removed", cloud.AutoReplyCaptureIntent{PlatformCandidateID: "distinct", CandidateName: "删除目标"}); err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256([]byte("liepin\x00distinct"))
+	if err = client.PurgeLocalAutoReplyCandidate(ctx, credentials(prepared), "deleted", []string{hex.EncodeToString(hash[:])}); err != nil {
+		t.Fatal(err)
+	}
+	scanner := captureUnreadScanner{[]model.Conversation{{PlatformThreadID: "removed", PlatformCandidateID: "distinct", Name: "删除目标"}, {PlatformThreadID: "other", PlatformCandidateID: "other", Name: "保留目标"}}}
+	runtime := &captureRecoveryRuntime{openError: fmt.Errorf("保留目标进入正常采集")}
+	flow := &Flow{Store: store, Cloud: client, Browser: &autoReplyBrowserStub{}}
+	stats := &shared.Stats{}
+	processed, _, err := flow.processCheckpoint(ctx, prepared, scanner, runtime, nil, 1, stats, &shared.ConsecutiveErrorPolicy{}, nil)
+	if err != nil || processed != 1 || runtime.opens != 1 || stats.Processed != 1 || stats.Failed != 1 {
+		t.Fatalf("删除目标干扰其他候选人：processed=%d opens=%d stats=%+v err=%v", processed, runtime.opens, stats, err)
+	}
+	state, err := client.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{PlatformID: "liepin", PlatformAccountID: "account", PlatformThreadID: "other"})
+	if err != nil || state.Conversation == nil || state.Conversation.CaptureIntent == nil {
+		t.Fatalf("正常候选人没有取得本轮采集名额 %v", err)
 	}
 }

@@ -96,6 +96,10 @@ func (s *PositionExecutionService) SaveLocalCandidate(w http.ResponseWriter, r *
 		FirstSeenAt:         &now,
 	})
 	if err != nil {
+		if errors.Is(err, errCandidateDeleted) {
+			writeAutoReplyError(w, 410, "CANDIDATE_DELETED", err.Error())
+			return
+		}
 		s.writeCandidateIngestLog(position.ID, position.UserEmail, "warning", "云端候选人主体保存失败："+candidateName+"，原因："+err.Error())
 		writeError(w, http.StatusInternalServerError, "failed to save candidate")
 		return

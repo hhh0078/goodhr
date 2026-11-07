@@ -38,6 +38,81 @@ type fakeCloud struct {
 	duplicateErr                    error
 }
 
+// drainingCloud 将通知停在传输中，直到收到取消且测试允许退出，不向外部发送文件名。
+type drainingCloud struct {
+	*fakeCloud
+	entered   chan struct{}
+	cancelled chan struct{}
+	release   chan struct{}
+}
+
+// PushResumeMessage 区分已请求取消与实际结束两个时刻，模拟网络延迟退出。
+func (c *drainingCloud) PushResumeMessage(ctx context.Context, _, _, _, _, _ string) error {
+	close(c.entered)
+	<-ctx.Done()
+	close(c.cancelled)
+	<-c.release
+	return ctx.Err()
+}
+
+// TestDeletedDownloadSnapshotCannotNotify 复现队列取得带文件名的副本后，账号复核期间已完成删除。
+func TestDeletedDownloadSnapshotCannotNotify(t *testing.T) {
+	m, _, client, _, _ := fixture(t)
+	ctx := context.Background()
+	item := entry{ID: "one", TaskID: "batch", Owner: "a", Name: "合成人选.pdf", Status: "needs_review"}
+	m.entries[item.ID] = item
+	err := m.notify(ctx, "token", item, func(ctx context.Context) error {
+		return m.PurgeImportTask(ctx, "a", "batch", func(context.Context, string) error { return nil })
+	})
+	if err != nil || client.pushes != 0 || m.entries[item.ID].Status != "disabled" {
+		t.Fatalf("已删除下载仍发通知或复活：pushes=%d err=%v", client.pushes, err)
+	}
+}
+
+// TestPurgeDrainsOnlyOwnDownloadNotification 验证在途通知未退出时仅阻止本批确认，其他账号和普通下载照常清理。
+func TestPurgeDrainsOnlyOwnDownloadNotification(t *testing.T) {
+	m, _, client, _, _ := fixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	waiter := &drainingCloud{fakeCloud: client, entered: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
+	m.cloud = waiter
+	item := entry{ID: "target", TaskID: "batch", Owner: "a", Name: "合成人选.pdf", Status: "needs_review"}
+	m.entries[item.ID] = item
+	m.entries["other"] = entry{ID: "other", TaskID: "batch", Owner: "b", Status: "saved"}
+	m.entries["unrelated"] = entry{ID: "unrelated", TaskID: "other-task", Owner: "a", Status: "saved"}
+	done := make(chan error, 1)
+	go func() { done <- m.notify(ctx, "token", item, func(context.Context) error { return nil }) }()
+	select {
+	case <-waiter.entered:
+	case <-ctx.Done():
+		t.Fatal("通知未开始")
+	}
+	hide := func(context.Context, string) error { return nil }
+	for _, key := range [][2]string{{"b", "batch"}, {"a", "other-task"}} {
+		if err := m.PurgeImportTask(ctx, key[0], key[1], hide); err != nil {
+			t.Fatal("不相关的删除被阻塞", err)
+		}
+	}
+	if err := m.PurgeImportTask(ctx, "a", "batch", hide); !errors.Is(err, resumeimport.ErrBusy) {
+		t.Fatal("未等本批发送结束", err)
+	}
+	select {
+	case <-waiter.cancelled:
+	case <-ctx.Done():
+		t.Fatal("没有取消本批通知")
+	}
+	if err := m.PurgeImportTask(ctx, "a", "batch", hide); !errors.Is(err, resumeimport.ErrBusy) {
+		t.Fatal("第二次清理提前确认", err)
+	}
+	close(waiter.release)
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatal("发送未取消", err)
+	}
+	if err := m.PurgeImportTask(ctx, "a", "batch", hide); err != nil || m.entries[item.ID].Name != "" || m.entries[item.ID].Status != "disabled" {
+		t.Fatal("通知结束后清理失败", err)
+	}
+}
+
 // ValidateSession 返回当前测试账号。
 func (c *fakeCloud) ValidateSession(context.Context, string) (cloud.UserSession, error) {
 	return cloud.UserSession{UserID: c.owner, SessionKind: "web"}, nil

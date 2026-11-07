@@ -138,6 +138,9 @@ func (s *AttachmentParseService) create(w http.ResponseWriter, r *http.Request, 
 		}
 		s.writeTask(w, http.StatusOK, s.expireLease(old))
 		return
+	} else if errors.Is(err, errCandidateDeleted) {
+		attachmentParseError(w, 410, "CANDIDATE_DELETED", err.Error())
+		return
 	} else if !errors.Is(err, ErrNotFound) {
 		attachmentParseError(w, 503, "TASK_STORE_UNAVAILABLE", "任务回执暂时没存好，我先不调用 AI，请稍后重试")
 		return
@@ -157,6 +160,10 @@ func (s *AttachmentParseService) create(w http.ResponseWriter, r *http.Request, 
 	}
 	record := attachmentParseRecord{Owner: owner, Fingerprint: fingerprint, Version: 1, LeaseUntil: time.Now().Add(aiRequestTimeout + time.Minute).UnixMilli(), Task: attachmentParseTask{ID: id, Phase: input.Phase, CaptureID: input.CaptureID, TextHash: input.TextHash, RequestKey: input.RequestKey, Status: "queued"}}
 	actual, created, err := s.store.Reserve(r.Context(), record)
+	if errors.Is(err, errCandidateDeleted) {
+		attachmentParseError(w, 410, "CANDIDATE_DELETED", err.Error())
+		return
+	}
 	if errors.Is(err, errAttachmentBusy) {
 		attachmentParseError(w, 429, "TASK_BUSY", err.Error())
 		return
@@ -183,6 +190,10 @@ func (s *AttachmentParseService) read(w http.ResponseWriter, r *http.Request, ow
 		record, err := s.store.Get(r.Context(), owner, id)
 		if err == nil && record.Import != nil {
 			attachmentParseError(w, 404, "TASK_NOT_FOUND", "这次解析任务没找到")
+			return
+		}
+		if errors.Is(err, errCandidateDeleted) {
+			attachmentParseError(w, 410, "CANDIDATE_DELETED", err.Error())
 			return
 		}
 		if errors.Is(err, ErrNotFound) {
@@ -273,7 +284,7 @@ func (s *AttachmentParseService) watchCancellation(ctx context.Context, record a
 			return
 		case <-ticker.C:
 			current, err := s.store.Get(ctx, record.Owner, record.Task.ID)
-			if err == nil && current.Task.Status != "running" {
+			if errors.Is(err, errCandidateDeleted) || errors.Is(err, ErrNotFound) || err == nil && current.Task.Status != "running" {
 				cancel()
 				return
 			}
