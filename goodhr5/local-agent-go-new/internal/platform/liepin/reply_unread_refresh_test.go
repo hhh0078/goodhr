@@ -14,6 +14,7 @@ import (
 // cachedUnreadBrowser 保留已有联系人列表，只有切换全部再返回未读时才展示准备好的新消息。
 type cachedUnreadBrowser struct {
 	liepinReplyBrowserStub
+	badgeErr  error
 	badge     string
 	next      []contract.FindAllItem
 	listReads int
@@ -22,7 +23,7 @@ type cachedUnreadBrowser struct {
 // Read 提供可能停留在99+的可见入口角标。
 func (b *cachedUnreadBrowser) Read(ctx context.Context, req contract.ElementReadRequest) (contract.ReadResult, error) {
 	if req.Selector.Description == "测试未读数字" {
-		return contract.ReadResult{Value: b.badge}, nil
+		return contract.ReadResult{Value: b.badge}, b.badgeErr
 	}
 	return b.liepinReplyBrowserStub.Read(ctx, req)
 }
@@ -120,5 +121,24 @@ func TestLiepinUnreadFreshAndEmptyViewsReadOnce(t *testing.T) {
 	}
 	if len(b.clicks) != 0 || b.listReads != 4 {
 		t.Fatal("空角标空列表产生多余操作", b.clicks, b.listReads)
+	}
+}
+
+// TestLiepinHiddenEntryBadgeKeepsPolling 验证猎聘抽屉遮住悬浮入口后仍能通过可见列表更新，控制通道错误仍上报。
+func TestLiepinHiddenEntryBadgeKeepsPolling(t *testing.T) {
+	r, b, cfg := unreadRefreshFixture()
+	b.badgeErr = &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_VISIBLE"}}
+	if _, err := r.ScanUnreadConversations(context.Background(), b, cfg); err != nil {
+		t.Fatal(err)
+	}
+	r.unread.confirmedAt = time.Now().Add(-time.Minute)
+	b.next = []contract.FindAllItem{{Fields: map[string]string{"name": "测试目标", "thread_meta": `{"to_imid":"new-target"}`, "unread_count": "1"}}}
+	got, err := r.ScanUnreadConversations(context.Background(), b, cfg)
+	if err != nil || len(got) != 1 || got[0].PlatformThreadID != "new-target" {
+		t.Fatal("入口隐藏时未恢复扫描", got, err)
+	}
+	b.badgeErr = &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE"}}
+	if _, err := r.ScanUnreadConversations(context.Background(), b, cfg); !contract.IsSessionUnavailable(err) {
+		t.Fatal("控制通道故障被忽略", err)
 	}
 }

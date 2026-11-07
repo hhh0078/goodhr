@@ -3,6 +3,7 @@ package liepin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -122,7 +123,10 @@ func readLiepinEntryUnreadCount(ctx context.Context, browser model.Browser, cfg 
 	}
 	selector.TimeoutMS = 200
 	value, err := browser.Read(ctx, contract.ElementReadRequest{Selector: selector, Property: "text"})
-	if common.IsElementMissing(err) || (err == nil && strings.TrimSpace(value.Value) == "0") {
+	var workerErr *contract.WorkerError
+	// 抽屉打开后悬浮入口会被平台隐藏，只有这个可选角标把不可见当作零。
+	hidden := errors.As(err, &workerErr) && workerErr.Body.Code == "ELEMENT_NOT_VISIBLE"
+	if common.IsElementMissing(err) || hidden || (err == nil && strings.TrimSpace(value.Value) == "0") {
 		return 0, nil
 	}
 	if err != nil {
