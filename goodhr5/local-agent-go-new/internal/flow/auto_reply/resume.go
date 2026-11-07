@@ -38,20 +38,9 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	}
 	if state.HasResumeAttachment && state.Candidate != nil && state.Candidate.ResumeStructured &&
 		(snapshot.ResumeSourceMessageID == "" || state.Candidate.ResumeSourceMessageID == snapshot.ResumeSourceMessageID) {
-		input := cloud.AutoReplyCandidateInput{StructuredCandidate: storedStructuredCandidate(state.Candidate), LocalCandidateID: state.Candidate.ID, PositionID: position.Position.ID, PlatformID: prepared.Platform.ID, PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID, Gender: state.Candidate.Gender, BirthYMPrecision: state.Candidate.BirthYMPrecision}
-		if f.Cloud.LocalAutoReplyEnabled() && input.BirthYM == "" {
-			// 老版本可能漏掉被排版空格分开的生日标签，只用同份已核实附件的本地原文补齐。
-			if month, precision := explicitResumeBirthMonth("", input.RawText); month != "" {
-				repair := cloud.AutoReplyCandidateInput{LocalCandidateID: state.Candidate.ID, PositionID: input.PositionID, PlatformID: input.PlatformID, PlatformAccountID: input.PlatformAccountID, PlatformCandidateID: input.PlatformCandidateID, BirthYMPrecision: precision}
-				repair.BirthYM = month
-				if _, err := f.Cloud.SaveAutoReplyCandidate(ctx, credentials(prepared), repair); err != nil {
-					return nil, false, err
-				}
-				input.BirthYM, input.BirthYMPrecision = month, precision
-				state.Candidate.BirthYM, state.Candidate.BirthYMPrecision = month, precision
-			}
+		if err := f.reuseStoredStructuredResume(ctx, prepared, position, *conversation, snapshot, state, true); err != nil {
+			return nil, false, err
 		}
-		f.queueStructuredCandidateSync(ctx, prepared, position, state.Candidate.ID, input)
 
 		if preservedAutoReplyConversationStatus(conversation.Status) == "waiting_resume" {
 			if err := f.saveResumeConversationStatus(ctx, prepared, conversation, "ready"); err != nil {
@@ -189,6 +178,36 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		return nil, false, saveErr
 	}
 	return &bundle, false, nil
+}
+
+// reuseStoredStructuredResume 复用已结构化资料；旧简历仅补原文明示且来源可核验的生日，普通聊天只同步确有补齐的资料。
+func (f *Flow) reuseStoredStructuredResume(ctx context.Context, prepared shared.PreparedTask, position cloud.AutoReplyPositionSnapshot, conversation cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, state cloud.AutoReplyCandidateState, syncExisting bool) error {
+	candidate := state.Candidate
+	if !f.Cloud.LocalAutoReplyEnabled() || !state.HasResumeAttachment || candidate == nil || !candidate.ResumeStructured || candidate.ID != conversation.CandidateID {
+		return nil
+	}
+	source := candidate.ResumeSourceMessageID
+	if snapshot.ResumeSourceMessageID != "" && snapshot.ResumeSourceMessageID != source {
+		return nil
+	}
+	var repaired bool
+	if candidate.BirthYM == "" && candidate.BirthYMPrecision == "" && source != "" {
+		if month, precision := explicitResumeBirthMonth("", candidate.RawText); month != "" {
+			var err error
+			repaired, err = f.Cloud.BackfillAutoReplyBirthMonth(ctx, credentials(prepared), conversation.ID, *candidate, month)
+			if err != nil {
+				return err
+			}
+			if repaired {
+				candidate.BirthYM, candidate.BirthYMPrecision = month, precision
+			}
+		}
+	}
+	if syncExisting || repaired {
+		input := cloud.AutoReplyCandidateInput{StructuredCandidate: storedStructuredCandidate(candidate), LocalCandidateID: candidate.ID, PositionID: position.Position.ID, PlatformID: prepared.Platform.ID, PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID, Gender: candidate.Gender, BirthYMPrecision: candidate.BirthYMPrecision}
+		f.queueStructuredCandidateSync(ctx, prepared, position, candidate.ID, input)
+	}
+	return nil
 }
 
 // saveResumeConversationStatus 在关键简历动作后立即把会话状态写入云端，避免下轮重复索要或永久等待。

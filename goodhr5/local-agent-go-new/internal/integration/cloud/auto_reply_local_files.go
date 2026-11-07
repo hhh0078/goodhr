@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"io"
@@ -201,6 +202,47 @@ func (c *Client) saveLocalAutoReplyCandidate(ctx context.Context, credentials Ag
 		return nil
 	})
 	return
+}
+
+// BackfillAutoReplyBirthMonth 在原子事务内复核会话、候选人原文、来源消息及其附件，只填仍缺失的出生年月。
+func (c *Client) BackfillAutoReplyBirthMonth(ctx context.Context, credentials AgentCredentials, conversationID string, before AutoReplyStoredCandidate, month string) (changed bool, err error) {
+	if _, parseErr := time.Parse("2006-01", month); parseErr != nil || before.ID == "" || before.ResumeSourceMessageID == "" {
+		return false, nil
+	}
+	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		conversation, found, err := getAutoReplyEntity[AutoReplyConversation](tx, "conversations", conversationID)
+		if err != nil || !found || conversation.CandidateID != before.ID || (conversation.ResumeRetry != nil && conversation.ResumeRetry.SourceMessageID != before.ResumeSourceMessageID) {
+			return err
+		}
+		current, found, err := getAutoReplyEntity[AutoReplyStoredCandidate](tx, "candidates", before.ID)
+		if err != nil || !found || !current.ResumeStructured || current.BirthYM != "" || current.BirthYMPrecision != "" || current.ResumeSourceMessageID != before.ResumeSourceMessageID || current.RawText != before.RawText {
+			return err
+		}
+		row, found, err := tx.MessageByKey(conversationID, current.ResumeSourceMessageID)
+		if err != nil || !found {
+			return err
+		}
+		var message AutoReplyMessage
+		if err := json.Unmarshal(row.Data, &message); err != nil {
+			return err
+		}
+		if message.Direction != "candidate" || message.MessageType != "resume" {
+			return nil
+		}
+		attachments, err := readLocalAutoReplyAttachments(tx, "", conversationID)
+		if err != nil {
+			return err
+		}
+		for _, attachment := range attachments {
+			if attachment.SourceMessageID == row.ID && (attachment.CandidateID == "" || attachment.CandidateID == current.ID) {
+				current.BirthYM, current.BirthYMPrecision = month, "month"
+				changed = true
+				return tx.Put("candidates", current.ID, current)
+			}
+		}
+		return nil
+	})
+	return changed && err == nil, err
 }
 
 // mergeLocalAutoReplyCandidate 保留已有资料，只接受本轮有值的结构化字段。

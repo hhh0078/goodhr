@@ -38,6 +38,10 @@ func (f *Flow) completeReplyBatch(ctx context.Context, prepared shared.PreparedT
 	if err := f.Cloud.CompleteAutoReplyMessage(ctx, credentials(prepared), input.Conversation.ID, input.BasedOnMessageKey, outcome); err != nil {
 		return err
 	}
+	// 回复或转人工已落账，再补同份历史简历遗漏的生日，避免补资料占用候选人的等待时间。
+	if err := f.reuseStoredStructuredResume(ctx, prepared, input.Position, input.Conversation, input.PageSnapshot, input.CandidateState, false); err != nil {
+		f.log(prepared.Request.TaskID, "backfill_resume_birth_month", "warning", time.Now(), err)
+	}
 	if queue, ok := f.Responder.(interface {
 		QueueRecommendation(context.Context, ReplyContext) error
 	}); ok {

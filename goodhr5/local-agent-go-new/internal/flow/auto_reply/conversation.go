@@ -129,6 +129,9 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	resumeOnly := len(pending) == 0
 	if resumeOnly && !autoReplyResumeRetryDue(cloudConversation.ResumeRetry, time.Now()) {
 		stats.Skipped++
+		if positionErr == nil && cloudConversation.ResumeRetry == nil {
+			return f.reuseStoredStructuredResume(ctx, prepared, position, cloudConversation, pageSnapshot, state, false)
+		}
 		return nil
 	}
 	latestCandidateKey = cloudConversation.LastCandidateMessageKey
