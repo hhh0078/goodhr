@@ -3,7 +3,7 @@ package httpapi
 
 import (
 	"context"
-	"encoding/hex"
+
 	"net/http"
 	"strings"
 
@@ -46,7 +46,7 @@ func (s *CandidateService) checkDeletedCandidates(w http.ResponseWriter, r *http
 		}
 	}
 	for _, hash := range in.SourceHashes {
-		if _, err := hex.DecodeString(hash); err != nil || len(hash) != 64 || strings.ToLower(hash) != hash {
+		if !validPurgeHash(hash) {
 			writeError(w, 400, "来源摘要格式不正确")
 			return
 		}

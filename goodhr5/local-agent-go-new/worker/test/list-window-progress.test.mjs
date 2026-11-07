@@ -65,21 +65,21 @@ function progressHarness(y, movement, containerHeight = 6000, hooks = {}) {
     if (typeof nextPosition === 'number') position = nextPosition;
     return image;
   }, viewportSize() { return viewport; } };
-  const progressView = () => ({ visible: true, box: { x: 100, y: position, width: 800, height: 160 }, viewport });
+  const progressView = () => ({ visible: true, box: { x: 100, y: position + (hooks.anchorY?.() ?? 0), width: 800, height: 160 }, viewport });
   const anchorView = { visible: true, box: { x: 100, y: 0, width: 800, height: containerHeight }, viewport };
-  const progress = { locator: { kind: 'progress' }, view: progressView(), page, matched_selector: { type: 'css', value: '.row' } };
-  const anchor = { locator: { kind: 'anchor' }, view: anchorView, page, matched_selector: { type: 'css', value: '.list' } };
+  const progress = { locator: { kind: 'progress', async boundingBox() { return progressView().box; } }, view: progressView(), page, matched_selector: { type: 'css', value: '.row' } };
+  const anchor = { locator: { kind: 'anchor', async boundingBox() { return { ...anchorView.box, y: hooks.anchorY?.() ?? 0 }; } }, view: anchorView, page, matched_selector: { type: 'css', value: '.list' } };
   const moves = [];
   const logger = { info() {}, failure() {} };
   const mouse = {
     async move(_page, x, y) { moves.push({ x, y }); },
-    async wheel(_page, _x, deltaY) { position -= deltaY * movement; metrics.wheelCalls++; hooks.onWheel?.(); },
+    async wheel(_page, _x, deltaY) { position -= deltaY * (hooks.movement?.(moves) ?? movement); metrics.wheelCalls++; hooks.onWheel?.(); },
   };
   const action = new ScrollAction(
     { async requirePage() { return page; } },
     { async one(spec) { return { resolved: spec.description === '列表项' ? progress : anchor }; } },
     new MoveAction(mouse, logger),
-    { async view(_page, locator) { reads.push(locator.kind); return locator.kind === 'progress' ? progressView() : anchorView; } },
+    { async view(_page, locator) { reads.push(locator.kind); const changed = hooks.onGeometryRead?.(locator.kind); if (typeof changed === 'number') position = changed; return locator.kind === 'progress' ? progressView() : anchorView; } },
     mouse,
     logger,
   );
@@ -175,13 +175,13 @@ test('多轮滚动仍在继续前刷新进度，最后一轮不重复刷新', as
 });
 
 test('零轮滚动仍最终复核异步插入后的末条位置，不复用开始时的可见快照', async () => {
-  const action = progressHarness(600, 0, 6000, { async afterScreenshot() { await Promise.resolve(); return 1000; } });
+  const action = progressHarness(600, 0, 6000, { onGeometryRead(kind) { if (kind === 'progress') return 1000; } });
   const result = await action.execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' }, distance: 620, stop_when_progress_visible: true, max_attempts: 1, wait_ms: 0 }, context);
   assert.equal(result.attempts, 0);
   assert.equal(action.metrics.wheelCalls, 0);
   assert.equal(result.scrolled, false);
-  assert.deepEqual(result.before, result.after);
-  assert.deepEqual(action.reads, ['progress', 'anchor']);
+  assert.notDeepEqual(result.before, result.after);
+  assert.deepEqual(action.reads, ['progress']);
   assert.equal(result.progress_target_moved, true);
   assert.equal(result.progress_target_visible, false);
 });
@@ -202,4 +202,26 @@ test('滚轮期间取消后不补发滚轮或执行结束读取', async () => {
   assert.equal(action.metrics.wheelCalls, 1);
   assert.equal(action.metrics.screenshots, 1);
   assert.deepEqual(action.reads, []);
+});
+
+test('边缘仅露窄缝时从容器内部滚动，正确证明末边到达', async () => {
+  const action = progressHarness(592, 0, 600, { movement(moves) { return moves[0].y < 450 ? 0.35 : 0; } });
+  const result = await action.execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' },
+    distance: 620, max_attempts: 100, wait_ms: 0, stop_when_progress_visible: true }, context);
+  assert.ok(action.moves[0].y >= 180 && action.moves[0].y <= 420);
+  assert.equal(result.progress_target_visible, true);
+  assert.ok(result.attempts >= 1 && result.attempts <= 2);
+  assert.equal(action.metrics.screenshots, 0);
+});
+
+test('外页和子列表同移不算容器内靠近，改点一次后有界停止', async () => {
+  let outerY = 0;
+  // 两个盒子一起随外页移动，相对位置始终不变。
+  const action = progressHarness(590, 0, 600, { anchorY: () => outerY, onWheel() { outerY -= 2; } });
+  await assert.rejects(action.execute({ progress_target: selector, wheel_anchor: { ...selector, description: '列表' },
+    distance: 2400, max_attempts: 100, wait_ms: 0, stop_when_progress_visible: true }, context),
+    error => error.code === 'SCROLL_NO_PROGRESS' && error.details.attempts === 6);
+  assert.equal(action.moves.length, 2);
+  assert.ok(action.moves[1].x < action.moves[0].x);
+  assert.equal(action.metrics.screenshots, 0);
 });

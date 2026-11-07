@@ -189,6 +189,30 @@ func ensureLiepinUnreadConversationDrawer(ctx context.Context, browser model.Bro
 
 // OpenAutoReplyConversation 重新按稳定会话编号定位联系人，并读取身份、岗位、聊天和简历卡片。
 func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation, knownMessageKeys []string, maxHistory int) (model.AutoReplyConversationSnapshot, error) {
+	snapshot, err := r.openAutoReplyContact(ctx, browser, cfg, conversation)
+	if err != nil {
+		return snapshot, err
+	}
+	history, err := readLiepinConversationHistoryDetail(ctx, browser, cfg, knownMessageKeys, maxHistory)
+	if err != nil {
+		return model.AutoReplyConversationSnapshot{}, err
+	}
+	snapshot.Gender, err = readLiepinGender(ctx, browser, cfg)
+	if err != nil {
+		return model.AutoReplyConversationSnapshot{}, err
+	}
+	snapshot.PlatformCandidateID, err = readLiepinCandidateID(ctx, browser, cfg, history.Messages)
+	if err != nil {
+		return model.AutoReplyConversationSnapshot{}, err
+	}
+	snapshot.AvatarURL = conversation.AvatarURL
+	snapshot.Messages, snapshot.HistoryComplete = history.Messages, history.HistoryComplete
+	snapshot.ResumeCardAvailable, snapshot.ResumeSourceMessageID = history.ResumeCardAvailable, history.ResumeSourceMessageID
+	return snapshot, nil
+}
+
+// openAutoReplyContact 先按平台会话编号定位，再核对当前页的人名和岗位，供普通采集和删后核身共用。
+func (r *Runtime) openAutoReplyContact(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation) (model.AutoReplyConversationSnapshot, error) {
 	if err := ensureLiepinConversationDrawer(ctx, browser, cfg); err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
 	}
@@ -204,28 +228,20 @@ func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.B
 			return model.AutoReplyConversationSnapshot{}, err
 		}
 	}
-	history, err := readLiepinConversationHistoryDetail(
-		ctx, browser, cfg, knownMessageKeys, maxHistory,
-	)
+	return model.AutoReplyConversationSnapshot{Conversation: conversation, CandidateName: name, CommunicationPosition: position, PlatformThreadID: conversation.PlatformThreadID, PlatformAccountID: conversation.PlatformAccountID}, nil
+}
+
+// InspectAutoReplyContact 只从当前会话头确认候选人编号，不采集历史消息、旧简历卡片或个人资料。
+func (r *Runtime) InspectAutoReplyContact(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation) (model.AutoReplyConversationSnapshot, error) {
+	snapshot, err := r.openAutoReplyContact(ctx, browser, cfg, conversation)
 	if err != nil {
-		return model.AutoReplyConversationSnapshot{}, err
+		return snapshot, err
 	}
-	messages := history.Messages
-	gender, err := readLiepinGender(ctx, browser, cfg)
-	if err != nil {
-		return model.AutoReplyConversationSnapshot{}, err
+	snapshot.PlatformCandidateID, err = readLiepinCandidateID(ctx, browser, cfg, nil)
+	if err == nil && snapshot.PlatformCandidateID == "" {
+		err = fmt.Errorf("没能从当前聊天核对候选人编号，稍后再试")
 	}
-	candidateID, err := readLiepinCandidateID(ctx, browser, cfg, messages)
-	if err != nil {
-		return model.AutoReplyConversationSnapshot{}, err
-	}
-	return model.AutoReplyConversationSnapshot{
-		Conversation: conversation, CandidateName: name, AvatarURL: conversation.AvatarURL, Gender: gender,
-		PlatformThreadID:    conversation.PlatformThreadID,
-		PlatformCandidateID: candidateID, PlatformAccountID: conversation.PlatformAccountID,
-		CommunicationPosition: position, Messages: messages, HistoryComplete: history.HistoryComplete,
-		ResumeCardAvailable: history.ResumeCardAvailable, ResumeSourceMessageID: history.ResumeSourceMessageID,
-	}, nil
+	return snapshot, err
 }
 
 // ReadAutoReplyMessages 从当前已经打开的聊天框读取云端游标之后的新消息，不重复打开联系人列表。
@@ -233,7 +249,8 @@ func (r *Runtime) ReadAutoReplyMessages(ctx context.Context, browser model.Brows
 	if err := ensureLiepinAutoReplyConversation(ctx, browser, cfg, snapshot); err != nil {
 		return nil, false, err
 	}
-	return readLiepinConversationHistory(ctx, browser, cfg, knownMessageKeys, maxHistory)
+	result, err := readLiepinHistoryWindow(ctx, browser, cfg, knownMessageKeys, maxHistory, snapshot.HistoryAfter)
+	return result.Messages, result.HistoryComplete, err
 }
 
 // SendAutoReplyMessage 核对候选人和沟通岗位后发送一条自动回复。

@@ -115,6 +115,17 @@ func (c *Client) ListPendingAutoReplyConversations(ctx context.Context, credenti
 			}
 			items = append(items, item)
 		}
+		probes, err := tx.ContactProbes(platformID, accountID)
+		if err != nil {
+			return err
+		}
+		for _, raw := range probes {
+			var intent AutoReplyCaptureIntent
+			if err = json.Unmarshal([]byte(raw), &intent); err != nil {
+				return err
+			}
+			items = append(items, AutoReplyConversation{PlatformID: platformID, PlatformAccountID: accountID, PlatformThreadID: intent.PlatformThreadID, CaptureIntent: &intent, CandidateName: intent.CandidateName, PositionID: intent.PositionID})
+		}
 		return nil
 	})
 	return

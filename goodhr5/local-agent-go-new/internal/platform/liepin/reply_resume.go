@@ -43,7 +43,15 @@ func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Brow
 		return model.AutoReplyResumeBundle{}, err
 	}
 	if cfg.Behavior.AutoReplyResumeLoadsHistory {
-		if err := prepareLiepinResumeSource(ctx, browser, cfg, snapshot.ResumeSourceMessageID); err != nil {
+		if snapshot.HistoryAfter != nil {
+			h, err := readLiepinHistoryWindow(ctx, browser, cfg, nil, 5000, snapshot.HistoryAfter)
+			if err != nil {
+				return model.AutoReplyResumeBundle{}, err
+			}
+			if !h.ResumeCardAvailable || snapshot.ResumeSourceMessageID == "" || h.ResumeSourceMessageID != snapshot.ResumeSourceMessageID {
+				return model.AutoReplyResumeBundle{}, fmt.Errorf("没找到本次重新联系后发来的那份附件，暂不下载")
+			}
+		} else if err := prepareLiepinResumeSource(ctx, browser, cfg, snapshot.ResumeSourceMessageID); err != nil {
 			return model.AutoReplyResumeBundle{}, err
 		}
 		if err := r.VerifyAutoReplyConversationIdentity(ctx, browser, cfg, snapshot); err != nil {

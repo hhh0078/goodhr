@@ -29,11 +29,12 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		}
 		conversation.PlatformAccountID = prepared.Request.PlatformAccountID
 	}
-	initialState, err := f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
+	lookup := cloud.AutoReplyCandidateLookup{
 		PlatformID: prepared.Platform.ID, PlatformAccountID: conversation.PlatformAccountID,
 		PlatformCandidateID: conversation.PlatformCandidateID,
 		PlatformThreadID:    persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key),
-	})
+	}
+	initialState, err := f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), lookup)
 	if err != nil {
 		stats.Failed++
 		return fmt.Errorf("读取候选人差量游标失败：%w", err)
@@ -47,28 +48,64 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			knownMessageKeys = nil
 		}
 	}
+	intent := cloud.AutoReplyCaptureIntent{PositionID: firstNonEmpty(prepared.Position.ID, prepared.Request.PositionID), PlatformThreadID: conversation.PlatformThreadID, PlatformCandidateID: conversation.PlatformCandidateID, CandidateName: conversation.Name, PagePositionText: conversation.CommunicationPosition}
+	var boundary *cloud.AutoReplyDeletionBoundary
+	var inspected *model.AutoReplyConversationSnapshot
 	if f.Cloud.LocalAutoReplyEnabled() {
-		if err = f.Cloud.BeginAutoReplyCapture(ctx, credentials(prepared), prepared.Platform.ID, conversation.PlatformAccountID,
-			persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key), cloud.AutoReplyCaptureIntent{
-				PositionID: firstNonEmpty(prepared.Position.ID, prepared.Request.PositionID), PlatformThreadID: conversation.PlatformThreadID,
-				PlatformCandidateID: conversation.PlatformCandidateID, CandidateName: conversation.Name, PagePositionText: conversation.CommunicationPosition,
-			}); err != nil {
-			if !errors.Is(err, storage.ErrAutoReplyCandidateDeleted) {
-				stats.Failed++
+		boundary, err = f.Cloud.AutoReplyDeletionBoundary(ctx, credentials(prepared), lookup)
+		if err != nil {
+			return err
+		}
+		if (boundary == nil || boundary.Sequence == 0) && initialState.Conversation != nil && initialState.Conversation.DeletionBoundary != nil {
+			boundary = initialState.Conversation.DeletionBoundary
+		}
+		// 离线后来加入的设备可能只收到来源摘要，没有旧 thread 标记。先核身再判定是否允许完整采集。
+		if boundary == nil && prepared.Platform.Behavior.SupportsPostDeletionHistory && lookup.PlatformCandidateID == "" && initialState.Conversation == nil {
+			anyDeleted, lookupErr := f.Cloud.HasAutoReplyDeletionBoundaries(ctx, credentials(prepared))
+			if lookupErr != nil {
+				return lookupErr
 			}
-			return fmt.Errorf("保存候选人会话采集进度失败，尚未打开聊天：%w", err)
+			if anyDeleted {
+				header, headErr := f.inspectUnknownContact(ctx, prepared, runtime, conversation, lookup, intent)
+				if headErr != nil {
+					return headErr
+				}
+				inspected = &header
+				lookup.PlatformCandidateID = header.PlatformCandidateID
+				intent.PlatformCandidateID = header.PlatformCandidateID
+				boundary, err = f.Cloud.AutoReplyDeletionBoundary(ctx, credentials(prepared), lookup)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		if boundary == nil {
+			if err = f.Cloud.BeginAutoReplyCapture(ctx, credentials(prepared), prepared.Platform.ID, conversation.PlatformAccountID, lookup.PlatformThreadID, intent); err != nil {
+				if !errors.Is(err, storage.ErrAutoReplyCandidateDeleted) {
+					stats.Failed++
+				}
+				return fmt.Errorf("保存候选人会话采集进度失败，尚未打开聊天：%w", err)
+			}
+			if inspected != nil {
+				if err = f.Cloud.FinishAutoReplyContactProbe(ctx, credentials(prepared), lookup); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	pageSnapshot := model.AutoReplyConversationSnapshot{}
-	if openSnapshot != nil && openSnapshot.CandidateName != "" {
+	if boundary != nil {
+		pageSnapshot, err = f.readPostDeletionConversation(ctx, prepared, runtime, conversation, openSnapshot, inspected, lookup, intent, *boundary, initialState, knownMessageKeys)
+	} else if openSnapshot != nil && openSnapshot.CandidateName != "" {
 		pageSnapshot = *openSnapshot
-		pageSnapshot.Messages, pageSnapshot.HistoryComplete, err = runtime.ReadAutoReplyMessages(
-			ctx, f.Browser, prepared.Platform, pageSnapshot, knownMessageKeys, cloud.AutoReplyMaxHistoryMessages,
-		)
+		pageSnapshot.Messages, pageSnapshot.HistoryComplete, err = runtime.ReadAutoReplyMessages(ctx, f.Browser, prepared.Platform, pageSnapshot, knownMessageKeys, cloud.AutoReplyMaxHistoryMessages)
 	} else {
 		pageSnapshot, err = runtime.OpenAutoReplyConversation(ctx, f.Browser, prepared.Platform, conversation, knownMessageKeys, cloud.AutoReplyMaxHistoryMessages)
 	}
 	if err != nil {
+		if errors.Is(err, storage.ErrAutoReplyCandidateDeleted) {
+			return err
+		}
 		stats.Failed++
 		return fmt.Errorf("打开并读取候选人会话失败：%w", err)
 	}
@@ -94,7 +131,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		}
 	}
 	state := initialState
-	if persistentConversationThreadID(pageSnapshot.PlatformThreadID, pageSnapshot.Conversation.Key) != persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key) ||
+	if boundary != nil || persistentConversationThreadID(pageSnapshot.PlatformThreadID, pageSnapshot.Conversation.Key) != persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key) ||
 		pageSnapshot.PlatformCandidateID != conversation.PlatformCandidateID ||
 		pageSnapshot.PlatformAccountID != conversation.PlatformAccountID || pageSnapshot.Phone != "" {
 		state, err = f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
@@ -460,8 +497,15 @@ func cleanMessageKeys(values []string) []string {
 func normalizePageSnapshot(conversation model.Conversation, snapshot model.AutoReplyConversationSnapshot) model.AutoReplyConversationSnapshot {
 	snapshot.Conversation = conversation
 	snapshot.CandidateName = firstNonEmpty(snapshot.CandidateName, conversation.Name)
-	snapshot.AvatarURL = firstNonEmpty(snapshot.AvatarURL, conversation.AvatarURL)
-	snapshot.Gender = firstNonEmpty(snapshot.Gender, conversation.Gender)
+	if snapshot.HistoryAfter == nil {
+		snapshot.AvatarURL = firstNonEmpty(snapshot.AvatarURL, conversation.AvatarURL)
+		snapshot.Gender = firstNonEmpty(snapshot.Gender, conversation.Gender)
+	} else {
+		// 新代仅将列表作为定位依据，旧头像、摘要或其他未知字段不进入分析上下文。
+		snapshot.AvatarURL, snapshot.Gender, snapshot.Phone = "", "", ""
+		snapshot.Conversation.AvatarURL, snapshot.Conversation.Gender, snapshot.Conversation.Summary = "", "", ""
+		snapshot.Conversation.Fields = nil
+	}
 	snapshot.PlatformThreadID = firstNonEmpty(snapshot.PlatformThreadID, conversation.PlatformThreadID)
 	snapshot.PlatformCandidateID = firstNonEmpty(snapshot.PlatformCandidateID, conversation.PlatformCandidateID)
 	snapshot.PlatformAccountID = firstNonEmpty(snapshot.PlatformAccountID, conversation.PlatformAccountID)
@@ -481,8 +525,12 @@ func (f *Flow) savePlatformIdentity(ctx context.Context, prepared shared.Prepare
 	if state.Candidate != nil {
 		candidateID = state.Candidate.ID
 	}
+	identityID := ""
+	if state.Identity != nil {
+		identityID = state.Identity.ID
+	}
 	identity, err := f.Cloud.SaveAutoReplyIdentity(ctx, credentials(prepared), cloud.CandidatePlatformIdentity{
-		CandidateID: candidateID, PlatformID: prepared.Platform.ID,
+		ID: identityID, CandidateID: candidateID, PlatformID: prepared.Platform.ID,
 		PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID,
 		CandidateName: snapshot.CandidateName, Gender: snapshot.Gender, NormalizedPhone: snapshot.Phone,
 	})
@@ -505,6 +553,7 @@ func (f *Flow) saveCloudConversation(ctx context.Context, prepared shared.Prepar
 		item.CandidateID = state.Candidate.ID
 	}
 	if state.Conversation != nil {
+		item.DeletionBoundary = state.Conversation.DeletionBoundary
 		item.ID = state.Conversation.ID
 		item.EngagementID = state.Conversation.EngagementID
 		item.LastSyncedMessageKey = state.Conversation.LastSyncedMessageKey

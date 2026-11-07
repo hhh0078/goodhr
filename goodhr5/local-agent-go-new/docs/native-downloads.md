@@ -5,7 +5,7 @@
 ## 下载链路
 
 1. Go 运行组件管理器在 `omni.ja` 中安装原生下载观察资源。Windows/Linux 使用组件根目录，macOS 支持 `Camoufox.app/Contents/Resources`。
-2. Worker 为唯一浏览器会话创建随机本地状态目录，通过 `firefoxUserPrefs` 传入路径与会话编号。
+2. Worker 为唯一浏览器会话创建随机本地状态目录，通过 `firefoxUserPrefs` 传入路径与会话编号。Windows 和 macOS 的持久、临时会话均在启动时设置 `browser.download.alwaysOpenPanel=false`，避免下载面板遮住页面按钮，用户仍可手动打开下载列表。
 3. Firefox `Browser.enable` 应用首选项后，注册 `Downloads.ALL` 观察器；启用 `goodhr.downloads.native` 时 Juggler 不拦截下载。
 4. Firefox 自己保存文件、记录原生下载历史。观察器仅将状态写入原子 JSON 快照，不控制页面或另存文件。
 5. Worker 校验会话编号、字段、绝对路径和文件大小限制，使用既有 `/api/v1/downloads` 协议供 Go 同步。

@@ -72,7 +72,10 @@ type PositionCandidate struct {
 
 // CandidateProfileInput 表示候选人主体保存参数。
 type CandidateProfileInput struct {
-	AutoReplyPositionID string // 云端核实过的自动回复岗位，用于建立本次沟通与结构化简历的关联。
+	ReopenProof           *candidateReopenProof // 仅经认证的自动回复写入入口可设置新消息和附件摘要。
+	ReopenPlatformAccount string                // 本次真实招聘账号绑定标记，用于限制代次收据重放。
+	ReopenIsAdmin         bool                  // 经服务端验证的团队管理权限，供删除事件授权校验。
+	AutoReplyPositionID   string                // 云端核实过的自动回复岗位，用于建立本次沟通与结构化简历的关联。
 	// Tags 仅保存平台或AI提供的原始简历技能标签，不参与收藏夹创建和关联。
 	Tags                []string
 	TenantID            string
@@ -197,6 +200,7 @@ type PositionCandidateListResult struct {
 
 // MemoryCandidateStore 提供开发期候选人内存存储。
 type MemoryCandidateStore struct {
+	reopenReceipts  map[string]candidateReopenReceipt
 	deletions       []memoryCandidateDeletion
 	purgeLinks      memoryCandidatePurgeLinks
 	purgeKeys       map[string]bool
@@ -217,7 +221,7 @@ type MemoryCandidateStore struct {
 func NewMemoryCandidateStore() *MemoryCandidateStore {
 	seq := 0
 	return &MemoryCandidateStore{
-		purgeKeys: map[string]bool{}, profiles: map[string]PositionCandidate{},
+		reopenReceipts: map[string]candidateReopenReceipt{}, purgeKeys: map[string]bool{}, profiles: map[string]PositionCandidate{},
 		folders:         map[string]CandidateFolder{},
 		folderLinks:     map[string]map[string]bool{},
 		engagements:     map[string]CandidateEngagement{},
@@ -239,11 +243,25 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.purgeKeys[item.TenantID+"|source|"+purgeSourceHash(item.PlatformID, candidateIdentityKey(item))] {
-		return PositionCandidate{}, errCandidateDeleted
-	}
-	if phone := normalizeCandidatePhone(item.Phone); phone != "" && s.purgeKeys[item.TenantID+"|phone|"+purgeDigest(item.TenantID, phone)] {
-		return PositionCandidate{}, errCandidateDeleted
+	sourceHash := purgeSourceHash(item.PlatformID, candidateIdentityKey(item))
+	var receipt candidateReopenReceipt
+	if item.ReopenProof != nil {
+		verified, replay, err := s.verifyMemoryReopenLocked(item, sourceHash)
+		if err != nil {
+			return PositionCandidate{}, err
+		}
+		receipt = verified
+		if replay {
+			s.linkMemoryAutoReplyPositionLocked(receipt.candidateID, item)
+			return s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: item.TenantID, UserEmail: item.UserEmail, IsAdmin: true}, s.profiles[receipt.candidateID]), nil
+		}
+	} else {
+		if s.purgeKeys[item.TenantID+"|source|"+purgeSourceHash(item.PlatformID, candidateIdentityKey(item))] {
+			return PositionCandidate{}, errCandidateDeleted
+		}
+		if phone := normalizeCandidatePhone(item.Phone); phone != "" && s.purgeKeys[item.TenantID+"|phone|"+purgeDigest(item.TenantID, phone)] {
+			return PositionCandidate{}, errCandidateDeleted
+		}
 	}
 	if structuredCandidateInput(item) {
 		matches := map[string]bool{}
@@ -318,20 +336,30 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 		profile.LibraryFields["tags"] = append([]string{}, item.Tags...)
 	}
 	saved := s.saveAutomaticProfileLocked(profile)
+	s.linkMemoryAutoReplyPositionLocked(saved.ID, item)
+	if item.ReopenProof != nil {
+		receipt.candidateID = saved.ID
+		s.reopenReceipts[item.TenantID+"|"+sourceHash] = receipt
+		s.purgeKeys[item.TenantID+"|reusedSource|"+sourceHash] = true
+	}
+	return s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: item.TenantID, UserEmail: item.UserEmail, IsAdmin: true}, saved), nil
+}
+
+// linkMemoryAutoReplyPositionLocked 在首次入库及同代重试时幂等建立本次已授权的岗位关联。
+func (s *MemoryCandidateStore) linkMemoryAutoReplyPositionLocked(candidateID string, item CandidateProfileInput) {
 	if item.AutoReplyPositionID != "" {
 		found := false
 		for _, existing := range s.engagements {
-			if existing.CandidateID == saved.ID && existing.PositionID == item.AutoReplyPositionID {
+			if existing.CandidateID == candidateID && existing.PositionID == item.AutoReplyPositionID {
 				found = true
 				break
 			}
 		}
 		if !found {
 			id := s.nextID("engagement")
-			s.engagements[id] = CandidateEngagement{ID: id, CandidateID: saved.ID, PositionID: item.AutoReplyPositionID, UserEmail: item.UserEmail, PlatformID: item.PlatformID, Status: "auto_reply", CreatedAt: now, UpdatedAt: now}
+			s.engagements[id] = CandidateEngagement{ID: id, CandidateID: candidateID, PositionID: item.AutoReplyPositionID, UserEmail: item.UserEmail, PlatformID: item.PlatformID, Status: "auto_reply", CreatedAt: s.now(), UpdatedAt: s.now()}
 		}
 	}
-	return s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: item.TenantID, UserEmail: item.UserEmail, IsAdmin: true}, saved), nil
 }
 
 // UpsertCandidateEngagement 新增或更新触达上下文。

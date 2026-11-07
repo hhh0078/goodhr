@@ -17,6 +17,13 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 	if !found {
 		return result, false, fmt.Errorf("本地会话没找到")
 	}
+	if b := conversation.DeletionBoundary; b != nil {
+		for _, m := range input.Messages {
+			if m.PlatformSentAt == nil || !m.PlatformSentAt.After(b.DeletedAt) {
+				return result, false, fmt.Errorf("重新联系的会话不接收删除前或时间不明的历史")
+			}
+		}
+	}
 	upgrading := input.MessageIdentityVersion > conversation.MessageIdentityVersion
 	if upgrading && len(input.Messages) == 0 && conversation.LastSyncedMessageKey == "" {
 		// 新的空会话没有历史可迁移，保持普通空同步；既不升级，也不制造反复采集待办。

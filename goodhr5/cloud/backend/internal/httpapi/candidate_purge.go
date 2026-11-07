@@ -9,16 +9,23 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var errCandidateDeleted = errors.New("这份简历已删除，旧任务无需再上传")
 
 // candidateDeletionEvent 仅向有关设备提供旧云端编号与来源摘要，拒绝携带候选人私密资料。
 type candidateDeletionEvent struct {
-	Sequence      int64    `json:"sequence"`
-	CandidateID   string   `json:"candidate_id"`
-	RequestHashes []string `json:"request_hashes,omitempty"`
-	SourceHashes  []string `json:"source_hashes"`
+	TenantID            string    `json:"tenant_id"`
+	DeletedAt           time.Time `json:"deleted_at"`
+	CutoffFromMigration bool      `json:"cutoff_from_migration,omitempty"`
+	ContactHashes       []string  `json:"contact_hashes,omitempty"`
+	Sequence            int64     `json:"sequence"`
+	CandidateID         string    `json:"candidate_id"`
+	RequestHashes       []string  `json:"request_hashes,omitempty"`
+	// BoundarySourceHashes 仅给新设备过滤删除前历史，不能作为物理删除本代资料的依据。
+	BoundarySourceHashes []string `json:"boundary_source_hashes"`
+	SourceHashes         []string `json:"source_hashes"`
 }
 
 // candidatePurgeStore 统一真实数据库和开发模式的精确删除及增量事件能力。
@@ -125,5 +132,5 @@ func (s *AutoReplyService) agentCandidateDeletions(w http.ResponseWriter, r *htt
 		after = events[len(events)-1].Sequence
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, map[string]any{"ok": true, "events": events, "next_cursor": after, "has_more": more})
+	writeJSON(w, 200, map[string]any{"ok": true, "boundary_version": 1, "events": events, "next_cursor": after, "has_more": more})
 }

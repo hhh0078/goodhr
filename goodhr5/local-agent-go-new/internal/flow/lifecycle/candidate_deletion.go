@@ -18,12 +18,24 @@ func (r *Runner) ConfigureCandidatePurge(imports *importflow.Manager, summaries 
 	}
 	r.autoReplyBackground.SetCandidatePurge(func(ctx context.Context, owner string, credentials cloud.AgentCredentials) error {
 		return r.cloud.SyncCandidateDeletions(ctx, credentials, func(ctx context.Context, event cloud.CandidateDeletion) error {
-			replyErr := r.cloud.PurgeLocalAutoReplyCandidate(ctx, credentials, event.CandidateID, event.SourceHashes)
+			hashes, err := r.cloud.CandidateDeletionDocumentHashes(ctx, credentials, event)
+			if err != nil {
+				return err
+			}
+			replyErr := r.cloud.ApplyAutoReplyCandidateDeletion(ctx, credentials, event)
 			screenErr := r.store.PurgeCandidateScreenings(ctx, owner, event.SourceHashes)
 			summaryErr := summaries.PurgeCandidate(ctx, owner, event.CandidateID)
-			importErr := imports.PurgeCandidate(ctx, owner, event.CandidateID, event.RequestHashes, func(ctx context.Context, owner, task string) error {
+			purgeDownload := func(ctx context.Context, owner, task string) error {
 				return downloads.PurgeImportTask(ctx, owner, task, r.store.HidePurgedDownload)
-			})
+			}
+			var importErr error
+			// 旧事件只知道升级时间，不能把升级前重新导入的未入库草稿推认为旧资料。
+			if !event.CutoffFromMigration {
+				importErr = imports.PurgeCandidateCopies(ctx, owner, event.CandidateID, event.DeletedAt, hashes, event.RequestHashes, purgeDownload)
+			}
+			if importErr == nil {
+				importErr = imports.PurgeCandidate(ctx, owner, event.CandidateID, event.RequestHashes, purgeDownload)
+			}
 			return errors.Join(replyErr, screenErr, summaryErr, importErr)
 		})
 	})

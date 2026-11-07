@@ -8,14 +8,20 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 // CandidateDeletion 只传递旧简历编号和来源摘要，不在设备间传递简历正文。
 type CandidateDeletion struct {
-	Sequence      int64    `json:"sequence"`
-	CandidateID   string   `json:"candidate_id"`
-	SourceHashes  []string `json:"source_hashes"`
-	RequestHashes []string `json:"request_hashes"`
+	BoundarySourceHashes []string  `json:"boundary_source_hashes,omitempty"`
+	TenantID             string    `json:"tenant_id,omitempty"`
+	ContactHashes        []string  `json:"contact_hashes,omitempty"`
+	DeletedAt            time.Time `json:"deleted_at,omitempty"`
+	CutoffFromMigration  bool      `json:"cutoff_from_migration,omitempty"`
+	Sequence             int64     `json:"sequence"`
+	CandidateID          string    `json:"candidate_id"`
+	SourceHashes         []string  `json:"source_hashes"`
+	RequestHashes        []string  `json:"request_hashes"`
 }
 
 // IsCandidateDeleted 仅当服务端明确确认删除才停止重试，权限或网络错误仍由原流程恢复。
@@ -26,8 +32,9 @@ func IsCandidateDeleted(err error) bool {
 
 // deletionProgress 将领取水位及尚待重试的独立事件同时落盘，单份文件占用不会阻断以后其他简历的清理。
 type deletionProgress struct {
-	Cursor  int64               `json:"cursor"`
-	Pending []CandidateDeletion `json:"pending,omitempty"`
+	BoundaryVersion int                 `json:"boundary_version,omitempty"`
+	Cursor          int64               `json:"cursor"`
+	Pending         []CandidateDeletion `json:"pending,omitempty"`
 }
 
 // SyncCandidateDeletions 按服务地址和账号分别续读；断电或切号可能重放已执行步骤，清理步骤必须幂等。
@@ -72,10 +79,11 @@ func (c *Client) SyncCandidateDeletions(ctx context.Context, credentials AgentCr
 	}
 	for {
 		var page struct {
-			OK         bool                `json:"ok"`
-			Events     []CandidateDeletion `json:"events"`
-			NextCursor int64               `json:"next_cursor"`
-			HasMore    bool                `json:"has_more"`
+			BoundaryVersion int                 `json:"boundary_version"`
+			OK              bool                `json:"ok"`
+			Events          []CandidateDeletion `json:"events"`
+			NextCursor      int64               `json:"next_cursor"`
+			HasMore         bool                `json:"has_more"`
 		}
 		path := autoReplyAgentBasePath + "/candidate-deletions?after=" + strconv.FormatInt(state.Cursor, 10)
 		err = c.doBody(ctx, http.MethodGet, path, credentials.Token, credentials.MachineID, "", nil, &page)
@@ -88,6 +96,20 @@ func (c *Client) SyncCandidateDeletions(ctx context.Context, credentials AgentCr
 		}
 		if !page.OK || page.NextCursor < state.Cursor || page.HasMore && page.NextCursor <= state.Cursor {
 			return fmt.Errorf("云端没有确认简历清理进度")
+		}
+		if page.BoundaryVersion >= 1 && state.BoundaryVersion < 1 {
+			// Agent 或云端先升级均可：新服务明确支持删除时间后，从头补收已确认事件一次。
+			state.BoundaryVersion = 1
+			if state.Cursor > 0 {
+				state.Cursor = 0
+				if err = save(); err != nil {
+					return err
+				}
+				continue
+			}
+			if err = save(); err != nil {
+				return err
+			}
 		}
 		previous := state.Cursor
 		for _, event := range page.Events {

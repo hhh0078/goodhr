@@ -48,6 +48,8 @@ export class DownloadManager {
       "browser.download.dir": this.downloadsPath,
       "browser.download.folderList": 2,
       "browser.download.useDownloadDir": true,
+      // 仅禁止下载开始时自动展开工具栏面板，用户仍可手动打开，文件继续由原生下载器保存。
+      "browser.download.alwaysOpenPanel": false,
     };
   }
 

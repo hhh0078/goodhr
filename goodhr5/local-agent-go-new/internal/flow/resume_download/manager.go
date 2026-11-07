@@ -73,6 +73,7 @@ type Manager struct {
 	cancelSession                context.CancelFunc
 	cancelRun                    context.CancelFunc
 	notification                 *downloadNotification
+	files                        *purgeFiles
 	done                         chan struct{}
 }
 
@@ -365,6 +366,11 @@ func (m *Manager) PurgeImportTask(ctx context.Context, owner, taskID string, hid
 	for id, item := range m.entries {
 		if item.Owner == owner && item.TaskID == "" && item.Status == "duplicate_file" && hashes[item.Hash] {
 			removed[id] = item
+		}
+	}
+	if m.files != nil {
+		if err := m.removeVerifiedFiles(ctx, removed); err != nil {
+			return err
 		}
 	}
 	for id := range removed {

@@ -33,6 +33,9 @@ type avatarScreenshotBrowser interface {
 // syncCandidateAvatarBestEffort 在候选人编号确认后同步头像，失败只记警告且不阻断回复流程。
 // 返回值表示本轮已经处理过头像，避免同一候选人在正式入库前后重复上传。
 func (f *Flow) syncCandidateAvatarBestEffort(ctx context.Context, prepared shared.PreparedTask, snapshot model.AutoReplyConversationSnapshot, candidate *cloud.AutoReplyStoredCandidate, runtime model.AutoReplyRuntime) bool {
+	if snapshot.HistoryAfter != nil {
+		return true
+	}
 	if candidate == nil || strings.TrimSpace(candidate.ID) == "" {
 		return false
 	}

@@ -100,6 +100,17 @@ func (c *Client) SyncAutoReplyStructuredCandidate(ctx context.Context, credentia
 		if err = json.Unmarshal(row.Data, &candidate); err != nil {
 			return err
 		}
+		conv, err := candidateContact(tx, localCandidateID)
+		if err != nil {
+			return err
+		}
+		if conv.DeletionBoundary != nil && (conv.PlatformID != input.PlatformID || conv.PlatformAccountID != input.PlatformAccountID || conv.DeletionBoundary.SourceHash != autoReplyDigest(input.PlatformID+"\x00"+input.PlatformCandidateID)) {
+			return fmt.Errorf("新简历上传来源与本地会话不一致")
+		}
+		safe.ReopenProof, err = storedContactAttachmentProof(tx, conv, candidate.ResumeSourceMessageID)
+		if err != nil {
+			return err
+		}
 		revision = row.Revision
 		safe.StructuredCandidate = structuredLocalAutoReplyCandidate(candidate)
 		safe.Gender = candidate.Gender

@@ -76,6 +76,16 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 				return err
 			}
 			item.ID = "identity-" + autoReplyDigest(item.PlatformID+"|"+item.PlatformAccountID+"|"+item.PlatformCandidateID)
+			conv, err := candidateContact(tx, item.CandidateID)
+			if err != nil {
+				return err
+			}
+			if conv.DeletionBoundary != nil {
+				if conv.PlatformID != item.PlatformID || conv.PlatformAccountID != item.PlatformAccountID || conv.DeletionBoundary.SourceHash != autoReplyDigest(item.PlatformID+"\x00"+item.PlatformCandidateID) {
+					return fmt.Errorf("新联系与当前平台身份不一致")
+				}
+				item.ID = conv.PlatformIdentityID
+			}
 			old, exists, err := getAutoReplyEntity[CandidatePlatformIdentity](tx, "identities", item.ID)
 			if err != nil {
 				return err
@@ -109,6 +119,7 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 				if old.PlatformID != item.PlatformID || old.PlatformAccountID != item.PlatformAccountID || old.PlatformThreadID != item.PlatformThreadID {
 					return fmt.Errorf("会话账号归属发生变化，请重新识别")
 				}
+				item.DeletionBoundary, item.ReopenInboundAt, item.ReopenInboundHash = old.DeletionBoundary, old.ReopenInboundAt, old.ReopenInboundHash
 				item.CreatedAt = old.CreatedAt
 				item.LastSyncedMessageKey = old.LastSyncedMessageKey
 				item.LastCandidateMessageKey = old.LastCandidateMessageKey

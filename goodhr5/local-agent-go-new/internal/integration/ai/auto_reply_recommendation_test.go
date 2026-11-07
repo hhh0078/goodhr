@@ -30,6 +30,9 @@ func TestAutoReplyRecommendationKeepsTrustedSnapshot(t *testing.T) {
 		if len(request.Messages) != 2 || strings.Contains(request.Messages[0].Content, "动态候选人") || !strings.Contains(request.Messages[1].Content, "动态候选人") {
 			t.Errorf("推荐提示词边界失效：%+v", request)
 		}
+		if len(request.Messages) == 2 && !strings.Contains(request.Messages[0].Content, "现有资料未展示") {
+			t.Error("推荐分析应提示模型将未展示的经历留待核实")
+		}
 		content, _ := json.Marshal(`{"match_score":82,"recommendation_level":"建议推进","executive_summary":"满足已确认条件","candidate":{"id":"forged","name":"伪造身份"}}`)
 		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%s}}]}`, content)
 	}))

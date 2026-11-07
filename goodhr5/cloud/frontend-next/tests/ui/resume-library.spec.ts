@@ -59,6 +59,12 @@ async function mockResumeSession(page: Page): Promise<State> {
       else if (url.pathname.startsWith("/api/v1/resume-import/tasks")) {
         if (state.taskPlain404) return route.fulfill({ status: 404, headers, contentType: "text/plain", body: "404 page not found" });
         if (state.taskListEmpty && method === "GET" && url.pathname === "/api/v1/resume-import/tasks") return route.fulfill({ status: 200, headers, json: { ok: true, data: { tasks: [] } } });
+        if (url.pathname.endsWith("/discard")) {
+          if (method === "GET") return route.fulfill({ status: 200, headers, json: { ok: true, data: { revision: "current-draft-revision" } } });
+          if (body?.revision !== "current-draft-revision") return route.fulfill({ status: 409, headers, json: { ok: false, error: { message: "草稿或文件已变化" } } });
+          state.task.items = state.task.items.filter((item: any) => item.id !== url.pathname.split("/").at(-2));
+          state.task.total = state.task.processed = state.task.items.length;
+        }
         if (url.pathname.endsWith("/confirm")) {
           if (state.calls.filter((call) => call.path.endsWith("/confirm")).length === state.failConfirmAt) return route.fulfill({ status: 503, headers, json: { error: { message: "模拟本地确认暂时没完成" } } });
           for (const item of body.items) {
@@ -1912,6 +1918,32 @@ test("AI草稿比较更新只提交预览中的有效改动，空邮箱和空经
   expect(state.folders || []).toEqual([]);
   expect(state.errors).toEqual([]);
 });
+
+for (const width of [1280, 390]) {
+  test(`移除草稿仅在确认后清理当前条目 - ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 860 });
+    const state = await mockResumeSession(page);
+    state.task.items = [{ id: "discard-one", file_name: "待清理.pdf", status: "ready", candidate: { candidate_name: "示例甲" } }, { id: "keep-one", file_name: "保留.pdf", status: "ready", candidate: { candidate_name: "示例乙" } }];
+    await page.goto("/admin/resumes?resume_import_id=import-test");
+    const row = page.getByRole("row").filter({ hasText: "待清理.pdf" });
+    await row.getByRole("button", { name: "移除草稿" }).click();
+    const confirm = page.getByRole("dialog", { name: "移除这份本机草稿？" });
+    await expect(confirm.getByText("待清理.pdf")).toBeVisible();
+    await expect(confirm.getByText(/你的下载文件夹和云端简历都会保留/)).toBeVisible();
+    if (process.env.UI_TEST_SCREENSHOT_DIR) {
+      mkdirSync(screenshotDirectory, { recursive: true });
+      await page.screenshot({ animations: "disabled", path: resolve(screenshotDirectory, `discard-draft-${width}.png`) });
+    }
+    await confirm.getByRole("button", { name: "保留草稿" }).click();
+    expect(state.calls.filter((call) => call.path.endsWith("/discard") && call.method === "POST")).toHaveLength(0);
+    await row.getByRole("button", { name: "移除草稿" }).click();
+    await confirm.getByRole("button", { name: "确认移除" }).click();
+    await expect(row).toHaveCount(0);
+    await expect(page.getByRole("row").filter({ hasText: "保留.pdf" })).toBeVisible();
+    const writes = state.calls.filter((call) => call.path.endsWith("/discard") && call.method === "POST");
+    expect(writes.map(({path,body}) => [path,body])).toEqual([["/api/v1/resume-import/tasks/import-test/items/discard-one/discard",{revision:"current-draft-revision"}]]);
+  });
+}
 
 test("大正文批次逐份确认，途中失败后只继续未完成草稿", async ({ page }) => {
   const state = await mockResumeSession(page);

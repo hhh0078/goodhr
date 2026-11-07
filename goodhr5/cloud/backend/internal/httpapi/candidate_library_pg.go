@@ -472,6 +472,9 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	if err != nil {
 		return PositionCandidate{}, err
 	}
+	if input.ReopenProof != nil && input.TenantID != tenantID {
+		return PositionCandidate{}, errCandidateDeleted
+	}
 	scope := CandidateLibraryScope{TenantID: tenantID, UserEmail: input.UserEmail, IsAdmin: true}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -481,8 +484,11 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	if err = lockCandidateDeletion(ctx, tx, tenantID, false); err != nil {
 		return PositionCandidate{}, err
 	}
-	if err = rejectPurgedKey(ctx, tx, tenantID, "source", purgeSourceHash(input.PlatformID, candidateIdentityKey(input))); err != nil {
-		return PositionCandidate{}, err
+	sourceHash := purgeSourceHash(input.PlatformID, candidateIdentityKey(input))
+	if input.ReopenProof == nil {
+		if err = rejectPurgedKey(ctx, tx, tenantID, "source", sourceHash); err != nil {
+			return PositionCandidate{}, err
+		}
 	}
 	// 自动回复先锁手机号，再锁来源，与现有人工入口保持一致的加锁顺序。
 	if structuredCandidateInput(input) && normalizeCandidatePhone(input.Phone) != "" {
@@ -499,16 +505,39 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return PositionCandidate{}, err
 	}
-	if structuredCandidateInput(input) {
-		id, err = automaticCandidatePhoneID(ctx, tx, tenantID, id, input.Phone)
+	var receipt candidateReopenReceipt
+	var replay bool
+	if input.ReopenProof != nil {
+		receipt, replay, err = verifyReopenTx(ctx, tx, tenantID, sourceHash, id, input)
 		if err != nil {
 			return PositionCandidate{}, err
 		}
-	}
-	if phone := normalizeCandidatePhone(input.Phone); id == "" && phone != "" {
+		if replay {
+			// 重复回包仍校验岗位归属，资料不再重复合并或递增版本。
+			old, readErr := candidateReadTx(ctx, tx, scope, id, false)
+			if readErr != nil {
+				return PositionCandidate{}, readErr
+			}
+			if err = linkAutoReplyCandidatePosition(ctx, tx, tenantID, id, input.AutoReplyPositionID, input.PlatformID); err != nil {
+				return PositionCandidate{}, err
+			}
+			return old, tx.Commit()
+		}
+	} else if phone := normalizeCandidatePhone(input.Phone); id == "" && phone != "" {
+		// 必须在手机号合并前挡住旧上传，否则新资料出现后，迟到的未知来源可能按同号改写新档。
 		if err = rejectPurgedKey(ctx, tx, tenantID, "phone", purgeDigest(tenantID, phone)); err != nil {
 			return PositionCandidate{}, err
 		}
+	}
+	if structuredCandidateInput(input) {
+		byPhone, phoneErr := automaticCandidatePhoneID(ctx, tx, tenantID, id, input.Phone)
+		if phoneErr != nil {
+			return PositionCandidate{}, phoneErr
+		}
+		if input.ReopenProof != nil && byPhone != id {
+			return PositionCandidate{}, ErrCandidateDuplicate
+		}
+		id = byPhone
 	}
 	var old PositionCandidate
 	if id != "" {
@@ -564,6 +593,11 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	}
 	if input.AutoReplyPositionID != "" {
 		if err = linkAutoReplyCandidatePosition(ctx, tx, tenantID, id, input.AutoReplyPositionID, input.PlatformID); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
+	if input.ReopenProof != nil {
+		if err = saveReopenReceiptTx(ctx, tx, tenantID, sourceHash, id, input.ReopenProof.DeletionSequence, receipt); err != nil {
 			return PositionCandidate{}, err
 		}
 	}

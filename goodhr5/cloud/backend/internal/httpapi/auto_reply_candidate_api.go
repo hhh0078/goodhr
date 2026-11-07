@@ -20,6 +20,10 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 	if !ok || !allowAutoReplyStructuredResult(w, position) {
 		return
 	}
+	if payload.ReopenProof != nil && requestContext.Session.Kind == extensionSessionKind {
+		writeAutoReplyError(w, 403, "DEVICE_BINDING_REQUIRED", "重新建档请使用已绑定的本地程序")
+		return
+	}
 	if payload.RawText != "" || len(payload.Communications) != 0 || payload.AvatarURL != "" {
 		writeAutoReplyError(w, http.StatusBadRequest, "LOCAL_DATA_ONLY", "原始简历、聊天和平台头像地址请留在本机")
 		return
@@ -39,6 +43,7 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 		return
 	}
 	profile, err := s.candidates.SaveCandidateProfile(CandidateProfileInput{
+		ReopenProof: payload.ReopenProof, ReopenPlatformAccount: payload.PlatformAccountID, ReopenIsAdmin: requestContext.IsAdmin,
 		TenantID: requestContext.Tenant.ID, UserEmail: requestContext.Session.Email, AutoReplyPositionID: position.ID,
 		PlatformID: position.PlatformID, PlatformCandidateID: strings.TrimSpace(payload.PlatformCandidateID),
 		CandidateName: candidateString(fields, "candidate_name"), BirthYM: candidateString(fields, "birth_ym"),

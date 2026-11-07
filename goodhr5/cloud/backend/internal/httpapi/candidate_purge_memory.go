@@ -46,10 +46,13 @@ func (s *MemoryCandidateStore) candidateDeletions(_ context.Context, tenant, ema
 		keys, ok := e.recipients[strings.ToLower(email)]
 		if e.tenant == tenant && e.event.Sequence > after && (admin || ok) {
 			item := e.event
+			item.BoundarySourceHashes = append([]string{}, e.event.SourceHashes...)
 			item.SourceHashes = []string{}
 			for _, h := range e.event.SourceHashes {
 				if !s.purgeKeys[tenant+"|reusedSource|"+h] {
 					item.SourceHashes = append(item.SourceHashes, h)
+				} else {
+					item.ContactHashes = nil
 				}
 			}
 			item.RequestHashes = keys
@@ -124,6 +127,13 @@ func (s *MemoryCandidateStore) purgeCandidate(ctx context.Context, scope Candida
 			delete(s.purgeKeys, tenant+"|reusedSource|"+hash)
 		}
 	}
+	for _, h := range s.inheritedMemoryReopenSourcesLocked(tenant, id) {
+		if !sources[h] {
+			hashes = append(hashes, h)
+			sources[h] = true
+		}
+	}
+	var contacts []string
 	phone := normalizeCandidatePhone(item.Phone)
 	if phone != "" {
 		shared := false
@@ -134,6 +144,7 @@ func (s *MemoryCandidateStore) purgeCandidate(ctx context.Context, scope Candida
 			}
 		}
 		if !shared {
+			contacts = append(contacts, purgeDigest("phone", tenant, phone))
 			s.purgeKeys[tenant+"|phone|"+purgeDigest(tenant, phone)] = true
 		}
 	}
@@ -219,6 +230,11 @@ func (s *MemoryCandidateStore) purgeCandidate(ctx context.Context, scope Candida
 	delete(s.events, id)
 	delete(s.notes, id)
 	delete(s.profiles, id)
-	s.deletions = append(s.deletions, memoryCandidateDeletion{event: candidateDeletionEvent{Sequence: int64(len(s.deletions) + 1), CandidateID: id, SourceHashes: hashes}, tenant: tenant, owner: item.UserEmail, version: version, recipients: recipients})
+	for k, r := range s.reopenReceipts {
+		if r.candidateID == id {
+			delete(s.reopenReceipts, k)
+		}
+	}
+	s.deletions = append(s.deletions, memoryCandidateDeletion{event: candidateDeletionEvent{TenantID: tenant, DeletedAt: s.now().UTC(), ContactHashes: contacts, Sequence: int64(len(s.deletions) + 1), CandidateID: id, SourceHashes: hashes}, tenant: tenant, owner: item.UserEmail, version: version, recipients: recipients})
 	return nil
 }

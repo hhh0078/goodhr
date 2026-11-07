@@ -252,7 +252,7 @@ func (m *Manager) MarkSaved(ctx context.Context, owner, token, id string, items 
 			m.mu.Unlock()
 			continue
 		}
-		if _, busy := m.saving[input.ID]; busy || stored.Confirmations[input.ID] != nil || item.Status == "queued" || item.Status == "parsing" {
+		if _, busy := m.saving[input.ID]; busy || stored.Confirmations[input.ID] != nil || item.Status == "discarding" || item.Status == "queued" || item.Status == "parsing" {
 			m.mu.Unlock()
 			return Task{}, ErrBusy
 		}

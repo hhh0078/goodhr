@@ -62,12 +62,26 @@ func newLoggedRuntime(runtime model.Runtime, taskID string, logger shared.Logger
 		if detailBrowser, ok := runtime.(model.DetailBrowser); ok {
 			detail := &loggedDetailAutoReplyRuntime{loggedAutoReplyRuntime: reply, detailBrowser: detailBrowser}
 			if canVerify {
-				return &loggedVerifiedDetailAutoReplyRuntime{loggedDetailAutoReplyRuntime: detail, AutoReplyIdentityVerifier: identity}
+				verified := &loggedVerifiedDetailAutoReplyRuntime{loggedDetailAutoReplyRuntime: detail, AutoReplyIdentityVerifier: identity}
+				if inspector, ok := runtime.(model.AutoReplyContactInspector); ok {
+					return struct {
+						*loggedVerifiedDetailAutoReplyRuntime
+						model.AutoReplyContactInspector
+					}{verified, inspector}
+				}
+				return verified
 			}
 			return detail
 		}
 		if canVerify {
-			return &loggedVerifiedAutoReplyRuntime{loggedAutoReplyRuntime: reply, AutoReplyIdentityVerifier: identity}
+			verified := &loggedVerifiedAutoReplyRuntime{loggedAutoReplyRuntime: reply, AutoReplyIdentityVerifier: identity}
+			if inspector, ok := runtime.(model.AutoReplyContactInspector); ok {
+				return struct {
+					*loggedVerifiedAutoReplyRuntime
+					model.AutoReplyContactInspector
+				}{verified, inspector}
+			}
+			return verified
 		}
 		return reply
 	}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/storage"
 )
@@ -30,13 +31,38 @@ func (c *Client) PurgeLocalAutoReplyCandidate(ctx context.Context, credentials A
 }
 
 // purgeAutoReplyCandidate 也接受云端明确拒绝一次上传时的本地来源，避免首次上传尚无云映射留下孤立资料。
-func (c *Client) purgeAutoReplyCandidate(ctx context.Context, credentials AgentCredentials, cloudID string, sources []string, rejectedLocalID string) error {
+func (c *Client) purgeAutoReplyCandidate(ctx context.Context, credentials AgentCredentials, cloudID string, sources []string, rejectedLocalID string, events ...CandidateDeletion) error {
 	eventKey := "cloud:" + cloudID
 	if cloudID == "" {
 		eventKey = "local:" + rejectedLocalID
 	}
 	err := c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
 		targets := map[string]bool{}
+		for _, event := range events {
+			if event.Sequence <= 0 {
+				return fmt.Errorf("删除事件缺少代次")
+			}
+			stamp := ""
+			if !event.DeletedAt.IsZero() {
+				stamp = event.DeletedAt.UTC().Format(time.RFC3339Nano)
+			}
+			sources = nil
+			// 登记截止时间可使用已人工重新建档的来源；物理删除只能采用云端另行授权的来源集合。
+			for _, hash := range event.SourceHashes {
+				previous, _, err := tx.ContactDeletion(hash)
+				if err != nil {
+					return err
+				}
+				if previous < event.Sequence {
+					sources = append(sources, hash)
+				}
+			}
+			for _, hash := range append(append([]string{}, event.BoundarySourceHashes...), event.SourceHashes...) {
+				if err := tx.RememberContactDeletion(hash, event.Sequence, stamp); err != nil {
+					return err
+				}
+			}
+		}
 		if cloudID != "" {
 			ids, err := tx.CloudLinksByCandidate(cloudID)
 			if err != nil {
@@ -461,4 +487,35 @@ func (c *Client) retryPurgedEventFiles(ctx context.Context, credentials AgentCre
 		result = errors.Join(result, c.cleanPurgedEventFiles(ctx, credentials, key))
 	}
 	return result
+}
+
+// CandidateDeletionDocumentHashes 仅从精确云编号对应的正式本地候选提取受管附件摘要，删除后可供同一事件重试。
+func (c *Client) CandidateDeletionDocumentHashes(ctx context.Context, cred AgentCredentials, event CandidateDeletion) (hashes []string, err error) {
+	if event.CandidateID == "" || event.CandidateID == BuiltinCandidateID {
+		return nil, fmt.Errorf("删除事件缺少云简历编号")
+	}
+	if _, ok := c.localAutoOwners.Load(autoReplyDigest(cred.Token)); !ok {
+		return nil, fmt.Errorf("清理简历前需要核对当前登录账号")
+	}
+	err = c.autoReplyTransaction(ctx, cred, func(tx *storage.AutoReplyTx) error {
+		ids, err := tx.CloudLinksByCandidate(event.CandidateID)
+		if err != nil {
+			return err
+		}
+		var docs []string
+		for _, id := range ids {
+			attachments, err := listAutoReplyEntities[localAttachment](tx, "attachments", autoReplyFilter("candidate_id", id))
+			if err != nil {
+				return err
+			}
+			for _, file := range attachments {
+				if file.RelativePath != "" && len(file.SHA256) == 64 {
+					docs = append(docs, file.SHA256)
+				}
+			}
+		}
+		hashes, err = tx.RememberDeletionDocuments(event.CandidateID, docs)
+		return err
+	})
+	return
 }

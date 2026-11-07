@@ -58,6 +58,9 @@ func TestLoggedLiepinTargetAssembly(t *testing.T) {
 		t.Fatal(err)
 	}
 	wrapped := newLoggedRuntime(runtime, "synthetic-identity-task", nil)
+	if _, ok := wrapped.(model.AutoReplyContactInspector); !ok {
+		t.Fatal("正式猎聘日志包装丢失删除后只核实新联系的能力")
+	}
 	identity, ok := wrapped.(model.AutoReplyIdentityVerifier)
 	if !ok {
 		t.Fatal("正式猎聘日志包装丢失实时身份核验能力")

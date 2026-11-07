@@ -69,6 +69,9 @@ export class ScrollAction {
       const anchor = request.wheel_anchor
         ? await this.find.one(request.wheel_anchor, actionContext, true)
         : target;
+      if (progress && anchor && !target && request.wheel_anchor && request.stop_when_progress_visible && !isDocumentScrollAnchor(anchor)) {
+        return await this.scrollToContainerEdge(request, progress, anchor, actionContext);
+      }
       const progressArea = progress
         ? calculateVisibleArea(progress.resolved.view, request.wheel_anchor ? scrollContainerView(anchor) : undefined, 0)
         : undefined;
@@ -266,6 +269,83 @@ export class ScrollAction {
       this.logger.failure(actionContext, normalized);
       throw normalized;
     }
+  }
+
+  /** scrollToContainerEdge 将真实滚轮放在容器中部，核实消息边缘相对于容器的位移，防止页面浮层接收滚轮。 */
+  private async scrollToContainerEdge(request: ScrollRequest, progress: FoundElement, anchor: FoundElement, ctx: ActionContext): Promise<ScrollResult> {
+    const before = progress.resolved.view;
+    let current = before;
+    const area = () => calculateVisibleArea(current, anchor.resolved.view, 0);
+    const relativeEdge = () => current.box.y - anchor.resolved.view.box.y + (request.distance > 0 ? current.box.height : 0);
+    const initialEdge = relativeEdge();
+    const initialAnchor = anchor.resolved.view.box;
+    let previousEdge = initialEdge;
+    let attempts = 0;
+    let stalled = 0;
+    let alternate = false;
+    const maxAttempts = Math.max(1, request.max_attempts ?? 1);
+    /** moveInside 将落点限制在滚动容器可见交集内，重新选点时改用中部偏左，避开固定按钮。 */
+    const moveInside = async (): Promise<void> => {
+      const clip = area();
+      assertTargetCanFit(current, clip, false, ctx);
+      if (alternate) {
+        clip.right = clip.left + clip.width * 0.32;
+        clip.left += clip.width * 0.12;
+        clip.width = clip.right - clip.left;
+      }
+      await this.move.toElement(anchor.resolved, ctx, { centered: true, visibleArea: clip });
+    };
+    /** refreshBoxes 使用标准 Locator 仅读两处矩形，最终可见判断另以实时视口复核。 */
+    const refreshBoxes = async (): Promise<void> => {
+      assertRequestActive(ctx);
+      const [box, anchorBox] = await Promise.all([progress.resolved.locator.boundingBox(), anchor.resolved.locator.boundingBox()]);
+      assertRequestActive(ctx);
+      if (!box || !anchorBox || box.height <= 0 || anchorBox.height <= 0 || box.width <= 0 || anchorBox.width <= 0) {
+        throw new WorkerError({ code: "SCROLL_FAILED", message: "滚动容器或目标已离开页面，请重新读取", action: ctx.action,
+          step: "scroll", trace_id: ctx.trace_id, retryable: true });
+      }
+      const viewport = progress.resolved.page.viewportSize() ?? current.viewport;
+      current = { ...current, box, viewport };
+      anchor.resolved.view = { ...anchor.resolved.view, box: anchorBox, viewport };
+    };
+    this.logGeometry(ctx, "progress_initial", current, anchor, area());
+    while (attempts < maxAttempts && !progressEdgeVisible(current, anchor, request.distance)) {
+      if (attempts === 0) await moveInside();
+      const delta = variedDistance(request.distance);
+      this.logger.info(ctx, "wheel", "start", { attempt: attempts + 1, delta_x: 0, delta_y: delta });
+      await wheelGesture(this.mouse, progress.resolved.page, 0, delta, ctx, this.logger);
+      await readingPause(Math.max(50, request.wait_ms ?? 250), ctx);
+      attempts++;
+      await refreshBoxes();
+      const edge = relativeEdge();
+      stalled = Math.abs(edge - previousEdge) <= 1 ? stalled + 1 : 0;
+      previousEdge = edge;
+      const visible = progressEdgeVisible(current, anchor, request.distance);
+      this.logger.info(ctx, "wheel", "success", { attempt: attempts, delta_y: delta, relative_edge_y: edge,
+        target_y: current.box.y, anchor_y: anchor.resolved.view.box.y, progress_target_visible: visible });
+      if (!visible && stalled >= 3 && !alternate && attempts < maxAttempts) {
+        alternate = true;
+        stalled = 0;
+        await moveInside();
+      } else if (!visible && stalled >= 3 && alternate) {
+        this.logGeometry(ctx, "progress_stalled", current, anchor, area());
+        throw new WorkerError({ code: "SCROLL_NO_PROGRESS", message: "已换过滚轮落点，列表目标仍未靠近边缘，请检查遮挡后再试",
+          action: ctx.action, step: "wheel", trace_id: ctx.trace_id, retryable: true,
+          details: { attempts, initial_relative_y: initialEdge, last_relative_y: edge } });
+      }
+    }
+    // 零轮和滚动后的成功均需复核实际视口；固定视口未配置时仅在最终核验读取一次视口截图。
+    current = await this.refreshTarget(progress.resolved);
+    await refreshBoxes();
+    const visible = progressEdgeVisible(current, anchor, request.distance);
+    const moved = Math.abs(relativeEdge() - initialEdge) > 1;
+    this.logGeometry(ctx, "progress_final", current, anchor, area());
+    this.logger.info(ctx, "scroll_progress", "success", { attempts, progress_target_moved: moved, progress_target_visible: visible,
+      before_y: before.box.y, after_y: current.box.y, initial_relative_y: initialEdge, last_relative_y: relativeEdge() });
+    this.logger.info(ctx, "scroll", "success", { attempts });
+    return { scrolled: attempts > 0 && moved, attempts, distance: request.distance, progress_target_visible: visible, progress_target_moved: moved,
+      before: { target_box: { ...before.box }, anchor_box: { ...initialAnchor }, relative_edge_y: initialEdge },
+      after: { target_box: { ...current.box }, anchor_box: { ...anchor.resolved.view.box }, relative_edge_y: relativeEdge() } };
   }
 
   /** ensureVisible 让目标进入视口，并返回移动前重读容器交集的方法；目标稳定和原生恢复后也不沿用旧裁剪区。 */

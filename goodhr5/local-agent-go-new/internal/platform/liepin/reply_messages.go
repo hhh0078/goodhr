@@ -37,6 +37,11 @@ func readLiepinConversationHistory(ctx context.Context, browser model.Browser, c
 
 // readLiepinConversationHistoryDetail 加载时只读首尾稳定编号；到达已知边界、真实顶部或上限后才读取完整消息字段。
 func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Browser, cfg model.Config, knownMessageKeys []string, maxHistory int) (result liepinConversationHistory, err error) {
+	return readLiepinHistoryWindow(ctx, browser, cfg, knownMessageKeys, maxHistory, nil)
+}
+
+// readLiepinHistoryWindow 到达已知消息或本代删除时间即停止翻页，始终回到最新端供发送前核实。
+func readLiepinHistoryWindow(ctx context.Context, browser model.Browser, cfg model.Config, knownMessageKeys []string, maxHistory int, after *time.Time) (result liepinConversationHistory, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	if maxHistory <= 0 || maxHistory > 5000 {
@@ -89,13 +94,17 @@ func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Brow
 		atTop := stableReadAttempts >= liepinHistoryStableReadAttempts
 		atLimit := tail.TotalMatches >= maxHistory
 		// 差量边界可能在中间；同一首尾和数量只完整核对一次，纯滚动不重复读取全部字段。
-		if atTop || atLimit || (cachedItems == nil && len(knownMessageKeys) > 0) {
-			cachedItems, cachedResult, err = readLiepinFullHistory(ctx, browser, cfg)
+		if atTop || atLimit || (cachedItems == nil && (after != nil || len(knownMessageKeys) > 0)) {
+			if after == nil {
+				cachedItems, cachedResult, err = readLiepinFullHistory(ctx, browser, cfg)
+			} else {
+				cachedItems, cachedResult, err = readLiepinRecontactTail(ctx, browser, cfg, *after, knownMessageKeys, maxHistory)
+			}
 			if err != nil {
 				return liepinConversationHistory{}, err
 			}
 			fullTail := cachedItems[len(cachedItems)-1]
-			if fullTail.TotalMatches != tail.TotalMatches || liepinHistoryItemKey(fullTail) != liepinHistoryItemKey(tail) || (!atLimit && liepinHistoryItemKey(cachedItems[0]) != liepinHistoryItemKey(head)) {
+			if fullTail.TotalMatches != tail.TotalMatches || liepinHistoryItemKey(fullTail) != liepinHistoryItemKey(tail) || (!atLimit && (after == nil || cachedItems[0].Index == head.Index) && liepinHistoryItemKey(cachedItems[0]) != liepinHistoryItemKey(head)) {
 				// 读取正文期间新增或替换了消息，重新确认首尾后再决定边界。
 				previousSignature, checkedSignature = "", ""
 				stableReadAttempts, blockedAttempts = 0, 0
@@ -104,6 +113,24 @@ func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Brow
 		}
 		if cachedItems != nil {
 			result = cachedResult
+			if after != nil {
+				filtered, reached := liepinMessagesAfterDeletion(result.Messages, *after)
+				// 日期边界在当前窗口时，整段新消息的首分钟也已覆盖，可区分同文重复。
+				if reached || atTop {
+					result.Messages = filtered
+					result.ResumeCardAvailable, result.ResumeSourceMessageID = liepinResumeCard(filtered)
+					result.HistoryComplete = true
+					if b := liepinKnownMessageBoundary(filtered, knownMessageKeys); b >= 0 {
+						result.HistoryComplete = false
+						result.Messages = filtered[liepinDuplicateRepairStart(filtered, b, 0):]
+					}
+					return result, nil
+				}
+				// 尚未看见日期边界时，只可用已同步的稳定消息来截取差量。
+				if atLimit && liepinKnownMessageBoundary(result.Messages, knownMessageKeys) < 0 {
+					return liepinConversationHistory{}, fmt.Errorf("新消息超过可核对的窗口，还不能确认从哪里重新开始")
+				}
+			}
 			if boundary := liepinKnownMessageBoundary(result.Messages, knownMessageKeys); boundary >= 0 && (atTop || result.Messages[boundary].PlatformMessageID != "" || boundary >= liepinLeadingMessageGroupEnd(result.Messages)) {
 				firstStable := 0
 				if !atTop {
@@ -112,10 +139,17 @@ func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Brow
 				// 旧版本曾合并同分钟同文消息；带上可证明完整的重复组及后续锚点，让本机幂等补齐历史而不新增待答。
 				start := liepinDuplicateRepairStart(result.Messages, boundary, firstStable)
 				result.Messages = result.Messages[start:]
+				if after != nil {
+					result.Messages, _ = liepinMessagesAfterDeletion(result.Messages, *after)
+					result.ResumeCardAvailable, result.ResumeSourceMessageID = liepinResumeCard(result.Messages)
+				}
 				result.Messages = result.Messages[max(0, len(result.Messages)-maxHistory):]
 				return result, nil
 			}
 			if atLimit || len(result.Messages) >= maxHistory || cachedItems[0].TotalMatches > len(cachedItems) {
+				if after != nil {
+					return liepinConversationHistory{}, fmt.Errorf("重新建档的消息起点仍未确认，请等下一次核对")
+				}
 				if !atTop || cachedItems[0].Index > 0 {
 					// 截尾窗口最早一分钟可能还藏着同文消息，不能猜出现次数或把它用作差量边界。
 					end := liepinLeadingMessageGroupEnd(result.Messages)
@@ -406,6 +440,23 @@ func liepinMessage(item contract.FindAllItem, now time.Time) (model.Conversation
 	}, baseKey, nil
 }
 
+// liepinMessagesAfterDeletion 只接受可核实且晚于删除时刻的消息，平台只显示分钟时同一分钟从严排除。
+func liepinMessagesAfterDeletion(messages []model.ConversationMessage, after time.Time) ([]model.ConversationMessage, bool) {
+	result := make([]model.ConversationMessage, 0, len(messages))
+	reached := false
+	for _, m := range messages {
+		if m.SentAt == nil {
+			continue
+		}
+		if !m.SentAt.After(after) {
+			reached = true
+			continue
+		}
+		result = append(result, m)
+	}
+	return result, reached
+}
+
 // liepinResumeCard 返回会话里最后一张候选人附件简历卡片和来源消息编号。
 func liepinResumeCard(messages []model.ConversationMessage) (bool, string) {
 	for index := len(messages) - 1; index >= 0; index-- {
@@ -513,7 +564,7 @@ func parseLiepinMessageTime(value string, now time.Time) *time.Time {
 	}
 	location, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
-		location = time.Local
+		location = time.FixedZone("Asia/Shanghai", 8*60*60)
 	}
 	now = now.In(location)
 	var parsed time.Time

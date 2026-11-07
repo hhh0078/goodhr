@@ -134,7 +134,7 @@ func TestCandidateDeletionAgentFeed(t *testing.T) {
 		t.Fatal("续拉错误")
 	}
 	page = get(foreign, "", 200)
-	if len(page["events"].([]any)) != 0 {
+	if len(page["events"].([]any)) != 0 || page["boundary_version"] != float64(1) {
 		t.Fatal("跨团队事件泄露")
 	}
 }

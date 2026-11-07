@@ -216,9 +216,10 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		f.log(prepared.Request.TaskID, "process_conversation", "start", startedAt, nil)
 		countBefore := stats.Processed
 		err := f.processConversation(ctx, prepared, replyRuntime, positions, conversation, &current.snapshot, stats)
-		// 已删除的会话不会打开、重新入库或占用名额；同列表后面的其他候选人仍能正常处理。
+		// 未核实到删除后的新入站时只计跳过，保留名额给列表后面的会话。
 		if errors.Is(err, storage.ErrAutoReplyCandidateDeleted) {
 			stats.Processed = countBefore
+			stats.Skipped++
 			if openConversation == current {
 				openConversation = nil
 			}

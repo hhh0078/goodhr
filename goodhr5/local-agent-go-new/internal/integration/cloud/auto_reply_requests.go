@@ -3,6 +3,7 @@ package cloud
 
 // autoReplyCandidateRequest 只包含授权的结构化资料，来源消息、头像地址、原始简历和沟通记录留在本机。
 type autoReplyCandidateRequest struct {
+	ReopenProof         *AutoReplyReopenProof        `json:"reopen_proof,omitempty"`
 	PositionID          string                       `json:"position_id"`
 	PlatformID          string                       `json:"platform_id"`
 	PlatformAccountID   string                       `json:"platform_account_id,omitempty"`
@@ -33,7 +34,8 @@ type autoReplyCandidateRequest struct {
 // candidateCloudRequest 在发送边界从本机资料取出允许字段，旧版本已保存的待办同样经过此处。
 func candidateCloudRequest(in AutoReplyCandidateInput) autoReplyCandidateRequest {
 	return autoReplyCandidateRequest{
-		PositionID: in.PositionID, PlatformID: in.PlatformID, PlatformAccountID: in.PlatformAccountID, PlatformCandidateID: in.PlatformCandidateID,
+		ReopenProof: in.ReopenProof,
+		PositionID:  in.PositionID, PlatformID: in.PlatformID, PlatformAccountID: in.PlatformAccountID, PlatformCandidateID: in.PlatformCandidateID,
 		CandidateName: in.CandidateName, Gender: in.Gender, BirthYM: in.BirthYM, BirthYMPrecision: in.BirthYMPrecision,
 		Phone: in.Phone, Email: in.Email, Wechat: in.Wechat, WorkRegion: in.WorkRegion, WorkYears: in.WorkYears,
 		ExpectedSalaryMin: in.ExpectedSalaryMin, ExpectedSalaryMax: in.ExpectedSalaryMax, EducationLevel: in.EducationLevel,

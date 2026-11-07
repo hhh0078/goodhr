@@ -67,6 +67,25 @@ func (c *Client) saveLocalAutoReplyAttachment(ctx context.Context, credentials A
 	}
 	item := StoredResumeAttachment{ID: id, CandidateID: upload.CandidateID, ConversationID: upload.ConversationID, SourceMessageID: upload.SourceMessageID, PlatformID: upload.PlatformID, OriginalName: filepath.Base(upload.FilePath), SHA256: digest, SizeBytes: size, ExtractedText: upload.ExtractedText, CreatedAt: time.Now().UTC()}
 	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		conv, _, err := getAutoReplyEntity[AutoReplyConversation](tx, "conversations", upload.ConversationID)
+		if err != nil {
+			return err
+		}
+		if conv.DeletionBoundary != nil {
+			// 上传协议传本机 messages 主键，确认 belongs-to 后按真实平台键构建证明。
+			message, found, err := getAutoReplyEntity[AutoReplyMessage](tx, "messages", upload.SourceMessageID)
+			if err != nil {
+				return err
+			}
+			if !found || message.ConversationID != conv.ID || (upload.CandidateID != "" && upload.CandidateID != conv.CandidateID) {
+				return fmt.Errorf("附件与本次重新联系的来源不一致")
+			}
+			if _, err := contactAttachmentProof(tx, conv, localAutoReplyMessageKey(message)); err != nil {
+				return err
+			}
+			id = "attachment-" + autoReplyDigest(conv.ID+"|"+upload.SourceMessageID+"|"+digest)
+			item.ID = id
+		}
 		old, exists, err := getAutoReplyEntity[localAttachment](tx, "attachments", id)
 		if err != nil {
 			return err
@@ -145,6 +164,19 @@ func newLocalAutoReplyCandidateID() (string, error) {
 func (c *Client) saveLocalAutoReplyCandidate(ctx context.Context, credentials AgentCredentials, input AutoReplyCandidateInput) (result AutoReplyCandidateSaveResult, err error) {
 	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
 		identityID := "identity-" + autoReplyDigest(input.PlatformID+"|"+input.PlatformAccountID+"|"+input.PlatformCandidateID)
+		conv, err := candidateContact(tx, input.LocalCandidateID)
+		if err != nil {
+			return err
+		}
+		if conv.DeletionBoundary != nil {
+			if conv.PlatformID != input.PlatformID || conv.PlatformAccountID != input.PlatformAccountID || conv.DeletionBoundary.SourceHash != autoReplyDigest(input.PlatformID+"\x00"+input.PlatformCandidateID) {
+				return fmt.Errorf("新简历来源与重新联系的会话不一致")
+			}
+			if _, err := storedContactAttachmentProof(tx, conv, input.ResumeSourceMessageID); err != nil {
+				return err
+			}
+			identityID = conv.PlatformIdentityID
+		}
 		identity, _, err := getAutoReplyEntity[CandidatePlatformIdentity](tx, "identities", identityID)
 		if err != nil {
 			return err

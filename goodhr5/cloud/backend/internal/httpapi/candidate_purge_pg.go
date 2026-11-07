@@ -183,12 +183,24 @@ func (s *PostgresCandidateStore) purgeCandidate(ctx context.Context, scope Candi
 			}
 		}
 	}
+	inherited, err := inheritedReopenSourcesTx(ctx, tx, scope.TenantID, id)
+	if err != nil {
+		return err
+	}
+	for _, h := range inherited {
+		if !seen[h] {
+			hashes = append(hashes, h)
+			seen[h] = true
+		}
+	}
+	contacts := []string{}
 	if phone := normalizeCandidatePhone(item.Phone); phone != "" {
 		var shared bool
 		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM candidate_profiles WHERE tenant_id=$1 AND id<>$2 AND normalized_phone=$3)`, scope.TenantID, id, phone).Scan(&shared); err != nil {
 			return err
 		}
 		if !shared {
+			contacts = append(contacts, purgeDigest("phone", scope.TenantID, phone))
 			if err = rememberPurgeKey(ctx, tx, scope.TenantID, "phone", purgeDigest(scope.TenantID, phone)); err != nil {
 				return err
 			}
@@ -228,8 +240,9 @@ func (s *PostgresCandidateStore) purgeCandidate(ctx context.Context, scope Candi
 	}
 	encodedAudience, _ := json.Marshal(audience)
 	encodedSources, _ := json.Marshal(hashes)
+	encodedContacts, _ := json.Marshal(contacts)
 	var seq int64
-	if err = tx.QueryRowContext(ctx, "INSERT INTO candidate_deletions(tenant_id,candidate_id,row_version,owner_hash,audiences,source_hashes) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb) RETURNING sequence", scope.TenantID, id, version, purgeDigest(strings.ToLower(item.UserEmail)), string(encodedAudience), string(encodedSources)).Scan(&seq); err != nil {
+	if err = tx.QueryRowContext(ctx, "INSERT INTO candidate_deletions(tenant_id,candidate_id,row_version,owner_hash,audiences,source_hashes,contact_hashes) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb) RETURNING sequence", scope.TenantID, id, version, purgeDigest(strings.ToLower(item.UserEmail)), string(encodedAudience), string(encodedSources), string(encodedContacts)).Scan(&seq); err != nil {
 		return err
 	}
 	for actor := range audience {
@@ -247,7 +260,7 @@ func (s *PostgresCandidateStore) purgeCandidate(ctx context.Context, scope Candi
 
 // candidateDeletions 只查询本团队且与当前账号有关的删除事件，额外一条用于判断是否还有下页。
 func (s *PostgresCandidateStore) candidateDeletions(ctx context.Context, tenant, email string, admin bool, after int64) ([]candidateDeletionEvent, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT sequence,candidate_id::text,COALESCE((SELECT jsonb_agg(h) FROM jsonb_array_elements_text(source_hashes) h WHERE NOT EXISTS(SELECT 1 FROM candidate_deletion_keys k WHERE k.tenant_id=$1 AND k.kind='source' AND k.identity_hash=h AND k.replacement_candidate_id IS NOT NULL)),'[]'::jsonb),COALESCE(audiences->$3,'[]'::jsonb) FROM candidate_deletions WHERE tenant_id=$1 AND sequence>$2 AND ($4 OR audiences ? $3) ORDER BY sequence LIMIT 101", tenant, after, purgeDigest(strings.ToLower(email)), admin)
+	rows, err := s.db.QueryContext(ctx, "SELECT sequence,candidate_id::text,tenant_id::text,deleted_at,cutoff_from_migration,source_hashes,CASE WHEN EXISTS(SELECT 1 FROM candidate_deletion_keys k WHERE k.tenant_id=$1 AND k.kind='source' AND source_hashes ? k.identity_hash AND k.replacement_candidate_id IS NOT NULL) THEN '[]'::jsonb ELSE contact_hashes END,COALESCE((SELECT jsonb_agg(h) FROM jsonb_array_elements_text(source_hashes) h WHERE NOT EXISTS(SELECT 1 FROM candidate_deletion_keys k WHERE k.tenant_id=$1 AND k.kind='source' AND k.identity_hash=h AND k.replacement_candidate_id IS NOT NULL)),'[]'::jsonb),COALESCE(audiences->$3,'[]'::jsonb) FROM candidate_deletions WHERE tenant_id=$1 AND sequence>$2 AND ($4 OR audiences ? $3) ORDER BY sequence LIMIT 101", tenant, after, purgeDigest(strings.ToLower(email)), admin)
 	if err != nil {
 		return nil, err
 	}
@@ -255,10 +268,17 @@ func (s *PostgresCandidateStore) candidateDeletions(ctx context.Context, tenant,
 	events := []candidateDeletionEvent{}
 	for rows.Next() {
 		var e candidateDeletionEvent
-		var sources, keys []byte
-		if err := rows.Scan(&e.Sequence, &e.CandidateID, &sources, &keys); err != nil {
+		var sources, keys, contacts, boundaries []byte
+		if err := rows.Scan(&e.Sequence, &e.CandidateID, &e.TenantID, &e.DeletedAt, &e.CutoffFromMigration, &boundaries, &contacts, &sources, &keys); err != nil {
 			return nil, err
 		}
+		if err = json.Unmarshal(boundaries, &e.BoundarySourceHashes); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(contacts, &e.ContactHashes); err != nil {
+			return nil, err
+		}
+		e.DeletedAt = e.DeletedAt.UTC()
 		if err = json.Unmarshal(sources, &e.SourceHashes); err != nil {
 			return nil, err
 		}

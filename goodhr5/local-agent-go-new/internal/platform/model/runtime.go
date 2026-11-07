@@ -71,6 +71,7 @@ type ConfiguredAction struct {
 
 // Behavior 表示平台翻页、详情和岗位选择行为。
 type Behavior struct {
+	SupportsPostDeletionHistory bool   `json:"supports_post_deletion_history"`  // 可按稳定会话核身并且只读取删除后的消息。
 	AutoReplyResumeLoadsHistory bool   `json:"auto_reply_resume_loads_history"` // 平台采集简历时自行加载并核验来源，公共流程无需先读历史再回到底部。
 	AutoReplyAvatarContainerKey string `json:"auto_reply_avatar_container_key"` // 聊天历史内的头像使用已有滚动容器限定截图；页头头像无需配置。
 	CandidateTopInset           int    `json:"candidate_top_inset"`             // 卡片操作需避让的固定页头高度，单位CSS像素；零表示无需平台额外避让。
@@ -181,6 +182,7 @@ type ConversationMessage struct {
 
 // AutoReplyConversationSnapshot 表示打开会话后一次性读取的身份、岗位、消息和简历卡片状态。
 type AutoReplyConversationSnapshot struct {
+	HistoryAfter          *time.Time            `json:"-"` // 重新联系时只接受可信删除时间之后的消息，普通会话留空。
 	Conversation          Conversation          `json:"conversation"`
 	CandidateName         string                `json:"candidate_name"`
 	AvatarURL             string                `json:"avatar_url"`
@@ -213,6 +215,11 @@ type AutoReplyResumeBundle struct {
 // AutoReplyIdentityVerifier 定义限制任务可选的实时身份核验能力，包装平台时必须保留，不能仅靠旧快照或姓名判断。
 type AutoReplyIdentityVerifier interface {
 	VerifyAutoReplyConversationIdentity(context.Context, Browser, Config, AutoReplyConversationSnapshot) error
+}
+
+// AutoReplyContactInspector 只打开并核实会话头，支持按 HistoryAfter 读取消息的平台才实现。
+type AutoReplyContactInspector interface {
+	InspectAutoReplyContact(context.Context, Browser, Config, Conversation) (AutoReplyConversationSnapshot, error)
 }
 
 // AutoReplyRuntime 定义自动回复独立主流程需要的平台页面能力。

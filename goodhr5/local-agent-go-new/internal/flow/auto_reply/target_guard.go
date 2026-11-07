@@ -8,6 +8,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/storage"
 )
 
 // targetedAutoReplyRuntime 在原有平台能力之前执行限制，不增加浏览器通道或自行猜测平台选择器。
@@ -82,6 +83,20 @@ func (r *targetedAutoReplyRuntime) OpenAutoReplyConversation(ctx context.Context
 		return model.AutoReplyConversationSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+// InspectAutoReplyContact 删后核身同样受单会话约束，必须复核实际页面编号才能继续。
+func (r *targetedAutoReplyRuntime) InspectAutoReplyContact(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation) (model.AutoReplyConversationSnapshot, error) {
+	inspector, ok := r.AutoReplyRuntime.(model.AutoReplyContactInspector)
+	if !ok || !targetConversationAllowed(&r.target, conversation) {
+		return model.AutoReplyConversationSnapshot{}, storage.ErrAutoReplyCandidateDeleted
+	}
+	conversation.PlatformCandidateID = r.target.PlatformCandidateID
+	snapshot, err := inspector.InspectAutoReplyContact(ctx, browser, cfg, conversation)
+	if err == nil {
+		err = r.checkPage(ctx, browser, cfg, snapshot)
+	}
+	return snapshot, err
 }
 
 // ReadAutoReplyMessages 在差量读取前后核对目标，发生切人时不把错误聊天写入本机。

@@ -9,6 +9,7 @@ import (
 
 // autoReplyCandidateRequest 表示本地清洗完成、准备进入正式简历库的候选人资料。
 type autoReplyCandidateRequest struct {
+	ReopenProof         *candidateReopenProof        `json:"reopen_proof,omitempty"`
 	PositionID          string                       `json:"position_id"`
 	PlatformID          string                       `json:"platform_id"`
 	PlatformAccountID   string                       `json:"platform_account_id"`
