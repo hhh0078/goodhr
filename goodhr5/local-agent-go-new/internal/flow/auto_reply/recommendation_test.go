@@ -4,16 +4,37 @@ package auto_reply
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
+	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
+
+// TestRecommendationFailureSummary 验证待办可记录服务类别和格式出错位置，同时隔离模型正文与凭据。
+func TestRecommendationFailureSummary(t *testing.T) {
+	for _, sample := range []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("生成：%w", &ai.ServiceError{StatusCode: 401, Message: "private-provider-body"}), "HTTP 401"},
+		{fmt.Errorf("生成：%w", context.DeadlineExceeded), "超时"},
+		{context.Canceled, "中断"},
+		{errors.New("private-provider-body"), "推荐暂时没完成"},
+	} {
+		message := recommendationFailureSummary(sample.err)
+		if !strings.Contains(message, sample.want) || strings.Contains(message, "private-provider-body") {
+			t.Fatalf("推荐错误分类不安全，期望%s，得到%s", sample.want, message)
+		}
+	}
+}
 
 // TestRecommendationRequiresEveryEnabledHRGate 验证有证据的旧 AI 条目不能单独触发推荐，也不能替代缺失或变更的有效条件。
 func TestRecommendationRequiresEveryEnabledHRGate(t *testing.T) {

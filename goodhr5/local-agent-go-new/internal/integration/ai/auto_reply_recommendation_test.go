@@ -4,6 +4,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"net/http"
@@ -37,5 +38,29 @@ func TestAutoReplyRecommendationKeepsTrustedSnapshot(t *testing.T) {
 	report, err := New().GenerateAutoReplyRecommendation(context.Background(), cloud.AIConfig{BaseURL: server.URL, APIKey: "test", Model: "test"}, source)
 	if err != nil || calls != 1 || report.Candidate.ID != "trusted" || report.Candidate.Name != "动态候选人" || report.GeneratedAt.IsZero() {
 		t.Fatalf("推荐快照不可信：%+v %v calls=%d", report, err, calls)
+	}
+}
+
+// TestRecommendationFieldShapes 验证现场面试重点文本无损保留；空要点、错误证据或缺失分数给出安全的字段提示。
+func TestRecommendationFieldShapes(t *testing.T) {
+	const base = `"match_score":90,"recommendation_level":"建议推进","executive_summary":"报告摘要"`
+	content := "{" + base + `,"interview_focus":["核验具体负责的模块",{"title":"任职阶段","detail":"了解两段经历","evidence":["原文"]}],"suggested_questions":["如何衡量结果？"],"generated_at":"模型无权填写的时间"}`
+	result, err := parseRecommendationAnalysis(content, cloud.AutoReplyRecommendationReport{})
+	if err != nil || len(result.InterviewFocus) != 2 || result.InterviewFocus[0].Title != "核验具体负责的模块" ||
+		len(result.InterviewFocus[0].Evidence) != 0 || result.InterviewFocus[1].Evidence[0] != "原文" || len(result.SuggestedQuestions) != 1 {
+		t.Fatalf("面试重点解析失败：%+v %v", result.InterviewFocus, err)
+	}
+	for _, sample := range []struct{ field, value string }{
+		{"unconfirmed_items[0]", "{" + base + `,"unconfirmed_items":[{"item":"敏感模型原文","label":"敏感模型原文"}]}`},
+		{"risks[0]", "{" + base + `,"risks":[{"title":"敏感模型原文","evidence":[{}]}]}`},
+		{"match_score", `{"executive_summary":"敏感模型原文"}`},
+		{"suggested_questions", "{" + base + `,"suggested_questions":[{"title":"敏感模型原文"}]}`},
+		{"JSON", "敏感模型原文"},
+	} {
+		_, err := parseRecommendationAnalysis(sample.value, cloud.AutoReplyRecommendationReport{})
+		var invalid *RecommendationFormatError
+		if !errors.As(err, &invalid) || invalid.field != sample.field || strings.Contains(err.Error(), "敏感模型原文") {
+			t.Fatalf("未保留安全可定位的字段错误，预期%s，得到%v", sample.field, err)
+		}
 	}
 }

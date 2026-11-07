@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 )
 
@@ -73,16 +74,16 @@ func (r *AIResponder) ProcessPendingRecommendations(ctx context.Context, credent
 		jobCtx, cancel := context.WithTimeout(ctx, 4*time.Minute)
 		completed, processErr := r.processRecommendation(jobCtx, credentials, job)
 		cancel()
-		message := ""
-		if processErr != nil {
-			message = "推荐暂时没完成，请稍后重试"
-		}
 		finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		var finishErr error
 		if errors.Is(processErr, cloud.ErrAutoReplyReportRetriesExhausted) {
-			finishErr = r.Cloud.BlockAutoReplyRecommendation(finishCtx, credentials, job.ID, "报告生成已尝试三次，请检查AI配置后人工重试")
+			reason := "报告生成已尝试三次，请人工重试"
+			if job.LastError != "" {
+				reason = job.LastError + "。" + reason
+			}
+			finishErr = r.Cloud.BlockAutoReplyRecommendation(finishCtx, credentials, job.ID, reason)
 		} else {
-			finishErr = r.Cloud.FinishAutoReplyRecommendation(finishCtx, credentials, job.ID, completed, message)
+			finishErr = r.Cloud.FinishAutoReplyRecommendation(finishCtx, credentials, job.ID, completed, recommendationFailureSummary(processErr))
 		}
 		finishCancel()
 		if finishErr != nil {
@@ -91,6 +92,30 @@ func (r *AIResponder) ProcessPendingRecommendations(ctx context.Context, credent
 	}
 	// 已登记任务先获得执行机会，收据中的慢请求不能每轮挡住已有报告的恢复。
 	return r.recoverCommittedRecommendations(ctx, credentials)
+}
+
+// recommendationFailureSummary 只记录可信字段名、服务状态码和超时类别，避免模型正文、请求地址和密钥进入待办。
+func recommendationFailureSummary(err error) string {
+	if err == nil {
+		return ""
+	}
+	var formatErr *ai.RecommendationFormatError
+	var serviceErr *ai.ServiceError
+	switch {
+	case errors.As(err, &formatErr):
+		return formatErr.Error()
+	case errors.Is(err, context.DeadlineExceeded):
+		return "推荐处理超时，请稍后重试"
+	case errors.Is(err, context.Canceled):
+		return "推荐处理已中断，下次恢复时会继续"
+	case errors.As(err, &serviceErr):
+		if serviceErr.StatusCode >= 100 && serviceErr.StatusCode <= 599 {
+			return fmt.Sprintf("报告模型服务返回 HTTP %d，请检查模型配置后重试", serviceErr.StatusCode)
+		}
+		return "报告模型连接或响应失败，请稍后重试"
+	default:
+		return "推荐暂时没完成，请稍后重试"
+	}
 }
 
 // processRecommendation 复用已生成报告；生成和发布前均复核消息、岗位、公司及条件，过期任务安全结束。
@@ -146,7 +171,6 @@ func (r *AIResponder) processRecommendation(ctx context.Context, credentials clo
 		model = config.Model
 		report, err = r.AI.GenerateAutoReplyRecommendation(ctx, config, job.Source)
 		if err != nil {
-			_ = r.Cloud.SaveAutoReplyReport(context.WithoutCancel(ctx), credentials, job.InputHash, nil)
 			return false, err
 		}
 		// 模型返回后新消息可能已改变资格；先检查有效性，再保留可供恢复的报告。
