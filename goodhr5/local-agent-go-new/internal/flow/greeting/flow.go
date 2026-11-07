@@ -598,6 +598,7 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 		)
 		f.log(prepared.Request.TaskID, "ai_decision", "start", decisionStartedAt, nil)
 		evaluationCtx, cancelEvaluation := context.WithTimeout(context.WithoutCancel(ctx), candidateTimeout)
+		evaluationCtx = shared.WithAIBilling(evaluationCtx, f.Logger, prepared.Request.TaskID, prepared.Position.ID, candidateDisplayName(candidate), "AI 详情分析")
 		evaluationCancel = cancelEvaluation
 		// 等待评分时遵守候选人总时限；评分已返回后撤销关联，保留后台完整输出。
 		stopEvaluationOnCandidateEnd := context.AfterFunc(ctx, cancelEvaluation)

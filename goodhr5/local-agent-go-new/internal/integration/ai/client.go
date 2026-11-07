@@ -298,6 +298,9 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream, application/json")
+	request.Header.Set("X-GoodHR-Billing", "1")
+	billing := newBillingObserver(ctx, apiKey)
+	defer billing.finish()
 	response, err := c.http.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -306,6 +309,10 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 		return "", &ServiceError{Message: "连接 AI 失败：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
 	}
 	defer response.Body.Close()
+	billing.enabled = response.Header.Get("X-GoodHR-Billing") == "1"
+	if billing.enabled {
+		billing.billing.Status = "unavailable"
+	}
 	if response.StatusCode >= 400 {
 		body, readErr := io.ReadAll(response.Body)
 		serviceErr := newHTTPServiceError(response.StatusCode, string(body), response.Header.Get("Retry-After"))
@@ -317,15 +324,16 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 	}
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/event-stream") {
-		return readChatStream(response.Body, options.Threshold, options.EarlyDecision)
+		return readChatStream(response.Body, options.Threshold, options.EarlyDecision, billing)
 	}
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		return "", newResponseError(&ServiceError{Message: "读取 AI 响应失败：" + err.Error(), Retryable: true, Fatal: true, Cause: err}, string(body), "http_body", false)
 	}
 	if strings.HasPrefix(strings.TrimSpace(string(body)), "data:") {
-		return readChatStream(bytes.NewReader(body), options.Threshold, options.EarlyDecision)
+		return readChatStream(bytes.NewReader(body), options.Threshold, options.EarlyDecision, billing)
 	}
+	billing.observe(body)
 	return readChatJSON(body)
 }
 
@@ -344,7 +352,7 @@ func readChatJSON(body []byte) (string, error) {
 }
 
 // readChatStream 逐行读取 OpenAI 兼容 SSE 内容，并在评分字段完整时提前回调。
-func readChatStream(reader io.Reader, threshold float64, earlyDecision func(Decision)) (string, error) {
+func readChatStream(reader io.Reader, threshold float64, earlyDecision func(Decision), billing ...*billingObserver) (string, error) {
 	stream := bufio.NewReader(reader)
 	var content strings.Builder
 	var body strings.Builder
@@ -369,6 +377,9 @@ func readChatStream(reader io.Reader, threshold float64, earlyDecision func(Deci
 				break
 			}
 			continue
+		}
+		if len(billing) > 0 {
+			billing[0].observe([]byte(data))
 		}
 		var chunk streamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {

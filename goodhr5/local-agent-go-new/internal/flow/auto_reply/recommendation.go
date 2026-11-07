@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 )
@@ -169,7 +170,8 @@ func (r *AIResponder) processRecommendation(ctx context.Context, credentials clo
 			return false, fmt.Errorf("报告任务正在处理中")
 		}
 		model = config.Model
-		report, err = r.AI.GenerateAutoReplyRecommendation(ctx, config, job.Source)
+		billingCtx := shared.WithAIBilling(ctx, r.Logger, "", job.Position.Position.ID, job.Source.Candidate.Name, "AI 推荐报告")
+		report, err = r.AI.GenerateAutoReplyRecommendation(billingCtx, config, job.Source)
 		if err != nil {
 			return false, err
 		}

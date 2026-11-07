@@ -306,22 +306,36 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer resp.Body.Close()
-	if streamRequest && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	wantsBilling := r.Header.Get("X-GoodHR-Billing") == "1"
+	if streamRequest && !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json") && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		copyHeader(w.Header(), resp.Header)
+		if wantsBilling {
+			w.Header().Set("X-GoodHR-Billing", "1")
+		}
 		w.Header().Del("Content-Length")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(resp.StatusCode)
-		promptTokens, completionTokens, err := proxyAIStreamAndUsage(w, resp.Body)
+		promptTokens, completionTokens, err := proxyAIStreamAndUsage(w, resp.Body, wantsBilling)
 		if err != nil {
 			log.Printf("[内置AI] 流式响应转发失败 user=%s model=%s err=%v", email, model.ID, err)
+			if wantsBilling {
+				writeAIBillingStream(w, aiBillingReceipt{Status: "unavailable", Model: model.ID})
+			}
 			return
 		}
 		if promptTokens+completionTokens == 0 {
 			log.Printf("[内置AI] 流式响应未返回 usage，无法扣费 user=%s model=%s", email, model.ID)
+			if wantsBilling {
+				writeAIBillingStream(w, aiBillingReceipt{Status: "unavailable", Model: model.ID})
+			}
 			return
 		}
-		if err := s.chargeAIUsage(email, model, promptTokens, completionTokens); err != nil {
+		receipt, err := s.settleAIUsage(email, model, promptTokens, completionTokens)
+		if err != nil {
 			log.Printf("[内置AI] 流式扣费记录写入失败 user=%s model=%s prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, promptTokens, completionTokens, err)
+		}
+		if wantsBilling {
+			writeAIBillingStream(w, receipt)
 		}
 		return
 	}
@@ -330,15 +344,22 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadGateway, "failed read ai response")
 		return
 	}
+	var receipt aiBillingReceipt
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		promptTokens, completionTokens := aiUsageFromResponse(respBody)
-		if err := s.chargeAIUsage(email, model, promptTokens, completionTokens); err != nil {
+		receipt, err = s.settleAIUsage(email, model, promptTokens, completionTokens)
+		if err != nil {
 			log.Printf("[内置AI] 扣费记录写入失败 user=%s model=%s prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, promptTokens, completionTokens, err)
 			writeError(w, http.StatusInternalServerError, "AI 已返回，但扣费记录没写成功。我先拦一下，免得账本乱掉。")
 			return
 		}
 	}
 	copyHeader(w.Header(), resp.Header)
+	if wantsBilling && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		w.Header().Set("X-GoodHR-Billing", "1")
+		respBody = withAIBillingJSON(respBody, receipt)
+		w.Header().Del("Content-Length")
+	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
 }
@@ -853,8 +874,8 @@ func mapFromAny(value any) map[string]any {
 }
 
 // proxyAIStreamAndUsage 转发上游 SSE 流，并从分片中提取 token 用量。
-// w 为客户端响应，reader 为上游响应体，返回最终读取到的 token 用量。
-func proxyAIStreamAndUsage(w http.ResponseWriter, reader io.Reader) (int, int, error) {
+// w 为客户端响应，reader 为上游响应体；holdDone 为真时延后结束标记，待扣费确认后由调用方发送。
+func proxyAIStreamAndUsage(w http.ResponseWriter, reader io.Reader, holdDone bool) (int, int, error) {
 	flusher, _ := w.(http.Flusher)
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxAICompatibleBodyBytes)
@@ -862,6 +883,9 @@ func proxyAIStreamAndUsage(w http.ResponseWriter, reader io.Reader) (int, int, e
 	completionTokens := 0
 	for scanner.Scan() {
 		line := scanner.Text()
+		if holdDone && strings.HasPrefix(strings.TrimSpace(line), "data:") && strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "data:")) == "[DONE]" {
+			continue
+		}
 		if _, err := io.WriteString(w, line+"\n"); err != nil {
 			return promptTokens, completionTokens, err
 		}

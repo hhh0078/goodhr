@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 )
@@ -59,6 +60,14 @@ func (r *Runner) UploadPositionLogs(ctx context.Context, token, positionID strin
 			message = "浏览器步骤已记录，正文已隐藏"
 			input = uploadPrivateDiagnostic(input)
 			output = uploadPrivateDiagnostic(output)
+		}
+		if item.Flow == "ai" && item.Step == "ai_billing" {
+			var billing ai.Billing
+			if json.Unmarshal(item.Output, &billing) == nil {
+				// 费用可展示，自动回复的候选人姓名和正文仍留在本机。
+				message = "AI 调用，" + aiBillingCostMessage(billing)
+				output, _ = json.Marshal(billing)
+			}
 		}
 		logs = append(logs, cloud.PositionDiagnosticLog{
 			Timestamp: item.CreatedAt, Category: uploadLogText(category), IsError: item.IsError,

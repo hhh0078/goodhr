@@ -151,6 +151,9 @@ func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey 
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream, application/json")
+	request.Header.Set("X-GoodHR-Billing", "1")
+	billing := newBillingObserver(ctx, apiKey)
+	defer billing.finish()
 	response, err := c.http.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -159,6 +162,10 @@ func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey 
 		return ToolChatResult{}, &ServiceError{Message: "连接 AI 失败：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
 	}
 	defer response.Body.Close()
+	billing.enabled = response.Header.Get("X-GoodHR-Billing") == "1"
+	if billing.enabled {
+		billing.billing.Status = "unavailable"
+	}
 	if response.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 		if toolCallsUnsupported(response.StatusCode, string(body)) {
@@ -172,15 +179,16 @@ func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey 
 	}
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/event-stream") {
-		return readToolChatStream(response.Body)
+		return readToolChatStream(response.Body, billing)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
 		return ToolChatResult{}, fmt.Errorf("读取 AI 工具响应失败：%w", err)
 	}
 	if strings.HasPrefix(strings.TrimSpace(string(body)), "data:") {
-		return readToolChatStream(bytes.NewReader(body))
+		return readToolChatStream(bytes.NewReader(body), billing)
 	}
+	billing.observe(body)
 	return readToolChatJSON(body)
 }
 
@@ -202,7 +210,7 @@ func readToolChatJSON(body []byte) (ToolChatResult, error) {
 }
 
 // readToolChatStream 累积 SSE 中可能被拆开的工具名称和 JSON 参数。
-func readToolChatStream(reader io.Reader) (ToolChatResult, error) {
+func readToolChatStream(reader io.Reader, billing ...*billingObserver) (ToolChatResult, error) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var content strings.Builder
@@ -216,6 +224,9 @@ func readToolChatStream(reader io.Reader) (ToolChatResult, error) {
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "" || data == "[DONE]" {
 			continue
+		}
+		if len(billing) > 0 {
+			billing[0].observe([]byte(data))
 		}
 		var chunk toolStreamChunk
 		if json.Unmarshal([]byte(data), &chunk) != nil {

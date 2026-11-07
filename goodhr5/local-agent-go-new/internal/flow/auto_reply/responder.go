@@ -74,7 +74,8 @@ func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructure
 	}
 	r.reportResume(input, "loading", "AI 正在本机整理候选人简历", false)
 	text := strings.Join(parts, "\n\n")
-	candidate, err := r.AI.ParseResume(ctx, input.AIConfig, text)
+	billingCtx := shared.WithAIBilling(ctx, r.Logger, input.TaskID, input.Position.Position.ID, input.PageSnapshot.CandidateName, "AI 简历整理")
+	candidate, err := r.AI.ParseResume(billingCtx, input.AIConfig, text)
 	if err != nil {
 		return StructuredResume{}, err
 	}
@@ -171,7 +172,8 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 			return ReplyDecision{}, r.failRun(input, run, assistantMessages, totalTokens, "AI_CONTEXT_LIMIT", fmt.Errorf("本轮模型上下文已达到预算，请人工处理"))
 		}
 		r.report(input, "loading", "ai", fmt.Sprintf("AI 正在分析第%d轮", round), false)
-		result, chatErr := r.AI.ChatWithTools(ctx, input.AIConfig, ai.ToolChatRequest{
+		billingCtx := shared.WithAIBilling(ctx, r.Logger, input.TaskID, input.Position.Position.ID, input.PageSnapshot.CandidateName, fmt.Sprintf("自动回复 AI 第%d轮", round))
+		result, chatErr := r.AI.ChatWithTools(billingCtx, input.AIConfig, ai.ToolChatRequest{
 			Messages: messages, Tools: autoReplyToolsForContext(input), EnableThinking: input.EnableThinking,
 		})
 		if chatErr != nil {
