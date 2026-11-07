@@ -2,7 +2,9 @@
 package liepin
 
 // Runtime 是猎聘企业端平台运行时。
-type Runtime struct{}
+type Runtime struct {
+	unread liepinUnreadScan
+}
 
 // NewRuntime 创建猎聘企业端平台运行时。
 func NewRuntime() *Runtime {

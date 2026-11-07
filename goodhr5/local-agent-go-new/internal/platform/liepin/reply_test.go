@@ -244,7 +244,7 @@ func TestEnsureLiepinUnreadConversationDrawerSelectsUnreadTab(t *testing.T) {
 			"message.unread_tab_selected": testLiepinSelector("测试未读标签已选中"),
 		},
 	}
-	ready, _, err := ensureLiepinUnreadConversationDrawer(context.Background(), browser, cfg)
+	ready, _, _, err := ensureLiepinUnreadConversationDrawer(context.Background(), browser, cfg)
 	if err != nil || !ready {
 		t.Fatalf("联系人未读列表没有准备好：ready=%t err=%v", ready, err)
 	}

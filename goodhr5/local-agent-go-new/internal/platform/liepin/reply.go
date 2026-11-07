@@ -27,32 +27,108 @@ func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Bro
 	return common.CloseCandidatePanels(ctx, browser, cfg)
 }
 
-// ScanUnreadConversations 返回猎聘企业端当前联系人抽屉中的未读会话。
+// liepinUnreadScan 记录本任务最近确认过的未读视图，识别抽屉常驻时没有自动刷新的列表。
+// 扫描由单一检查点依次调用；不跨账号、浏览器会话或任务保存候选信息。
+type liepinUnreadScan struct {
+	confirmedAt time.Time
+	badge       int
+	view        liepinUnreadListView
+}
+
+// liepinUnreadListView 保存联系人列表首部可观察的变化，未读扫描不持久化这些摘要。
+type liepinUnreadListView struct {
+	rows       int
+	firstKey   string
+	firstText  string
+	firstBadge string
+}
+
+const liepinUnreadChangeInterval = 5 * time.Second
+const liepinUnreadRefreshInterval = 30 * time.Second
+
+// ScanUnreadConversations 读取猎聘企业端未读会话，入口有变化或停滞太久时用真实标签切换更新抽屉。
 func (r *Runtime) ScanUnreadConversations(ctx context.Context, browser model.Browser, cfg model.Config) ([]model.Conversation, error) {
-	ready, unreadCount, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
+	ready, entryCount, freshTab, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
 	if err != nil || !ready {
+		r.unread = liepinUnreadScan{}
 		return nil, err
+	}
+	badge := entryCount
+	if freshTab && entryCount == 0 {
+		// 已打开抽屉中刚切到未读时未读取悬浮角标，下一轮先建立基线。
+		badge = -1
+	}
+	if !freshTab {
+		badge, err = readLiepinEntryUnreadCount(ctx, browser, cfg)
+		if err != nil {
+			return nil, err
+		}
+		if r.unread.badge < 0 {
+			r.unread.badge = badge
+		}
+	}
+	// 接手已停在未读标签的页面时，有角标但无法判断显示时间，首次先刷新再全量读取一次。
+	if !freshTab && badge > 0 && r.unread.confirmedAt.IsZero() {
+		if err = refreshLiepinUnreadConversationList(ctx, browser, cfg); err != nil {
+			return nil, err
+		}
+		freshTab = true
 	}
 	conversations, err := readLiepinUnreadConversations(ctx, browser, cfg)
 	if err != nil {
 		return nil, err
 	}
-	if len(conversations) == 0 {
-		refreshed, refreshErr := refreshLiepinUnreadConversationList(ctx, browser, cfg)
-		if refreshErr != nil {
-			return nil, refreshErr
+	view := liepinUnreadView(conversations)
+	listChanged := view != r.unread.view
+	elapsed := time.Since(r.unread.confirmedAt)
+	badgeChanged := badge > 0 && badge != r.unread.badge && elapsed >= liepinUnreadChangeInterval
+	refreshDue := (badge > 0 || view.rows > 0) && (badgeChanged || elapsed >= liepinUnreadRefreshInterval)
+	// 角标增长、减少或停在99+都可能对应新的候选消息。已经变化的列表直接使用，空角标空列表不切换。
+	if !freshTab && !r.unread.confirmedAt.IsZero() && !listChanged && refreshDue {
+		if err = refreshLiepinUnreadConversationList(ctx, browser, cfg); err != nil {
+			return nil, err
 		}
-		if refreshed {
-			conversations, err = readLiepinUnreadConversations(ctx, browser, cfg)
-			if err != nil {
-				return nil, err
-			}
+		conversations, err = readLiepinUnreadConversations(ctx, browser, cfg)
+		if err != nil {
+			return nil, err
 		}
+		view = liepinUnreadView(conversations)
+		freshTab = true
 	}
-	if unreadCount > 0 && len(conversations) > unreadCount {
-		conversations = conversations[:unreadCount]
+	if freshTab || listChanged || r.unread.confirmedAt.IsZero() {
+		r.unread = liepinUnreadScan{confirmedAt: time.Now(), badge: badge, view: view}
+	}
+	if entryCount > 0 && len(conversations) > entryCount {
+		conversations = conversations[:entryCount]
 	}
 	return conversations, nil
+}
+
+// liepinUnreadView 只比较列表首项、可见摘要、数量与首项角标；消息身份仍由打开会话后的正式流程核对。
+func liepinUnreadView(conversations []model.Conversation) liepinUnreadListView {
+	view := liepinUnreadListView{rows: len(conversations)}
+	if len(conversations) > 0 {
+		first := conversations[0]
+		view.firstKey, view.firstText, view.firstBadge = first.Key, first.Summary, first.Fields["unread_count"]
+	}
+	return view
+}
+
+// readLiepinEntryUnreadCount 轻读已打开抽屉的悬浮角标，元素未显示时快速返回零。
+func readLiepinEntryUnreadCount(ctx context.Context, browser model.Browser, cfg model.Config) (int, error) {
+	selector, ok := cfg.Selectors["message.entry_unread_count"]
+	if !ok || len(selector.Target.Selectors) == 0 {
+		return 0, nil
+	}
+	selector.TimeoutMS = 200
+	value, err := browser.Read(ctx, contract.ElementReadRequest{Selector: selector, Property: "text"})
+	if common.IsElementMissing(err) || (err == nil && strings.TrimSpace(value.Value) == "0") {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return parseLiepinUnreadCount(value.Value)
 }
 
 // readLiepinUnreadConversations 读取猎聘未读标签当前真实带数字的联系人。
@@ -64,38 +140,30 @@ func readLiepinUnreadConversations(ctx context.Context, browser model.Browser, c
 	return liepinConversations(items, true)
 }
 
-// refreshLiepinUnreadConversationList 在入口有数字但未读列表为空时切换标签刷新一次。
-func refreshLiepinUnreadConversationList(ctx context.Context, browser model.Browser, cfg model.Config) (bool, error) {
-	unread, found, err := common.ReadOptional(ctx, browser, cfg, "message.entry_unread_count")
-	if err != nil || !found {
-		return false, err
+// refreshLiepinUnreadConversationList 通过真实切换“全部→未读”更新已打开的猎聘联系人抽屉。
+func refreshLiepinUnreadConversationList(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	if err := ensureLiepinConversationDrawer(ctx, browser, cfg); err != nil {
+		return fmt.Errorf("刷新%s未读联系人列表失败：%w", cfg.Name, err)
 	}
-	unreadCount, err := parseLiepinUnreadCount(unread)
-	if err != nil || unreadCount <= 0 {
-		return false, err
-	}
-	if err = ensureLiepinConversationDrawer(ctx, browser, cfg); err != nil {
-		return false, fmt.Errorf("刷新%s未读联系人列表失败：%w", cfg.Name, err)
-	}
-	ready, _, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
+	ready, _, _, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
 	if err != nil {
-		return false, fmt.Errorf("刷新%s未读联系人列表失败：%w", cfg.Name, err)
+		return fmt.Errorf("刷新%s未读联系人列表失败：%w", cfg.Name, err)
 	}
 	if !ready {
-		return false, fmt.Errorf("刷新%s未读联系人列表后抽屉没有准备好", cfg.Name)
+		return fmt.Errorf("刷新%s未读联系人列表后抽屉没有准备好", cfg.Name)
 	}
-	return true, nil
+	return nil
 }
 
-// ensureLiepinUnreadConversationDrawer 打开联系人抽屉并确认切到未读标签，保证会话始终从列表首项依次处理。
-func ensureLiepinUnreadConversationDrawer(ctx context.Context, browser model.Browser, cfg model.Config) (bool, int, error) {
+// ensureLiepinUnreadConversationDrawer 打开联系人抽屉并确认未读标签；第三个返回值表示本轮已经打开或切换过标签。
+func ensureLiepinUnreadConversationDrawer(ctx context.Context, browser model.Browser, cfg model.Config) (bool, int, bool, error) {
 	ready, unreadCount, err := common.EnsureUnreadConversationDrawer(ctx, browser, cfg)
 	if err != nil || !ready {
-		return ready, unreadCount, err
+		return ready, unreadCount, false, err
 	}
 	selected, err := common.ProbeSelectorExists(ctx, browser, cfg, "message.unread_tab_selected")
 	if err != nil || selected {
-		return ready, unreadCount, err
+		return ready, unreadCount, unreadCount > 0, err
 	}
 	for attempt := 1; attempt <= 2; attempt++ {
 		if err = common.ClickRequired(ctx, browser, cfg, "message.unread_tab"); err != nil {
@@ -103,16 +171,16 @@ func ensureLiepinUnreadConversationDrawer(ctx context.Context, browser model.Bro
 		}
 		selected, err = common.ProbeSelectorExists(ctx, browser, cfg, "message.unread_tab_selected")
 		if err != nil {
-			return false, 0, err
+			return false, 0, false, err
 		}
 		if selected {
-			return true, unreadCount, nil
+			return true, unreadCount, true, nil
 		}
 	}
 	if err != nil {
-		return false, 0, fmt.Errorf("切换%s联系人未读列表失败：%w", cfg.Name, err)
+		return false, 0, false, fmt.Errorf("切换%s联系人未读列表失败：%w", cfg.Name, err)
 	}
-	return false, 0, fmt.Errorf("%s联系人列表没有切到未读标签", cfg.Name)
+	return false, 0, false, fmt.Errorf("%s联系人列表没有切到未读标签", cfg.Name)
 }
 
 // OpenAutoReplyConversation 重新按稳定会话编号定位联系人，并读取身份、岗位、聊天和简历卡片。
