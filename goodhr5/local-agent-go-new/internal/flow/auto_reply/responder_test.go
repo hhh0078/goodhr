@@ -4,6 +4,7 @@ package auto_reply
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"net/http"
@@ -404,7 +405,7 @@ func TestAIResponderStructuresResumeLocally(t *testing.T) {
 		if len(request.Messages) != 2 || !strings.Contains(request.Messages[1].Content, "真实附件正文") || strings.Contains(request.Messages[0].Content, "真实附件正文") {
 			t.Errorf("简历没有进入动态消息：%+v", request)
 		}
-		content, _ := json.Marshal(`{"candidate_name":"测试甲","phone":"13800138000","gender":"女","wechat":"candidate_wechat","is_resume":true}`)
+		content, _ := json.Marshal(`{"candidate_name":"测试甲","phone":"13800138000","gender":"女","wechat":"candidate_wechat","educations":[{"school_name":"合成大学"}],"is_resume":true}`)
 		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%s}}]}`, content)
 	}))
 	defer modelServer.Close()
@@ -418,7 +419,7 @@ func TestAIResponderStructuresResumeLocally(t *testing.T) {
 	client.EnableLocalAutoReply(store, filepath.Join(directory, "private"))
 	credentials := cloud.AgentCredentials{Token: "test-token", MachineID: "test-machine"}
 	filePath := filepath.Join(directory, "resume.txt")
-	if err = os.WriteFile(filePath, []byte("真实附件正文"), 0600); err != nil {
+	if err = os.WriteFile(filePath, []byte("真实附件正文：测试甲，就读合成大学。"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	attachment, err := client.UploadAutoReplyAttachment(context.Background(), credentials, cloud.AutoReplyAttachmentUpload{ConversationID: "conversation-1", FilePath: filePath})
@@ -437,6 +438,101 @@ func TestAIResponderStructuresResumeLocally(t *testing.T) {
 	}
 	if result.Candidate.CandidateName != "测试甲" || result.Candidate.Phone != "13800138000" || !strings.Contains(result.RawText, "真实附件正文") || cloudCalls != 0 || aiCalls != 1 {
 		t.Fatalf("本地处理结果不正确：%+v 云端请求=%d AI请求=%d", result, cloudCalls, aiCalls)
+	}
+}
+
+// TestAutoReplyResumeRequiresGroundedHistory 验证纯身份、模板、错判、旧模型与精简应届生的履历门槛。
+func TestAutoReplyResumeRequiresGroundedHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name, source, fields string
+		want                 bool
+	}{
+		{"只有姓名", "测试甲", `{"candidate_name":"测试甲"}`, false},
+		{"只有联系方式", "测试甲，13800138000，test@example.com", `{"candidate_name":"测试甲","phone":"13800138000","email":"test@example.com","is_resume":true}`, false},
+		{"空模板", "个人简历 学校名称 公司名称 项目名称", `{"is_resume":true,"personal_description":"个人简历","educations":[{"school_name":"学校名称"}],"work_experiences":[{}],"project_experiences":[{"project_name":"项目名称"}]}`, false},
+		{"模型补出的经历", "测试甲的简历", `{"is_resume":true,"educations":[{"school_name":"合成大学"}]}`, false},
+		{"明确非简历", "合成大学", `{"is_resume":false,"educations":[{"school_name":"合成大学"}]}`, false},
+		{"旧模型的应届生", "测试甲 就读合成大 学", `{"candidate_name":"测试甲","educations":[{"school_name":"合成大学"}]}`, true},
+		{"应届生仅有明确学历", "测试甲 学历：本科", `{"candidate_name":"测试甲","education_level":"本科","is_resume":true}`, true},
+		{"只有实习", "测试甲 在合成公司实习", `{"is_resume":true,"work_experiences":[{"company_name":"合成公司"}]}`, true},
+		{"只有项目", "校园图书预约系统", `{"is_resume":true,"project_experiences":[{"project_name":"校园图书预约系统"}]}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var candidate cloud.LibraryCandidate
+			if err := json.Unmarshal([]byte(tc.fields), &candidate); err != nil {
+				t.Fatal(err)
+			}
+			if got := hasAutoReplyResumeEvidence(candidate, tc.source); got != tc.want {
+				t.Fatalf("可用履历=%v，期望%v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestWeakNewResumeKeepsPreviousProfile 使用正式附件解析和 SQLite 待办验证只有姓名的新附件不会替换历史简历或触发推荐。
+func TestWeakNewResumeKeepsPreviousProfile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("意外请求 %s", r.URL.Path)
+		}
+		content, _ := json.Marshal(`{"candidate_name":"合成人选","is_resume":true}`)
+		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%s}}]}`, content)
+	}))
+	defer server.Close()
+	ctx := context.Background()
+	flow, prepared := newReliabilityFlow(t, "")
+	flow.Responder = &AIResponder{Cloud: flow.Cloud, AI: newAIClient()}
+	prepared.Position.AI = cloud.AIConfig{BaseURL: server.URL, APIKey: "test", Model: "test"}
+	cred := credentials(prepared)
+	lookup := cloud.AutoReplyCandidateLookup{PlatformID: prepared.Platform.ID, PlatformAccountID: prepared.Request.PlatformAccountID, PlatformThreadID: "thread"}
+	conversation, err := flow.Cloud.SaveAutoReplyConversation(ctx, cred, cloud.AutoReplyConversation{PositionID: "position", PlatformID: lookup.PlatformID, PlatformAccountID: lookup.PlatformAccountID, PlatformThreadID: lookup.PlatformThreadID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := flow.Cloud.EnsureLocalAutoReplyCandidate(ctx, cred, conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := cloud.AutoReplyCandidateInput{PositionID: "position", LocalCandidateID: candidate.ID, PlatformID: lookup.PlatformID, PlatformAccountID: lookup.PlatformAccountID, PlatformCandidateID: "person", ResumeSourceMessageID: "old-card", StructuredCandidate: cloud.StructuredCandidate{CandidateName: "合成人选", RawText: "旧档原文", Educations: []cloud.CandidateEducation{{SchoolName: "合成大学"}}}}
+	if _, err = flow.Cloud.SaveAutoReplyCandidate(ctx, cred, old); err != nil {
+		t.Fatal(err)
+	}
+	const source = "new-card"
+	card := cloud.AutoReplyMessage{PlatformMessageID: source, Direction: "candidate", MessageType: "resume"}
+	if _, err = flow.Cloud.SyncAutoReplyMessages(ctx, cred, cloud.AutoReplyMessageSyncRequest{ConversationID: conversation.ID, Messages: []cloud.AutoReplyMessage{card}, HistoryComplete: true}); err != nil {
+		t.Fatal(err)
+	}
+	conversation, err = flow.Cloud.EnqueueAutoReplyResumeRetry(ctx, cred, conversation.ID, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "new-resume.txt")
+	if err = os.WriteFile(path, []byte("合成人选"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &autoReplyRuntimeStub{resumeBundle: model.AutoReplyResumeBundle{CandidateName: "合成人选", AttachmentPaths: []string{path}, ResumeSourceMessageID: source}}
+	snapshot := model.AutoReplyConversationSnapshot{ResumeCardAvailable: true, ResumeSourceMessageID: source, PlatformCandidateID: "person", PlatformAccountID: lookup.PlatformAccountID, Messages: []model.ConversationMessage{{PlatformMessageID: source, MessageType: "resume"}}}
+	state, err := flow.Cloud.AutoReplyCandidateState(ctx, cred, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = flow.ensureResume(ctx, prepared, runtime, cloud.AutoReplyPositionSnapshot{}, &conversation, snapshot, state, source, &shared.Stats{})
+	if !errors.Is(err, errAutoReplyResumeDeferred) || !strings.Contains(err.Error(), "履历") {
+		t.Fatalf("姓名被当作已结构化或不是预期延期：%v", err)
+	}
+	if err = flow.recordResumeRetryFailure(ctx, prepared, &conversation, snapshot, err); err != nil {
+		t.Fatal(err)
+	}
+	state, err = flow.Cloud.AutoReplyCandidateState(ctx, cred, lookup)
+	if err != nil || state.Candidate == nil || state.Conversation == nil || state.Conversation.ResumeRetry == nil {
+		t.Fatalf("待办丢失：%v", err)
+	}
+	if state.Candidate.ResumeSourceMessageID != "old-card" || state.Candidate.RawText != old.RawText || len(state.Candidate.Educations) != 1 || state.Candidate.Educations[0].SchoolName != "合成大学" || len(state.Attachments) != 1 || state.Conversation.ResumeRetry.SourceMessageID != source || state.Conversation.ResumeRetry.LastError == "" {
+		t.Fatal("新附件未保留或旧履历、核对待办被覆盖")
+	}
+	jobs, err := flow.Cloud.PendingAutoReplyRecommendations(ctx, cred)
+	if err != nil || len(jobs) != 0 {
+		t.Fatal("无效附件生成了推荐", jobs, err)
 	}
 }
 
@@ -469,7 +565,7 @@ func TestAIResponderBirthMonthRequiresBirthContext(t *testing.T) {
 				if r.URL.Path != "/v1/chat/completions" {
 					t.Errorf("不应访问云端：%s", r.URL.Path)
 				}
-				content, _ := json.Marshal(map[string]any{"candidate_name": "合成人选", "birth_ym": item.parsed, "age": 30, "is_resume": true})
+				content, _ := json.Marshal(map[string]any{"candidate_name": "合成人选", "birth_ym": item.parsed, "age": 30, "is_resume": true, "educations": []cloud.CandidateEducation{{SchoolName: "合成大学"}}})
 				encoded, _ := json.Marshal(string(content))
 				_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%s}}]}`, encoded)
 			}))
@@ -494,7 +590,7 @@ func TestAIResponderBirthMonthRequiresBirthContext(t *testing.T) {
 			}
 			conversation.CandidateID = candidate.ID
 			path := filepath.Join(directory, "resume.txt")
-			if err := os.WriteFile(path, []byte("合成简历\n"+item.original), 0600); err != nil {
+			if err := os.WriteFile(path, []byte("合成简历\n毕业于合成大学\n"+item.original), 0600); err != nil {
 				t.Fatal(err)
 			}
 			attachment, err := client.UploadAutoReplyAttachment(ctx, credentials, cloud.AutoReplyAttachmentUpload{ConversationID: conversation.ID, FilePath: path})

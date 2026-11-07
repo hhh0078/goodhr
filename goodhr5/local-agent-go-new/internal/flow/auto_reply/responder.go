@@ -79,13 +79,66 @@ func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructure
 	if err != nil {
 		return StructuredResume{}, err
 	}
-	if candidate.IsResume != nil && !*candidate.IsResume {
-		return StructuredResume{}, fmt.Errorf("附件没有可确认的个人简历，请人工看一下")
+	if !hasAutoReplyResumeEvidence(candidate, text) {
+		return StructuredResume{}, fmt.Errorf("附件里还没核实到教育、工作或项目等履历，已保留原件，请核对后重试")
 	}
 	birthYM, birthPrecision := explicitResumeBirthMonth(candidate.BirthYM, text)
 	candidate.BirthYM = birthYM
 	r.reportResume(input, "result", "候选人简历已经整理完成", true)
 	return StructuredResume{Candidate: candidate.StructuredCandidate, Gender: candidate.Gender, BirthYMPrecision: birthPrecision, Wechat: candidate.Wechat, RawText: text}, nil
+}
+
+// hasAutoReplyResumeEvidence 要求本次提取原文包含本次模型返回的一项实际履历；旧模型未返回分类时仍按原文校验。
+func hasAutoReplyResumeEvidence(candidate cloud.LibraryCandidate, source string) bool {
+	if candidate.IsResume != nil && !*candidate.IsResume {
+		return false
+	}
+	text := normalizeConfirmationContent(source)
+	identity := map[string]bool{
+		normalizeConfirmationContent(candidate.CandidateName): true,
+		normalizeConfirmationContent(candidate.Email):         true,
+		normalizeConfirmationContent(candidate.Phone):         true,
+		normalizeConfirmationContent(candidate.Wechat):        true,
+	}
+	inSource := func(values ...string) bool {
+		for _, value := range values {
+			fact := strings.Trim(normalizeConfirmationContent(value), "【】[]<>《》_—-*：:")
+			switch fact {
+			case "", "暂无", "未知", "未填写", "无", "简历", "个人简历", "工作经历", "教育经历", "项目经历", "学历", "专业", "学校", "学校名称", "专业名称", "公司名称", "职位名称", "岗位名称", "项目名称", "项目描述", "工作内容", "证书名称", "荣誉名称":
+				continue
+			}
+			if !identity[fact] && len([]rune(fact)) >= 2 && strings.Contains(text, fact) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, education := range candidate.Educations {
+		if inSource(education.SchoolName, education.MajorName, education.EducationLevel) {
+			return true
+		}
+	}
+	for _, job := range candidate.WorkExperiences {
+		if inSource(job.CompanyName, job.PositionName, job.Content) {
+			return true
+		}
+	}
+	for _, project := range candidate.ProjectExperiences {
+		if inSource(project.ProjectName, project.Content) {
+			return true
+		}
+	}
+	for _, certificate := range candidate.Certificates {
+		if inSource(certificate.CertificateName) {
+			return true
+		}
+	}
+	for _, honor := range candidate.Honors {
+		if inSource(honor.HonorName) {
+			return true
+		}
+	}
+	return inSource(candidate.EducationLevel, candidate.CurrentPosition, candidate.WorkYears)
 }
 
 // 生日标签允许 PDF 的中文排版空格；年月必须与标签相邻，不跨行搜索其他日期。
