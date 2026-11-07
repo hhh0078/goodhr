@@ -4,6 +4,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,13 +28,21 @@ type attachmentPageBrowser struct {
 	closePages  int
 	cancel      context.CancelFunc
 	downloadErr error
+	receipt     chan contract.DownloadReceipt
+	viewerWatch bool
+	unwatched   bool
 }
+
+const syntheticAttachmentURL = "https://example.invalid/synthetic-resume.pdf"
 
 // ListPages 模拟下载打开 PDF，同时其他标签关闭导致原页序号变化。
 func (b *attachmentPageBrowser) ListPages(context.Context) (contract.PageListResult, error) {
+	viewer := (&url.URL{Scheme: "file", Path: filepath.ToSlash(b.filePath)}).String()
 	if !b.downloaded {
 		pages := []contract.PageInfo{{PageID: "0", URL: b.originURL, Current: true}}
 		switch b.scenario {
+		case "existing_viewer":
+			pages = append(pages, contract.PageInfo{PageID: "1", URL: viewer})
 		case "initial_duplicate_origin":
 			pages = append(pages, contract.PageInfo{PageID: "1", URL: b.originURL})
 		case "initial_multiple_current":
@@ -43,8 +52,12 @@ func (b *attachmentPageBrowser) ListPages(context.Context) (contract.PageListRes
 		}
 		return contract.PageListResult{Pages: pages, Count: len(pages)}, nil
 	}
-	pages := []contract.PageInfo{{PageID: "7", URL: b.originURL, Current: !b.pdfCurrent}, {PageID: "8", URL: "file:///synthetic-resume.pdf", Current: b.pdfCurrent}}
+	pages := []contract.PageInfo{{PageID: "7", URL: b.originURL, Current: !b.pdfCurrent}, {PageID: "8", URL: viewer, Current: b.pdfCurrent}}
 	switch b.scenario {
+	case "delayed_viewer":
+		pages[1].URL = "about:blank"
+	case "duplicate_file":
+		pages = append(pages, contract.PageInfo{PageID: "10", URL: viewer})
 	case "missing_origin", "download_and_restore_error", "cancel_and_restore_error":
 		pages = pages[1:]
 	case "duplicate_origin":
@@ -59,11 +72,15 @@ func (b *attachmentPageBrowser) UsePage(ctx context.Context, request contract.Pa
 		return contract.PageInfo{}, err
 	}
 	b.usedPageID = request.PageID
-	if request.PageID != "7" {
+	if request.PageID != "7" || request.DismissDownload == nil || request.DismissDownload.OriginalURL != b.originURL || request.DismissDownload.DownloadID != "native_download_proof" ||
+		(!b.viewerWatch || !request.DismissDownload.AwaitViewer || (b.scenario != "delayed_viewer" && request.DismissDownload.ViewerURL != (&url.URL{Scheme: "file", Path: filepath.ToSlash(b.filePath)}).String())) {
 		return contract.PageInfo{}, errors.New("误用下载前的旧页面序号")
 	}
 	b.pdfCurrent = false
-	page := contract.PageInfo{PageID: "7", URL: b.originURL, Current: true}
+	if request.DismissDownload.KeepViewer != (b.scenario == "existing_viewer") {
+		return contract.PageInfo{}, errors.New("错误尝试关闭预先存在的文件页")
+	}
+	page := contract.PageInfo{PageID: "7", URL: b.originURL, Current: true, DownloadViewerClosed: !request.DismissDownload.KeepViewer, DownloadViewerPreserved: request.DismissDownload.KeepViewer}
 	if b.scenario == "returned_url_changed" {
 		page.URL = "https://example.invalid/other"
 	}
@@ -91,6 +108,9 @@ func (b *attachmentPageBrowser) Read(_ context.Context, request contract.Element
 	if request.Selector.Description == b.cfg.Selectors["message.current_position"].Description {
 		return contract.ReadResult{Value: "合成岗位"}, nil
 	}
+	if request.Selector.Description == b.cfg.Selectors["message.attachment_download"].Description && request.Attribute == "href" {
+		return contract.ReadResult{Value: syntheticAttachmentURL}, nil
+	}
 	return contract.ReadResult{}, nil
 }
 
@@ -114,7 +134,16 @@ func (b *attachmentPageBrowser) Click(_ context.Context, request contract.Elemen
 	case b.cfg.Selectors["message.resume_attachment_entry"].Description:
 		b.previewOpen = true
 	case b.cfg.Selectors["message.attachment_download"].Description:
-		b.downloaded, b.pdfCurrent = true, true
+		b.viewerWatch = request.WatchDownloadViewer
+		if b.receipt == nil || b.unwatched {
+			return contract.ClickResult{}, errors.New("没有在真实点击前订阅下载")
+		}
+		b.downloaded, b.pdfCurrent = true, b.scenario != "logical_original"
+		if b.cancel != nil {
+			b.cancel()
+		} else {
+			b.receipt <- contract.DownloadReceipt{Err: b.downloadErr, Record: contract.DownloadRecord{ID: "native_download_proof", Status: "saved", FilePath: b.filePath}}
+		}
 	case b.cfg.Selectors["message.attachment_preview_close"].Description:
 		b.closeCount++
 		b.previewOpen = false
@@ -129,19 +158,22 @@ func (b *attachmentPageBrowser) Scroll(context.Context, contract.ScrollRequest) 
 	return contract.ScrollResult{}, nil
 }
 
-// Downloads 返回真实临时文件，并可在下载后模拟失败或任务取消。
-func (b *attachmentPageBrowser) Downloads(context.Context) (contract.DownloadListResult, error) {
-	if b.cancel != nil {
-		b.cancel()
+// WatchDownload 只允许预览当前页附件时按实际链接订阅，直到下载点击后才投递回执。
+func (b *attachmentPageBrowser) WatchDownload(page, file string, ignoredQuery ...string) (<-chan contract.DownloadReceipt, func(), error) {
+	if !b.previewOpen || b.downloaded || b.receipt != nil || page != b.originURL || file != syntheticAttachmentURL {
+		return nil, nil, errors.New("下载订阅时机或附件归属不正确")
 	}
-	if b.downloadErr != nil {
-		return contract.DownloadListResult{}, b.downloadErr
-	}
-	return contract.DownloadListResult{Downloads: []contract.DownloadRecord{{Status: "saved", FilePath: b.filePath}}}, nil
+	b.receipt = make(chan contract.DownloadReceipt, 1)
+	return b.receipt, func() { b.unwatched = true }, nil
 }
 
-// ClearDownloads 仅模拟下载记录清理，不删除文件。
-func (b *attachmentPageBrowser) ClearDownloads(context.Context) error { return nil }
+// PressKey 验证快捷键绑定原页及弹层；本替身保留预览，以覆盖随后按钮关闭的备用路径。
+func (b *attachmentPageBrowser) PressKey(_ context.Context, r contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
+	if !b.previewOpen || b.pdfCurrent || r.Key != "Escape" || r.ExpectedPageURL != b.originURL || r.Target == nil {
+		return contract.KeyboardPressResult{}, errors.New("快捷键没有绑定正确的预览")
+	}
+	return contract.KeyboardPressResult{Pressed: true}, nil
+}
 
 // ClosePage 记录不应发生的标签关闭，保护下载后新开的 PDF。
 func (b *attachmentPageBrowser) ClosePage(context.Context) error {
@@ -151,7 +183,7 @@ func (b *attachmentPageBrowser) ClosePage(context.Context) error {
 
 // TestLoggedLiepinAttachmentRestoresOriginalPage 验证正式包装链保留切页能力，并阻止歧义、身份变化及清理失败掩盖原错误。
 func TestLoggedLiepinAttachmentRestoresOriginalPage(t *testing.T) {
-	for _, scenario := range []string{"success", "initial_duplicate_origin", "initial_multiple_current", "initial_no_current", "missing_origin", "duplicate_origin", "returned_url_changed", "returned_not_current", "wrong_cid", "download_error", "cancelled", "download_and_restore_error", "cancel_and_restore_error"} {
+	for _, scenario := range []string{"success", "logical_original", "delayed_viewer", "duplicate_file", "existing_viewer", "initial_duplicate_origin", "initial_multiple_current", "initial_no_current", "missing_origin", "duplicate_origin", "returned_url_changed", "returned_not_current", "wrong_cid", "download_error", "cancelled", "download_and_restore_error", "cancel_and_restore_error"} {
 		t.Run(scenario, func(t *testing.T) {
 			cfg, err := platform.LoadConfig("liepin")
 			if err != nil {
@@ -183,7 +215,7 @@ func TestLoggedLiepinAttachmentRestoresOriginalPage(t *testing.T) {
 				CandidateName: "合成候选人", PlatformCandidateID: "target-cid", CommunicationPosition: "合成岗位",
 				ResumeCardAvailable: true, ResumeSourceMessageID: "source-message",
 			})
-			if scenario == "success" {
+			if scenario == "success" || scenario == "logical_original" || scenario == "existing_viewer" || scenario == "delayed_viewer" {
 				if err != nil || len(bundle.AttachmentPaths) != 1 || bundle.AttachmentPaths[0] != filePath {
 					t.Fatalf("正式包装未返回原附件：bundle=%+v err=%v", bundle, err)
 				}
@@ -193,7 +225,10 @@ func TestLoggedLiepinAttachmentRestoresOriginalPage(t *testing.T) {
 			if primaryErr != nil && !errors.Is(err, primaryErr) {
 				t.Fatalf("清理掩盖了下载或取消主错误：err=%v primary=%v", err, primaryErr)
 			}
-			wantClose := scenario == "success" || scenario == "download_error" || scenario == "cancelled"
+			if (browser.receipt != nil) != browser.downloaded || browser.unwatched != browser.downloaded {
+				t.Fatalf("订阅与实际下载不对应：downloaded=%t watched=%t stopped=%t", browser.downloaded, browser.receipt != nil, browser.unwatched)
+			}
+			wantClose := scenario == "success" || scenario == "logical_original" || scenario == "existing_viewer" || scenario == "delayed_viewer"
 			if (browser.closeCount == 1) != wantClose || browser.closePages != 0 {
 				t.Fatalf("未核实原页身份即关闭，或误关PDF：preview_closes=%d page_closes=%d", browser.closeCount, browser.closePages)
 			}

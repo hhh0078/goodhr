@@ -191,6 +191,21 @@ func (c *Client) ClaimAutoReplySend(ctx context.Context, credentials AgentCreden
 	return
 }
 
+// ReleaseUnsentAutoReply 仅释放调用方已领取、内容完全一致且能证明尚未触发发送的旧意图。
+func (c *Client) ReleaseUnsentAutoReply(ctx context.Context, credentials AgentCredentials, conversationID, messageKey string, sequence int, content string) error {
+	return c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		id := autoReplySendID(conversationID, messageKey, sequence)
+		item, found, err := getAutoReplyEntity[localAutoReplySend](tx, "sends", id)
+		if err != nil || !found {
+			return err
+		}
+		if item.Status != "sending" || item.Content != content {
+			return fmt.Errorf("发送意图状态已变化，不能撤销")
+		}
+		return tx.Delete("sends", id)
+	})
+}
+
 // FinishAutoReplySend 只允许发送意图转为已确认发送或结果不明，避免失败后自动重复发送。
 func (c *Client) FinishAutoReplySend(ctx context.Context, credentials AgentCredentials, conversationID, messageKey string, sequence int, status string) error {
 	if status != "sent" && status != "unknown" {

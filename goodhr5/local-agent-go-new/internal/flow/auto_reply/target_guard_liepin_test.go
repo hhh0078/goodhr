@@ -1,4 +1,4 @@
-// Package auto_reply 本文件用真实猎聘运行时和生产配置验证切换未读标签后的单会话恢复，不连接招聘页面。
+// Package auto_reply 本文件用真实猎聘运行时和生产配置验证全部联系人扫描、已打开聊天和手动关窗后的单会话恢复，不连接招聘页面。
 package auto_reply
 
 import (
@@ -14,12 +14,12 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// targetLiepinBrowser 模拟未读标签收起已读聊天，所有请求仍经过真实平台运行时和选择器配置。
+// targetLiepinBrowser 模拟全部联系人及当前聊天，所有请求仍经过真实平台运行时和选择器配置。
 type targetLiepinBrowser struct {
 	autoReplyBrowserStub
 	cfg                  model.Config
 	snapshot             model.AutoReplyConversationSnapshot
-	opened, unread       bool
+	opened               bool
 	name, candidateID    string
 	readErr              error
 	scanErr              error
@@ -51,8 +51,6 @@ func (b *targetLiepinBrowser) Read(_ context.Context, request contract.ElementRe
 		return contract.ReadResult{Value: b.snapshot.CommunicationPosition}, nil
 	case "message.candidate_id_source":
 		return contract.ReadResult{Value: "cid=" + b.candidateID}, nil
-	case "message.entry_unread_count":
-		return contract.ReadResult{}, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
 	default:
 		return contract.ReadResult{}, fmt.Errorf("测试未预期的读取：%s", b.key(request.Selector))
 	}
@@ -65,13 +63,21 @@ func (b *targetLiepinBrowser) FindAll(_ context.Context, request contract.Elemen
 	case "message.drawer":
 		exists = true
 	case "message.all_tab_selected":
-		exists = !b.unread
-	case "message.unread_tab_selected":
-		exists = b.unread
-	case "message.unread_item", "message.gender_female", "message.gender_male":
+		exists = true
+	case "message.gender_female", "message.gender_male":
 		return nil, nil
 	case "message.contact_item":
-		return []contract.FindAllItem{{Index: 3, Fields: map[string]string{"name": b.snapshot.CandidateName, "thread_meta": `{"to_imid":"target-thread"}`}}}, nil
+		// 身份定位只读取编号/姓名，扫描全部联系人还读取最新摘要。
+		if _, full := request.Fields["last_message"]; full || (len(request.Fields) == 1 && request.MaxItems == b.cfg.MaxItems) {
+			b.scans++
+			if b.scanErr != nil {
+				return nil, b.scanErr
+			}
+		}
+		return []contract.FindAllItem{
+			{Index: 0, TotalMatches: 2, Text: "别的联系人 有新消息", Fields: map[string]string{"name": "别的联系人", "thread_meta": `{"to_imid":"unrelated"}`, "unread_count": "3", "last_message": "有新消息"}},
+			{Index: 1, TotalMatches: 2, Text: "测试目标 已回复", Fields: map[string]string{"name": b.snapshot.CandidateName, "thread_meta": `{"to_imid":"target-thread"}`, "last_message": "已回复"}},
+		}, nil
 	case "message.item":
 		if !b.opened {
 			return nil, fmt.Errorf("禁止用已收起的聊天快照读取消息")
@@ -86,15 +92,9 @@ func (b *targetLiepinBrowser) FindAll(_ context.Context, request contract.Elemen
 	return nil, nil
 }
 
-// Click 仅记录标签和精确目标点击；切换未读标签复现现场已读聊天消失的状态。
+// Click 验证只允许按稳定编号打开目标；点击任何标签都会使测试失败。
 func (b *targetLiepinBrowser) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
 	switch b.key(request.Selector) {
-	case "message.unread_tab":
-		b.unread, b.opened = true, false
-		b.scans++
-		b.readErr = b.scanErr
-	case "message.all_tab":
-		b.unread = false
 	case "message.contact_click_target":
 		matched := false
 		for _, parent := range request.Selector.Parents {
@@ -139,13 +139,17 @@ func newTargetLiepinRuntime(t *testing.T) (model.Runtime, model.AutoReplyRuntime
 	return runtime, guarded, &targetLiepinBrowser{cfg: cfg, snapshot: snapshot, opened: true, name: target.CandidateName, candidateID: target.PlatformCandidateID}, target
 }
 
-// TestTargetLiepinRuntimeRecoversAfterUnreadTab 验证真实扫描收起聊天后能按目标重新打开，之后仍按稳定编号读取。
-func TestTargetLiepinRuntimeRecoversAfterUnreadTab(t *testing.T) {
+// TestTargetLiepinRuntimeAllScanKeepsChatAndRecoversManualClose 验证全部标签扫描保持已打开聊天，手动关窗后才按稳定身份重新打开。
+func TestTargetLiepinRuntimeAllScanKeepsChatAndRecoversManualClose(t *testing.T) {
 	runtime, guarded, browser, _ := newTargetLiepinRuntime(t)
 	ctx := context.Background()
 	if _, err := runtime.ScanUnreadConversations(ctx, browser, browser.cfg); err != nil {
 		t.Fatal(err)
 	}
+	if latest, open, err := guarded.ReadOpenAutoReplyLatestMessage(ctx, browser, browser.cfg, browser.snapshot); err != nil || !open || latest.PlatformMessageID != "last-self" || browser.scans != 1 || browser.contactClicks != 0 {
+		t.Fatalf("读全部联系人关窗或改变了消息：open=%t latest=%+v scans=%d clicks=%d err=%v", open, latest, browser.scans, browser.contactClicks, err)
+	}
+	browser.opened = false
 	if _, open, err := guarded.ReadOpenAutoReplyLatestMessage(ctx, browser, browser.cfg, browser.snapshot); err != nil || open || browser.opened || browser.contactClicks != 0 {
 		t.Fatalf("已收起聊天没有按关闭处理：open=%v err=%v clicks=%d", open, err, browser.contactClicks)
 	}
@@ -184,10 +188,11 @@ func TestTargetLiepinRuntimeOnlyMissingChatAllowsRecovery(t *testing.T) {
 	}
 }
 
-// TestTargetLiepinCheckpointRechecksSnapshotAfterUnreadScan 验证同一轮扫描收起聊天后，持久采集待办不会复用失效快照。
-func TestTargetLiepinCheckpointRechecksSnapshotAfterUnreadScan(t *testing.T) {
-	for _, readFailure := range []bool{false, true} {
-		t.Run(fmt.Sprintf("扫描后读取故障=%v", readFailure), func(t *testing.T) {
+// TestTargetLiepinCheckpointRestoresOnlyAuthorizedTarget 验证全部联系人扫描、手动关窗和读取失败时仍只恢复指定候选人。
+func TestTargetLiepinCheckpointRestoresOnlyAuthorizedTarget(t *testing.T) {
+	for _, scenario := range []string{"保持打开", "手动关窗", "读取失败"} {
+		t.Run(scenario, func(t *testing.T) {
+			readFailure := scenario == "读取失败"
 			flow, prepared := newReliabilityFlow(t, "")
 			runtime, guarded, browser, target := newTargetLiepinRuntime(t)
 			flow.Browser = browser
@@ -206,6 +211,9 @@ func TestTargetLiepinCheckpointRechecksSnapshotAfterUnreadScan(t *testing.T) {
 			if err = flow.Cloud.BeginAutoReplyCapture(ctx, cred, prepared.Platform.ID, prepared.Request.PlatformAccountID, target.PlatformThreadID, cloud.AutoReplyCaptureIntent{PositionID: "position", PlatformThreadID: target.PlatformThreadID, CandidateName: target.CandidateName, PagePositionText: "工程师"}); err != nil {
 				t.Fatal(err)
 			}
+			if scenario == "手动关窗" {
+				browser.opened = false
+			}
 			if readFailure {
 				browser.scanErr = &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "BROWSER_OPERATION_TIMEOUT"}}
 			}
@@ -217,7 +225,11 @@ func TestTargetLiepinCheckpointRechecksSnapshotAfterUnreadScan(t *testing.T) {
 			if readFailure {
 				wantProcessed = 0
 			}
-			if err != nil || processed != wantProcessed || browser.scans != 1 || browser.contactClicks != wantProcessed || stats.Failed != 0 || current == nil {
+			wantOpens := 0
+			if scenario == "手动关窗" {
+				wantOpens = 1
+			}
+			if err != nil || processed != wantProcessed || browser.scans != 1 || browser.contactClicks != wantOpens || stats.Failed != 0 || current == nil {
 				t.Fatalf("扫描后旧快照恢复不正确：processed=%d scans=%d opens=%d failed=%d err=%v", processed, browser.scans, browser.contactClicks, stats.Failed, err)
 			}
 			state, err := flow.Cloud.AutoReplyCandidateState(ctx, cred, cloud.AutoReplyCandidateLookup{PlatformID: prepared.Platform.ID, PlatformAccountID: prepared.Request.PlatformAccountID, PlatformThreadID: target.PlatformThreadID})
@@ -225,5 +237,42 @@ func TestTargetLiepinCheckpointRechecksSnapshotAfterUnreadScan(t *testing.T) {
 				t.Fatalf("待办完成状态不正确：state=%+v err=%v", state.Conversation, err)
 			}
 		})
+	}
+}
+
+// TestAllContactEmptyObservationDoesNotStartHistoryBoundary 验证空抽屉不提前建立监听边界；只有实际看到的一份列表才能供下次对比。
+func TestAllContactEmptyObservationDoesNotStartHistoryBoundary(t *testing.T) {
+	ctx := context.Background()
+	flow, prepared := newReliabilityFlow(t, "")
+	prepared.Platform.ID = "liepin"
+	rows, _, err := flow.reviewAllContacts(ctx, prepared, nil)
+	if err != nil || len(rows) != 0 {
+		t.Fatal(rows, err)
+	}
+	row := model.Conversation{Key: "thread", PlatformThreadID: "thread", Name: "已存在的联系人", Summary: "旧内容", Fields: map[string]string{"contact_list_signature": "old"}}
+	rows, _, err = flow.reviewAllContacts(ctx, prepared, []model.Conversation{row})
+	if err != nil || len(rows) != 0 {
+		t.Fatal("渲染后的第一份历史列表被误判成新进线", rows, err)
+	}
+	row.Fields["contact_list_signature"] = "changed"
+	row.Summary = "新来信"
+	rows, _, err = flow.reviewAllContacts(ctx, prepared, []model.Conversation{row})
+	if err != nil || len(rows) != 1 || rows[0].PlatformThreadID != "thread" {
+		t.Fatal("确认基线后无红点的新来信没有被发现", rows, err)
+	}
+}
+
+// TestDueListReviewKeepsItsCheckpointSlot 验证轮查与本地待办重合时保留详情，普通轮次维持待办顺序。
+func TestDueListReviewKeepsItsCheckpointSlot(t *testing.T) {
+	queue := []model.Conversation{{PlatformThreadID: "pending"}, {PlatformThreadID: "quiet", PlatformCandidateID: "已核对身份"}, {PlatformThreadID: "other"}}
+	reviews := map[string]cloud.AutoReplyListReview{"quiet": {ThreadID: "quiet"}}
+	prioritizeDueListReview(queue, reviews)
+	if queue[0].PlatformThreadID != "pending" {
+		t.Fatal("普通轮次占用了本地名额")
+	}
+	reviews["quiet"] = cloud.AutoReplyListReview{ThreadID: "quiet", ReserveTurn: true}
+	prioritizeDueListReview(queue, reviews)
+	if queue[0].PlatformCandidateID != "已核对身份" || queue[1].PlatformThreadID != "pending" || queue[2].PlatformThreadID != "other" {
+		t.Fatal("久未核对的会话或其它本地待办被挤掉", queue)
 	}
 }

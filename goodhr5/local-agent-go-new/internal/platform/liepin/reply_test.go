@@ -135,6 +135,9 @@ func (b *liepinReplyBrowserStub) Read(_ context.Context, request contract.Elemen
 	if request.Selector.Description == "测试当前岗位" && b.conversationOpen {
 		return contract.ReadResult{Value: "测试岗位"}, nil
 	}
+	if request.Attribute == "href" && request.Selector.Description == "测试附件下载" {
+		return contract.ReadResult{Value: "https://example.com/test.pdf"}, nil
+	}
 	if request.Selector.Description == "测试附件正文" && b.attachmentOpen {
 		return contract.ReadResult{Value: "邮箱：test@example.com"}, nil
 	}
@@ -223,126 +226,24 @@ func (b *liepinReplyBrowserStub) ClosePage(context.Context) error {
 	return nil
 }
 
-// Downloads 返回测试准备的已落盘附件记录。
-func (b *liepinReplyBrowserStub) Downloads(context.Context) (contract.DownloadListResult, error) {
-	return contract.DownloadListResult{Downloads: []contract.DownloadRecord{{Status: "saved", FilePath: b.downloadPath}}}, nil
-}
-
-// ClearDownloads 模拟清空 Worker 下载记录，不删除测试附件。
-func (b *liepinReplyBrowserStub) ClearDownloads(context.Context) error {
-	return nil
-}
-
-// TestEnsureLiepinUnreadConversationDrawerSelectsUnreadTab 验证联系人抽屉会切到未读标签后再扫描会话。
-func TestEnsureLiepinUnreadConversationDrawerSelectsUnreadTab(t *testing.T) {
-	browser := &liepinReplyBrowserStub{drawerOpen: true}
-	cfg := model.Config{
-		ID: "liepin", Name: "猎聘企业端",
-		Selectors: map[string]contract.SelectorSpec{
-			"message.drawer":              testLiepinSelector("测试联系人抽屉"),
-			"message.unread_tab":          testLiepinSelector("测试未读标签"),
-			"message.unread_tab_selected": testLiepinSelector("测试未读标签已选中"),
-		},
-	}
-	ready, _, _, err := ensureLiepinUnreadConversationDrawer(context.Background(), browser, cfg)
-	if err != nil || !ready {
-		t.Fatalf("联系人未读列表没有准备好：ready=%t err=%v", ready, err)
-	}
-	if !browser.unreadSelected || len(browser.clicks) != 1 || browser.clicks[0] != "测试未读标签" {
-		t.Fatalf("没有只点击一次未读标签：selected=%t clicks=%v", browser.unreadSelected, browser.clicks)
-	}
-}
-
-// TestScanUnreadConversationsCapsPlatformHistoryByEntryCount 验证猎聘长期保留的旧未读不会超过悬浮入口本次新消息数。
-func TestScanUnreadConversationsCapsPlatformHistoryByEntryCount(t *testing.T) {
-	browser := &liepinReplyBrowserStub{
-		unreadCount: 1,
-		items: []contract.FindAllItem{
-			{Index: 0, Fields: map[string]string{"name": "邓云川", "avatar_url": "https://image.example.com/avatar.png", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-new"}`)}},
-			{Index: 1, Fields: map[string]string{"name": "旧候选人", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-old"}`)}},
-		},
-	}
-	cfg := model.Config{
-		ID: "liepin", Name: "猎聘企业端", MaxItems: 100,
-		Selectors: map[string]contract.SelectorSpec{
-			"message.drawer":              testLiepinSelector("测试联系人抽屉"),
-			"message.entry":               testLiepinSelector("测试联系人入口"),
-			"message.entry_unread_count":  testLiepinSelector("测试未读数字"),
-			"message.unread_tab":          testLiepinSelector("测试未读标签"),
-			"message.unread_tab_selected": testLiepinSelector("测试未读标签已选中"),
-			"message.unread_item":         testLiepinSelector("测试未读联系人"),
-		},
-	}
-	conversations, err := (&Runtime{}).ScanUnreadConversations(context.Background(), browser, cfg)
-	if err != nil || len(conversations) != 1 || conversations[0].Name != "邓云川" || conversations[0].AvatarURL != "https://image.example.com/avatar.png" {
-		t.Fatalf("没有按入口数字只保留最新会话：conversations=%+v err=%v", conversations, err)
-	}
-}
-
-// TestScanUnreadConversationsIgnoresHistoricalUnreadWithoutBadge 验证抽屉已打开时只处理头像上仍有数字的联系人。
-func TestScanUnreadConversationsIgnoresHistoricalUnreadWithoutBadge(t *testing.T) {
-	browser := &liepinReplyBrowserStub{
-		drawerOpen: true, unreadSelected: true,
-		items: []contract.FindAllItem{
-			{Index: 0, Fields: map[string]string{"name": "邓云川", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-new"}`)}},
-			{Index: 1, Fields: map[string]string{"name": "历史未读", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-old"}`)}},
-		},
-	}
-	cfg := model.Config{
-		ID: "liepin", Name: "猎聘企业端", MaxItems: 100,
-		Selectors: map[string]contract.SelectorSpec{
-			"message.drawer":              testLiepinSelector("测试联系人抽屉"),
-			"message.unread_tab":          testLiepinSelector("测试未读标签"),
-			"message.unread_tab_selected": testLiepinSelector("测试未读标签已选中"),
-			"message.unread_item":         testLiepinSelector("测试未读联系人"),
-		},
-	}
-	conversations, err := (&Runtime{}).ScanUnreadConversations(context.Background(), browser, cfg)
-	if err != nil || len(conversations) != 1 || conversations[0].Name != "邓云川" {
-		t.Fatalf("没有只保留头像带数字的联系人：conversations=%+v err=%v", conversations, err)
-	}
-}
-
-// TestScanUnreadConversationsRefreshesStaleUnreadTab 验证入口有数字但未读标签为空时会刷新一次标签。
-func TestScanUnreadConversationsRefreshesStaleUnreadTab(t *testing.T) {
-	browser := &liepinReplyBrowserStub{
-		drawerOpen: true, unreadSelected: true, unreadCount: 1, staleUnreadItems: true,
-		items: []contract.FindAllItem{{Index: 0, Fields: map[string]string{
-			"name": "邓云川", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-new"}`),
-		}}},
-	}
-	cfg := model.Config{
-		ID: "liepin", Name: "猎聘企业端", MaxItems: 100,
-		Selectors: map[string]contract.SelectorSpec{
-			"message.drawer":              testLiepinSelector("测试联系人抽屉"),
-			"message.entry_unread_count":  testLiepinSelector("测试未读数字"),
-			"message.unread_tab":          testLiepinSelector("测试未读标签"),
-			"message.unread_tab_selected": testLiepinSelector("测试未读标签已选中"),
-			"message.all_tab":             testLiepinSelector("测试全部标签"),
-			"message.all_tab_selected":    testLiepinSelector("测试全部标签已选中"),
-			"message.unread_item":         testLiepinSelector("测试未读联系人"),
-		},
-	}
-	conversations, err := (&Runtime{}).ScanUnreadConversations(context.Background(), browser, cfg)
-	if err != nil || len(conversations) != 1 || conversations[0].Name != "邓云川" {
-		t.Fatalf("刷新后仍没有读到未读联系人：conversations=%+v err=%v", conversations, err)
-	}
-	if !browser.refreshStarted || browser.staleUnreadItems {
-		t.Fatalf("没有完成全部到未读的刷新：clicks=%v stale=%t", browser.clicks, browser.staleUnreadItems)
-	}
+// WatchDownload 模拟已有的本机下载监听，返回本次测试附件的终态。
+func (b *liepinReplyBrowserStub) WatchDownload(page, file string, ignoredQuery ...string) (<-chan contract.DownloadReceipt, func(), error) {
+	result := make(chan contract.DownloadReceipt, 1)
+	result <- contract.DownloadReceipt{Record: contract.DownloadRecord{Status: "saved", FilePath: b.downloadPath}}
+	return result, func() {}, nil
 }
 
 // TestLiepinFallbackConversationKeyIgnoresChangedSummary 验证猎聘缺少原生编号时不会用消息摘要生成新会话。
 func TestLiepinFallbackConversationKeyIgnoresChangedSummary(t *testing.T) {
 	first, err := liepinConversations([]contract.FindAllItem{{
 		Index: 0, Fields: map[string]string{"name": "张女士", "last_message": "第一条消息"},
-	}}, false)
+	}})
 	if err != nil {
 		t.Fatalf("整理第一条猎聘会话失败：%v", err)
 	}
 	second, err := liepinConversations([]contract.FindAllItem{{
 		Index: 0, Fields: map[string]string{"name": "张女士", "last_message": "摘要已经变化"},
-	}}, false)
+	}})
 	if err != nil {
 		t.Fatalf("整理第二条猎聘会话失败：%v", err)
 	}
@@ -479,6 +380,12 @@ func TestReadLiepinConversationHistoryStopsAtRecentTwoMessageBoundary(t *testing
 	if err != nil || complete || len(messages) != 1 || messages[0].PlatformMessageID != "new-1" || browser.historyBatch != 0 {
 		t.Fatalf("messages=%+v complete=%t scrolls=%d err=%v", messages, complete, browser.historyBatch, err)
 	}
+	cfg.Behavior.AutoReplyAllContactInbox = true
+	messages, complete, err = readLiepinConversationHistory(context.Background(), browser, cfg, []string{"old-1", "old-2"}, 5000)
+	if err != nil || complete || len(messages) != 2 || messages[0].PlatformMessageID != "old-2" || messages[1].PlatformMessageID != "new-1" || browser.historyBatch != 0 {
+		t.Fatalf("全部模式应从同一可见窗口带回真实旧尾：messages=%+v complete=%t scrolls=%d err=%v", messages, complete, browser.historyBatch, err)
+	}
+
 }
 
 // TestReadLiepinConversationHistoryStopsAtNewestKnownBoundary 验证两条已同步消息中间夹有同分钟消息时仍按最靠后的边界停止。
@@ -860,5 +767,23 @@ func testLiepinSelector(description string) contract.SelectorSpec {
 	return contract.SelectorSpec{
 		Target:      contract.SelectorGroup{Selectors: []contract.SelectorCandidate{{Type: "css", Value: ".test"}}},
 		Description: description,
+	}
+}
+
+// TestLiepinStandaloneResumeKeepsCandidateCaption 验证猎聘真实固定卡片说明可签收，附带自己提问的卡片继续按正常聊天处理。
+func TestLiepinStandaloneResumeKeepsCandidateCaption(t *testing.T) {
+	const boilerplate = "这是我的简历，合适的话可以随时联系我～"
+	for _, tc := range []struct {
+		text  string
+		plain bool
+	}{{boilerplate, true}, {boilerplate + " 请问工作地点在哪？", false}, {"成都岗位在哪个区", false}} {
+		item := contract.FindAllItem{Fields: map[string]string{"body_class": "im-ui-message-item-receive", "message_text": tc.text, "resume_card": "邓云川的简历\n\n在线简历\n\n附件简历"}}
+		msg, _, err := liepinMessage(item, time.Now())
+		var card struct {
+			Plain bool `json:"standalone_resume"`
+		}
+		if err != nil || json.Unmarshal(msg.CardContent, &card) != nil || card.Plain != tc.plain || msg.TextContent != tc.text {
+			t.Fatalf("卡片留言被错误归类：%+v %v", msg, err)
+		}
 	}
 }

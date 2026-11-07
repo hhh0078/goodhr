@@ -69,6 +69,12 @@ func (r *targetedAutoReplyRuntime) checkPage(ctx context.Context, browser model.
 	return r.identity.VerifyAutoReplyConversationIdentity(ctx, browser, cfg, snapshot)
 }
 
+// InitializeAutoReplyPage 把任务锁定的身份传给初始化；旧附件挡住联系人时只能收起目标自己的预览。
+func (r *targetedAutoReplyRuntime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config, _ *model.AutoReplyConversationSnapshot) error {
+	target := model.AutoReplyConversationSnapshot{CandidateName: r.target.CandidateName, PlatformCandidateID: r.target.PlatformCandidateID, PlatformThreadID: r.target.PlatformThreadID}
+	return r.AutoReplyRuntime.InitializeAutoReplyPage(ctx, browser, cfg, &target)
+}
+
 // OpenAutoReplyConversation 只允许按目标会话编号打开，并在返回任何聊天资料前再次校验实际页面身份。
 func (r *targetedAutoReplyRuntime) OpenAutoReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation, known []string, limit int) (model.AutoReplyConversationSnapshot, error) {
 	if !targetConversationAllowed(&r.target, conversation) {

@@ -124,7 +124,8 @@ test('途中最小化的无按键移动回执完整时，恢复窗口并按新�
   const result = await f.action.toElement(f.found, { action: 'element.click', trace_id: 'mid-move', started_at: Date.now() });
   assert.deepEqual(f.counts(), { moves: 2, activations: 1, reads: 1, downs: 0, ups: 0 });
   assert.deepEqual(f.steps, ['move', 'activate', 'read', 'move']);
-  assert.strictEqual(result.view, f.refreshedView);
+  assert.deepEqual(result.view, f.refreshedView);
+  assert.notStrictEqual(result.view.box, f.refreshedView.box, '悬停回执应保留实际落点几何快照');
   assert.ok(result.x > 350 && result.x < 450 && result.y > 250 && result.y < 290);
   const retry = f.logs.find(log => log.step === 'window_recovery' && log.status === 'retry');
   assert.equal(retry.details.input_sent_before_retry, true);

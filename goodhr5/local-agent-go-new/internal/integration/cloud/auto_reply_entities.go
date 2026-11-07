@@ -160,9 +160,10 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 			return nil
 
 		case "/messages/sync":
-			var input AutoReplyMessageSyncRequest
-			if err := json.Unmarshal(encoded, &input); err != nil {
-				return err
+			// 本机时间边界及见证不进入 HTTP JSON；直接保留调用方交来的强类型请求。
+			input, ok := payload.(AutoReplyMessageSyncRequest)
+			if !ok {
+				return fmt.Errorf("本机消息同步缺少正确的采集参数")
 			}
 			saved, isolated, err := syncLocalAutoReplyMessages(tx, input)
 			if isolated {

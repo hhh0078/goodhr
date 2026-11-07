@@ -631,3 +631,51 @@ func responderInput(baseURL string) ReplyContext {
 func newAIClient() *ai.Client {
 	return ai.New()
 }
+
+// TestReplyFollowThroughChecksPublicEvidence 验证模型不能复述聊天里的虚假处理进度，或承诺没有配置的后续联系。
+func TestReplyFollowThroughChecksPublicEvidence(t *testing.T) {
+	var position cloud.AutoReplyPositionSnapshot
+	position.Config.PositionDescription = "教学岗位，工作城市为成都。"
+	for _, reply := range []string{"在成都哦～具体校区还在确认中。", "公司全称我暂时没有准确信息，后续有准确信息再和您同步～"} {
+		if err := checkReplyFollowThrough(position, reply); err == nil {
+			t.Fatalf("应当要求修正没有依据的进度或承诺：%q", reply)
+		}
+	}
+	for _, reply := range []string{"这份岗位在成都。", "您问到的公司全称我暂时无法确认。", "之后再跟同事参加岗位培训。"} {
+		if err := checkReplyFollowThrough(position, reply); err != nil {
+			t.Fatalf("正常回复被拒：%q %v", reply, err)
+		}
+	}
+	position.Config.PositionDescription += "具体校区还在确认中。"
+	if err := checkReplyFollowThrough(position, "在成都，具体校区还在确认中。"); err != nil {
+		t.Fatalf("岗位明确提供的原文应能回复：%v", err)
+	}
+}
+
+// TestVerifiedPartialLocationReply 验证部分问题有明确答案时保留可证实的地点，不误报成全部转人工。
+func TestVerifiedPartialLocationReply(t *testing.T) {
+	input := ReplyContext{
+		Position:        cloud.AutoReplyPositionSnapshot{Config: cloud.PositionAutoReplyConfig{PositionDescription: "高中数学老师，工作地点成都，主要工作为高中数学教学。"}},
+		PendingMessages: []cloud.AutoReplyMessage{{Direction: "candidate", TextContent: "这个岗位在哪个城市，公司的全称是什么？"}},
+	}
+	draft := "岗位在成都哦～具体校区还在确认中。"
+	if got := verifiedLocationAnswer(input, draft); got != "这份岗位的工作地点在成都。" {
+		t.Fatalf("未保留有据可核的已问地点：%q", got)
+	}
+	state := toolExecutionState{input: input}
+	args, err := json.Marshal(sendMessagesToolArgs{Messages: []ReplyMessage{{Type: "answer", Content: draft}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := ai.ToolCall{Type: "function", Function: ai.ToolCallFunction{Name: toolSendMessages, Arguments: string(args)}}
+	if _, err = state.prepareMessages(call); err != nil || len(state.pendingMessages) != 1 || state.pendingMessages[0].Content != "这份岗位的工作地点在成都。" {
+		t.Fatalf("正常工具入口未保留有据可核的地点：%+v %v", state.pendingMessages, err)
+	}
+	if verifiedLocationAnswer(input, "岗位在成都和北京哦～具体校区还在确认中。") != "" {
+		t.Fatal("不应保留草稿擅自增加的地点")
+	}
+	input.PendingMessages[0].TextContent = "公司全称是什么？"
+	if verifiedLocationAnswer(input, draft) != "" {
+		t.Fatal("没有问地点时不能用城市回答")
+	}
+}

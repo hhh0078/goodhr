@@ -88,7 +88,8 @@ export class MoveAction {
       const x = randomBetween(minX, maxX);
       const y = randomBetween(minY, maxY);
       await this.mouse.move(found.page, x, y);
-      const result = { x, y, view: found.view };
+      // 后续稳定采样会更新当前目标坐标，回执保留实际用于落点的那一份，含窗口恢复后重新选定的位置。
+      const result = { x, y, view: { ...found.view, box: { ...box } } };
       this.logger.info(actionContext, step, "success", {
         x: Math.round(x),
         y: Math.round(y),

@@ -31,7 +31,7 @@ var hliepinAutoReplyAdapter = common.ConfiguredAutoReplyAdapter{
 }
 
 // InitializeAutoReplyPage 清理猎聘猎头端遗留弹层。
-func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
+func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config, _ *model.AutoReplyConversationSnapshot) error {
 	return common.InitializeConfiguredAutoReplyPage(ctx, browser, cfg)
 }
 

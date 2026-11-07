@@ -10,6 +10,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
@@ -86,6 +87,13 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 	if len(sequence) > 0 {
 		messageSequence = sequence[0]
 	}
+	if prepared.Platform.Behavior.AutoReplySendEnterFirst {
+		page, err := common.UniqueCurrentPageURL(ctx, f.Browser)
+		if err != nil {
+			return false, err
+		}
+		snapshot.DeliveryPageURL = page
+	}
 	status, claimed, err := f.Cloud.ClaimAutoReplySend(ctx, credentials(prepared), conversation.ID, basedOnMessageKey, message, messageSequence)
 	if err != nil {
 		return false, err
@@ -96,19 +104,28 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 		}
 		return false, errAutoReplySendNeedsReview
 	}
+	if verifyCandidateBefore {
+		snapshot.ExpectedSendMessageKey = basedOnMessageKey
+	}
 	if err = runtime.SendAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot, message); err != nil {
+		if errors.Is(err, model.ErrAutoReplySupersededBeforeSend) {
+			if releaseErr := f.Cloud.ReleaseUnsentAutoReply(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, message); releaseErr != nil {
+				return false, releaseErr
+			}
+			return false, err
+		}
 		_ = f.Cloud.FinishAutoReplySend(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, "unknown")
 		return false, fmt.Errorf("%w：%v", errAutoReplySendNeedsReview, err)
 	}
-	latest, err := runtime.ReadLatestAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot)
-	if err != nil {
-		_ = f.Cloud.FinishAutoReplySend(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, "unknown")
-		return false, fmt.Errorf("%w：%v", errAutoReplySendNeedsReview, err)
+	var latest model.ConversationMessage
+	if snapshot.DeliveryPageURL != "" {
+		latest, err = f.confirmOpenReplyDelivery(ctx, prepared, runtime, snapshot, message)
+	} else {
+		latest, err = runtime.ReadLatestAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot)
 	}
-	direction := strings.ToLower(strings.TrimSpace(latest.Direction))
-	if direction != "self" || strings.TrimSpace(latest.TextContent) != message {
+	if err != nil || !strings.EqualFold(strings.TrimSpace(latest.Direction), "self") || strings.TrimSpace(latest.TextContent) != message {
 		_ = f.Cloud.FinishAutoReplySend(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, "unknown")
-		return false, errAutoReplySendNeedsReview
+		return false, errors.Join(errAutoReplySendNeedsReview, err)
 	}
 	if err = f.Cloud.FinishAutoReplySend(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, "sent"); err != nil {
 		return false, fmt.Errorf("%w：保存发送结果失败", errAutoReplySendNeedsReview)
@@ -139,12 +156,12 @@ func (f *Flow) latestCandidateMessageUnchanged(ctx context.Context, runtime mode
 }
 
 // latestMessageAllowsFollowup 确认第一条回复仍是页面最新消息，候选人没有在两条消息之间插入新内容。
-func (f *Flow) latestMessageAllowsFollowup(ctx context.Context, runtime model.AutoReplyRuntime, prepared shared.PreparedTask, snapshot model.AutoReplyConversationSnapshot, previousContent string) (bool, error) {
+func (f *Flow) latestMessageAllowsFollowup(ctx context.Context, runtime model.AutoReplyRuntime, prepared shared.PreparedTask, snapshot model.AutoReplyConversationSnapshot, previousContent string) (bool, string, error) {
 	latest, err := runtime.ReadLatestAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot)
 	if err != nil {
-		return false, fmt.Errorf("发送第二条消息前复核最新聊天失败：%w", err)
+		return false, "", fmt.Errorf("发送第二条消息前复核最新聊天失败：%w", err)
 	}
-	return strings.EqualFold(strings.TrimSpace(latest.Direction), "self") && strings.TrimSpace(latest.TextContent) == strings.TrimSpace(previousContent), nil
+	return strings.EqualFold(strings.TrimSpace(latest.Direction), "self") && strings.TrimSpace(latest.TextContent) == strings.TrimSpace(previousContent), firstNonEmpty(latest.PlatformMessageID, latest.Key, messageFingerprint(latest, 0)), nil
 }
 
 // reportChangedMessage 向悬浮窗说明旧回复已废弃，等待下一轮重新分析。

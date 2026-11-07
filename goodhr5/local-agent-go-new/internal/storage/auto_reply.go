@@ -305,22 +305,36 @@ func (t *AutoReplyTx) MarkHistoricalMessage(id, status string, order float64) er
 	return err
 }
 
-// PendingProposalReceipts 通过状态索引有界读取已提交判断的后续工作收据。
+// PendingProposalReceipts 按首次写入顺序，有界读取已经到期的后续工作收据。
 func (t *AutoReplyTx) PendingProposalReceipts(limit int) ([]AutoReplyRow, error) {
+	return t.pendingProposalReceiptsAt(limit, time.Now().UTC())
+}
+
+// pendingProposalReceiptsAt 兼容旧收据缺省时间、可变精度和时区；SQLite 粗筛到期时间，Go 精确区分同毫秒的先后。
+func (t *AutoReplyTx) pendingProposalReceiptsAt(limit int, now time.Time) ([]AutoReplyRow, error) {
 	if limit < 1 || limit > 100 {
 		limit = 30
 	}
-	rows, err := t.tx.QueryContext(t.ctx, "SELECT id,payload_json,revision FROM auto_reply_proposal_receipts WHERE owner_id=? AND status='pending' AND COALESCE(json_extract(payload_json,'$.next_attempt_at'),'')<=? ORDER BY updated_at,sequence LIMIT ?", t.owner, time.Now().UTC().Format(time.RFC3339Nano), limit)
+	rows, err := t.tx.QueryContext(t.ctx, `SELECT id,payload_json,revision,
+		COALESCE(json_extract(payload_json,'$.next_attempt_at'),'') AS next_attempt
+		FROM auto_reply_proposal_receipts WHERE owner_id=? AND status='pending'
+		AND (next_attempt='' OR julianday(next_attempt)<=julianday(?)) ORDER BY sequence`, t.owner, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	items := []AutoReplyRow{}
-	for rows.Next() {
+	for len(items) < limit && rows.Next() {
 		var row AutoReplyRow
-		var raw string
-		if err = rows.Scan(&row.ID, &raw, &row.Revision); err != nil {
+		var raw, nextAttempt string
+		if err = rows.Scan(&row.ID, &raw, &row.Revision, &nextAttempt); err != nil {
 			return nil, err
+		}
+		if nextAttempt != "" {
+			due, parseErr := time.Parse(time.RFC3339Nano, nextAttempt)
+			if parseErr != nil || due.After(now) {
+				continue
+			}
 		}
 		row.Data = json.RawMessage(raw)
 		items = append(items, row)

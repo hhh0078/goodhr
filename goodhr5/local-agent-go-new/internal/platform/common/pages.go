@@ -62,3 +62,36 @@ func openConfiguredPage(ctx context.Context, browser model.Browser, platformID s
 		URL: rawURL, WaitUntil: "domcontentloaded", TimeoutMS: 30000,
 	}, supportedURLs)
 }
+
+// UniqueCurrentPageURL 读取唯一活动页的完整地址，不缓存可能随标签关闭而变化的页面序号。
+func UniqueCurrentPageURL(ctx context.Context, browser model.Browser) (string, error) {
+	pages, err := browser.ListPages(ctx)
+	if err != nil {
+		return "", fmt.Errorf("读取当前标签页失败：%w", err)
+	}
+	return UniqueCurrentPageURLFromList(pages)
+}
+
+// UniqueCurrentPageURLFromList 从同一份实时页清单确定唯一原页，供下载开始前同时保留已有的本地标签。
+func UniqueCurrentPageURLFromList(pages contract.PageListResult) (string, error) {
+	currentURL, currentCount := "", 0
+	for _, page := range pages.Pages {
+		if page.Current {
+			currentURL = strings.TrimSpace(page.URL)
+			currentCount++
+		}
+	}
+	if currentCount != 1 || currentURL == "" {
+		return "", fmt.Errorf("当前标签页无法唯一确认")
+	}
+	matches := 0
+	for _, page := range pages.Pages {
+		if strings.TrimSpace(page.URL) == currentURL {
+			matches++
+		}
+	}
+	if matches != 1 {
+		return "", fmt.Errorf("发现地址相同的招聘标签页，暂不猜测操作目标")
+	}
+	return currentURL, nil
+}

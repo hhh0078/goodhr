@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
@@ -176,6 +177,16 @@ func (r *answeringRuntime) SendAutoReplyMessage(_ context.Context, _ model.Brows
 
 // TestQuestionsAnsweredBeforeAndWhileWaitingResume 验证先回答问题再仅索要一次简历，等待简历期间下一轮仍正常回答。
 func TestQuestionsAnsweredBeforeAndWhileWaitingResume(t *testing.T) {
+	for _, enter := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enter=%t", enter), func(t *testing.T) {
+			checkQuestionsAnsweredBeforeAndWhileWaitingResume(t, enter)
+		})
+	}
+}
+
+// checkQuestionsAnsweredBeforeAndWhileWaitingResume 使用真实本地发送账本检查按钮与回车两种路径下两条消息各有独立回执。
+func checkQuestionsAnsweredBeforeAndWhileWaitingResume(t *testing.T, enter bool) {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/auto-reply/agent/positions/position/snapshot" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
@@ -185,6 +196,8 @@ func TestQuestionsAnsweredBeforeAndWhileWaitingResume(t *testing.T) {
 	}))
 	defer server.Close()
 	flow, prepared := newReliabilityFlow(t, server.URL)
+	flow.Browser = &autoReplyBrowserStub{pages: []contract.PageInfo{{URL: "https://example.test/recruit", PageID: "0", Current: true}}}
+	prepared.Platform.Behavior.AutoReplySendEnterFirst = enter
 	flow.Responder = &reliabilityResponder{decision: ReplyDecision{Messages: []ReplyMessage{{Type: "answer", Content: "这个岗位双休"}}}}
 	message := model.ConversationMessage{PlatformMessageID: "m1", Direction: "candidate", MessageType: "text", TextContent: "双休吗？"}
 	runtime := &answeringRuntime{autoReplyRuntimeStub: &autoReplyRuntimeStub{opened: model.AutoReplyConversationSnapshot{CandidateName: "候选人甲", PlatformThreadID: "thread", CommunicationPosition: "工程师", Messages: []model.ConversationMessage{message}}, latestBefore: message}}
@@ -195,6 +208,17 @@ func TestQuestionsAnsweredBeforeAndWhileWaitingResume(t *testing.T) {
 	}
 	if len(runtime.replies) != 2 || runtime.replies[0] != "这个岗位双休" || runtime.resumeRequests != 1 {
 		t.Fatalf("没有先回答再索要一次简历：replies=%v requests=%d", runtime.replies, runtime.resumeRequests)
+	}
+	ctx := context.Background()
+	state, err := flow.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{PlatformID: prepared.Platform.ID, PlatformAccountID: prepared.Request.PlatformAccountID, PlatformThreadID: "thread"})
+	if err != nil || state.Conversation == nil {
+		t.Fatalf("没有可核对的会话账本：%v", err)
+	}
+	for i, text := range runtime.replies {
+		status, claimed, err := flow.Cloud.ClaimAutoReplySend(ctx, credentials(prepared), state.Conversation.ID, message.PlatformMessageID, text, i+1)
+		if err != nil || claimed || status != "sent" {
+			t.Fatalf("第%d条已在页面发出的消息没有送达回执：status=%s claimed=%v err=%v", i+1, status, claimed, err)
+		}
 	}
 	message.PlatformMessageID = "m2"
 	message.TextContent = "再确认一下是双休吧？"
@@ -220,5 +244,59 @@ func TestCompanyChangeInvalidatesPreparedReply(t *testing.T) {
 	expected := cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position"}, Config: cloud.PositionAutoReplyConfig{Version: 1}, CompanyProfile: cloud.CompanyProfile{ID: "company", Address: "旧地址"}}
 	if err := flow.verifyCurrentReplyConfiguration(context.Background(), prepared, expected); err == nil {
 		t.Fatal("公司资料变化后不得发送旧答案")
+	}
+}
+
+// TestReleaseOnlySupersededUnsentIntent 验证来信变化时释放尚未发送的预占；曾发出并处于 unknown 或 sent 的记录不可撤销。
+func TestReleaseOnlySupersededUnsentIntent(t *testing.T) {
+	ctx := context.Background()
+	f, prepared := newReliabilityFlow(t, "")
+	cred := credentials(prepared)
+	conversation, err := f.Cloud.SaveAutoReplyConversation(ctx, cred, cloud.AutoReplyConversation{PlatformID: "boss", PlatformAccountID: prepared.Request.PlatformAccountID, PlatformThreadID: "thread", PositionID: "position"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := model.ConversationMessage{PlatformMessageID: "original", Direction: "candidate", TextContent: "面试"}
+	r := &autoReplyRuntimeStub{latestBefore: m, sendErr: model.ErrAutoReplySupersededBeforeSend}
+	_, err = f.sendVerifiedMessage(ctx, prepared, r, conversation, model.AutoReplyConversationSnapshot{}, "original", "旧回复", true, 1)
+	if !errors.Is(err, model.ErrAutoReplySupersededBeforeSend) || errors.Is(err, errAutoReplySendNeedsReview) {
+		t.Fatal("新来信错误进入人工复核", err)
+	}
+	for i, status := range []string{"unknown", "sent"} {
+		seq := i + 1
+		if _, fresh, err := f.Cloud.ClaimAutoReplySend(ctx, cred, conversation.ID, "original", "新回复", seq); err != nil || !fresh {
+			t.Fatal("未发送预占没有释放", fresh, err)
+		}
+		if err := f.Cloud.FinishAutoReplySend(ctx, cred, conversation.ID, "original", seq, status); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Cloud.ReleaseUnsentAutoReply(ctx, cred, conversation.ID, "original", seq, "新回复"); err == nil {
+			t.Fatal("已确认或可能已发送的记录被撤销", status)
+		}
+		if got, fresh, err := f.Cloud.ClaimAutoReplySend(ctx, cred, conversation.ID, "original", "新回复", seq); err != nil || fresh || got != status {
+			t.Fatal("发送防重失效", got, fresh, err)
+		}
+	}
+}
+
+// TestEnterSendDoesNotAcceptPreviousIdenticalBubble 验证连发相同内容时旧的自己气泡不能确认本次发送，也不能再次自动补发。
+func TestEnterSendDoesNotAcceptPreviousIdenticalBubble(t *testing.T) {
+	ctx := context.Background()
+	flow, prepared := newReliabilityFlow(t, "")
+	flow.Browser = &autoReplyBrowserStub{pages: []contract.PageInfo{{URL: "https://example.test/recruit", PageID: "0", Current: true}}}
+	prepared.Platform.Behavior.AutoReplySendEnterFirst = true
+	conversation, err := flow.Cloud.SaveAutoReplyConversation(ctx, credentials(prepared), cloud.AutoReplyConversation{PlatformID: prepared.Platform.ID,
+		PlatformAccountID: prepared.Request.PlatformAccountID, PlatformThreadID: "thread", PositionID: "position"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &autoReplyRuntimeStub{latestAfter: model.ConversationMessage{PlatformMessageID: "old-self", Direction: "self", MessageType: "text", TextContent: "好的"}}
+	snapshot := model.AutoReplyConversationSnapshot{ExpectedSendMessageKey: "old-self"}
+	for attempt := 0; attempt < 2; attempt++ {
+		runtime.sent = false
+		sent, err := flow.sendVerifiedMessage(ctx, prepared, runtime, conversation, snapshot, "candidate-1", "好的", false, 2)
+		if sent || !errors.Is(err, errAutoReplySendNeedsReview) || runtime.sent != (attempt == 0) {
+			t.Fatalf("旧同文气泡不能确认为已发或触发重发：轮次=%d 已确认=%v 已操作=%v 错误=%v", attempt, sent, runtime.sent, err)
+		}
 	}
 }

@@ -1,12 +1,11 @@
-// Package liepin 文件作用：实现猎聘企业端自动回复的未读扫描、会话校验、消息发送和关闭动作。
+// Package liepin 文件作用：实现猎聘企业端自动回复的全部联系人扫描、会话校验、消息发送和关闭动作。
 package liepin
 
 import (
 	"context"
-	"errors"
+	"crypto/sha256"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,173 +17,40 @@ import (
 const liepinConversationPollAttempts = 20
 const liepinConversationPollInterval = 300 * time.Millisecond
 
-// InitializeAutoReplyPage 清理遗留弹层，让每轮扫描都从悬浮入口的新消息数字开始。
-func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	if err := common.CloseOptionalPanel(
-		ctx, browser, cfg, "message.attachment_preview", "message.attachment_preview_close", cfg.Name+"附件预览",
-	); err != nil {
+// InitializeAutoReplyPage 只收起挡住联系人的附件遮层，复用原来的全部联系人抽屉及已打开的聊天。
+func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config, target *model.AutoReplyConversationSnapshot) error {
+	r.contactRows = nil
+	page, err := liepinAutoReplyPageURL(ctx, browser, cfg)
+	if err != nil {
 		return err
 	}
-	return common.CloseCandidatePanels(ctx, browser, cfg)
+	var verify func(context.Context) error
+	if target != nil {
+		verify = func(ctx context.Context) error {
+			return r.VerifyAutoReplyConversationIdentity(ctx, browser, cfg, *target)
+		}
+	}
+	return common.ClosePanelEscapeFirst(ctx, browser, cfg, "message.attachment_preview", "message.attachment_preview_close", page, verify)
 }
 
-// liepinUnreadScan 记录本任务最近确认过的未读视图，识别抽屉常驻时没有自动刷新的列表。
-// 扫描由单一检查点依次调用；不跨账号、浏览器会话或任务保存候选信息。
-type liepinUnreadScan struct {
-	confirmedAt time.Time
-	badge       int
-	view        liepinUnreadListView
+// liepinAutoReplyPageURL 核对当前唯一活动页确实属于本平台会话入口，再把完整地址交给后续动作逐次复核。
+func liepinAutoReplyPageURL(ctx context.Context, browser model.Browser, cfg model.Config) (string, error) {
+	page, err := common.UniqueCurrentPageURL(ctx, browser)
+	if err != nil {
+		return "", err
+	}
+	if !common.PageURLMatches(page, cfg.MessagesURL) {
+		return "", fmt.Errorf("当前页面与招聘会话入口不一致，请先回到招聘会话页面")
+	}
+	return page, nil
 }
 
-// liepinUnreadListView 保存联系人列表首部可观察的变化，未读扫描不持久化这些摘要。
-type liepinUnreadListView struct {
-	rows       int
-	firstKey   string
-	firstText  string
-	firstBadge string
-}
-
-const liepinUnreadChangeInterval = 5 * time.Second
-const liepinUnreadRefreshInterval = 30 * time.Second
-
-// ScanUnreadConversations 读取猎聘企业端未读会话，入口有变化或停滞太久时用真实标签切换更新抽屉。
+// ScanUnreadConversations 提供全部联系人行及变化线索，待核对会话由任务按招聘账号的持久基线筛选。
 func (r *Runtime) ScanUnreadConversations(ctx context.Context, browser model.Browser, cfg model.Config) ([]model.Conversation, error) {
-	ready, entryCount, freshTab, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
-	if err != nil || !ready {
-		r.unread = liepinUnreadScan{}
-		return nil, err
-	}
-	badge := entryCount
-	if freshTab && entryCount == 0 {
-		// 已打开抽屉中刚切到未读时未读取悬浮角标，下一轮先建立基线。
-		badge = -1
-	}
-	if !freshTab {
-		badge, err = readLiepinEntryUnreadCount(ctx, browser, cfg)
-		if err != nil {
-			return nil, err
-		}
-		if r.unread.badge < 0 {
-			r.unread.badge = badge
-		}
-	}
-	// 接手已停在未读标签的页面时，有角标但无法判断显示时间，首次先刷新再全量读取一次。
-	if !freshTab && badge > 0 && r.unread.confirmedAt.IsZero() {
-		if err = refreshLiepinUnreadConversationList(ctx, browser, cfg); err != nil {
-			return nil, err
-		}
-		freshTab = true
-	}
-	conversations, err := readLiepinUnreadConversations(ctx, browser, cfg)
-	if err != nil {
-		return nil, err
-	}
-	view := liepinUnreadView(conversations)
-	listChanged := view != r.unread.view
-	elapsed := time.Since(r.unread.confirmedAt)
-	badgeChanged := badge > 0 && badge != r.unread.badge && elapsed >= liepinUnreadChangeInterval
-	refreshDue := (badge > 0 || view.rows > 0) && (badgeChanged || elapsed >= liepinUnreadRefreshInterval)
-	// 角标增长、减少或停在99+都可能对应新的候选消息。已经变化的列表直接使用，空角标空列表不切换。
-	if !freshTab && !r.unread.confirmedAt.IsZero() && !listChanged && refreshDue {
-		if err = refreshLiepinUnreadConversationList(ctx, browser, cfg); err != nil {
-			return nil, err
-		}
-		conversations, err = readLiepinUnreadConversations(ctx, browser, cfg)
-		if err != nil {
-			return nil, err
-		}
-		view = liepinUnreadView(conversations)
-		freshTab = true
-	}
-	if freshTab || listChanged || r.unread.confirmedAt.IsZero() {
-		r.unread = liepinUnreadScan{confirmedAt: time.Now(), badge: badge, view: view}
-	}
-	if entryCount > 0 && len(conversations) > entryCount {
-		conversations = conversations[:entryCount]
-	}
-	return conversations, nil
-}
-
-// liepinUnreadView 只比较列表首项、可见摘要、数量与首项角标；消息身份仍由打开会话后的正式流程核对。
-func liepinUnreadView(conversations []model.Conversation) liepinUnreadListView {
-	view := liepinUnreadListView{rows: len(conversations)}
-	if len(conversations) > 0 {
-		first := conversations[0]
-		view.firstKey, view.firstText, view.firstBadge = first.Key, first.Summary, first.Fields["unread_count"]
-	}
-	return view
-}
-
-// readLiepinEntryUnreadCount 轻读已打开抽屉的悬浮角标，元素未显示时快速返回零。
-func readLiepinEntryUnreadCount(ctx context.Context, browser model.Browser, cfg model.Config) (int, error) {
-	selector, ok := cfg.Selectors["message.entry_unread_count"]
-	if !ok || len(selector.Target.Selectors) == 0 {
-		return 0, nil
-	}
-	selector.TimeoutMS = 200
-	value, err := browser.Read(ctx, contract.ElementReadRequest{Selector: selector, Property: "text"})
-	var workerErr *contract.WorkerError
-	// 抽屉打开后悬浮入口会被平台隐藏，只有这个可选角标把不可见当作零。
-	hidden := errors.As(err, &workerErr) && workerErr.Body.Code == "ELEMENT_NOT_VISIBLE"
-	if common.IsElementMissing(err) || hidden || (err == nil && strings.TrimSpace(value.Value) == "0") {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	return parseLiepinUnreadCount(value.Value)
-}
-
-// readLiepinUnreadConversations 读取猎聘未读标签当前真实带数字的联系人。
-func readLiepinUnreadConversations(ctx context.Context, browser model.Browser, cfg model.Config) ([]model.Conversation, error) {
-	items, err := common.FindConfiguredConversationItems(ctx, browser, cfg, "message.unread_item", true)
-	if err != nil {
-		return nil, err
-	}
-	return liepinConversations(items, true)
-}
-
-// refreshLiepinUnreadConversationList 通过真实切换“全部→未读”更新已打开的猎聘联系人抽屉。
-func refreshLiepinUnreadConversationList(ctx context.Context, browser model.Browser, cfg model.Config) error {
 	if err := ensureLiepinConversationDrawer(ctx, browser, cfg); err != nil {
-		return fmt.Errorf("刷新%s未读联系人列表失败：%w", cfg.Name, err)
+		return nil, err
 	}
-	ready, _, _, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
-	if err != nil {
-		return fmt.Errorf("刷新%s未读联系人列表失败：%w", cfg.Name, err)
-	}
-	if !ready {
-		return fmt.Errorf("刷新%s未读联系人列表后抽屉没有准备好", cfg.Name)
-	}
-	return nil
-}
-
-// ensureLiepinUnreadConversationDrawer 打开联系人抽屉并确认未读标签；第三个返回值表示本轮已经打开或切换过标签。
-func ensureLiepinUnreadConversationDrawer(ctx context.Context, browser model.Browser, cfg model.Config) (bool, int, bool, error) {
-	ready, unreadCount, err := common.EnsureUnreadConversationDrawer(ctx, browser, cfg)
-	if err != nil || !ready {
-		return ready, unreadCount, false, err
-	}
-	selected, err := common.ProbeSelectorExists(ctx, browser, cfg, "message.unread_tab_selected")
-	if err != nil || selected {
-		return ready, unreadCount, unreadCount > 0, err
-	}
-	for attempt := 1; attempt <= 2; attempt++ {
-		if err = common.ClickRequired(ctx, browser, cfg, "message.unread_tab"); err != nil {
-			continue
-		}
-		selected, err = common.ProbeSelectorExists(ctx, browser, cfg, "message.unread_tab_selected")
-		if err != nil {
-			return false, 0, false, err
-		}
-		if selected {
-			return true, unreadCount, true, nil
-		}
-	}
-	if err != nil {
-		return false, 0, false, fmt.Errorf("切换%s联系人未读列表失败：%w", cfg.Name, err)
-	}
-	return false, 0, false, fmt.Errorf("%s联系人列表没有切到未读标签", cfg.Name)
+	return r.readLiepinContacts(ctx, browser, cfg)
 }
 
 // OpenAutoReplyConversation 重新按稳定会话编号定位联系人，并读取身份、岗位、聊天和简历卡片。
@@ -246,6 +112,31 @@ func (r *Runtime) InspectAutoReplyContact(ctx context.Context, browser model.Bro
 
 // ReadAutoReplyMessages 从当前已经打开的聊天框读取云端游标之后的新消息，不重复打开联系人列表。
 func (r *Runtime) ReadAutoReplyMessages(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot, knownMessageKeys []string, maxHistory int) ([]model.ConversationMessage, bool, error) {
+	if snapshot.DeliveryPageURL != "" {
+		if err := r.verifyOpenDeliveryPage(ctx, browser, cfg, snapshot); err != nil {
+			return nil, false, err
+		}
+		items, err := common.ReadConfiguredConversationMessageTail(ctx, browser, cfg, min(maxHistory, 16))
+		if err != nil {
+			return nil, false, err
+		}
+		rows, err := liepinMessages(items)
+		if err != nil {
+			return nil, false, err
+		}
+		if len(items) > 0 && items[0].Index > 0 {
+			// 截断的首个分钟不能证明本地同文序号，保留平台原生编号的行，其余留待正常历史采集。
+			boundary := liepinLeadingMessageGroupEnd(rows)
+			valid := make([]model.ConversationMessage, 0, len(rows))
+			for i, row := range rows {
+				if i >= boundary || row.PlatformMessageID != "" {
+					valid = append(valid, row)
+				}
+			}
+			rows = valid
+		}
+		return rows, false, r.verifyOpenDeliveryPage(ctx, browser, cfg, snapshot)
+	}
 	if err := ensureLiepinAutoReplyConversation(ctx, browser, cfg, snapshot); err != nil {
 		return nil, false, err
 	}
@@ -265,7 +156,34 @@ func (r *Runtime) SendAutoReplyMessage(ctx context.Context, browser model.Browse
 	if expected := strings.TrimSpace(snapshot.CommunicationPosition); expected != "" && (!found || !liepinPositionMatches(expected, position)) {
 		return fmt.Errorf("%s当前聊天框的沟通岗位已经变化，消息没有发送", cfg.Name)
 	}
-	return common.SendAutoReplyText(ctx, browser, cfg, message)
+	if !cfg.Behavior.AutoReplySendEnterFirst {
+		return common.SendAutoReplyText(ctx, browser, cfg, message)
+	}
+	pageURL, err := liepinAutoReplyPageURL(ctx, browser, cfg)
+	if err != nil {
+		return err
+	}
+	if snapshot.DeliveryPageURL != "" && pageURL != snapshot.DeliveryPageURL {
+		return fmt.Errorf("准备发送期间招聘页面已变化")
+	}
+	// 按键与按钮兜底均重新核身并确认末条；读取失败不自动重新打开其他会话。
+	inspect := func() (model.ConversationMessage, error) {
+		active, pageErr := common.UniqueCurrentPageURL(ctx, browser)
+		if pageErr != nil || active != pageURL {
+			return model.ConversationMessage{}, fmt.Errorf("消息发送期间页面已变化，暂不继续")
+		}
+		if snapshot.PlatformCandidateID != "" {
+			if err := r.VerifyAutoReplyConversationIdentity(ctx, browser, cfg, snapshot); err != nil {
+				return model.ConversationMessage{}, err
+			}
+		}
+		matched, err := liepinAutoReplyConversationMatches(ctx, browser, cfg, snapshot)
+		if err != nil || !matched {
+			return model.ConversationMessage{}, fmt.Errorf("消息发送期间聊天身份或岗位无法确认，暂不继续")
+		}
+		return readLiepinLatestAutoReplyMessage(ctx, browser, cfg)
+	}
+	return common.SendAutoReplyEnterFirst(ctx, browser, cfg, pageURL, message, snapshot.ExpectedSendMessageKey, inspect)
 }
 
 // ReadLatestAutoReplyMessage 返回当前聊天框最后一条候选人或 HR 消息。
@@ -285,8 +203,28 @@ func (r *Runtime) ReadOpenAutoReplyLatestMessage(ctx context.Context, browser mo
 	if !matched {
 		return model.ConversationMessage{}, false, nil
 	}
+	if snapshot.DeliveryPageURL != "" {
+		if err := r.verifyOpenDeliveryPage(ctx, browser, cfg, snapshot); err != nil {
+			return model.ConversationMessage{}, false, err
+		}
+	}
 	latest, err := readLiepinLatestAutoReplyMessage(ctx, browser, cfg)
+	if err == nil && snapshot.DeliveryPageURL != "" {
+		err = r.verifyOpenDeliveryPage(ctx, browser, cfg, snapshot)
+	}
 	return latest, true, err
+}
+
+// verifyOpenDeliveryPage 只核对原标签与当前聊天的实时编号，发送后绝不因为换页或换人而重新打开会话。
+func (r *Runtime) verifyOpenDeliveryPage(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) error {
+	page, err := common.UniqueCurrentPageURL(ctx, browser)
+	if err != nil {
+		return err
+	}
+	if page != snapshot.DeliveryPageURL {
+		return fmt.Errorf("发送后招聘页面变化，无法核对送达")
+	}
+	return r.VerifyAutoReplyConversationIdentity(ctx, browser, cfg, snapshot)
 }
 
 // readLiepinLatestAutoReplyMessage 从尾部逐步扩窗找最后一条候选人或HR消息，保留同一解析器和读取期间的新消息复核。
@@ -439,8 +377,30 @@ func ensureLiepinConversationDrawer(ctx context.Context, browser model.Browser, 
 }
 
 // CloseAutoReplyConversation 关闭附件预览、候选人聊天框和联系人抽屉。
-func (r *Runtime) CloseAutoReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, _ model.AutoReplyConversationSnapshot) error {
-	return common.CloseAutoReplyPanels(ctx, browser, cfg)
+func (r *Runtime) CloseAutoReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) error {
+	page, err := liepinAutoReplyPageURL(ctx, browser, cfg)
+	if err != nil {
+		return err
+	}
+	verify := func(ctx context.Context) error {
+		return r.VerifyAutoReplyConversationIdentity(ctx, browser, cfg, snapshot)
+	}
+	for _, panel := range []struct{ key, close string }{
+		{"message.attachment_preview", "message.attachment_preview_close"},
+		{"candidate.chat_modal", "candidate.chat_close"},
+	} {
+		if err = common.ClosePanelEscapeFirst(ctx, browser, cfg, panel.key, panel.close, page, verify); err != nil {
+			return err
+		}
+	}
+	return common.ClosePanelEscapeFirst(ctx, browser, cfg, "candidate.contact_drawer", "candidate.contact_drawer_close", page, func(ctx context.Context) error {
+		// 已关闭原聊天后，如果用户打开了新聊天，Esc 会先落在新窗口。
+		opened, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.chat_modal")
+		if err == nil && opened {
+			return fmt.Errorf("联系人列表上又出现了聊天框，暂不关闭")
+		}
+		return err
+	})
 }
 
 // ReadConversation 兼容平台公共接口，安全打开会话后返回可读聊天正文。
@@ -473,7 +433,7 @@ func locateLiepinConversation(ctx context.Context, browser model.Browser, cfg mo
 	if err != nil {
 		return -1, err
 	}
-	conversations, err := liepinConversations(items, false)
+	conversations, err := liepinConversations(items)
 	if err != nil {
 		return -1, err
 	}
@@ -498,22 +458,38 @@ func locateLiepinConversation(ctx context.Context, browser model.Browser, cfg mo
 	return matches[0].Index, nil
 }
 
+// liepinContactActivityAt 只解析联系人时间节点的时刻；猎聘当天显示时分，昨天及更早只显示日期，只有日期时留空。
+func liepinContactActivityAt(raw string, now time.Time) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "今天 ") {
+		raw = strings.TrimPrefix(raw, "今天 ")
+	}
+	if clock := parseLiepinMessageTime(raw, now); clock != nil {
+		// 跨午夜时，未更新的昨日时分可能出现在今天的未来，不把它当成本轮的新活动。
+		if clock.After(now) {
+			return ""
+		}
+		return clock.Format(time.RFC3339)
+	}
+	for _, layout := range []string{"2006-01-02 15:04", "2006/1/2 15:04", "2006年1月2日 15:04"} {
+		if clock, err := time.ParseInLocation(layout, raw, time.FixedZone("Asia/Shanghai", 8*60*60)); err == nil && !clock.After(now) {
+			return clock.UTC().Format(time.RFC3339)
+		}
+	}
+	return ""
+}
+
 // liepinConversations 把猎聘联系人字段转换为统一会话结构。
-func liepinConversations(items []contract.FindAllItem, unreadOnly bool) ([]model.Conversation, error) {
+func liepinConversations(items []contract.FindAllItem) ([]model.Conversation, error) {
+	now := time.Now()
 	result := make([]model.Conversation, 0, len(items))
 	for _, item := range items {
 		meta, err := parseLiepinContactMeta(item.Fields["thread_meta"])
 		if err != nil {
 			return nil, fmt.Errorf("解析猎聘联系人会话编号失败：%w", err)
-		}
-		if unreadOnly {
-			unreadCount, countErr := parseLiepinUnreadCount(item.Fields["unread_count"])
-			if countErr != nil {
-				return nil, fmt.Errorf("解析猎聘联系人未读数字失败：%w", countErr)
-			}
-			if unreadCount <= 0 {
-				continue
-			}
 		}
 		name := strings.TrimSpace(item.Fields["name"])
 		lastMessage := strings.TrimSpace(item.Fields["last_message"])
@@ -525,6 +501,16 @@ func liepinConversations(items []contract.FindAllItem, unreadOnly bool) ([]model
 				return nil, err
 			}
 		}
+		if item.Fields == nil {
+			item.Fields = make(map[string]string)
+		}
+		if _, known := item.Fields["contact_activity_at"]; !known {
+			item.Fields["contact_activity_at"] = liepinContactActivityAt(item.Fields["contact_time"], now)
+		}
+		// 列表正文包含可见时间。持久基线只需摘要，不保存整行联系人文本。
+		item.Fields["contact_list_signature"] = fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join([]string{
+			name, lastMessage, item.Text, strings.TrimSpace(item.Fields["contact_time"]),
+		}, "\x00"))))
 		result = append(result, model.Conversation{
 			Index: item.Index, Key: key, Name: name, AvatarURL: strings.TrimSpace(item.Fields["avatar_url"]), PlatformThreadID: threadID,
 			Summary: lastMessage, Fields: item.Fields,
@@ -535,19 +521,6 @@ func liepinConversations(items []contract.FindAllItem, unreadOnly bool) ([]model
 
 type liepinContactMeta struct {
 	ThreadID string `json:"to_imid"`
-}
-
-// parseLiepinUnreadCount 只接受联系人头像上真实可见的正整数未读数字。
-func parseLiepinUnreadCount(value string) (int, error) {
-	normalized := strings.TrimSuffix(strings.TrimSpace(value), "+")
-	if normalized == "" {
-		return 0, nil
-	}
-	count, err := strconv.Atoi(normalized)
-	if err != nil || count <= 0 {
-		return 0, fmt.Errorf("未读数字无法确认：%q", value)
-	}
-	return count, nil
 }
 
 // parseLiepinContactMeta 解码联系人 data-tlg-ext 中的稳定会话编号。

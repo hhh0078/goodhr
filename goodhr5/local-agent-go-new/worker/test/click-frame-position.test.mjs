@@ -12,7 +12,7 @@ test('内嵌弹框的诊断只读状态，关闭按钮只发送一次实际点�
   const page = { url: () => 'https://example.test/list', isClosed: () => false,
     context: () => ({ pages: () => [page] }), frames: () => [] };
   const box = () => ({ x: 20, y: currentY, width: 150, height: 45 });
-  const resolved = { page, locator: { async click() { assert.fail('诊断不得发送 trial 点击'); }, isVisible: async () => true, isEnabled: async () => true },
+  const resolved = { page, locator: { locator: () => ({ count: async () => 1 }), async click() { assert.fail('诊断不得发送 trial 点击'); }, isVisible: async () => true, isEnabled: async () => true },
     matched_selector: { type: 'css', value: '.close' }, attempts: [],
     view: { box: box(), viewport: { width: 1280, height: 900 }, visible: true, enabled: true, in_viewport: true, fully_in_viewport: false } };
   const action = new ClickAction(
@@ -34,7 +34,7 @@ function closeFixture(moveError) {
   const events = [];
   const view = { box: { x: 1100, y: 20, width: 40, height: 40 }, viewport: { width: 1280, height: 900 }, visible: true, enabled: true };
   const page = { isClosed: () => false };
-  const resolved = { page, view, locator: {} };
+  const resolved = { page, view, locator: { locator: () => ({ count: async () => 1 }) } };
   const action = new ClickAction(
     { one: async () => ({ resolved, result: { element_ref: 'close' } }), all: async () => { events.push('verify'); return []; } },
     { ensureVisible: async () => {} },

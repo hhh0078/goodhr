@@ -156,11 +156,13 @@ type AutoReplyResumeRetry struct {
 
 // AutoReplyCaptureIntent 仅保存列表提供的恢复线索；岗位编号用于恢复调度，不代表已核实的会话岗位。
 type AutoReplyCaptureIntent struct {
-	PositionID          string `json:"position_id"`
-	PlatformThreadID    string `json:"platform_thread_id"`
-	PlatformCandidateID string `json:"platform_candidate_id"`
-	CandidateName       string `json:"candidate_name"`
-	PagePositionText    string `json:"page_position_text"`
+	ReplyAfter          time.Time `json:"reply_after,omitzero"`
+	WitnessDigest       string    `json:"witness_digest,omitempty"`
+	PositionID          string    `json:"position_id"`
+	PlatformThreadID    string    `json:"platform_thread_id"`
+	PlatformCandidateID string    `json:"platform_candidate_id"`
+	CandidateName       string    `json:"candidate_name"`
+	PagePositionText    string    `json:"page_position_text"`
 }
 
 // AutoReplyMessage 表示一条经过本地清洗的聊天消息。
@@ -181,6 +183,8 @@ type AutoReplyMessage struct {
 
 // AutoReplyMessageSyncRequest 表示一次首次或差量聊天同步。
 type AutoReplyMessageSyncRequest struct {
+	ReplyAfter             time.Time          `json:"-"` // 仅供本机初次确定自动答复的起点。
+	WitnessDigest          string             `json:"-"`
 	ConversationID         string             `json:"conversation_id"`
 	HistoryComplete        bool               `json:"history_complete"`
 	Messages               []AutoReplyMessage `json:"messages"`

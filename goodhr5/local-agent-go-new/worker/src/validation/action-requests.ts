@@ -142,9 +142,18 @@ export function parsePageUseRequest(
   action: string,
 ): PageUseRequest {
   const record = asRecord(value, traceId, action);
-  return {
-    page_id: requiredString(record, "page_id", traceId, action),
-  };
+  const request: PageUseRequest = { page_id: requiredString(record, "page_id", traceId, action) };
+  if (record.dismiss_download !== undefined) {
+    const restore = asRecord(record.dismiss_download, traceId, action);
+    request.dismiss_download = {
+      original_url: requiredString(restore, "original_url", traceId, action),
+      viewer_url: optionalBoolean(restore, "await_viewer") ? optionalString(restore, "viewer_url") ?? "" : requiredString(restore, "viewer_url", traceId, action),
+      await_viewer: optionalBoolean(restore, "await_viewer") ?? false,
+      download_id: requiredString(restore, "download_id", traceId, action),
+      keep_viewer: optionalBoolean(restore, "keep_viewer") ?? false,
+    };
+  }
+  return request;
 }
 
 /** parseSaveCurrentDocumentRequest 校验使用当前浏览器会话保存文档页的请求。 */
@@ -269,7 +278,7 @@ export function parseElementReadRequest(
   const request: ElementReadRequest = {
     selector: parseSelectorSpec(record.selector, traceId, action),
   };
-  if (record.property === "html" || record.property === "text") {
+  if (record.property === "html" || record.property === "text" || record.property === "value") {
     request.property = record.property;
   }
   assignString(request, "attribute", optionalString(record, "attribute"));
@@ -333,6 +342,7 @@ export function parseElementClickRequest(
   }
   assignBoolean(request, "diagnostic", optionalBoolean(record, "diagnostic"));
   assignNumber(request, "diagnostic_attempt", optionalNumber(record, "diagnostic_attempt", { min: 1, max: 100 }));
+  assignBoolean(request, "watch_download_viewer", optionalBoolean(record, "watch_download_viewer"));
   return request;
 }
 
@@ -353,6 +363,7 @@ export function parseElementInputRequest(
           })(),
   };
   assignBoolean(request, "clear", optionalBoolean(record, "clear"));
+  assignBoolean(request, "insert_text", optionalBoolean(record, "insert_text"));
   assignBoolean(request, "verify", optionalBoolean(record, "verify"));
   assignNumber(
     request,
@@ -377,6 +388,11 @@ export function parseKeyboardPressRequest(
   const request: KeyboardPressRequest = {
     key: requiredString(record, "key", traceId, action),
   };
+  if (record.target !== undefined) request.target = parseSelectorSpec(record.target, traceId, action);
+  assignString(request, "expected_page_url", optionalString(record, "expected_page_url"));
+  assignBoolean(request, "require_focus", optionalBoolean(record, "require_focus"));
+  if (typeof record.expected_value === "string") request.expected_value = record.expected_value;
+  if ((request.require_focus || request.expected_value !== undefined) && !request.target) throw invalidRequest(traceId, action, "焦点或草稿校验需要指定目标");
   assignBoolean(request, "diagnostic", optionalBoolean(record, "diagnostic"));
   assignString(request, "description", optionalString(record, "description"));
   assignNumber(

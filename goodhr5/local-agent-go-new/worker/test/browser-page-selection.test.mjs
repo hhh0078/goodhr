@@ -42,12 +42,12 @@ function fixture(t, service = new ActionService()) {
   session.currentPage = original;
   session.registerContext(browserContext);
   const box = { x: 10, y: 10, width: 80, height: 30 };
-  service.locator.resolve = async (page, spec) => ({ page, locator: { innerText: async () => page.url() },
+  service.locator.resolve = async (page, spec) => ({ page, locator: { innerText: async () => page.url(), locator: () => ({ count: async () => 1 }) },
     view: { box: { ...box }, viewport: { width: 800, height: 600 }, visible: true, in_viewport: true },
     matched_selector: spec.target.selectors[0], attempts: [] });
   service.locator.box = async () => ({ ...box });
   service.scrollAction.ensureVisible = async () => undefined;
-  service.moveAction.toElement = async () => ({ x: 50, y: 20, view: { viewport: { width: 800, height: 600 } } });
+  service.moveAction.toElement = async target => ({ x: 50, y: 20, view: target.view });
   service.mouse.down = async () => {};
   service.mouse.up = async () => {};
   t.after(() => session.elements.clear());
@@ -177,4 +177,105 @@ test('旧会话新页事件不注册为新会话当前页，显式 Close 与失�
   const late = f.addPage('file:///tmp/old-session.pdf');
   assert.equal(f.session.currentPage, fallback);
   assert.equal(f.session.registeredPages.has(late), false);
+});
+
+/** 验证只关闭原生回执的精确新文件页，并保留人工查看的无关标签以及同名文件。 */
+test('按本次下载回执收起文件页，只剩原页才显式激活', async t => {
+  for (const others of [false, true]) {
+    const f = fixture(t);
+    const url = 'file:///tmp/resume-2.pdf';
+    const viewer = f.addPage(url);
+    const manual = others ? f.addPage('file:///other/resume-2.pdf') : null;
+    const item = { id: 'native_download_24', status: 'saved', page_url: f.original.url(), file_path: '/tmp/resume-2.pdf' };
+    f.session.downloadManager.list = async () => ({ downloads: [item] });
+    const restore = { original_url: f.original.url(), viewer_url: url, download_id: item.id };
+    const result = await f.session.usePage('0', actionContext(), restore);
+    assert.equal(result.download_viewer_closed, true);
+    assert.equal(viewer.closed, true);
+    assert.equal(f.original.fronts, others ? 0 : 1);
+    assert.equal(manual?.closed ?? false, false);
+    const reopened = f.addPage(url);
+    await assert.rejects(f.session.usePage('0', actionContext(), restore));
+    assert.equal(reopened.closed, false);
+  }
+});
+
+/** 验证同路径多页、下载路径或原页不符、人工明确换页都不能复用关闭动作。 */
+test('下载文件页面或原生回执存在歧义时，保留所有页面', async t => {
+  for (const scenario of ['duplicate','wrong_file','wrong_origin','other_page','wrong_receipt']) {
+    const f = fixture(t);
+    const viewer = f.addPage('file:///tmp/sample.pdf');
+    if (scenario==='duplicate') f.addPage(viewer.url());
+    if (scenario==='other_page') {
+      f.addPage('https://manual.test');
+      await f.session.usePage('2', actionContext());
+    }
+    const item = {id:'native_download_24', status:'saved', page_url: f.original.url(), file_path: scenario==='wrong_file' ? '/other/sample.pdf' : '/tmp/sample.pdf'};
+    f.session.downloadManager.list = async () => ({downloads:[item]});
+    await assert.rejects(f.session.usePage('0',actionContext(),{
+      original_url: scenario==='wrong_origin' ? 'https://other.test' : f.original.url(),
+      viewer_url: viewer.url(), download_id: scenario==='wrong_receipt' ? 'unknown' : item.id,
+    }));
+    assert.equal(viewer.closed,false);
+    assert.equal(f.original.fronts,0);
+  }
+});
+
+/** 验证本次回执复用旧文件名时，只有原页和同一文件两页才切回；已有查看器一直保留。 */
+test('复用已有文件标签时保留原页和文件，出现第三页不抢焦点',async t => {
+  for (const third of [false,true]) {
+    const f=fixture(t);
+    const viewer=f.addPage('file:///tmp/resume-5.pdf');
+    if(third) f.addPage('https://example.test/manual');
+    const item={id:'native_download_repeat_path',status:'saved',page_url:f.original.url(),file_path:'/tmp/resume-5.pdf'};
+    f.session.downloadManager.list=async()=>({downloads:[item]});
+    const req={original_url:f.original.url(),download_id:item.id,viewer_url:viewer.url(),keep_viewer:true};
+    if(third) await assert.rejects(f.session.usePage('0',actionContext(),req));
+    else assert.equal((await f.session.usePage('0',actionContext(),req)).download_viewer_preserved,true);
+    assert.equal(viewer.closed,false);
+    assert.equal(f.original.fronts, third ? 0 : 1);
+  }
+});
+
+/** 验证真实点击前开始监听，回执可能早于新标签创建、早于空白页变成 PDF，均只关闭实际命中的文件页。 */
+test('本次 PDF 文件查看页在下载回执之后才创建或完成导航，仍按标准事件收起',async t=>{
+  for (const scenario of ['already-ready','late-page','blank-then-file','existing','unrelated']) {
+    const f=fixture(t);
+    const uri='file:///tmp/verified%20attachment.pdf';
+    let viewer = scenario==='existing' ? f.addPage(uri) : undefined;
+    await f.session.watchDownloadViewer(actionContext());
+    const item={id:'native_download_event', status:'saved', created_at:new Date().toISOString(), page_url:f.original.url(), file_path:'/tmp/verified attachment.pdf'};
+    f.session.downloadManager.list=async()=>({downloads:[item]});
+    if(scenario==='blank-then-file') viewer=f.addPage('about:blank');
+    if(scenario==='already-ready') viewer=f.addPage(uri);
+    let unrelated;
+    if(scenario==='unrelated') unrelated=f.addPage('file:///other/verified%20attachment.pdf');
+    const restore={original_url:f.original.url(),download_id:item.id,viewer_url:'',await_viewer:true};
+    const result=f.session.usePage('0',actionContext(),restore);
+    if(scenario==='blank-then-file' || scenario==='late-page' || scenario==='unrelated') {
+      await new Promise(r=>setTimeout(r,25));
+      if(viewer) {viewer.address=uri;viewer.emit('framenavigated',viewer);}
+      else viewer=f.addPage(uri);
+    }
+    const done=await result;
+    assert.equal(Boolean(done.download_viewer_closed),scenario!=='existing');
+    assert.equal(Boolean(done.download_viewer_preserved),scenario==='existing');
+    assert.equal(viewer.closed,scenario!=='existing');
+    assert.equal(unrelated?.closed??false,false);
+  }
+});
+
+/** 验证观察期限和取消能及时注销请求，迟到的人工标签不会触发后台关闭。 */
+test('等候下载页超时和取消后不再执行标签动作',async t=>{
+  const { DownloadViewerWatch } = await import('../dist/browser/session/download-viewer-watch.js');
+  const f=fixture(t);
+  const watch=new DownloadViewerWatch(f.original,f.browserContext);
+  try {
+    assert.deepEqual(await watch.wait('/tmp/late.pdf',undefined,20),[]);
+    const abort=new AbortController();
+    const pending=watch.wait('/tmp/late.pdf',abort.signal,1000);
+    abort.abort();
+    await assert.rejects(pending);
+    const late=f.addPage('file:///tmp/late.pdf'); assert.equal(late.closed,false);
+  } finally {watch.dispose();}
 });

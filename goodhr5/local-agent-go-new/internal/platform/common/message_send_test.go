@@ -114,3 +114,77 @@ func TestMessageSendCancellation(t *testing.T) {
 		t.Fatalf("取消后仍发送：%v %+v", err, b)
 	}
 }
+
+// enterFirstBrowser 保留草稿值、按键与按钮次数，模拟按键落地、回执丢失、输入模式和新消息。
+type enterFirstBrowser struct {
+	messageSendBrowser
+	mode, draft string
+}
+
+// Input 模拟已验证输入或还原被快捷键换行的草稿。
+func (b *enterFirstBrowser) Input(_ context.Context, r contract.ElementInputRequest) (contract.InputResult, error) {
+	b.inputs++
+	b.draft = r.Text
+	return contract.InputResult{Typed: true, Verified: true}, nil
+}
+
+// Read 返回输入控件真实值或页面明确展示的发送快捷键。
+func (b *enterFirstBrowser) Read(_ context.Context, r contract.ElementReadRequest) (contract.ReadResult, error) {
+	if r.Attribute == "placeholder" && b.mode == "newline-mode" {
+		return contract.ReadResult{Value: "Enter 换行，Ctrl+Enter 发送"}, nil
+	}
+	return contract.ReadResult{Value: b.draft, Property: r.Property}, nil
+}
+
+// PressKey 核验页面、焦点与草稿要求，按场景模拟真实按键结果。
+func (b *enterFirstBrowser) PressKey(_ context.Context, r contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
+	b.keys++
+	if r.Key != "Enter" || r.Target == nil || !r.RequireFocus || r.ExpectedPageURL != "page" || r.ExpectedValue == nil || *r.ExpectedValue != b.draft {
+		return contract.KeyboardPressResult{}, errors.New("按键缺少现场约束")
+	}
+	switch b.mode {
+	case "sent":
+		b.draft = ""
+	case "not-started", "changed-fallback":
+		return contract.KeyboardPressResult{}, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_VISIBLE", Details: json.RawMessage(`{"key_started":false}`)}}
+	case "lost-ack", "already-sent":
+		return contract.KeyboardPressResult{}, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "INTERNAL_ERROR", Details: json.RawMessage(`{"key_started":true}`)}}
+	case "newline-mode", "ambiguous-newline":
+		b.draft += "\n"
+	}
+	return contract.KeyboardPressResult{Pressed: true, Key: "Enter"}, nil
+}
+
+// TestEnterFirstRequiresPositiveUnsentEvidence 验证成功、静默失败、传输中断、换人及新来信不会导致重复点击。
+func TestEnterFirstRequiresPositiveUnsentEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		mode                  string
+		keys, buttons, inputs int
+		ok, superseded        bool
+	}{
+		{"sent", 1, 0, 1, true, false}, {"not-started", 1, 1, 1, true, false}, {"newline-mode", 1, 1, 2, true, false},
+		{"ambiguous-newline", 1, 0, 1, false, false}, {"silent", 1, 0, 1, false, false}, {"lost-ack", 1, 0, 1, false, false}, {"already-sent", 1, 0, 1, true, false},
+		{"changed-before", 0, 0, 1, false, true}, {"changed-fallback", 1, 0, 1, false, true}, {"wrong-person", 0, 0, 1, false, false},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			b := &enterFirstBrowser{mode: tc.mode}
+			cfg := model.Config{Selectors: map[string]contract.SelectorSpec{"message.input": testSelector("消息输入框"), "message.send": testSelector("发送按钮")}}
+			inspect := func() (model.ConversationMessage, error) {
+				switch {
+				case tc.mode == "wrong-person":
+					return model.ConversationMessage{}, errors.New("候选人已切换")
+				case tc.mode == "changed-before" || (tc.mode == "changed-fallback" && b.keys > 0):
+					return model.ConversationMessage{Direction: "candidate", Key: "new-inbound"}, nil
+				case tc.mode == "already-sent" && b.keys > 0:
+					return model.ConversationMessage{Direction: "self", Key: "new-outbound", TextContent: "你好"}, nil
+				default:
+					return model.ConversationMessage{Direction: "candidate", Key: "anchor"}, nil
+				}
+			}
+			err := SendAutoReplyEnterFirst(context.Background(), b, cfg, "page", "你好", "anchor", inspect)
+			if (err == nil) != tc.ok || errors.Is(err, model.ErrAutoReplySupersededBeforeSend) != tc.superseded || b.keys != tc.keys || b.buttons != tc.buttons || b.inputs != tc.inputs {
+				t.Fatalf("err=%v keys=%d buttons=%d inputs=%d", err, b.keys, b.buttons, b.inputs)
+			}
+		})
+	}
+}

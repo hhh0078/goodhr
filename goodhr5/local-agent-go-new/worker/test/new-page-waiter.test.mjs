@@ -44,10 +44,10 @@ for (const mouseFails of [true, false]) {
       process.on('unhandledRejection', error => { throw error; });
       const browser = new EventEmitter();
       const box = { x: 10, y: 10, width: 100, height: 40 };
-      const found = { result: { element_ref: 'button' }, resolved: { page: { context: () => browser }, locator: {}, view: { box } } };
+      const found = { result: { element_ref: 'button' }, resolved: { page: { context: () => browser }, locator: { locator: () => ({ count: async () => 1 }) }, view: { box } } };
       const mouse = { async down() { ${mouseFails ? "throw new Error('GOODHR_MOUSE_APZ_TIMEOUT:mousedown');" : "await new Promise(resolve => setTimeout(resolve, 80));"} }, async up() {} };
       const action = new ClickAction({ async one() { return found; } }, { async ensureVisible() {} },
-        { async toElement() {} }, { async box() { return box; } }, mouse, { info() {}, failure() {} });
+        { async toElement(target) { return { view: target.view }; } }, { async box() { return box; } }, mouse, { info() {}, failure() {} });
       await assert.rejects(action.execute({ selector: { description: '候选人详情' }, wait_for_new_page: true, new_page_timeout_ms: 20 },
         { action: 'element.click', trace_id: 'regression', started_at: Date.now() }));
       await new Promise(resolve => setTimeout(resolve, 60));

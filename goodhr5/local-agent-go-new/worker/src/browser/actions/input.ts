@@ -11,7 +11,7 @@ import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
 import { ScrollAction } from "./scroll.js";
 import { LocatorPrimitive } from "../primitives/locator.js";
-import { waitForStablePosition } from "./stable-position.js";
+import { moveToStablePosition } from "./stable-position.js";
 
 const DEFAULT_CHARACTER_DELAY_MIN_MS = 50;
 const DEFAULT_CHARACTER_DELAY_MAX_MS = 100;
@@ -67,8 +67,8 @@ export class InputAction {
         },
         actionContext,
       );
-      await waitForStablePosition(found, this.locator);
-      await this.move.toElement(found.resolved, actionContext, { visibleArea });
+      await moveToStablePosition(found, this.locator, actionContext,
+        () => this.move.toElement(found.resolved, actionContext, { visibleArea }));
       try {
         await this.mouse.down(found.resolved.page, "left");
         await delay(randomInteger(FOCUS_HOLD_MIN_MS, FOCUS_HOLD_MAX_MS));
@@ -84,14 +84,20 @@ export class InputAction {
         await this.keyboard.press(found.resolved.page, selectAll);
         await this.keyboard.press(found.resolved.page, "Backspace");
       }
-      await this.typeHumanized(
-        found.resolved.page,
-        request.text,
-        request.min_delay_ms ?? DEFAULT_CHARACTER_DELAY_MIN_MS,
-        request.max_delay_ms ?? DEFAULT_CHARACTER_DELAY_MAX_MS,
-      );
+      if (request.insert_text) {
+        // 原生提交整段草稿，不会模拟回车。只有单独的发送动作可以发出消息。
+        if (!(await this.read.focused(found.resolved.locator))) throw new Error("输入框焦点已变化，暂不输入草稿");
+        await this.keyboard.insertText(found.resolved.page, request.text);
+      } else {
+        await this.typeHumanized(
+          found.resolved.page,
+          request.text,
+          request.min_delay_ms ?? DEFAULT_CHARACTER_DELAY_MIN_MS,
+          request.max_delay_ms ?? DEFAULT_CHARACTER_DELAY_MAX_MS,
+        );
+      }
       let verified = true;
-      if (request.verify ?? true) {
+      if (request.insert_text || (request.verify ?? true)) {
         const actual = await this.read.editableValue(found.resolved.locator);
         verified = actual === request.text;
         if (!verified) {

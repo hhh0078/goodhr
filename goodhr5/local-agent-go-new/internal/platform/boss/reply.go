@@ -27,7 +27,7 @@ func cleanBossAutoReplyPosition(value string) string {
 }
 
 // InitializeAutoReplyPage 清理 Boss 遗留弹层。
-func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
+func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config, _ *model.AutoReplyConversationSnapshot) error {
 	return common.InitializeConfiguredAutoReplyPage(ctx, browser, cfg)
 }
 

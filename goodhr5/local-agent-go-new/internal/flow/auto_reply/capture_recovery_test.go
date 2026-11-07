@@ -163,3 +163,27 @@ func TestCheckpointSkipsPurgedUnreadConversation(t *testing.T) {
 		t.Fatalf("正常候选人没有取得本轮采集名额 %v", err)
 	}
 }
+
+// TestCheckpointYieldsBusyChatWithoutLosingItsIncoming 验证单名额下其他未读能轮到，已打开聊天的新来信同时保留恢复线索。
+func TestCheckpointYieldsBusyChatWithoutLosingItsIncoming(t *testing.T) {
+	ctx := context.Background()
+	flow, prepared := newReliabilityFlow(t, "")
+	prepared.Position.ID = "position"
+	positions := []cloud.AutoReplyPositionSnapshot{{Position: cloud.AutoReplyPosition{ID: "position", Name: "工程师"}}}
+	busy := model.Conversation{Key: "busy", PlatformThreadID: "busy", Name: "候选人甲"}
+	other := model.Conversation{Key: "other", PlatformThreadID: "other", Name: "候选人乙"}
+	current := &openAutoReplyConversation{conversation: busy, scanNext: true, snapshot: model.AutoReplyConversationSnapshot{CandidateName: busy.Name, PlatformThreadID: busy.PlatformThreadID}}
+	runtime := &captureRecoveryRuntime{autoReplyRuntimeStub: autoReplyRuntimeStub{
+		latestBefore: model.ConversationMessage{PlatformMessageID: "arrived-in-open-chat", Direction: "candidate", TextContent: "还有一个问题"},
+		opened:       model.AutoReplyConversationSnapshot{CandidateName: other.Name, PlatformThreadID: other.PlatformThreadID, CommunicationPosition: "工程师"},
+	}}
+	scanner := captureUnreadScanner{[]model.Conversation{busy, other}}
+	n, next, err := flow.processCheckpoint(ctx, prepared, scanner, runtime, positions, 1, &shared.Stats{}, &shared.ConsecutiveErrorPolicy{}, current)
+	if err != nil || n != 1 || next == nil || next.conversation.Key != other.Key || runtime.opens != 1 {
+		t.Fatalf("其他未读没有轮到：n=%d next=%+v opens=%d err=%v", n, next, runtime.opens, err)
+	}
+	pending, err := flow.Cloud.ListPendingAutoReplyConversations(ctx, credentials(prepared), prepared.Platform.ID, prepared.Request.PlatformAccountID)
+	if err != nil || len(pending) != 1 || pending[0].CaptureIntent == nil || pending[0].CaptureIntent.PlatformThreadID != busy.PlatformThreadID {
+		t.Fatalf("离开的已读聊天缺少恢复线索：pending=%+v err=%v", pending, err)
+	}
+}

@@ -122,7 +122,7 @@ func readLiepinHistoryWindow(ctx context.Context, browser model.Browser, cfg mod
 					result.HistoryComplete = true
 					if b := liepinKnownMessageBoundary(filtered, knownMessageKeys); b >= 0 {
 						result.HistoryComplete = false
-						result.Messages = filtered[liepinDuplicateRepairStart(filtered, b, 0):]
+						result.Messages = filtered[liepinHistorySyncStart(filtered, b, 0, cfg.Behavior.AutoReplyAllContactInbox):]
 					}
 					return result, nil
 				}
@@ -137,7 +137,7 @@ func readLiepinHistoryWindow(ctx context.Context, browser model.Browser, cfg mod
 					firstStable = liepinLeadingMessageGroupEnd(result.Messages)
 				}
 				// 旧版本曾合并同分钟同文消息；带上可证明完整的重复组及后续锚点，让本机幂等补齐历史而不新增待答。
-				start := liepinDuplicateRepairStart(result.Messages, boundary, firstStable)
+				start := liepinHistorySyncStart(result.Messages, boundary, firstStable, cfg.Behavior.AutoReplyAllContactInbox)
 				result.Messages = result.Messages[start:]
 				if after != nil {
 					result.Messages, _ = liepinMessagesAfterDeletion(result.Messages, *after)
@@ -336,6 +336,15 @@ func liepinLeadingMessageGroupEnd(messages []model.ConversationMessage) int {
 	return len(messages)
 }
 
+// liepinHistorySyncStart 保留重复修复所需窗口，全部联系人模式还保留已实际读到的锚点供本机核实同分钟先后。
+func liepinHistorySyncStart(messages []model.ConversationMessage, boundary, firstStable int, includeAnchor bool) int {
+	start := liepinDuplicateRepairStart(messages, boundary, firstStable)
+	if includeAnchor {
+		return min(start, boundary)
+	}
+	return start
+}
+
 // liepinDuplicateRepairStart 为已知边界前的重复组保留原始顺序锚点；未完整首分钟不参与旧记录修复。
 func liepinDuplicateRepairStart(messages []model.ConversationMessage, boundary, firstStable int) int {
 	start := boundary + 1
@@ -425,10 +434,14 @@ func liepinMessage(item contract.FindAllItem, now time.Time) (model.Conversation
 	baseKey := strings.Join([]string{direction, messageType, text, timeKey}, "|")
 	card := json.RawMessage(`{}`)
 	if messageType != "text" {
+		// 已实测的猎聘发简历固定说明不用当作候选人的自由留言。卡片含其他文字时继续交给正常问答。
+		standalone := direction == "candidate" && messageType == "resume" &&
+			(text == "" || text == "这是我的简历，合适的话可以随时联系我～")
 		encoded, marshalErr := json.Marshal(struct {
-			Summary     string `json:"summary"`
-			CandidateID string `json:"candidate_id,omitempty"`
-		}{Summary: firstLiepinValue(resumeText, text), CandidateID: candidateID})
+			Summary          string `json:"summary"`
+			CandidateID      string `json:"candidate_id,omitempty"`
+			StandaloneResume bool   `json:"standalone_resume,omitempty"`
+		}{firstLiepinValue(resumeText, text), candidateID, standalone})
 		if marshalErr != nil {
 			return model.ConversationMessage{}, "", marshalErr
 		}

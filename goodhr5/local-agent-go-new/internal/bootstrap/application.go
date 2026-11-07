@@ -35,6 +35,12 @@ import (
 	"goodhr5/local-agent-go-new/internal/version"
 )
 
+// replyBrowser 为自动回复提供现有浏览器操作和本地下载监听。
+type replyBrowser struct {
+	*client.Client
+	*downloadflow.Monitor
+}
+
 // Application 保存程序运行期间需要清理的顶层组件。
 type Application struct {
 	cfg       config.Config
@@ -113,13 +119,13 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 		Cloud: cloudClient, Notifier: notifier, Logger: logger, ScreenshotsDir: cfg.ScreenshotsDir,
 		DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
 	}
+	downloads := &downloadflow.Monitor{Browser: browserClient, Store: store, Notifier: notifier}
 	replyFlow := &auto_reply.Flow{
-		Browser: browserClient, Store: store, Cloud: cloudClient,
+		Browser: &replyBrowser{browserClient, downloads}, Store: store, Cloud: cloudClient,
 		Responder: &auto_reply.AIResponder{AI: aiClient, Cloud: cloudClient, Logger: logger, OCR: ocrClient},
 		Logger:    logger, DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
 	}
 	runner := lifecycle.New(checker, greetingFlow, replyFlow, store, profiles, powerGuard, cloudClient, notifier, logger)
-	downloads := &downloadflow.Monitor{Browser: browserClient, Store: store, Notifier: notifier}
 	application := &Application{
 		cfg: cfg, runner: runner, runtime: runtimeManager,
 		browser: browserClient, store: store, downloads: downloads, ocr: ocrClient,

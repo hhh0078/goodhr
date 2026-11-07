@@ -21,6 +21,8 @@ var (
 	ErrGreetingUnconfirmed = errors.New("尚未确认招呼发送成功，请检查平台权益或提示后再继续")
 	// ErrAutoReplyConversationNotOpen 仅表示平台明确未找到当前聊天，不代表身份冲突或浏览器读取失败。
 	ErrAutoReplyConversationNotOpen = errors.New("当前聊天暂未打开")
+	// ErrAutoReplySupersededBeforeSend 表示已核实新来信到达且还没触发任何可能的发送。
+	ErrAutoReplySupersededBeforeSend = errors.New("候选人又发来了消息，上一条回复已放下")
 )
 
 // Browser 定义平台适配层可以调用的 Worker 封装能力。
@@ -71,6 +73,7 @@ type ConfiguredAction struct {
 
 // Behavior 表示平台翻页、详情和岗位选择行为。
 type Behavior struct {
+	AutoReplyAllContactInbox    bool   `json:"auto_reply_all_contact_inbox"`    // 扫描全部联系人，主流程按本机水位发现待核实的消息。
 	SupportsPostDeletionHistory bool   `json:"supports_post_deletion_history"`  // 可按稳定会话核身并且只读取删除后的消息。
 	AutoReplyResumeLoadsHistory bool   `json:"auto_reply_resume_loads_history"` // 平台采集简历时自行加载并核验来源，公共流程无需先读历史再回到底部。
 	AutoReplyAvatarContainerKey string `json:"auto_reply_avatar_container_key"` // 聊天历史内的头像使用已有滚动容器限定截图；页头头像无需配置。
@@ -90,6 +93,7 @@ type Behavior struct {
 	NeedsDetail                 bool   `json:"needs_detail"`
 	StitchDetailScreenshots     bool   `json:"stitch_detail_screenshots"`
 	DetailCloseEscapeFirst      bool   `json:"detail_close_escape_first"`   // 先按 Escape 并确认详情消失，未关闭时才点击备用关闭按钮。
+	AutoReplySendEnterFirst     bool   `json:"auto_reply_send_enter_first"` // 自动回复优先用焦点已核验的回车发送。
 	MessageSendEnterFallback    bool   `json:"message_send_enter_fallback"` // 发送按钮明确尚未点击时，允许聚焦输入框后按回车兜底。
 	MessageSendVerifyEmpty      bool   `json:"message_send_verify_empty"`   // 发送后确认输入框清空，避免把按键成功当成消息发送成功。
 
@@ -155,6 +159,8 @@ type DetailBrowser interface {
 
 // Conversation 表示未读会话摘要。
 type Conversation struct {
+	ReplyAfter            time.Time         `json:"-"` // 首次采集时历史可读，但开始监听以前的消息不触发答复。
+	WitnessDigest         string            `json:"-"` // 已观察到变化的可见摘要，用于核对同分钟的新消息。
 	Index                 int               `json:"index"`
 	Key                   string            `json:"key"`
 	Name                  string            `json:"name"`
@@ -182,20 +188,22 @@ type ConversationMessage struct {
 
 // AutoReplyConversationSnapshot 表示打开会话后一次性读取的身份、岗位、消息和简历卡片状态。
 type AutoReplyConversationSnapshot struct {
-	HistoryAfter          *time.Time            `json:"-"` // 重新联系时只接受可信删除时间之后的消息，普通会话留空。
-	Conversation          Conversation          `json:"conversation"`
-	CandidateName         string                `json:"candidate_name"`
-	AvatarURL             string                `json:"avatar_url"`
-	Gender                string                `json:"gender"`
-	Phone                 string                `json:"phone"`
-	PlatformThreadID      string                `json:"platform_thread_id"`
-	PlatformCandidateID   string                `json:"platform_candidate_id"`
-	PlatformAccountID     string                `json:"platform_account_id"`
-	CommunicationPosition string                `json:"communication_position"`
-	Messages              []ConversationMessage `json:"messages"`
-	HistoryComplete       bool                  `json:"history_complete"`
-	ResumeCardAvailable   bool                  `json:"resume_card_available"`
-	ResumeSourceMessageID string                `json:"resume_source_message_id"`
+	DeliveryPageURL        string                `json:"-"` // 仅在单条发送调用内保存原页，确认送达时只允许读取这个页面的当前聊天尾部。
+	ExpectedSendMessageKey string                `json:"-"` // 输入期间核对触发本次发送的候选人来信。
+	HistoryAfter           *time.Time            `json:"-"` // 重新联系时只接受可信删除时间之后的消息，普通会话留空。
+	Conversation           Conversation          `json:"conversation"`
+	CandidateName          string                `json:"candidate_name"`
+	AvatarURL              string                `json:"avatar_url"`
+	Gender                 string                `json:"gender"`
+	Phone                  string                `json:"phone"`
+	PlatformThreadID       string                `json:"platform_thread_id"`
+	PlatformCandidateID    string                `json:"platform_candidate_id"`
+	PlatformAccountID      string                `json:"platform_account_id"`
+	CommunicationPosition  string                `json:"communication_position"`
+	Messages               []ConversationMessage `json:"messages"`
+	HistoryComplete        bool                  `json:"history_complete"`
+	ResumeCardAvailable    bool                  `json:"resume_card_available"`
+	ResumeSourceMessageID  string                `json:"resume_source_message_id"`
 }
 
 // AutoReplyResumeBundle 表示平台读取的在线简历原文和本地已下载附件。
@@ -224,7 +232,7 @@ type AutoReplyContactInspector interface {
 
 // AutoReplyRuntime 定义自动回复独立主流程需要的平台页面能力。
 type AutoReplyRuntime interface {
-	InitializeAutoReplyPage(context.Context, Browser, Config) error
+	InitializeAutoReplyPage(context.Context, Browser, Config, *AutoReplyConversationSnapshot) error
 	OpenAutoReplyConversation(context.Context, Browser, Config, Conversation, []string, int) (AutoReplyConversationSnapshot, error)
 	ReadAutoReplyMessages(context.Context, Browser, Config, AutoReplyConversationSnapshot, []string, int) ([]ConversationMessage, bool, error)
 	RequestAutoReplyResume(context.Context, Browser, Config, AutoReplyConversationSnapshot) error

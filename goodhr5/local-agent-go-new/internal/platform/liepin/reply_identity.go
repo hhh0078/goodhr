@@ -40,37 +40,53 @@ func (r *Runtime) VerifyAutoReplyConversationIdentity(ctx context.Context, brows
 	return nil
 }
 
-// openLiepinConversation 普通会话沿用原入口，带精确候选人编号时用平台属性锁定联系人，避免滚动期间列表重排点错人。
+// openLiepinConversation 优先按稳定会话属性点击，避免同名或列表重排点错人；无平台属性的普通会话兼容旧入口。
 func openLiepinConversation(ctx context.Context, browser model.Browser, cfg model.Config, expected model.Conversation) error {
-	if expected.PlatformCandidateID == "" {
+	attribute := cfg.ConversationFields["thread_meta"].ReadAttribute
+	if strings.TrimSpace(expected.PlatformThreadID) == "" || attribute == "" {
+		if expected.PlatformCandidateID != "" {
+			return fmt.Errorf("指定会话的稳定页面属性无法确认，已阻止打开")
+		}
 		index, err := locateLiepinConversation(ctx, browser, cfg, expected)
 		if err != nil {
 			return err
 		}
 		return common.OpenConfiguredConversationItem(ctx, browser, cfg, index)
 	}
-	items, err := common.FindConfiguredConversationItems(ctx, browser, cfg, "message.contact_item", false)
-	if err != nil {
-		return err
-	}
-	conversations, err := liepinConversations(items, false)
-	if err != nil {
-		return err
-	}
-	matches, metadata := 0, ""
-	for _, conversation := range conversations {
-		if conversation.PlatformThreadID == expected.PlatformThreadID && conversation.Name == expected.Name {
-			matches++
-			metadata = conversation.Fields["thread_meta"]
-		}
-	}
-	attribute := cfg.ConversationFields["thread_meta"].ReadAttribute
-	if expected.PlatformThreadID == "" || matches != 1 || metadata == "" || attribute == "" {
-		return fmt.Errorf("指定会话的稳定页面属性无法确认，已阻止打开")
-	}
 	card, err := common.RequiredSelector(cfg, "message.contact_item")
 	if err != nil {
 		return err
+	}
+	metadata := ""
+	if name := strings.TrimSpace(expected.Name); name != "" {
+		scoped := card.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+			variant.Target.Texts = append(append([]string(nil), variant.Target.Texts...), name)
+			return variant
+		})
+		metadata, err = findLiepinContactMetadata(ctx, browser, cfg, scoped, expected.PlatformThreadID, name)
+		if err != nil {
+			return err
+		}
+		if metadata != "" {
+			card = scoped
+		}
+	}
+	if metadata == "" {
+		// 普通会话允许候选人改名，通过全表的会话属性找回；限定任务还必须核对姓名。
+		name := ""
+		if expected.PlatformCandidateID != "" {
+			name = strings.TrimSpace(expected.Name)
+			if name == "" {
+				return fmt.Errorf("指定会话缺少候选人姓名，已阻止打开")
+			}
+		}
+		metadata, err = findLiepinContactMetadata(ctx, browser, cfg, card, expected.PlatformThreadID, name)
+		if err != nil {
+			return err
+		}
+		if metadata == "" {
+			return fmt.Errorf("指定会话的稳定页面属性无法确认，已阻止打开")
+		}
 	}
 	card = card.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
 		attributes := make(map[string]string, len(variant.Target.Attributes)+1)
@@ -98,4 +114,38 @@ func openLiepinConversation(ctx context.Context, browser model.Browser, cfg mode
 	}
 	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: action, ViewportMargin: 0})
 	return err
+}
+
+// findLiepinContactMetadata 从当前渲染的联系人行读取会话编号；要求姓名时再读取姓名，任何歧义都阻止点击。
+func findLiepinContactMetadata(ctx context.Context, browser model.Browser, cfg model.Config, selector contract.SelectorSpec, threadID, name string) (string, error) {
+	fields := map[string]contract.SelectorSpec{"thread_meta": cfg.ConversationFields["thread_meta"]}
+	if field, ok := cfg.ConversationFields["name"]; name != "" && ok {
+		fields["name"] = field
+	}
+	const maxContacts = 5000 // Worker 单次可核验的最大列表长度。
+	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: maxContacts, Fields: fields, ExpectedMissing: true})
+	if common.IsElementMissing(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	match := ""
+	for _, item := range items {
+		if item.TotalMatches > maxContacts {
+			return "", fmt.Errorf("联系人数量超过单次核验范围，无法确认唯一会话")
+		}
+		meta, err := parseLiepinContactMeta(item.Fields["thread_meta"])
+		if err != nil {
+			return "", fmt.Errorf("解析猎聘联系人会话编号失败：%w", err)
+		}
+		if strings.TrimSpace(meta.ThreadID) != strings.TrimSpace(threadID) || (name != "" && strings.TrimSpace(item.Fields["name"]) != name) {
+			continue
+		}
+		if match != "" {
+			return "", fmt.Errorf("匹配到多个相同会话编号的联系人，已阻止打开")
+		}
+		match = item.Fields["thread_meta"]
+	}
+	return match, nil
 }

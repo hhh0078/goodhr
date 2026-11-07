@@ -12,7 +12,7 @@ import { LocatorPrimitive } from "../primitives/locator.js";
 import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
 import { ScrollAction } from "./scroll.js";
-import { waitForStablePosition } from "./stable-position.js";
+import { moveToStablePosition } from "./stable-position.js";
 import { NewPageWaiter } from "./new-page-waiter.js";
 import { clickActionability, pageDiagnostic, selectorDiagnostic } from "./diagnostic-state.js";
 import type { Page } from "playwright-core";
@@ -73,7 +73,6 @@ export class ClickAction {
         },
         actionContext,
       );
-      await waitForStablePosition(found, this.locator);
       if (request.diagnostic) {
         const actionability = await clickActionability(found.resolved.locator);
         this.logger.info(actionContext, "click_target", "checked", {
@@ -83,7 +82,8 @@ export class ClickAction {
         });
       }
       // 点击收紧到可见区域中部，避免随机落在被悬浮入口覆盖的按钮边缘。
-      const landing = await this.move.toElement(found.resolved, actionContext, { centered: true, visibleArea });
+      const landing = await moveToStablePosition(found, this.locator, actionContext,
+        () => this.move.toElement(found.resolved, actionContext, { centered: true, visibleArea }));
       if (request.diagnostic) this.logger.info(actionContext, "click_landing", "ready", {
         diagnostic: true, input: diagnosticInput, output: { x: landing.x, y: landing.y, target_view: this.logger.fromUnknown(landing.view) },
       });
@@ -97,6 +97,7 @@ export class ClickAction {
       let totalHold = 0;
       for (let index = 0; index < clickCount; index += 1) {
         const holdMs = randomInteger(70, 190);
+        assertInputAllowed(actionContext);
         try {
           // 一旦尝试按下鼠标，点击结果就可能不确定，调用方不得盲目再次发送。
           clickStarted = true;

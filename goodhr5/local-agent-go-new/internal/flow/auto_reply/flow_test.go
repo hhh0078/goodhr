@@ -126,7 +126,7 @@ func (r delayedResponderStub) Reply(ctx context.Context, _ ReplyContext) (ReplyD
 }
 
 // InitializeAutoReplyPage 模拟页面初始化。
-func (r *autoReplyRuntimeStub) InitializeAutoReplyPage(context.Context, model.Browser, model.Config) error {
+func (r *autoReplyRuntimeStub) InitializeAutoReplyPage(context.Context, model.Browser, model.Config, *model.AutoReplyConversationSnapshot) error {
 	return nil
 }
 
@@ -703,7 +703,7 @@ func TestLatestMessageAllowsFollowupStopsWhenCandidateInterrupts(t *testing.T) {
 	runtime := &autoReplyRuntimeStub{sent: true, latestAfter: model.ConversationMessage{
 		Direction: "candidate", TextContent: "我再补充一下",
 	}}
-	ready, err := flow.latestMessageAllowsFollowup(
+	ready, _, err := flow.latestMessageAllowsFollowup(
 		context.Background(), runtime, shared.PreparedTask{Platform: model.Config{ID: "liepin"}},
 		model.AutoReplyConversationSnapshot{CandidateName: "李女士"}, "工作地点在成都哈～",
 	)
@@ -711,7 +711,7 @@ func TestLatestMessageAllowsFollowupStopsWhenCandidateInterrupts(t *testing.T) {
 		t.Fatalf("候选人插话后仍允许第二条消息：ready=%t err=%v", ready, err)
 	}
 	runtime.latestAfter = model.ConversationMessage{Direction: "self", TextContent: "工作地点在成都哈～"}
-	ready, err = flow.latestMessageAllowsFollowup(
+	ready, _, err = flow.latestMessageAllowsFollowup(
 		context.Background(), runtime, shared.PreparedTask{Platform: model.Config{ID: "liepin"}},
 		model.AutoReplyConversationSnapshot{CandidateName: "李女士"}, "工作地点在成都哈～",
 	)

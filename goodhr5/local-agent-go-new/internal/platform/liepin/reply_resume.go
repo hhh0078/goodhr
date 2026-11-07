@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -21,8 +24,7 @@ var liepinWechatPattern = regexp.MustCompile(`(?i)(?:微信|wechat)\s*[:：]?\s*
 var liepinAgePattern = regexp.MustCompile(`([1-9][0-9]?)\s*岁`)
 
 type liepinDownloadBrowser interface {
-	Downloads(context.Context) (contract.DownloadListResult, error)
-	ClearDownloads(context.Context) error
+	WatchDownload(page, file string, ignoredQuery ...string) (<-chan contract.DownloadReceipt, func(), error)
 }
 
 // RequestAutoReplyResume 在当前已核对的候选人聊天框中索要简历。
@@ -43,7 +45,13 @@ func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Brow
 		return model.AutoReplyResumeBundle{}, err
 	}
 	if cfg.Behavior.AutoReplyResumeLoadsHistory {
-		if snapshot.HistoryAfter != nil {
+		pinned, confirmed, err := liepinRecentResumeSource(ctx, browser, cfg, snapshot)
+		if err != nil {
+			return model.AutoReplyResumeBundle{}, err
+		}
+		if confirmed {
+			cfg = pinned
+		} else if snapshot.HistoryAfter != nil {
 			h, err := readLiepinHistoryWindow(ctx, browser, cfg, nil, 5000, snapshot.HistoryAfter)
 			if err != nil {
 				return model.AutoReplyResumeBundle{}, err
@@ -113,14 +121,15 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 	if !ok {
 		return "", nil, fmt.Errorf("%s简历下载监听没有准备好", cfg.Name)
 	}
-	returnURL, err := currentLiepinAttachmentPageURL(ctx, browser)
+	pagesBefore, err := browser.ListPages(ctx)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := downloader.ClearDownloads(ctx); err != nil {
-		return "", nil, fmt.Errorf("清理旧下载记录失败：%w", err)
+	returnURL, err := common.UniqueCurrentPageURLFromList(pagesBefore)
+	if err != nil {
+		return "", nil, err
 	}
-	defer downloader.ClearDownloads(context.WithoutCancel(ctx))
+	var receiptRecord contract.DownloadRecord
 	if err := openLiepinAttachmentPreview(ctx, browser, cfg); err != nil {
 		return "", nil, err
 	}
@@ -130,63 +139,116 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 		}
 		cleanupCtx := context.WithoutCancel(ctx)
 		// 下载可能打开 PDF 并改变 Worker 当前页；必须先回原页核对身份，不能在 PDF 上误判预览已关闭。
-		if restoreErr := restoreLiepinAttachmentPage(cleanupCtx, browser, cfg, snapshot, returnURL); restoreErr != nil {
+		if restoreErr := restoreLiepinAttachmentPage(cleanupCtx, browser, cfg, snapshot, returnURL, pagesBefore, receiptRecord); restoreErr != nil {
 			returnErr = errors.Join(returnErr, restoreErr)
 			return
 		}
-		if closeErr := common.CloseOptionalPanel(
-			cleanupCtx, browser, cfg,
-			"message.attachment_preview", "message.attachment_preview_close", cfg.Name+"附件预览",
-		); closeErr != nil {
+		if closeErr := common.ClosePanelEscapeFirst(cleanupCtx, browser, cfg, "message.attachment_preview", "message.attachment_preview_close", returnURL, func(ctx context.Context) error {
+			return (&Runtime{}).VerifyAutoReplyConversationIdentity(ctx, browser, cfg, snapshot)
+		}); closeErr != nil {
 			returnErr = errors.Join(returnErr, fmt.Errorf("关闭%s附件预览失败：%w", cfg.Name, closeErr))
 		}
 	}()
 	attachmentText := ""
 	if body, selectorErr := common.RequiredSelector(cfg, "message.attachment_body"); selectorErr == nil {
+		body.TimeoutMS = 250 // 预览正文是辅助信息；文件正文由本机解析。
 		if read, readErr := browser.Read(ctx, contract.ElementReadRequest{Selector: body, Property: "text"}); readErr == nil {
 			attachmentText = strings.TrimSpace(read.Value)
 		}
 	}
-	if err := common.ClickRequired(ctx, browser, cfg, "message.attachment_download"); err != nil {
-		return "", nil, fmt.Errorf("下载%s附件简历失败：%w", cfg.Name, err)
-	}
-	paths, err = waitLiepinDownloads(ctx, downloader)
+	download, err := common.RequiredSelector(cfg, "message.attachment_download")
 	if err != nil {
 		return "", nil, err
 	}
-	return attachmentText, paths, nil
+	link, err := browser.Read(ctx, contract.ElementReadRequest{Selector: download, Attribute: "href"})
+	if err != nil {
+		return "", nil, fmt.Errorf("读取附件下载链接失败：%w", err)
+	}
+	file, ignored, err := liepinAttachmentDownloadSource(ctx, browser, cfg, returnURL, link.Value)
+	if err != nil {
+		return "", nil, err
+	}
+	receipt, stop, err := downloader.WatchDownload(returnURL, file, ignored...)
+	if err != nil {
+		return "", nil, err
+	}
+	defer stop()
+	if _, err = browser.Click(ctx, contract.ElementClickRequest{Selector: download, WatchDownloadViewer: true}); err != nil {
+		return "", nil, fmt.Errorf("下载%s附件简历失败：%w", cfg.Name, err)
+	}
+	// 没有起下载才报短超时；原生下载已经开始时等它完成，避免大文件被重复点击。
+	startTimer := time.NewTimer(12 * time.Second)
+	defer startTimer.Stop()
+	startDeadline := startTimer.C
+	waitCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	for {
+		select {
+		case <-startDeadline:
+			return "", nil, fmt.Errorf("还没看到这份附件开始下载")
+		case <-waitCtx.Done():
+			return "", nil, fmt.Errorf("还没收到这份附件的下载回执：%w", waitCtx.Err())
+		case result, ok := <-receipt:
+			if !ok {
+				return "", nil, fmt.Errorf("附件下载监听已结束")
+			}
+			if result.Err != nil {
+				return "", nil, result.Err
+			}
+			if result.Record.Status == "pending" {
+				startDeadline = nil
+				continue
+			}
+			info, err := os.Stat(result.Record.FilePath)
+			if result.Record.Status != "saved" || err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+				return "", nil, fmt.Errorf("下载记录已收到，但本地附件还不可用")
+			}
+			receiptRecord = result.Record
+			return attachmentText, []string{result.Record.FilePath}, nil
+		}
+	}
 }
 
-// currentLiepinAttachmentPageURL 保存下载前唯一活动页的完整地址，不缓存可能随标签关闭而变化的页面序号。
-func currentLiepinAttachmentPageURL(ctx context.Context, browser model.Browser) (string, error) {
-	pages, err := browser.ListPages(ctx)
+// liepinAttachmentDownloadSource 优先使用下载链接；按钮没有链接时，用已核实预览内展示的文件 URL 认领原生下载。
+func liepinAttachmentDownloadSource(ctx context.Context, browser model.Browser, cfg model.Config, pageURL, href string) (string, []string, error) {
+	page, err := url.Parse(pageURL)
 	if err != nil {
-		return "", fmt.Errorf("读取附件所属标签页失败：%w", err)
+		return "", nil, fmt.Errorf("附件原页面地址无效")
 	}
-	currentURL, currentCount := "", 0
-	for _, page := range pages.Pages {
-		if page.Current {
-			currentURL = strings.TrimSpace(page.URL)
-			currentCount++
+	if value := strings.TrimSpace(href); value != "" && !strings.HasPrefix(value, "#") {
+		if target, parseErr := page.Parse(value); parseErr == nil && (target.Scheme == "http" || target.Scheme == "https") && target.Host != "" && target.Path != "" && target.String() != pageURL {
+			return target.String(), nil, nil
 		}
 	}
-	if currentCount != 1 || currentURL == "" {
-		return "", fmt.Errorf("附件所属标签页无法唯一确认，暂不开始下载")
+	body, err := common.RequiredSelector(cfg, "message.attachment_body")
+	if err != nil || len(body.Frames) == 0 {
+		return "", nil, fmt.Errorf("未找到可核实的附件预览文件")
 	}
-	matches := 0
-	for _, page := range pages.Pages {
-		if strings.TrimSpace(page.URL) == currentURL {
-			matches++
-		}
+	last := len(body.Frames) - 1
+	frame := contract.SelectorSpec{Frames: body.Frames[:last], Target: body.Frames[last], State: "visible", TimeoutMS: 1200, Description: cfg.Name + "附件预览文档"}
+	src, err := browser.Read(ctx, contract.ElementReadRequest{Selector: frame, Attribute: "src"})
+	if err != nil {
+		return "", nil, fmt.Errorf("读取预览文件地址失败：%w", err)
 	}
-	if matches != 1 {
-		return "", fmt.Errorf("发现地址相同的招聘标签页，暂不猜测附件归属")
+	viewer, err := url.Parse(src.Value)
+	if err != nil || viewer.Scheme != "https" || viewer.Host == "" {
+		return "", nil, fmt.Errorf("附件预览没有提供可核实的文件地址")
 	}
-	return currentURL, nil
+	files := viewer.Query()["file"]
+	if len(files) != 1 {
+		return "", nil, fmt.Errorf("附件预览没有展示唯一的文件")
+	}
+	file, err := url.Parse(files[0])
+	if err != nil || file.Scheme != "https" || file.Host == "" || file.User != nil || file.Path == "" || file.Path == "/" ||
+		file.Query().Get("download") != "0" || file.Query().Get("dlFileName") == "" || file.Query().Get("signParams") == "" {
+		return "", nil, fmt.Errorf("附件预览没有提供可验证的文件标识")
+	}
+	// 签名和预览/下载标记随点击改变；文件路径、文件名、其余参数及招聘标签页保持精确核对。
+	return file.String(), []string{"tk", "download"}, nil
 }
 
 // restoreLiepinAttachmentPage 用实时标签列表恢复唯一原页，核对返回地址与候选人编号后才允许关闭预览。
-func restoreLiepinAttachmentPage(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot, returnURL string) error {
+func restoreLiepinAttachmentPage(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot, returnURL string, before contract.PageListResult, record contract.DownloadRecord) error {
 	pages, err := browser.ListPages(ctx)
 	if err != nil {
 		return fmt.Errorf("下载后读取招聘标签页失败：%w", err)
@@ -202,14 +264,29 @@ func restoreLiepinAttachmentPage(ctx context.Context, browser model.Browser, cfg
 	if matches != 1 || target.PageID == "" {
 		return fmt.Errorf("下载后无法唯一找到原招聘标签页，暂不关闭任何页面或预览")
 	}
-	if !target.Current {
-		target, err = browser.UsePage(ctx, contract.PageUseRequest{PageID: target.PageID})
+	restore, err := newLiepinDownloadViewer(before, pages, record)
+	isSavedPDF := record.Status == "saved" && record.ID != "" && strings.EqualFold(filepath.Ext(record.FilePath), ".pdf")
+	log.Printf("event=attachment_viewer_restore pages_before=%d pages_after=%d has_receipt=%t saved_pdf=%t matched_first_list=%t", len(before.Pages), len(pages.Pages), record.ID != "", isSavedPDF, restore != nil)
+	if err != nil {
+		return err
+	}
+	if isSavedPDF {
+		if restore == nil {
+			restore = &contract.DownloadViewerRestore{DownloadID: record.ID}
+		}
+		restore.AwaitViewer = true
+	}
+	if restore != nil {
+		restore.OriginalURL = returnURL
+		target, err = browser.UsePage(ctx, contract.PageUseRequest{PageID: target.PageID, DismissDownload: restore})
 		if err != nil {
-			return fmt.Errorf("切回附件所属招聘页失败：%w", err)
+			return fmt.Errorf("收起本次下载的文件页失败：%w", err)
 		}
-		if strings.TrimSpace(target.URL) != returnURL || !target.Current {
-			return fmt.Errorf("切回后的页面地址不一致，暂不关闭预览")
+		if (!target.DownloadViewerClosed && !target.DownloadViewerPreserved && !target.DownloadViewerAbsent) || target.URL != returnURL || !target.Current {
+			return fmt.Errorf("未确认原招聘页已恢复，暂不关闭预览")
 		}
+	} else if !target.Current {
+		return fmt.Errorf("当前标签与本次下载文件无法对应，暂不切换或关闭页面")
 	}
 	if err = (&Runtime{}).VerifyAutoReplyConversationIdentity(ctx, browser, cfg, snapshot); err != nil {
 		return fmt.Errorf("下载后原聊天身份核对失败：%w", err)
@@ -268,38 +345,6 @@ func openLiepinAttachmentPreview(ctx context.Context, browser model.Browser, cfg
 		}
 	}
 	return fmt.Errorf("打开%s附件简历连续尝试3次仍然失败：%w", cfg.Name, lastErr)
-}
-
-// waitLiepinDownloads 等待 Worker 下载记录全部落盘，并确认文件真实存在。
-func waitLiepinDownloads(ctx context.Context, downloader liepinDownloadBrowser) ([]string, error) {
-	for attempt := 1; attempt <= 30; attempt++ {
-		result, err := downloader.Downloads(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("读取简历下载记录失败：%w", err)
-		}
-		if result.Pending == 0 && len(result.Downloads) > 0 {
-			paths := make([]string, 0, len(result.Downloads))
-			for _, item := range result.Downloads {
-				if item.Status != "saved" || strings.TrimSpace(item.FilePath) == "" {
-					continue
-				}
-				info, statErr := os.Stat(item.FilePath)
-				if statErr != nil || info.IsDir() || info.Size() == 0 {
-					continue
-				}
-				paths = append(paths, item.FilePath)
-			}
-			if len(paths) > 0 {
-				return paths, nil
-			}
-		}
-		if attempt < 30 {
-			if err = waitLiepinReplyPoll(ctx); err != nil {
-				return nil, err
-			}
-		}
-	}
-	return nil, fmt.Errorf("附件简历已经点了下载，但 9 秒内没有拿到本地文件")
 }
 
 // joinLiepinResumeText 合并在线简历和附件文本，并保留来源标题。

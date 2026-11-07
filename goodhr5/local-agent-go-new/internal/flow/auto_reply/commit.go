@@ -3,6 +3,7 @@ package auto_reply
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,55 @@ import (
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
+
+// canAcknowledgeResumeCard 只在已有沟通依据且整批都是平台明确标识的纯简历卡时走固定签收，不吞候选人的文字问题。
+func canAcknowledgeResumeCard(input ReplyContext) bool {
+	if len(input.PendingMessages) == 0 {
+		return false
+	}
+	for _, m := range input.PendingMessages {
+		if m.Direction != "candidate" || m.MessageType != "resume" {
+			return false
+		}
+		if !standaloneResumeCard(m.CardContent) {
+			// 升级前入库的待答卡片可能没有标记，只接受这次实际读到的同编号、同正文平台卡片。
+			key := firstNonEmpty(m.PlatformMessageID, m.Fingerprint)
+			found := false
+			for _, page := range input.PageSnapshot.Messages {
+				if key != "" && key == firstNonEmpty(page.PlatformMessageID, page.Key) && page.Direction == m.Direction &&
+					page.MessageType == m.MessageType && page.TextContent == m.TextContent && standaloneResumeCard(page.CardContent) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+	}
+	for _, item := range input.ConfirmationItems {
+		if item.Status == "matched" || item.Status == "unmatched" {
+			return true
+		}
+	}
+	seenInbound := false
+	for _, msg := range input.Messages {
+		if msg.Direction == "candidate" {
+			seenInbound = true
+		} else if seenInbound && msg.Direction == "self" {
+			return true
+		}
+	}
+	return false
+}
+
+// standaloneResumeCard 仅信任平台适配器对纯简历卡的明确标记；未知或老格式交给正常问答。
+func standaloneResumeCard(raw json.RawMessage) bool {
+	var card struct {
+		Standalone bool `json:"standalone_resume"`
+	}
+	return json.Unmarshal(raw, &card) == nil && card.Standalone
+}
 
 // verifyCurrentReplyConfiguration 在提交决策和每次发送前重读岗位开关与版本，关闭或修改后保留待处理消息。
 func (f *Flow) verifyCurrentReplyConfiguration(ctx context.Context, prepared shared.PreparedTask, expected cloud.AutoReplyPositionSnapshot) error {
@@ -60,7 +110,7 @@ func (f *Flow) requestResumeAfterAnswer(ctx context.Context, prepared shared.Pre
 	if err := f.verifyCurrentReplyConfiguration(ctx, prepared, position); err != nil {
 		return err
 	}
-	ready, err := f.latestMessageAllowsFollowup(ctx, runtime, prepared, snapshot, previousContent)
+	ready, _, err := f.latestMessageAllowsFollowup(ctx, runtime, prepared, snapshot, previousContent)
 	if err != nil || !ready {
 		return err
 	}
@@ -71,13 +121,14 @@ func (f *Flow) requestResumeAfterAnswer(ctx context.Context, prepared shared.Pre
 	if err = runtime.RequestAutoReplyResume(ctx, f.Browser, prepared.Platform, snapshot); err != nil {
 		return fmt.Errorf("索要简历结果暂时不确定，请在招聘页面确认：%w", err)
 	}
-	ready, err = f.latestMessageAllowsFollowup(ctx, runtime, prepared, snapshot, previousContent)
+	ready, lastKey, err := f.latestMessageAllowsFollowup(ctx, runtime, prepared, snapshot, previousContent)
 	if err != nil || !ready {
 		return err
 	}
 	if err = f.verifyCurrentReplyConfiguration(ctx, prepared, position); err != nil {
 		return err
 	}
+	snapshot.ExpectedSendMessageKey = lastKey
 	message := firstNonEmpty(position.Config.ResumeRequestMessage, "方便发一份简历吗？我再认真看看。")
 	_, err = f.sendVerifiedMessage(ctx, prepared, runtime, *conversation, snapshot, messageKey, message, false, 2)
 	return err

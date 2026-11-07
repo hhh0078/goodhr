@@ -144,7 +144,7 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 			return f.selectCurrentPlatformPage(ctx, prepared.Platform)
 		}},
 		{name: "initialize_auto_reply_page", label: "整理自动回复页面", run: func(ctx context.Context) error {
-			return replyRuntime.InitializeAutoReplyPage(ctx, f.Browser, prepared.Platform)
+			return replyRuntime.InitializeAutoReplyPage(ctx, f.Browser, prepared.Platform, nil)
 		}},
 		{name: "process_auto_reply_loop", label: "处理候选人新消息", run: func(ctx context.Context) error {
 			return f.runLoop(ctx, prepared, runtime, replyRuntime, &stats)

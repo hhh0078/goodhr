@@ -4,8 +4,10 @@ package liepin
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
@@ -40,16 +42,16 @@ func (b *attachmentCompletionBrowser) Click(ctx context.Context, request contrac
 	return b.liepinReplyBrowserStub.Click(ctx, request)
 }
 
-// Downloads 在返回本地文件记录时注入取消或下载错误，验证采集完成边界。
-func (b *attachmentCompletionBrowser) Downloads(ctx context.Context) (contract.DownloadListResult, error) {
+// WatchDownload 在订阅时注入取消或监听错误，验证归属核对与清理仍能执行。
+func (b *attachmentCompletionBrowser) WatchDownload(page, file string, ignoredQuery ...string) (<-chan contract.DownloadReceipt, func(), error) {
 	if b.downloadErr != nil {
-		return contract.DownloadListResult{}, b.downloadErr
+		return nil, nil, b.downloadErr
 	}
 	b.downloaded = true
 	if b.cancelOnDownload != nil {
 		b.cancelOnDownload()
 	}
-	return b.liepinReplyBrowserStub.Downloads(ctx)
+	return b.liepinReplyBrowserStub.WatchDownload(page, file)
 }
 
 // TestCollectAttachmentFileOnlyAndUnsafeCompletion 验证空页面正文仍可返回真实文件，取消、关闭和身份错误则必须保留。
@@ -131,6 +133,47 @@ func TestAttachmentScrollFailureNeverClicks(t *testing.T) {
 		err := openLiepinAttachmentPreview(context.Background(), browser, cfg)
 		if !errors.Is(err, failure) || len(browser.clicks) != 0 {
 			t.Fatalf("滚动失败仍继续点击：err=%v clicks=%v", err, browser.clicks)
+		}
+	}
+}
+
+// previewSourceBrowser 只返回当前可见附件预览的地址，验证没有 href 时仍能识别来源。
+type previewSourceBrowser struct {
+	liepinReplyBrowserStub
+	src string
+}
+
+// Read 模拟标准 Locator 读取可见 PDF 预览框的 src 属性。
+func (b *previewSourceBrowser) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
+	if request.Attribute != "src" || request.Selector.State != "visible" {
+		return contract.ReadResult{}, errors.New("只允许读取可见预览文件")
+	}
+	return contract.ReadResult{Value: b.src}, nil
+}
+
+// TestAttachmentSourceFromVisibleViewer 验证直链、文档预览、缺失及存在多个文件地址的情况。
+func TestAttachmentSourceFromVisibleViewer(t *testing.T) {
+	body := testLiepinSelector("附件预览正文")
+	body.Frames = []contract.SelectorGroup{{Selectors: []contract.SelectorCandidate{{Type: "css", Value: "iframe"}}}}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{"message.attachment_body": body}}
+	page := "https://recruit.example/jobs"
+	file := "https://files.example/path/resume.pdf?dlFileName=a.pdf&signParams=s&tk=one&download=0"
+	viewer := "https://preview.example/show?file=" + url.QueryEscape(file)
+	b := &previewSourceBrowser{src: viewer}
+	for _, href := range []string{"", "javascript:void(0)", "#"} {
+		got, ignored, err := liepinAttachmentDownloadSource(context.Background(), b, cfg, page, href)
+		if err != nil || got != file || !slices.Equal(ignored, []string{"tk", "download"}) {
+			t.Fatalf("无法核对预览来源: %v %v", ignored, err)
+		}
+	}
+	got, ignored, err := liepinAttachmentDownloadSource(context.Background(), b, cfg, page, "/direct.pdf")
+	if err != nil || got != "https://recruit.example/direct.pdf" || len(ignored) != 0 {
+		t.Fatal("直链应精确匹配")
+	}
+	for _, bad := range []string{"", viewer + "&file=" + url.QueryEscape(file), "https://preview.example/show?file=" + url.QueryEscape("https://files.example/")} {
+		b.src = bad
+		if _, _, err := liepinAttachmentDownloadSource(context.Background(), b, cfg, page, ""); err == nil {
+			t.Fatal("无法唯一核对的文件不应下载")
 		}
 	}
 }

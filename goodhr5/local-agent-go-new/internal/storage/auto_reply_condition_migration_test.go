@@ -5,6 +5,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestLegacyAIGateRestoresOneReceiptPerCurrentConversation 验证仅有未绑定 AI 门槛且尚无报告任务的账号恢复最新收据。
@@ -76,5 +77,47 @@ func TestLegacyAIGateRestoresOneReceiptPerCurrentConversation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestProposalReceiptFIFOAndExactDeadline 验证旧格式、跨时区及同毫秒的实际到期边界，并保证旧收据更新后仍按首次顺序恢复。
+func TestProposalReceiptFIFOAndExactDeadline(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "receipts.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Date(2026, 11, 8, 2, 0, 0, 120000000, time.UTC)
+	err = store.AutoReplyTransaction(context.Background(), "owner", func(tx *AutoReplyTx) error {
+		cases := []struct{ id, due string }{
+			{"nanosecond-later", "2026-11-08T02:00:00.120000001Z"},
+			{"zone-past", "2026-11-08T10:00:00.119999999+08:00"},
+			{"exact", "2026-11-08T02:00:00.12Z"},
+			{"zone-future", "2026-11-07T21:00:00.120000001-05:00"},
+			{"legacy", ""},
+		}
+		for _, item := range cases {
+			if err := tx.Put("proposal_receipts", item.id, map[string]string{"status": "pending", "next_attempt_at": item.due}); err != nil {
+				return err
+			}
+		}
+		if err := tx.Put("proposal_receipts", "zone-past", map[string]string{"status": "pending", "next_attempt_at": cases[1].due}); err != nil {
+			return err
+		}
+		rows, err := tx.pendingProposalReceiptsAt(2, now)
+		if err != nil {
+			return err
+		}
+		if len(rows) != 2 || rows[0].ID != "zone-past" || rows[1].ID != "exact" {
+			t.Fatalf("到期过滤或入队顺序错误：%v", rows)
+		}
+		rows, err = tx.pendingProposalReceiptsAt(30, now)
+		if err == nil && (len(rows) != 3 || rows[2].ID != "legacy") {
+			t.Fatalf("未保留旧的无到期时间收据：%v", rows)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

@@ -67,6 +67,9 @@ export interface PageInfo extends JsonObject {
   url: string;
   title: string;
   current: boolean;
+  download_viewer_closed?: boolean;
+  download_viewer_preserved?: boolean;
+  download_viewer_absent?: boolean;
 }
 
 /** PageListResult 表示当前全部浏览器标签页。 */
@@ -78,6 +81,7 @@ export interface PageListResult extends JsonObject {
 /** PageUseRequest 表示切换当前标签页的参数。 */
 export interface PageUseRequest {
   page_id: string;
+  dismiss_download?: { original_url: string; viewer_url: string; download_id: string; keep_viewer?: boolean; await_viewer?: boolean };
 }
 
 /** SaveCurrentDocumentRequest 表示使用当前 Firefox 会话保存当前文档页的参数。 */
@@ -110,13 +114,14 @@ export interface ElementFindAllRequest {
 /** ElementReadRequest 表示读取元素文本、HTML 或属性的参数。 */
 export interface ElementReadRequest {
   selector: SelectorSpec;
-  property?: "text" | "html";
+  property?: "text" | "html" | "value";
   attribute?: string;
   use_selector_read?: boolean;
 }
 
 /** ElementClickRequest 表示执行完整封装点击的参数。 */
 export interface ElementClickRequest {
+  watch_download_viewer?: boolean;
   selector: SelectorSpec;
   wheel_anchor?: SelectorSpec;
   diagnostic?: boolean;
@@ -141,6 +146,7 @@ export interface ClickVerification {
 
 /** ElementInputRequest 表示执行完整封装输入的参数。 */
 export interface ElementInputRequest {
+  insert_text?: boolean; // 使用浏览器原生文字输入提交完整草稿。
   selector: SelectorSpec;
   text: string;
   clear?: boolean;
@@ -151,6 +157,10 @@ export interface ElementInputRequest {
 
 /** KeyboardPressRequest 表示按键盘按键的参数。 */
 export interface KeyboardPressRequest {
+  expected_value?: string;
+  expected_page_url?: string;
+  target?: SelectorSpec;
+  require_focus?: boolean;
   key: string;
   delay_ms?: number;
   diagnostic?: boolean;

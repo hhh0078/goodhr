@@ -37,6 +37,10 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "auto_reply_all_contact_inbox": true,
+    "_comment_auto_reply_all_contact_inbox": "在全部联系人中发现新来信，按账号对比可见消息变化并核对聊天。",
+    "auto_reply_send_enter_first": true,
+    "_comment_auto_reply_send_enter_first": "对当前聊天输入框按回车发送，未能核实发送结果时保留人工复核。",
     "auto_reply_resume_loads_history": true,
     "supports_post_deletion_history": true,
     "_comment_supports_post_deletion_history": "删除简历后再次收到候选人消息时，核对猎聘会话身份，只读取删除时间之后的消息。",
@@ -669,7 +673,7 @@
       "description": "猎聘企业端联系人未读标签已选中"
     },
     "message.all_tab": {
-      "_comment": "在线简历关闭聊天框后，切到全部联系人重新定位已经读过的当前候选人。",
+      "_comment": "自动回复从全部联系人发现来信并按会话编号恢复当前候选人。",
       "parents": [
         {
           "_comment": "限定在当前联系人抽屉内。",
@@ -1459,6 +1463,23 @@
       "timeout_ms": 1000,
       "read_attribute": "src",
       "description": "猎聘企业端联系人头像地址"
+    },
+    "contact_time": {
+      "_comment": "全部联系人每行独立的可见沟通时间，不从候选人消息正文猜测。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人行内独立显示的最近沟通时间。",
+        "selectors": [
+          {
+            "_comment": "仅匹配联系信息区域内的时间节点。",
+            "type": "css",
+            "value": ".im-ui-contact-item-contact .contact-time"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1000,
+      "description": "猎聘全部联系人最近沟通时间"
     },
     "last_message": {
       "_comment": "联系人列表最后一条消息摘要。",

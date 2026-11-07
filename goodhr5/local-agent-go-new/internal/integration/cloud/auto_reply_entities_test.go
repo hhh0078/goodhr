@@ -495,3 +495,116 @@ func TestAutoReplyProposalFailuresDoNotStarveLaterReceipts(t *testing.T) {
 		t.Fatal("后续收据被失败项阻挡", next, err)
 	}
 }
+
+// TestAllContactInitialCaptureReplyBoundary 验证首次读到的全部历史保留上下文，只有边界后的来信或同分钟最新且匹配的列表见证进入待答。
+func TestAllContactInitialCaptureReplyBoundary(t *testing.T) {
+	start := time.Date(2026, 11, 8, 1, 31, 42, 0, time.UTC)
+	minute := start.Truncate(time.Minute)
+	old := minute.Add(-time.Minute)
+	later := minute.Add(time.Minute)
+	for _, tc := range []struct {
+		name, witness, direction string
+		lastTime                 *time.Time
+		expectPending            bool
+	}{
+		{"同分有见证", "同一条可见摘要", "candidate", &minute, true},
+		{"同分无见证", "", "candidate", &minute, false},
+		{"同分见证不符", "另一条摘要", "candidate", &minute, false},
+		{"前一分钟相同正文", "同一条可见摘要", "candidate", &old, false},
+		{"时间缺失", "同一条可见摘要", "candidate", nil, false},
+		{"本方消息不能作来信", "同一条可见摘要", "self", &minute, false},
+		{"晚于边界", "", "candidate", &later, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, cred, _ := entityTestClient(t)
+			ctx := context.Background()
+			v := entityTestConversation(t, c, cred)
+			req := AutoReplyMessageSyncRequest{ConversationID: v.ID, ReplyAfter: start, CaptureCompleted: true, HistoryComplete: true, Messages: []AutoReplyMessage{
+				{PlatformMessageID: "old", Direction: "candidate", TextContent: "同一条可见摘要", PlatformSentAt: &old},
+				{PlatformMessageID: "unknown", Direction: "candidate", TextContent: "旧消息"},
+				{PlatformMessageID: "same-minute-older", Direction: "candidate", TextContent: "同一条可见摘要", PlatformSentAt: &minute},
+				{PlatformMessageID: "tail", Direction: tc.direction, TextContent: "同一条可见摘要", PlatformSentAt: tc.lastTime},
+			}}
+			if tc.witness != "" {
+				req.WitnessDigest = autoReplyDigest(tc.witness)
+			}
+			for pass := 0; pass < 2; pass++ {
+				result, err := c.SyncAutoReplyMessages(ctx, cred, req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if pass == 1 && result.Inserted != 0 {
+					t.Fatal("再次采集生成重复记录", result)
+				}
+				pending, err := c.PendingAutoReplyMessages(ctx, cred, v.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tc.expectPending {
+					if len(pending) != 1 || pending[0].PlatformMessageID != "tail" {
+						t.Fatalf("见证释放了错误来信：%+v", pending)
+					}
+				} else if len(pending) != 0 {
+					t.Fatalf("历史或本方消息产生待答：%+v", pending)
+				}
+				stored, err := c.AutoReplyMessages(ctx, cred, v.ID)
+				if err != nil || len(stored) != 4 {
+					t.Fatalf("完整历史未保留作上下文：%d %v", len(stored), err)
+				}
+			}
+		})
+	}
+}
+
+// TestAllContactVerifiedLastTailKeepsSameMinuteBatch 验证同一会话的真实旧尾能证明之后全部新编号的顺序，更早的已知消息不能替代旧尾。
+func TestAllContactVerifiedLastTailKeepsSameMinuteBatch(t *testing.T) {
+	for _, tc := range []struct {
+		anchor string
+		want   int
+	}{{"saved-tail", 2}, {"older-known", 0}} {
+		t.Run(tc.anchor, func(t *testing.T) {
+			c, cred, _ := entityTestClient(t)
+			ctx := context.Background()
+			v := entityTestConversation(t, c, cred)
+			minute := time.Now().UTC().Truncate(time.Minute)
+			msg := func(id, direction string) AutoReplyMessage {
+				return AutoReplyMessage{PlatformMessageID: id, Direction: direction, TextContent: "同分钟同文", PlatformSentAt: &minute}
+			}
+			syncEntityMessages(t, c, cred, v, msg("older-known", "self"), msg("saved-tail", "self"))
+			req := AutoReplyMessageSyncRequest{ConversationID: v.ID, ReplyAfter: minute.Add(51 * time.Second), Messages: []AutoReplyMessage{msg(tc.anchor, "self"), msg("arrived-first", "candidate"), msg("arrived-second", "candidate")}}
+			if _, err := c.SyncAutoReplyMessages(ctx, cred, req); err != nil {
+				t.Fatal(err)
+			}
+			pending, err := c.PendingAutoReplyMessages(ctx, cred, v.ID)
+			if err != nil || len(pending) != tc.want {
+				t.Fatalf("锚点后同分钟来信待答数为 %d，应为 %d：%v", len(pending), tc.want, err)
+			}
+			if tc.want == 2 && (pending[0].PlatformMessageID != "arrived-first" || pending[1].PlatformMessageID != "arrived-second") {
+				t.Fatal("同文的两条真实消息没有保留各自编号及顺序", pending)
+			}
+		})
+	}
+}
+
+// TestAllContactWitnessIgnoresOnlyTrailingSystem 验证尾部系统提示不能遮住最新来信，本方后续消息则不能作为该来信的见证。
+func TestAllContactWitnessIgnoresOnlyTrailingSystem(t *testing.T) {
+	for _, selfAfter := range []bool{false, true} {
+		c, cred, _ := entityTestClient(t)
+		ctx := context.Background()
+		v := entityTestConversation(t, c, cred)
+		minute := time.Now().UTC().Truncate(time.Minute)
+		messages := []AutoReplyMessage{{PlatformMessageID: "incoming", Direction: "candidate", TextContent: "最新候选人消息", PlatformSentAt: &minute}}
+		if selfAfter {
+			messages = append(messages, AutoReplyMessage{PlatformMessageID: "self-after", Direction: "self", TextContent: "已人工回复", PlatformSentAt: &minute})
+		}
+		messages = append(messages, AutoReplyMessage{PlatformMessageID: "hint", Direction: "system", TextContent: "系统提示"})
+		_, err := c.SyncAutoReplyMessages(ctx, cred, AutoReplyMessageSyncRequest{ConversationID: v.ID, ReplyAfter: minute.Add(time.Second), WitnessDigest: autoReplyDigest("最新候选人消息"), Messages: messages})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pending, err := c.PendingAutoReplyMessages(ctx, cred, v.ID)
+		if err != nil || (selfAfter && len(pending) != 0) || (!selfAfter && (len(pending) != 1 || pending[0].PlatformMessageID != "incoming")) {
+			t.Fatalf("系统提示/本方消息的筛选错误：selfAfter=%t pending=%+v err=%v", selfAfter, pending, err)
+		}
+	}
+}

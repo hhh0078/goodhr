@@ -133,10 +133,13 @@ type PageOpenRequest struct {
 
 // PageInfo 表示一个浏览器标签页。
 type PageInfo struct {
-	PageID  string `json:"page_id"`
-	URL     string `json:"url"`
-	Title   string `json:"title"`
-	Current bool   `json:"current"`
+	PageID                  string `json:"page_id"`
+	URL                     string `json:"url"`
+	Title                   string `json:"title"`
+	Current                 bool   `json:"current"`
+	DownloadViewerClosed    bool   `json:"download_viewer_closed,omitempty"`
+	DownloadViewerAbsent    bool   `json:"download_viewer_absent,omitempty"`
+	DownloadViewerPreserved bool   `json:"download_viewer_preserved,omitempty"`
 }
 
 // PageListResult 表示当前全部浏览器标签页。
@@ -147,7 +150,17 @@ type PageListResult struct {
 
 // PageUseRequest 表示切换当前标签页请求。
 type PageUseRequest struct {
-	PageID string `json:"page_id"`
+	PageID          string                 `json:"page_id"`
+	DismissDownload *DownloadViewerRestore `json:"dismiss_download,omitempty"`
+}
+
+// DownloadViewerRestore 要求 Worker 复核原页面、原生下载编号和新本地标签后，仅收起该文件的查看页。
+type DownloadViewerRestore struct {
+	OriginalURL string `json:"original_url"`
+	ViewerURL   string `json:"viewer_url"`
+	DownloadID  string `json:"download_id"`
+	AwaitViewer bool   `json:"await_viewer,omitempty"`
+	KeepViewer  bool   `json:"keep_viewer,omitempty"`
 }
 
 // SaveCurrentDocumentRequest 表示用当前 Camoufox 会话保存当前文档页的请求。
@@ -211,6 +224,7 @@ type ClickVerification struct {
 
 // ElementClickRequest 表示完整封装点击请求。
 type ElementClickRequest struct {
+	WatchDownloadViewer    bool               `json:"watch_download_viewer,omitempty"`
 	Selector               SelectorSpec       `json:"selector"`
 	WheelAnchor            *SelectorSpec      `json:"wheel_anchor,omitempty"`
 	Diagnostic             bool               `json:"diagnostic,omitempty"`
@@ -236,6 +250,7 @@ type ClickResult struct {
 
 // ElementInputRequest 表示完整封装输入请求。
 type ElementInputRequest struct {
+	InsertText bool         `json:"insert_text,omitempty"` // 使用原生键盘一次录入已准备好的文字，不会触发发送键。
 	Selector   SelectorSpec `json:"selector"`
 	Text       string       `json:"text"`
 	Clear      *bool        `json:"clear,omitempty"`
@@ -254,10 +269,14 @@ type InputResult struct {
 
 // KeyboardPressRequest 表示通用按键请求。
 type KeyboardPressRequest struct {
-	Key         string `json:"key"`
-	DelayMS     int    `json:"delay_ms,omitempty"`
-	Diagnostic  bool   `json:"diagnostic,omitempty"`
-	Description string `json:"description,omitempty"`
+	ExpectedValue   *string       `json:"expected_value,omitempty"`    // 发送 Enter 前验证草稿没有被修改，不写入日志。
+	ExpectedPageURL string        `json:"expected_page_url,omitempty"` // 与原页完整地址一致时才按键。
+	Target          *SelectorSpec `json:"target,omitempty"`            // 按键前同页可见且唯一的目标。
+	RequireFocus    bool          `json:"require_focus,omitempty"`     // Enter 发送只允许目标输入框持有焦点。
+	Key             string        `json:"key"`
+	DelayMS         int           `json:"delay_ms,omitempty"`
+	Diagnostic      bool          `json:"diagnostic,omitempty"`
+	Description     string        `json:"description,omitempty"`
 }
 
 // KeyboardPressResult 表示通用按键结果。
@@ -371,6 +390,12 @@ type DownloadRecord struct {
 	Status            string `json:"status"`
 	Error             string `json:"error"`
 	CreatedAt         string `json:"created_at"`
+}
+
+// DownloadReceipt 是本机监听返回的下载终态或归属错误，不经过浏览器协议。
+type DownloadReceipt struct {
+	Record DownloadRecord
+	Err    error
 }
 
 // DownloadListResult 表示浏览器下载记录列表。

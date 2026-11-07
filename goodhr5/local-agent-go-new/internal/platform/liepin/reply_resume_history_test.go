@@ -3,10 +3,15 @@ package liepin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
 // resumeHistoryBrowser 只模拟已加载DOM与标准卡片探测，记录完整字段读取次数。
@@ -14,6 +19,82 @@ type resumeHistoryBrowser struct {
 	liepinReplyBrowserStub
 	fullReads int
 	probes    int
+}
+
+// TestLiepinRecentResumePinsOnlyProvenSource 验证仅取尾部八条即可确认新附件；同分钟截断、删除时间、发送人和同文新卡都不能误放行。
+func TestLiepinRecentResumePinsOnlyProvenSource(t *testing.T) {
+	raw, err := os.ReadFile("config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg model.Config
+	if err = json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	row := cfg.Selectors["message.item"]
+	row.Description = "测试聊天消息"
+	cfg.Selectors["message.item"] = row
+	cutoff := parseLiepinMessageTime("10:01", time.Now()).Add(20 * time.Second)
+	for _, tc := range []struct {
+		label                                            string
+		clock                                            string
+		platformID, firstSource, wrongCID, self, clipped bool
+		wantFast, wantErr                                bool
+	}{
+		{label: "同分钟两张选最后一张", clock: "10:02", wantFast: true},
+		{label: "平台编号不需覆盖分钟", clock: "10:02", platformID: true, clipped: true, wantFast: true},
+		{label: "第一张不能冒充最新", clock: "10:02", firstSource: true, wantErr: true},
+		{label: "同分钟开始不完整回退", clock: "10:02", clipped: true},
+		{label: "删除同一分钟即使有ID也拒绝", clock: "10:01", platformID: true, wantErr: true},
+		{label: "未知时间不能用于删后建档", clock: "", platformID: true, wantErr: true},
+		{label: "卡片其他候选人", clock: "10:02", wrongCID: true, wantErr: true},
+		{label: "最后为HR发的卡片", clock: "10:02", self: true, wantErr: true},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			items := make([]contract.FindAllItem, 16)
+			for i := range items {
+				clock := "10:00"
+				if tc.clipped && i >= 8 {
+					clock = tc.clock
+				}
+				items[i] = recontactTestMessage(clock, "普通消息", false)
+			}
+			for _, i := range []int{13, 14} {
+				items[i] = recontactTestMessage(tc.clock, "附件简历", true)
+				items[i].Fields["candidate_meta"] = "cid=correct"
+			}
+			if tc.platformID {
+				items[14].Fields["message_meta"] = `{"message_id":"resume-identity"}`
+			}
+			if tc.wrongCID {
+				items[14].Fields["candidate_meta"] = "cid=other"
+			}
+			if tc.self {
+				items[14].Fields["body_class"] = "im-ui-message-item-send"
+			}
+			msgs, err := liepinMessages(items)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := msgs[14].Key
+			if tc.firstSource {
+				source = msgs[13].Key
+			}
+			b := &resumeHistoryBrowser{liepinReplyBrowserStub: liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{items}}}
+			pinned, fast, err := liepinRecentResumeSource(context.Background(), b, cfg, model.AutoReplyConversationSnapshot{HistoryAfter: &cutoff, PlatformCandidateID: "correct", ResumeSourceMessageID: source})
+			if fast != tc.wantFast || (err != nil) != tc.wantErr || b.fullReads != 1 || len(b.historyScrolls) != 0 || len(b.clicks) != 0 {
+				t.Fatalf("核验结果错误：fast=%t err=%v reads=%d", fast, err, b.fullReads)
+			}
+			parents := pinned.Selectors["message.resume_attachment_entry"].Parents
+			lastCard := parents[len(parents)-1]
+			if fast && (!strings.Contains(lastCard.Selectors[0].Value, ":not(:has(~") || !strings.Contains(lastCard.Selectors[0].Value, ":nth-match("+row.Target.Selectors[0].Value+", 15)") || len(lastCard.Texts) != 1 || lastCard.Texts[0] != tc.clock) {
+				t.Fatal("点击未绑定最后一张附件、原始消息行与发送时间", lastCard)
+			}
+			if strings.Contains(cfg.Selectors["message.resume_attachment_entry"].Parents[1].Selectors[0].Value, ":nth-match(") {
+				t.Fatal("本次测试更改了共享平台配置")
+			}
+		})
+	}
 }
 
 // FindAll 根据当前已加载批次返回附件入口存在性，不在测试中执行真实浏览器操作。

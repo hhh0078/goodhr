@@ -99,7 +99,7 @@ func (c *Client) purgeAutoReplyCandidate(ctx context.Context, credentials AgentC
 			}
 		}
 		for _, kind := range []string{"identities", "conversations", "runs", "recommendations", "reports", "attachments", "tools", "messages", "confirmations", "suggestions", "proposal_receipts", "sends", "outbox", "cloud_links", "candidates"} {
-			needData := kind == "recommendations" || kind == "attachments"
+			needData := kind == "recommendations" || kind == "attachments" || kind == "conversations"
 			if !needData && kind != "identities" && kind != "conversations" && kind != "runs" && kind != "reports" {
 				if err := tx.DeletePurgedChildren(kind); err != nil {
 					return err
@@ -111,6 +111,15 @@ func (c *Client) purgeAutoReplyCandidate(ctx context.Context, credentials AgentC
 				return err
 			}
 			for _, row := range rows {
+				if kind == "conversations" {
+					var conversation AutoReplyConversation
+					if err = json.Unmarshal(row.Data, &conversation); err != nil {
+						return err
+					}
+					if err = tx.DeleteAutoReplyListThread(conversation.PlatformID, conversation.PlatformAccountID, conversation.PlatformThreadID); err != nil {
+						return err
+					}
+				}
 				switch kind {
 				case "identities", "conversations", "runs", "reports":
 					if err = tx.BlockPurgedKey(kind, row.ID); err != nil {

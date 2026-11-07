@@ -4,12 +4,90 @@ package liepin
 import (
 	"context"
 	"fmt"
+	"maps"
+	"reflect"
+	"slices"
 	"strings"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
+
+// liepinRecentResumeSource 只读末八条，证明最新附件的发送人、删除时间和同分钟次序后，绑定实际将点击的那条消息。
+// 消息窗口没有覆盖来源或旧平台配置无法约束点击时，由调用者继续原历史核验流程。
+func liepinRecentResumeSource(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (model.Config, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return cfg, false, err
+	}
+	if strings.TrimSpace(snapshot.ResumeSourceMessageID) == "" {
+		return cfg, false, fmt.Errorf("简历来源消息还没确认，暂不打开附件")
+	}
+	row := cfg.Selectors["message.item"]
+	entry := cfg.Selectors["message.resume_attachment_entry"]
+	// 只使用同一聊天框内、以消息行为最后父层的 CSS 配置，兼容其他结构的旧配置。
+	if len(row.Alternatives) != 0 || len(entry.Alternatives) != 0 || len(row.Target.Selectors) != 1 || row.Target.Selectors[0].Type != "css" ||
+		len(entry.Parents) != len(row.Parents)+1 || !reflect.DeepEqual(row.Parents, entry.Parents[:len(row.Parents)]) {
+		return cfg, false, nil
+	}
+	parent := entry.Parents[len(entry.Parents)-1]
+	if len(parent.Selectors) != 1 || parent.Selectors[0].Type != "css" {
+		return cfg, false, nil
+	}
+	items, err := common.ReadConfiguredConversationMessageTail(ctx, browser, cfg, 8)
+	if err != nil {
+		return cfg, false, err
+	}
+	if len(items) == 0 || items[len(items)-1].Index+1 != items[len(items)-1].TotalMatches {
+		return cfg, false, nil
+	}
+	for i, item := range items {
+		if item.Index != items[0].Index+i || item.TotalMatches != items[0].TotalMatches {
+			return cfg, false, nil
+		}
+	}
+	messages, err := liepinMessages(items)
+	if err != nil {
+		return cfg, false, err
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.MessageType != "resume" {
+			continue
+		}
+		item := items[i]
+		if m.Direction != "candidate" || (snapshot.HistoryAfter != nil && (m.SentAt == nil || !m.SentAt.After(*snapshot.HistoryAfter))) {
+			return cfg, false, fmt.Errorf("最后一张附件的发送人或时间与本次来源不符，暂不下载")
+		}
+		if cid := parseLiepinCandidateID(item.Fields["candidate_meta"]); cid != "" && cid != snapshot.PlatformCandidateID {
+			return cfg, false, fmt.Errorf("附件上的候选人编号与当前聊天不符，暂不下载")
+		}
+		if m.PlatformMessageID == "" {
+			// 首个已加载节点可能还有未翻出的同分钟、同文卡片，必须看到一个更早的分钟。
+			covered := m.SentAt != nil && slices.ContainsFunc(messages[:i], func(previous model.ConversationMessage) bool {
+				return previous.SentAt != nil && previous.SentAt.Before(*m.SentAt)
+			})
+			if !covered {
+				return cfg, false, nil
+			}
+		}
+		if firstLiepinValue(m.PlatformMessageID, m.Key) != snapshot.ResumeSourceMessageID {
+			return cfg, false, fmt.Errorf("最后一份简历与本次来源不一致，请重新同步会话")
+		}
+		// 在“最后一张附件”上叠加当前消息行序号，核验后若又收到一张同文卡，两项条件就无法同时命中。
+		parent.Selectors = slices.Clone(parent.Selectors)
+		parent.Selectors[0].Value += fmt.Sprintf(":is(:nth-match(%s, %d))", row.Target.Selectors[0].Value, item.Index+1)
+		if clock := strings.TrimSpace(item.Fields["message_time"]); clock != "" {
+			parent.Texts = append(slices.Clone(parent.Texts), clock)
+		}
+		entry.Parents = slices.Clone(entry.Parents)
+		entry.Parents[len(entry.Parents)-1] = parent
+		cfg.Selectors = maps.Clone(cfg.Selectors)
+		cfg.Selectors["message.resume_attachment_entry"] = entry
+		return cfg, true, nil
+	}
+	return cfg, false, nil
+}
 
 // prepareLiepinResumeSource 用标准元素探测及真实滚轮寻找简历，出现卡片后才完整读一次并核验来源指纹。
 func prepareLiepinResumeSource(ctx context.Context, browser model.Browser, cfg model.Config, sourceMessageID string) error {

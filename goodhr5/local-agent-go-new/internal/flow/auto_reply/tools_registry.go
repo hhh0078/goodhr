@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
@@ -309,6 +310,13 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 				return nil, argumentError("回答消息只能放在第一条")
 			}
 			item.Content = normalizeSimpleCandidateReply(s.input, item.Content)
+			if err := checkReplyFollowThrough(s.input.Position, item.Content); err != nil {
+				short := verifiedLocationAnswer(s.input, item.Content)
+				if short == "" {
+					return nil, err
+				}
+				item.Content = short
+			}
 			item.ConfirmationItemID = ""
 		} else {
 			confirmationCount++
@@ -329,6 +337,57 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 	return marshalToolResult(struct {
 		Prepared int `json:"prepared"`
 	}{len(prepared)})
+}
+
+// explicitWorkplace 匹配岗位原文中独立标明的简短工作地点；多个可能地点或复杂安排留给正常问答。
+var explicitWorkplace = regexp.MustCompile(`(?:工作地点|工作城市|上班地点)[：:是为在于\s]*([\p{Han}]{2,12})(?:[，,。；;\n]|$)`)
+
+// verifiedLocationAnswer 仅当候选人确实问过地点、草稿的首句和岗位明示地点完全相符时，保留这句可独立发送的答案。
+func verifiedLocationAnswer(input ReplyContext, draft string) string {
+	asked := false
+	for _, m := range input.PendingMessages {
+		if m.Direction == "candidate" && containsAnyText(m.TextContent, "哪个城市", "哪座城市", "工作地点", "上班地点", "在哪里", "在哪儿", "在哪个区") {
+			asked = true
+			break
+		}
+	}
+	if !asked {
+		return ""
+	}
+	matches := explicitWorkplace.FindAllStringSubmatch(input.Position.Config.PositionDescription, -1)
+	if len(matches) != 1 || containsAnyText(matches[0][1], "待定", "未定", "待确认", "不限", "未确认", "另议", "或者", "或", "以及", "待分配") {
+		return ""
+	}
+	location := matches[0][1]
+	clauses := strings.FieldsFunc(draft, func(r rune) bool { return strings.ContainsRune("，,。；;！!？?～~\n", r) })
+	if len(clauses) < 2 {
+		return ""
+	}
+	first := strings.TrimRight(strings.TrimSpace(clauses[0]), "哦呀呢哟")
+	for _, prefix := range []string{"岗位在", "这份岗位在", "这个岗位在", "工作地点在", "这份岗位的工作地点在", "岗位的工作地点在", "工作地点是", "工作城市是"} {
+		if first == prefix+location {
+			return "这份岗位的工作地点在" + location + "。"
+		}
+	}
+	return ""
+}
+
+// checkReplyFollowThrough 拦下把未知信息说成正在办理或承诺未来联络的回答，让既有工具参数纠错只重写这次草稿。
+func checkReplyFollowThrough(position cloud.AutoReplyPositionSnapshot, answer string) error {
+	facts := strings.Join([]string{position.Config.PositionDescription, position.CompanyProfile.Address,
+		position.CompanyProfile.Overview, position.CompanyProfile.ExtraInfo}, "\n")
+	for _, clause := range strings.FieldsFunc(answer, func(r rune) bool {
+		return strings.ContainsRune("，,。；;！!？?～~\n", r)
+	}) {
+		clause = strings.TrimSpace(clause)
+		waiting := containsAnyText(clause, "还在确认中", "正在确认中", "还在核实中", "正在核实中")
+		followUp := containsAnyText(clause, "后续", "稍后", "之后", "到时", "有消息", "有结果", "有准确信息", "确认后", "核实后") &&
+			containsAnyText(clause, "同步", "通知您", "联系您", "回复您", "给您反馈", "告知您", "告诉您", "跟您反馈")
+		if (waiting || followUp) && !strings.Contains(facts, clause) {
+			return argumentError("请删掉没有岗位或公司原文依据的办理进度和后续联络承诺，只简短回答已知事实。待处理问题都缺少依据时用 notify_hr。")
+		}
+	}
+	return nil
 }
 
 // confirmationByID 按内部编号读取本轮确认项。

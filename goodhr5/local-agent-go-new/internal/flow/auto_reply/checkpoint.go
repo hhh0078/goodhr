@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ type unreadConversationScanner interface {
 type openAutoReplyConversation struct {
 	conversation model.Conversation
 	snapshot     model.AutoReplyConversationSnapshot
+	scanNext     bool // 连续优先处理当前会话后，下一轮须给其他未读一次机会。
 }
 
 // runLoop 持续读取实时开关和岗位快照，关闭后处理完当前会话再退出。
@@ -61,6 +63,7 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 			historyRefreshQueued = true
 		}
 		limit, waitSeconds := checkpointSettings(positions, prepared.Position.ID)
+		succeededBefore := stats.Succeeded
 		_, openConversation, err = f.processCheckpoint(
 			ctx, prepared, runtime, replyRuntime, positions, limit, stats, errorPolicy, openConversation,
 		)
@@ -69,12 +72,27 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 		}
 		f.reportCheckpointStats(prepared.Request.TaskID, *stats)
 		if openConversation != nil {
+			if stats.Succeeded > succeededBefore && lastInboundWasResume(openConversation.snapshot.Messages) {
+				// 已签收的新卡片有独立持久待办，下一轮直接核对下载；普通会话轮换和失败退避照常执行。
+				continue
+			}
 			waitSeconds = min(waitSeconds, int(defaultAutoReplyMessagePollInterval/time.Second))
 		}
 		if err = waitForNextCheckpoint(ctx, waitSeconds); err != nil {
 			return err
 		}
 	}
+}
+
+// lastInboundWasResume 检查刚处理的最后一条非系统消息，避免旧简历卡让后续普通问答跳过空闲轮询。
+func lastInboundWasResume(messages []model.ConversationMessage) bool {
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Direction != "system" {
+			return m.Direction == "candidate" && m.MessageType == "resume"
+		}
+	}
+	return false
 }
 
 // queueHistoryRefresh 每次任务启动只登记一次旧版本重采，后续轮询直接复用持久采集意图。
@@ -98,13 +116,16 @@ func (f *Flow) queueHistoryRefresh(ctx context.Context, prepared shared.Prepared
 
 // processCheckpoint 按页面顺序处理单轮最多三个未读会话。
 func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTask, scanner unreadConversationScanner, replyRuntime model.AutoReplyRuntime, positions []cloud.AutoReplyPositionSnapshot, limit int, stats *shared.Stats, errorPolicy *shared.ConsecutiveErrorPolicy, openConversation *openAutoReplyConversation) (int, *openAutoReplyConversation, error) {
-	conversations := make([]model.Conversation, 0, limit)
-	reuseOpenConversation := false
+	localQueue := f.Cloud != nil && f.Cloud.LocalAutoReplyEnabled()
 	checkpointHadError := false
+	openVerified, openHasNew := false, false
+	openThreadID := ""
 	if openConversation != nil && !targetConversationAllowed(prepared.Request.AutoReplyTarget, openConversation.conversation) {
 		openConversation = nil
 	}
 	if openConversation != nil {
+		item := openConversation.conversation
+		openThreadID = persistentConversationThreadID(item.PlatformThreadID, item.Key)
 		stillOpen, hasNewMessage, err := f.openConversationHasNewMessage(ctx, prepared, replyRuntime, openConversation)
 		if err != nil {
 			f.log(prepared.Request.TaskID, "check_open_conversation", "warning", time.Now(), err)
@@ -114,30 +135,20 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 			}
 		} else if !stillOpen {
 			openConversation = nil
-		} else if hasNewMessage {
-			conversations = append(conversations, openConversation.conversation)
-			reuseOpenConversation = true
+		} else {
+			openVerified, openHasNew = true, hasNewMessage
 		}
 	}
-	if !reuseOpenConversation {
-		unreadConversations, err := scanner.ScanUnreadConversations(ctx, f.Browser, prepared.Platform)
-		if err != nil {
-			wrapped := fmt.Errorf("读取未读候选人列表失败：%w", err)
-			f.log(prepared.Request.TaskID, "scan_unread_conversations", "warning", time.Now(), wrapped)
-			if stopErr := errorPolicy.Record(wrapped); stopErr != nil {
-				return 0, openConversation, stopErr
-			}
-			return 0, openConversation, nil
-		}
-		conversations = unreadConversations
-	}
-	if f.Cloud != nil && f.Cloud.LocalAutoReplyEnabled() {
+
+	conversations := make([]model.Conversation, 0, limit)
+	seen := make(map[string]bool)
+	openResumeDue := false
+	var reviews map[string]cloud.AutoReplyListReview
+	if localQueue {
 		pending, err := f.Cloud.ListPendingAutoReplyConversations(ctx, credentials(prepared), prepared.Platform.ID, prepared.Request.PlatformAccountID)
 		if err != nil {
 			return 0, openConversation, err
 		}
-		seen := make(map[string]bool)
-		restored := make([]model.Conversation, 0, len(pending)+len(conversations))
 		for _, saved := range pending {
 			positionID := saved.PositionID
 			if saved.CaptureIntent != nil {
@@ -150,7 +161,7 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 					break
 				}
 			}
-			if !enabled {
+			if !enabled || seen[saved.PlatformThreadID] {
 				continue
 			}
 			seen[saved.PlatformThreadID] = true
@@ -158,15 +169,71 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 			if intent := saved.CaptureIntent; intent != nil {
 				item.PlatformThreadID, item.PlatformCandidateID = intent.PlatformThreadID, intent.PlatformCandidateID
 				item.Name, item.CommunicationPosition = intent.CandidateName, intent.PagePositionText
+				item.ReplyAfter, item.WitnessDigest = intent.ReplyAfter, intent.WitnessDigest
 			}
-			restored = append(restored, item)
+			if openVerified && openThreadID != "" && saved.PlatformThreadID == openThreadID && targetConversationAllowed(prepared.Request.AutoReplyTarget, item) {
+				openResumeDue = autoReplyResumeRetryDue(saved.ResumeRetry, time.Now())
+			}
+			conversations = append(conversations, item)
 		}
-		for _, item := range conversations {
-			if !seen[persistentConversationThreadID(item.PlatformThreadID, item.Key)] {
-				restored = append(restored, item)
+	}
+	yieldOpen := openVerified && localQueue && prepared.Request.AutoReplyTarget == nil && openConversation.scanNext
+	reuseOpenConversation := openVerified && !yieldOpen && (openHasNew || openResumeDue)
+	if yieldOpen && openHasNew {
+		// 已打开的聊天可能自动标为已读。先留可恢复的采集意图，切到其他人后也能找回这条来信。
+		item := openConversation.conversation
+		item.PlatformCandidateID = firstNonEmpty(openConversation.snapshot.PlatformCandidateID, item.PlatformCandidateID)
+		intent := captureIntentForConversation(prepared, item)
+		err := f.Cloud.BeginAutoReplyCapture(ctx, credentials(prepared), prepared.Platform.ID, firstNonEmpty(prepared.Request.PlatformAccountID, item.PlatformAccountID), openThreadID, intent)
+		if errors.Is(err, storage.ErrAutoReplyCandidateDeleted) {
+			// 被删除的身份只有当前窗口能验证新入站，交给原来的删除后重联路径。
+			reuseOpenConversation = true
+		} else if err != nil {
+			return 0, openConversation, err
+		} else if !seen[openThreadID] {
+			seen[openThreadID] = true
+			conversations = append(conversations, item)
+		}
+	}
+	if reuseOpenConversation {
+		conversations = []model.Conversation{openConversation.conversation}
+		openConversation.scanNext = true
+	} else {
+		unread, err := scanner.ScanUnreadConversations(ctx, f.Browser, prepared.Platform)
+		if err != nil {
+			wrapped := fmt.Errorf("读取候选人会话列表失败：%w", err)
+			f.log(prepared.Request.TaskID, "scan_unread_conversations", "warning", time.Now(), wrapped)
+			if stopErr := errorPolicy.Record(wrapped); stopErr != nil {
+				return 0, openConversation, stopErr
+			}
+			return 0, openConversation, nil
+		}
+		if prepared.Platform.Behavior.AutoReplyAllContactInbox {
+			unread, reviews, err = f.reviewAllContacts(ctx, prepared, unread)
+			if err != nil {
+				return 0, openConversation, err
 			}
 		}
-		conversations = restored
+		for _, item := range unread {
+			id := persistentConversationThreadID(item.PlatformThreadID, item.Key)
+			if id == "" || !seen[id] {
+				conversations = append(conversations, item)
+				seen[id] = true
+			}
+		}
+		prioritizeDueListReview(conversations, reviews)
+		if yieldOpen {
+			openConversation.scanNext = false
+			// 即使每轮名额只有一个，也让其他人的待办和新来信排在连续处理的会话前面。
+			i := slices.IndexFunc(conversations, func(item model.Conversation) bool {
+				return persistentConversationThreadID(item.PlatformThreadID, item.Key) == openThreadID
+			})
+			if i >= 0 {
+				current := conversations[i]
+				copy(conversations[i:], conversations[i+1:])
+				conversations[len(conversations)-1] = current
+			}
+		}
 	}
 	if target := prepared.Request.AutoReplyTarget; target != nil {
 		allowed := make([]model.Conversation, 0, 1)
@@ -192,10 +259,15 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		if shared.GracefulStopRequested(ctx) {
 			return processed, openConversation, nil
 		}
+		threadID := persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key)
+		review, hasReview := reviews[threadID]
+		if hasReview && conversation.ReplyAfter.IsZero() {
+			conversation.ReplyAfter, conversation.WitnessDigest = review.After, review.WitnessDigest
+		}
 		current := &openAutoReplyConversation{conversation: conversation}
 		if openConversation != nil && persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key) == persistentConversationThreadID(openConversation.conversation.PlatformThreadID, openConversation.conversation.Key) {
 			if !reuseOpenConversation {
-				// 扫描未读可能收起已读聊天；复用旧快照前重新确认，明确未打开才转入正常恢复入口。
+				// 扫描会话列表可能收起原聊天；复用旧快照前重新确认，明确未打开才转入正常恢复入口。
 				_, stillOpen, err := replyRuntime.ReadOpenAutoReplyLatestMessage(ctx, f.Browser, prepared.Platform, openConversation.snapshot)
 				if err != nil {
 					f.log(prepared.Request.TaskID, "check_open_after_scan", "warning", time.Now(), err)
@@ -216,6 +288,15 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		f.log(prepared.Request.TaskID, "process_conversation", "start", startedAt, nil)
 		countBefore := stats.Processed
 		err := f.processConversation(ctx, prepared, replyRuntime, positions, conversation, &current.snapshot, stats)
+		if hasReview && (err == nil || errors.Is(err, storage.ErrAutoReplyCandidateDeleted)) {
+			scope := ""
+			if target := prepared.Request.AutoReplyTarget; target != nil {
+				scope = target.PlatformThreadID
+			}
+			if ackErr := f.Cloud.AckAutoReplyList(ctx, credentials(prepared), prepared.Platform.ID, prepared.Request.PlatformAccountID, scope, review); ackErr != nil {
+				return processed, openConversation, ackErr
+			}
+		}
 		// 未核实到删除后的新入站时只计跳过，保留名额给列表后面的会话。
 		if errors.Is(err, storage.ErrAutoReplyCandidateDeleted) {
 			stats.Processed = countBefore
@@ -237,6 +318,8 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 			}
 			continue
 		}
+		// 采集成功后，持续打开的会话改用已落盘的消息游标。列表初次观测的时间仅约束本次采集。
+		current.conversation.ReplyAfter, current.conversation.WitnessDigest = time.Time{}, ""
 		errorPolicy.Reset()
 		f.log(prepared.Request.TaskID, "process_conversation", "success", startedAt, nil)
 	}

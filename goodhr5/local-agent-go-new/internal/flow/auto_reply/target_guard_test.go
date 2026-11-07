@@ -16,6 +16,32 @@ type targetRuntimeStub struct {
 	autoReplyRuntimeStub
 	openedConversations []model.Conversation
 	identityErr         error
+	initTarget          *model.AutoReplyConversationSnapshot
+}
+
+// InitializeAutoReplyPage 记录限制层实际交给平台的初始化目标。
+func (r *targetRuntimeStub) InitializeAutoReplyPage(_ context.Context, _ model.Browser, _ model.Config, target *model.AutoReplyConversationSnapshot) error {
+	r.initTarget = target
+	return nil
+}
+
+// TestRestrictedInitializationPinsAuthorizedTarget 验证初始未打开聊天或上层传错身份时，限制层始终只允许招聘任务指定的候选人。
+func TestRestrictedInitializationPinsAuthorizedTarget(t *testing.T) {
+	target, expected := targetFixture()
+	bare := &targetRuntimeStub{}
+	restricted, err := restrictAutoReplyRuntime(bare, &target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range []*model.AutoReplyConversationSnapshot{nil, {CandidateName: "其他人", PlatformCandidateID: "other", PlatformThreadID: "other"}} {
+		if err := restricted.InitializeAutoReplyPage(context.Background(), nil, model.Config{}, input); err != nil {
+			t.Fatal(err)
+		}
+		got := bare.initTarget
+		if got == nil || got.CandidateName != expected.CandidateName || got.PlatformCandidateID != expected.PlatformCandidateID || got.PlatformThreadID != expected.PlatformThreadID {
+			t.Fatalf("初始化未锁定真实测试目标：%+v", got)
+		}
+	}
 }
 
 // VerifyAutoReplyConversationIdentity 返回合成页面的身份结果，不连接真实招聘平台。

@@ -32,7 +32,7 @@ type job51CurrentDocumentBrowser interface {
 }
 
 // InitializeAutoReplyPage 清理前程无忧遗留弹层。
-func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
+func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config, _ *model.AutoReplyConversationSnapshot) error {
 	return common.InitializeConfiguredAutoReplyPage(ctx, browser, cfg)
 }
 

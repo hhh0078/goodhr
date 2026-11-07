@@ -96,7 +96,8 @@ func TestResumeFailureAnswersThenRecoversWithoutNewMessage(t *testing.T) {
 	position := cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position", Name: "工程师"}, Config: cloud.PositionAutoReplyConfig{Version: 1, Conditions: []cloud.PositionReplyCondition{{ID: "condition", Type: "required", Content: "至少五年教学经验", Enabled: true}}}}
 	conversation := model.Conversation{Key: "thread", PlatformThreadID: "thread", Name: "合成人选", CommunicationPosition: "工程师"}
 	stats := &shared.Stats{}
-	if err := flow.processConversation(context.Background(), prepared, runtime, []cloud.AutoReplyPositionSnapshot{position}, conversation, nil, stats); err != nil {
+	current := &openAutoReplyConversation{conversation: conversation}
+	if err := flow.processConversation(context.Background(), prepared, runtime, []cloud.AutoReplyPositionSnapshot{position}, conversation, &current.snapshot, stats); err != nil {
 		t.Fatal(err)
 	}
 	lookup := cloud.AutoReplyCandidateLookup{PlatformID: prepared.Platform.ID, PlatformAccountID: prepared.Request.PlatformAccountID, PlatformThreadID: "thread"}
@@ -117,7 +118,11 @@ func TestResumeFailureAnswersThenRecoversWithoutNewMessage(t *testing.T) {
 	if _, qualified := recommendationSource(ReplyContext{Position: position, CandidateState: state}, items); qualified {
 		t.Fatal("未结构化资料不应生成报告")
 	}
-	processed, _, err := flow.processCheckpoint(context.Background(), prepared, unreadScannerStub{}, runtime, []cloud.AutoReplyPositionSnapshot{position}, 1, stats, &shared.ConsecutiveErrorPolicy{}, nil)
+	scannerCalls := 0
+	processed, next, err := flow.processCheckpoint(context.Background(), prepared, unreadScannerStub{calls: &scannerCalls}, runtime, []cloud.AutoReplyPositionSnapshot{position}, 1, stats, &shared.ConsecutiveErrorPolicy{}, current)
+	if scannerCalls != 0 || next != current || !current.scanNext {
+		t.Fatalf("同窗已到期简历工作绕路：扫描 %d 次，复用 %t", scannerCalls, next == current)
+	}
 	state, stateErr := flow.Cloud.AutoReplyCandidateState(context.Background(), credentials(prepared), lookup)
 	if err != nil || stateErr != nil || processed != 1 || state.Conversation.ResumeRetry == nil || state.Conversation.ResumeRetry.Attempts != 1 || !strings.Contains(state.Conversation.ResumeRetry.LastError, "CLICK_FAILED") || len(runtime.replies) != 1 || responder.answers != 1 {
 		t.Fatalf("下一轮附件失败未持久记录或重发答案：processed=%d state=%+v replies=%v err=%v/%v", processed, state.Conversation, runtime.replies, err, stateErr)
@@ -233,4 +238,107 @@ func TestResumeCancellationDoesNotContinueAnswer(t *testing.T) {
 	if err == nil || !errors.Is(err, context.Canceled) || responder.answers != 0 {
 		t.Fatalf("取消后仍继续问答：calls=%d err=%v", responder.answers, err)
 	}
+}
+
+// TestLastInboundWasResume 验证只有刚收到的简历卡会免去签收后的空等，历史卡和普通消息保持原轮询间隔。
+func TestLastInboundWasResume(t *testing.T) {
+	card := model.ConversationMessage{Direction: "candidate", MessageType: "resume"}
+	system := model.ConversationMessage{Direction: "system"}
+	for _, tc := range []struct {
+		messages []model.ConversationMessage
+		want     bool
+	}{
+		{nil, false}, {[]model.ConversationMessage{system}, false}, {[]model.ConversationMessage{card, system}, true},
+		{[]model.ConversationMessage{card, {Direction: "candidate", MessageType: "text"}}, false},
+		{[]model.ConversationMessage{card, {Direction: "self", MessageType: "text"}}, false},
+	} {
+		if got := lastInboundWasResume(tc.messages); got != tc.want {
+			t.Fatalf("收到简历后是否立即核对待办：got=%v want=%v", got, tc.want)
+		}
+	}
+}
+
+// TestStandaloneResumeReceiptScope 验证只有既有沟通中的纯卡才固定签收，候选人的文字、尚未讨论的目标及不明旧卡均保留正常问答。
+func TestStandaloneResumeReceiptScope(t *testing.T) {
+	card := cloud.AutoReplyMessage{PlatformMessageID: "resume", Direction: "candidate", MessageType: "resume", TextContent: "平台说明", CardContent: json.RawMessage(`{"standalone_resume":true}`)}
+	question := cloud.AutoReplyMessage{PlatformMessageID: "question", Direction: "candidate", MessageType: "text", TextContent: "工作地点在哪？"}
+	oldReply := cloud.AutoReplyMessage{Direction: "self", MessageType: "text", TextContent: "工作地点在成都。"}
+	matched := []cloud.CandidateConfirmationItem{{Status: "matched", Content: "成都"}}
+	unmarked := card
+	unmarked.CardContent = json.RawMessage(`{"summary":"附件简历"}`)
+	observed := model.AutoReplyConversationSnapshot{Messages: []model.ConversationMessage{{PlatformMessageID: "resume", Direction: "candidate", MessageType: "resume", TextContent: card.TextContent, CardContent: card.CardContent}}}
+	for _, tc := range []struct {
+		name  string
+		input ReplyContext
+		want  bool
+	}{
+		{"已匹配地点", ReplyContext{PendingMessages: []cloud.AutoReplyMessage{card}, ConfirmationItems: matched}, true},
+		{"已有答疑", ReplyContext{PendingMessages: []cloud.AutoReplyMessage{card}, Messages: []cloud.AutoReplyMessage{question, oldReply, card}}, true},
+		{"并发问题", ReplyContext{PendingMessages: []cloud.AutoReplyMessage{card, question}, ConfirmationItems: matched}, false},
+		{"已有地点但卡内有留言", ReplyContext{PendingMessages: []cloud.AutoReplyMessage{unmarked}, ConfirmationItems: matched}, false},
+		{"首次来信有未核实条件", ReplyContext{PendingMessages: []cloud.AutoReplyMessage{card}, ConfirmationItems: []cloud.CandidateConfirmationItem{{Status: "pending"}}}, false},
+		{"旧卡由页面核实", ReplyContext{PendingMessages: []cloud.AutoReplyMessage{unmarked}, ConfirmationItems: matched, PageSnapshot: observed}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := canAcknowledgeResumeCard(tc.input); got != tc.want {
+				t.Fatalf("固定签收=%t want=%t", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestStandaloneResumeReceiptKeepsResumeReview 验证先前已答过问题时只签收新卡一次，之后仍结构化、复核条件并交给后台推荐。
+func TestStandaloneResumeReceiptKeepsResumeReview(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auto-reply/agent/positions/position/snapshot" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"position":{"id":"position"},"config":{"position_id":"position","enabled":true,"version":1},"company_profile":{"id":"company"},"subscription":{"active":true,"allow_auto_reply":true}}`))
+	}))
+	defer server.Close()
+	flow, prepared := newReliabilityFlow(t, server.URL)
+	worker := &resumeRetryResponder{}
+	flow.Responder = worker
+	ctx := context.Background()
+	saved, err := flow.Cloud.SaveAutoReplyConversation(ctx, credentials(prepared), cloud.AutoReplyConversation{PlatformID: prepared.Platform.ID, PlatformAccountID: prepared.Request.PlatformAccountID, PlatformThreadID: "thread", CandidateName: "合成人选", PositionID: "position", PagePositionText: "工程师"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = flow.Cloud.SyncAutoReplyMessages(ctx, credentials(prepared), cloud.AutoReplyMessageSyncRequest{ConversationID: saved.ID, Messages: []cloud.AutoReplyMessage{
+		{PlatformMessageID: "old-q", Direction: "candidate", MessageType: "text", TextContent: "工作地点在哪里？"},
+		{PlatformMessageID: "old-answer", Direction: "self", MessageType: "text", TextContent: "工作地点在成都。"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := model.ConversationMessage{PlatformMessageID: "new-resume", Direction: "candidate", MessageType: "resume", TextContent: "这是我的简历，合适的话可以随时联系我～", CardContent: json.RawMessage(`{"summary":"合成人选的简历","standalone_resume":true}`)}
+	attachment := filepath.Join(t.TempDir(), "synthetic.txt")
+	if err = os.WriteFile(attachment, []byte("五年教学经验"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &answeringRuntime{autoReplyRuntimeStub: &autoReplyRuntimeStub{latestBefore: card, opened: model.AutoReplyConversationSnapshot{CandidateName: "合成人选", PlatformThreadID: "thread", CommunicationPosition: "工程师", Messages: []model.ConversationMessage{card}, ResumeCardAvailable: true, ResumeSourceMessageID: card.PlatformMessageID}, resumeBundle: model.AutoReplyResumeBundle{OnlineResumeText: "五年教学经验", AttachmentPaths: []string{attachment}, ResumeSourceMessageID: card.PlatformMessageID}}}
+	position := cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position", Name: "工程师"}, Config: cloud.PositionAutoReplyConfig{Version: 1, Conditions: []cloud.PositionReplyCondition{{ID: "experience", Type: "required", Content: "五年教学经验", Enabled: true}}}}
+	conversation := model.Conversation{Key: "thread", PlatformThreadID: "thread", Name: "合成人选", CommunicationPosition: "工程师"}
+	if err = flow.processConversation(ctx, prepared, runtime, []cloud.AutoReplyPositionSnapshot{position}, conversation, nil, &shared.Stats{}); err != nil {
+		t.Fatal(err)
+	}
+	if worker.answers != 0 || runtime.resumeCollects != 0 || len(runtime.replies) != 1 || runtime.replies[0] != "简历收到了，谢谢你发过来。" {
+		t.Fatalf("签收不应重复问答或抢先采集：answers=%d collects=%d replies=%v", worker.answers, runtime.resumeCollects, runtime.replies)
+	}
+	firstReceipts, err := flow.Cloud.PendingAutoReplyProposals(ctx, credentials(prepared))
+	if err != nil || len(firstReceipts) != 1 {
+		t.Fatal("签收决策未单独留账", firstReceipts, err)
+	}
+	if err = flow.Cloud.CompleteAutoReplyProposal(ctx, credentials(prepared), firstReceipts[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	processed, _, err := flow.processCheckpoint(ctx, prepared, unreadScannerStub{}, runtime, []cloud.AutoReplyPositionSnapshot{position}, 1, &shared.Stats{}, &shared.ConsecutiveErrorPolicy{}, nil)
+	if err != nil || processed != 1 || worker.structures != 1 || worker.reviews != 1 || runtime.resumeCollects != 1 || len(runtime.replies) != 1 {
+		t.Fatalf("采集和推荐路径不完整或重复发信：processed=%d structure=%d review=%d collects=%d replies=%v err=%v", processed, worker.structures, worker.reviews, runtime.resumeCollects, runtime.replies, err)
+	}
+	receipts, err := flow.Cloud.PendingAutoReplyProposals(ctx, credentials(prepared))
+	if err != nil || len(receipts) != 1 || receipts[0].ID == firstReceipts[0].ID || receipts[0].Conversation.ResumeRetry != nil {
+		t.Fatal("补审未留下独立的后台推荐收据或简历待办未完成", receipts, err)
+	}
+
 }

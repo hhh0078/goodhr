@@ -135,7 +135,7 @@ export class ActionService {
 
   /** usePage 切换当前标签页。 */
   usePage(request: PageUseRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.session.usePage(request.page_id, context), context);
+    return this.interactionQueue.run(() => this.session.usePage(request.page_id, context, request.dismiss_download), context);
   }
 
   /** closePage 关闭当前标签页。 */
@@ -181,7 +181,10 @@ export class ActionService {
 
   /** clickElement 执行完整封装点击。 */
   clickElement(request: ElementClickRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.clickAction.execute(request, context), context);
+    return this.interactionQueue.run(async () => {
+      if (request.watch_download_viewer) await this.session.watchDownloadViewer(context);
+      return this.clickAction.execute(request, context);
+    }, context);
   }
 
   /** inputElement 执行完整封装输入。 */

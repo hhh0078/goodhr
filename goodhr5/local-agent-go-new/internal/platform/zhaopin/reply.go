@@ -32,7 +32,7 @@ type zhaopinCurrentDocumentBrowser interface {
 }
 
 // InitializeAutoReplyPage 清理智联遗留弹层。
-func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
+func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config, _ *model.AutoReplyConversationSnapshot) error {
 	return common.InitializeConfiguredAutoReplyPage(ctx, browser, cfg)
 }
 

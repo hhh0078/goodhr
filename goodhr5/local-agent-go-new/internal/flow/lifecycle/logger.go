@@ -586,7 +586,7 @@ func userStepLabel(step string) string {
 		"advance_candidate_list":        "进入下一批候选人",
 		"open_messages_page":            "打开消息页面",
 		"initialize_messages_page":      "整理消息页面",
-		"scan_unread_conversations":     "扫描未读会话",
+		"scan_unread_conversations":     "检查会话新消息",
 		"reply_conversation":            "回复候选人会话",
 		"start_power_guard":             "启动防休眠",
 		"dispatch_task_flow":            "运行岗位任务",

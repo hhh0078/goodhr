@@ -4,6 +4,7 @@ package cloud
 import (
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"strings"
 	"time"
 )
 
@@ -35,6 +36,7 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 	known := make([]bool, len(input.Messages))
 	orders := make([]float64, len(input.Messages))
 	lastKnown := -1
+	verifiedTail := -1
 	for index, item := range input.Messages {
 		key := localAutoReplyMessageKey(item)
 		if key == "" {
@@ -47,6 +49,9 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 		known[index] = exists
 		if exists {
 			lastKnown = index
+			if key == conversation.LastSyncedMessageKey {
+				verifiedTail = index
+			}
 			orders[index], err = tx.MessageOrder(existing.ID)
 			if err != nil {
 				return result, false, err
@@ -57,6 +62,11 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 	if upgrading && unverified {
 		// 迁移不能猜测新旧消息边界；保留采集意图和原版本，避免下一轮把隔离数据当成有效锚点。
 		return result, false, fmt.Errorf("完整历史没有对上旧消息锚点，本轮没有回填或升级，请人工核对")
+	}
+	// 系统提示可紧随候选人消息，只有最后一条真实对话才可能与列表摘要构成同分钟见证。
+	lastDialog := len(input.Messages) - 1
+	for lastDialog >= 0 && input.Messages[lastDialog].Direction == "system" {
+		lastDialog--
 	}
 	now := time.Now().UTC()
 	for index, item := range input.Messages {
@@ -97,6 +107,20 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 				return result, false, err
 			}
 			continue
+		}
+		// 全部联系人初次核对可看到过往来信。保留它们作为上下文，只给监听开始后的来信排回复。
+		if verifiedTail < 0 && item.Direction == "candidate" && !input.ReplyAfter.IsZero() && (item.PlatformSentAt == nil || !item.PlatformSentAt.After(input.ReplyAfter)) {
+			witness := index == lastDialog && item.PlatformSentAt != nil && item.PlatformSentAt.Truncate(time.Minute).Equal(input.ReplyAfter.Truncate(time.Minute)) &&
+				input.WitnessDigest != "" && input.WitnessDigest == autoReplyDigest(strings.TrimSpace(item.TextContent))
+			if !witness {
+				order, err := tx.MessageOrder(item.ID)
+				if err != nil {
+					return result, false, err
+				}
+				if err = tx.MarkHistoricalMessage(item.ID, "history_backfill", order); err != nil {
+					return result, false, err
+				}
+			}
 		}
 		conversation.LastSyncedMessageKey = key
 		if item.Direction == "candidate" {

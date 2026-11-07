@@ -1,6 +1,8 @@
 // 文件作用说明：管理 Camoufox、持久化 Profile、页面、Cookie、下载和浏览器生命周期。
 
 import fs from "node:fs/promises";
+import { DownloadViewerWatch } from "./download-viewer-watch.js";
+import { fileURLToPath } from "node:url";
 import type {
   Browser,
   BrowserContext,
@@ -16,6 +18,7 @@ import type {
   PageInfo,
   PageListResult,
   PageOpenRequest,
+  PageUseRequest,
   SaveCurrentDocumentRequest,
 } from "../../contracts/actions.js";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
@@ -48,6 +51,8 @@ export class BrowserSession {
   private mouseSpeed: MouseSpeed = "fast";
   private readonly registeredPages = new WeakSet<Page>();
   private readonly downloadManager: DownloadManager;
+  private viewerWatch: DownloadViewerWatch | undefined;
+  private readonly dismissedViewerIDs = new Set<string>();
   private readonly lifecycle: BrowserLifecycle;
 
   readonly elements = new ElementRegistry();
@@ -336,10 +341,19 @@ export class BrowserSession {
     return { pages, count: pages.length };
   }
 
+  /** watchDownloadViewer 在真实下载按钮点击前登记本会话现有对象，不凭标签序号或文件名猜测归属。 */
+  async watchDownloadViewer(context: ActionContext): Promise<void> {
+    const origin = await this.requirePage(context, "watch_download_viewer");
+    this.viewerWatch?.dispose();
+    this.viewerWatch = new DownloadViewerWatch(origin, origin.context());
+    this.logger.info(context, "download_viewer_watch", "start", { page_count: this.viewerWatch.before.size });
+  }
+
   /** usePage 按页面编号切换当前标签页。 */
   async usePage(
     pageID: string,
     actionContext: ActionContext,
+    downloadRestore?: PageUseRequest["dismiss_download"],
   ): Promise<PageInfo> {
     assertInputAllowed(actionContext);
     const context = this.requireContext(actionContext, "use_page");
@@ -355,6 +369,68 @@ export class BrowserSession {
         retryable: true,
         details: { page_id: pageID },
       });
+    }
+    if (downloadRestore) {
+      let restore = downloadRestore;
+      const downloads = await this.downloadManager.list();
+      const record = downloads.downloads.find(item => item.id === restore.download_id && item.status === "saved");
+      if (restore.await_viewer) {
+        const watch = this.viewerWatch;
+        if (!watch || watch.origin !== page || !record || !(Date.parse(record.created_at) >= watch.startedAt) || record.page_url !== restore.original_url ||
+            page.url() !== restore.original_url || this.dismissedViewerIDs.has(record.id) || !record.id.startsWith("native_download_")) {
+          throw new Error("本次点击或下载编号无法核对，不处理任何标签");
+        }
+        const started = Date.now();
+        try {
+          const viewers = await watch.wait(record.file_path, actionContext.signal);
+          assertInputAllowed(actionContext);
+          this.logger.info(actionContext, "download_viewer_observed", "success", { pages_before: watch.before.size, pages_after: context.pages().length,
+            observed_events: watch.events, match_count: viewers.length, existed_before: viewers[0] ? watch.before.has(viewers[0]) : false, waited_ms: Date.now() - started });
+          if (!viewers.length) {
+            if (this.currentPage !== page || page.isClosed() || page.url() !== restore.original_url) throw new Error("等候文件期间原页变化");
+            return { ...await this.pageInfo(page), download_viewer_absent: true };
+          }
+          if (viewers.length !== 1 || !viewers[0]) throw new Error("同一个下载文件匹配多个标签，暂不关闭");
+          restore = { ...restore, viewer_url: viewers[0].url(), keep_viewer: watch.before.has(viewers[0]) };
+        } finally {
+          watch.dispose();
+          if (this.viewerWatch === watch) this.viewerWatch = undefined;
+        }
+      }
+      const pages = context.pages().filter(item => !item.isClosed());
+      const matching = pages.filter(item => item.url() === restore.viewer_url);
+      const viewer = matching[0];
+      const file = new URL(restore.viewer_url);
+      if (!record || this.dismissedViewerIDs.has(record.id) || record.page_url !== restore.original_url ||
+          !record.id.startsWith("native_download_") || file.protocol !== "file:" || file.search || file.hash ||
+          fileURLToPath(file) !== record.file_path || matching.length !== 1 || !viewer || viewer === page ||
+          pages.filter(item => item.url() === restore.original_url).length !== 1 ||
+          pages[index] !== page || page.url() !== restore.original_url ||
+          (this.currentPage !== page && this.currentPage !== viewer)) {
+        throw new WorkerError({ code: "PAGE_NOT_AVAILABLE", message: "无法确认本次下载的唯一文件标签，暂不操作",
+          action: actionContext.action, step: "dismiss_download_viewer", trace_id: actionContext.trace_id, retryable: false });
+      }
+      assertInputAllowed(actionContext);
+      // 回执只能使用一次，即使确认响应丢失，也不能再次关闭随后由用户打开的同一文件。
+      if (this.dismissedViewerIDs.size >= 100) this.dismissedViewerIDs.delete(this.dismissedViewerIDs.values().next().value!);
+      this.dismissedViewerIDs.add(record.id);
+      if (restore.keep_viewer) {
+        // 原有文件标签永不关闭。只有原页和本次回执对应的文件页时，才可明确恢复原页而不会抢其他人工页。
+        if (pages.length !== 2) throw new Error("发现其他标签，保留用户当前页面");
+        await this.activatePage(page, actionContext);
+        return { ...await this.pageInfo(page), download_viewer_preserved: true };
+      }
+      await viewer.close();
+      assertInputAllowed(actionContext);
+      const remaining = context.pages().filter(item => !item.isClosed());
+      if (!viewer.isClosed() || !remaining.includes(page) || page.url() !== restore.original_url) {
+        throw new WorkerError({ code: "PAGE_NOT_AVAILABLE", message: "文件页或原标签在清理期间发生了变化",
+          action: actionContext.action, step: "dismiss_download_viewer", trace_id: actionContext.trace_id, retryable: false });
+      }
+      // 有人工标签时让浏览器保留其选择；只有原页仍是唯一标签时，才显式激活它。
+      if (remaining.length === 1) await this.activatePage(page, actionContext);
+      else if (!this.currentPage || this.currentPage === viewer) this.currentPage = page;
+      return { ...await this.pageInfo(page), download_viewer_closed: true };
     }
     await this.activatePage(page, actionContext);
     return this.pageInfo(page);
@@ -583,6 +659,8 @@ export class BrowserSession {
 
   /** dispose 关闭浏览器并清理本地引用。 */
   private async dispose(): Promise<void> {
+    this.viewerWatch?.dispose();
+    this.viewerWatch = undefined;
     const context = this.context;
     const browser = this.browser;
     await this.downloadManager.list().catch(() => undefined);
