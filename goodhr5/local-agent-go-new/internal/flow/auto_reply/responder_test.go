@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ai"
@@ -61,12 +62,53 @@ func TestAutoReplySystemPromptKeepsHumanHRReplyBoundaries(t *testing.T) {
 		"bonus 只是低权重加分项",
 		"回答完成后，用独立的第二条 confirmation 消息询问一个",
 		"如果本轮问题都没有可靠答案，只调用 notify_hr",
+		"不要承诺后续主动反馈或具体时间，也不要声称已经转达",
 		"禁止提及 GoodHR、AI、系统、工具、岗位资料或另一个“招聘方”",
 		"单条优先120字以内、最多200字",
 	}
 	for _, rule := range requiredRules {
 		if !strings.Contains(autoReplySystemPrompt, rule) {
 			t.Fatalf("自动回复固定提示词缺少规则：%s", rule)
+		}
+	}
+}
+
+// TestPromptMessagesKeepOneVerifiableCopy 验证历史和待回复批次只传一份可核验原文，身份与入库时间均不外发。
+func TestPromptMessagesKeepOneVerifiableCopy(t *testing.T) {
+	input := responderInput("https://example.com")
+	sentAt := time.Date(2026, 11, 7, 8, 3, 0, 0, time.UTC)
+	history := cloud.AutoReplyMessage{ID: "local-only", ConversationID: "hidden-thread", Fingerprint: "key-history", Direction: "candidate",
+		MessageType: "resume", TextContent: "已发  简历\n请查收", CardContent: json.RawMessage(`{"summary":"简历附件.pdf","candidate_id":"hidden-cid"}`), PlatformSentAt: &sentAt}
+	pending := cloud.AutoReplyMessage{ID: "legacy-key", PlatformMessageID: "platform-key", Fingerprint: "hidden-fingerprint", Direction: "candidate",
+		MessageType: "text", TextContent: "请问薪资范围？", CardContent: json.RawMessage(`{"summary":"请问薪资范围？"}`), CreatedAt: sentAt, IngestedAt: sentAt}
+	input.Messages, input.PendingMessages, input.BasedOnMessageKey = []cloud.AutoReplyMessage{history, pending}, []cloud.AutoReplyMessage{pending}, pending.ID
+	result, err := initialToolMessages(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := result[len(result)-1].Content
+	var dynamic replyPromptInput
+	if err = json.Unmarshal([]byte(raw), &dynamic); err != nil {
+		t.Fatal(err)
+	}
+	if len(dynamic.Messages) != 1 || len(dynamic.PendingMessages) != 1 || dynamic.BasedOnMessageKey != pending.PlatformMessageID ||
+		strings.Count(raw, pending.TextContent) != 1 || strings.Contains(raw, `"based_on_message":`) {
+		t.Fatal("待处理消息没有与历史分开，或被重复发送")
+	}
+	row := dynamic.Messages[0]
+	if row.SourceRef != history.Fingerprint || row.TextContent != history.TextContent || row.Direction != history.Direction || row.MessageType != history.MessageType ||
+		row.PlatformSentAt == nil || !row.PlatformSentAt.Equal(sentAt) || row.CardSummary != "简历附件.pdf" || dynamic.PendingMessages[0].PlatformSentAt != nil {
+		t.Fatal("消息投影丢失原文、来源、方向、类型、卡片或平台时间")
+	}
+	for _, secret := range []string{"local-only", "hidden-thread", "hidden-cid", "hidden-fingerprint", "legacy-key", "ingested_at"} {
+		if strings.Contains(raw, secret) {
+			t.Fatalf("消息投影带出内部字段 %s", secret)
+		}
+	}
+	state := toolExecutionState{input: input}
+	for _, message := range []replyPromptMessage{row, dynamic.PendingMessages[0]} {
+		if err := state.validateConfirmationEvidence(cloud.CandidateConfirmationItem{Status: "matched", SourceRef: message.SourceRef, EvidenceText: message.TextContent}); err != nil {
+			t.Fatalf("模型可见的来源键和原文未通过现有工具核验：%v", err)
 		}
 	}
 }
@@ -221,8 +263,9 @@ func TestAIResponderRepairsArgumentsAndKeepsPromptBoundary(t *testing.T) {
 	if err = json.Unmarshal([]byte(firstRequest.Messages[1].Content), &dynamic); err != nil {
 		t.Fatalf("动态上下文无法解析：%v", err)
 	}
-	if dynamic.BasedOnMessage.TextContent != "薪资是多少" || dynamic.BasedOnMessage.Fingerprint != input.BasedOnMessageKey {
-		t.Fatalf("本轮唯一消息没有单独传给 AI：%+v", dynamic.BasedOnMessage)
+	if len(dynamic.PendingMessages) != 1 || dynamic.PendingMessages[0].TextContent != "薪资是多少" ||
+		dynamic.PendingMessages[0].SourceRef != dynamic.BasedOnMessageKey || dynamic.BasedOnMessageKey != input.BasedOnMessageKey {
+		t.Fatalf("本轮唯一消息没有按来源键定位：%+v", dynamic.PendingMessages)
 	}
 	if state.toolCalls[1].Status != "failed" || state.toolCalls[1].ErrorCode != "INVALID_TOOL_ARGUMENTS" {
 		t.Fatalf("first tool finish = %+v", state.toolCalls[1])

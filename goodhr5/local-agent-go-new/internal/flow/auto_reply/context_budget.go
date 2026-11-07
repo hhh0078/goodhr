@@ -24,7 +24,7 @@ func boundedReplyContext(input ReplyContext) (ReplyContext, error) {
 		}
 		result.PendingMessages = []cloud.AutoReplyMessage{latest}
 	}
-	pendingBytes, _ := json.Marshal(result.PendingMessages)
+	pendingBytes, _ := json.Marshal(promptMessages(result.PendingMessages))
 	if len(pendingBytes) > maxReplyContextBytes/3 {
 		return result, fmt.Errorf("本轮候选人消息较长，已暂停自动回答，请人工看一下")
 	}
