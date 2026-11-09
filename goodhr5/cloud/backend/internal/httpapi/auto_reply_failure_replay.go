@@ -19,13 +19,13 @@ func (s *PostgresAutoReplyStore) replayAutoReplyFailures(ctx context.Context, te
 		return nil, found, err
 	}
 	prefix := "failure:" + run + ":"
-	// 以 ID 的固定前缀及 20 位序号定点读取，清理封印已删除的事件自然不会重新出现。
+	// 固定前缀与20位序号按C字节序比较，避免数据库区域排序把范围上界~排在数字之前；删除封印继续生效。
 	rows, err := s.db.QueryContext(ctx, `SELECT ticket FROM (SELECT id,jsonb_build_object(
   'sequence',payload->'failure_sequence','position_id',payload->'position_id','status',payload->'status','step',payload->'title',
   'at',payload->'occurred_at','failure_diagnostics',payload->'failure_diagnostics') AS ticket
    FROM auto_reply_cloud_entities WHERE tenant_id=$1 AND user_id=$2 AND kind='runtime_events'
-   AND id>$3 AND id<$4 AND payload->>'failure_machine'=$5 AND payload->>'run_id'=$6
-   ORDER BY id DESC LIMIT 1000) AS newest ORDER BY id`, tenant, user, fmt.Sprintf("%s%020d", prefix, after), prefix+"~", machine, run)
+	 AND id COLLATE "C">$3 AND id COLLATE "C"<$4 AND payload->>'failure_machine'=$5 AND payload->>'run_id'=$6
+	 ORDER BY id COLLATE "C" DESC LIMIT 1000) AS newest ORDER BY id COLLATE "C"`, tenant, user, fmt.Sprintf("%s%020d", prefix, after), prefix+"~", machine, run)
 	if err != nil {
 		return nil, false, err
 	}
