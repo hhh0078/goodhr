@@ -253,7 +253,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			}
 			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "正在查看候选人列表", "running", nil)
 			candidateStartedAt := time.Now()
-			candidateCtx, cancelCandidate := context.WithTimeoutCause(ctx, candidateTimeout, errCandidateProcessingTimeout)
+			candidateCtx, cancelCandidate := context.WithTimeoutCause(ctx, candidateTimeout, ErrCandidateProcessingTimeout)
 			candidateErr := item.Err
 			if candidateErr == nil && item.Decision != nil && !item.Decision.Accepted {
 				stats.Processed++
@@ -597,11 +597,10 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 			"AI 正在读取详情并判断匹配度",
 		)
 		f.log(prepared.Request.TaskID, "ai_decision", "start", decisionStartedAt, nil)
-		evaluationCtx, cancelEvaluation := context.WithTimeout(context.WithoutCancel(ctx), candidateTimeout)
+		evaluationCtx, cancelEvaluation, stopEvaluationOnCandidateEnd := ai.ScoringContext(ctx, candidateTimeout)
 		evaluationCtx = shared.WithAIBilling(evaluationCtx, f.Logger, prepared.Request.TaskID, prepared.Position.ID, candidateDisplayName(candidate), "AI 详情分析")
 		evaluationCancel = cancelEvaluation
 		// 等待评分时遵守候选人总时限；评分已返回后撤销关联，保留后台完整输出。
-		stopEvaluationOnCandidateEnd := context.AfterFunc(ctx, cancelEvaluation)
 		if detailMode == "ai" {
 			images := detailImages
 			var imageErr error

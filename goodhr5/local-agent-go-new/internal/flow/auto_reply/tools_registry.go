@@ -535,13 +535,13 @@ func decodeToolArguments(call ai.ToolCall, target any) error {
 	decoder := json.NewDecoder(strings.NewReader(arguments))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		return argumentError("参数 JSON 不正确：" + err.Error())
+		return call.WithArgumentParseDiagnostic(argumentError("参数 JSON 不正确：" + err.Error()))
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		if err == nil {
 			return argumentError("参数只能包含一个 JSON 对象")
 		}
-		return argumentError("参数 JSON 不正确：" + err.Error())
+		return call.WithArgumentParseDiagnostic(argumentError("参数 JSON 不正确：" + err.Error()))
 	}
 	return nil
 }

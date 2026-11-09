@@ -3,9 +3,11 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/client"
@@ -13,6 +15,8 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/replybridge"
+	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // cloudBrowser 复用现有标准浏览器操作和原生下载监听，不包含任何模型或业务存储。
@@ -146,18 +150,25 @@ func (s *Server) pumpCloudReply(ctx context.Context, credentials cloud.AgentCred
 		}
 		s.cloudReplyMu.Unlock()
 	}()
+	cursorKey := "cloud_reply_log_cursor:" + owner + ":" + runID
+	var after int64
+	if s.store != nil {
+		value, _ := s.store.GetSetting(ctx, cursorKey)
+		after, _ = strconv.ParseInt(value, 10, 64)
+	}
 	for ctx.Err() == nil {
 		current, err := s.cloudReplyRunCredentials(credentials, owner, ownerGeneration)
 		if err != nil {
 			return
 		}
 		var response struct {
-			OK      bool                 `json:"ok"`
-			Command *replybridge.Command `json:"command"`
-			Running *bool                `json:"running"`
+			Failures []cloud.AutoReplyFailureNotice `json:"failures"`
+			OK       bool                           `json:"ok"`
+			Command  *replybridge.Command           `json:"command"`
+			Running  *bool                          `json:"running"`
 		}
 		pollCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
-		err = s.cloud.AutoReplyRuntimeRequest(pollCtx, current, "next", map[string]any{"run_id": runID}, &response)
+		err = s.cloud.AutoReplyRuntimeRequest(pollCtx, current, "next", map[string]any{"run_id": runID, "after_failure": after}, &response)
 		cancel()
 		if err != nil {
 			if cloudDeviceTerminal(err) {
@@ -167,6 +178,27 @@ func (s *Server) pumpCloudReply(ctx context.Context, credentials cloud.AgentCred
 				return
 			}
 			continue
+		}
+		if len(response.Failures) > 0 {
+			if _, err = s.cloudReplyRunCredentials(credentials, owner, ownerGeneration); err != nil || ctx.Err() != nil {
+				return
+			}
+			for _, notice := range response.Failures {
+				if notice.Sequence <= after {
+					continue
+				}
+				if err = s.saveCloudFailure(ctx, runID, cursorKey, notice); err != nil {
+					break
+				}
+				after = notice.Sequence
+			}
+			// 本次浏览器命令只执行一次。若仅剩日志补传，保留轮询直到它落盘或用户退出。
+			if err != nil && response.Command == nil {
+				if !waitCloudDevice(ctx) {
+					return
+				}
+				continue
+			}
 		}
 		if response.Running != nil && !*response.Running {
 			return
@@ -321,4 +353,27 @@ func (s *Server) retryCloudReplyReports(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeSuccess(w, 200, result)
+}
+
+// saveCloudFailure 只镜像当前已认证运行的安全分类，不读取候选人资料，也不会重放网页命令。
+func (s *Server) saveCloudFailure(ctx context.Context, runID, cursor string, n cloud.AutoReplyFailureNotice) error {
+	if s.store == nil {
+		return fmt.Errorf("本地岗位日志未准备好")
+	}
+	if len(n.Details) == 0 || n.At.IsZero() || n.PositionID == "" {
+		return fmt.Errorf("服务器岗位故障小票不完整")
+	}
+	out, err := json.Marshal(struct {
+		Details []failurediag.Detail `json:"failure_diagnostics"`
+	}{n.Details})
+	if err != nil {
+		return err
+	}
+	summary := failurediag.Summary(n.Details)
+	status, level := "failed", "error"
+	if n.Status == "warning" || n.Status == "warn" {
+		status, level = "warning", "warn"
+	}
+	return s.store.SaveServerFailureLog(ctx, storage.TaskLog{PositionID: n.PositionID, TaskID: runID, Flow: "auto_reply", Step: n.Step, Status: status, Level: level, Category: "服务器自动回复",
+		Message: "服务器自动回复步骤：" + summary, ErrorMessage: summary, Output: out, CreatedAt: n.At.UTC().Format(time.RFC3339Nano)}, cursor, n.Sequence)
 }

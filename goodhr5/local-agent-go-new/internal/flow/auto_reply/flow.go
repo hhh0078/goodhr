@@ -224,7 +224,7 @@ func (f *Flow) RunServer(ctx context.Context, prepared shared.PreparedTask, runt
 		return stats, err
 	}
 	if err = adapter.InitializeAutoReplyPage(ctx, nil, prepared.Platform, nil); err != nil {
-		return stats, err
+		return stats, scopedFailure(err, prepared.Request.PositionID, "")
 	}
 	f.serverAnswers = map[string][]cloud.AutoReplyAnswer{}
 	err = f.runLoop(ctx, prepared, runtime, adapter, &stats)

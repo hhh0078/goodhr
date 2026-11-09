@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
-	"path/filepath"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 const (
@@ -37,8 +38,9 @@ type AIResponder struct {
 }
 
 type aiReplyAuditOutput struct {
-	Decision          ReplyDecision    `json:"decision"`
-	AssistantMessages []ai.ToolMessage `json:"assistant_messages"`
+	FailureDiagnostics []failurediag.Detail `json:"failure_diagnostics,omitempty"`
+	Decision           ReplyDecision        `json:"decision"`
+	AssistantMessages  []ai.ToolMessage     `json:"assistant_messages"`
 }
 
 type toolErrorResult struct {
@@ -79,6 +81,9 @@ func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructure
 	candidate, err := r.AI.ParseAutoReplyResume(billingCtx, input.AIConfig, text, input.Position.Config.Prompts.Resume)
 	elapsedMS := time.Since(began).Milliseconds()
 	if err != nil {
+		if details := failurediag.Details(err); len(details) > 0 {
+			shared.ReportAnalysis(r.Logger, input.TaskID, shared.AnalysisStatus{Kind: "auto_reply", PositionID: input.Position.Position.ID, Phase: "error", Stage: "resume_ai", DurationMS: &elapsedMS, Reason: failurediag.Summary(details), FailureDiagnostics: details, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
+		}
 		return StructuredResume{}, err
 	}
 	if !hasAutoReplyResumeEvidence(candidate, text) {
@@ -314,6 +319,9 @@ func (r *AIResponder) executeAuditedTool(ctx context.Context, input ReplyContext
 	if executeErr != nil {
 		finished.Status = "failed"
 		finished.ErrorMessage = executeErr.Error()
+		if evidence := failurediag.Summary(failurediag.Details(executeErr)); evidence != "" {
+			finished.ErrorMessage = evidence + "；" + finished.ErrorMessage
+		}
 		var argumentErr *toolArgumentError
 		if errors.As(executeErr, &argumentErr) {
 			finished.ErrorCode = "INVALID_TOOL_ARGUMENTS"
@@ -329,7 +337,12 @@ func (r *AIResponder) executeAuditedTool(ctx context.Context, input ReplyContext
 		return nil, fmt.Errorf("保存 AI 工具完成记录失败：%w", err)
 	}
 	if executeErr != nil {
-		r.report(input, "error", "tool", "AI 工具失败："+toolDisplayName(toolName)+"，"+truncateRunText(executeErr.Error(), 120), false)
+		elapsed := completedAt.Sub(now).Milliseconds()
+		shared.ReportAnalysis(r.Logger, input.TaskID, shared.AnalysisStatus{
+			Kind: "auto_reply", PositionID: input.Position.Position.ID, CandidateName: input.PageSnapshot.CandidateName, Phase: "error", Stage: "tool",
+			DurationMS: &elapsed, FailureDiagnostics: failurediag.Details(executeErr), UpdatedAt: completedAt.Format(time.RFC3339Nano),
+			Reason: "AI 工具失败：" + toolDisplayName(toolName) + "，" + truncateRunText(finished.ErrorMessage, 120),
+		})
 	} else {
 		r.report(input, "loading", "tool", "AI 工具完成："+toolDisplayName(toolName)+"，结果 "+truncateRunText(string(result), 160), false)
 	}
@@ -364,17 +377,24 @@ func (r *AIResponder) completeRun(input ReplyContext, run cloud.AutoReplyAIRun, 
 
 // failRun 尽力保存 AI 失败总记录，并保留最先发生的业务错误。
 func (r *AIResponder) failRun(input ReplyContext, run cloud.AutoReplyAIRun, assistantMessages []ai.ToolMessage, totalTokens int, code string, cause error) error {
-	output, _ := json.Marshal(aiReplyAuditOutput{AssistantMessages: assistantMessages})
+	details := failurediag.Details(cause)
+	output, _ := json.Marshal(aiReplyAuditOutput{AssistantMessages: assistantMessages, FailureDiagnostics: details})
 	run.Status = "failed"
 	run.OutputMessage = output
 	run.ErrorCode = code
 	run.ErrorMessage = truncateRunText(cause.Error(), 1000)
+	if len(details) > 0 {
+		run.ErrorMessage = failurediag.Summary(details)
+	}
 	run.TokenUsage = totalTokens
 	_, finishErr := r.Cloud.FinishAutoReplyAIRun(context.Background(), input.Credentials, run)
 	if finishErr != nil {
 		return fmt.Errorf("%w；AI 总记录也没保存完整：%v", cause, finishErr)
 	}
-	r.report(input, "error", "ai", "AI 没处理成功："+truncateRunText(cause.Error(), 120), true)
+	shared.ReportAnalysis(r.Logger, input.TaskID, shared.AnalysisStatus{
+		Kind: "auto_reply", PositionID: input.Position.Position.ID, Phase: "error", Stage: "ai", Terminal: true, CandidateName: input.PageSnapshot.CandidateName,
+		Reason: "AI 没处理成功：" + truncateRunText(run.ErrorMessage, 120), FailureDiagnostics: details, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	})
 	return cause
 }
 

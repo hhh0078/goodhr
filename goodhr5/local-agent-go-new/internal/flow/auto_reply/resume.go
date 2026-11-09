@@ -12,6 +12,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 var errAutoReplyResumeDeferred = errors.New("简历暂未处理完成")
@@ -63,7 +64,22 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	var err error
 	if snapshot.ResumeCardAvailable && len(state.Attachments) == 0 {
 		// 附件入口异常不能占住整轮问答；超时只取消本次采集，后续仍使用父上下文核对身份。
-		collectCtx, cancel := context.WithTimeout(ctx, autoReplyResumeCollectTimeout)
+		collectAt := time.Now()
+		collectDeadline := errors.New("本次简历采集预算已用完")
+		collectCtx, cancel := context.WithTimeoutCause(ctx, autoReplyResumeCollectTimeout, collectDeadline)
+		// collectFailure 区分采集预算、外层截止与已返回的设备错误；从未收到回执时不猜测下载是否开始。
+		collectFailure := func(err error, phase string) error {
+			d := failurediag.Detail{Source: "简历附件", Operation: "自动回复收集简历", Phase: phase, Reason: "尚未取得采集结果", Impact: "简历留待补处理，继续岗位问答", ElapsedMS: time.Since(collectAt).Milliseconds(), LimitMS: autoReplyResumeCollectTimeout.Milliseconds()}
+			switch {
+			case errors.Is(context.Cause(collectCtx), collectDeadline):
+				d.Reason = "本次采集预算已用完"
+			case errors.Is(ctx.Err(), context.Canceled):
+				d.Reason = "上层请求已取消"
+			case errors.Is(ctx.Err(), context.DeadlineExceeded):
+				d.Reason = "上层请求时限已到"
+			}
+			return failurediag.Wrap(err, d)
+		}
 		sourceMessageID := strings.TrimSpace(snapshot.ResumeSourceMessageID)
 		sourceLoaded := false
 		for _, message := range snapshot.Messages {
@@ -77,11 +93,15 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 				collectCtx, f.Browser, prepared.Platform, snapshot,
 				[]string{sourceMessageID}, cloud.AutoReplyMaxHistoryMessages,
 			); err != nil {
+				err = collectFailure(err, "加载历史简历卡片")
 				cancel()
 				return nil, false, fmt.Errorf("%w：加载候选人历史简历卡片失败：%w", errAutoReplyResumeDeferred, err)
 			}
 		}
 		bundle, err = runtime.CollectAutoReplyResume(collectCtx, f.Browser, prepared.Platform, snapshot)
+		if err != nil {
+			err = collectFailure(err, "等待平台采集结果")
+		}
 		cancel()
 		if err != nil {
 			return nil, false, fmt.Errorf("%w：读取候选人简历失败：%w", errAutoReplyResumeDeferred, err)
@@ -256,12 +276,13 @@ func (f *Flow) uploadResumeAttachments(ctx context.Context, prepared shared.Prep
 			continue
 		}
 		seenPaths[path] = struct{}{}
+		uploadAt := time.Now()
 		item, err := f.Cloud.UploadAutoReplyAttachment(ctx, credentials(prepared), cloud.AutoReplyAttachmentUpload{
 			FilePath: path, ConversationID: conversation.ID,
 			PlatformID: prepared.Platform.ID, ExtractedText: "", SourceMessageID: sourceID,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("保存候选人简历附件失败：%w", err)
+			return nil, failurediag.Wrap(fmt.Errorf("保存候选人简历附件失败：%w", err), failurediag.Detail{Source: "简历附件", Operation: "保存已采集的附件", Phase: "提交附件存储", Reason: "附件未确认入库", ElapsedMS: time.Since(uploadAt).Milliseconds()})
 		}
 		attachments = append(attachments, item)
 		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
@@ -431,11 +452,15 @@ func (f *Flow) queueStructuredCandidateSync(ctx context.Context, prepared shared
 			f.reportResumeStage(prepared, position, input.CandidateName, "resume_waiting_phone", "result", "资料已保存，确认手机号后可写入简历库", false)
 			return
 		}
+		startedAt := time.Now()
 		syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		e := f.Cloud.SyncAutoReplyStructuredCandidate(syncCtx, credentials(prepared), candidateID, input)
 		status, statusErr := f.Cloud.CandidatePublicationStatus(syncCtx, credentials(prepared), candidateID, position.Position.ID)
 		if e != nil || statusErr != nil || status != "completed" {
+			if syncErr := errors.Join(e, statusErr); syncErr != nil {
+				f.log(prepared.Request.TaskID, "sync_structured_resume", "warning", startedAt, failurediag.Wrap(syncErr, failurediag.Detail{Source: "后台同步", Operation: "简历库发布", Phase: "提交并核对发布状态", Reason: "未确认同步完成", Impact: "整理结果已保留", LimitMS: 30000, ElapsedMS: time.Since(startedAt).Milliseconds()}))
+			}
 			f.reportResumeStage(prepared, position, input.CandidateName, "resume_publish_pending", "error", "简历库尚未确认发布。已保留附件和整理结果，稍后重试同步。", false)
 			return
 		}
@@ -443,10 +468,16 @@ func (f *Flow) queueStructuredCandidateSync(ctx context.Context, prepared shared
 		return
 	}
 	go func() {
+		startedAt := time.Now()
 		syncCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		if err := f.Cloud.SyncAutoReplyStructuredCandidate(syncCtx, credentials(prepared), candidateID, input); err != nil {
-			f.log(prepared.Request.TaskID, "sync_structured_resume", "warning", time.Now(), fmt.Errorf("简历库同步未完成，整理结果已保留"))
+			safe := errors.New("简历库同步未完成，整理结果已保留")
+			details := failurediag.Details(err)
+			for i := len(details) - 1; i >= 0; i-- {
+				safe = failurediag.Wrap(safe, details[i])
+			}
+			f.log(prepared.Request.TaskID, "sync_structured_resume", "warning", startedAt, failurediag.Wrap(safe, failurediag.Detail{Source: "后台同步", Operation: "简历库发布", Phase: "提交云端", Reason: "未确认同步完成", Impact: "整理结果已保留", LimitMS: 30000, ElapsedMS: time.Since(startedAt).Milliseconds()}))
 		}
 	}()
 }

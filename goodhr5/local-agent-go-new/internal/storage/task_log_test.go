@@ -189,6 +189,41 @@ func TestTaskLogsKeepLatestThousand(t *testing.T) {
 	}
 }
 
+// TestLateServerLogTimeAndRetention 验证离线记录按发生时间回到岗位日志，并与千条上限及 AI 原文引用规则一致。
+func TestLateServerLogTimeAndRetention(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	const pos = "time-position"
+	for i := 0; i < maxPositionTaskLogs; i++ {
+		at := time.Date(2026, 1, 1, 0, 0, i, 0, time.UTC).Format(time.RFC3339Nano)
+		if _, err := store.db.Exec("INSERT INTO task_logs(position_id,created_at) VALUES(?,?)", pos, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save := func(at, message string, sequence int64) {
+		t.Helper()
+		if err := store.SaveServerFailureLog(ctx, TaskLog{PositionID: pos, CreatedAt: at, Message: message}, "cloud_reply_log_cursor:owner:run", sequence); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save("2025-12-30T00:00:00Z", "过期补领", 1)
+	save("2026-01-01T00:00:01.125Z", "稍晚", 2)
+	save("2026-01-01T00:00:01Z", "同一整秒", 3)
+	rows, err := store.ListPositionLogs(ctx, pos, 1000)
+	if err != nil || len(rows) != 1000 || rows[0].Message != "同一整秒" || rows[1].Message != "稍晚" {
+		t.Fatalf("时间排序错误，前两条：%+v / %v", rows[:2], err)
+	}
+	first, _ := store.TaskLogRetainedAfterAppend(ctx, rows[0].ID)
+	second, _ := store.TaskLogRetainedAfterAppend(ctx, rows[1].ID)
+	if first || !second {
+		t.Fatal("原文留存判断与时间裁剪不一致")
+	}
+}
+
 // TestLatestTaskIncludesCandidateCounts 验证最近任务会从现有候选人摘要返回本次统计。
 func TestLatestTaskIncludesCandidateCounts(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "agent.db"))

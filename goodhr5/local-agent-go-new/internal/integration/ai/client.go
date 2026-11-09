@@ -17,6 +17,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // Client 是无共享任务状态的 OpenAI 兼容客户端。
@@ -121,10 +122,11 @@ func (c *Client) evaluateCandidate(
 ) (Decision, error) {
 	system := candidateSystemPrompt(cfg, position)
 	user := candidateUserPrompt(position, candidate, detail)
+	var completion streamCompletion
 	content, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", system),
 		textChatMessage("user", user),
-	}, candidateChatOptions(position, decisionThreshold(cfg, position), earlyDecision))
+	}, candidateChatOptions("候选人详情评分", position, decisionThreshold(cfg, position), earlyDecision, &completion))
 	if err != nil {
 		return Decision{}, err
 	}
@@ -133,7 +135,7 @@ func (c *Client) evaluateCandidate(
 		decisionThreshold(cfg, position),
 		position.CommonConfig.OutputStructuredResume,
 	)
-	return decision, withResponseModel(err, cfg.Model)
+	return decision, completion.parseError(withResponseModel(err, cfg.Model))
 }
 
 // EvaluateCandidatePreview 只根据候选人基础信息判断是否值得打开详情。
@@ -143,15 +145,16 @@ func (c *Client) EvaluateCandidatePreview(ctx context.Context, cfg cloud.AIConfi
 
 // evaluateCandidatePreview 复用卡片提示词并允许在完整分数与原因可用时回调，不把尾部响应计入判定耗时。
 func (c *Client) evaluateCandidatePreview(ctx context.Context, cfg cloud.AIConfig, position cloud.PositionSnapshot, candidate model.Candidate, early func(Decision)) (Decision, error) {
+	var completion streamCompletion
 	content, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", candidatePreviewSystemPrompt(position)),
 		textChatMessage("user", candidatePreviewUserPrompt(position, candidate)),
-	}, candidateChatOptions(position, detailDecisionThreshold(position), early))
+	}, candidateChatOptions("候选人基础预分析", position, detailDecisionThreshold(position), early, &completion))
 	if err != nil {
 		return Decision{}, err
 	}
 	decision, err := parseDecision(content, detailDecisionThreshold(position))
-	return decision, withResponseModel(err, cfg.Model)
+	return decision, completion.parseError(withResponseModel(err, cfg.Model))
 }
 
 // EvaluateCandidateVision 根据候选人详情截图和文本生成强类型图片判断。
@@ -185,10 +188,11 @@ func (c *Client) evaluateCandidateVision(
 	if len(parts) == 1 {
 		return Decision{}, fmt.Errorf("AI 图片详情没有可读取的图片")
 	}
+	var completion streamCompletion
 	content, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", candidateSystemPrompt(cfg, position)),
 		{Role: "user", Content: messageContent{Parts: parts}},
-	}, candidateChatOptions(position, decisionThreshold(cfg, position), earlyDecision))
+	}, candidateChatOptions("候选人图片评分", position, decisionThreshold(cfg, position), earlyDecision, &completion))
 	if err != nil {
 		return Decision{}, err
 	}
@@ -197,7 +201,7 @@ func (c *Client) evaluateCandidateVision(
 		decisionThreshold(cfg, position),
 		position.CommonConfig.OutputStructuredResume,
 	)
-	return decision, withResponseModel(err, cfg.Model)
+	return decision, completion.parseError(withResponseModel(err, cfg.Model))
 }
 
 // GenerateReply 根据会话上下文生成一条简短回复。
@@ -213,7 +217,7 @@ func (c *Client) GenerateReply(ctx context.Context, cfg cloud.AIConfig, position
 	reply, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", system),
 		textChatMessage("user", user),
-	}, candidateChatOptions(position, 0, nil))
+	}, candidateChatOptions("生成聊天回复", position, 0, nil, nil))
 	if err != nil {
 		return "", err
 	}
@@ -225,14 +229,20 @@ func (c *Client) GenerateReply(ctx context.Context, cfg cloud.AIConfig, position
 
 // chatOptions 保存单次 AI 请求的思考模式和流式提前评分配置。
 type chatOptions struct {
+	Completion     *streamCompletion
+	Operation      string
+	Attempt        int64
+	PriorEarly     bool
 	EnableThinking bool
 	Threshold      float64
 	EarlyDecision  func(Decision)
 }
 
 // candidateChatOptions 根据岗位开关创建一次 AI 请求配置。
-func candidateChatOptions(position cloud.PositionSnapshot, threshold float64, earlyDecision func(Decision)) chatOptions {
+func candidateChatOptions(operation string, position cloud.PositionSnapshot, threshold float64, earlyDecision func(Decision), completion *streamCompletion) chatOptions {
 	return chatOptions{
+		Operation:      operation,
+		Completion:     completion,
 		EnableThinking: position.EnableThinking,
 		Threshold:      threshold,
 		EarlyDecision:  earlyDecision,
@@ -258,7 +268,12 @@ func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMe
 	endpoint := chatCompletionsURL(cfg.BaseURL)
 	var lastErr error
 	var receivedDiagnostic *ResponseDiagnostic
+	var previous []failurediag.Detail
+	if send := options.EarlyDecision; send != nil {
+		options.EarlyDecision = func(d Decision) { options.PriorEarly = true; send(d) }
+	}
 	for attempt := 1; attempt <= 3; attempt++ {
+		options.Attempt = int64(attempt)
 		content, requestErr := c.doChatRequest(ctx, endpoint, cfg.APIKey, encoded, options)
 		if requestErr == nil {
 			return content, nil
@@ -277,20 +292,25 @@ func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMe
 		lastErr = requestErr
 		var serviceErr *ServiceError
 		if !errors.As(requestErr, &serviceErr) || !serviceErr.Retryable || attempt == 3 {
-			return "", requestErr
+			return "", withAIHistory(requestErr, previous)
 		}
-		if err = waitRetry(ctx, serviceErr.RetryAfter, attempt); err != nil {
+		retryStarted := time.Now()
+		delay := max(serviceErr.RetryAfter, time.Duration(attempt)*500*time.Millisecond)
+		if err = waitRetry(ctx, delay); err != nil {
+			err = retryWaitError(ctx, err, requestErr, options.Operation, attempt, retryStarted, delay)
+			err = withAIHistory(err, previous)
 			if diagnostic, ok := ResponseDiagnosticFromError(lastErr); ok {
 				return "", &ResponseError{Cause: err, Diagnostic: diagnostic}
 			}
 			return "", err
 		}
+		previous = append(previous, failurediag.Details(requestErr)...)
 	}
 	return "", lastErr
 }
 
 // doChatRequest 执行一次 AI 请求并兼容 JSON 和 SSE 响应。
-func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey string, payload []byte, options chatOptions) (string, error) {
+func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey string, payload []byte, options chatOptions) (value string, runErr error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("创建 AI 请求失败：%w", err)
@@ -299,7 +319,15 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream, application/json")
 	request.Header.Set("X-GoodHR-Billing", "1")
+	observation, request := startAIAttempt(ctx, request, apiKey, options.Operation, options.Attempt, c.http.Timeout)
+	observation.completion = options.Completion
+	if options.Completion != nil {
+		options.Completion.unmarkedEOF = nil
+	}
+	observation.early = options.PriorEarly
+	defer func() { runErr = observation.failure(runErr) }()
 	billing := newBillingObserver(ctx, apiKey)
+	billing.diagnostic = observation
 	defer billing.finish()
 	response, err := c.http.Do(request)
 	if err != nil {
@@ -308,6 +336,7 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 		}
 		return "", &ServiceError{Message: "连接 AI 失败：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
 	}
+	observation.headers(response)
 	defer response.Body.Close()
 	billing.enabled = response.Header.Get("X-GoodHR-Billing") == "1"
 	if billing.enabled {
@@ -353,11 +382,16 @@ func readChatJSON(body []byte) (string, error) {
 
 // readChatStream 逐行读取 OpenAI 兼容 SSE 内容，并在评分字段完整时提前回调。
 func readChatStream(reader io.Reader, threshold float64, earlyDecision func(Decision), billing ...*billingObserver) (string, error) {
+	observation := streamObservation(billing)
+	if observation != nil {
+		observation.stream = true
+	}
 	stream := bufio.NewReader(reader)
 	var content strings.Builder
 	var body strings.Builder
 	var protocolErr *ResponseError
 	earlySent := false
+	endMarked := false
 	for {
 		line, readErr := stream.ReadString('\n')
 		body.WriteString(line)
@@ -372,6 +406,9 @@ func readChatStream(reader io.Reader, threshold float64, earlyDecision func(Deci
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			endMarked = true
+		}
 		if data == "" || data == "[DONE]" {
 			if errors.Is(readErr, io.EOF) {
 				break
@@ -400,11 +437,20 @@ func readChatStream(reader io.Reader, threshold float64, earlyDecision func(Deci
 				}
 			}
 		} else {
+			if streamFinishReason(chunk.Choices[0].FinishReason) {
+				endMarked = true
+			}
 			delta := chunk.Choices[0].Delta.Content
 			content.WriteString(delta)
+			if delta != "" {
+				observation.gotContent()
+			}
 			if delta != "" && earlyDecision != nil && !earlySent && protocolErr == nil {
 				if decision, ok := tryExtractStreamDecision(content.String(), threshold); ok {
 					earlySent = true
+					if observation != nil {
+						observation.early = true
+					}
 					earlyDecision(decision)
 				}
 			}
@@ -413,11 +459,18 @@ func readChatStream(reader io.Reader, threshold float64, earlyDecision func(Deci
 			break
 		}
 	}
+	completion := observation.streamEndEvidence(endMarked)
 	if protocolErr != nil {
 		// 协议坏块后仍接收剩余内容，保存的是服务实际返回的完整事件流。
 		protocolErr.Diagnostic.Response = body.String()
 		protocolErr.Diagnostic.ResponseBody = body.String()
-		return "", protocolErr
+		if observation.streamError() != nil {
+			protocolErr.Diagnostic.ResponseComplete = false
+		}
+		return "", completion.parseError(protocolErr)
+	}
+	if err := observation.streamError(); err != nil {
+		return "", streamResponseError(err, content.String(), body.String(), false)
 	}
 	if strings.TrimSpace(content.String()) == "" {
 		return "", streamResponseError(fmt.Errorf("AI 流式响应没有返回内容"), content.String(), body.String(), true)
@@ -448,11 +501,7 @@ func newHTTPServiceError(statusCode int, body string, retryAfter string) *Servic
 }
 
 // waitRetry 在 AI 重试前执行可取消退避。
-func waitRetry(ctx context.Context, retryAfter time.Duration, attempt int) error {
-	delay := time.Duration(attempt) * 500 * time.Millisecond
-	if retryAfter > delay {
-		delay = retryAfter
-	}
+func waitRetry(ctx context.Context, delay time.Duration) error {
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
@@ -673,7 +722,8 @@ type chatResponse struct {
 // streamChunk 表示一段 OpenAI 兼容 SSE 增量。
 type streamChunk struct {
 	Choices []struct {
-		Delta struct {
+		FinishReason json.RawMessage `json:"finish_reason"`
+		Delta        struct {
 			Content string `json:"content"`
 		} `json:"delta"`
 	} `json:"choices"`

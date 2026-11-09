@@ -157,3 +157,20 @@ func TestRefusedConnectionErrorType(t *testing.T) {
 		t.Fatalf("连接拒绝未记录 %+v", d)
 	}
 }
+
+// TestReadTimeoutRequiresMatchedNativeEvidence 验证定位与取值进度只能在请求编号一致时使用，原生时限不由错误文本猜测。
+func TestReadTimeoutRequiresMatchedNativeEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		phase  string
+		limit  int64
+		expect string
+	}{{"locate_read_target", 0, "worker_error"}, {"read_value", 0, "worker_error"}, {"read_value", 1750, "read_value_timeout"}} {
+		obs := newRequestObservation(context.Background(), "/api/v1/element/read", time.Now(), time.Second)
+		raw, _ := json.Marshal(map[string]any{"request_progress": map[string]any{"request_id": obs.diagnostic.RequestID, "worker_phase": tc.phase}, "read_value_timeout_ms": tc.limit})
+		body := contract.WorkerErrorBody{Code: "INTERNAL_ERROR", Action: "element.read", Step: "read", Details: raw}
+		obs.recordError(nil, &body, "worker_response", "worker_error", "", time.Now(), 500)
+		if obs.diagnostic.WorkerPhase != tc.phase || obs.diagnostic.Reason != tc.expect || obs.diagnostic.ReadValueTimeoutMS != tc.limit {
+			t.Fatalf("未知原因或实际时限被误写：%+v", obs.diagnostic)
+		}
+	}
+}

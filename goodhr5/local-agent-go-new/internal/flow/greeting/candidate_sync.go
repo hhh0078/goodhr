@@ -11,6 +11,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 const candidateCloudSyncTimeout = 60 * time.Second
@@ -66,7 +67,7 @@ func (f *Flow) finishCandidateEvaluationAsync(
 			prepared.Position.ID,
 			upload,
 		); err != nil {
-			f.log(prepared.Request.TaskID, "sync_structured_candidate", "warning", startedAt, err)
+			f.log(prepared.Request.TaskID, "sync_structured_candidate", "warning", startedAt, failurediag.Wrap(err, failurediag.Detail{Source: "后台同步", Operation: "结构化简历同步", Phase: "提交云端", Reason: "未确认同步完成", Impact: "后台同步未完成，岗位继续运行", ElapsedMS: time.Since(startedAt).Milliseconds(), LimitMS: candidateCloudSyncTimeout.Milliseconds()}))
 			return
 		}
 		f.log(prepared.Request.TaskID, "sync_structured_candidate", "success", startedAt, nil)

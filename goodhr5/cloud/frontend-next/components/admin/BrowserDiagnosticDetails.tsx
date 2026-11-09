@@ -22,6 +22,7 @@ const requestLabels: Record<string, string> = {
   request_id: "请求编号", action: "浏览器动作", phase: "请求中断位置", reason: "请求结果",
   error_code: "错误码", worker_step: "执行端报错步骤", original_error: "底层错误",
   elapsed_ms: "请求耗时", go_timeout_ms: "本地请求时限", worker_timeout_ms: "浏览器操作时限",
+  read_value_timeout_ms: "已定位元素取值时限",
   parent_remaining_ms: "发起请求时上层剩余时间", response_received: "收到响应头", http_status: "HTTP 状态",
   connection_acquired: "已取得连接", request_written: "请求已写入连接",
   worker_reachable: "执行端有响应", worker_phase: "执行端最后观测步骤", progress_age_ms: "距最后进度",
@@ -48,6 +49,10 @@ const valueLabels: Record<string, string> = {
   connection_closed: "连接已关闭", transport_error: "传输错误", invalid_response: "响应格式有误",
   received: "已收到请求", queued: "排队中", executing: "执行中", require_page: "获取页面",
   resolve_list: "定位列表", read_card: "读取卡片", locate_field: "定位字段", read_field: "读取字段",
+  read_value_timeout: "读取已定位元素的内容超时", playwright_timeout: "页面操作等待超时",
+  locate_read_target: "定位要读取的元素", read_value: "已定位元素，正在读取内容",
+  screenshot_prepare: "准备截图区域", screenshot_capture: "截取页面画面", screenshot_top: "滚动到详情顶部",
+  screenshot_save: "保存截图分段", screenshot_advance: "滚动到下一段",
   scroll_target: "定位滚动区域", scroll_anchor: "定位滚动锚点", scroll_move: "移动鼠标",
   scroll_wheel: "滚动列表", scroll_verify: "检查滚动结果",
 };

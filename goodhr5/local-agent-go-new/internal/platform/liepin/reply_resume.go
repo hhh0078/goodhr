@@ -16,6 +16,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 var liepinEmailPattern = regexp.MustCompile(`(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}`)
@@ -137,8 +138,9 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 		return "", nil, err
 	}
 	var receiptRecord contract.DownloadRecord
+	previewAt := time.Now()
 	if err := openLiepinAttachmentPreview(ctx, browser, cfg); err != nil {
-		return "", nil, err
+		return "", nil, failurediag.AttachmentFailure(err, "打开附件预览", previewAt, 0, 0, "")
 	}
 	defer func() {
 		if ctx.Err() != nil && !errors.Is(returnErr, ctx.Err()) {
@@ -167,40 +169,50 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 	if err != nil {
 		return "", nil, err
 	}
+	prepareAt := time.Now()
 	link, err := browser.Read(ctx, contract.ElementReadRequest{Selector: download, Attribute: "href"})
 	if err != nil {
-		return "", nil, fmt.Errorf("读取附件下载链接失败：%w", err)
+		return "", nil, failurediag.AttachmentFailure(fmt.Errorf("读取附件下载链接失败：%w", err), "准备下载监听", prepareAt, 0, 0, "")
 	}
 	file, ignored, err := liepinAttachmentDownloadSource(ctx, browser, cfg, returnURL, link.Value)
 	if err != nil {
-		return "", nil, err
+		return "", nil, failurediag.AttachmentFailure(err, "准备下载监听", prepareAt, 0, 0, "")
 	}
 	receipt, stop, err := downloader.WatchDownload(returnURL, file, ignored...)
 	if err != nil {
-		return "", nil, err
+		return "", nil, failurediag.AttachmentFailure(err, "准备下载监听", prepareAt, 0, 0, "")
 	}
 	defer stop()
+	clickAt := time.Now()
 	if _, err = browser.Click(ctx, contract.ElementClickRequest{Selector: download, WatchDownloadViewer: true}); err != nil {
-		return "", nil, fmt.Errorf("下载%s附件简历失败：%w", cfg.Name, err)
+		return "", nil, failurediag.AttachmentFailure(fmt.Errorf("下载%s附件简历失败：%w", cfg.Name, err), "触发附件下载", clickAt, 0, 0, "")
 	}
 	// 没有起下载才报短超时；原生下载已经开始时等它完成，避免大文件被重复点击。
+	downloadAt := time.Now()
 	startTimer := time.NewTimer(12 * time.Second)
 	defer startTimer.Stop()
 	startDeadline := startTimer.C
-	waitCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	receiptDeadline := errors.New("附件下载回执等待时限已到")
+	waitCtx, cancel := context.WithTimeoutCause(ctx, 90*time.Second, receiptDeadline)
 	defer cancel()
 	for {
 		select {
 		case <-startDeadline:
-			return "", nil, fmt.Errorf("还没看到这份附件开始下载")
+			return "", nil, failurediag.AttachmentFailure(fmt.Errorf("还没看到这份附件开始下载"), "等待下载开始", downloadAt, 12*time.Second, 0, "尚未观察到下载开始")
 		case <-waitCtx.Done():
-			return "", nil, fmt.Errorf("还没收到这份附件的下载回执：%w", waitCtx.Err())
+			reason := ""
+			if errors.Is(context.Cause(waitCtx), receiptDeadline) {
+				reason = "下载回执等待时限已到"
+			} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				reason = "上层请求时限已到"
+			}
+			return "", nil, failurediag.AttachmentFailure(fmt.Errorf("还没收到这份附件的下载回执：%w", waitCtx.Err()), "等待下载回执", downloadAt, 90*time.Second, 0, reason)
 		case result, ok := <-receipt:
 			if !ok {
-				return "", nil, fmt.Errorf("附件下载监听已结束")
+				return "", nil, failurediag.AttachmentFailure(fmt.Errorf("附件下载监听已结束"), "等待下载回执", downloadAt, 90*time.Second, 0, "")
 			}
 			if result.Err != nil {
-				return "", nil, result.Err
+				return "", nil, failurediag.AttachmentFailure(result.Err, "等待下载回执", downloadAt, 90*time.Second, 0, "")
 			}
 			if result.Record.Status == "pending" {
 				startDeadline = nil
@@ -208,7 +220,7 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 			}
 			info, err := os.Stat(result.Record.FilePath)
 			if result.Record.Status != "saved" || err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
-				return "", nil, fmt.Errorf("下载记录已收到，但本地附件还不可用")
+				return "", nil, failurediag.AttachmentFailure(fmt.Errorf("下载记录已收到，但本地附件还不可用"), "核对下载文件", downloadAt, 0, 0, "")
 			}
 			receiptRecord = result.Record
 			return attachmentText, []string{result.Record.FilePath}, nil

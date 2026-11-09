@@ -4,6 +4,9 @@ package lifecycle
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,10 +14,14 @@ import (
 	"testing"
 	"time"
 
+	"goodhr5/local-agent-go-new/internal/flow/greeting"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 	"goodhr5/local-agent-go-new/internal/system/power"
 )
 
@@ -73,6 +80,9 @@ func TestStopTaskWaitsWithoutCancelingCurrentWork(t *testing.T) {
 	case <-runCtx.Done():
 		t.Fatal("用户停止不应取消当前候选人上下文")
 	default:
+	}
+	if active.stopOrigin != "岗位停止请求" {
+		t.Fatalf("停止发起来源缺失 %q", active.stopOrigin)
 	}
 	close(active.done)
 	if err = <-result; err != nil {
@@ -186,5 +196,73 @@ func TestNotifyFailedSyncsCountsBeforeFailNotice(t *testing.T) {
 		!strings.HasSuffix(paths[0], "/counts") ||
 		!strings.HasSuffix(paths[1], "/api/fail-notice") {
 		t.Fatalf("失败收尾调用顺序不正确：%v", paths)
+	}
+}
+
+// TestStopOutcomeDistinguishesOrigins 验证收尾只根据已确认的发起方记录停机原因，并区分两种登录响应。
+func TestStopOutcomeDistinguishesOrigins(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	// 复现候选人计时器到期，AI 在等待首段 SSE 时收到父级取消，然后岗位按原策略收尾。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, ": heartbeat\n\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	candidate, stopCandidate := context.WithTimeoutCause(context.Background(), 250*time.Millisecond, greeting.ErrCandidateProcessingTimeout)
+	defer stopCandidate()
+	scoring, stopScoring, _ := ai.ScoringContext(candidate, time.Minute)
+	defer stopScoring()
+	_, aiErr := ai.New().EvaluateCandidatePreviewEarly(scoring, cloud.AIConfig{BaseURL: server.URL, APIKey: "fixture", Model: "fixture"}, cloud.PositionSnapshot{}, model.Candidate{})
+	overlap := fmt.Errorf("%w：%w", context.Cause(candidate), aiErr)
+	if !errors.Is(overlap, greeting.ErrCandidateProcessingTimeout) || !errors.Is(overlap, context.Canceled) || !shared.ShouldStopTaskImmediately(overlap) {
+		t.Fatalf("没有重现候选人时限触发 AI 取消的原停止策略 %v", overlap)
+	}
+	for _, tc := range []struct {
+		origin string
+		err    error
+		reason string
+	}{
+		{"岗位停止请求", nil, "已收到主动停止请求"},
+		{"本地程序退出", context.Canceled, "本地程序退出时停止任务"},
+		{"", overlap, "候选人总时限已到"},
+		{"岗位停止请求", overlap, "已收到主动停止请求"},
+		{"本地程序退出", overlap, "本地程序退出时停止任务"},
+		{"", context.Canceled, "收到停止信号，未确认发起来源"},
+		{"", &cloud.APIError{StatusCode: http.StatusUnauthorized}, "云端拒绝登录凭证"},
+		{"", &cloud.APIError{StatusCode: http.StatusForbidden}, "云端拒绝当前访问权限"},
+	} {
+		t.Run(tc.reason, func(t *testing.T) {
+			collector := &runtimeLogCollector{}
+			active := &activeTask{
+				cancel: func() {}, done: make(chan struct{}), stopped: tc.origin != "", stopOrigin: tc.origin,
+				state: storage.TaskRun{TaskID: "task-stop-test", PositionID: "position-stop-test", TaskType: "greeting", Status: "running", StartedAt: time.Now().UTC()},
+			}
+			if err := store.SaveTask(context.Background(), active.state); err != nil {
+				t.Fatal(err)
+			}
+			runner := &Runner{active: map[string]*activeTask{active.state.TaskID: active}, store: store, logger: collector, profiles: profile.New(t.TempDir()), power: &power.Guard{}}
+			runner.finish(active, shared.Stats{}, tc.err)
+			if active.state.Status != "stopped" {
+				t.Fatalf("终态变更 %q", active.state.Status)
+			}
+			for i, event := range collector.events {
+				if event.step != "finished" {
+					continue
+				}
+				details := failurediag.Details(collector.errors[i])
+				if len(details) == 0 || details[0].Reason != tc.reason || (tc.reason == "候选人总时限已到" && active.state.Summary != "候选人总时限已到，岗位已停止") {
+					t.Fatalf("终态来源不符 %+v", details)
+				}
+				return
+			}
+			t.Fatal("终态没有写入岗位日志")
+		})
 	}
 }

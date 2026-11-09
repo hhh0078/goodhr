@@ -4,7 +4,8 @@ import type { ElementReadRequest } from "../../contracts/actions.js";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { normalizeWorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
-import { ReadPrimitive } from "../primitives/read.js";
+import { markRequestProgress } from "../../logging/request-progress.js";
+import { elementReadTimeoutMS, ReadPrimitive } from "../primitives/read.js";
 import { FindAction } from "./find.js";
 
 /** ReadResult 表示元素读取结果。 */
@@ -36,7 +37,9 @@ export class ReadAction {
         ? `attribute:${request.attribute}`
         : request.property ?? "text",
     });
+    let readingValue = false;
     try {
+      markRequestProgress(actionContext, "locate_read_target");
       const found = await this.find.one(
         request.selector,
         actionContext,
@@ -44,6 +47,8 @@ export class ReadAction {
         true,
         "state",
       );
+      readingValue = true;
+      markRequestProgress(actionContext, "read_value");
       let value: string;
       let property: string;
       const selectedSpec = found.resolved.resolved_spec ?? request.selector;
@@ -81,6 +86,8 @@ export class ReadAction {
         step,
         trace_id: actionContext.trace_id,
         retryable: true,
+        details: readingValue && error instanceof Error && error.name === "TimeoutError"
+          ? { read_value_timeout_ms: elementReadTimeoutMS } : {},
         message: `${request.selector.description} 暂时没读到`,
       });
       this.logger.failure(actionContext, normalized);

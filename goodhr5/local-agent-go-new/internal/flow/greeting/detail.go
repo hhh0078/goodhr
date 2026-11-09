@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ocr"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // readDetailWithOCR 截取当前详情页并在本地识别文字。
@@ -77,12 +79,13 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 		if configuredAnchor, exists := prepared.Platform.Selectors["candidate.detail_scroll"]; exists {
 			anchor = &configuredAnchor
 		}
+		began := time.Now()
 		result, err := f.Browser.LongScreenshot(ctx, contract.LongScreenshotRequest{
 			Target: target, WheelAnchor: anchor, Directory: directory,
 			Filename: filename, Distance: 520, MaxParts: 20, WaitMS: 300,
 		})
 		if err != nil {
-			return nil, err
+			return nil, failurediag.Wrap(err, failurediag.Detail{Source: "截图", Operation: "候选人详情长截图", Phase: "获取分段画面", Reason: "未取得完整的长截图", ElapsedMS: time.Since(began).Milliseconds()})
 		}
 		if len(result.Parts) == 0 {
 			return nil, fmt.Errorf("候选人详情长截图没有生成分段")
@@ -96,17 +99,18 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 			)
 			part, stitchErr := stitchScreenshotParts(result.Parts, outputPath)
 			if stitchErr != nil {
-				return nil, fmt.Errorf("拼接候选人详情长图失败：%w", stitchErr)
+				return nil, failurediag.Wrap(fmt.Errorf("拼接候选人详情长图失败：%w", stitchErr), failurediag.Detail{Source: "截图", Operation: "候选人详情长截图", Phase: "拼接分段画面", Reason: "未能拼成完整图片"})
 			}
 			return []contract.ScreenshotPart{part}, nil
 		}
 		return result.Parts, nil
 	}
+	began := time.Now()
 	screenshot, err := f.Browser.Screenshot(ctx, contract.ScreenshotRequest{
 		Directory: directory, Filename: filename,
 	})
 	if err != nil {
-		return nil, err
+		return nil, failurediag.Wrap(err, failurediag.Detail{Source: "截图", Operation: "候选人详情截图", Phase: "获取当前画面", Reason: "未取得当前画面", ElapsedMS: time.Since(began).Milliseconds()})
 	}
 	return []contract.ScreenshotPart{{
 		Path: screenshot.Path, Filename: screenshot.Filename, Size: screenshot.Size,

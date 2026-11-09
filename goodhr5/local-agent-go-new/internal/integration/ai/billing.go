@@ -24,9 +24,10 @@ func WithBillingReporter(ctx context.Context, report func(Billing)) context.Cont
 
 // billingObserver 仅保存当前 HTTP 尝试的回执，既不保存密钥，也不保存候选人原始资料。
 type billingObserver struct {
-	billing Billing
-	report  func(Billing)
-	enabled bool
+	diagnostic *aiAttempt
+	billing    Billing
+	report     func(Billing)
+	enabled    bool
 }
 
 // newBillingObserver 在发送请求前确定缺少回执时的提示，内置旧版本不能误写成自定义接口或免费。
@@ -41,6 +42,14 @@ func newBillingObserver(ctx context.Context, apiKey string) *billingObserver {
 
 // observe 只接受已确认支持 GoodHR 回执的响应，忽略模型内容中的同名字段及不合法金额。
 func (b *billingObserver) observe(data []byte) {
+	if b != nil && b.diagnostic != nil && b.diagnostic.trustedResponse && bytes.Contains(data, []byte(`"goodhr_upstream_failure"`)) {
+		var signal struct {
+			Failure json.RawMessage `json:"goodhr_upstream_failure"`
+		}
+		if json.Unmarshal(data, &signal) == nil {
+			b.diagnostic.proxySignal(signal.Failure)
+		}
+	}
 	if b == nil || !b.enabled || !bytes.Contains(data, []byte(`"goodhr_billing"`)) {
 		return
 	}
@@ -69,4 +78,12 @@ func (b *billingObserver) finish() {
 	if b.report != nil {
 		b.report(b.billing)
 	}
+}
+
+// streamObservation 提取与当前 HTTP 尝试绑定的观测器，兼容独立解析和旧调用者。
+func streamObservation(observers []*billingObserver) *aiAttempt {
+	if len(observers) == 0 || observers[0] == nil {
+		return nil
+	}
+	return observers[0].diagnostic
 }

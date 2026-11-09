@@ -12,6 +12,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 type attachmentCompletionBrowser struct {
@@ -115,6 +116,16 @@ func TestCollectAttachmentFileOnlyAndUnsafeCompletion(t *testing.T) {
 				}
 			} else if !errors.Is(err, expectedErr) || len(bundle.AttachmentPaths) != 0 {
 				t.Fatalf("采集错误被附件成功掩盖：bundle=%+v err=%v expected=%v", bundle, err, expectedErr)
+			}
+			if scenario == "download_failed" {
+				receipt := failurediag.AttachmentEvidence(err)
+				if receipt == nil {
+					t.Fatalf("设备未能回传附件监听故障 %+v", receipt)
+				}
+				details := failurediag.Details(receipt.Restore(errors.New("设备操作失败")))
+				if len(details) != 1 || details[0].Phase != "准备下载监听" {
+					t.Fatalf("设备返回的附件阶段有误 %+v", details)
+				}
 			}
 			for _, click := range browser.clicks {
 				if click == "测试在线简历入口" {

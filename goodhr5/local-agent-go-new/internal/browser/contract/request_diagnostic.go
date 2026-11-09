@@ -11,6 +11,7 @@ type PendingBrowserRead struct {
 
 // RequestDiagnostic 记录本机请求及与其编号匹配的 Worker 现场，可选数字与布尔值用指针区分零值和未观测。
 type RequestDiagnostic struct {
+	ReadValueTimeoutMS int64                `json:"read_value_timeout_ms,omitempty"`
 	RequestID          string               `json:"request_id"`
 	Action             string               `json:"action"`
 	Phase              string               `json:"phase"`

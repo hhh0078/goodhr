@@ -123,11 +123,15 @@ func (o *requestObservation) recordError(probe *Client, body *contract.WorkerErr
 		delete(details, "request_progress")
 		if phase == "worker_response" {
 			var sourceID, workerReason string
+			var nativeReadMS int64
+			_ = json.Unmarshal(details["read_value_timeout_ms"], &nativeReadMS)
 			_ = json.Unmarshal(details["request_id"], &sourceID)
 			_ = json.Unmarshal(details["reason"], &workerReason)
 			switch {
 			case progress.RequestID == d.RequestID && sourceID != "" && sourceID != d.RequestID:
 				d.Reason = "queue_blocked_by_prior_request"
+			case body.Action == "element.read" && body.Step == "read" && body.Code == "INTERNAL_ERROR" && d.WorkerPhase == "read_value" && nativeReadMS > 0 && nativeReadMS <= 180000:
+				d.Reason, d.OriginalError, d.ReadValueTimeoutMS = "read_value_timeout", "playwright_timeout", nativeReadMS
 			case workerReason == "deadline_exceeded":
 				d.Reason, d.OriginalError = "worker_deadline", workerReason
 			case workerReason == "client_disconnected" || workerReason == "request_cancelled" || workerReason == "native_input_deadline":
@@ -178,7 +182,7 @@ func (o *requestObservation) mergeProgress(p contract.RequestDiagnostic) {
 		return
 	}
 	switch p.WorkerPhase {
-	case "received", "queued", "executing", "require_page", "resolve_list", "list_resolved", "read_card", "locate_field", "read_field", "scroll_target", "scroll_anchor", "scroll_move", "scroll_wheel", "scroll_verify":
+	case "received", "queued", "executing", "locate_read_target", "read_value", "require_page", "resolve_list", "list_resolved", "read_card", "locate_field", "read_field", "scroll_target", "scroll_anchor", "scroll_move", "scroll_wheel", "scroll_verify", "screenshot_prepare", "screenshot_capture", "screenshot_top", "screenshot_save", "screenshot_advance":
 		d.WorkerPhase = p.WorkerPhase
 	}
 	d.FieldKey = safeReadField(p.FieldKey)
@@ -224,10 +228,12 @@ func safeReadField(field string) string {
 	}
 }
 
-// listDiagnosticPath 对名单读取、滚轮和翻页控件记录传输类异常，其他动作保留原有错误语义。
+// listDiagnosticPath 对名单读取、滚轮、翻页控件和截图记录传输类异常，其他动作保留原有错误语义。
 func listDiagnosticPath(path string) bool {
 	switch path {
-	case "/api/v1/element/find-all", "/api/v1/element/find", "/api/v1/element/scroll", "/api/v1/page/scroll", "/api/v1/element/click":
+	case "/api/v1/page/screenshot", "/api/v1/element/screenshot", "/api/v1/element/screenshot-long":
+		return true
+	case "/api/v1/element/read", "/api/v1/element/find-all", "/api/v1/element/find", "/api/v1/element/scroll", "/api/v1/page/scroll", "/api/v1/element/click":
 		return true
 	default:
 		return false

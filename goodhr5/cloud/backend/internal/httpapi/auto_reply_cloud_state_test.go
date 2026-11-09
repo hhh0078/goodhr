@@ -277,3 +277,44 @@ func TestAutoReplyCloudStateFlow(t *testing.T) {
 		t.Fatal("最后来源删除后应只留下招聘事实", err, original, answer, fact)
 	}
 }
+
+// TestAutoReplyFailureReplayScope 验证服务重启后按设备、账号和运行游标补发，并只投影无原文的故障字段。
+func TestAutoReplyFailureReplayScope(t *testing.T) {
+	db := autoReplyStateTestDB(t)
+	store := NewPostgresAutoReplyStore(db)
+	ctx := context.Background()
+	var tenant, uid string
+	if err := db.QueryRow("INSERT INTO tenants DEFAULT VALUES RETURNING id").Scan(&tenant); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("INSERT INTO users(tenant_id,email) VALUES($1,'replay@example.test') RETURNING id", tenant).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	run := strings.Repeat("a", 32)
+	var changes []AutoReplyStateChange
+	add := func(kind, id string, p any) {
+		t.Helper()
+		raw, e := json.Marshal(p)
+		if e != nil {
+			t.Fatal(e)
+		}
+		changes = append(changes, AutoReplyStateChange{Kind: kind, ID: id, Revision: 1, Sequence: int64(len(changes) + 1), UpdatedAt: "2026-11-09T00:00:00Z", Payload: raw})
+	}
+	add("runtime_runs", "run:"+run, map[string]any{"machine_id": "machine"})
+	for i := 1; i <= 3; i++ {
+		add("runtime_events", fmt.Sprintf("failure:%s:%020d", run, i), map[string]any{"position_id": fmt.Sprint("p", i), "run_id": run, "failure_machine": "machine", "failure_sequence": i, "status": "error", "title": "ai", "occurred_at": "2026-11-09T00:00:00Z", "failure_diagnostics": []any{map[string]string{"source": "AI", "reason": "等待超时"}}, "description": "PRIVATE-CONTENT", "conversation_id": "PRIVATE-ID"})
+	}
+	if _, err := store.CommitAutoReplyState(ctx, tenant, uid, 0, changes); err != nil {
+		t.Fatal(err)
+	}
+	notices, found, err := store.replayAutoReplyFailures(ctx, tenant, uid, "machine", run, 1)
+	if err != nil || !found || len(notices) != 2 || !strings.Contains(string(notices[0]), "p2") || !strings.Contains(string(notices[1]), "p3") || (strings.Contains(string(notices[0]), "PRIVATE") || strings.Contains(string(notices[1]), "PRIVATE")) {
+		t.Fatalf("补领错误：%s %v %v", notices, found, err)
+	}
+	for _, p := range []struct{ tenant, user, device, run string }{{tenant, uid, "other", run}, {tenant, "00000000-0000-0000-0000-000000000001", "machine", run}, {tenant, uid, "machine", strings.Repeat("b", 32)}, {"00000000-0000-0000-0000-000000000002", uid, "machine", run}} {
+		n, allowed, e := store.replayAutoReplyFailures(ctx, p.tenant, p.user, p.device, p.run, 0)
+		if e != nil || allowed || len(n) > 0 {
+			t.Fatalf("跨范围补领 %v %v %v", p, allowed, e)
+		}
+	}
+}

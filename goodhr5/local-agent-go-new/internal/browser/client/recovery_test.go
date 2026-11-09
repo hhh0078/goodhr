@@ -4,13 +4,16 @@ package client
 import (
 	"context"
 	"errors"
-	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // TestFailureRetainsWorkerWithoutReplay 验证操作失联后仍可访问同一 Worker，失败请求不自动重试。
@@ -137,6 +140,29 @@ func TestInFlightCancellationRetainsWorker(t *testing.T) {
 			}
 			if err := browser.Health(context.Background()); err != nil || calls.Load() != 1 {
 				t.Fatalf("Worker 被停止或动作被重放：calls=%d err=%v", calls.Load(), err)
+			}
+		})
+	}
+}
+
+// TestLongScreenshotEvidenceUsesObservedPhase 验证只有浏览器确认的单帧超时才记录五秒预算，且错误码不变。
+func TestLongScreenshotEvidenceUsesObservedPhase(t *testing.T) {
+	for _, tc := range []struct {
+		stage, phase string
+		limit        int
+	}{
+		{"screenshot_capture", "截取页面画面", 5000}, {"screenshot_save", "保存截图分段", 0}, {"screenshot_top", "滚动到详情顶部", 0},
+	} {
+		t.Run(tc.stage, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprintf(w, `{"ok":false,"error":{"code":"SCREENSHOT_FAILED","details":{"filename":"PRIVATE.png","capture_timeout_ms":%d,"request_progress":{"request_id":"%s","worker_phase":"%s"}}}}`, tc.limit, r.Header.Get("X-Request-ID"), tc.stage)
+			}))
+			defer server.Close()
+			_, err := New(server.URL).LongScreenshot(context.Background(), contract.LongScreenshotRequest{MaxParts: 3})
+			var workerErr *contract.WorkerError
+			d := failurediag.Details(err)
+			if !errors.As(err, &workerErr) || workerErr.Body.Code != "SCREENSHOT_FAILED" || len(d) != 1 || d[0].LimitMS != int64(tc.limit) || d[0].Phase != tc.phase || strings.Contains(failurediag.Summary(d), "PRIVATE") {
+				t.Fatalf("截图证据不符 %v %+v", err, d)
 			}
 		})
 	}

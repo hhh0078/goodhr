@@ -8,10 +8,12 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 var _ model.AutoReplyRuntime = (*Runtime)(nil)
@@ -97,40 +99,44 @@ func collectZhaopinAttachmentDocument(ctx context.Context, browser model.Browser
 	if err != nil {
 		return nil, err
 	}
+	openedAt := time.Now()
 	clicked, err := browser.Click(ctx, contract.ElementClickRequest{
 		Selector: entry, ViewportMargin: 0,
 		WaitForNewPage: true, NewPageTimeoutMS: 10000,
 	})
 	if err != nil {
 		cleanupErr := restoreZhaopinAttachmentPage(context.WithoutCancel(ctx), browser, cfg.Behavior, returnURL, "")
-		return nil, errors.Join(fmt.Errorf("打开%s附件简历失败：%w", cfg.Name, err), cleanupErr)
+		return nil, errors.Join(failurediag.AttachmentFailure(fmt.Errorf("打开%s附件简历失败：%w", cfg.Name, err), "打开附件预览", openedAt, 0, 0, ""), cleanupErr)
 	}
 	if !clicked.NewPageOpened {
-		return nil, fmt.Errorf("%s附件简历没有打开新标签页", cfg.Name)
+		return nil, failurediag.AttachmentFailure(fmt.Errorf("%s附件简历没有打开新标签页", cfg.Name), "打开附件预览", openedAt, 10*time.Second, 0, "")
 	}
 	documentURL := strings.TrimSpace(clicked.NewPageURL)
 	defer func() {
+		restoreAt := time.Now()
 		cleanupErr := restoreZhaopinAttachmentPage(context.WithoutCancel(ctx), browser, cfg.Behavior, returnURL, documentURL)
 		if cleanupErr != nil {
-			returnErr = errors.Join(returnErr, cleanupErr)
+			returnErr = errors.Join(returnErr, failurediag.AttachmentFailure(cleanupErr, "恢复会话页面", restoreAt, 0, 0, ""))
 		}
 	}()
+	checkAt := time.Now()
 	currentPages, err := browser.ListPages(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("读取%s附件标签失败：%w", cfg.Name, err)
+		return nil, failurediag.AttachmentFailure(fmt.Errorf("读取%s附件标签失败：%w", cfg.Name, err), "核对附件页面", checkAt, 0, 0, "")
 	}
 	currentURL, err := uniqueZhaopinCurrentPageURL(currentPages)
 	if err != nil {
-		return nil, fmt.Errorf("暂时不能确定%s附件标签：%w", cfg.Name, err)
+		return nil, failurediag.AttachmentFailure(fmt.Errorf("暂时不能确定%s附件标签：%w", cfg.Name, err), "核对附件页面", checkAt, 0, 0, "")
 	}
 	documentURL = currentURL
 	if err = validateZhaopinAttachmentURL(documentURL, cfg.Behavior); err != nil {
-		return nil, err
+		return nil, failurediag.AttachmentFailure(err, "核对附件页面", checkAt, 0, 0, "")
 	}
 	filename := strings.TrimSpace(snapshot.CandidateName)
 	if filename == "" {
 		filename = "智联候选人"
 	}
+	saveAt := time.Now()
 	record, err := saver.SaveCurrentDocument(ctx, contract.SaveCurrentDocumentRequest{
 		MaxBytes:            zhaopinAutoReplyAttachmentMaxBytes,
 		AllowedContentTypes: []string{"application/pdf"},
@@ -138,14 +144,15 @@ func collectZhaopinAttachmentDocument(ctx context.Context, browser model.Browser
 		TimeoutMS:           30000,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("保存%s附件简历失败：%w", cfg.Name, err)
+		return nil, failurediag.AttachmentFailure(fmt.Errorf("保存%s附件简历失败：%w", cfg.Name, err), "保存当前附件文档", saveAt, 30*time.Second, 0, "")
 	}
+	verifyAt := time.Now()
 	if record.Status != "saved" || strings.TrimSpace(record.FilePath) == "" || record.Size <= 0 {
-		return nil, fmt.Errorf("%s附件简历没有生成有效的本地下载记录", cfg.Name)
+		return nil, failurediag.AttachmentFailure(fmt.Errorf("%s附件简历没有生成有效的本地下载记录", cfg.Name), "核对下载文件", verifyAt, 0, 0, "")
 	}
 	info, err := os.Stat(record.FilePath)
 	if err != nil || info.IsDir() || info.Size() <= 0 {
-		return nil, fmt.Errorf("%s附件简历没有保存成有效文件", cfg.Name)
+		return nil, failurediag.AttachmentFailure(fmt.Errorf("%s附件简历没有保存成有效文件", cfg.Name), "核对下载文件", verifyAt, 0, 0, "")
 	}
 	return []string{record.FilePath}, nil
 }

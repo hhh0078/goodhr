@@ -273,7 +273,7 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 		}
 	}
 	entries[1004].IsError = true
-	entries[1003].Output = json.RawMessage(`{"browser_diagnostic":{"agent_version":"6","list":{"stage":"读取候选人卡片","loading_visible":false,"timeline":["+12ms 加载层探测完成"]},"request":{"request_id":"request-123","response_received":false,"field_key":"name","item_index":0,"candidate_name":"不能分享的名字"}}}`)
+	entries[1003].Output = json.RawMessage(`{"failure_diagnostics":[{"source":"候选人处理","reason":"单人时限已到","limit_ms":300000},{"source":"AI","phase":"等待首段内容","reason":"上层时限已到","attempt":2}],"browser_diagnostic":{"agent_version":"6","list":{"stage":"读取候选人卡片","loading_visible":false,"timeline":["+12ms 加载层探测完成"]},"request":{"request_id":"request-123","response_received":false,"field_key":"name","item_index":0,"candidate_name":"不能分享的名字"}}}`)
 	entries[1004].ErrorMessage = "点击失败 password=private-secret 手机 13800138000 邮箱 candidate@example.com"
 	entries[1004].Input = json.RawMessage(`{"token":"private-token","candidateName":"张三","target":"按钮"}`)
 	entries[1004].Output = json.RawMessage(`{"request_id":"mouse-request","step_duration_ms":5001,"native_mouse":{"schema_version":1,"mouse_safety_version":"v6","stage":"apz_repaint","apz_flush_requested":true,"apz_repaint_received":false,"events_sent":0,"window_at_failure":{"window_minimized":true,"chrome_has_focus":false}}}`)
@@ -349,7 +349,7 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 		t.Fatalf("分享日志没有完整保留原生诊断证据：%+v", diagnostic)
 	}
 	browserEvidence := string(publicResult.Logs[1].Event.Output)
-	for _, required := range []string{"读取候选人卡片", "+12ms 加载层探测完成", "request-123", `"response_received":false`, `"item_index":0`, `"field_key":"name"`} {
+	for _, required := range []string{"单人时限已到", "等待首段内容", `"limit_ms":300000`, `"attempt":2`, "读取候选人卡片", "+12ms 加载层探测完成", "request-123", `"response_received":false`, `"item_index":0`, `"field_key":"name"`} {
 		if !strings.Contains(browserEvidence, required) {
 			t.Fatalf("公开快照丢失列表诊断 %s：%s", required, browserEvidence)
 		}

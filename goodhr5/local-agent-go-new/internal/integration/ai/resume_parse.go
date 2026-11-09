@@ -46,20 +46,21 @@ func (c *Client) parseResume(ctx context.Context, cfg cloud.AIConfig, text, syst
 	if err != nil {
 		return cloud.LibraryCandidate{}, fmt.Errorf("简历请求没整理好，请重新导入")
 	}
-	content, err := c.doChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, payload, chatOptions{})
+	var completion streamCompletion
+	content, err := c.doChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, payload, chatOptions{Completion: &completion, Operation: "AI 简历解析"})
 	if err != nil {
 		return cloud.LibraryCandidate{}, err
 	}
 	var candidate cloud.LibraryCandidate
 	object := extractJSONObject(content)
 	if err := json.Unmarshal([]byte(object), &candidate); err != nil {
-		return cloud.LibraryCandidate{}, withResponseModel(newParsedResponseError(fmt.Errorf("AI没返回有效的简历草稿，请重试：%w", err), content, object, "model_content"), cfg.Model)
+		return cloud.LibraryCandidate{}, completion.parseError(withResponseModel(newParsedResponseError(fmt.Errorf("AI没返回有效的简历草稿，请重试：%w", err), content, object, "model_content"), cfg.Model))
 	}
 	if candidate.IsResume != nil && !*candidate.IsResume {
 		return candidate, nil
 	}
 	if strings.TrimSpace(candidate.CandidateName) == "" && strings.TrimSpace(candidate.PersonalDescription) == "" && len(candidate.WorkExperiences) == 0 && len(candidate.Educations) == 0 {
-		return cloud.LibraryCandidate{}, fmt.Errorf("AI没找到可确认的简历信息，请检查原文后再试")
+		return cloud.LibraryCandidate{}, completion.parseError(fmt.Errorf("AI没找到可确认的简历信息，请检查原文后再试"))
 	}
 	// 来源、编号和版本只能来自用户与云端；AI不得为身份或来源授权。
 	candidate.ID, candidate.RowVersion = "", 0

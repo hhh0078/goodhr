@@ -1011,3 +1011,38 @@ for (const width of [1366, 390]) {
     await page.screenshot({ path: testInfo.outputPath(`position-${width}.png`), fullPage: true, animations: "disabled", style: "nextjs-portal { display:none }" });
   });
 }
+
+for (const width of [1366, 390]) {
+  test(`故障来源和业务影响 ${width}px 在岗位和分享日志一致`, async ({ page }, testInfo) => {
+    await mockSession(page, { tutorialState: "completed" });
+    await page.setViewportSize({ width, height: 900 });
+    const event = {
+      timestamp: "2026-11-09T07:44:51Z", message: "候选人处理结束", category: "错误", is_error: true,
+      action: "greeting", step: "candidate_timeout", status: "failed", input: {},
+      output: { ai_response_diagnostic: { model: "模拟模型", response: "{", response_complete: false, response_completion_unknown: true }, failure_diagnostics: [
+        { source: "岗位流程", operation: "处理单个候选人", reason: "单个候选人已用完五分钟预算", limit_ms: 300000 },
+        { source: "AI", operation: "最终评分", phase: "等待首段内容", reason: "上层步骤的时限已到", attempt: 2 },
+      ] },
+    };
+    const item = { id: "sample", created_at: event.timestamp, level: "error", message: event.message, event };
+    await page.route("**/api/public/position-log-shares/*", route => route.fulfill({ json: { logs: [item] } }));
+    await page.goto(`/diagnostics/${"b".repeat(64)}`);
+    await page.getByRole("textbox").fill("五分钟预算");
+    await expect(page.getByText("AI · 最终评分 · 等待首段内容：上层步骤的时限已到")).toBeVisible();
+    await expect(page.getByText("时限 300 秒")).toBeVisible();
+    await page.getByText("查看 AI 实际返回（模拟模型）").click();
+    await expect(page.getByText(/未见流结束标记，回复是否完整未知/)).toBeVisible();
+    await page.getByText("查看 AI 实际返回（模拟模型）").click();
+    await page.screenshot({ path: testInfo.outputPath(`sources-${width}.png`), fullPage: true, animations: "disabled" });
+    await page.route(/\/api\/positions(?:\?.*)?$/, route => route.fulfill({ json: { positions: [
+      { id: "sources", name: "模拟测试岗位", status: "stopped", is_open: true, platform_id: "51job", config: {} },
+    ] } }));
+    await page.route("**/api/v1/local/positions/sources/logs?*", route => route.fulfill({ json: { logs: [
+      { ...event, id: "sample", level: "error", created_at: event.timestamp },
+    ] } }));
+    await page.goto("/admin/positions");
+    await page.getByRole("button", { name: "日志", exact: true }).first().click();
+    await expect(page.getByText("岗位流程 · 处理单个候选人：单个候选人已用完五分钟预算")).toBeVisible();
+    await expect(page.getByText("尝试次数 2")).toBeVisible();
+  });
+}

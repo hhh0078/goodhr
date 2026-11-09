@@ -7,12 +7,15 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/replybridge"
+	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // TestCloudDeviceStopsOnTerminalStatus 验证撤销权限、旧任务和冲突均不能无限轮询。
@@ -135,5 +138,57 @@ func TestPublicAutoReplyRoutesUseCloud(t *testing.T) {
 	}
 	if calls["/api/auto-reply/runtime/status"] != 1 || calls["/api/auto-reply/runtime/retry-reports"] != 1 {
 		t.Fatalf("云端调用次数不符：%v", calls)
+	}
+}
+
+// TestCloudReplyFailuresSurviveDisconnectAndClear 验证断线补领、岗位隔离，以及清空后断线重交不会复活旧记录。
+func TestCloudReplyFailuresSurviveDisconnectAndClear(t *testing.T) {
+	st, err := storage.Open(filepath.Join(t.TempDir(), "diag.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	observed := []int64{}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			After int64 `json:"after_failure"`
+		}
+		if e := json.NewDecoder(r.Body).Decode(&in); e != nil {
+			t.Error(e)
+		}
+		observed = append(observed, in.After)
+		if len(observed) == 1 {
+			http.Error(w, "offline", 503)
+			return
+		}
+		detail := failurediag.Detail{Source: "测试模型", Reason: "上游等待超时"}
+		n := cloud.AutoReplyFailureNotice{Sequence: 1, PositionID: "position-a", Step: "ai", At: time.Now(), Details: []failurediag.Detail{detail}}
+		m := n
+		m.Sequence = 2
+		m.PositionID = "position-b"
+		m.Status = "warning"
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "running": false, "failures": []cloud.AutoReplyFailureNotice{n, m}})
+	}))
+	defer remote.Close()
+	server := &Server{store: st, cloud: cloud.New(remote.URL), extensionToken: "token", extensionUserID: "user", cloudReplyRun: "run", cloudReplyActive: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	run := func() {
+		server.pumpCloudReply(ctx, cloud.AgentCredentials{Token: "token", MachineID: "device"}, "user", 0, "run", nil)
+	}
+	run()
+	a, _ := st.ListPositionLogs(ctx, "position-a", 100)
+	b, _ := st.ListPositionLogs(ctx, "position-b", 100)
+	if len(a) != 1 || len(b) != 1 || !a[0].IsError || b[0].IsError || !strings.Contains(string(a[0].Output), "failure_diagnostics") {
+		t.Fatalf("岗位或级别错误 a=%+v b=%+v", a, b)
+	}
+	if err := st.ClearPositionLogs(ctx, "position-a"); err != nil {
+		t.Fatal(err)
+	}
+	run()
+	a, _ = st.ListPositionLogs(ctx, "position-a", 100)
+	b, _ = st.ListPositionLogs(ctx, "position-b", 100)
+	if len(a) != 0 || len(b) != 1 || len(observed) != 3 || observed[2] != 2 {
+		t.Fatalf("游标或清空错误：%v %d %d", observed, len(a), len(b))
 	}
 }

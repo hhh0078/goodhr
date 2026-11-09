@@ -8,6 +8,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // recordScreeningResult 后台同步一次真实筛选终态；不等待网络，失败仅记日志并让后续真实结果重试。
@@ -39,9 +40,10 @@ func (f *Flow) recordScreeningResult(ctx context.Context, prepared shared.Prepar
 		}()
 		syncCtx, cancel := context.WithTimeout(baseCtx, 3*time.Second)
 		defer cancel()
+		startedAt := time.Now()
 		if err := client.ReportScreeningResult(syncCtx, token, positionID, evidence); err != nil {
 			if logger != nil {
-				logger.Step(taskID, "greeting", "sync_screening_result", "warning", time.Now(), err)
+				logger.Step(taskID, "greeting", "sync_screening_result", "warning", startedAt, failurediag.Wrap(err, failurediag.Detail{Source: "后台同步", Operation: "筛选结果同步", Phase: "提交云端", Reason: "未确认同步完成", Impact: "后台同步未完成，岗位继续运行", ElapsedMS: time.Since(startedAt).Milliseconds(), LimitMS: 3000}))
 			}
 			return
 		}

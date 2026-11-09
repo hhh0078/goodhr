@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 	"sync"
 	"testing"
 	"time"
@@ -156,5 +157,28 @@ func TestAbandonedReceiptKeepsOnlyDigest(t *testing.T) {
 	res.Value = json.RawMessage(`{"files":["new"]}`)
 	if err = b.Complete(context.Background(), res); err == nil {
 		t.Fatal("矛盾回执覆盖了已确认结果")
+	}
+}
+
+// TestCollectResumeFailureReceipt 只从已知附件动作还原设备报告的阶段，旧回执和未知编号不改变失败类型。
+func TestCollectResumeFailureReceipt(t *testing.T) {
+	for _, c := range []struct {
+		action, value string
+		matched       bool
+	}{
+		{"collect_resume", `{"stage":4,"cause":2,"elapsed_ms":3000}`, true},
+		{"send", `{"stage":4,"cause":2}`, false},
+		{"collect_resume", `{"stage":999,"cause":2,"filename":"private-data"}`, false},
+		{"collect_resume", "", false},
+	} {
+		err := commandResultError(c.action, Result{Code: "ACTION_FAILED", Error: "设备操作失败", Value: json.RawMessage(c.value)})
+		var remote *RemoteError
+		d := failurediag.Details(err)
+		if !errors.As(err, &remote) || err.Error() != "设备操作失败" || ((len(d) > 0) != c.matched) {
+			t.Fatal(err, d)
+		}
+		if c.matched && (d[0].Phase != "等待下载回执" || d[0].ElapsedMS != 3000) {
+			t.Fatal(d)
+		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform"
 	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 	"goodhr5/local-agent-go-new/internal/system/notification"
 	"goodhr5/local-agent-go-new/internal/system/power"
 )
@@ -44,14 +46,15 @@ type TaskSnapshot struct {
 }
 
 type activeTask struct {
-	prepared  shared.PreparedTask
-	state     storage.TaskRun
-	cancel    context.CancelFunc
-	done      chan struct{}
-	stop      chan struct{}
-	stopOnce  sync.Once
-	stopped   bool
-	interrupt error
+	prepared   shared.PreparedTask
+	state      storage.TaskRun
+	cancel     context.CancelFunc
+	done       chan struct{}
+	stop       chan struct{}
+	stopOnce   sync.Once
+	stopped    bool
+	stopOrigin string
+	interrupt  error
 }
 
 // Runner 管理当前本地任务和两个独立主流程。
@@ -297,6 +300,9 @@ func (r *Runner) StopTask(ctx context.Context, taskID string) (storage.TaskRun, 
 		return r.store.Task(ctx, taskID)
 	}
 	active.stopped = true
+	if active.stopOrigin == "" {
+		active.stopOrigin = "岗位停止请求"
+	}
 	active.stopOnce.Do(func() {
 		close(active.stop)
 	})
@@ -363,6 +369,9 @@ func (r *Runner) StopAll(ctx context.Context, reason string) {
 	tasks := make([]*activeTask, 0, len(r.active))
 	for _, active := range r.active {
 		active.stopped = true
+		if active.stopOrigin == "" {
+			active.stopOrigin = "本地程序退出"
+		}
 		tasks = append(tasks, active)
 	}
 	r.mu.Unlock()
@@ -435,9 +444,39 @@ func (r *Runner) finish(active *activeTask, stats shared.Stats, runErr error) {
 	if active.interrupt != nil {
 		runErr = active.interrupt
 	}
+	terminalDiagnostic := runErr
 	if active.stopped || (errors.Is(runErr, context.Canceled) && active.interrupt == nil) || cloud.IsAuthExpired(runErr) {
 		state.Status = "stopped"
-		state.Summary = "任务已按你的要求停下来了"
+		d := failurediag.Detail{Source: "岗位流程", Operation: "停止岗位任务", Phase: "任务收尾", Impact: "岗位已停止"}
+		switch {
+		case active.stopOrigin == "岗位停止请求":
+			d.Reason = "已收到主动停止请求"
+			state.Summary = "任务已按你的要求停下来了"
+		case active.stopOrigin == "本地程序退出":
+			d.Reason = "本地程序退出时停止任务"
+			state.Summary = "本地程序退出，岗位已停止"
+		case errors.Is(runErr, greeting.ErrCandidateProcessingTimeout):
+			d.Reason = "候选人总时限已到"
+			state.Summary = "候选人总时限已到，岗位已停止"
+		case cloud.IsAuthExpired(runErr):
+			d.Reason = "云端拒绝登录凭证"
+			state.Summary = "登录凭证未通过，岗位已停止"
+			var authErr *cloud.APIError
+			if errors.As(runErr, &authErr) {
+				d.HTTPStatus = authErr.StatusCode
+				if authErr.StatusCode == http.StatusForbidden {
+					d.Reason = "云端拒绝当前访问权限"
+					state.Summary = "云端拒绝访问，岗位已停止"
+				}
+			}
+		default:
+			d.Reason = "收到停止信号，未确认发起来源"
+			state.Summary = "岗位已停止"
+		}
+		if terminalDiagnostic == nil {
+			terminalDiagnostic = errors.New(d.Reason)
+		}
+		terminalDiagnostic = failurediag.Wrap(terminalDiagnostic, d)
 	} else if runErr != nil {
 		state.Status = "failed"
 		state.ErrorCode = "TASK_FLOW_FAILED"
@@ -465,7 +504,7 @@ func (r *Runner) finish(active *activeTask, stats shared.Stats, runErr error) {
 	}
 	r.notifyFinished(active.prepared, state, stats, runErr)
 	if r.logger != nil {
-		r.logger.Step(state.TaskID, "lifecycle", "finished", state.Status, state.StartedAt, runErr)
+		r.logger.Step(state.TaskID, "lifecycle", "finished", state.Status, state.StartedAt, terminalDiagnostic)
 	}
 	if err := r.store.MarkPositionLogUploadPending(context.Background(), state.PositionID); err != nil {
 		r.logNotification(state.TaskID, "mark_log_upload", err)

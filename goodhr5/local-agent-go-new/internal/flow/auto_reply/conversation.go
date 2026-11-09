@@ -8,14 +8,35 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"goodhr5/local-agent-go-new/internal/storage"
 	"strings"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
+
+// ScopedFailure 仅携带已确认的岗位与会话，供外层释放当前会话后仍可准确记录故障。
+type ScopedFailure struct {
+	Cause                  error
+	Position, Conversation string
+}
+
+// Error 保留已有业务报错文字。
+func (e *ScopedFailure) Error() string { return e.Cause.Error() }
+
+// Unwrap 保留下层错误的来源和超时证据。
+func (e *ScopedFailure) Unwrap() error { return e.Cause }
+
+// scopedFailure 只在已核验岗位并获得结构化故障时携带归属，不猜测全局扫描所属岗位。
+func scopedFailure(err error, position, conversation string) error {
+	if position == "" || len(failurediag.Details(err)) == 0 {
+		return err
+	}
+	return &ScopedFailure{Cause: err, Position: position, Conversation: conversation}
+}
 
 // captureIntentForConversation 保存当前候选人的恢复线索，供点击打开或暂时离开已读聊天前登记。
 func captureIntentForConversation(prepared shared.PreparedTask, conversation model.Conversation) cloud.AutoReplyCaptureIntent {
@@ -23,7 +44,7 @@ func captureIntentForConversation(prepared shared.PreparedTask, conversation mod
 }
 
 // processConversation 平铺执行页面读取、岗位归属、云端同步、简历门槛、AI决定和安全发送。
-func (f *Flow) processConversation(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, positions []cloud.AutoReplyPositionSnapshot, conversation model.Conversation, openSnapshot *model.AutoReplyConversationSnapshot, stats *shared.Stats) error {
+func (f *Flow) processConversation(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, positions []cloud.AutoReplyPositionSnapshot, conversation model.Conversation, openSnapshot *model.AutoReplyConversationSnapshot, stats *shared.Stats) (resultErr error) {
 	if !targetConversationAllowed(prepared.Request.AutoReplyTarget, conversation) {
 		return fmt.Errorf("这个会话不在本次自动回复范围内，已跳过")
 	}
@@ -166,7 +187,10 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	}
 	if logger, ok := f.Logger.(interface{ BindAutoReplyConversation(string, string) }); ok {
 		logger.BindAutoReplyConversation(cloudConversation.ID, position.Position.ID)
-		defer logger.BindAutoReplyConversation("", "")
+		defer func() {
+			resultErr = scopedFailure(resultErr, position.Position.ID, cloudConversation.ID)
+			logger.BindAutoReplyConversation("", "")
+		}()
 	}
 	if _, err = f.Cloud.SyncAutoReplyMessages(ctx, credentials(prepared), cloud.AutoReplyMessageSyncRequest{
 		ConversationID: cloudConversation.ID, HistoryComplete: pageSnapshot.HistoryComplete, Messages: messages, CaptureCompleted: true,

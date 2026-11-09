@@ -33,3 +33,17 @@ test('长截图从顶部完整覆盖，滚动不会越过相邻画面', async ()
     assert.ok(positions.filter(value => value === 700).length >= 3);
   } finally { await fs.rm(directory, { recursive: true, force: true }); }
 });
+
+test('仅截图调用自身的 TimeoutError 标为五秒，文件错误和页面等待不冒充截图超时', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'goodhr-shot-timeout-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  for (const stage of ['capture', 'page', 'file']) {
+    const error = Object.assign(new Error('fixture'), { name: stage === 'file' ? 'Error' : 'TimeoutError' });
+    const action = new ScreenshotAction({ async requirePage() {
+      if (stage === 'page') throw error;
+      return { async screenshot() { throw error; } };
+    } }, {}, {}, {}, { info() {}, failure() {} });
+    await assert.rejects(action.execute({ directory, filename: 'fixture.png' }, {action: 'page.screenshot', trace_id:'fixture'}), failure =>
+      failure.code === 'SCREENSHOT_FAILED' && failure.details.capture_timeout_ms === (stage === 'capture' ? 5000 : undefined));
+  }
+});

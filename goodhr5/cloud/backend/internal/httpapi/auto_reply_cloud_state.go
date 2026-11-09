@@ -7,11 +7,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-
-	"github.com/lib/pq"
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
 var errReplyStateConflict = errors.New("自动回复状态已更新，请重新读取")
@@ -215,11 +215,14 @@ func (s *AutoReplyService) internalState(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req struct {
-		TenantID string                 `json:"tenant_id"`
-		UserID   string                 `json:"user_id"`
-		Expected *int64                 `json:"expected_version"`
-		Known    *int64                 `json:"known_version"`
-		Changes  []AutoReplyStateChange `json:"changes"`
+		RunID        string                 `json:"run_id"`
+		MachineID    string                 `json:"machine_id"`
+		AfterFailure int64                  `json:"after_failure"`
+		TenantID     string                 `json:"tenant_id"`
+		UserID       string                 `json:"user_id"`
+		Expected     *int64                 `json:"expected_version"`
+		Known        *int64                 `json:"known_version"`
+		Changes      []AutoReplyStateChange `json:"changes"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
 	dec := json.NewDecoder(r.Body)
@@ -229,6 +232,13 @@ func (s *AutoReplyService) internalState(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	switch r.URL.Path {
+	case "/internal/auto-reply/state/failures":
+		result, found, err := s.store.replayAutoReplyFailures(r.Context(), req.TenantID, req.UserID, req.MachineID, req.RunID, req.AfterFailure)
+		if err != nil {
+			writeAutoReplyStoreError(w, err, "服务器故障记录暂时读不出来")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"found": found, "failures": result})
 	case "/internal/auto-reply/state/load":
 		var known []int64
 		if req.Known != nil {

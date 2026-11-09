@@ -13,6 +13,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"goodhr5/local-agent-go-new/internal/system/diagnostics"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 const analysisResultHoldDuration = 8 * time.Second
@@ -193,8 +194,14 @@ func (l *TaskLogger) saveAnalysisLog(taskID string, status shared.AnalysisStatus
 	if status.PositionID == "" {
 		status.PositionID = l.taskPosition(taskID)
 	}
+	var output json.RawMessage
+	if len(status.FailureDiagnostics) > 0 {
+		output, _ = json.Marshal(struct {
+			Failures []failurediag.Detail `json:"failure_diagnostics"`
+		}{status.FailureDiagnostics})
+	}
 	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
-		TaskID: taskID, PositionID: status.PositionID, Flow: "analysis", Step: step, Status: stepStatus, Level: level, Message: message,
+		TaskID: taskID, PositionID: status.PositionID, Flow: "analysis", Step: step, Status: stepStatus, Level: level, Message: message, Output: output,
 	}); err != nil {
 		log.Printf("task_id=%s flow=analysis step=save_log status=warning error=%q", taskID, err)
 	}

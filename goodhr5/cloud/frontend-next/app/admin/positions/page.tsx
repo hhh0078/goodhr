@@ -47,6 +47,7 @@ import { isOnboardingTaskEnded } from "@/lib/onboarding-task-feedback";
 import AIResponseDiagnosticDetails, {
   aiResponseDiagnosticFromOutput,
 } from "@/components/admin/AIResponseDiagnosticDetails";
+import TaskFailureDetails, { taskFailureText } from "@/components/admin/TaskFailureDetails";
 import BrowserDiagnosticDetails, { browserDiagnosticText } from "@/components/admin/BrowserDiagnosticDetails";
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
@@ -3440,6 +3441,7 @@ function PositionLogLine(props: { item: any; previous: any | null }) {
         >
           {positionLogMessage(item)}
         </Typography.Paragraph>
+        <TaskFailureDetails output={output} />
         <BrowserDiagnosticDetails output={output} />
         <AIResponseDiagnosticDetails output={output} />
       </Flex>
@@ -3521,7 +3523,7 @@ function buildPositionLogText(logs: any[]) {
       const output = positionLogEvent(item)?.output;
       const aiResponse = aiResponseDiagnosticFromOutput(output);
       const browser = browserDiagnosticText(output);
-      return [summary, browser && `浏览器排障详情：\n${browser}`, aiResponse && `AI 完整诊断：\n${JSON.stringify(aiResponse, null, 2)}`].filter(Boolean).join("\n");
+      return [summary, taskFailureText(output), browser && `浏览器排障详情：\n${browser}`, aiResponse && `AI 完整诊断：\n${JSON.stringify(aiResponse, null, 2)}`].filter(Boolean).join("\n");
     })
     .join("\n");
 }

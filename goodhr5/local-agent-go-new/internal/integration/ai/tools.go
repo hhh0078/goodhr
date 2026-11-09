@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 )
@@ -37,9 +39,10 @@ type ToolCallFunction struct {
 
 // ToolCall 表示模型返回的一次标准工具调用。
 type ToolCall struct {
-	ID       string           `json:"id"`
-	Type     string           `json:"type"`
-	Function ToolCallFunction `json:"function"`
+	completion *streamCompletion
+	ID         string           `json:"id"`
+	Type       string           `json:"type"`
+	Function   ToolCallFunction `json:"function"`
 }
 
 // ToolMessage 表示工具循环中的 system、user、assistant 或 tool 消息。
@@ -49,6 +52,11 @@ type ToolMessage struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+}
+
+// WithArgumentParseDiagnostic 仅在调用方真正发现参数 JSON 解析失败时补充已观察到的流结束证据。
+func (c ToolCall) WithArgumentParseDiagnostic(err error) error {
+	return c.completion.parseError(err)
 }
 
 // ToolChatRequest 表示一次带标准函数工具的 AI 请求。
@@ -85,7 +93,8 @@ type toolChatResponseBody struct {
 
 type toolStreamChunk struct {
 	Choices []struct {
-		Delta struct {
+		FinishReason json.RawMessage `json:"finish_reason"`
+		Delta        struct {
 			Content   string `json:"content"`
 			ToolCalls []struct {
 				Index    int    `json:"index"`
@@ -125,25 +134,29 @@ func (c *Client) ChatWithTools(ctx context.Context, cfg cloud.AIConfig, request 
 	}
 	endpoint := chatCompletionsURL(cfg.BaseURL)
 	var lastErr error
+	var previous []failurediag.Detail
 	for attempt := 1; attempt <= 3; attempt++ {
-		result, requestErr := c.doToolChatRequest(ctx, endpoint, cfg.APIKey, encoded)
+		result, requestErr := c.doToolChatRequest(ctx, endpoint, cfg.APIKey, encoded, int64(attempt))
 		if requestErr == nil {
 			return result, nil
 		}
 		lastErr = requestErr
 		var serviceErr *ServiceError
 		if !errors.As(requestErr, &serviceErr) || !serviceErr.Retryable || attempt == 3 {
-			return ToolChatResult{}, requestErr
+			return ToolChatResult{}, withAIHistory(requestErr, previous)
 		}
-		if err = waitRetry(ctx, serviceErr.RetryAfter, attempt); err != nil {
-			return ToolChatResult{}, err
+		retryStarted := time.Now()
+		delay := max(serviceErr.RetryAfter, time.Duration(attempt)*500*time.Millisecond)
+		if err = waitRetry(ctx, delay); err != nil {
+			return ToolChatResult{}, withAIHistory(retryWaitError(ctx, err, requestErr, "AI 工具调用", attempt, retryStarted, delay), previous)
 		}
+		previous = append(previous, failurediag.Details(requestErr)...)
 	}
 	return ToolChatResult{}, lastErr
 }
 
 // doToolChatRequest 执行一次工具请求并按响应类型选择 JSON 或 SSE 解析。
-func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey string, payload []byte) (ToolChatResult, error) {
+func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey string, payload []byte, attempts ...int64) (result ToolChatResult, runErr error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return ToolChatResult{}, fmt.Errorf("创建 AI 工具请求失败：%w", err)
@@ -152,7 +165,14 @@ func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey 
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream, application/json")
 	request.Header.Set("X-GoodHR-Billing", "1")
+	var attempt int64 = 1
+	if len(attempts) > 0 {
+		attempt = attempts[0]
+	}
+	observation, request := startAIAttempt(ctx, request, apiKey, "AI 工具调用", attempt, c.http.Timeout)
+	defer func() { runErr = observation.failure(runErr) }()
 	billing := newBillingObserver(ctx, apiKey)
+	billing.diagnostic = observation
 	defer billing.finish()
 	response, err := c.http.Do(request)
 	if err != nil {
@@ -161,6 +181,7 @@ func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey 
 		}
 		return ToolChatResult{}, &ServiceError{Message: "连接 AI 失败：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
 	}
+	observation.headers(response)
 	defer response.Body.Close()
 	billing.enabled = response.Header.Get("X-GoodHR-Billing") == "1"
 	if billing.enabled {
@@ -211,17 +232,25 @@ func readToolChatJSON(body []byte) (ToolChatResult, error) {
 
 // readToolChatStream 累积 SSE 中可能被拆开的工具名称和 JSON 参数。
 func readToolChatStream(reader io.Reader, billing ...*billingObserver) (ToolChatResult, error) {
+	observation := streamObservation(billing)
+	if observation != nil {
+		observation.stream = true
+	}
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var content strings.Builder
 	calls := make(map[int]*ToolCall)
 	tokenUsage := 0
+	endMarked := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			endMarked = true
+		}
 		if data == "" || data == "[DONE]" {
 			continue
 		}
@@ -236,6 +265,12 @@ func readToolChatStream(reader io.Reader, billing ...*billingObserver) (ToolChat
 			tokenUsage = chunk.Usage.TotalTokens
 		}
 		for _, choice := range chunk.Choices {
+			if streamFinishReason(choice.FinishReason) {
+				endMarked = true
+			}
+			if choice.Delta.Content != "" || len(choice.Delta.ToolCalls) > 0 {
+				observation.gotContent()
+			}
 			content.WriteString(choice.Delta.Content)
 			for _, delta := range choice.Delta.ToolCalls {
 				call := calls[delta.Index]
@@ -255,13 +290,18 @@ func readToolChatStream(reader io.Reader, billing ...*billingObserver) (ToolChat
 	if err := scanner.Err(); err != nil {
 		return ToolChatResult{}, &ServiceError{Message: "AI 工具流式响应中断：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
 	}
+	if err := observation.streamError(); err != nil {
+		return ToolChatResult{}, err
+	}
 	indexes := make([]int, 0, len(calls))
 	for index := range calls {
 		indexes = append(indexes, index)
 	}
 	sort.Ints(indexes)
 	resultCalls := make([]ToolCall, 0, len(indexes))
+	completion := observation.streamEndEvidence(endMarked)
 	for _, index := range indexes {
+		calls[index].completion = completion
 		resultCalls = append(resultCalls, *calls[index])
 	}
 	if strings.TrimSpace(content.String()) == "" && len(resultCalls) == 0 {

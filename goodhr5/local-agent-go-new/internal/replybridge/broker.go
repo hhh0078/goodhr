@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 	"sync"
 	"time"
 )
@@ -128,7 +129,7 @@ func (b *Broker) Call(ctx context.Context, action string, payload, output any) e
 	select {
 	case result := <-p.done:
 		if result.Error != "" {
-			return &RemoteError{Code: result.Code, Message: result.Error}
+			return commandResultError(command.Action, result)
 		}
 		if output != nil {
 			return json.Unmarshal(result.Value, output)
@@ -141,6 +142,18 @@ func (b *Broker) Call(ctx context.Context, action string, payload, output any) e
 	}
 }
 
+// commandResultError 还原旧错误及本机附件阶段；未知命令和旧设备继续使用原有错误。
+func commandResultError(action string, result Result) error {
+	remote := &RemoteError{Code: result.Code, Message: result.Error}
+	if action == "collect_resume" && len(result.Value) > 0 && len(result.Value) <= 1024 {
+		var evidence failurediag.AttachmentReceipt
+		if json.Unmarshal(result.Value, &evidence) == nil {
+			return evidence.Restore(remote)
+		}
+	}
+	return remote
+}
+
 // abandon 把失去确认的命令写为未知，保留后续只读核对所需的命令编号。
 func (b *Broker) abandon(command Command, cause error, output any) error {
 	b.mu.Lock()
@@ -149,7 +162,7 @@ func (b *Broker) abandon(command Command, cause error, output any) error {
 	if item != nil && item.finished {
 		result := <-item.done
 		if result.Error != "" {
-			return &RemoteError{Code: result.Code, Message: result.Error}
+			return commandResultError(command.Action, result)
 		}
 		if output != nil {
 			return json.Unmarshal(result.Value, output)

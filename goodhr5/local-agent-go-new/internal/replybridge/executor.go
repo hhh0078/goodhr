@@ -19,6 +19,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform"
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // Executor 保留本轮页面定位缓存；业务结论和全部持久数据由服务器维护。
@@ -88,6 +89,11 @@ func (e *Executor) Execute(ctx context.Context, command Command) Result {
 	response, err := e.execute(ctx, command.Action, request)
 	if err != nil {
 		result.Error = err.Error()
+		if command.Action == "collect_resume" {
+			if evidence := failurediag.AttachmentEvidence(err); evidence != nil {
+				result.Value, _ = json.Marshal(evidence)
+			}
+		}
 		result.Code = "ACTION_FAILED"
 		if errors.Is(err, model.ErrAutoReplySupersededBeforeSend) {
 			result.Code = "REPLY_SUPERSEDED"
@@ -158,7 +164,11 @@ func (e *Executor) execute(ctx context.Context, action string, request Request) 
 		response.Resume, err = r.CollectAutoReplyResume(ctx, e.Browser, e.Config, request.Snapshot)
 		if err == nil {
 			response.LocalPaths = append([]string{}, response.Resume.AttachmentPaths...)
+			began := time.Now()
 			response.Files, err = packFiles(response.Resume.AttachmentPaths)
+			if err != nil {
+				err = failurediag.AttachmentFailure(err, "读取文件准备回传", began, 0, 0, "")
+			}
 			response.Resume.AttachmentPaths = nil
 		}
 	case "send":

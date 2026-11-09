@@ -76,9 +76,8 @@ func (f *Flow) candidatePreviewsWithDone(ctx context.Context, prepared shared.Pr
 						started, item.Err = f.startScreeningRound(ctx, item.AttemptID, 1, "ai")
 					}
 					if item.Err == nil {
-						evaluationCtx, cancelEvaluation := context.WithTimeout(context.WithoutCancel(ctx), candidateTimeout)
+						evaluationCtx, cancelEvaluation, stopOnCancel := ai.ScoringContext(ctx, candidateTimeout)
 						evaluationCtx = shared.WithAIBilling(evaluationCtx, f.Logger, prepared.Request.TaskID, prepared.Position.ID, candidateDisplayName(item.Candidate), "AI 基础预分析")
-						stopOnCancel := context.AfterFunc(ctx, cancelEvaluation)
 						evaluation, err := f.AI.EvaluateCandidatePreviewEarly(
 							evaluationCtx,
 							prepared.Position.AI,

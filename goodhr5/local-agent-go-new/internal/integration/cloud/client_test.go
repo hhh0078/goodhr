@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // TestBindAgentSendsStableDevice 验证本地程序会携带 Token 和稳定设备信息请求云端绑定。
@@ -357,5 +360,67 @@ func TestNormalizePositionHonorsConfiguredScanRounds(t *testing.T) {
 	})
 	if position.MaxBatches != 5 {
 		t.Fatalf("配置扫描轮数没有生效：%d", position.MaxBatches)
+	}
+}
+
+// TestCloudTimeoutEvidenceSeparatesBoundary 验证长时间无响应、正文中断和云端主动返回超时可单独追踪。
+func TestCloudTimeoutEvidenceSeparatesBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		phase  string
+		status int
+		body   string
+	}{
+		{"尚未收到响应头", 0, ""}, {"读取回复正文", http.StatusOK, "{\""}, {"已收到云端回复", http.StatusGatewayTimeout, "private response"},
+	} {
+		t.Run(tc.phase, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.status != 0 {
+					w.WriteHeader(tc.status)
+					_, _ = w.Write([]byte(tc.body))
+					w.(http.Flusher).Flush()
+				}
+				if tc.status != http.StatusGatewayTimeout {
+					<-r.Context().Done()
+				}
+			}))
+			defer server.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+			err := New(server.URL).doBody(ctx, http.MethodGet, "/private-path", "private-token", "", "", nil, nil)
+			details := failurediag.Details(err)
+			if len(details) != 1 || details[0].Source != "云端接口" || details[0].Phase != tc.phase || details[0].ReceivedBytes != int64(len(tc.body)) {
+				t.Fatalf("回复边界诊断不符 %+v, err=%v", details, err)
+			}
+			evidence, _ := json.Marshal(details)
+			if strings.Contains(string(evidence), "private") {
+				t.Fatalf("诊断带入了请求或回复数据 %s", evidence)
+			}
+			if tc.status == http.StatusGatewayTimeout {
+				var apiErr *APIError
+				if !errors.As(err, &apiErr) || details[0].HTTPStatus != tc.status || details[0].Reason != "云端返回超时状态" {
+					t.Fatalf("丢失服务端超时 %+v", details)
+				}
+			} else if !errors.Is(err, context.DeadlineExceeded) || details[0].Reason != "上层请求时限已到" || details[0].LimitMS <= 0 {
+				t.Fatalf("丢失上层超时 %+v", details)
+			}
+		})
+	}
+}
+
+// TestCloudStatusBeforeParentBudget 核对先收到的网关超时状态与随后中止正文的父预算可同时追溯。
+func TestCloudStatusBeforeParentBudget(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGatewayTimeout)
+		_, _ = w.Write([]byte("{"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeoutCause(context.Background(), 300*time.Millisecond, errors.New("测试父时限"))
+	defer cancel()
+	err := New(server.URL).doBody(ctx, http.MethodGet, "/", "", "", "", nil, nil)
+	details := failurediag.Details(err)
+	if len(details) != 1 || details[0].Reason != "上层请求时限已到" || details[0].HTTPStatus != 504 || details[0].ReceivedBytes != 1 {
+		t.Fatalf("未保留网关状态或真实的正文中断来源：%+v %v", details, err)
 	}
 }

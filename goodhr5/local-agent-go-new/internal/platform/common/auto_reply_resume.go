@@ -11,6 +11,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 var configuredEmailPattern = regexp.MustCompile(`(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}`)
@@ -111,23 +112,27 @@ func collectConfiguredAttachment(ctx context.Context, browser model.Browser, cfg
 	if !ok {
 		return "", nil, fmt.Errorf("%s简历下载监听没有准备好", cfg.Name)
 	}
+	prepareAt := time.Now()
 	if err := downloader.ClearDownloads(ctx); err != nil {
-		return "", nil, fmt.Errorf("清理旧下载记录失败：%w", err)
+		return "", nil, failurediag.AttachmentFailure(fmt.Errorf("清理旧下载记录失败：%w", err), "准备下载监听", prepareAt, 0, 0, "")
 	}
 	defer downloader.ClearDownloads(context.WithoutCancel(ctx))
+	openedAt := time.Now()
 	if err := openConfiguredAttachment(ctx, browser, cfg); err != nil {
-		return "", nil, err
+		return "", nil, failurediag.AttachmentFailure(err, "打开附件预览", openedAt, 0, 0, "")
 	}
 	defer CloseOptionalPanel(context.WithoutCancel(ctx), browser, cfg, "message.attachment_preview", "message.attachment_preview_close", cfg.Name+"附件预览")
 	attachmentText := ""
+	readAt := time.Now()
 	if body, found, err := ReadOptional(ctx, browser, cfg, "message.attachment_body"); err != nil {
-		return "", nil, err
+		return "", nil, failurediag.AttachmentFailure(err, "读取附件预览", readAt, 0, 0, "")
 	} else if found {
 		attachmentText = strings.TrimSpace(body)
 	}
 	if _, configured := cfg.Selectors["message.attachment_download"]; configured {
+		clickAt := time.Now()
 		if err := ClickRequired(ctx, browser, cfg, "message.attachment_download"); err != nil {
-			return "", nil, fmt.Errorf("下载%s附件简历失败：%w", cfg.Name, err)
+			return "", nil, failurediag.AttachmentFailure(fmt.Errorf("下载%s附件简历失败：%w", cfg.Name, err), "触发附件下载", clickAt, 0, 0, "")
 		}
 	}
 	paths, err := waitConfiguredDownloads(ctx, downloader)
@@ -164,10 +169,11 @@ func openConfiguredAttachment(ctx context.Context, browser model.Browser, cfg mo
 
 // waitConfiguredDownloads 等待 Worker 下载记录落盘并过滤空文件。
 func waitConfiguredDownloads(ctx context.Context, downloader configuredDownloadBrowser) ([]string, error) {
+	started := time.Now()
 	for attempt := 1; attempt <= 30; attempt++ {
 		result, err := downloader.Downloads(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("读取简历下载记录失败：%w", err)
+			return nil, failurediag.AttachmentFailure(fmt.Errorf("读取简历下载记录失败：%w", err), "等待下载回执", started, 0, int64(attempt), "")
 		}
 		if result.Pending == 0 && len(result.Downloads) > 0 {
 			paths := make([]string, 0, len(result.Downloads))
@@ -186,11 +192,11 @@ func waitConfiguredDownloads(ctx context.Context, downloader configuredDownloadB
 		}
 		if attempt < 30 {
 			if err = waitConversationPoll(ctx); err != nil {
-				return nil, err
+				return nil, failurediag.AttachmentFailure(err, "等待下载回执", started, 0, int64(attempt), "")
 			}
 		}
 	}
-	return nil, fmt.Errorf("附件简历已经点了下载，但 9 秒内没有拿到本地文件")
+	return nil, failurediag.AttachmentFailure(fmt.Errorf("附件简历已经点了下载，但 9 秒内没有拿到本地文件"), "等待下载回执", started, 0, 30, "多次检查仍无可用文件")
 }
 
 // joinConfiguredResumeText 合并在线简历和附件预览正文并保留来源。

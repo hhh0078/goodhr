@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"goodhr5/local-agent-go-new/internal/storage"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +19,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/storage"
 )
 
 type responderTestState struct {
@@ -362,6 +362,30 @@ func TestAIResponderRepairsPlainTextAction(t *testing.T) {
 	lastMessage := repairRequest.Messages[len(repairRequest.Messages)-1]
 	if lastMessage.Role != "user" || !strings.Contains(lastMessage.Content, "错误信息") || !strings.Contains(lastMessage.Content, "send_messages") {
 		t.Fatalf("repair message = %+v", lastMessage)
+	}
+}
+
+// TestAIResponderTimeoutAudit 通过真实回复入口验证模型返回 504 时审计保留阶段与原状态，避免保存原始上游正文。
+func TestAIResponderTimeoutAudit(t *testing.T) {
+	state := &responderTestState{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/chat/completions" {
+			http.Error(w, "PRIVATE-PROVIDER-RESPONSE", 504)
+			return
+		}
+		state.serveHTTP(w, r)
+	}))
+	defer server.Close()
+	_, err := (&AIResponder{AI: newAIClient(), Cloud: cloud.New(server.URL)}).Reply(context.Background(), responderInput(server.URL))
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if err == nil || len(state.finishedRuns) != 1 {
+		t.Fatalf("未记录失败调用：%v", err)
+	}
+	record := state.finishedRuns[0]
+	var out aiReplyAuditOutput
+	if e := json.Unmarshal(record.OutputMessage, &out); e != nil || record.ErrorCode != "AI_TOOL_REQUEST_FAILED" || len(out.FailureDiagnostics) == 0 || out.FailureDiagnostics[0].HTTPStatus != 504 || strings.Contains(record.ErrorMessage+string(record.OutputMessage), "PRIVATE-PROVIDER-RESPONSE") {
+		t.Fatalf("审计未保留安全状态：%s %s", record.ErrorMessage, record.OutputMessage)
 	}
 }
 
@@ -857,5 +881,25 @@ func TestModelHTTPUsesWritableConditionFields(t *testing.T) {
 	var args confirmationToolArgs
 	if err = decodeToolArguments(ai.ToolCall{Function: ai.ToolCallFunction{Arguments: `{"items":[{"dedupe_key":"extra"}]}`}}, &args); err == nil {
 		t.Fatal("内部字段仍应被工具拒绝")
+	}
+}
+
+// TestUnmarkedInvalidToolArgumentsShowOnlyInHumanAudit 验证缺结束标记的工具参数在审计显示证据，模型仍可沿原协议修正。
+func TestUnmarkedInvalidToolArgumentsShowOnlyInHumanAudit(t *testing.T) {
+	state := &responderTestState{aiResponses: []string{
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"bad","type":"function","function":{"name":"send_messages","arguments":"{"}}]}}]}` + "\n",
+		toolCallResponse("good", toolSendMessages, `{"messages":[{"type":"answer","content":"您好，薪资以面谈为准。"}]}`, 11),
+	}}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+	r := &AIResponder{AI: newAIClient(), Cloud: cloud.New(server.URL)}
+	result, err := r.Reply(context.Background(), responderInput(server.URL))
+	if err != nil || len(result.Messages) != 1 {
+		t.Fatalf("未按原协议修复工具调用：%+v %v", result, err)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.toolCalls) != 4 || len(state.aiRequests) != 2 || state.toolCalls[1].ErrorCode != "INVALID_TOOL_ARGUMENTS" || !strings.Contains(state.toolCalls[1].ErrorMessage, "完整性未知") || strings.Contains(string(state.aiRequests[1]), "完整性未知") {
+		t.Fatalf("人工审计与模型修复错误信息未正确区分：%+v", state.toolCalls)
 	}
 }

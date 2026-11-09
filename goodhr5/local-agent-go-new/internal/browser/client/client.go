@@ -201,12 +201,16 @@ func (c *Client) Screenshot(ctx context.Context, request contract.ScreenshotRequ
 	if request.Target != nil {
 		path = "/api/v1/element/screenshot"
 	}
-	return callValue[contract.ScreenshotResult](ctx, c, path, request)
+	began := time.Now()
+	result, err := callValue[contract.ScreenshotResult](ctx, c, path, request)
+	return result, screenshotFailure(err, "截图", began)
 }
 
 // LongScreenshot 使用真实鼠标滚轮保存长元素分段截图。
 func (c *Client) LongScreenshot(ctx context.Context, request contract.LongScreenshotRequest) (contract.LongScreenshotResult, error) {
-	return callValue[contract.LongScreenshotResult](ctx, c, "/api/v1/element/screenshot-long", request)
+	began := time.Now()
+	result, err := callValue[contract.LongScreenshotResult](ctx, c, "/api/v1/element/screenshot-long", request)
+	return result, screenshotFailure(err, "长截图", began)
 }
 
 // Cookies 读取浏览器 Cookie。

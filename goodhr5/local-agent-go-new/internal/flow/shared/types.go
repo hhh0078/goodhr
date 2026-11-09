@@ -7,6 +7,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // StartRequest 表示本地任务统一启动参数。
@@ -53,26 +54,27 @@ type AnalysisEvent struct {
 
 // AnalysisStatus 表示悬浮窗展示的 AI 或关键词判断状态。
 type AnalysisStatus struct {
-	DurationMS      *int64          `json:"duration_ms,omitempty"` // 当前步骤实测耗时，无计时依据时留空。
-	PositionID      string          `json:"position_id,omitempty"`
-	Kind            string          `json:"kind"`
-	Phase           string          `json:"phase"`
-	Stage           string          `json:"stage,omitempty"`
-	Terminal        bool            `json:"terminal"`
-	CandidateName   string          `json:"candidate_name"`
-	Score           *float64        `json:"score,omitempty"`
-	Threshold       *float64        `json:"threshold,omitempty"`
-	Accepted        *bool           `json:"accepted,omitempty"`
-	Reason          string          `json:"reason"`
-	Keywords        []string        `json:"keywords,omitempty"`
-	MatchedKeywords []string        `json:"matched_keywords,omitempty"`
-	ExcludeKeywords []string        `json:"exclude_keywords,omitempty"`
-	MatchedExcludes []string        `json:"matched_excludes,omitempty"`
-	Timeline        []AnalysisEvent `json:"timeline,omitempty"`
-	ProcessedCount  int             `json:"processed_count"`
-	SucceededCount  int             `json:"succeeded_count"`
-	SkippedCount    int             `json:"skipped_count"`
-	UpdatedAt       string          `json:"updated_at"`
+	FailureDiagnostics []failurediag.Detail `json:"failure_diagnostics,omitempty"` // 仅有确认的安全错误分类时填写。
+	DurationMS         *int64               `json:"duration_ms,omitempty"`         // 当前步骤实测耗时，无计时依据时留空。
+	PositionID         string               `json:"position_id,omitempty"`
+	Kind               string               `json:"kind"`
+	Phase              string               `json:"phase"`
+	Stage              string               `json:"stage,omitempty"`
+	Terminal           bool                 `json:"terminal"`
+	CandidateName      string               `json:"candidate_name"`
+	Score              *float64             `json:"score,omitempty"`
+	Threshold          *float64             `json:"threshold,omitempty"`
+	Accepted           *bool                `json:"accepted,omitempty"`
+	Reason             string               `json:"reason"`
+	Keywords           []string             `json:"keywords,omitempty"`
+	MatchedKeywords    []string             `json:"matched_keywords,omitempty"`
+	ExcludeKeywords    []string             `json:"exclude_keywords,omitempty"`
+	MatchedExcludes    []string             `json:"matched_excludes,omitempty"`
+	Timeline           []AnalysisEvent      `json:"timeline,omitempty"`
+	ProcessedCount     int                  `json:"processed_count"`
+	SucceededCount     int                  `json:"succeeded_count"`
+	SkippedCount       int                  `json:"skipped_count"`
+	UpdatedAt          string               `json:"updated_at"`
 }
 
 // Logger 定义流程步骤的统一结构化日志能力。

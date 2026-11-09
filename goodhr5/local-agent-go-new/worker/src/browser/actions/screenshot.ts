@@ -13,7 +13,8 @@ import type {
 import type { ActionContext } from "../../contracts/common.js";
 import { normalizeWorkerError, WorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
-import { ScreenshotPrimitive } from "../primitives/screenshot.js";
+import { markRequestProgress } from "../../logging/request-progress.js";
+import { ScreenshotPrimitive, screenshotTimedOut, screenshotTimeoutMS } from "../primitives/screenshot.js";
 import { MousePrimitive } from "../primitives/mouse.js";
 import { BrowserSession } from "../session/browser-session.js";
 import { FindAction } from "./find.js";
@@ -47,7 +48,9 @@ export class ScreenshotAction {
       full_page: request.full_page ?? false,
     });
     try {
+      markRequestProgress(actionContext, "require_page");
       const page = await this.session.requirePage(actionContext, step);
+      markRequestProgress(actionContext, "screenshot_prepare");
       const size = request.viewport_only
         ? await this.captureVisibleTarget(page, request, filePath, actionContext)
         : request.target
@@ -84,7 +87,7 @@ export class ScreenshotAction {
         step,
         trace_id: actionContext.trace_id,
         retryable: true,
-        details: { filename },
+        details: { filename, ...(screenshotTimedOut(error) ? { capture_timeout_ms: screenshotTimeoutMS } : {}) },
       });
       this.logger.failure(actionContext, normalized);
       throw normalized;
@@ -128,7 +131,9 @@ export class ScreenshotAction {
       max_parts: maxParts,
     });
     try {
+      markRequestProgress(actionContext, "require_page");
       const page = await this.session.requirePage(actionContext, step);
+      markRequestProgress(actionContext, "screenshot_prepare");
       const target = await this.find.one(
         request.target,
         actionContext,
@@ -148,6 +153,7 @@ export class ScreenshotAction {
       let topStable = 0;
       for (let attempt = 0; attempt < maxParts + 2 && topStable < 2; attempt++) {
         actionContext.signal?.throwIfAborted();
+        markRequestProgress(actionContext, "screenshot_top");
         await wheelGesture(this.mouse, page, 0, -variedDistance(distance), actionContext, this.logger);
         await readingPause(waitMS, actionContext);
         const next = await this.primitive.elementBuffer(target.resolved.locator);
@@ -177,6 +183,7 @@ export class ScreenshotAction {
           const index = parts.length;
           const filename = `${baseFilename}.part-${String(index + 1).padStart(3, "0")}.png`;
           const filePath = path.join(request.directory, filename);
+          markRequestProgress(actionContext, "screenshot_save");
           await fs.mkdir(request.directory, { recursive: true });
           await fs.writeFile(filePath, currentBuffer);
           const size = (await fs.stat(filePath)).size;
@@ -185,6 +192,7 @@ export class ScreenshotAction {
         }
         previousBuffer = currentBuffer;
         const stepDistance = variedDistance(distance);
+        markRequestProgress(actionContext, "screenshot_advance");
         await wheelGesture(this.mouse, page, 0, stepDistance, actionContext, this.logger);
         scrollPosition += stepDistance;
         await readingPause(waitMS, actionContext);
@@ -213,7 +221,7 @@ export class ScreenshotAction {
         step,
         trace_id: actionContext.trace_id,
         retryable: true,
-        details: { captured_parts: parts.length },
+        details: { captured_parts: parts.length, ...(screenshotTimedOut(error) ? { capture_timeout_ms: screenshotTimeoutMS } : {}) },
       });
       this.logger.failure(actionContext, normalized);
       throw normalized;

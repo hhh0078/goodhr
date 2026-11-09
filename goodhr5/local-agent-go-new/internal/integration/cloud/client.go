@@ -8,15 +8,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // UploadBrowserEvents 把已脱敏的浏览器异常退出日志批量上传云端。
@@ -555,15 +558,40 @@ func (c *Client) doBody(ctx context.Context, method string, path string, token s
 	if strings.HasPrefix(path, autoReplyAgentBasePath+"/questions/") || path == autoReplyAgentBasePath+"/candidates" && c.localAutoStore.UsesAutoReplyAuthority() {
 		request.Header.Set("X-GoodHR-Runtime-Service", os.Getenv("GOODHR_AUTO_REPLY_SERVICE_TOKEN"))
 	}
+	started := time.Now()
+	// capture 只记录请求阶段、有效预算和已收字节；端点、凭证与业务响应保持在原边界内。
+	capture := func(original error, phase string, status int, size int64) error {
+		detail := failurediag.Detail{Source: "云端接口", Operation: "请求云端服务", Phase: phase, Reason: "当前阶段未完成", HTTPStatus: status, ElapsedMS: time.Since(started).Milliseconds(), ReceivedBytes: size, LimitMS: c.http.Timeout.Milliseconds()}
+		if end, ok := ctx.Deadline(); ok && (c.http.Timeout <= 0 || end.Sub(started) < c.http.Timeout) {
+			detail.LimitMS = max(int64(0), end.Sub(started).Milliseconds())
+		}
+		ended := ctx.Err()
+		var networkError net.Error
+		switch {
+		case ended != nil && (errors.Is(original, context.Cause(ctx)) || errors.Is(original, ended)):
+			if ended == context.DeadlineExceeded {
+				detail.Reason = "上层请求时限已到"
+			} else {
+				detail.Reason = "上层请求已取消"
+			}
+		case errors.Is(original, context.DeadlineExceeded), errors.As(original, &networkError) && networkError.Timeout():
+			detail.Reason = "云端网络请求超时"
+		case errors.Is(original, syscall.ECONNRESET):
+			detail.Reason = "云端连接被重置"
+		case errors.Is(original, io.ErrUnexpectedEOF):
+			detail.Reason = "云端回复未收完，连接已关闭"
+		}
+		return failurediag.Wrap(original, detail)
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("连接云端失败：%w", err)
+		return capture(fmt.Errorf("连接云端失败：%w", err), "尚未收到响应头", 0, 0)
 	}
 	defer response.Body.Close()
 	limited := io.LimitReader(response.Body, 4<<20)
 	content, err := io.ReadAll(limited)
 	if err != nil {
-		return fmt.Errorf("读取云端响应失败：%w", err)
+		return capture(fmt.Errorf("读取云端响应失败：%w", err), "读取回复正文", response.StatusCode, int64(len(content)))
 	}
 	if response.StatusCode >= 400 {
 		var failure struct {
@@ -606,7 +634,11 @@ func (c *Client) doBody(ctx context.Context, method string, path string, token s
 		if message == "session is invalid or expired" || message == "session invalid or expired" {
 			message = "登录状态已经失效，请重新登录"
 		}
-		return &APIError{StatusCode: response.StatusCode, Code: code, Message: message, ErrorID: errorID}
+		apiErr := &APIError{StatusCode: response.StatusCode, Code: code, Message: message, ErrorID: errorID}
+		if response.StatusCode == http.StatusGatewayTimeout || response.StatusCode == http.StatusRequestTimeout {
+			return failurediag.Wrap(apiErr, failurediag.Detail{Source: "云端接口", Operation: "请求云端服务", Phase: "已收到云端回复", Reason: "云端返回超时状态", HTTPStatus: response.StatusCode, ElapsedMS: time.Since(started).Milliseconds(), ReceivedBytes: int64(len(content))})
+		}
+		return apiErr
 	}
 	if result != nil && len(content) > 0 {
 		if err := json.Unmarshal(content, result); err != nil {

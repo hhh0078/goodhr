@@ -57,11 +57,13 @@ func (c *Client) GenerateAutoReplyRecommendation(ctx context.Context, cfg cloud.
 	if err != nil {
 		return cloud.AutoReplyRecommendationReport{}, err
 	}
-	content, err := c.doChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, payload, chatOptions{})
+	var completion streamCompletion
+	content, err := c.doChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, payload, chatOptions{Completion: &completion, Operation: "AI 推荐分析"})
 	if err != nil {
 		return cloud.AutoReplyRecommendationReport{}, err
 	}
-	return parseRecommendationAnalysis(content, source)
+	report, parseErr := parseRecommendationAnalysis(content, source)
+	return report, completion.parseError(parseErr)
 }
 
 // parseRecommendationAnalysis 只接受模型可填写的分析字段，身份、岗位、条件和生成时间由本地提供。

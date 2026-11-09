@@ -25,6 +25,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform"
 	"goodhr5/local-agent-go-new/internal/replybridge"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // Service 管理当前服务器进程的运行句柄，数据库中的租约决定哪个进程可操作设备。
@@ -38,6 +39,9 @@ type Service struct {
 }
 type runScope struct{ tenant, user, machine string }
 type activeRun struct {
+	failureMu                                          sync.Mutex
+	failureSequence                                    int64
+	failureNotices                                     []cloud.AutoReplyFailureNotice
 	currentStep, errorMessage                          string
 	analysis                                           shared.AnalysisStatus
 	conversation                                       string
@@ -55,6 +59,7 @@ type activeRun struct {
 	lastPoll                                           time.Time
 }
 type runtimeRequest struct {
+	AfterFailure      *int64                  `json:"after_failure,omitempty"`
 	RunID             string                  `json:"run_id"`
 	TaskID            string                  `json:"task_id"`
 	PositionID        string                  `json:"position_id"`
@@ -118,6 +123,25 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		output(w, 200, map[string]any{"ok": true, "running": false, "status": "idle"})
 		return
 	}
+	if action == "next" && in.AfterFailure != nil && (run == nil || run.id != in.RunID) && len(in.RunID) == 32 {
+		if _, err := hex.DecodeString(in.RunID); err == nil {
+			// 内存运行已结束或服务重启时只补发权威日志小票，不恢复历史网页命令。
+			var recovered struct {
+				Found    bool                           `json:"found"`
+				Failures []cloud.AutoReplyFailureNotice `json:"failures"`
+			}
+			authority := newStateAuthority(s.host, s.secret, scope.tenant, scope.user)
+			_, err = authority.request(r.Context(), "failures", map[string]any{"run_id": in.RunID, "machine_id": scope.machine, "after_failure": *in.AfterFailure}, &recovered)
+			if err != nil {
+				output(w, 503, map[string]any{"ok": false, "error": "运行记录暂未读到，请稍后重试"})
+				return
+			}
+			if recovered.Found {
+				output(w, 200, map[string]any{"ok": true, "running": false, "command": nil, "failures": recovered.Failures})
+				return
+			}
+		}
+	}
 	if run == nil || run.scope != scope || (action != "status" || in.RunID != "") && run.id != in.RunID {
 		output(w, 404, map[string]any{"ok": false, "error": "没有找到这个设备的运行任务"})
 		return
@@ -134,21 +158,21 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		running := run.status == "running"
 		run.mu.Unlock()
 		if !running {
-			output(w, 200, map[string]any{"ok": true, "command": nil, "running": false})
+			output(w, 200, run.nextPayload(nil, false, in.AfterFailure))
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
 		cmd, err := run.broker.Next(ctx)
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			output(w, 200, map[string]any{"ok": true, "command": nil, "running": true})
+			output(w, 200, run.nextPayload(nil, true, in.AfterFailure))
 			return
 		}
 		if err != nil {
 			output(w, 503, map[string]any{"ok": false, "error": "命令暂未取得，请稍后重试"})
 			return
 		}
-		output(w, 200, map[string]any{"ok": true, "command": cmd, "running": true})
+		output(w, 200, run.nextPayload(cmd, true, in.AfterFailure))
 	case "complete":
 		if err := run.broker.Complete(r.Context(), in.Result); err != nil {
 			output(w, 409, map[string]any{"ok": false, "error": "这次回执未被服务器确认"})
@@ -336,6 +360,15 @@ func (r *activeRun) execute(ctx context.Context, prepared shared.PreparedTask, a
 		}
 	}()
 	stats, err = flow.RunServer(jobCtx, prepared, platformRuntime)
+	if details := failurediag.Details(err); len(details) > 0 && ctx.Err() == nil {
+		r.mu.Lock()
+		if r.errorMessage == "" {
+			r.errorMessage = failurediag.Summary(details)
+		}
+		r.mu.Unlock()
+		// 只有源头核验过的岗位才会收到终止记录。全局扫描故障仅进入本次运行审计。
+		logger.Step(r.task, "auto_reply", "server_run_stopped", "failed", time.Time{}, err)
+	}
 	stop()
 	wg.Wait()
 	if err == nil || ctx.Err() != nil {

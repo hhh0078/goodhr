@@ -13,6 +13,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 const zhaopinAttachmentTestReturnURL = "https://rd6.zhaopin.com/app/recommend#sortType=recommend"
@@ -229,6 +230,14 @@ func TestZhaopinAttachmentDocumentRestoresPageAfterSaveFailure(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "模拟保存失败") {
 		t.Fatalf("智联附件保存失败应保留原错误：%v", err)
+	}
+	receipt := failurediag.AttachmentEvidence(err)
+	if receipt == nil || receipt.LimitMS != 30000 {
+		t.Fatalf("附件失败回执丢失保存阶段或预算 %+v", receipt)
+	}
+	details := failurediag.Details(receipt.Restore(errors.New("设备操作失败")))
+	if len(details) != 1 || details[0].Phase != "保存当前附件文档" {
+		t.Fatalf("设备返回的附件阶段有误 %+v", details)
 	}
 	if browser.closeCount != 1 || len(browser.usedPages) == 0 || browser.usedPages[len(browser.usedPages)-1] != "0" {
 		t.Fatalf("智联附件失败后没有恢复推荐页：close=%d use=%v", browser.closeCount, browser.usedPages)

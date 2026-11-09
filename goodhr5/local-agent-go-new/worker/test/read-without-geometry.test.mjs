@@ -5,6 +5,7 @@ import { FindAction } from '../dist/browser/actions/find.js';
 import { ReadAction } from '../dist/browser/actions/read.js';
 import { LocatorPrimitive } from '../dist/browser/primitives/locator.js';
 import { ElementRegistry } from '../dist/browser/session/element-registry.js';
+import { startRequestProgress, requestProgress } from '../dist/logging/request-progress.js';
 import { actionContextStorage } from '../dist/logging/operation.js';
 
 /** group 创建标准选择器层级，不涉及平台内容。 */
@@ -124,4 +125,25 @@ test('状态读取期间取消后不读取正文、不生成引用、不继续�
   assert.equal(h.counters.text, 0);
   assert.equal(h.counters.box + h.counters.viewport, 0);
   assert.equal(h.registry.entries.size, 0);
+});
+
+test('普通元素阅读失败明确停在定位还是已定位后取值，仅真正的 Playwright 超时带取值时限', async t => {
+  for (const mode of ['missing', 'timeout', 'other']) {
+    const h = harness(t);
+    const id = mode.padEnd(26, 'A');
+    const ctx = { ...h.context, request_id: id };
+    startRequestProgress(ctx);
+    if (mode === 'missing') {
+      h.target.visible = false;
+    } else {
+      // 模拟原生取值失败；始终禁止读或记录测试人的实际内容。
+      h.read.primitive.text = async () => { throw Object.assign(new Error('synthetic'), { name: mode === 'timeout' ? 'TimeoutError' : 'Error' }); };
+    }
+    await assert.rejects(h.read.execute({selector: h.selector}, ctx), err => {
+      const progress = requestProgress(id, {});
+      assert.equal(progress.worker_phase, mode === 'missing' ? 'locate_read_target' : 'read_value');
+      assert.equal(err.details?.read_value_timeout_ms, mode === 'timeout' ? 1500 : undefined);
+      return true;
+    });
+  }
 });

@@ -19,6 +19,7 @@ import AIResponseDiagnosticDetails, {
   ordinaryDiagnosticOutput,
 } from "@/components/admin/AIResponseDiagnosticDetails";
 
+import TaskFailureDetails, { taskFailureText } from "@/components/admin/TaskFailureDetails";
 import BrowserDiagnosticDetails, { browserDiagnosticText } from "@/components/admin/BrowserDiagnosticDetails";
 
 type DiagnosticEvent = {
@@ -103,6 +104,7 @@ export default function DiagnosticShareView() {
         const text = [
           item.event?.task_id,
           browserDiagnosticText(item.event?.output),
+          taskFailureText(item.event?.output),
           item.event?.message,
           item.event?.error_message,
           item.event?.action,
@@ -266,6 +268,7 @@ function DiagnosticLine({ item }: { item: SharedLog }) {
         event.error_message !== event.message ? (
           <Alert type="error" title={event.error_message} showIcon />
         ) : null}
+        {event ? <TaskFailureDetails output={event.output} /> : null}
         {event ? <BrowserDiagnosticDetails output={event.output} /> : null}
         {event ? <AIResponseDiagnosticDetails output={event.output} /> : null}
         {event ? (

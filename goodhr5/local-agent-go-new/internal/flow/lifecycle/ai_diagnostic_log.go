@@ -9,6 +9,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/system/diagnostics"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // taskLogOutput 保存步骤状态及可展开的 AI、浏览器诊断详情。
@@ -38,13 +39,15 @@ func (l *TaskLogger) taskLogOutput(status string, durationMS int64, err error) j
 			response = &value
 		}
 	}
+	browser := browserDiagnosticFromError(err)
 	output, _ := json.Marshal(struct {
 		Status               string                 `json:"status"`
 		DurationMS           int64                  `json:"duration_ms"`
 		AIResponseDiagnostic *ai.ResponseDiagnostic `json:"ai_response_diagnostic,omitempty"`
 		AIResponseReference  string                 `json:"ai_response_reference,omitempty"`
 		BrowserDiagnostic    *browserDiagnostic     `json:"browser_diagnostic,omitempty"`
-	}{status, durationMS, response, reference, browserDiagnosticFromError(err)})
+		Failures             []failurediag.Detail   `json:"failure_diagnostics,omitempty"`
+	}{status, durationMS, response, reference, browser, taskFailureDetails(err, browser)})
 	return json.RawMessage(strings.TrimSpace(string(diagnostics.Redact(output))))
 }
 

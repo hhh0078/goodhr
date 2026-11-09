@@ -15,6 +15,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // TestTaskLogMessageUsesChinese 验证流程错误日志使用中文步骤名称。
@@ -260,6 +261,12 @@ func TestAutoReplyLogsUseActualPosition(t *testing.T) {
 		if err != nil || len(logs) != 1 {
 			t.Fatalf("实际岗位日志归属不正确：position=%s logs=%d err=%v", positionID, len(logs), err)
 		}
+	}
+	logger.ReportAnalysis("task", shared.AnalysisStatus{PositionID: "third-position", Kind: "auto_reply", Stage: "ai", Phase: "error", Reason: "模型响应中断",
+		FailureDiagnostics: []failurediag.Detail{{Source: "AI", Reason: "部分内容后连接中断"}}})
+	failed, err := store.ListPositionLogs(ctx, "third-position", 100)
+	if err != nil || len(failed) != 2 || failed[1].Step != "analysis.auto_reply.ai" || !strings.Contains(string(failed[1].Output), "部分内容后连接中断") {
+		t.Fatalf("实际岗位缺少 AI 故障记录：%+v %v", failed, err)
 	}
 	logs, err := store.ListPositionLogs(ctx, "first-position", 100)
 	if err != nil || len(logs) != 0 {
