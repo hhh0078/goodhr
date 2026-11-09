@@ -424,8 +424,8 @@ test("queued/download/failed 轮询正确，409 后重试，快速重启同步�
   state.progress = { stage: "idle", running: false };
   await expect(dialog).toBeHidden();
   await expect(
-    page.getByRole("button", { name: /6\.2\.10\.2 · 端口 43129/ }),
-  ).toBeVisible();
+    page.getByTestId("local-agent-status"),
+  ).toHaveText("6.2.10.2");
 });
 
 test("接管 install 后断线仍继续重连，新版恢复后解除更新锁定", async ({
@@ -454,8 +454,8 @@ test("接管 install 后断线仍继续重连，新版恢复后解除更新锁�
   state.progress = { stage: "idle", running: false };
   await expect(dialog).toBeHidden({ timeout: 15000 });
   await expect(
-    page.getByRole("button", { name: /6\.2\.11\.0 · 端口 43129/ }),
-  ).toBeVisible();
+    page.getByTestId("local-agent-status"),
+  ).toHaveText("6.2.11.0");
   expect(startCalls(state)).toHaveLength(0);
 });
 
@@ -480,8 +480,8 @@ test("新版 idle 的首次完成绑定失败会继续重试，绑定完成前�
   gate.release();
   await expect(dialog).toBeHidden();
   await expect(
-    page.getByRole("button", { name: /6\.2\.11\.0 · 端口 43129/ }),
-  ).toBeVisible();
+    page.getByTestId("local-agent-status"),
+  ).toHaveText("6.2.11.0");
   expect(state.completionBindAttempts).toBe(2);
 });
 
@@ -498,8 +498,8 @@ test("完成时 health 暂时失败使用 runtime 新版，两个版本来源为
   state.progress = { stage: "idle", running: false };
   await expect(dialog).toBeHidden();
   await expect(
-    page.getByRole("button", { name: /6\.2\.11\.0 · 端口 43129/ }),
-  ).toBeVisible();
+    page.getByTestId("local-agent-status"),
+  ).toHaveText("6.2.11.0");
   expect(state.completionHealthFailures).toBe(0);
   expect(state.completionBindAttempts).toBe(1);
 
@@ -524,8 +524,8 @@ test("完成时 health 暂时失败使用 runtime 新版，两个版本来源为
   gate.release();
   await expect(dialog).toBeHidden();
   await expect(
-    page.getByRole("button", { name: /6\.2\.12\.0 · 端口 43129/ }),
-  ).toBeVisible();
+    page.getByTestId("local-agent-status"),
+  ).toHaveText("6.2.12.0");
   expect(state.completionBindAttempts).toBe(2);
   expect(startCalls(state)).toHaveLength(0);
 });
@@ -562,8 +562,8 @@ test("新版 idle 快照返回后同步期间再次断线，仍锁定并自动�
   state.offline = false;
   await expect(dialog).toBeHidden({ timeout: 15000 });
   await expect(
-    page.getByRole("button", { name: /6\.2\.11\.0 · 端口 43129/ }),
-  ).toBeVisible();
+    page.getByTestId("local-agent-status"),
+  ).toHaveText("6.2.11.0");
   expect(startCalls(state)).toHaveLength(0);
 });
 

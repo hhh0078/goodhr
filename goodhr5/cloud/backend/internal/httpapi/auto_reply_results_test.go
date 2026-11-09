@@ -135,6 +135,10 @@ func TestAutoReplyPostgresConfigurationAndReports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 模拟发布前已经开启的历史配置；灰度期间只验证其编辑和报告兼容，不借存储接口新开启。
+	if _, err = db.Exec(`INSERT INTO position_auto_reply_configs(position_id,tenant_id,company_profile_id,enabled) VALUES($1,$2,$3,true)`, positionID, tenantID, company.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = store.SavePositionAutoReplyConfig(context.Background(), "auto-owner@example.com", PositionAutoReplyConfig{TenantID: tenantID, PositionID: positionID, CompanyProfileID: company.ID, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}

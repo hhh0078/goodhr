@@ -33,6 +33,7 @@ import {
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import { AUTO_REPLY_ROLLOUT_CLOSED, AUTO_REPLY_ROLLOUT_MESSAGE } from "@/lib/auto-reply-rollout";
 import AdminDialog from "@/components/admin/AdminDialog";
 import AIRechargeDialog from "@/components/payment/AIRechargeDialog";
 import AIWalletChange from "@/components/payment/AIWalletChange";
@@ -438,7 +439,7 @@ export default function SubscriptionPage() {
               color={subscription.active ? "var(--goodhr-primary)" : "default"}
             >
               {subscription.active
-                ? `${subscription.remaining_days} 天 · 自动回复${subscription.allow_auto_reply ? "可用" : "不可用"}`
+                ? `${subscription.remaining_days} 天 · ${AUTO_REPLY_ROLLOUT_CLOSED ? AUTO_REPLY_ROLLOUT_MESSAGE : `自动回复${subscription.allow_auto_reply ? "可用" : "不可用"}`}`
                 : "未开通或已到期"}
             </Tag>
             <Typography.Paragraph
@@ -1220,6 +1221,8 @@ function PlanCard({
       <Typography.Paragraph className={`${styles.text} ${styles.s198}`}>
         {plan.description || "解锁更多智能招聘功能。"}
       </Typography.Paragraph>
+      {AUTO_REPLY_ROLLOUT_CLOSED && (plan.member_type === "max" || plan.features.some(feature => feature.includes("自动回复"))) &&
+        <Typography.Paragraph type="secondary" className={`${styles.text} ${styles.s198}`}>自动回复灰度中，暂不开放。</Typography.Paragraph>}
       {quote.upgrade ? (
         <Typography.Paragraph className={`${styles.text} ${styles.s199}`}>
           已按 Plus 剩余时间抵扣 ￥{(quote.creditCents / 100).toFixed(2)}

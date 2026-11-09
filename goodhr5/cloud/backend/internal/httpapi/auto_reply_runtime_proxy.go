@@ -23,7 +23,12 @@ func (s *AutoReplyService) runtimeProxy(w http.ResponseWriter, r *http.Request) 
 		writeAutoReplyError(w, 405, "METHOD_NOT_ALLOWED", "请求方式未识别")
 		return
 	}
-	access, ok := s.currentRequestContext(w, r, true, true)
+	needsExecution := action == "start" || action == "next" || action == "retry-reports"
+	if needsExecution && rejectAutoReplyRollout(w) {
+		return
+	}
+	// 停止、查状态和交回执不新开执行能力；会员到期后也必须能结束旧任务并保存已发生的结果。
+	access, ok := s.currentRequestContext(w, r, needsExecution, true)
 	if !ok {
 		return
 	}

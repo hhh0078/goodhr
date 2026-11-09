@@ -11,6 +11,7 @@ import AdminDialog from "./AdminDialog";
 import PositionFloatingStatus, { openPositionFloatingWindow, type PositionAnalysisStatus, type PositionFloatingStatusValue } from "./PositionFloatingStatus";
 import { ensureLocalAgentReady, getToken, localRequest } from "@/lib/admin-api";
 import { canUseAutoReply } from "@/lib/subscription";
+import { AUTO_REPLY_ROLLOUT_CLOSED, AUTO_REPLY_ROLLOUT_MESSAGE } from "@/lib/auto-reply-rollout";
 import { loadReplyInboxSummary, type ReplyInboxSummary } from "@/lib/auto-reply-inbox";
 import { loadPositionAutoReplyConfig, loadPositionAutoReplyStatus, savePositionAutoReplyConfig, type PositionAutoReplyStatus } from "@/lib/auto-reply";
 import styles from "./auto-reply-inbox.module.css";
@@ -124,6 +125,8 @@ export function AutoReplyGlobalControl() {
 
   /** changeRunning 经设备请求服务器启动或安全停止，失败时保留当前状态并给出重试提示。 */
   async function changeRunning(account?: string) {
+    // 灰度提示先于套餐、本机连接和账号确认；既有运行仍可安全停止。
+    if (AUTO_REPLY_ROLLOUT_CLOSED && !running) { notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info"); return; }
     if (!agentBase || operation.current) return;
     if (!running && !canUseAutoReply(subscription)) {
       if (await confirm("自动回复需要 Max", "Max 或全功能体验会员可以自动回复。现在去看看套餐吗？")) router.push("/admin/subscription");
@@ -156,6 +159,7 @@ export function AutoReplyGlobalControl() {
   }
   /** retryReports 由HR确认后重试报告和简历待办，复用当前账号；不重新发送已处理的聊天。 */
   async function retryReports() {
+    if (AUTO_REPLY_ROLLOUT_CLOSED) { notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info"); return; }
     if (!agentBase || operation.current) return;
     if (!await confirm("重试待办", "重新整理简历或生成报告会使用 AI 余额，不会重发已回复的消息。简历待办会在自动回复运行时继续处理。确认后，我再试一次。")) return;
     const base = agentBase;
@@ -179,26 +183,26 @@ export function AutoReplyGlobalControl() {
       <span style={{ paddingInlineEnd: 8 }}><Badge showZero size="small" offset={[0, 7]} color={!summaryError && summary?.pending_count === 0 ? "var(--goodhr-text-secondary)" : undefined}
         count={summaryError ? "?" : summary ? summary.pending_count : "…"} overflowCount={99} title={summaryError || (summary ? `${summary.pending_count} 项待确认补充` : "正在核对待确认数量")}>
         <Button data-testid="auto-reply-global" aria-label="自动回复工作台" icon={running ? <CommentOutlined aria-hidden="true" /> : <PlayCircleOutlined aria-hidden="true" />}
-          loading={busy} onClick={() => { setInboxOpen(true); refreshInbox(); }}>
+          loading={busy} onClick={() => { setInboxOpen(true); refreshInbox(); if (AUTO_REPLY_ROLLOUT_CLOSED && !running) notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info"); }}>
           {running ? "自动回复运行中" : "开始自动回复"}
         </Button>
       </Badge></span>
     </Tooltip>
     </Flex>
     {task?.status === "failed" && <Alert type="error" showIcon role="alert" data-testid="auto-reply-failure"
-      title="自动回复已停止" description={<>{failureReason}<br />处理后点击“开始自动回复”重试。</>}
+      title="自动回复已停止" description={<>{failureReason}<br />{AUTO_REPLY_ROLLOUT_CLOSED ? "打开自动回复工作台，仍可查看待确认问题和配置。" : "处理后点击“开始自动回复”重试。"}</>}
       style={{ overflowWrap: "anywhere" }} />}
     </Flex>
     <AdminDialog open={inboxOpen} title="自动回复" cancelText="关闭" maxWidth="lg" loading={busy} onClose={() => setInboxOpen(false)}>
       <div className={styles.runBar}>
         <div className={styles.runInfo}>
           <div><Typography.Text strong>消息接待</Typography.Text> <Tag color={running ? "success" : task?.status === "failed" ? "error" : undefined}>{running ? "运行中" : task?.status === "failed" ? "已停止" : agentBase ? "未启动" : "本机未连接"}</Tag></div>
-          <p>{statusError || (!agentBase ? "本机暂未连接，待确认问题仍可在这里处理。" : task?.status === "failed" ? failureReason : running ? "我会关注当前平台已开启岗位的新消息。" : "开始后，我会按各岗位设置接待候选人。")}</p>
+          <p>{statusError || (!agentBase ? "本机暂未连接，待确认问题仍可在这里处理。" : task?.status === "failed" ? failureReason : running ? "我会关注当前平台已开启岗位的新消息。" : AUTO_REPLY_ROLLOUT_CLOSED ? AUTO_REPLY_ROLLOUT_MESSAGE : "开始后，我会按各岗位设置接待候选人。")}</p>
         </div>
         <div className={styles.runActions}>
           {blockedCount > 0 && <Button disabled={busy} onClick={() => void retryReports()}>重试待办（{blockedCount}）</Button>}
           <Button type="primary" danger={running} icon={running ? <StopOutlined aria-hidden="true" /> : <PlayCircleOutlined aria-hidden="true" />}
-            loading={busy} disabled={!agentBase || task === null} onClick={() => void changeRunning()}>{running ? "停止自动回复" : "开始自动回复"}</Button>
+            loading={busy} disabled={AUTO_REPLY_ROLLOUT_CLOSED && !running ? false : !agentBase || task === null} onClick={() => void changeRunning()}>{running ? "停止自动回复" : "开始自动回复"}</Button>
         </div>
       </div>
       <AutoReplyInbox key={owner} summary={summary} loading={summaryLoading} error={summaryError} active={inboxOpen} onRetry={refreshInbox} onApplied={refreshInbox} />
@@ -241,6 +245,7 @@ export function PositionAutoReplyControl({ position }: { position: { id: string;
   /** toggle 先读完整配置再切换，缺少公司资料时打开配置表单。 */
   async function toggle(enabled: boolean) {
     if (operation.current) return;
+    if (AUTO_REPLY_ROLLOUT_CLOSED && enabled) { notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info"); return; }
     if (enabled && !allowAutoReply) { await requireMembership(); return; }
     operation.current = true; setBusy(true);
     try {
@@ -256,14 +261,14 @@ export function PositionAutoReplyControl({ position }: { position: { id: string;
     <Flex align="center" gap={8} wrap style={{ marginTop: 8 }} data-testid="position-auto-reply">
       <Tooltip title={error || "关闭后，当前会话处理完就不再接新消息"}>
         <Switch aria-label={`${position.name}自动回复开关`} checked={Boolean(status?.configured_enabled)} loading={busy}
-          disabled={!status} onChange={(enabled) => void toggle(enabled)} />
+          disabled={!AUTO_REPLY_ROLLOUT_CLOSED && !status} onChange={(enabled) => void toggle(enabled)} />
       </Tooltip>
       <Typography.Text type="secondary"><CommentOutlined aria-hidden="true" /> 自动回复</Typography.Text>
       <Button type="text" icon={<SettingOutlined aria-hidden="true" />} onClick={() => setOpen(true)} aria-label={`${position.name}自动回复设置`}>设置</Button>
     </Flex>
     <AutoReplyPositionDialog open={open} position={position} allowAutoReply={allowAutoReply} notify={notify} confirm={confirm}
       onRequireMax={() => void requireMembership()} onClose={() => setOpen(false)} onSaved={(enabled) => {
-        setStatus({ configured_enabled: enabled, enabled: enabled && allowAutoReply, allow_auto_reply: allowAutoReply, version: 0 }); setError("");
+        setStatus({ configured_enabled: enabled, enabled: enabled && allowAutoReply && !AUTO_REPLY_ROLLOUT_CLOSED, allow_auto_reply: allowAutoReply, version: 0 }); setError("");
       }} />
   </>;
 }

@@ -208,6 +208,18 @@ func (s *AutoReplyService) savePositionConfig(w http.ResponseWriter, r *http.Req
 	item.PositionID = position.ID
 	item.TenantID = requestContext.Tenant.ID
 	if item.Enabled && !requestContext.Access.AllowAutoReply {
+		// 未开放时先说明灰度限制，不把一次新开启误导成升级会员即可使用。
+		if !autoReplyPublicRolloutOpen {
+			current, loadErr := s.store.GetPositionAutoReplyConfig(r.Context(), requestContext.Tenant.ID, position.ID)
+			if errors.Is(loadErr, ErrNotFound) || loadErr == nil && !current.Enabled {
+				writeAutoReplyError(w, http.StatusForbidden, autoReplyRolloutCode, autoReplyRolloutMessage)
+				return
+			}
+			if loadErr != nil {
+				writeAutoReplyStoreError(w, loadErr, "岗位配置暂时没读出来")
+				return
+			}
+		}
 		writeAutoReplyError(w, http.StatusForbidden, "AUTO_REPLY_MAX_REQUIRED", "自动回复属于 Max 全能版，当前套餐暂时不能开启")
 		return
 	}
@@ -234,7 +246,7 @@ func (s *AutoReplyService) getPositionStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "enabled": config.Enabled && requestContext.Access.AllowAutoReply,
+		"ok": true, "enabled": autoReplyPublicRolloutOpen && config.Enabled && requestContext.Access.AllowAutoReply,
 		"configured_enabled": config.Enabled, "version": config.Version,
 		"subscription": publicSubscriptionAccess(requestContext.Access),
 	})
@@ -337,6 +349,8 @@ func decodeAutoReplyJSON(w http.ResponseWriter, r *http.Request, target any) err
 func writeAutoReplyStoreError(w http.ResponseWriter, err error, fallback string) {
 	var validationError *autoReplyValidationError
 	switch {
+	case errors.Is(err, errAutoReplyRolloutClosed):
+		writeAutoReplyError(w, http.StatusForbidden, autoReplyRolloutCode, autoReplyRolloutMessage)
 	case errors.Is(err, errCandidateDeleted):
 		writeAutoReplyError(w, 410, "CANDIDATE_DELETED", err.Error())
 	case errors.Is(err, errReplyStateConflict):

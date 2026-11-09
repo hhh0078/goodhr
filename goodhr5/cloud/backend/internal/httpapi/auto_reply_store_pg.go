@@ -166,12 +166,17 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 		return PositionAutoReplyConfig{}, err
 	}
 	var currentVersion int
+	var previouslyEnabled bool
 	var previousJSON []byte
 	// 与 HR 补充归档锁定同一配置行；版本核对到写入之间不能插入一次新归档。
 	// 顺序固定为岗位、配置、话术库；归档不会反向锁岗位，避免引入互相等待。
-	err = tx.QueryRowContext(ctx, `SELECT version,phrase_overrides FROM position_auto_reply_configs WHERE position_id=$1 FOR UPDATE`, item.PositionID).Scan(&currentVersion, &previousJSON)
+	err = tx.QueryRowContext(ctx, `SELECT version,phrase_overrides,enabled FROM position_auto_reply_configs WHERE position_id=$1 FOR UPDATE`, item.PositionID).Scan(&currentVersion, &previousJSON, &previouslyEnabled)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return PositionAutoReplyConfig{}, err
+	}
+	// 在同一行锁内判定真正的开启变化，旧客户端省略版本也不能竞态开启；已有开启配置仍可编辑或关闭。
+	if !autoReplyPublicRolloutOpen && item.Enabled && !previouslyEnabled {
+		return PositionAutoReplyConfig{}, errAutoReplyRolloutClosed
 	}
 	version, compareVersion := item.Version, item.Version > 0
 	// 新客户端明确传入0时也保护首次保存；未传版本的旧客户端保持兼容。

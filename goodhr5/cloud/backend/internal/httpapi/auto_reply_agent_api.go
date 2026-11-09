@@ -75,6 +75,9 @@ func (s *AutoReplyService) agentPositionSnapshots(w http.ResponseWriter, r *http
 		writeAutoReplyError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "岗位快照列表这里只支持读取")
 		return
 	}
+	if rejectAutoReplyRollout(w) {
+		return
+	}
 	requestContext, ok := s.currentRequestContext(w, r, true, true)
 	if !ok {
 		return
@@ -131,6 +134,9 @@ func (s *AutoReplyService) agentPositionSnapshots(w http.ResponseWriter, r *http
 func (s *AutoReplyService) agentPositionSnapshot(w http.ResponseWriter, r *http.Request, positionID string) {
 	if r.Method != http.MethodGet {
 		writeAutoReplyError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "岗位快照这里只支持读取")
+		return
+	}
+	if rejectAutoReplyRollout(w) {
 		return
 	}
 	requestContext, position, ok := s.positionRequestContext(w, r, positionID, true, true)

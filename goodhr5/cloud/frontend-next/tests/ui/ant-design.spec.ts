@@ -248,10 +248,18 @@ test("会员激活使用后端已有兑换接口，提交前去除首尾空格",
   ).toBeVisible();
 });
 
+/** dismissNotices 按真实关闭按钮依次收起通知，避免提示层遮住待验证的重新连接入口。 */
+async function dismissNotices(page: Page, text = "") {
+  const notices = text ? page.locator(".ant-notification-notice").filter({hasText:text}) : page.locator(".ant-notification-notice");
+  for(let count=await notices.count();count>0;count--){
+    await notices.last().locator(".ant-notification-notice-close").click();await expect(notices).toHaveCount(count-1);
+  }
+}
+
 test("本地绑定被拒绝时显示原因，手动重试不会产生未处理错误", async ({
   page,
 }) => {
-  await mockSession(page);
+  await mockSession(page,{tutorialState:"completed"});
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   let bindCalls = 0;
@@ -271,10 +279,12 @@ test("本地绑定被拒绝时显示原因，手动重试不会产生未处理�
   await expect(
     page.getByText("模拟本地绑定冲突，请检查当前账号", { exact: true }).first(),
   ).toBeVisible();
+  // 错误通知位于连接按钮上方，先按真实用户操作关闭通知，再点击重新连接。
+  await dismissNotices(page,"模拟本地绑定冲突，请检查当前账号");
   const previousCalls = bindCalls;
   await page
     .locator(".goodhr-admin-toolbar")
-    .getByRole("button", { name: /端口 43129/ })
+    .getByTestId("local-agent-status")
     .click();
   await expect.poll(() => bindCalls).toBeGreaterThan(previousCalls);
   await expect(
@@ -378,16 +388,17 @@ test("主题选择按账号保存，刷新后正文和弹窗继续使用选择",
 });
 
 test("主题按邮箱隔离，公开页面和注销后恢复绿色", async ({ page }) => {
-  const options: MockOptions = { member: "max", userId: "theme-user-a", email: "Theme-A@Example.Invalid" };
+  const options: MockOptions = { member: "max", userId: "theme-user-a", email: "Theme-A@Example.Invalid", tutorialState:"completed" };
   await mockSession(page, options);
   await page.goto("/admin/accounts");
   await chooseTheme(page, themeChoices[1]);
   const keyA = themePreferenceKey(options.email);
   const keyB = themePreferenceKey("theme-b@example.invalid");
-  await expect(page.locator(".goodhr-admin-toolbar").getByRole("button", { name: /6\.2\.10\.1.*端口 43129/ })).toBeVisible();
+  await expect(page.getByTestId("local-agent-status")).toHaveText("6.2.10.1");
+  await dismissNotices(page);
   options.disconnected = true;
   await waitForAgentProbeCacheExpiry(page);
-  await page.locator(".goodhr-admin-toolbar").getByRole("button", { name: /端口 43129/ }).click();
+  await page.locator(".goodhr-admin-toolbar").getByTestId("local-agent-status").click();
   const installation = page.getByRole("dialog", { name: "请先安装本地程序", exact: true });
   await expect(installation).toBeVisible();
   const documentRequests: string[] = [];

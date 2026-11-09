@@ -18,7 +18,6 @@ import {
 import {
   SafetyOutlined as AdminPanelSettingsRoundedIcon,
   FileTextOutlined as ArticleRoundedIcon,
-  CalendarOutlined as CalendarMonthRoundedIcon,
   CreditCardOutlined as CreditCardRoundedIcon,
   DashboardOutlined as DashboardRoundedIcon,
   DownloadOutlined as DownloadRoundedIcon,
@@ -52,6 +51,7 @@ import BrowserOpenControl from "./BrowserOpenControl";
 import MessageCenter from "./MessageCenter";
 import AssistantDialog from "./assistant/AssistantDialog";
 import { AI_SEARCH_ENABLED } from "@/lib/ai-search-feature";
+import { AUTO_REPLY_ROLLOUT_MESSAGE } from "@/lib/auto-reply-rollout";
 import BrandMark from "@/components/BrandMark";
 import PasswordSetupDialog from "@/components/PasswordSetupDialog";
 import { useUserTheme } from "@/app/providers";
@@ -200,9 +200,10 @@ function AdminBanners({ appConfig }: { appConfig: any }) {
   );
 }
 
-/** formatAIBalance 格式化顶部栏 AI 余额。 */
+/** formatAIBalance 大于1元时仅显示整数部分，其余保留接口精度，不改变实际余额。 */
 function formatAIBalance(wallet: any) {
-  return `￥${String(wallet?.balance || "0.00")}`;
+  const balance = String(wallet?.balance || "0.00");
+  return `￥${Number(balance) > 1 ? balance.split(".")[0] : balance}`;
 }
 
 /** AdminApp 输出后台悬浮三卡布局并完成用户身份校验。 */
@@ -367,7 +368,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     if (!agentBaseRef.current) throw new Error("本地程序还没重新连上，请稍等");
   }, [refreshAgent]);
 
-  /** notify 显示统一右上角轻提示。 */
+  /** notify 显示统一轻提示，灰度提示由展示层去重并避开右侧操作。 */
   const notify = useCallback(
     (
       message: string,
@@ -647,10 +648,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!notice.open) return;
+    const rolloutNotice = notice.message === AUTO_REPLY_ROLLOUT_MESSAGE;
     notification[notice.severity]({
+      key: rolloutNotice ? "auto-reply-rollout" : undefined,
       title: notice.message,
       duration: 3,
-      placement: "topRight",
+      placement: rolloutNotice ? "bottomLeft" : "topRight",
     });
     setNotice((current) => ({ ...current, open: false }));
   }, [notice, notification]);
@@ -769,14 +772,14 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               </Tooltip>
               <Button
                 className="goodhr-desktop-lg"
-                icon={<CalendarMonthRoundedIcon aria-hidden="true" />}
                 onClick={() => router.push("/admin/subscription")}
               >
                 {subscription.active
-                  ? `${subscription.member_name} · 剩${subscription.remaining_days}天 · AI余额 ${formatAIBalance(aiWallet)}`
+                  ? `剩${subscription.remaining_days}天 · AI余额 ${formatAIBalance(aiWallet)}`
                   : `${subscription.expires_at ? `已过期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}`}
               </Button>
               <Button
+                data-testid="local-agent-status"
                 className="goodhr-desktop-sm"
                 icon={<SensorsRoundedIcon aria-hidden="true" />}
                 onClick={() =>
@@ -792,10 +795,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 style={{ color: agentBase ? "#238653" : "#c83f49" }}
               >
                 {agentBase
-                  ? agentBase.replace(
-                      "http://127.0.0.1:",
-                      `${agentVersion || "--"} · 端口 `,
-                    )
+                  ? agentVersion || "--"
                   : "本地程序未连接"}
               </Button>
               <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>{AI_SEARCH_ENABLED ? <AssistantDialog key={`${user?.tenant_id || ""}:${user?.id || ""}`} user={user} /> : null}<MessageCenter userKey={user?.id || user?.email || ""} /></div>
