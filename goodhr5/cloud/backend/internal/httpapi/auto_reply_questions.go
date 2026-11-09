@@ -71,7 +71,8 @@ func (s *PostgresAutoReplyStore) readQuestions(ctx context.Context, tenant, pos 
 		// 已归档答复保留在审计表里，当前可编辑正文才是下一轮模型的事实来源。
 		cols = "id,position_id,question,''::text,status,publish_target,''::text,version,updated_at"
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT "+cols+" FROM auto_reply_cloud_questions WHERE tenant_id=$1 AND position_id=$2 AND question<>'' ORDER BY updated_at DESC,id", tenant, pos)
+	// 成功补入正文的条目移出网页工作台；模型仍保留题目索引，后续未知来信可重开原题。
+	rows, err := tx.QueryContext(ctx, "SELECT "+cols+" FROM auto_reply_cloud_questions WHERE tenant_id=$1 AND position_id=$2 AND question<>'' AND ($3 OR status<>'resolved') ORDER BY updated_at DESC,id", tenant, pos, index)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +93,7 @@ func (s *PostgresAutoReplyStore) readQuestions(ctx context.Context, tenant, pos 
 	}
 	rows.Close()
 	if !index && len(qs) > 0 {
-		rows, err = tx.QueryContext(ctx, `SELECT q.id,m.id,m.payload->>'text_content',COALESCE(c.payload->>'candidate_name','') FROM auto_reply_cloud_questions q JOIN auto_reply_cloud_question_sources s ON s.question_id=q.id JOIN auto_reply_cloud_entities m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id AND m.kind='messages' AND m.id=s.message_id JOIN auto_reply_cloud_entities c ON c.tenant_id=m.tenant_id AND c.user_id=m.user_id AND c.kind='conversations' AND c.id=m.payload->>'conversation_id' WHERE q.tenant_id=$1 AND q.position_id=$2 ORDER BY m.message_order,m.sequence,m.id`, tenant, pos)
+		rows, err = tx.QueryContext(ctx, `SELECT q.id,m.id,m.payload->>'text_content',COALESCE(c.payload->>'candidate_name','') FROM auto_reply_cloud_questions q JOIN auto_reply_cloud_question_sources s ON s.question_id=q.id JOIN auto_reply_cloud_entities m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id AND m.kind='messages' AND m.id=s.message_id JOIN auto_reply_cloud_entities c ON c.tenant_id=m.tenant_id AND c.user_id=m.user_id AND c.kind='conversations' AND c.id=m.payload->>'conversation_id' WHERE q.tenant_id=$1 AND q.position_id=$2 AND q.status<>'resolved' ORDER BY m.message_order,m.sequence,m.id`, tenant, pos)
 		if err != nil {
 			return nil, err
 		}
@@ -266,8 +267,12 @@ func (s *PostgresAutoReplyStore) beginQuestionAnswer(ctx context.Context, tenant
 	if err != nil {
 		return q, false, err
 	}
-	if q.Status == "resolved" && q.Answer == answer {
-		return q, false, tx.Commit()
+	if q.Status == "resolved" {
+		if q.Answer == answer {
+			return q, false, tx.Commit()
+		}
+		// 工作台已处理的条目不能被旧页面重新改写；后续修改在真实公司或岗位正文完成。
+		return q, false, errReplyStateConflict
 	}
 	if version != q.Version || (q.Status == "processing" && q.Answer == answer && time.Since(q.UpdatedAt) < 2*time.Minute) {
 		return q, false, errReplyStateConflict

@@ -11,7 +11,6 @@ import styles from "./auto-reply-inbox.module.css";
 type Props = { positionID: string; view: ReplyInboxView; active: boolean; onApplied: () => void };
 type AnswerDraft = { text: string; version: number };
 const statusText: Record<string, string> = { pending: "待回复", processing: "整理中", resolved: "已补充", failed: "待重试" };
-const targets: Record<string, string> = { position: "已补充岗位信息", company: "已补充公司信息", both: "已补充岗位与公司信息" };
 
 /** QuestionTitle 点击问题标题展开真实候选人原话；被清理的来源保持明确的空状态。 */
 function QuestionTitle({ row }: { row: ReplyQuestion }) {
@@ -26,18 +25,19 @@ function QuestionTitle({ row }: { row: ReplyQuestion }) {
 function AnswerEditor({ row, value, busyID, conflict, onChange, onReply, onReview }: {
   row: ReplyQuestion; value: string; busyID: string; conflict: boolean; onChange: (value: string) => void; onReply: () => void; onReview: () => void;
 }) {
-  return <div className={styles.answer}>
-    <Input.TextArea aria-label={`回复${row.question}`} value={value} autoSize={{ minRows: 2, maxRows: 6 }} maxLength={2000}
-      disabled={Boolean(busyID)} placeholder="填写已经核实、可以告诉候选人的答案。" onChange={event => onChange(event.target.value)} />
+  return <div className={styles.answer} role="group" aria-label={`HR回复：${row.question}`}>
+    <div className={styles.answerInput}>
+      <Input.TextArea aria-label={`回复${row.question}`} value={value} autoSize={{ minRows: 2, maxRows: 6 }} maxLength={2000}
+        disabled={Boolean(busyID)} placeholder="填写已经核实、可以告诉候选人的答案。" onChange={event => onChange(event.target.value)} />
+      <Button type="primary" loading={busyID === row.id} disabled={Boolean(busyID) || conflict || !value.trim()} onClick={onReply}>保存回复</Button>
+    </div>
+    <div className={styles.answerMeta}>
+      <Tag color={row.status === "failed" ? "warning" : undefined}>{statusText[row.status] || "待确认"}</Tag>
+      {row.error && <Typography.Text type="danger">{row.error}</Typography.Text>}
+    </div>
     {conflict && <Alert type="warning" showIcon title="这条答复刚有更新，你的草稿还在。"
       description={<><div className={styles.sourceText}>最新已保存答复：{row.answer || "目前还没有已保存答复。"}</div>
         <Button disabled={Boolean(busyID)} onClick={onReview} style={{ marginTop: 8 }}>已核对，继续用我的草稿</Button></>} />}
-    <div className={styles.answerMeta}>
-      <Button type="primary" loading={busyID === row.id} disabled={Boolean(busyID) || conflict || !value.trim()} onClick={onReply}>保存回复</Button>
-      <Tag color={row.status === "resolved" ? "success" : row.status === "failed" ? "warning" : undefined}>{statusText[row.status] || "待确认"}</Tag>
-    </div>
-    {row.status === "resolved" && row.publish_target && <div className={styles.answerInfo}>{targets[row.publish_target] || "已保存补充"}</div>}
-    {row.error && <Typography.Text type="danger">{row.error}</Typography.Text>}
   </div>;
 }
 
@@ -74,7 +74,7 @@ export default function PositionReplyQuestions({ positionID, view, active, onApp
     try {
       const data = await loadReplyInboxPage(positionID, view, cursor, controller.signal);
       if (current === epoch.current) {
-        setRows(data.questions); setNextCursor(data.next_cursor); setLoadedScope(pageScope); setError("");
+        setRows(data.questions.filter(item => item.status !== "resolved")); setNextCursor(data.next_cursor); setLoadedScope(pageScope); setError("");
       }
     } catch (cause) {
       if (current === epoch.current && cursor && cause instanceof APIRequestError && cause.status === 400) {
@@ -103,7 +103,7 @@ export default function PositionReplyQuestions({ positionID, view, active, onApp
     return () => { epoch.current += 1; pendingRead.current?.abort(); pendingRead.current = null; window.clearInterval(timer); };
   }, [active, load]);
 
-  /** reply 使用问题版本保存 HR 答复，成功后自动移出待补充列表，历史及其他草稿继续保留。 */
+  /** reply 使用问题版本保存 HR 答复，归档成功后从各视图移出，失败仍保留答复和其他草稿供重试。 */
   async function reply(row: ReplyQuestion) {
     const draft = drafts[row.id];
     const answer = (draft?.text ?? row.answer).trim();
@@ -121,12 +121,12 @@ export default function PositionReplyQuestions({ positionID, view, active, onApp
       if (saved.id !== row.id || saved.position_id && saved.position_id !== positionID) throw new Error("答复结果暂时没核实，请稍后查看这条问题。");
       const resolved = saved.status === "resolved";
       // 保存接口不附带原话时，保留当前已核实来源，随后以分页读取结果更新，避免短暂误报“原话已清理”。
-      setRows(items => items?.flatMap(item => item.id !== row.id ? [item] : view === "pending" && resolved ? []
+      setRows(items => items?.flatMap(item => item.id !== row.id ? [item] : resolved ? []
         : [{ ...saved, source_messages: Array.isArray(data.question.source_messages) ? saved.source_messages : item.source_messages }]) ?? null);
       if (resolved) setDrafts(items => { const next = { ...items }; delete next[row.id]; return next; });
       // 本次归档失败仍是自己的同一份答复，接受服务端领取版本以便直接重试；并发更新仍由后续轮询再次拦住。
       else setDrafts(items => items[row.id] ? { ...items, [row.id]: { ...items[row.id], version: saved.version } } : items);
-      notify(resolved ? "已补入对应资料。这条已处理，可在全部记录里查看。" : saved.error || "答复已保存，归档还没完成，可以稍后再试。", resolved ? "success" : "warning");
+      notify(resolved ? "已补入对应资料，这条已从工作台移除。" : saved.error || "答复已保存，归档还没完成，可以稍后再试。", resolved ? "success" : "warning");
       onApplied();
       await load(true);
     } catch (cause) {
@@ -165,7 +165,7 @@ export default function PositionReplyQuestions({ positionID, view, active, onApp
         { title: "HR 回复", render: (_, row) => answer(row) },
       ]} /></div>
       <div className={styles.mobileList}>{visibleRows.map(row => <article className={styles.mobileRow} key={row.id}><QuestionTitle row={row} />{answer(row)}</article>)}</div>
-    </> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={view === "pending" ? "这个岗位暂时没有需要补充的问题。" : "这个岗位还没有待确认记录。"} />)}
+    </> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={view === "pending" ? "这个岗位暂时没有需要补充的问题。" : "这里暂时没有待确认事项。"} />)}
     {visibleRows !== null && (pageIndex > 0 || nextCursor) && <nav aria-label="待确认问题分页" className={`${styles.pager} goodhr-table-pagination`}>
       <Button disabled={Boolean(busyID) || loading || pageIndex === 0} onClick={() => movePage(-1)}>上一页</Button>
       <Typography.Text type="secondary">第 {pageIndex + 1} 页</Typography.Text>

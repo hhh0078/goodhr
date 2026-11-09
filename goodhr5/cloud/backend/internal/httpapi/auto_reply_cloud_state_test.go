@@ -206,6 +206,11 @@ func TestAutoReplyCloudStateFlow(t *testing.T) {
 		t.Fatal("已发送补答重复进入队列", e)
 	}
 
+	// 只有未登记过的真实提问来源重开后，才允许再次补充；已完成条目不能由旧页面改写。
+	q, err = s.recordQuestion(ctx, tenant, uid, pos, q.ID, "排班怎么安排", "thread-1", "k3")
+	if err != nil || q.Status != "pending" {
+		t.Fatal("新问题来源没有重开原题", err)
+	}
 	q, _, err = s.beginQuestionAnswer(ctx, tenant, pos, q.ID, "本岗周日休息", q.Version)
 	if err != nil {
 		t.Fatal(err)

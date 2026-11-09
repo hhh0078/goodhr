@@ -16,8 +16,10 @@
 .sourceName { font-size: 12px; color: var(--goodhr-text-secondary); margin-bottom: 2px; }
 .sourceText { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 .answer { display: grid; gap: 8px; min-width: 0; }
+.answerInput { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.answerInput > :global(.ant-input) { flex: 1; min-width: 0; }
+.answerInput > :global(.ant-btn) { flex-shrink: 0; }
 .answerMeta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.answerInfo { font-size: 12px; color: var(--goodhr-text-secondary); }
 .desktopTable { min-width: 0; }
 .mobileList { display: none; }
 .pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 12px; }

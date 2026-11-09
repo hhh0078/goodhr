@@ -172,7 +172,8 @@ func (s *PostgresAutoReplyStore) questionInboxPage(ctx context.Context, tenant, 
 		return out, err
 	}
 	defer tx.Rollback()
-	where := questionInboxScope + ` AND q.position_id=$3 AND ($4='all' OR ` + questionInboxPending + `)`
+	// 全部视图也只展示尚未完成的工作，已完成条目保留在服务器供索引、补答及审计使用。
+	where := questionInboxScope + ` AND q.position_id=$3 AND q.status<>'resolved' AND ($4='all' OR ` + questionInboxPending + `)`
 	// 覆盖尚未读到的行被修改后移到前页的情况；只比较当前筛选的轻量元数据，不加载原话。
 	var revision string
 	err = tx.QueryRowContext(ctx, `SELECT md5(coalesce(string_agg(q.id::text||':'||q.version::text||':'||q.updated_at::text||':'||q.status,',' ORDER BY q.id),''))`+where, tenant, email, position, view).Scan(&revision)

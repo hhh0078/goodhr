@@ -141,8 +141,8 @@ func TestQuestionInboxScopesAndPagination(t *testing.T) {
 		}
 	}
 	all, err := s.questionInboxPage(ctx, tenant, "inbox-owner@example.test", position, "all", "", 50)
-	if err != nil || len(all.Questions) != 25 {
-		t.Fatalf("全部问题缺少整理中或历史记录：%+v %v", all, err)
+	if err != nil || len(all.Questions) != 24 {
+		t.Fatalf("全部问题应保留整理中并移出已补充记录：%+v %v", all, err)
 	}
 	anchor := first.Questions[len(first.Questions)-1]
 	if _, err = db.Exec("UPDATE auto_reply_cloud_questions SET status='resolved',updated_at=now() WHERE id=$1", anchor.ID); err != nil {

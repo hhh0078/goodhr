@@ -191,6 +191,11 @@ func TestEditableFactsManualNegationIsNotManagedFragment(t *testing.T) {
 	if err != nil || len(rows) != 0 {
 		t.Fatal("人工否定仍领取了旧双休答复", rows, err)
 	}
+	f.entity(t, "messages", "m2", map[string]string{"conversation_id": "thread", "direction": "candidate", "text_content": "办公地址在哪里？", "platform_message_id": "k2"})
+	f.question, err = f.store.recordQuestion(ctx, f.tenant, f.user, f.pos, f.question.ID, "办公地址在哪里", "thread", "k2")
+	if err != nil || f.question.Status != "pending" {
+		t.Fatal("新来源未重开待补充问题", err)
+	}
 	f.archive(t, "company", "每周日休息")
 	co, err = f.store.GetCompanyProfile(ctx, f.tenant, f.company)
 	if err != nil || !strings.Contains(co.ExtraInfo, "目前不保证双休") || !strings.Contains(co.ExtraInfo, "每周日休息") || strings.Contains(co.ExtraInfo, "不保证每周日休息") {
@@ -275,6 +280,16 @@ func TestEditableFactsCandidatePurgePreservesSharedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.archive(t, "company", "公司办公地址为成都A座。")
+	// 第二版也需由新的真实来源重开；设置父关联，让最后候选人删除继续覆盖整条来源链。
+	f.entity(t, "messages", "m-peer-latest", map[string]string{"conversation_id": "thread-peer", "direction": "candidate", "text_content": "办公地址在哪里？", "platform_message_id": "key-peer-latest"})
+	if _, err := f.db.Exec(`UPDATE auto_reply_cloud_entities SET parents=ARRAY['conversations:thread-peer'] WHERE tenant_id=$1 AND user_id=$2 AND kind='messages' AND id='m-peer-latest'`, f.tenant, f.user); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	f.question, err = f.store.recordQuestion(ctx, f.tenant, f.user, f.pos, f.question.ID, "办公地址在哪里", "thread-peer", "key-peer-latest")
+	if err != nil || f.question.Status != "pending" {
+		t.Fatal("新候选来源未重开问题", err)
+	}
 	f.archive(t, "company", "公司办公地址为成都B座。")
 	co, err := f.store.GetCompanyProfile(ctx, f.tenant, f.company)
 	if err != nil {
