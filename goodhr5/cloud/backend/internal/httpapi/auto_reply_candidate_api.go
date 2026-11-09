@@ -2,11 +2,14 @@
 package httpapi
 
 import (
+	"crypto/subtle"
+	"errors"
 	"net/http"
+	"os"
 	"strings"
 )
 
-// agentSaveCandidate 仅在岗位明确开启结构化输出后保存清洗结果，原文和聊天不进入云端。
+// agentSaveCandidate 仅在岗位明确开启结构化输出后保存清洗结果，原文和聊天由独立的服务器沟通记录保存。
 func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeAutoReplyError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "结构化简历这里只支持保存")
@@ -25,7 +28,7 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if payload.RawText != "" || len(payload.Communications) != 0 || payload.AvatarURL != "" {
-		writeAutoReplyError(w, http.StatusBadRequest, "LOCAL_DATA_ONLY", "原始简历、聊天和平台头像地址请留在本机")
+		writeAutoReplyError(w, http.StatusBadRequest, "STRUCTURED_FIELDS_ONLY", "这个入口只接收入库字段，聊天和附件请使用云端自动回复流程")
 		return
 	}
 	if payload.PlatformID != position.PlatformID || strings.TrimSpace(payload.PlatformCandidateID) == "" {
@@ -42,8 +45,10 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 		writeAutoReplyError(w, http.StatusBadRequest, "CANDIDATE_VALIDATION_FAILED", err.Error())
 		return
 	}
+	secret := strings.TrimSpace(os.Getenv("GOODHR_AUTO_REPLY_SERVICE_TOKEN"))
 	profile, err := s.candidates.SaveCandidateProfile(CandidateProfileInput{
-		ReopenProof: payload.ReopenProof, ReopenPlatformAccount: payload.PlatformAccountID, ReopenIsAdmin: requestContext.IsAdmin,
+		ReopenServerWitness: secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(r.Header.Get("X-GoodHR-Runtime-Service"))) == 1,
+		ReopenProof:         payload.ReopenProof, ReopenPlatformAccount: payload.PlatformAccountID, ReopenIsAdmin: requestContext.IsAdmin,
 		TenantID: requestContext.Tenant.ID, UserEmail: requestContext.Session.Email, AutoReplyPositionID: position.ID,
 		PlatformID: position.PlatformID, PlatformCandidateID: strings.TrimSpace(payload.PlatformCandidateID),
 		CandidateName: candidateString(fields, "candidate_name"), BirthYM: candidateString(fields, "birth_ym"),
@@ -57,6 +62,14 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 		ProjectExperiences: payload.ProjectExperiences, Ext: map[string]any{"structured_fields": fields},
 	})
 	if err != nil {
+		if errors.Is(err, errReopenTargetConflict) {
+			writeAutoReplyError(w, http.StatusConflict, "CANDIDATE_REOPEN_TARGET_CONFLICT", err.Error())
+			return
+		}
+		if payload.ReopenProof != nil && errors.Is(err, errCandidateDeleted) {
+			writeAutoReplyError(w, http.StatusConflict, "CANDIDATE_REOPEN_PROOF_CONFLICT", "这次新联系的来源还没核对上，资料已保留，核对后可重试")
+			return
+		}
 		writeAutoReplyStoreError(w, err, "这份结构化简历还没存好，请稍后重试")
 		return
 	}
@@ -66,7 +79,7 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 // allowAutoReplyStructuredResult 以服务端岗位开关再次确认本地结构化结果的上传权限。
 func allowAutoReplyStructuredResult(w http.ResponseWriter, position Position) bool {
 	if position.CommonConfig["output_structured_resume"] != true {
-		writeAutoReplyError(w, http.StatusForbidden, "STRUCTURED_RESUME_DISABLED", "这个岗位未开启结构化简历，资料请先留在本机")
+		writeAutoReplyError(w, http.StatusForbidden, "STRUCTURED_RESUME_DISABLED", "这个岗位还没有开启自动整理简历")
 		return false
 	}
 	return true

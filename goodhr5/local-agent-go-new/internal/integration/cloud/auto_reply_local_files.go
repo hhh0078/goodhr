@@ -32,6 +32,19 @@ type localCloudLink struct {
 
 // saveLocalAutoReplyAttachment 先复制并校验文件，再用短事务登记引用；支持Windows和两种Mac架构。
 func (c *Client) saveLocalAutoReplyAttachment(ctx context.Context, credentials AgentCredentials, upload AutoReplyAttachmentUpload) (StoredResumeAttachment, error) {
+	return c.saveAttachmentInTransaction(ctx, credentials, upload, nil)
+}
+
+// SaveServerReceiptAttachment 复用原有附件归属、删除边界及摘要规则，在给定的命令回执事务中登记全部原件。
+func (c *Client) SaveServerReceiptAttachment(ctx context.Context, credentials AgentCredentials, upload AutoReplyAttachmentUpload, tx *storage.AutoReplyTx) (StoredResumeAttachment, error) {
+	if tx == nil {
+		return StoredResumeAttachment{}, fmt.Errorf("服务器附件需要有效的回执事务")
+	}
+	return c.saveAttachmentInTransaction(ctx, credentials, upload, tx)
+}
+
+// saveAttachmentInTransaction 在所属事务内核对并按摘要保存一份受管文件。
+func (c *Client) saveAttachmentInTransaction(ctx context.Context, credentials AgentCredentials, upload AutoReplyAttachmentUpload, outer *storage.AutoReplyTx) (StoredResumeAttachment, error) {
 	if !c.LocalAutoReplyEnabled() {
 		return StoredResumeAttachment{}, fmt.Errorf("本地自动回复存储尚未准备好")
 	}
@@ -47,13 +60,29 @@ func (c *Client) saveLocalAutoReplyAttachment(ctx context.Context, credentials A
 	if err = os.MkdirAll(directory, 0700); err != nil {
 		return StoredResumeAttachment{}, err
 	}
-	temporary, err := os.CreateTemp(directory, "resume-*")
+	stageDir, stagePrefix := directory, "resume-"
+	if c.localAutoStore.UsesAutoReplyAuthority() {
+		stageDir = filepath.Join(filepath.Dir(c.localAutoDir), ".runtime-stage")
+		stagePrefix = filepath.Base(c.localAutoDir) + "-"
+		if err = os.MkdirAll(stageDir, 0700); err != nil {
+			return StoredResumeAttachment{}, err
+		}
+	}
+	temporary, err := os.CreateTemp(stageDir, stagePrefix)
 	if err != nil {
 		return StoredResumeAttachment{}, err
 	}
-	defer os.Remove(temporary.Name())
+	staged := false
+	defer func() {
+		if !staged {
+			_ = os.Remove(temporary.Name())
+		}
+	}()
 	hash := sha256.New()
 	size, copyErr := io.Copy(io.MultiWriter(temporary, hash), io.LimitReader(file, AutoReplyMaxAttachmentBytes+1))
+	if copyErr == nil && c.localAutoStore.UsesAutoReplyAuthority() {
+		copyErr = temporary.Sync()
+	}
 	closeErr := temporary.Close()
 	if copyErr != nil || closeErr != nil || size != stat.Size() || size > AutoReplyMaxAttachmentBytes {
 		return StoredResumeAttachment{}, fmt.Errorf("简历附件没有完整保存在本机")
@@ -66,7 +95,7 @@ func (c *Client) saveLocalAutoReplyAttachment(ctx context.Context, credentials A
 		return StoredResumeAttachment{}, err
 	}
 	item := StoredResumeAttachment{ID: id, CandidateID: upload.CandidateID, ConversationID: upload.ConversationID, SourceMessageID: upload.SourceMessageID, PlatformID: upload.PlatformID, OriginalName: filepath.Base(upload.FilePath), SHA256: digest, SizeBytes: size, ExtractedText: upload.ExtractedText, CreatedAt: time.Now().UTC()}
-	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+	persist := func(tx *storage.AutoReplyTx) error {
 		conv, _, err := getAutoReplyEntity[AutoReplyConversation](tx, "conversations", upload.ConversationID)
 		if err != nil {
 			return err
@@ -97,6 +126,9 @@ func (c *Client) saveLocalAutoReplyAttachment(ctx context.Context, credentials A
 		if err := tx.Put("attachments", id, localAttachment{StoredResumeAttachment: item, RelativePath: relative}); err != nil {
 			return err
 		}
+		if staged = tx.StageAutoReplyFile(id, temporary.Name()); staged {
+			return nil
+		}
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 			// Windows不能Rename覆盖已有文件；macOS采用相同的按摘要复用约定。
 			if err := os.Rename(temporary.Name(), path); err != nil {
@@ -106,7 +138,12 @@ func (c *Client) saveLocalAutoReplyAttachment(ctx context.Context, credentials A
 			return err
 		}
 		return nil
-	})
+	}
+	if outer != nil {
+		err = persist(outer)
+	} else {
+		err = c.autoReplyTransaction(ctx, credentials, persist)
+	}
 	return item, err
 }
 

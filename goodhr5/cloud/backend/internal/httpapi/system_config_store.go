@@ -25,6 +25,8 @@ type SystemConfigStore interface {
 	List(prefix string) ([]SystemConfig, error)
 	// Save 保存或更新一条系统配置。
 	Save(cfg SystemConfig) error
+	// SaveIfUnchanged 仅在原配置值仍一致时原子更新。
+	SaveIfUnchanged(cfg SystemConfig, expected string) (bool, error)
 }
 
 var ErrConfigNotFound = errors.New("system config not found")
@@ -48,6 +50,7 @@ func NewMemorySystemConfigStore() *MemorySystemConfigStore {
 func defaultMemorySystemConfigs() map[string]SystemConfig {
 	return map[string]SystemConfig{
 		defaultPromptsConfigKey: defaultPromptsRecord(),
+		autoReplyLibraryKey:     {ConfigKey: autoReplyLibraryKey, ConfigValue: initialAutoReplyLibrary, Description: "岗位自动回复默认话术与可勾选的常用条件", Enabled: true},
 		wechatOfficialConfigKey: {
 			ConfigKey:   wechatOfficialConfigKey,
 			ConfigValue: `{"enabled":false,"account_name":"GoodHR","app_id":"","original_id":"","token":"","encoding_aes_key":"","qr_image_url":""}`,
@@ -644,4 +647,27 @@ func ParsePlatformConfig(raw string) (PlatformConfig, error) {
 		return PlatformConfig{}, err
 	}
 	return cfg, nil
+}
+
+// SaveIfUnchanged 在同一把互斥锁中比较并保存管理员此前读取到的系统配置。
+func (s *MemorySystemConfigStore) SaveIfUnchanged(cfg SystemConfig, expected string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, found := s.configs[cfg.ConfigKey]
+	if !found || !current.Enabled || current.ConfigValue != expected {
+		return false, nil
+	}
+	s.configs[cfg.ConfigKey] = cfg
+	return true, nil
+}
+
+// SaveIfUnchanged 按原 JSON 内容更新一行，防止多人编辑同一套系统话术时覆盖已有修改。
+func (s *PostgresSystemConfigStore) SaveIfUnchanged(cfg SystemConfig, expected string) (bool, error) {
+	result, err := s.db.Exec(`UPDATE system_configs SET config_value=$2::jsonb,description=$3,enabled=$4,updated_at=now()
+	WHERE config_key=$1 AND enabled AND config_value=$5::jsonb`, cfg.ConfigKey, cfg.ConfigValue, cfg.Description, cfg.Enabled, expected)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n == 1, err
 }

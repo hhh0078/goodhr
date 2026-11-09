@@ -28,6 +28,10 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return fmt.Errorf("这个会话不在本次自动回复范围内，已跳过")
 	}
 	stats.Processed++
+	if progress, ok := f.Logger.(interface{ UpdateReplyStats(shared.Stats) }); ok {
+		progress.UpdateReplyStats(*stats)
+		defer func() { progress.UpdateReplyStats(*stats) }()
+	}
 	if prepared.Request.PlatformAccountID != "" {
 		if conversation.PlatformAccountID != "" && conversation.PlatformAccountID != prepared.Request.PlatformAccountID {
 			return fmt.Errorf("招聘账号绑定发生变化，请停止后重新确认账号")
@@ -160,6 +164,10 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		return err
 	}
+	if logger, ok := f.Logger.(interface{ BindAutoReplyConversation(string, string) }); ok {
+		logger.BindAutoReplyConversation(cloudConversation.ID, position.Position.ID)
+		defer logger.BindAutoReplyConversation("", "")
+	}
 	if _, err = f.Cloud.SyncAutoReplyMessages(ctx, credentials(prepared), cloud.AutoReplyMessageSyncRequest{
 		ConversationID: cloudConversation.ID, HistoryComplete: pageSnapshot.HistoryComplete, Messages: messages, CaptureCompleted: true,
 		MessageIdentityVersion: messageIdentityVersion, ReplyAfter: conversation.ReplyAfter, WitnessDigest: conversation.WitnessDigest,
@@ -172,6 +180,9 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return fmt.Errorf("读取待回复消息失败：%w", err)
 	}
 	resumeOnly := len(pending) == 0
+	if resumeOnly && positionErr == nil && len(f.serverAnswers[cloudConversation.ID]) > 0 {
+		return f.deliverAnswer(ctx, prepared, runtime, position, cloudConversation, pageSnapshot, state, f.serverAnswers[cloudConversation.ID][0], stats)
+	}
 	if resumeOnly && !autoReplyResumeRetryDue(cloudConversation.ResumeRetry, time.Now()) {
 		stats.Skipped++
 		if positionErr == nil && cloudConversation.ResumeRetry == nil {
@@ -189,6 +200,16 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			return err
 		}
 		return f.Cloud.CompleteAutoReplyMessage(ctx, credentials(prepared), cloudConversation.ID, latestCandidateKey, "manual")
+	}
+	if position.Config.PhrasesVersion != "" || position.Config.Prompts != (cloud.AutoReplyPrompts{}) {
+		fresh, fetchErr := f.Cloud.AutoReplySnapshot(ctx, credentials(prepared), position.Position.ID)
+		if fetchErr != nil {
+			return fmt.Errorf("读取本轮岗位话术和提示词失败：%w", fetchErr)
+		}
+		if !fresh.Config.Enabled || !fresh.Subscription.Active || !fresh.Subscription.AllowAutoReply || fresh.Position.ID != position.Position.ID {
+			return fmt.Errorf("岗位自动回复已关闭或权限已变化，已保留本轮消息")
+		}
+		position = fresh
 	}
 	shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
 		PositionID: position.Position.ID, Kind: "auto_reply", Phase: "loading", Stage: "sync", CandidateName: pageSnapshot.CandidateName,
@@ -295,13 +316,20 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		}
 		var decision ReplyDecision
 		changed := false
-		if canAcknowledgeResumeCard(replyInput) {
-			decision.Messages = []ReplyMessage{{Type: "answer", Content: "简历收到了，谢谢你发过来。"}}
+		fixedID := fixedReceiptID(replyInput)
+		if fixedID != "" {
+			if body := fixedReplyPhrase(position.Config, fixedID); body != "" && (fixedID != "receive_phone" || !previouslyReceivedPhone(replyInput)) {
+				decision.Messages = []ReplyMessage{{Type: "answer", Content: body}}
+			}
+
 		} else {
 			shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
 				PositionID: position.Position.ID, Kind: "auto_reply", Phase: "loading", Stage: "ai", CandidateName: pageSnapshot.CandidateName,
 				Reason: "AI 正在认真看消息", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 			})
+			if err = f.loadKnownQuestions(ctx, &replyInput); err != nil {
+				return fmt.Errorf("读取岗位待确认问题失败：%w", err)
+			}
 			var replyErr error
 			decision, changed, replyErr = f.replyWhileMonitoring(ctx, prepared, runtime, pageSnapshot, replyInput)
 			if replyErr != nil {
@@ -382,13 +410,43 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		if err != nil {
 			return err
 		}
+		if fixedID == "receive_phone" && state.Candidate != nil {
+			phone := phoneDigits(mainlandChatMobile.FindString(pending[0].TextContent))
+			if err = f.Cloud.SaveAutoReplyChatPhone(ctx, credentials(prepared), cloudConversation.ID, state.Candidate.ID, latestCandidateKey, phone); err != nil {
+				if noticeErr := f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, err.Error(), "phone_record_failed", latestCandidateKey); noticeErr != nil {
+					return noticeErr
+				}
+				return f.completeReplyBatch(ctx, prepared, replyInput, "manual")
+			}
+			state.Candidate.Phone = phone
+		}
+		if fixedID != "" && len(decision.Messages) == 0 {
+			return f.completeReplyBatch(ctx, prepared, replyInput, "completed")
+		}
+		outcome := "sent"
 		if strings.TrimSpace(decision.ManualReason) != "" {
-			stats.Skipped++
+			outcome = "manual"
 			reasonKey := firstNonEmpty(decision.ReasonKey, "ai_manual_handoff")
+			if reasonKey == "missing_recruitment_info" && position.Config.PhrasesVersion != "" {
+				if len(decision.HandoffQuestions) == 0 {
+					return fmt.Errorf("本轮缺少可核实的原话，已保留待处理消息")
+				}
+				for _, q := range decision.HandoffQuestions {
+					if _, err = f.Cloud.RecordAutoReplyQuestion(ctx, credentials(prepared), position.Position.ID, q.ExistingQuestionID, q.Question, cloudConversation.ID, q.sourceKey); err != nil {
+						return fmt.Errorf("登记待确认问题失败：%w", err)
+					}
+				}
+			}
 			if err = f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, decision.ManualReason, reasonKey, latestCandidateKey); err != nil {
 				return err
 			}
-			return f.completeReplyBatch(ctx, prepared, replyInput, "manual")
+			if reasonKey == "missing_recruitment_info" {
+				decision.Messages = handoffReplyMessages(decision.KnownAnswer, fixedReplyPhrase(position.Config, "manual_followup"))
+			}
+			if len(decision.Messages) == 0 {
+				stats.Skipped++
+				return f.completeReplyBatch(ctx, prepared, replyInput, "manual")
+			}
 		}
 		if len(decision.Messages) == 0 || len(decision.Messages) > 2 {
 			stats.Failed++
@@ -416,6 +474,9 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			if !oneOf(reply.Type, "answer", "confirmation") || content == "" || len([]rune(content)) > maxAutoReplyMessageRunes {
 				stats.Failed++
 				return fmt.Errorf("AI 第%d条消息类型不正确、内容为空或超过200字", index+1)
+			}
+			if err = checkPhoneReply(inspectPhoneContact(replyInput), position.Config, content); err != nil {
+				return err
 			}
 			sent, sendErr := f.sendVerifiedMessage(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, content, index == 0, index+1)
 			if errors.Is(sendErr, model.ErrAutoReplySupersededBeforeSend) {
@@ -448,8 +509,8 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			stats.Skipped++
 			return nil
 		}
-		if sentCount == 1 && len(decision.Messages) == 1 {
-			if err = f.requestResumeAfterAnswer(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, previousContent); err != nil {
+		if sentCount == 1 && len(decision.Messages) == 1 && outcome == "sent" && fixedID == "" && !candidateEndedContact(pending) {
+			if err = f.requestResumeAfterAnswer(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, previousContent, decision.Messages[0].RequestsResume); err != nil {
 				return err
 			}
 		}
@@ -458,9 +519,9 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			return syncErr
 		}
 		if changedAfterSend {
-			return f.Cloud.CompleteAutoReplyMessage(ctx, credentials(prepared), cloudConversation.ID, latestCandidateKey, "sent")
+			return f.Cloud.CompleteAutoReplyMessage(ctx, credentials(prepared), cloudConversation.ID, latestCandidateKey, outcome)
 		}
-		if err = f.completeReplyBatch(ctx, prepared, replyInput, "sent"); err != nil {
+		if err = f.completeReplyBatch(ctx, prepared, replyInput, outcome); err != nil {
 			return err
 		}
 		stats.Succeeded++

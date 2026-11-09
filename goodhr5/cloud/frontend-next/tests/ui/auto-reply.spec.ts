@@ -2,6 +2,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import type { ReplyPhrase, ReplyPhraseOverride } from "../../lib/auto-reply-phrases";
+import type { PositionReplyCondition } from "../../lib/auto-reply";
 import { mockUniformAdmin, uniformOrigin } from "./admin-uniform-fixture";
 
 const output = resolve(process.env.UI_TEST_SCREENSHOT_DIR || "output/auto-reply-20261030");
@@ -11,13 +13,18 @@ test.use({ storageState: { cookies: [], origins: [{ origin: uniformOrigin, local
 async function fixture(page: Page) {
   const base = await mockUniformAdmin(page);
   const reports = { blocked: 0, resumeBlocked: 0, retries: 0, failure: "" };
-  const state = { running: false, starts: 0, stops: 0, config: { position_id: "uniform-position-1", company_profile_id: "company-one", enabled: false, position_description: "合成岗位说明", resume_request_message: "你好，方便发一份简历吗？", conditions: [], poll_interval_seconds: 5, max_threads_per_checkpoint: 3, version: 1 }, profiles: [{ id: "company-one", name: "合成公司", address: "合成测试地址", contact: "", overview: "合成公司介绍", extra_info: "", updated_at: "2026-10-30T08:00:00Z" }] };
+  const defaults: ReplyPhrase[] = [
+    { id: "receive_resume", title: "收到简历", category: "简历", scene: "候选人刚刚发来简历", content: "简历收到了，谢谢你发过来。" },
+    { id: "receive_phone", title: "收到手机号", category: "联系方式", scene: "收到候选人的号码", content: "号码收到了，谢谢。" },
+  ];
+  const state = { running: false, starts: 0, stops: 0, config: { position_id: "uniform-position-1", company_profile_id: "company-one", enabled: false, position_description: "合成岗位说明", resume_request_message: "你好，方便发一份简历吗？", conditions: [] as PositionReplyCondition[], condition_options: ["能够到成都办公"], phrases_version: "view-version-1", default_phrases: defaults, phrase_overrides: [] as ReplyPhraseOverride[], poll_interval_seconds: 5, max_threads_per_checkpoint: 3, version: 1 }, profiles: [{ id: "company-one", name: "合成公司", address: "合成测试地址", contact: "", overview: "合成公司介绍", extra_info: "", updated_at: "2026-10-30T08:00:00Z" }] };
   await page.route(/\/api\/(?:auto-reply\/|v1\/local\/auto-reply\/)/, async (route) => {
     const request = route.request(); const path = new URL(request.url()).pathname; const method = request.method();
     const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
     let data: unknown;
     if (path.endsWith("/auto-reply/start")) { expect(request.postDataJSON().platform_account_id).toBe("合成招聘账号"); state.starts++; state.running = true; data = { ok: true, data: { status: "running", task_id: "synthetic-auto-reply" } }; }
+    else if (path.endsWith("/questions") && method === "GET") data = { questions: [] };
     else if (path.endsWith("/auto-reply/stop")) { state.stops++; state.running = false; data = { ok: true, data: { status: "stopped" } }; }
     else if (path.endsWith("/auto-reply/status")) data = { ok: true, data: { status: state.running ? "running" : reports.failure ? "failed" : "stopped", current_step: reports.failure ? "finished" : "合成任务状态", error_code: reports.failure ? "TASK_FLOW_FAILED" : "", error_message: reports.failure, blocked_report_count: reports.blocked, blocked_resume_count: reports.resumeBlocked } };
     else if (path.endsWith("/auto-reply/retry-reports")) {
@@ -37,7 +44,158 @@ async function fixture(page: Page) {
   return { state, base, reports };
 }
 
+test("慢轮询不重叠，读取失败重试后保留岗位待确认问题的草稿", async ({ page }) => {
+  test.setTimeout(60000);
+  await fixture(page);
+  let reads = 0;
+  let holdNext = false;
+  let readAtHold = 0;
+  let release = () => {};
+  let releaseFirst = () => {};
+  // 开发模式会试挂载组件，所有初始读取共用闸门，避免已取消的首请求抢先放行。
+  const firstResponse = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const question = { id:"slow-question", question:"能否远程办公？", source_messages:[], status:"pending", version: 1 };
+  await page.route("**/api/auto-reply/positions/*/questions", async route => {
+    const headers = { "access-control-allow-origin":"*", "access-control-allow-headers":"*" };
+    if (route.request().method() === "OPTIONS") return route.fulfill({status:204,headers});
+    reads++;
+    await firstResponse;
+    if (holdNext) {
+      holdNext = false;
+      readAtHold = reads;
+      await new Promise<void>(resolve => { release=resolve; });
+      return route.fulfill({status:503,headers,json:{message:"问题列表暂时没读出来"}});
+    }
+    await route.fulfill({headers,json:{questions:[question]}});
+  });
+  await page.goto("/admin/positions");
+  await page.addLocatorHandler(page.getByRole("dialog",{name:"请先安装本地程序"}),async () => {await page.keyboard.press("Escape");});
+  await page.locator('.ant-card[data-position-id="uniform-position-1"]').getByRole("button",{name:/自动回复设置$/}).click();
+  await expect(page.getByRole("status").filter({hasText:"正在读取待确认问题"})).toBeVisible();
+  await expect(page.getByText("暂时没有需要你补充的问题。")).toHaveCount(0);
+  await expect.poll(() => reads).toBeGreaterThan(0);
+  releaseFirst();
+  const questionInput=page.getByRole("textbox",{name:"回复能否远程办公？"});
+  await questionInput.fill("HR正在填写的答案");
+  await expect(page.getByText("原话已清理", {exact:true})).toBeVisible();
+  await expect(page.getByText("0 条原话", {exact:true})).toHaveCount(0);
+  holdNext = true;
+  await expect.poll(() => readAtHold,{timeout:15000}).toBeGreaterThan(0);
+  // 让已挂起的第二次读取横跨下一轮 10 秒的真实轮询。
+  await new Promise(resolve => setTimeout(resolve,11000));
+  expect(reads).toBe(readAtHold);
+  await expect(questionInput).toHaveValue("HR正在填写的答案");
+  release();
+  const retry=page.getByRole("button",{name:"重试",exact:true});
+  await expect(retry).toBeVisible();
+  await expect(questionInput).toHaveValue("HR正在填写的答案");
+  await retry.click();
+  await expect(questionInput).toHaveValue("HR正在填写的答案");
+  expect(reads).toBe(readAtHold+1);
+});
+
+test("条件建议失败可以重试，旧请求晚到时保留新草稿", async ({ page }) => {
+  const { state } = await fixture(page);
+  let calls = 0;
+  let release = () => {};
+  await page.route("**/api/positions/*/auto-reply/condition-suggestions", async route => {
+    const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    calls++;
+    if (calls === 1) return route.fulfill({ headers, status: 503, json: { message: "模型暂时繁忙" } });
+    await new Promise<void>(resolve => { release = resolve; });
+    await route.fulfill({ headers, json: { suggestions: [{ type: "required", content: "上一份岗位说明里的条件" }] } });
+  });
+  await page.goto("/admin/positions");
+  const open = page.locator('.ant-card[data-position-id="uniform-position-1"]').getByRole("button", { name: /自动回复设置$/ });
+  await open.click();
+  const dialog = page.getByRole("dialog", { name: /^自动回复 · / });
+  const generate = dialog.getByRole("button", { name: "根据 AI 生成" });
+  await generate.click();
+  await expect(dialog.getByText("模型暂时繁忙", { exact: true })).toBeVisible();
+  await generate.click();
+  await expect.poll(() => calls).toBe(2);
+  await dialog.getByRole("textbox", { name: "自动回复岗位描述" }).fill("下一份岗位的资料");
+  await expect(generate).toHaveAttribute("aria-busy", "false");
+  release();
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await open.click();
+  await dialog.getByRole("button", { name: "添加条件" }).click();
+  await expect(dialog.getByRole("checkbox", { name: "上一份岗位说明里的条件" })).toHaveCount(0);
+  await expect(dialog.getByRole("textbox", { name: "自动回复岗位描述" })).toHaveValue(state.config.position_description);
+  expect(state.config.conditions).toEqual([]);
+});
+
 for (const width of [1366, 390]) {
+  test(`自动回复 ${width}px 勾选AI建议、管理岗位话术并保持公司绑定`, async ({ page }) => {
+    const { state } = await fixture(page);
+    const secondCompany = { ...state.profiles[0], id: "company-two", name: "第二家合成公司" };
+    state.profiles.push(secondCompany);
+    state.config.company_profile_id = "";
+    state.config.conditions.push({ id: "old", type: "required", content: "有数据分析经验", enabled: true, sort_order: 0 });
+    let release = () => {};
+    let calls = 0;
+    await page.route("**/api/positions/*/auto-reply/condition-suggestions", async route => {
+      const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
+      if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+      calls++;
+      expect(route.request().postDataJSON().position_description).toBe("合成岗位说明");
+      await new Promise<void>(resolve => { release = resolve; });
+      await route.fulfill({ json: { suggestions: [{ content: "可以接受排班", type: "confirm" }, { content: "有数据分析经验", type: "required" }] }, headers });
+    });
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/admin/positions");
+    await page.locator('.ant-card[data-position-id="uniform-position-1"]').getByRole("button", { name: /自动回复设置$/ }).click();
+    const dialog = page.getByRole("dialog", { name: /^自动回复 · / });
+    await expect(dialog.getByRole("radio", { name: "合成公司", exact: true })).not.toBeChecked();
+    await expect(dialog.getByText("简历收到了，谢谢你发过来。")).toBeHidden();
+    await dialog.getByRole("radio", { name: secondCompany.name }).check();
+    mkdirSync(output, { recursive: true });
+    await page.screenshot({ path: resolve(output, `settings-${width}.png`), animations: "disabled" });
+    const generate = dialog.getByRole("button", { name: "根据 AI 生成" });
+    const add = dialog.getByRole("button", { name: "添加条件" });
+    const addBox = await add.boundingBox(); const aiBox = await generate.boundingBox();
+    expect(aiBox!.x).toBeGreaterThan(addBox!.x);
+    await generate.click();
+    await expect(generate).toHaveAttribute("aria-busy", "true");
+    await expect.poll(() => calls).toBe(1);
+    release();
+    const offered = dialog.getByRole("checkbox", { name: "可以接受排班" });
+    await expect(offered).not.toBeChecked();
+    await expect(generate).toHaveAttribute("aria-busy", "false");
+    await offered.check();
+    await add.click();
+    await dialog.locator("summary").filter({ hasText: "沟通话术" }).click();
+    await dialog.getByRole("button", { name: "编辑话术：收到简历" }).click();
+    const editor = page.getByRole("dialog", { name: "编辑话术", exact: true });
+    await editor.getByLabel("回复内容").fill("收到简历，谢谢您。");
+    await editor.getByRole("button", { name: "确定", exact: true }).click();
+    await expect(dialog.getByText("收到简历，谢谢您。", { exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: "移除话术：收到手机号" }).click();
+    await dialog.locator("summary").filter({ hasText: "已移除的默认话术" }).click();
+    await dialog.getByRole("button", { name: "恢复话术：收到手机号" }).click();
+    await expect(dialog.getByText("号码收到了，谢谢。", { exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: "新增话术" }).click();
+    const newPhrase = page.getByRole("dialog", { name: "新增话术", exact: true });
+    await newPhrase.getByLabel("标题").fill("收到作品");
+    await newPhrase.getByLabel("分类").fill("作品资料");
+    await newPhrase.getByLabel("使用场景").fill("候选人刚发来作品集");
+    await newPhrase.getByLabel("回复内容").fill("作品集收到了，谢谢。");
+    await newPhrase.getByRole("button", { name: "确定", exact: true }).click();
+    await page.screenshot({ path: resolve(output, `phrases-${width}.png`), animations: "disabled" });
+    await dialog.getByRole("button", { name: "保存配置", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    expect(state.config.company_profile_id).toBe(secondCompany.id);
+    expect(state.config.conditions).toHaveLength(2);
+    expect(state.config.conditions[0]).toMatchObject({ id: "old", type: "required", enabled: true });
+    expect(state.config.conditions[1]).toMatchObject({ content: "可以接受排班", enabled: true });
+    expect(state.config.phrase_overrides).toHaveLength(2);
+    expect(state.config.phrase_overrides).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "receive_resume", content: "收到简历，谢谢您。" }),
+      expect.objectContaining({ id: expect.stringMatching(/^job_/), title: "收到作品" }),
+    ]));
+  });
+
   test(`自动回复失败 ${width}px 持续显示原因并可重新开始`, async ({ page }) => {
     const { reports, state } = await fixture(page);
     reports.failure = "当前平台还不能核对单会话稳定身份，本次限制任务没有启动";
@@ -73,7 +231,7 @@ for (const width of [1366, 390]) {
     await expect(dialog.getByRole("textbox", { name: "自动回复岗位描述", exact: true })).toHaveValue("合成岗位说明");
     await dialog.getByRole("textbox", { name: "自动回复岗位描述", exact: true }).fill("合成新说明，绝不提交真实资料");
     await dialog.getByRole("switch", { name: "开启岗位自动回复", exact: true }).click();
-    await expect(dialog.getByText("聊天和附件留本机；岗位里将“是否生成简历”选为“需要”，资料和推荐报告才会进简历库。")).toBeVisible();
+    await expect(dialog.getByText("岗位里将“是否生成简历”选为“需要”，资料和推荐报告才会进简历库。")).toBeVisible();
     mkdirSync(output, { recursive: true });
     await page.screenshot({ path: resolve(output, `config-${width}.png`), fullPage: true, animations: "disabled" });
     await dialog.getByRole("button", { name: "保存配置", exact: true }).click();
@@ -117,7 +275,7 @@ for (const width of [1366, 390]) {
   });
 }
 
-test("授权报告默认未公开，HR明确确认后可分享并撤销，页面不请求聊天全文", async ({ page }) => {
+test("报告默认未公开，授权的聊天记录与公开报告分别读取", async ({ page }) => {
   const base = await mockUniformAdmin(page);
   const report = { public_id: "synthetic-public-report", share_enabled: false, generated_at: "2026-10-30T08:00:00Z", summary: "合成候选人符合已确认条件", report: { candidate: { name: "合成候选人1" }, position: { name: "合成岗位1" } } };
   const actions: string[] = [];
@@ -126,6 +284,9 @@ test("授权报告默认未公开，HR明确确认后可分享并撤销，页面
     const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
     if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers });
     if (path.startsWith("/api/candidates/")) {
+      if (url.searchParams.get("section") === "history") {
+        return route.fulfill({ headers, json: { auto_reply: { threads: [], thread_id: "", messages: [], events: [], goals: [], next_message_cursor: "", next_event_cursor: "" } } });
+      }
       expect(url.searchParams.get("section")).toBe("recommendations");
       return route.fulfill({ headers, json: { auto_reply: { recommendations: [report] } } });
     }
@@ -161,6 +322,87 @@ test("授权报告默认未公开，HR明确确认后可分享并撤销，页面
   expect(actions).toEqual(["/api/auto-reply/recommendations/synthetic-public-report/share", "/api/auto-reply/recommendations/synthetic-public-report/revoke"]);
   expect(base.calls.some((call) => /conversations|attachments|ai_records/.test(call.query))).toBe(false);
   expect(base.errors).toEqual([]); expect(base.writes).toEqual([]); expect(base.unknown).toEqual([]);
+});
+
+
+test("简历详情区分自动发送和未知招聘方，可分页追溯操作与目标证据", async ({ page }) => {
+  await mockUniformAdmin(page);
+  const threads = ["成都", "重庆"].map((city, index) => ({ id: "thread-" + index, platform: "liepin", position_name: city + "区域经理", candidate_name: "合成候选人", status: "active", updated_at: "2026-11-07T08:30:00+08:00" }));
+  const messages = [
+    { id: "ask", side: "recruiter", sender_type: "unknown", text: "有跨城工作计划吗？", sent_at: "2026-11-07T08:00:00+08:00" },
+    { id: "answer", side: "candidate", sender_type: "human", text: "我可以在成都工作。", sent_at: "2026-11-07T08:01:00+08:00", attachments: [
+      {id:"one",file_name:"合成简历.pdf",source_message_id:"answer"},
+      {id:"wrong",file_name:"错误来源.pdf",source_message_id:"different-message"},
+    ] },
+    { id: "ai", side: "recruiter", sender_type: "ai", text: "收到，感谢确认。", sent_at: "2026-11-07T08:02:00+08:00" },
+  ];
+  const events = [{id: "sent", title: "发送平台消息", status: "sent", occurred_at: messages[2].sent_at, duration_ms: 1320, description: "平台已确认发出。"}];
+  const goals = [{id:"place", title:"能在成都工作", status:"matched", evidence:"候选人明确表示接受成都办公。", evidence_message_ids:["answer"], updated_at:messages[1].sent_at}];
+  await page.route(/\/api\/candidates\/[^/]+\/auto-reply/, async route => {
+    const u = new URL(route.request().url());
+    const headers = { "access-control-allow-origin":"*", "access-control-allow-headers":"*" };
+    if (route.request().method() === "OPTIONS") return route.fulfill({status:204,headers});
+    if (u.searchParams.get("section") === "recommendations") return route.fulfill({headers,json:{auto_reply:{recommendations:[]}}});
+    expect(u.searchParams.get("section")).toBe("history");
+    const id = u.searchParams.get("thread_id") || threads[0].id;
+    const oldMessages = u.searchParams.has("message_cursor"), oldEvents = u.searchParams.has("event_cursor");
+    const alt = id === threads[1].id;
+    await route.fulfill({headers,json:{auto_reply:{threads,thread_id:id,
+      messages:alt ? [] : oldMessages ? messages.slice(0,2) : messages.slice(1),
+      events:alt ? [] : oldEvents ? [{id:"read",title:"读取聊天历史",status:"success",occurred_at:messages[0].sent_at}] : u.searchParams.get("event_group")==="all" ? [...events,{id:"verify",title:"核验聊天对象",status:"success",group:"verification",occurred_at:messages[0].sent_at}] : events,
+      goals:alt ? [] : goals,next_message_cursor:alt || oldMessages ? "" : "prior-messages",next_event_cursor:alt || oldEvents ? "" : "prior-events"}}});
+  });
+  await page.goto("/admin/resumes/detail?candidate_id=uniform-candidate-1");
+  await page.getByRole("tab",{name:"自动回复",exact:true}).click();
+  const section = page.getByRole("region",{name:"自动回复沟通记录"});
+  const chat = section.getByRole("list",{name:/双方聊天记录/});
+  await expect(chat.getByText("AI 自动发送",{exact:true})).toHaveCount(1);
+  await expect(chat.getByRole("button",{name:"打开附件"})).toHaveCount(1);
+  await expect(chat.getByText("错误来源.pdf")).toHaveCount(0);
+  let downloads=0;
+  await page.route("**/api/candidates/*/auto-reply/attachments/one?**",async route=>{
+    const headers={"access-control-allow-origin":"*","access-control-allow-headers":"*"};
+    if(route.request().method()==="OPTIONS")return route.fulfill({status:204,headers});
+    expect(new URL(route.request().url()).searchParams.get("thread_id")).toBe(threads[0].id);
+    expect(route.request().headers().authorization).toBe("Bearer auto-reply-synthetic-token");
+    downloads++;
+    if(downloads===1)return route.fulfill({status:404,headers,json:{message:"这份附件已清理"}});
+    return route.fulfill({headers,contentType:"application/pdf",body:"%PDF-1.4\nsynthetic fixture\n%%EOF"});
+  });
+  await chat.getByRole("button",{name:"下载附件"}).click();
+  await expect(chat.getByRole("alert")).toHaveText("这份附件已清理");
+  const file=page.waitForEvent("download");
+  await chat.getByRole("button",{name:"下载附件"}).click();
+  expect((await file).suggestedFilename()).toBe("合成简历.pdf");
+  await section.getByRole("button",{name:"查看更早消息"}).click();
+  await expect(chat.getByRole("listitem")).toHaveCount(3);
+  await expect(chat.getByRole("listitem").first()).toContainText("来源未记录");
+  await expect(chat.getByRole("listitem").last()).toContainText("AI 自动发送");
+  mkdirSync(output,{recursive:true});
+  for (const width of [1366,390]) {
+    await page.setViewportSize({width,height:900});
+    await section.scrollIntoViewIfNeeded();
+    await page.screenshot({path:resolve(output,`candidate-history-${width}.png`),animations:"disabled"});
+    const box = await section.boundingBox();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+  }
+  await section.getByRole("tab",{name:"操作时间线"}).click();
+  await expect(section.getByText("耗时 1.32 秒")).toBeVisible();
+  await section.getByRole("button",{name:"查看更多操作"}).click();
+  await expect(section.getByText("读取聊天历史")).toBeVisible();
+  await section.getByRole("checkbox",{name:"查看核验操作"}).check();
+  await expect(section.getByText("核验聊天对象")).toBeVisible();
+  await section.getByRole("checkbox",{name:"查看核验操作"}).uncheck();
+  await expect(section.getByText("核验聊天对象")).toHaveCount(0);
+  await section.getByRole("tab",{name:"沟通目标"}).click();
+  await expect(section.getByText("已满足",{exact:true})).toBeVisible();
+  await expect(section.getByText("候选人明确表示接受成都办公。")).toBeVisible();
+  await section.getByText("查看关联原话（1）").click();
+  await expect(section.getByRole("tabpanel",{name:"沟通目标"}).getByText("我可以在成都工作。",{exact:false})).toBeVisible();
+  await section.getByRole("combobox",{name:"选择沟通会话"}).click();
+  await page.getByTitle(/重庆区域经理/).click();
+  await expect(section.getByText("这段沟通还没有聊天记录。")).toBeVisible();
+  await expect(section.getByText("收到，感谢确认。")).toHaveCount(0);
 });
 
 test("主动退出先撤销本机内存凭证再返回登录页", async ({ page }) => {

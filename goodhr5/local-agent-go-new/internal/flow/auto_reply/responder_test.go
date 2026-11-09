@@ -114,7 +114,7 @@ func TestPromptMessagesKeepOneVerifiableCopy(t *testing.T) {
 	}
 }
 
-// TestAutoReplyActionToolsExplainDirectReplyOrInternalHandoff 验证发送和转人工工具延续招聘方本人、无占位回复的固定边界。
+// TestAutoReplyActionToolsExplainDirectReplyOrInternalHandoff 验证发送和转人工工具延续招聘方本人、技术异常不回复、登记后按配置签收的边界。
 func TestAutoReplyActionToolsExplainDirectReplyOrInternalHandoff(t *testing.T) {
 	descriptions := make(map[string]string)
 	for _, definition := range autoReplyToolDefinitions() {
@@ -125,7 +125,7 @@ func TestAutoReplyActionToolsExplainDirectReplyOrInternalHandoff(t *testing.T) {
 		t.Fatalf("send_messages 工具说明不完整：%s", descriptions[toolSendMessages])
 	}
 	if !strings.Contains(descriptions[toolNotifyHR], "内部通知") ||
-		!strings.Contains(descriptions[toolNotifyHR], "候选人不会收到任何占位回复") {
+		!strings.Contains(descriptions[toolNotifyHR], "登记人工待办后") || !strings.Contains(descriptions[toolNotifyHR], "技术问题或无关问题只作内部通知") {
 		t.Fatalf("notify_hr 工具说明不完整：%s", descriptions[toolNotifyHR])
 	}
 }
@@ -773,5 +773,89 @@ func TestVerifiedPartialLocationReply(t *testing.T) {
 	input.PendingMessages[0].TextContent = "公司全称是什么？"
 	if verifiedLocationAnswer(input, draft) != "" {
 		t.Fatal("没有问地点时不能用城市回答")
+	}
+}
+
+// TestModelHTTPUsesWritableConditionFields 捕获模型连续两次 HTTP 请求，核对岗位条件、确认项与成功回执的数据边界。
+func TestModelHTTPUsesWritableConditionFields(t *testing.T) {
+	const evidence = "我可以在成都工作"
+	state := &responderTestState{aiResponses: []string{
+		toolCallResponse("apply", toolUpsertConfirmations, `{"items":[{"id":"item","position_condition_id":"location","item_type":"confirm","content":"可在成都工作","status":"matched","status_reason":"候选人已确认","source_ref":"message-1","evidence_text":"我可以在成都工作"}]}`, 1),
+		toolCallResponse("finish", toolFinishReview, `{}`, 1),
+	}}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+	input := responderInput(server.URL)
+	input.ConditionsOnly = true
+	input.Messages[0].TextContent = evidence
+	input.Position.Config.Conditions = []cloud.PositionReplyCondition{
+		{ID: "location", Type: "confirm", Content: "可在成都工作", Enabled: true, DedupeKey: "hidden-position-dedupe"},
+		{ID: "disabled", Type: "required", Content: "禁用条件", DedupeKey: "hidden-disabled-dedupe"},
+	}
+	asked := time.Date(2026, 1, 27, 12, 0, 0, 0, time.UTC)
+	input.ConfirmationItems = []cloud.CandidateConfirmationItem{{
+		ID: "item", PositionID: input.Position.Position.ID, PositionConditionID: "location", ItemType: "confirm", Content: "可在成都工作", Status: "pending",
+		SourceType: "position", DedupeKey: "hidden-item-dedupe", ReviewID: "hidden-review", AskCount: 2, LastAskedAt: &asked,
+	}}
+	result, err := (&AIResponder{AI: newAIClient(), Cloud: cloud.New(server.URL)}).Reply(context.Background(), input)
+	if err != nil || len(result.ConfirmationUpdates) != 1 || result.ConfirmationUpdates[0].DedupeKey != "hidden-item-dedupe" {
+		t.Fatalf("确认项没有保留用于实际存储的去重依据：%+v, %v", result, err)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.aiRequests) != 2 {
+		t.Fatalf("模型请求次数=%d", len(state.aiRequests))
+	}
+	var request struct {
+		Messages []ai.ToolMessage `json:"messages"`
+	}
+	if err = json.Unmarshal(state.aiRequests[1], &request); err != nil {
+		t.Fatal(err)
+	}
+	var seenUser, seenReceipt bool
+	for _, msg := range request.Messages {
+		if msg.Role != "user" && msg.Role != "tool" {
+			continue
+		}
+		for _, forbidden := range []string{"dedupe_key", "hidden-", "禁用条件", "archived_at", "last_reviewed_at", "created_by_kind"} {
+			if strings.Contains(msg.Content, forbidden) {
+				t.Fatalf("%s 带出内部字段 %s", msg.Role, forbidden)
+			}
+		}
+		switch msg.Role {
+		case "user":
+			var body struct {
+				Position replyPromptPosition               `json:"position"`
+				Items    []map[string]any                  `json:"confirmation_items"`
+				History  map[string]confirmationAskHistory `json:"confirmation_ask_history"`
+			}
+			if err = json.Unmarshal([]byte(msg.Content), &body); err != nil {
+				t.Fatal(err)
+			}
+			c := body.Position.Config.Conditions
+			h := body.History["item"]
+			if len(c) != 1 || c[0].ID != "location" || len(body.Items) != 1 || len(body.Items[0]) != 8 || body.Items[0]["id"] != "item" || h.AskCount != 2 || h.LastAskedAt == nil || !h.LastAskedAt.Equal(asked) {
+				t.Fatalf("确认项、条件或只读追问记录错误：%+v", body)
+			}
+			seenUser = true
+		case "tool":
+			var body struct {
+				Items []map[string]any `json:"items"`
+			}
+			if err = json.Unmarshal([]byte(msg.Content), &body); err != nil {
+				t.Fatal(err)
+			}
+			if len(body.Items) != 1 || len(body.Items[0]) != 8 || body.Items[0]["source_ref"] != "message-1" || body.Items[0]["evidence_text"] != evidence || body.Items[0]["position_condition_id"] != "location" {
+				t.Fatalf("回执字段或证据丢失：%+v", body)
+			}
+			seenReceipt = true
+		}
+	}
+	if !seenUser || !seenReceipt {
+		t.Fatal("缺少动态上下文或实际工具回执")
+	}
+	var args confirmationToolArgs
+	if err = decodeToolArguments(ai.ToolCall{Function: ai.ToolCallFunction{Arguments: `{"items":[{"dedupe_key":"extra"}]}`}}, &args); err == nil {
+		t.Fatal("内部字段仍应被工具拒绝")
 	}
 }

@@ -13,6 +13,8 @@ import (
 
 // candidateReopenProof 仅接收稳定消息键摘要与平台发送时间；不接收入站正文或附件内容。
 type candidateReopenProof struct {
+	ConversationID        string    `json:"conversation_id,omitempty"`
+	LocalCandidateID      string    `json:"local_candidate_id,omitempty"`
 	DeletionSequence      int64     `json:"deletion_sequence"`
 	InboundMessageHash    string    `json:"inbound_message_hash"`
 	InboundAt             time.Time `json:"inbound_at"`
@@ -26,6 +28,8 @@ type candidateReopenReceipt struct {
 	candidateID, actorHash, proofHash string
 	attachmentAt                      time.Time
 }
+
+var errReopenTargetConflict = errors.New("设备曾永久删除这份云简历，云端仍保留同一编号，请先核对简历库中的旧档。新来信和附件已保留")
 
 // validPurgeHash 只接受小写 SHA-256 十六进制摘要，不把任意明文或非规范键存入收据。
 func validPurgeHash(value string) bool {
@@ -80,10 +84,6 @@ func verifyReopenTx(ctx context.Context, tx *sql.Tx, tenant, source, currentID s
 	if err != nil {
 		return candidateReopenReceipt{}, false, err
 	}
-	actorHash, proofHash, err := candidateReopenHashes(in, seq, cutoff, now)
-	if err != nil {
-		return candidateReopenReceipt{}, false, err
-	}
 	var old candidateReopenReceipt
 	var oldSource string
 	err = tx.QueryRowContext(ctx, `SELECT source_hash,candidate_id::text,actor_hash,proof_hash,attachment_at FROM candidate_reopen_receipts WHERE deletion_sequence=$1 LIMIT 1`, seq).Scan(&oldSource, &old.candidateID, &old.actorHash, &old.proofHash, &old.attachmentAt)
@@ -93,8 +93,47 @@ func verifyReopenTx(ctx context.Context, tx *sql.Tx, tenant, source, currentID s
 	if oldSource != "" && oldSource != source {
 		return old, false, errCandidateDeleted
 	}
+	if in.ReopenServerWitness && currentID != "" {
+		var locallyDeleted bool
+		err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM auto_reply_cloud_entities e JOIN users u ON u.id=e.user_id AND u.tenant_id=e.tenant_id
+		 WHERE e.tenant_id=$1 AND lower(u.email)=lower($2) AND e.kind='purge_keys' AND e.id=jsonb_build_array('cloud:'||$3::text)::text)`, tenant, in.UserEmail, currentID).Scan(&locallyDeleted)
+		if err != nil {
+			return old, false, err
+		}
+		if locallyDeleted {
+			return old, false, errReopenTargetConflict
+		}
+	}
+	// 同步数据可能带着另一份旧数据库的删除流水号。仅给同一有效替代简历对齐经服务器真实采集的全新证据。
+	actorHash := purgeDigest(strings.ToLower(in.UserEmail), in.ReopenPlatformAccount)
+	legacyActor := purgeDigest(strings.ToLower(in.UserEmail), canonicalReplyAccountKey(in.PlatformID, in.ReopenPlatformAccount))
+	p := in.ReopenProof
+	resolveGeneration := p != nil && p.DeletionSequence != seq
+	resolveActor := old.candidateID != "" && old.actorHash != actorHash
+	if resolveGeneration || resolveActor {
+		if p == nil || !in.ReopenServerWitness || p.ConversationID == "" || p.LocalCandidateID == "" || p.DeletionSequence < seq || old.candidateID == "" || old.candidateID != currentID || (resolveActor && old.actorHash != legacyActor) {
+			return old, false, errCandidateDeleted
+		}
+		valid, err := verifiedReplyReopenEvidence(ctx, tx, tenant, source, currentID, cutoff, in)
+		if err != nil {
+			return old, false, err
+		}
+		if !valid {
+			return old, false, errCandidateDeleted
+		}
+		aligned := *p
+		aligned.DeletionSequence = seq
+		in.ReopenProof = &aligned
+	}
+	actorHash, proofHash, err := candidateReopenHashes(in, seq, cutoff, now)
+	if err != nil {
+		return old, false, err
+	}
+	if resolveActor {
+		actorHash = old.actorHash
+	}
 	replay, err := checkReopenReceipt(old, currentID, actorHash, proofHash, in.ReopenProof.AttachmentAt)
-	return candidateReopenReceipt{actorHash: actorHash, proofHash: proofHash, attachmentAt: in.ReopenProof.AttachmentAt}, replay, err
+	return candidateReopenReceipt{sequence: seq, actorHash: actorHash, proofHash: proofHash, attachmentAt: in.ReopenProof.AttachmentAt}, replay, err
 }
 
 // saveReopenReceiptTx 在候选人、岗位和来源均保存后原子登记收据；新来源已重新绑定，旧事件不再按它清理新档。

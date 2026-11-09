@@ -89,6 +89,27 @@ export async function cloudRequest(path: string, options: RequestOptions = {}) {
   return parseResponse(response, "云端请求失败", token);
 }
 
+/** fetchCandidateReplyAttachment 使用网页登录凭据读取已核实的候选人附件，不把令牌或服务器目录放进地址栏。 */
+export async function fetchCandidateReplyAttachment(candidateID: string, threadID: string, attachmentID: string, preview: boolean, signal: AbortSignal) {
+  const token = getToken();
+  if (!token) throw new Error("登录后才能读取这份附件。");
+  const params = new URLSearchParams({ thread_id: threadID });
+  if (preview) params.set("inline","1");
+  const path = `/api/candidates/${encodeURIComponent(candidateID)}/auto-reply/attachments/${encodeURIComponent(attachmentID)}?${params}`;
+  let response: Response;
+  try {
+    response = await fetch(CLOUD_API_BASE + path, {
+      headers: { Authorization: `Bearer ${token}` }, cache: "no-store", redirect: "error", signal,
+    });
+  } catch {
+    throw new Error("附件服务暂时连不上，可以重试。");
+  }
+  if (!response.ok) await parseResponse(response, "附件暂时没读出来，可以重试。", token);
+  const blob = await response.blob();
+  if (getToken() !== token) throw new Error("登录账号已变化，请重新打开简历。");
+  return blob;
+}
+
 /** localRequest 统一请求本地程序接口。 */
 export async function localRequest(
   baseURL: string,

@@ -18,6 +18,7 @@ const autoReplyJSONBodyLimit = 2 << 20
 
 // AutoReplyService 处理自动回复前端配置和本地 Agent 数据接口。
 type AutoReplyService struct {
+	ai            *AIConfigService
 	auth          *AuthService
 	store         *PostgresAutoReplyStore
 	tenants       TenantStore
@@ -76,11 +77,20 @@ func (s *AutoReplyService) CompanyProfile(w http.ResponseWriter, r *http.Request
 func (s *AutoReplyService) Position(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/auto-reply/positions/"), "/")
 	parts := strings.Split(path, "/")
+	if len(parts) == 3 && parts[1] == "questions" && parts[2] == "reply" && r.Method == http.MethodPost {
+		s.replyQuestion(w, r, parts[0])
+		return
+	}
 	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" {
 		writeAutoReplyError(w, http.StatusNotFound, "AUTO_REPLY_ROUTE_NOT_FOUND", "这个自动回复地址没认出来")
 		return
 	}
 	switch parts[1] {
+	case "questions":
+		if r.Method == http.MethodGet {
+			s.listQuestions(w, r, parts[0])
+			return
+		}
 	case "config":
 		if r.Method == http.MethodGet {
 			s.getPositionConfig(w, r, parts[0])
@@ -108,6 +118,10 @@ func (s *AutoReplyService) listCompanyProfiles(w http.ResponseWriter, r *http.Re
 	items, err := s.store.ListCompanyProfiles(r.Context(), requestContext.Tenant.ID)
 	if err != nil {
 		writeAutoReplyInternalError(w, "COMPANY_PROFILE_LIST_FAILED", "公司档案暂时没读出来，请稍后再试", err)
+		return
+	}
+	if err = s.store.loadCompanyConfirmedFacts(r.Context(), requestContext.Tenant.ID, items); err != nil {
+		writeAutoReplyStoreError(w, err, "公司补充资料暂时没读出来")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "company_profiles": items})
@@ -164,6 +178,18 @@ func (s *AutoReplyService) getPositionConfig(w http.ResponseWriter, r *http.Requ
 		writeAutoReplyInternalError(w, "AUTO_REPLY_CONFIG_LOAD_FAILED", "岗位自动回复配置暂时没读出来", err)
 		return
 	}
+	lib, err := readAutoReplyLibrary(s.systemConfigs)
+	if err != nil {
+		writeAutoReplyInternalError(w, "AUTO_REPLY_LIBRARY_FAILED", "默认话术暂时没读出来，请稍后再试", err)
+		return
+	}
+	applyReplyLibrary(&config, lib)
+	info := config
+	if err = s.store.appendConfirmedFacts(r.Context(), &info, &CompanyProfile{ID: config.CompanyProfileID}); err != nil {
+		writeAutoReplyStoreError(w, err, "岗位补充资料暂时没读出来")
+		return
+	}
+	config.ConfirmedFacts = info.ConfirmedFacts
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "position": publicAutoReplyPosition(position), "config": config,
 		"subscription": publicSubscriptionAccess(requestContext.Access),
@@ -323,6 +349,10 @@ func writeAutoReplyStoreError(w http.ResponseWriter, err error, fallback string)
 	switch {
 	case errors.Is(err, errCandidateDeleted):
 		writeAutoReplyError(w, 410, "CANDIDATE_DELETED", err.Error())
+	case errors.Is(err, errReplyStateConflict):
+		writeAutoReplyError(w, http.StatusConflict, "AUTO_REPLY_STATE_CHANGED", err.Error())
+	case errors.Is(err, errAutoReplyLibraryConflict):
+		writeAutoReplyError(w, http.StatusConflict, "AUTO_REPLY_LIBRARY_CHANGED", err.Error())
 	case errors.Is(err, ErrNotFound):
 		writeAutoReplyError(w, http.StatusNotFound, "AUTO_REPLY_DATA_NOT_FOUND", "相关数据没找到，可能刚刚被删除了")
 	case errors.Is(err, ErrCandidateDuplicate):

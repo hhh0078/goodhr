@@ -42,7 +42,7 @@ type autoReplyCandidateRequest struct {
 	Communications      []CandidateCommunication     `json:"colleague_communications"`
 }
 
-// Agent 只开放配置、授权结构化结果和简短通知，聊天、附件及AI执行均留在本机。
+// Agent 只开放配置、授权结构化结果和简短通知，原始业务实体和AI事务由云端执行服务管理。
 func (s *AutoReplyService) Agent(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/auto-reply/agent/"), "/")
 	switch {
@@ -50,6 +50,12 @@ func (s *AutoReplyService) Agent(w http.ResponseWriter, r *http.Request) {
 		s.agentPositionSnapshot(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "positions/"), "/snapshot"))
 	case path == "positions":
 		s.agentPositionSnapshots(w, r)
+	case path == "migration/import":
+		s.agentImportArchive(w, r)
+	case path == "questions/pending-answers" || path == "questions/answer-claim" || path == "questions/answer-receipt":
+		s.agentQuestionAnswers(w, r, strings.TrimPrefix(path, "questions/"))
+	case path == "questions/record":
+		s.agentRecordQuestion(w, r)
 	case path == "candidate-deletions":
 		s.agentCandidateDeletions(w, r)
 	case path == "candidates":
@@ -59,7 +65,7 @@ func (s *AutoReplyService) Agent(w http.ResponseWriter, r *http.Request) {
 	case path == "recommendations/completed":
 		s.agentSaveRecommendation(w, r)
 	default:
-		writeAutoReplyError(w, http.StatusNotFound, "LOCAL_DATA_ONLY", "这份资料保存在本机，请在本地程序中查看")
+		writeAutoReplyError(w, http.StatusNotFound, "AUTO_REPLY_ROUTE_NOT_FOUND", "这个执行入口已停用，请从岗位设置或简历详情查看资料")
 	}
 }
 
@@ -83,6 +89,16 @@ func (s *AutoReplyService) agentPositionSnapshots(w http.ResponseWriter, r *http
 		writeAutoReplyInternalError(w, "POSITION_LIST_FAILED", "自动回复岗位暂时没读出来", err)
 		return
 	}
+	lib, err := readAutoReplyLibrary(s.systemConfigs)
+	if err != nil {
+		writeAutoReplyInternalError(w, "AUTO_REPLY_LIBRARY_FAILED", "话术暂时没读出来", err)
+		return
+	}
+	prompts, err := loadAutoReplyPrompts(s.systemConfigs)
+	if err != nil {
+		writeAutoReplyInternalError(w, "AUTO_REPLY_PROMPTS_FAILED", "提示词暂时没读出来", err)
+		return
+	}
 	items := make([]map[string]any, 0)
 	for _, position := range positions {
 		if !strings.EqualFold(strings.TrimSpace(position.PlatformID), platformID) {
@@ -101,8 +117,14 @@ func (s *AutoReplyService) agentPositionSnapshots(w http.ResponseWriter, r *http
 			writeAutoReplyStoreError(w, companyErr, "岗位公司档案暂时没读出来")
 			return
 		}
+		applyReplyLibrary(&config, lib)
+		if err = s.store.appendConfirmedFacts(r.Context(), &config, &company); err != nil {
+			writeAutoReplyStoreError(w, err, "招聘事实暂时没读出来")
+			return
+		}
+		config.AutoReplyPrompts = prompts
 		items = append(items, map[string]any{
-			"ok": true, "position": publicAutoReplyPosition(position), "config": config,
+			"ok": true, "position": publicAutoReplyPosition(position), "config": config.forAgent(),
 			"company_profile": company, "subscription": publicSubscriptionAccess(requestContext.Access),
 		})
 	}
@@ -133,8 +155,23 @@ func (s *AutoReplyService) agentPositionSnapshot(w http.ResponseWriter, r *http.
 		writeAutoReplyStoreError(w, err, "岗位公司档案暂时没读出来")
 		return
 	}
+	lib, err := readAutoReplyLibrary(s.systemConfigs)
+	if err != nil {
+		writeAutoReplyInternalError(w, "AUTO_REPLY_LIBRARY_FAILED", "话术暂时没读出来", err)
+		return
+	}
+	applyReplyLibrary(&config, lib)
+	if err = s.store.appendConfirmedFacts(r.Context(), &config, &company); err != nil {
+		writeAutoReplyStoreError(w, err, "招聘事实暂时没读出来")
+		return
+	}
+	config.AutoReplyPrompts, err = loadAutoReplyPrompts(s.systemConfigs)
+	if err != nil {
+		writeAutoReplyInternalError(w, "AUTO_REPLY_PROMPTS_FAILED", "提示词暂时没读出来", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "position": publicAutoReplyPosition(position), "config": config,
+		"ok": true, "position": publicAutoReplyPosition(position), "config": config.forAgent(),
 		"company_profile": company, "subscription": publicSubscriptionAccess(requestContext.Access),
 	})
 }

@@ -597,7 +597,7 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 		}
 	}
 	if input.ReopenProof != nil {
-		if err = saveReopenReceiptTx(ctx, tx, tenantID, sourceHash, id, input.ReopenProof.DeletionSequence, receipt); err != nil {
+		if err = saveReopenReceiptTx(ctx, tx, tenantID, sourceHash, id, receipt.sequence, receipt); err != nil {
 			return PositionCandidate{}, err
 		}
 	}

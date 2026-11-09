@@ -17,12 +17,17 @@ import (
 const liepinConversationPollAttempts = 20
 const liepinConversationPollInterval = 300 * time.Millisecond
 
-// InitializeAutoReplyPage 只收起挡住联系人的附件遮层，复用原来的全部联系人抽屉及已打开的聊天。
+// InitializeAutoReplyPage 收起已核实的周报或附件遮层，复用全部联系人抽屉及已打开的聊天。
 func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config, target *model.AutoReplyConversationSnapshot) error {
 	r.contactRows = nil
 	page, err := liepinAutoReplyPageURL(ctx, browser, cfg)
 	if err != nil {
 		return err
+	}
+	if _, configured := cfg.Selectors["message.weekly_report"]; configured {
+		if err = common.ClosePanelEscapeFirst(ctx, browser, cfg, "message.weekly_report", "message.weekly_report_close", page, nil); err != nil {
+			return err
+		}
 	}
 	var verify func(context.Context) error
 	if target != nil {

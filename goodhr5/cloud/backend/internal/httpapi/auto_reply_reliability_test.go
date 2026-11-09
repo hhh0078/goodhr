@@ -12,7 +12,7 @@ import (
 // applyAutoReplyTestMigrations 在本机隔离测试schema安装自动回复配置与摘要表。
 func applyAutoReplyTestMigrations(t *testing.T, db *sql.DB) {
 	t.Helper()
-	for _, name := range []string{"0104_auto_reply_configuration.sql", "0105_auto_reply_result_summaries.sql"} {
+	for _, name := range []string{"0002_add_system_configs.sql", "0104_auto_reply_configuration.sql", "0105_auto_reply_result_summaries.sql", "0110_auto_reply_phrase_library.sql"} {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", name))
 		if err != nil {
 			t.Fatal(err)

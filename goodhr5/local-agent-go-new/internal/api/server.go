@@ -38,30 +38,39 @@ import (
 
 // Server 组装本地 HTTP 路由和应用服务。
 type Server struct {
-	cfg                 config.Config
-	runner              *lifecycle.Runner
-	runtime             *runtime.Manager
-	browser             *client.Client
-	downloads           *downloadflow.Monitor
-	store               *storage.Store
-	profiles            *profile.Manager
-	ocr                 *ocr.Client
-	updater             *updater.Manager
-	cloud               *cloudintegration.Client
-	deviceID            func() (string, error)
-	incidents           *diagnostics.BrowserIncidentRecorder
-	http                *http.Server
-	downloadRootsMu     sync.RWMutex
-	downloadRoots       map[string]struct{}
-	extensionMu         sync.Mutex
-	extensionToken      string
-	extensionUserID     string
-	extensionGeneration uint64
-	extensionPairs      map[string]*extensionPair
-	resumeImports       *resumeflow.Manager
-	resumeSummaries     *summaryflow.Manager
-	resumeDownloads     *downloadresume.Manager
-	startupSync         *startupCamoufoxSync
+	migrationMu              sync.Mutex
+	migrationOwner           string
+	migrationState           cloudMigrationState
+	cloudReplyMu             sync.Mutex
+	browserOperationMu       sync.Mutex
+	cloudReplyCancel         context.CancelFunc
+	cloudReplyRun            string
+	cloudReplyActive         bool
+	cfg                      config.Config
+	runner                   *lifecycle.Runner
+	runtime                  *runtime.Manager
+	browser                  *client.Client
+	downloads                *downloadflow.Monitor
+	store                    *storage.Store
+	profiles                 *profile.Manager
+	ocr                      *ocr.Client
+	updater                  *updater.Manager
+	cloud                    *cloudintegration.Client
+	deviceID                 func() (string, error)
+	incidents                *diagnostics.BrowserIncidentRecorder
+	http                     *http.Server
+	downloadRootsMu          sync.RWMutex
+	downloadRoots            map[string]struct{}
+	extensionMu              sync.Mutex
+	extensionToken           string
+	extensionUserID          string
+	extensionGeneration      uint64
+	extensionOwnerGeneration uint64
+	extensionPairs           map[string]*extensionPair
+	resumeImports            *resumeflow.Manager
+	resumeSummaries          *summaryflow.Manager
+	resumeDownloads          *downloadresume.Manager
+	startupSync              *startupCamoufoxSync
 }
 
 // Dependencies 保存本地 HTTP 接口调用的应用服务。
@@ -168,6 +177,11 @@ func (s *Server) ListenAndServe() error {
 
 // Shutdown 优雅关闭本地 HTTP 服务。
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.cloudReplyMu.Lock()
+	if s.cloudReplyCancel != nil {
+		s.cloudReplyCancel()
+	}
+	s.cloudReplyMu.Unlock()
 	syncErr := s.CancelStartupSync(ctx)
 	err := s.http.Shutdown(ctx)
 	if s.resumeDownloads != nil {
@@ -212,9 +226,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 // handleTaskStart 解析强类型请求并启动统一任务流程。
 func (s *Server) handleTaskStart(w http.ResponseWriter, r *http.Request) {
+	if !s.beginIdleBrowserOperation(w) {
+		return
+	}
+	defer s.browserOperationMu.Unlock()
 	var request shared.StartRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(request.TaskType), "auto_reply") {
+		writeError(w, http.StatusConflict, "CLOUD_AUTO_REPLY_REQUIRED", fmt.Errorf("请使用岗位页的服务器自动回复入口"))
 		return
 	}
 	result, err := s.runner.StartTask(r.Context(), request)
@@ -313,10 +335,10 @@ func (s *Server) runtimeStatus(ctx context.Context, refreshSystem bool) runtime.
 
 // handleRuntimeInstall 根据云端清单异步安装当前系统所需运行组件。
 func (s *Server) handleRuntimeInstall(w http.ResponseWriter, r *http.Request) {
-	if s.runner.HasActive() {
-		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务正在运行，组件更新先等这一轮结束"))
+	if !s.beginIdleBrowserOperation(w) {
 		return
 	}
+	defer s.browserOperationMu.Unlock()
 	var request runtime.InstallRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
@@ -375,10 +397,10 @@ func (s *Server) handleBrowserStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleBrowserStop 关闭 Camoufox 会话。
 func (s *Server) handleBrowserStop(w http.ResponseWriter, r *http.Request) {
-	if s.runner.HasActive() {
-		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务还在运行，请先安全停止任务"))
+	if !s.beginIdleBrowserOperation(w) {
 		return
 	}
+	defer s.browserOperationMu.Unlock()
 	result, err := s.browser.StopBrowser(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "BROWSER_STOP_FAILED", err)

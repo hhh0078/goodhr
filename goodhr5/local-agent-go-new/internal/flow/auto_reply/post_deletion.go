@@ -20,7 +20,7 @@ func (f *Flow) readPostDeletionConversation(ctx context.Context, prepared shared
 		return snapshot, storage.ErrAutoReplyCandidateDeleted
 	}
 	cred := credentials(prepared)
-	active := state.Conversation != nil && state.Conversation.DeletionBoundary != nil && boundary.Sequence > 0 && state.Conversation.DeletionBoundary.Sequence == boundary.Sequence
+	active := state.Conversation != nil && state.Conversation.DeletionBoundary != nil && boundary.Sequence > 0 && state.Conversation.DeletionBoundary.Sequence == boundary.Sequence && state.Conversation.DeletionBoundary.HistoryCutoff().Equal(boundary.HistoryCutoff())
 	if active {
 		// 打开已重建的会话同样会消费未读角标；先登记本代采集意图，读取失败时才能从原位置恢复。
 		if err := f.Cloud.BeginAutoReplyCapture(ctx, cred, lookup.PlatformID, lookup.PlatformAccountID, lookup.PlatformThreadID, intent); err != nil {
@@ -33,7 +33,7 @@ func (f *Flow) readPostDeletionConversation(ctx context.Context, prepared shared
 	}
 	if inspected != nil {
 		snapshot = *inspected
-	} else if active && open != nil && open.HistoryAfter != nil && open.HistoryAfter.Equal(boundary.DeletedAt) && open.PlatformThreadID == lookup.PlatformThreadID {
+	} else if active && open != nil && open.HistoryAfter != nil && open.HistoryAfter.Equal(boundary.HistoryCutoff()) && open.PlatformThreadID == lookup.PlatformThreadID {
 		snapshot = *open
 	} else {
 		var err error
@@ -59,7 +59,8 @@ func (f *Flow) readPostDeletionConversation(ctx context.Context, prepared shared
 	if boundary.Sequence != 0 && boundary.Sequence != verified.Sequence {
 		return snapshot, storage.ErrAutoReplyCandidateDeleted
 	}
-	snapshot.HistoryAfter = &verified.DeletedAt
+	cutoff := verified.HistoryCutoff()
+	snapshot.HistoryAfter = &cutoff
 	snapshot.ResumeCardAvailable, snapshot.ResumeSourceMessageID = false, ""
 	snapshot.Messages, snapshot.HistoryComplete, err = runtime.ReadAutoReplyMessages(ctx, f.Browser, prepared.Platform, snapshot, known, cloud.AutoReplyMaxHistoryMessages)
 	if err != nil {
@@ -68,7 +69,7 @@ func (f *Flow) readPostDeletionConversation(ctx context.Context, prepared shared
 	// 平台能力也需遵守此约束。返回含未知或旧时间的消息时，整批停止，不能据此调用 AI。
 	now := time.Now().UTC()
 	for _, message := range snapshot.Messages {
-		if message.SentAt == nil || !message.SentAt.After(verified.DeletedAt) || message.SentAt.After(now) {
+		if message.SentAt == nil || !message.SentAt.After(cutoff) || message.SentAt.After(now) {
 			return snapshot, fmt.Errorf("新沟通中有一条时间无法核实，暂缓重新建档")
 		}
 	}

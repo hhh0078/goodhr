@@ -239,6 +239,13 @@ func (s *Server) handleExtensionPairRevoke(w http.ResponseWriter, r *http.Reques
 func (s *Server) bindExtensionSessionLocked(token, userID string) {
 	if s.extensionUserID != userID {
 		s.extensionPairs = make(map[string]*extensionPair)
+		s.extensionOwnerGeneration++
+		// 同账号续签可继续领取命令；切号或退出必须立即取消旧账号的浏览器动作。
+		s.cloudReplyMu.Lock()
+		if s.cloudReplyCancel != nil {
+			s.cloudReplyCancel()
+		}
+		s.cloudReplyMu.Unlock()
 	}
 	if s.extensionToken != token || s.extensionUserID != userID {
 		s.extensionGeneration++

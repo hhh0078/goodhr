@@ -15,7 +15,11 @@
     flex-direction: row;
   }
 }
+.compactConfigPicker.compactConfigPicker { width:100%; }
+.configMenu.configMenu { display:none; }
 @media (min-width: 1200px) {
+  .compactConfigPicker.compactConfigPicker { display:none; }
+  .configMenu.configMenu { display:block; }
   .layout14.layout14 {
     grid-template-columns: 260px minmax(0, 1fr);
   }

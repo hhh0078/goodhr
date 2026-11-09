@@ -1,4 +1,4 @@
-/** 文件作用说明：复用本地程序接口提供全局自动回复启停、实时状态与岗位配置入口。 */
+/** 文件作用说明：经设备通道控制服务器自动回复，展示云端运行状态与岗位配置入口。 */
 "use client";
 import { Alert, Button, Flex, Input, Switch, Tooltip, Typography } from "antd";
 import { CommentOutlined, PlayCircleOutlined, SettingOutlined, StopOutlined } from "@ant-design/icons";
@@ -24,12 +24,12 @@ type ReplyTask = {
   analysis?: Record<string, unknown>;
 };
 
-/** taskStatus 只接受本地程序明确定义的任务状态，缺失时安全回到停止状态。 */
+/** taskStatus 只接受服务器明确定义的任务状态，缺失时安全回到停止状态。 */
 function taskStatus(value: unknown): PositionFloatingStatusValue {
   return value === "running" || value === "completed" || value === "failed" ? value : "stopped";
 }
 
-/** replyAnalysis 把本机分析摘要转换为共享小窗内容，不上传或缓存聊天正文。 */
+/** replyAnalysis 将服务器的阶段摘要转换为共享小窗内容，不在网页缓存聊天正文。 */
 function replyAnalysis(task: ReplyTask | null): PositionAnalysisStatus | null {
   const value = task?.analysis;
   if (!value) return null;
@@ -40,7 +40,7 @@ function replyAnalysis(task: ReplyTask | null): PositionAnalysisStatus | null {
   };
 }
 
-/** AutoReplyGlobalControl 串行读取本地全局任务，刷新页面后仍能停止已在运行的自动回复。 */
+/** AutoReplyGlobalControl 串行读取服务器全局任务，刷新页面后仍能停止已在运行的自动回复。 */
 export function AutoReplyGlobalControl() {
   const { agentBase, subscription, notify, confirm } = useAdmin();
   const router = useRouter();
@@ -76,7 +76,7 @@ export function AutoReplyGlobalControl() {
     return () => { disposed = true; clearTimeout(timer); };
   }, [agentBase]);
 
-  /** changeRunning 请求本地启动或安全停止，失败时保留当前状态并给出可重试提示。 */
+  /** changeRunning 经设备请求服务器启动或安全停止，失败时保留当前状态并给出重试提示。 */
   async function changeRunning(account?: string) {
     if (!agentBase || operation.current) return;
     if (!running && !canUseAutoReply(subscription)) {
@@ -156,7 +156,7 @@ export function AutoReplyGlobalControl() {
 }
 
 /** PositionAutoReplyControl 展示本人岗位的开关和配置，失败时保留配置入口供修正。 */
-export function PositionAutoReplyControl({ position }: { position: { id: string; name: string } }) {
+export function PositionAutoReplyControl({ position }: { position: { id: string; name: string; requirement?: string } }) {
   const { subscription, notify, confirm } = useAdmin();
   const router = useRouter();
   const [status, setStatus] = useState<PositionAutoReplyStatus | null>(null);

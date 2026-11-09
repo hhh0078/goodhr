@@ -1,6 +1,8 @@
 /** 本文件负责自动回复前端强类型模型、接口封装和安全数据转换。 */
 "use client";
 
+import type { ReplyPhrase, ReplyPhraseOverride } from "./auto-reply-phrases";
+export type { ReplyPhrase, ReplyPhraseOverride } from "./auto-reply-phrases";
 import { cloudRequest } from "./admin-api";
 import {
   DEFAULT_RESUME_REQUEST_MESSAGE,
@@ -24,6 +26,7 @@ export type CompanyProfile = {
   overview: string;
   extra_info: string;
   updated_at: string;
+  confirmed_facts?: string[];
 };
 
 export type PositionReplyCondition = {
@@ -44,6 +47,11 @@ export type PositionAutoReplyConfig = {
   max_threads_per_checkpoint: number;
   version: number;
   conditions: PositionReplyCondition[];
+  default_phrases: ReplyPhrase[];
+  phrase_overrides: ReplyPhraseOverride[];
+  condition_options: string[];
+  phrases_version: string;
+  confirmed_facts?: string[];
 };
 
 export type PositionAutoReplyStatus = {
@@ -127,6 +135,7 @@ export async function savePositionAutoReplyConfig(
           enabled: item.enabled,
           position_description: item.position_description.trim(),
           resume_request_message: item.resume_request_message.trim(),
+          ...(item.phrases_version ? { phrases_version: item.phrases_version, phrase_overrides: item.phrase_overrides } : {}),
           poll_interval_seconds: item.poll_interval_seconds,
           max_threads_per_checkpoint: item.max_threads_per_checkpoint,
           conditions: item.conditions.map((condition, index) => ({
@@ -172,6 +181,7 @@ function normalizeCompanyProfile(value: unknown): CompanyProfile {
     overview: stringValue(source.overview),
     extra_info: stringValue(source.extra_info),
     updated_at: stringValue(source.updated_at),
+    confirmed_facts: arrayValue(source.confirmed_facts).map(stringValue).filter(Boolean),
   };
 }
 
@@ -186,6 +196,7 @@ function normalizePositionAutoReplyConfig(
     company_profile_id: stringValue(source.company_profile_id),
     enabled: Boolean(source.enabled),
     position_description: stringValue(source.position_description),
+    confirmed_facts: arrayValue(source.confirmed_facts).map(stringValue).filter(Boolean),
     resume_request_message:
       stringValue(source.resume_request_message) ||
       DEFAULT_RESUME_REQUEST_MESSAGE,
@@ -193,6 +204,13 @@ function normalizePositionAutoReplyConfig(
     max_threads_per_checkpoint:
       finiteNumber(source.max_threads_per_checkpoint) || 3,
     version: finiteNumber(source.version),
+    default_phrases: arrayValue(source.default_phrases).map(normalizeReplyPhrase),
+    phrase_overrides: arrayValue(source.phrase_overrides).map((value): ReplyPhraseOverride => {
+      const row = recordValue(value);
+      return row.deleted === true ? { id: stringValue(row.id), deleted: true } : normalizeReplyPhrase(row);
+    }),
+    condition_options: arrayValue(source.condition_options).map(stringValue).filter(Boolean),
+    phrases_version: stringValue(source.phrases_version),
     conditions: arrayValue(source.conditions).map((condition, index) => {
       const item = recordValue(condition);
       const type = stringValue(item.type);
@@ -205,6 +223,28 @@ function normalizePositionAutoReplyConfig(
       };
     }),
   };
+}
+
+/** normalizeReplyPhrase 读取后端话术配置的完整文本字段。 */
+function normalizeReplyPhrase(value: unknown): ReplyPhrase {
+  const row = recordValue(value);
+  return { id: stringValue(row.id), category: stringValue(row.category), title: stringValue(row.title),
+    scene: stringValue(row.scene), content: stringValue(row.content) };
+}
+
+export type ConditionSuggestion = Pick<PositionReplyCondition, "content" | "type">;
+
+/** suggestPositionConditions 请求后端按当前岗位资料生成选项；建议由 HR 在表单中勾选后才保存。 */
+export async function suggestPositionConditions(positionID: string, description: string, signal: AbortSignal): Promise<ConditionSuggestion[]> {
+  const payload = recordValue(await cloudRequest(`/api/positions/${encodeURIComponent(positionID)}/auto-reply/condition-suggestions`, {
+    method: "POST", body: { position_description: description }, signal,
+  }));
+  return arrayValue(payload.suggestions).flatMap(value => {
+    const row = recordValue(value);
+    const content = stringValue(row.content);
+    const type = stringValue(row.type);
+    return content && isConditionType(type) ? [{ content, type }] : [];
+  });
 }
 
 /** isConditionType 判断字符串是否为后端支持的岗位条件类型。 */

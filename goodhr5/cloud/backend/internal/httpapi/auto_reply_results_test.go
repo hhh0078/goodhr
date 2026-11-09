@@ -82,15 +82,7 @@ func TestAutoReplyPostgresConfigurationAndReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	for repeat := 0; repeat < 2; repeat++ {
-		for _, name := range []string{"0104_auto_reply_configuration.sql", "0105_auto_reply_result_summaries.sql"} {
-			raw, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", name))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err = db.Exec(string(raw)); err != nil {
-				t.Fatalf("migration %s: %v", name, err)
-			}
-		}
+		applyAutoReplyTestMigrations(t, db)
 	}
 	var tenantID, userID, positionID string
 	if err := db.QueryRow(`INSERT INTO tenants DEFAULT VALUES RETURNING id::text`).Scan(&tenantID); err != nil {

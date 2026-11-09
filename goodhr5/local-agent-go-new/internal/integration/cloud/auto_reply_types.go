@@ -64,6 +64,23 @@ type PositionReplyCondition struct {
 	Enabled   bool   `json:"enabled"`
 }
 
+// AutoReplyPhrase 表示云端按岗位继承、编辑和隐藏之后实际启用的一条话术。
+type AutoReplyPhrase struct {
+	ID       string `json:"id"`
+	Category string `json:"category"`
+	Title    string `json:"title"`
+	Scene    string `json:"scene"`
+	Content  string `json:"content"`
+}
+
+// AutoReplyPrompts 表示此岗位快照采用的管理员提示词；旧服务缺字段时沿用各流程内置默认。
+type AutoReplyPrompts struct {
+	Dialogue       string `json:"auto_reply_dialogue_prompt"`
+	Review         string `json:"auto_reply_review_prompt"`
+	Resume         string `json:"auto_reply_resume_prompt"`
+	Recommendation string `json:"auto_reply_recommendation_prompt"`
+}
+
 // PositionAutoReplyConfig 表示岗位自动回复的完整配置。
 type PositionAutoReplyConfig struct {
 	PositionID              string                   `json:"position_id"`
@@ -71,6 +88,9 @@ type PositionAutoReplyConfig struct {
 	Enabled                 bool                     `json:"enabled"`
 	PositionDescription     string                   `json:"position_description"`
 	ResumeRequestMessage    string                   `json:"resume_request_message"`
+	Phrases                 []AutoReplyPhrase        `json:"phrases"`
+	PhrasesVersion          string                   `json:"phrases_version,omitempty"`
+	Prompts                 AutoReplyPrompts         `json:"auto_reply_prompts,omitzero"`
 	PollIntervalSeconds     int                      `json:"poll_interval_seconds"`
 	MaxThreadsPerCheckpoint int                      `json:"max_threads_per_checkpoint"`
 	Version                 int                      `json:"version"`

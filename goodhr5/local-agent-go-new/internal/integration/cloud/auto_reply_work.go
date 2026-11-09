@@ -12,12 +12,13 @@ import (
 
 // localAutoReplySend 固定同一轮消息的发送正文，重启后不因模型重写而重复发送。
 type localAutoReplySend struct {
-	ConversationID string    `json:"conversation_id"`
-	MessageKey     string    `json:"message_key"`
-	Content        string    `json:"content"`
-	Sequence       int       `json:"sequence"`
-	Status         string    `json:"status"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	OutboundMessageKey string    `json:"outbound_message_key,omitempty"`
+	ConversationID     string    `json:"conversation_id"`
+	MessageKey         string    `json:"message_key"`
+	Content            string    `json:"content"`
+	Sequence           int       `json:"sequence"`
+	Status             string    `json:"status"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // EnsureLocalAutoReplyCandidate 在没有手机号时也建立本地候选人，并原子关联当前会话与平台身份。
@@ -207,7 +208,7 @@ func (c *Client) ReleaseUnsentAutoReply(ctx context.Context, credentials AgentCr
 }
 
 // FinishAutoReplySend 只允许发送意图转为已确认发送或结果不明，避免失败后自动重复发送。
-func (c *Client) FinishAutoReplySend(ctx context.Context, credentials AgentCredentials, conversationID, messageKey string, sequence int, status string) error {
+func (c *Client) FinishAutoReplySend(ctx context.Context, credentials AgentCredentials, conversationID, messageKey string, sequence int, status string, outbound ...string) error {
 	if status != "sent" && status != "unknown" {
 		return fmt.Errorf("发送结果需要明确为sent或unknown")
 	}
@@ -222,6 +223,9 @@ func (c *Client) FinishAutoReplySend(ctx context.Context, credentials AgentCrede
 		}
 		if item.Status == "sent" {
 			return nil
+		}
+		if status == "sent" && len(outbound) > 0 {
+			item.OutboundMessageKey = strings.TrimSpace(outbound[0])
 		}
 		item.Status = status
 		item.UpdatedAt = time.Now().UTC()
@@ -328,6 +332,62 @@ func (c *Client) CommitAutoReplyProposal(ctx context.Context, credentials AgentC
 			}
 		}
 
+		return nil
+	})
+}
+
+// SaveAutoReplyChatPhone 从已保存的新消息补全本机会话候选人的空手机号，不覆盖旧号码或改变简历状态。
+func (c *Client) SaveAutoReplyChatPhone(ctx context.Context, credentials AgentCredentials, conversationID, candidateID, messageKey, phone string) error {
+	return c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		conversation, ok, err := getAutoReplyEntity[AutoReplyConversation](tx, "conversations", conversationID)
+		if err != nil {
+			return err
+		}
+		if !ok || candidateID == "" || conversation.CandidateID != candidateID {
+			return fmt.Errorf("手机号的候选人与当前会话不一致")
+		}
+		row, found, err := tx.MessageByKey(conversationID, messageKey)
+		if err != nil {
+			return err
+		}
+		var msg AutoReplyMessage
+		if !found || json.Unmarshal(row.Data, &msg) != nil || msg.Direction != "candidate" || msg.MessageType != "text" || len(phone) != 11 || !strings.Contains(strings.NewReplacer(" ", "", "-", "").Replace(msg.TextContent), phone) {
+			return fmt.Errorf("候选人手机号缺少本轮聊天证据")
+		}
+		candidate, found, err := getAutoReplyEntity[AutoReplyStoredCandidate](tx, "candidates", candidateID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("本机没有找到这份候选人资料")
+		}
+		if candidate.Phone != "" && candidate.Phone != phone {
+			return fmt.Errorf("候选人发来的号码与已有号码不同，请人工核实")
+		}
+		if candidate.Phone == phone {
+			return nil
+		}
+		others, err := scopedAutoReplyPhoneCandidates(tx, conversation.PlatformID, conversation.PlatformAccountID, phone)
+		if err != nil {
+			return err
+		}
+		for _, other := range others {
+			if other.ID != candidateID {
+				return fmt.Errorf("此号码已关联其他候选人，请人工核实")
+			}
+		}
+		candidate.Phone = phone
+		if err = tx.Put("candidates", candidateID, candidate); err != nil {
+			return err
+		}
+		identity, found, err := getAutoReplyEntity[CandidatePlatformIdentity](tx, "identities", conversation.PlatformIdentityID)
+		if err != nil {
+			return err
+		}
+		if found && identity.CandidateID == candidateID && identity.NormalizedPhone == "" {
+			identity.NormalizedPhone = phone
+			return tx.Put("identities", identity.ID, identity)
+		}
 		return nil
 	})
 }

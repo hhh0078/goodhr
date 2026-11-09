@@ -97,7 +97,7 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		return nil, false, err
 	}
 	if len(attachments) == 0 {
-		return nil, false, fmt.Errorf("%w：候选人简历没有取得真实附件，暂时不能执行本地结构化", errAutoReplyResumeDeferred)
+		return nil, false, fmt.Errorf("%w：还没取得候选人的简历附件，暂时无法整理简历", errAutoReplyResumeDeferred)
 	}
 	structured := storedStructuredCandidate(state.Candidate)
 	structuredResult := StructuredResume{}
@@ -116,7 +116,7 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 			structuredResult = StructuredResume{}
 		}
 	} else {
-		structureErr = fmt.Errorf("本地简历整理能力还没准备好")
+		structureErr = fmt.Errorf("简历整理暂时不可用，请稍后再试")
 	}
 	mergeStructuredCandidate(&structured, structuredResult.Candidate)
 	bundle.CandidateName = firstNonEmpty(structured.CandidateName, bundle.CandidateName, snapshot.CandidateName)
@@ -139,11 +139,11 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	structured.Wechat = bundle.Wechat
 	structured.RawText = firstNonEmpty(structuredResult.RawText, bundle.OnlineResumeText)
 	if structureErr != nil {
-		return nil, false, fmt.Errorf("%w：整理候选人正式简历失败，本地附件已经保留：%w", errAutoReplyResumeDeferred, structureErr)
+		return nil, false, fmt.Errorf("%w：整理候选人正式简历失败，附件已保留：%w", errAutoReplyResumeDeferred, structureErr)
 	}
 	if strings.TrimSpace(bundle.Phone) == "" {
-		f.log(prepared.Request.TaskID, "resume_waiting_phone", "warning", time.Now(), fmt.Errorf("简历已留在本机，手机号尚未确认，先继续回答岗位问题"))
-		// 继续保存已结构化的本地临时候选，后台同步仍独立检查手机号。
+		f.log(prepared.Request.TaskID, "resume_waiting_phone", "warning", time.Now(), fmt.Errorf("简历已保留，手机号待确认，先继续回答岗位问题"))
+		// 先在服务器保存本次整理的候选人资料，写入简历库前再核对手机号。
 	}
 	candidateID := ""
 	if state.Candidate != nil {
@@ -158,6 +158,11 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		Gender:    firstNonEmpty(bundle.Gender, snapshot.Gender), BirthYMPrecision: bundle.BirthYMPrecision,
 		BasicInfo: bundle.OnlineResumeText,
 	}
+	if position.Config.Prompts.Resume != "" {
+		if err := f.verifyCurrentReplyConfiguration(ctx, prepared, position); err != nil {
+			return nil, false, fmt.Errorf("%w：%w", errAutoReplyResumeDeferred, err)
+		}
+	}
 	result, saveErr := f.Cloud.SaveAutoReplyCandidate(ctx, credentials(prepared), input)
 	if saveErr != nil {
 		stats.Failed++
@@ -166,9 +171,8 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	candidateID = strings.TrimSpace(result.CandidateID)
 	if candidateID == "" {
 		stats.Failed++
-		return nil, false, fmt.Errorf("本地没有返回候选人编号，本地附件已经保留，暂时不能关联")
+		return nil, false, fmt.Errorf("还没取得候选人编号，附件已保留，暂时无法关联简历")
 	}
-	f.queueStructuredCandidateSync(ctx, prepared, position, candidateID, input)
 	conversation.CandidateID = candidateID
 	if result.PlatformIdentity.ID != "" {
 		conversation.PlatformIdentityID = result.PlatformIdentity.ID
@@ -177,6 +181,10 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		stats.Failed++
 		return nil, false, saveErr
 	}
+	if f.serverAnswers != nil {
+		f.reportResumeStage(prepared, position, snapshot.CandidateName, "resume_saved", "result", "附件和整理后的资料已保存", false)
+	}
+	f.queueStructuredCandidateSync(ctx, prepared, position, candidateID, input)
 	return &bundle, false, nil
 }
 
@@ -227,7 +235,7 @@ func (f *Flow) saveResumeConversationStatus(ctx context.Context, prepared shared
 	return nil
 }
 
-// uploadResumeAttachments 先把真实附件保存到本机私有目录，供本地解析器读取并结构化。
+// uploadResumeAttachments 将附件存入服务器的账号专属目录，供简历解析使用。
 func (f *Flow) uploadResumeAttachments(ctx context.Context, prepared shared.PreparedTask, conversation cloud.AutoReplyConversation, bundle model.AutoReplyResumeBundle, existing []cloud.StoredResumeAttachment) ([]cloud.StoredResumeAttachment, error) {
 	attachments := append([]cloud.StoredResumeAttachment(nil), existing...)
 	sourceID := ""
@@ -257,13 +265,13 @@ func (f *Flow) uploadResumeAttachments(ctx context.Context, prepared shared.Prep
 		}
 		attachments = append(attachments, item)
 		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			f.log(prepared.Request.TaskID, "cleanup_uploaded_resume", "warning", time.Now(), fmt.Errorf("本机已保存简历附件，但本地临时文件没清理成功"))
+			f.log(prepared.Request.TaskID, "cleanup_uploaded_resume", "warning", time.Now(), fmt.Errorf("简历附件已保存，临时文件清理未完成"))
 		}
 	}
 	return uniqueResumeAttachments(attachments), nil
 }
 
-// localResumeSourceID 把已同步的平台简历消息键映射为本机消息编号，不把平台键直接写入附件外键。
+// localResumeSourceID 查找平台简历消息在服务器中的记录编号，供附件关联来源。
 func (f *Flow) localResumeSourceID(ctx context.Context, prepared shared.PreparedTask, conversationID, sourceKey string) (string, error) {
 	messages, err := f.Cloud.AutoReplyMessages(ctx, credentials(prepared), conversationID)
 	if err != nil {
@@ -418,11 +426,32 @@ func (f *Flow) queueStructuredCandidateSync(ctx context.Context, prepared shared
 	if !position.Position.OutputStructuredResume || !f.Cloud.LocalAutoReplyEnabled() {
 		return
 	}
+	if f.serverAnswers != nil {
+		if input.Phone == "" {
+			f.reportResumeStage(prepared, position, input.CandidateName, "resume_waiting_phone", "result", "资料已保存，确认手机号后可写入简历库", false)
+			return
+		}
+		syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		e := f.Cloud.SyncAutoReplyStructuredCandidate(syncCtx, credentials(prepared), candidateID, input)
+		status, statusErr := f.Cloud.CandidatePublicationStatus(syncCtx, credentials(prepared), candidateID, position.Position.ID)
+		if e != nil || statusErr != nil || status != "completed" {
+			f.reportResumeStage(prepared, position, input.CandidateName, "resume_publish_pending", "error", "简历库尚未确认发布。已保留附件和整理结果，稍后重试同步。", false)
+			return
+		}
+		f.reportResumeStage(prepared, position, input.CandidateName, "resume_published", "result", "简历库已确认收到这份简历", true)
+		return
+	}
 	go func() {
 		syncCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		if err := f.Cloud.SyncAutoReplyStructuredCandidate(syncCtx, credentials(prepared), candidateID, input); err != nil {
-			f.log(prepared.Request.TaskID, "sync_structured_resume", "warning", time.Now(), fmt.Errorf("结构化简历同步未完成，本地结果已保留"))
+			f.log(prepared.Request.TaskID, "sync_structured_resume", "warning", time.Now(), fmt.Errorf("简历库同步未完成，整理结果已保留"))
 		}
 	}()
+}
+
+// reportResumeStage 将受管附件、字段提取及简历库发布分别记入当前正确候选的进度。
+func (f *Flow) reportResumeStage(prepared shared.PreparedTask, position cloud.AutoReplyPositionSnapshot, name, stage, phase, reason string, terminal bool) {
+	shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{Kind: "auto_reply", PositionID: position.Position.ID, CandidateName: name, Stage: stage, Phase: phase, Reason: reason, Terminal: terminal, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
 }

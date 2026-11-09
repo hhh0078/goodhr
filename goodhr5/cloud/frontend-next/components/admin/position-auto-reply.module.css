@@ -1,0 +1,49 @@
+/* 文件作用说明：整理岗位自动回复表单层次、公司卡片和窄屏交互，复用后台主题。 */
+.dialogTitle { display: block; padding-inline-end: 24px; overflow-wrap: anywhere; }
+.form { min-width: 0; }
+.section { padding: 14px 0; border-bottom: 1px solid var(--goodhr-border); }
+.section:first-of-type { padding-top: 2px; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.heading h3, .sectionTitle { margin: 0; font-size: 15px; font-weight: 650; line-height: 24px; color: var(--goodhr-text); }
+.actions { margin-inline-start: auto; }
+.description:global(.ant-form-item) { margin: 0; }
+.companies:global(.ant-radio-group) { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 8px; }
+.company { display: flex; align-items: flex-start; border: 1px solid var(--goodhr-border); border-radius: 8px; padding: 6px; }
+.company[data-selected="true"] { border-color: var(--goodhr-primary); background: var(--goodhr-primary-soft); }
+.company :global(.ant-radio-wrapper) { align-items: center; flex: 1; min-width: 0; margin: 0; padding: 4px 6px; align-self: stretch; overflow-wrap: anywhere; }
+.companyName { display: block; font-weight: 600; }
+.companyName :global(.anticon), .address :global(.anticon) { margin-inline-end: 5px; color: var(--goodhr-text-secondary); }
+.address { display: block; font-size: 12px; line-height: 18px; margin-top: 3px; color: var(--goodhr-text-secondary); }
+.company > button { flex: none; }
+.muted, .foot { font-size: 12px; color: var(--goodhr-text-secondary); margin: 0; }
+.foot { padding-top: 12px; }
+.selectedConditions { display: grid; gap: 6px; }
+.conditionRow, .phraseRow { min-width: 0; display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+.conditionRow > :global(.ant-checkbox-wrapper) { min-width: 0; overflow-wrap: anywhere; }
+.conditionRow > :global(.ant-select) { min-width: 98px; flex-shrink: 0; }
+.picker { margin-top: 12px; padding: 12px; display: grid; gap: 12px; background: var(--goodhr-bg); border-radius: 8px; }
+.optionGroup { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 8px 16px; }
+.optionGroup legend, .category h4 { padding: 0; color: var(--goodhr-text-secondary); font-size: 12px; font-weight: 600; margin: 0 0 6px; }
+.optionGroup :global(.ant-checkbox-wrapper) { overflow-wrap: anywhere; }
+.library > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; padding: 2px 0; }
+.library > summary::-webkit-details-marker { display: none; }
+.library > summary:focus-visible { outline: 2px solid var(--goodhr-primary); outline-offset: 2px; }
+.count { color: var(--goodhr-text-secondary); font-size: 12px; }
+.chevron { margin-inline-start: auto; color: var(--goodhr-text-secondary); }
+.library[open] > summary .chevron { transform: rotate(180deg); }
+.tools { display: flex; justify-content: flex-end; margin: 8px 0; }
+.category + .category { margin-top: 16px; }
+.category h4 { color: var(--goodhr-primary-dark); }
+.phraseRow { padding: 6px 0; }
+.phraseRow + .phraseRow { border-top: 1px solid var(--goodhr-border); }
+.phraseBody { overflow-wrap: anywhere; min-width: 0; }
+.phraseBody p { margin: 2px 0 0; white-space: pre-wrap; line-height: 1.5; color: var(--goodhr-text-secondary); }
+.removed { margin-top: 12px; color: var(--goodhr-text-secondary); }
+.removed summary { cursor: pointer; }
+.legacy { display: grid; gap: 6px; padding-top: 12px; }
+@media (max-width: 599px) {
+  .section { padding-block: 12px; }
+  .actions { justify-content: flex-end; }
+  .phraseRow { gap: 4px; }
+  .phraseRow button { padding-inline: 4px; }
+}

@@ -81,10 +81,10 @@ type screenshotCompatibilityRequest struct {
 
 // handlePageOpen 启动或复用指定 Profile，并通过 Camoufox 打开平台页面。
 func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
-	if s.runner.HasActive() {
-		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务正在使用浏览器，现在不能切换页面"))
+	if !s.beginIdleBrowserOperation(w) {
 		return
 	}
+	defer s.browserOperationMu.Unlock()
 	var request pageOpenRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
@@ -193,9 +193,17 @@ func (s *Server) handleLocalPositionRun(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", fmt.Errorf("这个接口只支持 POST"))
 		return
 	}
+	if !s.beginIdleBrowserOperation(w) {
+		return
+	}
+	defer s.browserOperationMu.Unlock()
 	var request localPositionRunRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(request.TaskType), "auto_reply") {
+		writeError(w, http.StatusConflict, "CLOUD_AUTO_REPLY_REQUIRED", fmt.Errorf("请使用岗位页的服务器自动回复入口"))
 		return
 	}
 	taskID := positionID + "-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
@@ -332,10 +340,10 @@ func (s *Server) handleWorkerStart(w http.ResponseWriter, r *http.Request) {
 
 // handleWorkerStop 停止本地程序管理的 TypeScript Browser Worker。
 func (s *Server) handleWorkerStop(w http.ResponseWriter, _ *http.Request) {
-	if s.runner.HasActive() {
-		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务还在运行，请先安全停止任务"))
+	if !s.beginIdleBrowserOperation(w) {
 		return
 	}
+	defer s.browserOperationMu.Unlock()
 	if err := s.runtime.StopWorker(); err != nil {
 		writeError(w, http.StatusInternalServerError, "WORKER_STOP_FAILED", err)
 		return

@@ -30,17 +30,27 @@ func TestAutoReplyRecommendationKeepsTrustedSnapshot(t *testing.T) {
 		if len(request.Messages) != 2 || strings.Contains(request.Messages[0].Content, "动态候选人") || !strings.Contains(request.Messages[1].Content, "动态候选人") {
 			t.Errorf("推荐提示词边界失效：%+v", request)
 		}
-		if len(request.Messages) == 2 && !strings.Contains(request.Messages[0].Content, "现有资料未展示") {
-			t.Error("推荐分析应提示模型将未展示的经历留待核实")
+		if len(request.Messages) == 2 {
+			system := request.Messages[0].Content
+			for _, rule := range []string{"现有资料未展示", "岗位薪酬范围待核实", "不得提出兼课、替岗、转岗", "评价范围仅限当前岗位", "match_score"} {
+				if !strings.Contains(system, rule) {
+					t.Errorf("模型实际请求缺少固定规则 %s", rule)
+				}
+			}
+			if calls == 2 && !strings.Contains(system, "团队按岗位条件阅读报告") {
+				t.Error("岗位事实约束覆盖了管理员业务提示词")
+			}
 		}
 		content, _ := json.Marshal(`{"match_score":82,"recommendation_level":"建议推进","executive_summary":"满足已确认条件","candidate":{"id":"forged","name":"伪造身份"}}`)
 		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%s}}]}`, content)
 	}))
 	defer server.Close()
 	source := cloud.AutoReplyRecommendationReport{Candidate: cloud.AutoReplyReportCandidate{ID: "trusted", Name: "动态候选人"}, Position: cloud.AutoReplyReportPosition{ID: "position"}}
-	report, err := New().GenerateAutoReplyRecommendation(context.Background(), cloud.AIConfig{BaseURL: server.URL, APIKey: "test", Model: "test"}, source)
-	if err != nil || calls != 1 || report.Candidate.ID != "trusted" || report.Candidate.Name != "动态候选人" || report.GeneratedAt.IsZero() {
-		t.Fatalf("推荐快照不可信：%+v %v calls=%d", report, err, calls)
+	for index, prompt := range []string{"", "团队按岗位条件阅读报告"} {
+		report, err := New().GenerateAutoReplyRecommendation(context.Background(), cloud.AIConfig{BaseURL: server.URL, APIKey: "test", Model: "test"}, source, prompt)
+		if err != nil || calls != index+1 || report.Candidate.ID != "trusted" || report.Candidate.Name != "动态候选人" || report.GeneratedAt.IsZero() {
+			t.Fatalf("推荐快照不可信：%+v %v calls=%d", report, err, calls)
+		}
 	}
 }
 

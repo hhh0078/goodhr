@@ -14,6 +14,7 @@ const maxReplyContextBytes = 128 * 1024
 // boundedReplyContext 复制并压缩模型输入，完整保留本轮批次；超预算时明确停止而不悄悄遗漏本轮问题。
 func boundedReplyContext(input ReplyContext) (ReplyContext, error) {
 	result := input
+	result.PhoneContact = inspectPhoneContact(input)
 	result.ConfirmationItems, _ = configuredConfirmations(input.Position, input.ConfirmationItems)
 	result.Messages = append([]cloud.AutoReplyMessage(nil), input.Messages...)
 	result.PendingMessages = append([]cloud.AutoReplyMessage(nil), input.PendingMessages...)
@@ -103,7 +104,7 @@ func boundedReplyContext(input ReplyContext) (ReplyContext, error) {
 			}
 		}
 		if !removed {
-			return result, fmt.Errorf("岗位或候选人资料超过本轮处理预算，请缩短资料或人工处理")
+			return result, fmt.Errorf("岗位话术、待确认问题或候选人资料超过本轮处理预算，请缩短资料或人工处理")
 		}
 	}
 }

@@ -95,6 +95,7 @@ type autoReplyRuntimeStub struct {
 	opened           model.AutoReplyConversationSnapshot
 	resumeBundle     model.AutoReplyResumeBundle
 	resumeErr        error
+	resumeRequestErr error
 	resumeCollects   int
 	resumeRequests   int
 	sent             bool
@@ -145,7 +146,7 @@ func (r *autoReplyRuntimeStub) ReadAutoReplyMessages(_ context.Context, _ model.
 // RequestAutoReplyResume 模拟索要简历。
 func (r *autoReplyRuntimeStub) RequestAutoReplyResume(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot) error {
 	r.resumeRequests++
-	return nil
+	return r.resumeRequestErr
 }
 
 // CollectAutoReplyResume 返回空简历结果。

@@ -163,6 +163,10 @@ func (c *Client) purgeAutoReplyCandidate(ctx context.Context, credentials AgentC
 
 // cleanPurgedEventFiles 只回收同一删除事件的文件，单个被占用或替换的文件不阻塞其他简历的回执。
 func (c *Client) cleanPurgedEventFiles(ctx context.Context, credentials AgentCredentials, eventKey string) error {
+	if c.localAutoStore.UsesAutoReplyAuthority() {
+		// PG 清理器在同一账号锁内重新检查共享引用，云流程只保留已提交的回收待办。
+		return nil
+	}
 	return c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
 		return tx.CleanPurgedAttachments(eventKey, func(path, digest string) error { return c.removePrivateAutoReplyAttachment(credentials, path, digest) })
 	})

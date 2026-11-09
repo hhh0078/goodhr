@@ -17,6 +17,78 @@ type replyPanelBrowser struct {
 	pressed []string
 }
 
+// weeklyPanelBrowser 模拟周报遮层，确保 Esc 无效时只点周报自己的关闭按钮。
+type weeklyPanelBrowser struct {
+	*replyPanelBrowser
+	weeklyOpen   bool
+	escapeWorks  bool
+	weeklyCloses int
+}
+
+// FindAll 只补充周报的可见性，其余会话读取复用已有测试浏览器。
+func (b *weeklyPanelBrowser) FindAll(ctx context.Context, req contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if req.Selector.Description == "测试周报" {
+		if b.weeklyOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, nil
+	}
+	return b.replyPanelBrowser.FindAll(ctx, req)
+}
+
+// PressKey 记录周报 Esc，并根据平台行为决定是否确实关闭。
+func (b *weeklyPanelBrowser) PressKey(ctx context.Context, req contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
+	if req.Target != nil && req.Target.Description == "测试周报" {
+		if req.Key != "Escape" || req.ExpectedPageURL != "https://example.com/recruit" {
+			return contract.KeyboardPressResult{}, fmt.Errorf("未核实原页")
+		}
+		b.pressed = append(b.pressed, "测试周报")
+		if b.escapeWorks {
+			b.weeklyOpen = false
+		}
+		return contract.KeyboardPressResult{Pressed: true}, nil
+	}
+	return b.replyPanelBrowser.PressKey(ctx, req)
+}
+
+// Click 只允许周报专属备用按钮清除周报，不触碰已打开的候选人。
+func (b *weeklyPanelBrowser) Click(ctx context.Context, req contract.ElementClickRequest) (contract.ClickResult, error) {
+	if req.Selector.Description == "测试周报关闭" {
+		b.weeklyCloses++
+		b.weeklyOpen = false
+		return contract.ClickResult{}, nil
+	}
+	return b.replyPanelBrowser.Click(ctx, req)
+}
+
+// TestLiepinInitializeClosesOnlyWeeklyReport 验证无周报不按键，有周报优先 Esc，未关闭才点击备用按钮。
+func TestLiepinInitializeClosesOnlyWeeklyReport(t *testing.T) {
+	for _, mode := range []string{"absent", "escape", "fallback"} {
+		t.Run(mode, func(t *testing.T) {
+			r, base, cfg := allContactFixture()
+			cfg.MessagesURL = "https://example.com/recruit"
+			cfg.Selectors["message.weekly_report"] = testLiepinSelector("测试周报")
+			cfg.Selectors["message.weekly_report_close"] = testLiepinSelector("测试周报关闭")
+			cfg.Selectors["message.attachment_preview"] = testLiepinSelector("测试附件预览")
+			base.drawerOpen, base.conversationOpen = true, true
+			b := &weeklyPanelBrowser{replyPanelBrowser: &replyPanelBrowser{liepinReplyBrowserStub: base}, weeklyOpen: mode != "absent", escapeWorks: mode == "escape"}
+			if err := r.InitializeAutoReplyPage(context.Background(), b, cfg, nil); err != nil {
+				t.Fatal(err)
+			}
+			wantKeys, wantCloses := 0, 0
+			if mode != "absent" {
+				wantKeys = 1
+			}
+			if mode == "fallback" {
+				wantCloses = 1
+			}
+			if b.weeklyOpen || len(b.pressed) != wantKeys || b.weeklyCloses != wantCloses || !b.drawerOpen || !b.conversationOpen || len(b.clicks) != 0 {
+				t.Fatalf("关闭范围错误：mode=%s keys=%v clicks=%d weekly=%t", mode, b.pressed, b.weeklyCloses, b.weeklyOpen)
+			}
+		})
+	}
+}
+
 // PressKey 对已经打开的对应目标执行 Esc；没有指定原页或正确目标的动作一律失败。
 func (b *replyPanelBrowser) PressKey(_ context.Context, req contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
 	if req.Key != "Escape" || req.Target == nil || req.ExpectedPageURL != "https://example.com/recruit" {

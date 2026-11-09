@@ -1,0 +1,40 @@
+/* 文件作用说明：沿用简历详情主题，区分聊天双方、操作时间线和沟通目标，并控制手机窄屏换行。 */
+.panel { min-width: 0; margin-bottom: 20px; }
+.heading,.goalHeading,.meta,.summary { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.heading,.summary { justify-content:space-between; margin-bottom:12px; }
+.heading h5 { margin:0; }
+.select { max-width:100%; width:280px; }
+.summary { background:var(--ant-color-fill-quaternary); border:1px solid var(--ant-color-border-secondary); border-radius:8px; padding:12px; }
+.summary > div { min-width:0; }
+.goalHeading { overflow-wrap:anywhere; }
+.goalHeading :global(.ant-tag), .meta :global(.ant-tag) { margin:0; }
+.panel :global(.ant-tabs-nav) { margin-bottom:12px; }
+.panel :global(.ant-tabs-tab) { padding:6px 0; }
+.muted,.meta { font-size:12px; color:var(--goodhr-text-secondary); }
+.progress { width:150px; font-size:12px; }
+.progress span:first-child { display:flex; justify-content:space-between; }
+.messages,.events,.goals { list-style:none; margin:0; padding:0; }
+.chatViewport { max-height:min(48vh, 450px); overflow-y:auto; padding:2px 4px; border-radius:6px; }
+.chatViewport:focus-visible { outline:2px solid var(--goodhr-primary); outline-offset:1px; }
+.messages { display:grid; gap:12px; }
+.messages li { min-width:0; display:flex; flex-direction:column; align-items:flex-start; }
+.messages li.outgoing { align-items:flex-end; }
+.meta { gap:6px; }
+.meta strong { color:var(--goodhr-text); font-weight:600; }
+.bubble { margin-top:4px; padding:8px 12px; max-width:88%; border-radius:2px 10px 10px; background:var(--ant-color-fill-quaternary); border:1px solid var(--ant-color-border-secondary); white-space:pre-wrap; overflow-wrap:anywhere; }
+.outgoing .bubble { background:var(--ant-color-primary-bg); border-color:var(--ant-color-primary-border); border-radius:10px 2px 10px 10px; }
+.events li { position:relative; margin-left:5px; border-inline-start:1px solid var(--ant-color-border-secondary); padding:0 0 14px 16px; overflow-wrap:anywhere; }
+.events li::before { content:""; position:absolute; inset:6px auto auto -4px; width:7px; height:7px; border-radius:50%; background:var(--goodhr-primary); }
+.events li:last-child { border-color:transparent; }
+.events p { margin:4px 0; white-space:pre-wrap; }
+.goals li { display:grid; gap:4px; border-bottom:1px solid var(--ant-color-border-secondary); padding:8px 0; }
+.goals blockquote { margin:2px 0; padding:4px 10px; border-left:2px solid var(--ant-color-primary-border); background:var(--ant-color-fill-quaternary); white-space:pre-wrap; overflow-wrap:anywhere; }
+.goals details summary { cursor:pointer; color:var(--goodhr-primary); font-size:12px; }
+.more { display:block; margin:8px auto; }
+@media (max-width:600px) {
+  .summary { gap:8px; }
+  .progress { width:100%; }
+  .select { width:100%; }
+  .bubble { max-width:95%; }
+  .panel :global(.ant-tabs-tab + .ant-tabs-tab) { margin-left:18px; }
+}

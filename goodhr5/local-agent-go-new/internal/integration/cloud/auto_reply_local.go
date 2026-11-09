@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -45,6 +47,47 @@ func (c *Client) LocalAutoReplyEnabled() bool { return c != nil && c.localAutoSt
 func autoReplyDigest(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+// AutoReplyAccountKey 从平台和可见账号标识得到与旧启动流程相同的绑定键，规范键再次传入保持原值。
+func AutoReplyAccountKey(platformID, label string) string {
+	label = strings.TrimSpace(label)
+	if h, found := strings.CutPrefix(label, "bound:"); found && len(h) == 64 {
+		if _, err := hex.DecodeString(h); err == nil {
+			return "bound:" + strings.ToLower(h)
+		}
+	}
+	return "bound:" + autoReplyDigest(strings.TrimSpace(platformID)+"\n"+label)
+}
+
+// RuntimeAccountScope 找到早期云程序已使用的唯一工作范围，沿用消息账本和水位，发布身份始终走规范绑定键。
+func (c *Client) RuntimeAccountScope(ctx context.Context, cred AgentCredentials, platform, label string) (scope string, err error) {
+	canonical := AutoReplyAccountKey(platform, label)
+	scope = canonical
+	err = c.autoReplyTransaction(ctx, cred, func(tx *storage.AutoReplyTx) error {
+		values, e := tx.AutoReplyAccountScopes(platform)
+		if e != nil {
+			return e
+		}
+		hasCanonical := false
+		for _, value := range values {
+			if value == canonical {
+				hasCanonical = true
+				continue
+			}
+			if AutoReplyAccountKey(platform, value) == canonical {
+				if scope != canonical && scope != value {
+					return errors.New("招聘账号有多份旧工作记录，需先核对归属")
+				}
+				scope = value
+			}
+		}
+		if hasCanonical && scope != canonical {
+			return errors.New("招聘账号存在两套已启动的会话水位，需先合并历史记录")
+		}
+		return nil
+	})
+	return
 }
 
 // localAutoReplyKey 优先使用启动检查核实的账号，未登录测试仅使用凭证摘要隔离。
@@ -102,4 +145,24 @@ func trimLocalAutoReplyAudits(data *localAutoReplyData) {
 			}
 		}
 	}
+}
+
+// ServerAutoReplyTransaction 将云编排租约、浏览器回执和业务操作绑定到同一账号和权威事务适配器。
+func (c *Client) ServerAutoReplyTransaction(ctx context.Context, cred AgentCredentials, work func(*storage.AutoReplyTx) error) error {
+	return c.autoReplyTransaction(ctx, cred, work)
+}
+
+// AuthenticatedAutoReplyOwner 在导出旧数据前核实当前登录用户，不能靠客户端自报的账号或姓名取资料。
+func (c *Client) AuthenticatedAutoReplyOwner(ctx context.Context, cred AgentCredentials) (string, error) {
+	session, err := c.ValidateSession(ctx, cred.Token)
+	if err != nil {
+		return "", err
+	}
+	if !session.LoggedIn || session.SessionKind == "browser_extension" {
+		return "", fmt.Errorf("当前登录无权迁移自动回复资料")
+	}
+	if err = c.autoReplyTransaction(ctx, cred, func(*storage.AutoReplyTx) error { return nil }); err != nil {
+		return "", err
+	}
+	return c.localAutoReplyKey(cred), nil
 }

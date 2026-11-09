@@ -14,6 +14,21 @@ const resumeParseSystem = `你只负责将用户主动导入的简历原文整�
 
 // ParseResume 使用固定系统提示词解析已提取文字，动态简历只进入 user 消息。
 func (c *Client) ParseResume(ctx context.Context, cfg cloud.AIConfig, text string) (cloud.LibraryCandidate, error) {
+	return c.parseResume(ctx, cfg, text, resumeParseSystem)
+}
+
+// ParseAutoReplyResume 使用岗位本轮取得的系统提示词，保留简历分类、字段结构和证据校验。
+func (c *Client) ParseAutoReplyResume(ctx context.Context, cfg cloud.AIConfig, text, prompt string) (cloud.LibraryCandidate, error) {
+	system := resumeParseSystem
+	if prompt = strings.TrimSpace(prompt); prompt != "" {
+		_, schema, _ := strings.Cut(resumeParseSystem, "仅返回一个JSON对象")
+		system = prompt + "\n仅返回一个JSON对象" + schema
+	}
+	return c.parseResume(ctx, cfg, text, system)
+}
+
+// parseResume 使用调用方指定的系统消息执行一次有结构约束的简历解析。
+func (c *Client) parseResume(ctx context.Context, cfg cloud.AIConfig, text, system string) (cloud.LibraryCandidate, error) {
 	if err := c.Ready(cfg); err != nil {
 		return cloud.LibraryCandidate{}, err
 	}
@@ -22,7 +37,7 @@ func (c *Client) ParseResume(ctx context.Context, cfg cloud.AIConfig, text strin
 		return cloud.LibraryCandidate{}, fmt.Errorf("简历文字为空或超过20万字，请分开整理")
 	}
 	messages := []chatMessage{
-		textChatMessage("system", resumeParseSystem+"\n还必须先判断原文是否确实是个人简历，在同一个JSON对象返回is_resume布尔值。合同、广告、岗位说明、下载失败页、空模板均返回is_resume:false，不提取候选人。只有包含明确个人履历的材料才返回true。"),
+		textChatMessage("system", system+"\n还必须先判断原文是否确实是个人简历，在同一个JSON对象返回is_resume布尔值。合同、广告、岗位说明、下载失败页、空模板均返回is_resume:false，不提取候选人。只有包含明确个人履历的材料才返回true。"),
 		textChatMessage("user", "请整理下面这份简历原文：\n"+text),
 	}
 	// 通用chat默认重试三次；导入结果不明时不能自动重复扣费，因此复用单次请求能力。

@@ -185,3 +185,35 @@ func (r *targetedAutoReplyRuntime) CloseAutoReplyConversation(ctx context.Contex
 	}
 	return r.AutoReplyRuntime.CloseAutoReplyConversation(ctx, browser, cfg, snapshot)
 }
+
+// targetedServerPlatform 复用单候选人限制，并保留云端发送后读到真实出站消息的能力。
+type targetedServerPlatform struct {
+	*targetedAutoReplyRuntime
+	remote interface {
+		SendAutoReplyWithReceipt(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot, string) (model.ConversationMessage, error)
+		ReadAutoReplyAvatar(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot) ([]byte, error)
+	}
+}
+
+// SendAutoReplyWithReceipt 核对目标稳定身份后才允许设备发送，返回同一页面上核准的实际出站键。
+func (r *targetedServerPlatform) SendAutoReplyWithReceipt(ctx context.Context, b model.Browser, cfg model.Config, s model.AutoReplyConversationSnapshot, msg string) (model.ConversationMessage, error) {
+	if err := r.checkPage(ctx, b, cfg, s); err != nil {
+		return model.ConversationMessage{}, err
+	}
+	return r.remote.SendAutoReplyWithReceipt(ctx, b, cfg, s, msg)
+}
+
+// ReadAutoReplyAvatar 在读取前后都核验目标，错人、页面切换或缺稳定身份均不采用图像。
+func (r *targetedServerPlatform) ReadAutoReplyAvatar(ctx context.Context, b model.Browser, cfg model.Config, s model.AutoReplyConversationSnapshot) ([]byte, error) {
+	if err := r.checkPage(ctx, b, cfg, s); err != nil {
+		return nil, err
+	}
+	data, err := r.remote.ReadAutoReplyAvatar(ctx, b, cfg, s)
+	if err == nil {
+		err = r.checkPage(ctx, b, cfg, s)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}

@@ -16,7 +16,7 @@ import (
 // reviewAllContacts 仅记录任务范围内的联系人摘要，待核对项继续经过原有采集、消息去重与发送回执流程。
 func (f *Flow) reviewAllContacts(ctx context.Context, prepared shared.PreparedTask, rows []model.Conversation) ([]model.Conversation, map[string]cloud.AutoReplyListReview, error) {
 	if f.Cloud == nil || !f.Cloud.LocalAutoReplyEnabled() {
-		return nil, nil, fmt.Errorf("本机消息记录还没有准备好，暂不根据联系人列表回复")
+		return nil, nil, fmt.Errorf("消息记录还没有准备好，暂不根据联系人列表回复")
 	}
 	// 没有读到任何实际联系人，可能是抽屉刚打开尚未渲染。该轮保留原水位和已登记待办。
 	if len(rows) == 0 {

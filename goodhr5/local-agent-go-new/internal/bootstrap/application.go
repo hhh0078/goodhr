@@ -13,7 +13,6 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/client"
 	browserprocess "goodhr5/local-agent-go-new/internal/browser/process"
 	"goodhr5/local-agent-go-new/internal/config"
-	"goodhr5/local-agent-go-new/internal/flow/auto_reply"
 	downloadflow "goodhr5/local-agent-go-new/internal/flow/download"
 	"goodhr5/local-agent-go-new/internal/flow/greeting"
 	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
@@ -83,7 +82,7 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 	// Windows x64 与 Mac 双架构先核对线上浏览器摘要；其他平台由管理器保持关闭。
 	runtimeManager.EnableStartupCamoufoxSync()
 	cloudClient := cloud.New(cfg.CloudURL)
-	cloudClient.EnableLocalAutoReply(store, filepath.Join(cfg.DataDir, "auto-reply"))
+	// 自动回复的流程、AI和业务数据由服务器管理；本机仅执行浏览器命令。
 	machineID, deviceErr := device.Current()
 	if deviceErr != nil {
 		log.Printf("稳定设备编号暂时不可用：%v", deviceErr)
@@ -120,12 +119,7 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 		DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
 	}
 	downloads := &downloadflow.Monitor{Browser: browserClient, Store: store, Notifier: notifier}
-	replyFlow := &auto_reply.Flow{
-		Browser: &replyBrowser{browserClient, downloads}, Store: store, Cloud: cloudClient,
-		Responder: &auto_reply.AIResponder{AI: aiClient, Cloud: cloudClient, Logger: logger, OCR: ocrClient},
-		Logger:    logger, DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
-	}
-	runner := lifecycle.New(checker, greetingFlow, replyFlow, store, profiles, powerGuard, cloudClient, notifier, logger)
+	runner := lifecycle.New(checker, greetingFlow, nil, store, profiles, powerGuard, cloudClient, notifier, logger)
 	application := &Application{
 		cfg: cfg, runner: runner, runtime: runtimeManager,
 		browser: browserClient, store: store, downloads: downloads, ocr: ocrClient,

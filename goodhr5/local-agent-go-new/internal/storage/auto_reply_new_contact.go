@@ -4,13 +4,36 @@ package storage
 import (
 	"database/sql"
 	"errors"
+	"time"
 )
 
 // RememberContactDeletion 保存来源的最新删除事件，旧事件重放不能降低代次。
 func (t *AutoReplyTx) RememberContactDeletion(hash string, sequence int64, cutoff string) error {
-	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO auto_reply_deletion_boundaries VALUES(?,?,?,?)
- ON CONFLICT(owner_id,source_hash) DO UPDATE SET deletion_sequence=excluded.deletion_sequence,deleted_at=excluded.deleted_at
- WHERE excluded.deletion_sequence>auto_reply_deletion_boundaries.deletion_sequence OR (excluded.deletion_sequence=auto_reply_deletion_boundaries.deletion_sequence AND auto_reply_deletion_boundaries.deleted_at='')`, t.owner, hash, sequence, cutoff)
+	previous, old, err := t.ContactDeletion(hash)
+	if err != nil || sequence < previous {
+		return err
+	}
+	if cutoff != "" {
+		next, e := time.Parse(time.RFC3339Nano, cutoff)
+		if e != nil {
+			return e
+		}
+		if old != "" {
+			before, e := time.Parse(time.RFC3339Nano, old)
+			if e != nil {
+				return e
+			}
+			if !next.After(before) {
+				cutoff = old
+			}
+		}
+	} else if sequence == previous {
+		cutoff = old
+	}
+	if sequence == previous && cutoff == old {
+		return nil
+	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO auto_reply_deletion_boundaries VALUES(?,?,?,?) ON CONFLICT(owner_id,source_hash) DO UPDATE SET deletion_sequence=excluded.deletion_sequence,deleted_at=excluded.deleted_at`, t.owner, hash, sequence, cutoff)
 	return err
 }
 
@@ -79,4 +102,24 @@ func (t *AutoReplyTx) HasContactDeletions() (bool, error) {
 	var found bool
 	err := t.tx.QueryRowContext(t.ctx, "SELECT EXISTS(SELECT 1 FROM auto_reply_deletion_boundaries WHERE owner_id=?)", t.owner).Scan(&found)
 	return found, err
+}
+
+// AutoReplyAccountScopes 列出当前成员和平台已观测的账号键，以同一工作范围续读旧账本。
+func (t *AutoReplyTx) AutoReplyAccountScopes(platform string) ([]string, error) {
+	rows, err := t.tx.QueryContext(t.ctx, `SELECT account_id FROM auto_reply_list_scopes WHERE owner_id=? AND platform_id=? UNION SELECT account_id FROM auto_reply_conversations WHERE owner_id=? AND platform_id=? UNION SELECT account_id FROM auto_reply_contact_probes WHERE owner_id=? AND platform_id=?`, t.owner, platform, t.owner, platform, t.owner, platform)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var scopes []string
+	for rows.Next() {
+		var key string
+		if err = rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		if key != "" {
+			scopes = append(scopes, key)
+		}
+	}
+	return scopes, rows.Err()
 }

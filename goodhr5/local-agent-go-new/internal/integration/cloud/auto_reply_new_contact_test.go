@@ -261,3 +261,135 @@ func TestDeletionDocumentDigestsReplay(t *testing.T) {
 		t.Fatal("重试丢失已确认的文件依据", err)
 	}
 }
+
+// TestSealedGenerationRequiresNewEvidence 验证遗留的错误封印始终保留，只允许观察边界后的新联系产生新身份。
+func TestSealedGenerationRequiresNewEvidence(t *testing.T) {
+	c, store, cred := purgeTestClient(t, "")
+	ctx := context.Background()
+	q := AutoReplyCandidateLookup{PlatformID: "liepin", PlatformAccountID: "郭星", PlatformThreadID: "thread", PlatformCandidateID: "person"}
+	src := autoReplyDigest("liepin\x00person")
+	original := AutoReplyDeletionBoundary{Sequence: 2, DeletedAt: time.Now().UTC().Add(-3 * time.Hour), SourceHash: src}
+	sealed := "conversation-" + autoReplyDigest(originalContactID(q)+original.generationSuffix())
+	if err := c.autoReplyTransaction(ctx, cred, func(tx *storage.AutoReplyTx) error {
+		if err := tx.RememberContactDeletion(src, 2, original.DeletedAt.Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+		return tx.BlockPurgedKey("conversations", sealed)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := c.AutoReplyDeletionBoundary(ctx, cred, q)
+	if err != nil || b == nil || !b.SealedAfter.After(original.DeletedAt) {
+		t.Fatal("缺少新观察起点", b, err)
+	}
+	intent := AutoReplyCaptureIntent{PlatformThreadID: q.PlatformThreadID, PlatformCandidateID: q.PlatformCandidateID, CandidateName: "合成", PositionID: "p"}
+	last := b.SealedAfter.Add(-time.Second)
+	msg := AutoReplyMessage{Direction: "candidate", MessageType: "resume", PlatformMessageID: "older", PlatformSentAt: &last}
+	if _, err = c.ActivateAutoReplyContact(ctx, cred, q, *b, msg, intent); !errors.Is(err, storage.ErrAutoReplyCandidateDeleted) {
+		t.Fatal("已封印的旧附件被恢复", err)
+	}
+	restart := New("")
+	restart.EnableLocalAutoReply(store, c.localAutoDir)
+	restart.localAutoOwners.Store(autoReplyDigest(cred.Token), "owner-A")
+	b2, err := restart.AutoReplyDeletionBoundary(ctx, cred, q)
+	if err != nil || !b2.SealedAfter.Equal(b.SealedAfter) {
+		t.Fatal("重启后观察边界移动", err)
+	}
+	now := time.Now().UTC()
+	msg.PlatformSentAt = &now
+	msg.PlatformMessageID = "new-card"
+	conv, err := restart.ActivateAutoReplyContact(ctx, cred, q, *b2, msg, intent)
+	if err != nil || conv.ID == sealed || conv.DeletionBoundary == nil || !conv.DeletionBoundary.HistoryCutoff().Equal(b.SealedAfter) {
+		t.Fatal("未能按新证据创建独立代次", conv.ID, err)
+	}
+	if err = c.autoReplyTransaction(ctx, cred, func(tx *storage.AutoReplyTx) error {
+		keep, e := tx.HasPurgedKey("conversations", sealed)
+		if !keep {
+			t.Error("原封印被移除")
+		}
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPublishConflictKeepsVerifiedGraph 模拟已核实的新资料遇到后台 409 或旧版 410，完整保留本次沟通与附件、下轮仅重试发布。
+func TestPublishConflictKeepsVerifiedGraph(t *testing.T) {
+	for _, httpStatus := range []int{409, 410, 202} {
+		t.Run(http.StatusText(httpStatus), func(t *testing.T) {
+			code := httpStatus
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if code == 202 {
+					_, _ = w.Write([]byte(`{"candidate_id":"cloud-sealed"}`))
+					return
+				}
+				if code == 200 {
+					_, _ = w.Write([]byte(`{"candidate_id":"cloud-new"}`))
+					return
+				}
+				w.WriteHeader(code)
+				if code == 410 {
+					_, _ = w.Write([]byte(`{"code":"CANDIDATE_DELETED"}`))
+				} else {
+					_, _ = w.Write([]byte(`{"code":"CANDIDATE_REOPEN_PROOF_CONFLICT"}`))
+				}
+			}))
+			defer server.Close()
+			c, _, cred := purgeTestClient(t, server.URL)
+			ctx := context.Background()
+			const id = "candidate:current:p"
+			payload, _ := json.Marshal(autoReplyCandidateUpload{LocalCandidateID: "current", Input: AutoReplyCandidateInput{PlatformID: "liepin", ReopenProof: &AutoReplyReopenProof{DeletionSequence: 2}}})
+			if err := c.autoReplyTransaction(ctx, cred, func(tx *storage.AutoReplyTx) error {
+				for kind, row := range map[string]any{"candidates": AutoReplyStoredCandidate{ID: "current", ResumeStructured: true}, "conversations": AutoReplyConversation{ID: "current", CandidateID: "current"}, "messages": AutoReplyMessage{ID: "current", ConversationID: "current", Direction: "candidate", TextContent: "新来信"}, "attachments": localAttachment{StoredResumeAttachment: StoredResumeAttachment{ID: "current", CandidateID: "current", ConversationID: "current"}, RelativePath: "file.pdf"}} {
+					if e := tx.Put(kind, "current", row); e != nil {
+						return e
+					}
+				}
+				if httpStatus == 202 {
+					if e := tx.BlockPurgedKey("cloud", "cloud-sealed"); e != nil {
+						return e
+					}
+				}
+				return tx.Put("outbox", id, autoReplyOutboxItem{ID: id, Kind: "candidate", Status: "pending", Payload: payload})
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.processAutoReplyOutbox(ctx, cred, id); err == nil {
+				t.Fatal("发布被拒绝仍显示成功")
+			}
+			status, err := c.CandidatePublicationStatus(ctx, cred, "current", "p")
+			if err != nil || status != "failed" {
+				t.Fatal("待重试状态丢失", status, err)
+			}
+			if err = c.autoReplyTransaction(ctx, cred, func(tx *storage.AutoReplyTx) error {
+				for _, kind := range []string{"candidates", "conversations", "messages", "attachments"} {
+					_, ok, e := tx.Get(kind, "current")
+					if e != nil {
+						return e
+					}
+					if !ok {
+						t.Fatal("发布冲突误清了", kind)
+					}
+				}
+				q, _, e := getAutoReplyEntity[autoReplyOutboxItem](tx, "outbox", id)
+				if e != nil {
+					return e
+				}
+				q.NextAttemptAt = time.Time{}
+				return tx.Put("outbox", id, q)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			code = 200
+			if err = c.processAutoReplyOutbox(ctx, cred, id); err != nil {
+				t.Fatal(err)
+			}
+			status, err = c.CandidatePublicationStatus(ctx, cred, "current", "p")
+			if err != nil || status != "completed" || calls != 2 {
+				t.Fatal("复用同一份已结构化材料重试失败", status, err, calls)
+			}
+		})
+	}
+}

@@ -233,6 +233,47 @@ func checkQuestionsAnsweredBeforeAndWhileWaitingResume(t *testing.T, enter bool)
 	}
 }
 
+// TestResumeRequestAvoidsDuplicateAndUsesTextFallback 验证正文已索要时不重复、确定无按钮时改发文本、结果不明时不追加发送。
+func TestResumeRequestAvoidsDuplicateAndUsesTextFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		asked                    bool
+		nativeErr                error
+		wantMessages, wantNative int
+		wantErr                  bool
+	}{
+		{"正文已索要", true, nil, 1, 0, false},
+		{"平台无入口", false, model.ErrAutoReplyResumeRequestUnavailable, 2, 1, false},
+		{"平台结果不明", false, errors.New("点击后断开"), 1, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"ok":true,"position":{"id":"position"},"config":{"position_id":"position","enabled":true,"version":1},"company_profile":{"id":"company"},"subscription":{"active":true,"allow_auto_reply":true}}`))
+			}))
+			defer server.Close()
+			flow, prepared := newReliabilityFlow(t, server.URL)
+			flow.Browser = &autoReplyBrowserStub{pages: []contract.PageInfo{{URL: "https://example.test/recruit", Current: true}}}
+			text := "工作地点在成都。"
+			if tc.asked {
+				text += "方便发一份简历吗？"
+			}
+			flow.Responder = &reliabilityResponder{decision: ReplyDecision{Messages: []ReplyMessage{{Type: "answer", Content: text, RequestsResume: tc.asked}}}}
+			message := model.ConversationMessage{PlatformMessageID: "m1", Direction: "candidate", MessageType: "text", TextContent: "工作地点在哪里？"}
+			runtime := &answeringRuntime{autoReplyRuntimeStub: &autoReplyRuntimeStub{opened: model.AutoReplyConversationSnapshot{CandidateName: "候选人甲", PlatformThreadID: "thread", CommunicationPosition: "工程师", Messages: []model.ConversationMessage{message}}, latestBefore: message, resumeRequestErr: tc.nativeErr}}
+			positions := []cloud.AutoReplyPositionSnapshot{{Position: cloud.AutoReplyPosition{ID: "position", Name: "工程师"}, Config: cloud.PositionAutoReplyConfig{Version: 1}}}
+			conversation := model.Conversation{Key: "thread", PlatformThreadID: "thread", Name: "候选人甲", CommunicationPosition: "工程师"}
+			err := flow.processConversation(context.Background(), prepared, runtime, positions, conversation, nil, &shared.Stats{})
+			if (err != nil) != tc.wantErr || len(runtime.replies) != tc.wantMessages || runtime.resumeRequests != tc.wantNative {
+				t.Fatalf("索要行为不符：replies=%v native=%d err=%v", runtime.replies, runtime.resumeRequests, err)
+			}
+			state, err := flow.Cloud.AutoReplyCandidateState(context.Background(), credentials(prepared), cloud.AutoReplyCandidateLookup{PlatformID: prepared.Platform.ID, PlatformAccountID: prepared.Request.PlatformAccountID, PlatformThreadID: "thread"})
+			if err != nil || state.Conversation == nil || state.Conversation.Status != "waiting_resume" {
+				t.Fatalf("没有保存等待状态保护下轮：%+v err=%v", state.Conversation, err)
+			}
+		})
+	}
+}
+
 // TestCompanyChangeInvalidatesPreparedReply 验证岗位版本未变时，公司资料变更仍废弃旧回答。
 func TestCompanyChangeInvalidatesPreparedReply(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

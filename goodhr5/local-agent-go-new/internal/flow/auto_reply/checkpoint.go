@@ -149,6 +149,13 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		if err != nil {
 			return 0, openConversation, err
 		}
+		if f.serverAnswers != nil {
+			queued, err := f.readAnswerQueue(ctx, prepared, positions)
+			if err != nil {
+				return 0, openConversation, err
+			}
+			pending = append(pending, queued...)
+		}
 		for _, saved := range pending {
 			positionID := saved.PositionID
 			if saved.CaptureIntent != nil {
@@ -172,7 +179,7 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 				item.ReplyAfter, item.WitnessDigest = intent.ReplyAfter, intent.WitnessDigest
 			}
 			if openVerified && openThreadID != "" && saved.PlatformThreadID == openThreadID && targetConversationAllowed(prepared.Request.AutoReplyTarget, item) {
-				openResumeDue = autoReplyResumeRetryDue(saved.ResumeRetry, time.Now())
+				openResumeDue = autoReplyResumeRetryDue(saved.ResumeRetry, time.Now()) || len(f.serverAnswers[saved.ID]) > 0
 			}
 			conversations = append(conversations, item)
 		}

@@ -68,16 +68,22 @@ type suggestionToolArgs struct {
 }
 
 type notifyHRToolArgs struct {
-	Reason    string `json:"reason"`
-	ReasonKey string `json:"reason_key"`
+	Question           string            `json:"question,omitempty"`
+	ExistingQuestionID string            `json:"existing_question_id,omitempty"`
+	Questions          []handoffQuestion `json:"questions,omitempty"`
+	Reason             string            `json:"reason"`
+	ReasonKey          string            `json:"reason_key"`
+	KnownAnswer        string            `json:"known_answer,omitempty"`
 }
 
 type toolExecutionState struct {
+	handoffQuestions    []handoffQuestion
 	input               ReplyContext
 	confirmations       []cloud.CandidateConfirmationItem
 	pendingMessages     []ReplyMessage
 	manualReason        string
 	manualKey           string
+	knownAnswer         string
 	confirmationUpdates []cloud.CandidateConfirmationItem
 	suggestions         []cloud.AutoReplyConfigSuggestion
 	reviewFinished      bool
@@ -96,9 +102,9 @@ func autoReplyToolsForContext(input ReplyContext) []ai.ToolDefinition {
 func autoReplyToolDefinitions() []ai.ToolDefinition {
 	return []ai.ToolDefinition{
 		newToolDefinition(toolUpsertConfirmations, "只更新 confirmation_items 中已有 id 的条件状态，不能新增或改变条件。每批最多50项，可分批。matched/unmatched必须提供存在的source_ref和证据原文。", `{"type":"object","properties":{"items":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":128},"position_condition_id":{"type":"string","maxLength":128},"item_type":{"type":"string","enum":["required","confirm","bonus"]},"content":{"type":"string","minLength":1,"maxLength":1000},"status":{"type":"string","enum":["pending","matched","unmatched"]},"status_reason":{"type":"string","minLength":1,"maxLength":500},"source_ref":{"type":"string","maxLength":256},"evidence_text":{"type":"string","maxLength":2000}},"required":["id","item_type","content","status","status_reason","source_ref","evidence_text"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false}`),
-		newToolDefinition(toolSendMessages, "准备最多两条候选人消息：可先回答最新问题，再询问一个未确认条件。信息不足时改用 notify_hr。", `{"type":"object","properties":{"messages":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","properties":{"type":{"type":"string","enum":["answer","confirmation"]},"content":{"type":"string","minLength":1,"maxLength":200},"confirmation_item_id":{"type":"string","maxLength":128}},"required":["type","content"],"additionalProperties":false}}},"required":["messages"],"additionalProperties":false}`),
+		newToolDefinition(toolSendMessages, "准备最多两条候选人消息：可先回答最新问题，再询问一个未确认条件。正文已经索要简历时 requests_resume 必须为 true，系统不会重复索要；其他正文为 false。信息不足时改用 notify_hr。", `{"type":"object","properties":{"messages":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","properties":{"type":{"type":"string","enum":["answer","confirmation"]},"content":{"type":"string","minLength":1,"maxLength":200},"confirmation_item_id":{"type":"string","maxLength":128},"requests_resume":{"type":"boolean"}},"required":["type","content","requests_resume"],"additionalProperties":false}}},"required":["messages"],"additionalProperties":false}`),
 		newToolDefinition(toolSuggestConfig, "提交岗位或公司资料的新增、修改或删除建议，等待 HR 审核。", `{"type":"object","properties":{"suggestion_type":{"type":"string","enum":["position","company"]},"operation":{"type":"string","enum":["create","update","delete"]},"target_id":{"type":"string","maxLength":128},"proposed_value":{"type":"object"},"reason":{"type":"string","minLength":1,"maxLength":1000}},"required":["suggestion_type","operation","proposed_value","reason"],"additionalProperties":false}`),
-		newToolDefinition(toolNotifyHR, "没有可靠答案或问题与招聘无关时，通知当前招聘团队人工接管；这是内部通知，候选人不会收到任何占位回复。", `{"type":"object","properties":{"reason":{"type":"string","minLength":1,"maxLength":500},"reason_key":{"type":"string","minLength":1,"maxLength":100}},"required":["reason","reason_key"],"additionalProperties":false}`),
+		newToolDefinition(toolNotifyHR, "没有可靠答案或问题与招聘无关时，通知当前招聘团队人工接管；missing_recruitment_info 表示需要核实的招聘问题，可附上混合问题中有依据的 known_answer。系统登记人工待办后才可以按配置发回执，技术问题或无关问题只作内部通知。", `{"type":"object","properties":{"reason":{"type":"string","minLength":1,"maxLength":500},"reason_key":{"type":"string","minLength":1,"maxLength":100},"known_answer":{"type":"string","maxLength":200},"question":{"type":"string","maxLength":300},"existing_question_id":{"type":"string","maxLength":128},"questions":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"question":{"type":"string","maxLength":300},"existing_question_id":{"type":"string","maxLength":128}},"required":["question"],"additionalProperties":false}}},"required":["reason","reason_key"],"additionalProperties":false}`),
 	}
 }
 
@@ -204,9 +210,7 @@ func (s *toolExecutionState) upsertConfirmations(ctx context.Context, call ai.To
 		s.addConfirmationProposal(result)
 		s.replaceConfirmation(result)
 	}
-	return marshalToolResult(struct {
-		Items []cloud.CandidateConfirmationItem `json:"items"`
-	}{saved})
+	return marshalToolResult(confirmationToolArgs{Items: conditionsForTool(saved)})
 }
 
 // validateConfirmationToolItem 校验单条确认项枚举和文字长度。
@@ -305,6 +309,15 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 		if !oneOf(item.Type, "answer", "confirmation") || item.Content == "" || len([]rune(item.Content)) > maxAutoReplyMessageRunes {
 			return nil, argumentError(fmt.Sprintf("第%d条消息类型不支持、内容为空或超过200字", index+1))
 		}
+		if strings.ContainsAny(item.Content, "{}｛｝") {
+			return nil, argumentError("话术还有未填写的变量，请用已核实的信息替换，或转人工。")
+		}
+		if item.RequestsResume && (s.input.Conversation.Status == "waiting_resume" || s.input.CandidateState.HasResumeAttachment || s.input.PageSnapshot.ResumeCardAvailable) {
+			return nil, argumentError("已经索要或收到简历，不要再次索要；请只回答当前问题。")
+		}
+		if err := checkPhoneReply(s.input.PhoneContact, s.input.Position.Config, item.Content); err != nil {
+			return nil, err
+		}
 		if item.Type == "answer" {
 			if index > 0 {
 				return nil, argumentError("回答消息只能放在第一条")
@@ -316,6 +329,7 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 					return nil, err
 				}
 				item.Content = short
+				item.RequestsResume = false
 			}
 			item.ConfirmationItemID = ""
 		} else {
@@ -402,6 +416,10 @@ func (s *toolExecutionState) confirmationByID(id string) (cloud.CandidateConfirm
 
 // normalizeSimpleCandidateReply 防止 AI 对纯问候、致谢或求职兴趣主动扩展岗位和简历信息。
 func normalizeSimpleCandidateReply(input ReplyContext, proposed string) string {
+	if input.Position.Config.Phrases != nil || input.Position.Config.PhrasesVersion != "" {
+		// 新岗位的问候、澄清等以云端话术为准，保留带有实际问题的模型答复。
+		return strings.TrimSpace(proposed)
+	}
 	if len(input.PendingMessages) > 1 {
 		return strings.TrimSpace(proposed)
 	}
@@ -486,6 +504,24 @@ func (s *toolExecutionState) prepareManualHandoff(call ai.ToolCall) (json.RawMes
 	if len(s.pendingMessages) > 0 {
 		return nil, argumentError("已经准备发送消息，不能同时转人工")
 	}
+	answer := strings.TrimSpace(args.KnownAnswer)
+	if answer != "" {
+		if key != "missing_recruitment_info" || len([]rune(answer)) > maxAutoReplyMessageRunes || strings.ContainsAny(answer, "{}｛｝") {
+			return nil, argumentError("只有需要核实的招聘问题可以附上有依据的简短回答")
+		}
+		if err := checkPhoneReply(s.input.PhoneContact, s.input.Position.Config, answer); err != nil {
+			return nil, err
+		}
+		if err := checkReplyFollowThrough(s.input.Position, answer); err != nil {
+			return nil, err
+		}
+	}
+	qs, err := verifiedHandoffQuestions(s.input, args)
+	if err != nil {
+		return nil, err
+	}
+	s.handoffQuestions = qs
+	s.knownAnswer = answer
 	s.manualReason = reason
 	s.manualKey = key
 	return marshalToolResult(struct {

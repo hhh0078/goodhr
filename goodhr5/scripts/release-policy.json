@@ -3,7 +3,8 @@
   "schema_version": 1,
   "trusted_runtime_images": {
     "backend": ["sha256:41b4b007b867b7b5ef341b0457d00d5103cb2810f48caa1526decb5b8d39651f"],
-    "frontend": ["sha256:7c3b093add7c43400ee83b815ab2cda98794a10045bcf76ce9bb2f89b97cbc5c"]
+    "frontend": ["sha256:7c3b093add7c43400ee83b815ab2cda98794a10045bcf76ce9bb2f89b97cbc5c"],
+    "auto-reply": []
   },
   "rollback_keep_per_service": 2,
   "minimum_compatible_rollback_per_service": 1,

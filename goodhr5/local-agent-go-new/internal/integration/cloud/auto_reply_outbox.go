@@ -1,4 +1,4 @@
-// Package cloud 本文件持久保存通知及授权结果上传待办，网络请求始终在SQLite事务外执行。
+// Package cloud 本文件在当前权威仓储保存通知及授权结果发布待办，网络请求在业务事务外执行。
 package cloud
 
 import (
@@ -107,9 +107,14 @@ func (c *Client) SyncAutoReplyStructuredCandidate(ctx context.Context, credentia
 		if conv.DeletionBoundary != nil && (conv.PlatformID != input.PlatformID || conv.PlatformAccountID != input.PlatformAccountID || conv.DeletionBoundary.SourceHash != autoReplyDigest(input.PlatformID+"\x00"+input.PlatformCandidateID)) {
 			return fmt.Errorf("新简历上传来源与本地会话不一致")
 		}
+		// 重试使用已保存的附件来源，避免相同结果因调用方省略内部字段而绕过发布退避。
+		safe.ResumeSourceMessageID = candidate.ResumeSourceMessageID
 		safe.ReopenProof, err = storedContactAttachmentProof(tx, conv, candidate.ResumeSourceMessageID)
 		if err != nil {
 			return err
+		}
+		if safe.ReopenProof != nil && c.localAutoStore.UsesAutoReplyAuthority() {
+			safe.ReopenProof.ConversationID, safe.ReopenProof.LocalCandidateID = conv.ID, localCandidateID
 		}
 		revision = row.Revision
 		safe.StructuredCandidate = structuredLocalAutoReplyCandidate(candidate)
@@ -136,6 +141,28 @@ func (c *Client) SyncAutoReplyStructuredCandidate(ctx context.Context, credentia
 		return err
 	}
 	return c.processAutoReplyOutbox(ctx, credentials, id)
+}
+
+// CandidatePublicationStatus 核实本岗位上传任务和正式简历链接的真实结果，未确认时继续保留待办。
+func (c *Client) CandidatePublicationStatus(ctx context.Context, credentials AgentCredentials, candidate, position string) (status string, err error) {
+	err = c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+		item, ok, e := getAutoReplyEntity[autoReplyOutboxItem](tx, "outbox", "candidate:"+candidate+":"+position)
+		if e != nil || !ok {
+			return e
+		}
+		status = item.Status
+		if status == "completed" {
+			link, ok, e := getAutoReplyEntity[localCloudLink](tx, "cloud_links", "candidate:"+candidate)
+			if e != nil {
+				return e
+			}
+			if !ok || link.Value == "" {
+				status = "pending"
+			}
+		}
+		return nil
+	})
+	return
 }
 
 // notifyLocalAutoReply 持久登记人工接管通知，失败状态与提示明确返回且不会持锁等待网络。
@@ -258,7 +285,7 @@ func (c *Client) processAutoReplyOutbox(ctx context.Context, credentials AgentCr
 	return err
 }
 
-// sendAutoReplyOutbox 根据明确待办类型执行云端请求，所有敏感正文仅保留本机。
+// sendAutoReplyOutbox 按待办类型发布授权资料，聊天原文保留在当前账号的业务仓储。
 func (c *Client) sendAutoReplyOutbox(ctx context.Context, credentials AgentCredentials, item autoReplyOutboxItem) error {
 	switch item.Kind {
 	case "notice":
@@ -278,7 +305,7 @@ func (c *Client) sendAutoReplyOutbox(ctx context.Context, credentials AgentCrede
 			if result.Warning != "" {
 				return fmt.Errorf("%s", result.Warning)
 			}
-			return fmt.Errorf("接管邮件还没发送成功，已保留本机重试")
+			return fmt.Errorf("接管邮件还没发送成功，已保留待办，稍后重试")
 		}
 		return nil
 	case "candidate":
@@ -286,15 +313,29 @@ func (c *Client) sendAutoReplyOutbox(ctx context.Context, credentials AgentCrede
 		if err := json.Unmarshal(item.Payload, &input); err != nil {
 			return err
 		}
-		raw, err := json.Marshal(candidateCloudRequest(input.Input))
+		request := candidateCloudRequest(input.Input)
+		if c.localAutoStore.UsesAutoReplyAuthority() {
+			request.PlatformAccountID = AutoReplyAccountKey(request.PlatformID, request.PlatformAccountID)
+		}
+		raw, err := json.Marshal(request)
 		if err != nil {
 			return err
 		}
 		var result AutoReplyCandidateSaveResult
 		if err = c.doBody(ctx, http.MethodPost, autoReplyAgentBasePath+"/candidates", credentials.Token, credentials.MachineID, "application/json", bytes.NewReader(raw), &result); err != nil {
-			if IsCandidateDeleted(err) {
-				// 云端按稳定来源拒绝了本次具体上传，即使还没有取得云ID，也能准确清理这个本地候选人。
-				return c.purgeAutoReplyCandidate(ctx, credentials, "", nil, input.LocalCandidateID)
+			var apiErr *APIError
+			if IsCandidateDeleted(err) || errors.As(err, &apiErr) && apiErr.Code == "CANDIDATE_REOPEN_PROOF_CONFLICT" {
+				// 发布被拒绝不等于当前代已删除。只有独立删除事件确切封印本候选编号时才将迟到的任务视为已结束。
+				return c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+					gone, e := tx.HasPurgedKey("candidates", input.LocalCandidateID)
+					if e != nil {
+						return e
+					}
+					if gone {
+						return nil
+					}
+					return errors.New("云端删除记录与本次建档凭据尚未对齐，已保留沟通、附件和简历同步待办")
+				})
 			}
 			return err
 		}
@@ -305,8 +346,23 @@ func (c *Client) sendAutoReplyOutbox(ctx context.Context, credentials AgentCrede
 			return tx.Put("cloud_links", "candidate:"+input.LocalCandidateID, localCloudLink{Value: result.CandidateID})
 		})
 		if errors.Is(linkErr, storage.ErrAutoReplyCandidateDeleted) {
-			// 删除事件早于首次上传回执时，同一份请求给出了精确映射，补清其本地资料。
-			return c.purgeAutoReplyCandidate(ctx, credentials, result.CandidateID, nil, input.LocalCandidateID)
+			if input.Input.ReopenProof != nil {
+				// 新一代绝不重新挂到已封印的旧云记录。保留本代原件和待办，由云端登记真正的新归属。
+				return errors.New("简历库回执指向已删除的旧记录，当前新资料已保留，等待核对后重试")
+			}
+			// 成功回执给出了精确的云 ID，再核对独立登记的删除事件。不能用通用写入拒绝代替确认。
+			var confirmed bool
+			if e := c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
+				var e error
+				confirmed, e = tx.HasPurgedKey("cloud", result.CandidateID)
+				return e
+			}); e != nil {
+				return e
+			}
+			if confirmed {
+				return c.purgeAutoReplyCandidate(ctx, credentials, result.CandidateID, nil, input.LocalCandidateID)
+			}
+			return linkErr
 		}
 		return linkErr
 	case "report":
@@ -324,7 +380,7 @@ func (c *Client) sendAutoReplyOutbox(ctx context.Context, credentials AgentCrede
 			return err
 		}
 		if cloudID == "" {
-			return fmt.Errorf("结构化简历仍在同步，报告已保存在本机")
+			return fmt.Errorf("结构化简历仍在同步，报告已保存")
 		}
 		report := input.Report
 		report.Candidate.ID = cloudID

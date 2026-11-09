@@ -62,7 +62,11 @@ func (f *Flow) syncCandidateAvatar(ctx context.Context, prepared shared.Prepared
 	var imageData []byte
 	var filePath string
 	captureErr := fmt.Errorf("当前会话身份尚未确认，不截图头像")
-	if runtime != nil {
+	if remote, ok := runtime.(interface {
+		ReadAutoReplyAvatar(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot) ([]byte, error)
+	}); ok {
+		imageData, captureErr = remote.ReadAutoReplyAvatar(ctx, nil, prepared.Platform, snapshot)
+	} else if runtime != nil {
 		_, stillOpen, verifyErr := runtime.ReadOpenAutoReplyLatestMessage(ctx, f.Browser, prepared.Platform, snapshot)
 		if verifyErr == nil && stillOpen {
 			imageData, filePath, captureErr = f.captureCurrentCandidateAvatar(ctx, prepared.Platform, temporaryDir)
@@ -85,6 +89,12 @@ func (f *Flow) syncCandidateAvatar(ctx context.Context, prepared shared.Prepared
 		filePath = filepath.Join(temporaryDir, "avatar-download")
 		if err = os.WriteFile(filePath, imageData, 0o600); err != nil {
 			return fmt.Errorf("保存候选人头像临时文件失败")
+		}
+	}
+	if filePath == "" && len(imageData) > 0 {
+		filePath = filepath.Join(temporaryDir, "avatar-capture")
+		if err = os.WriteFile(filePath, imageData, 0600); err != nil {
+			return fmt.Errorf("保存服务器头像临时文件失败")
 		}
 	}
 	return f.uploadCandidateAvatar(ctx, credentials(prepared), candidateID, imageData, filePath)

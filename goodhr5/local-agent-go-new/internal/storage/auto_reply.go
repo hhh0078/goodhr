@@ -25,6 +25,7 @@ type AutoReplyFilter struct{ Field, Value string }
 
 // AutoReplyTx 在一个短事务中访问指定账号的实体；不得在回调内请求网络。
 type AutoReplyTx struct {
+	serverFiles      map[string]string
 	tx               *sql.Tx
 	ctx              context.Context
 	owner            string
@@ -40,6 +41,9 @@ var autoReplyFields = map[string]string{
 func (s *Store) AutoReplyTransaction(ctx context.Context, owner string, action func(*AutoReplyTx) error) error {
 	if strings.TrimSpace(owner) == "" {
 		return fmt.Errorf("本地自动回复缺少账号归属")
+	}
+	if s.scratch != nil {
+		return s.scratch.transaction(ctx, s.db, owner, action)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

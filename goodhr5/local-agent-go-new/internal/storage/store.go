@@ -18,7 +18,8 @@ const localDataRetention = 90 * 24 * time.Hour
 
 // Store 管理新本地程序 SQLite 连接。
 type Store struct {
-	db *sql.DB
+	scratch *serverScratch
+	db      *sql.DB
 }
 
 // TaskRun 表示一条不含敏感详情的任务状态记录。

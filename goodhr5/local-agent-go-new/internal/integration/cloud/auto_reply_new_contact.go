@@ -15,13 +15,33 @@ import (
 
 // AutoReplyDeletionBoundary 将本机只读核实限定在当前平台来源的最近一次删除之后。
 type AutoReplyDeletionBoundary struct {
-	Sequence   int64     `json:"sequence"`
-	DeletedAt  time.Time `json:"deleted_at"`
-	SourceHash string    `json:"source_hash"`
+	SealedAfter time.Time `json:"sealed_after,omitzero"`
+	Sequence    int64     `json:"sequence"`
+	DeletedAt   time.Time `json:"deleted_at"`
+	SourceHash  string    `json:"source_hash"`
+}
+
+// HistoryCutoff 取浏览器实际允许读取的较晚边界，保持旧删除事件的原始编号和时间。
+func (b AutoReplyDeletionBoundary) HistoryCutoff() time.Time {
+	if b.SealedAfter.After(b.DeletedAt) {
+		return b.SealedAfter
+	}
+	return b.DeletedAt
+}
+
+// generationSuffix 为已封印的旧代保留原墓碑，只用明确更晚的观察边界派生新的实体编号。
+func (b AutoReplyDeletionBoundary) generationSuffix() string {
+	suffix := "|post-delete|" + strconv.FormatInt(b.Sequence, 10)
+	if !b.SealedAfter.IsZero() {
+		suffix += "|observed-after-seal|" + b.HistoryCutoff().Format(time.RFC3339Nano)
+	}
+	return suffix
 }
 
 // AutoReplyReopenProof 仅上传两条已验证消息的摘要和平台时间，不传正文或会话历史。
 type AutoReplyReopenProof struct {
+	ConversationID        string    `json:"conversation_id,omitempty"`
+	LocalCandidateID      string    `json:"local_candidate_id,omitempty"`
 	DeletionSequence      int64     `json:"deletion_sequence"`
 	InboundMessageHash    string    `json:"inbound_message_hash"`
 	InboundAt             time.Time `json:"inbound_at"`
@@ -74,6 +94,26 @@ func readContactBoundary(tx *storage.AutoReplyTx, q AutoReplyCandidateLookup) (*
 			b := &AutoReplyDeletionBoundary{Sequence: seq, SourceHash: hash}
 			if stamp != "" {
 				b.DeletedAt, err = time.Parse(time.RFC3339Nano, stamp)
+			}
+			if err != nil || b.DeletedAt.IsZero() {
+				return b, err
+			}
+			id := "conversation-" + autoReplyDigest(originalContactID(q)+b.generationSuffix())
+			sealed, err := tx.HasPurgedKey("conversations", id)
+			if err != nil || !sealed {
+				return b, err
+			}
+			// 老版本曾把发布冲突错误地当作永久删除。保持封印，以首次重新观察后的新消息和新附件开启沟通。
+			marker := autoReplyDigest("sealed-conversation-observation|" + id + "|" + hash)
+			_, observed, err := tx.ContactDeletion(marker)
+			if err != nil {
+				return nil, err
+			}
+			if observed == "" {
+				b.SealedAfter = time.Now().UTC()
+				err = tx.RememberContactDeletion(marker, seq, b.SealedAfter.Format(time.RFC3339Nano))
+			} else {
+				b.SealedAfter, err = time.Parse(time.RFC3339Nano, observed)
 			}
 			return b, err
 		}
@@ -143,16 +183,16 @@ func (c *Client) ActivateAutoReplyContact(ctx context.Context, cred AgentCredent
 			return err
 		}
 		key := localAutoReplyMessageKey(first)
-		if current == nil || b.Sequence <= 0 || b.DeletedAt.IsZero() || current.Sequence != b.Sequence || current.SourceHash != b.SourceHash || !current.DeletedAt.Equal(b.DeletedAt) {
+		if current == nil || b.Sequence <= 0 || b.DeletedAt.IsZero() || current.Sequence != b.Sequence || current.SourceHash != b.SourceHash || !current.DeletedAt.Equal(b.DeletedAt) || !current.SealedAfter.Equal(b.SealedAfter) {
 			return storage.ErrAutoReplyCandidateDeleted
 		}
 		if q.PlatformCandidateID == "" || intent.PlatformCandidateID != q.PlatformCandidateID || intent.PlatformThreadID != q.PlatformThreadID || strings.TrimSpace(intent.CandidateName) == "" {
 			return storage.ErrAutoReplyCandidateDeleted
 		}
-		if first.Direction != "candidate" || key == "" || first.PlatformSentAt == nil || !first.PlatformSentAt.After(b.DeletedAt) || first.PlatformSentAt.After(time.Now()) {
+		if first.Direction != "candidate" || key == "" || first.PlatformSentAt == nil || !first.PlatformSentAt.After(b.HistoryCutoff()) || first.PlatformSentAt.After(time.Now()) {
 			return storage.ErrAutoReplyCandidateDeleted
 		}
-		suffix := "|post-delete|" + strconv.FormatInt(b.Sequence, 10)
+		suffix := b.generationSuffix()
 		id := "conversation-" + autoReplyDigest(originalContactID(q)+suffix)
 		old, exists, err := getAutoReplyEntity[AutoReplyConversation](tx, "conversations", id)
 		if err != nil {
@@ -200,7 +240,7 @@ func contactAttachmentProof(tx *storage.AutoReplyTx, conv AutoReplyConversation,
 		return nil, nil
 	}
 	b := conv.DeletionBoundary
-	if b.DeletedAt.IsZero() || conv.ReopenInboundAt == nil || !conv.ReopenInboundAt.After(b.DeletedAt) || conv.ReopenInboundHash == "" || key == "" {
+	if b.DeletedAt.IsZero() || conv.ReopenInboundAt == nil || !conv.ReopenInboundAt.After(b.HistoryCutoff()) || conv.ReopenInboundHash == "" || key == "" {
 		return nil, errors.New("重新建档需要候选人在删除后新发的附件")
 	}
 	row, found, err := tx.MessageByKey(conv.ID, key)
@@ -214,7 +254,7 @@ func contactAttachmentProof(tx *storage.AutoReplyTx, conv AutoReplyConversation,
 	if err = json.Unmarshal(row.Data, &m); err != nil {
 		return nil, err
 	}
-	if m.Direction != "candidate" || m.MessageType != "resume" || m.PlatformSentAt == nil || !m.PlatformSentAt.After(b.DeletedAt) || m.PlatformSentAt.After(time.Now()) {
+	if m.Direction != "candidate" || m.MessageType != "resume" || m.PlatformSentAt == nil || !m.PlatformSentAt.After(b.HistoryCutoff()) || m.PlatformSentAt.After(time.Now()) {
 		return nil, fmt.Errorf("该附件不属于删除后的新入站")
 	}
 	return &AutoReplyReopenProof{DeletionSequence: b.Sequence, InboundMessageHash: conv.ReopenInboundHash, InboundAt: *conv.ReopenInboundAt, AttachmentMessageHash: autoReplyDigest(key), AttachmentAt: *m.PlatformSentAt}, nil

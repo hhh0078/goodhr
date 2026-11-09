@@ -31,11 +31,11 @@ func (s *Server) handleLocalAutoReply(w http.ResponseWriter, r *http.Request) {
 	case "start":
 		s.handleLocalAutoReplyStart(w, r)
 	case "stop":
-		s.handleLocalAutoReplyStop(w, r)
+		s.stopCloudReply(w, r)
 	case "status":
-		s.handleLocalAutoReplyStatus(w, r)
+		s.cloudReplyStatus(w, r)
 	case "retry-reports":
-		s.handleLocalAutoReplyRetryReports(w, r)
+		s.retryCloudReplyReports(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "NOT_FOUND", fmt.Errorf("这个自动回复接口不存在"))
 	}
@@ -47,6 +47,10 @@ func (s *Server) handleLocalAutoReplyStart(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", fmt.Errorf("这个接口只支持 POST"))
 		return
 	}
+	if !s.beginIdleBrowserOperation(w) {
+		return
+	}
+	defer s.browserOperationMu.Unlock()
 	var request localAutoReplyStartRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
@@ -90,26 +94,7 @@ func (s *Server) handleLocalAutoReplyStart(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	taskID := "auto-reply-" + platformID + "-" + strconvNano36()
-	result, err := s.runner.StartTask(r.Context(), shared.StartRequest{
-		TaskID: taskID, PositionID: positions[0].Position.ID, TaskType: "auto_reply",
-		Token: request.Token, Headless: request.Headless, PlatformAccountID: request.PlatformAccountID, AutoReplyTarget: request.AutoReplyTarget,
-	})
-	if err != nil {
-		writeJSON(w, http.StatusConflict, struct {
-			OK        bool                 `json:"ok"`
-			Error     errorBody            `json:"error"`
-			Preflight []preflightStepAlias `json:"preflight"`
-		}{
-			OK: false, Error: errorBody{Code: "TASK_START_FAILED", Message: err.Error()},
-			Preflight: convertPreflightSteps(result.Preflight),
-		})
-		return
-	}
-	writeSuccess(w, http.StatusAccepted, struct {
-		lifecycle.StartResult
-		PlatformID       string `json:"platform_id"`
-		EnabledPositions int    `json:"enabled_positions"`
-	}{StartResult: result, PlatformID: platformID, EnabledPositions: len(positions)})
+	s.startCloudReply(w, r, request, platformID, taskID, positions[0].Position.ID)
 }
 
 // handleLocalAutoReplyStop 请求自动回复任务在安全点停止。

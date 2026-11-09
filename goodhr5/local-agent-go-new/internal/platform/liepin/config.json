@@ -81,6 +81,18 @@
   "_comment_filter_actions": "旧版猎聘企业端没有自动基础筛选动作。",
   "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
   "selectors": {
+    "message.weekly_report": {
+      "_comment": "按现场可见周报标题定位同一弹层，不使用变化的样式哈希。",
+      "target": { "selectors": [{ "type": "css", "value": "text=我的招聘周报 >> .. >> .." }] },
+      "state": "visible", "timeout_ms": 600,
+      "description": "猎聘企业端我的招聘周报弹层"
+    },
+    "message.weekly_report_close": {
+      "_comment": "Esc 未能收起同一周报时，只点击该周报自身关闭按钮。",
+      "target": { "selectors": [{ "type": "css", "value": "text=我的招聘周报 >> .. >> .. >> button[aria-label='关闭']" }] },
+      "state": "visible", "timeout_ms": 600,
+      "description": "猎聘企业端招聘周报关闭按钮"
+    },
     "entry.dismiss": {
       "_comment": "现场确认的猎聘广告 SDK 推广弹框关闭按钮。",
       "target": { "_comment": "广告关闭目标。", "selectors": [{ "_comment": "广告 SDK 关闭按钮的固定属性。", "type": "css", "value": "[data-selector='adslot-sdk-dialog-close']" }] },

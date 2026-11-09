@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -550,6 +551,9 @@ func (c *Client) doBody(ctx context.Context, method string, path string, token s
 	}
 	if strings.TrimSpace(machineID) != "" {
 		request.Header.Set("X-GoodHR-Machine-ID", strings.TrimSpace(machineID))
+	}
+	if strings.HasPrefix(path, autoReplyAgentBasePath+"/questions/") || path == autoReplyAgentBasePath+"/candidates" && c.localAutoStore.UsesAutoReplyAuthority() {
+		request.Header.Set("X-GoodHR-Runtime-Service", os.Getenv("GOODHR_AUTO_REPLY_SERVICE_TOKEN"))
 	}
 	response, err := c.http.Do(request)
 	if err != nil {

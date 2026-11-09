@@ -10,6 +10,7 @@ const (
 
 // CompanyProfile 表示团队成员共享的一份公司档案。
 type CompanyProfile struct {
+	ConfirmedFacts  []string  `json:"confirmed_facts,omitempty"`
 	ID              string    `json:"id"`
 	TenantID        string    `json:"tenant_id"`
 	Name            string    `json:"name"`
@@ -41,6 +42,7 @@ type PositionReplyCondition struct {
 
 // PositionAutoReplyConfig 表示岗位自动回复开关和配置快照。
 type PositionAutoReplyConfig struct {
+	ConfirmedFacts          []string                 `json:"confirmed_facts,omitempty"`
 	PositionID              string                   `json:"position_id"`
 	TenantID                string                   `json:"tenant_id"`
 	CompanyProfileID        string                   `json:"company_profile_id"`
@@ -50,6 +52,12 @@ type PositionAutoReplyConfig struct {
 	PollIntervalSeconds     int                      `json:"poll_interval_seconds"`
 	MaxThreadsPerCheckpoint int                      `json:"max_threads_per_checkpoint"`
 	Version                 int                      `json:"version"`
+	AutoReplyPrompts        *AutoReplyPrompts        `json:"auto_reply_prompts,omitempty"`
+	PhraseOverrides         []ReplyPhrase            `json:"phrase_overrides,omitempty"`
+	DefaultPhrases          []ReplyPhrase            `json:"default_phrases,omitempty"`
+	Phrases                 []ReplyPhrase            `json:"phrases"`
+	PhrasesVersion          string                   `json:"phrases_version"`
+	ConditionOptions        []string                 `json:"condition_options,omitempty"`
 	UpdatedByUserID         string                   `json:"updated_by_user_id"`
 	Conditions              []PositionReplyCondition `json:"conditions"`
 	CreatedAt               time.Time                `json:"created_at"`

@@ -39,6 +39,8 @@ type AutoReplyRecommendationJob struct {
 	LastError         string                        `json:"last_error"`
 	NextAttemptAt     time.Time                     `json:"next_attempt_at"`
 	LeaseUntil        time.Time                     `json:"lease_until"`
+	StartedAt         time.Time                     `json:"started_at,omitzero"`   // 当前推荐尝试实际领取的服务端时间。
+	CompletedAt       time.Time                     `json:"completed_at,omitzero"` // 当前尝试实际完成时间，等待或执行中留空。
 }
 
 // ClaimAutoReplyReport 原子领取报告生成租约，完成结果可重用且失败最多自动尝试三次。
@@ -155,7 +157,9 @@ func (c *Client) ClaimAutoReplyRecommendation(ctx context.Context, credentials A
 		}
 		job.Status = "running"
 		job.Attempts++
-		job.LeaseUntil = time.Now().UTC().Add(5 * time.Minute)
+		job.StartedAt = time.Now().UTC()
+		job.CompletedAt = time.Time{}
+		job.LeaseUntil = job.StartedAt.Add(5 * time.Minute)
 		claimed = true
 		return tx.Put("recommendations", id, job)
 	})
@@ -172,6 +176,7 @@ func (c *Client) FinishAutoReplyRecommendation(ctx context.Context, credentials 
 		if !found {
 			return fmt.Errorf("推荐待办没有找到")
 		}
+		job.CompletedAt = time.Now().UTC()
 		job.LeaseUntil = time.Time{}
 		job.LastError = lastError
 		if completed {
@@ -195,6 +200,7 @@ func (c *Client) BlockAutoReplyRecommendation(ctx context.Context, credentials A
 			return fmt.Errorf("推荐待办没有找到")
 		}
 		job.Status = "blocked"
+		job.CompletedAt = time.Now().UTC()
 		job.LastError = reason
 		job.LeaseUntil = time.Time{}
 		return tx.Put("recommendations", id, job)

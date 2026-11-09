@@ -1,0 +1,25 @@
+# 文件作用：从官方基础镜像编译服务器自动回复程序，运行层只带程序、中英文 OCR 与证书。
+FROM golang:1.25-bookworm AS builder
+LABEL goodhr.project="goodhr" goodhr.build.stage="auto-reply-builder"
+ENV GOPROXY=https://goproxy.cn,direct
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY internal ./internal
+COPY migrations ./migrations
+COPY cmd/goodhr-auto-reply-server ./cmd/goodhr-auto-reply-server
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/goodhr-auto-reply-server ./cmd/goodhr-auto-reply-server
+LABEL goodhr.build.finished="true"
+
+FROM debian:bookworm-slim
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /var/lib/goodhr/auto-reply \
+    && chown 65532:65532 /var/lib/goodhr/auto-reply
+COPY --from=builder /out/goodhr-auto-reply-server /usr/local/bin/goodhr-auto-reply-server
+ENV GOODHR_AUTO_REPLY_LISTEN=0.0.0.0:18646 GOODHR_AUTO_REPLY_FILES_DIR=/var/lib/goodhr/auto-reply
+USER 65532:65532
+EXPOSE 18646
+ENTRYPOINT ["/usr/local/bin/goodhr-auto-reply-server"]

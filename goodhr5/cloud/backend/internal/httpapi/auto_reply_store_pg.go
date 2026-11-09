@@ -4,6 +4,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -139,6 +140,7 @@ func (s *PostgresAutoReplyStore) DeleteCompanyProfile(ctx context.Context, tenan
 
 // SavePositionAutoReplyConfig 原子保存岗位自动回复配置并全量替换条件。
 func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context, userEmail string, item PositionAutoReplyConfig, expectedVersion ...int) (PositionAutoReplyConfig, error) {
+	legacyResumeMessage := item.ResumeRequestMessage
 	applyAutoReplyConfigDefaults(&item)
 	if err := validatePositionAutoReplyConfig(item); err != nil {
 		return PositionAutoReplyConfig{}, err
@@ -161,7 +163,8 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 		return PositionAutoReplyConfig{}, err
 	}
 	var currentVersion int
-	err = tx.QueryRowContext(ctx, `SELECT version FROM position_auto_reply_configs WHERE position_id=$1`, item.PositionID).Scan(&currentVersion)
+	var previousJSON []byte
+	err = tx.QueryRowContext(ctx, `SELECT version,phrase_overrides FROM position_auto_reply_configs WHERE position_id=$1`, item.PositionID).Scan(&currentVersion, &previousJSON)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return PositionAutoReplyConfig{}, err
 	}
@@ -173,6 +176,32 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 	if compareVersion && version != currentVersion {
 		return PositionAutoReplyConfig{}, newAutoReplyValidationError("岗位配置刚刚有更新，请重新打开设置后再保存")
 	}
+	// 与管理员更新使用同一行锁，避免基于旧默认值保存覆盖。
+	var rawLibrary string
+	if err = tx.QueryRowContext(ctx, `SELECT config_value::text FROM system_configs WHERE config_key=$1 AND enabled FOR SHARE`, autoReplyLibraryKey).Scan(&rawLibrary); err != nil {
+		return PositionAutoReplyConfig{}, err
+	}
+	lib, err := parseAutoReplyLibrary(rawLibrary)
+	if err != nil {
+		return PositionAutoReplyConfig{}, err
+	}
+	if item.PhrasesVersion != "" && item.PhrasesVersion != lib.revision() {
+		return PositionAutoReplyConfig{}, errAutoReplyLibraryConflict
+	}
+	var previous []ReplyPhrase
+	if len(previousJSON) > 0 {
+		if err = json.Unmarshal(previousJSON, &previous); err != nil {
+			return PositionAutoReplyConfig{}, err
+		}
+	}
+	item.ResumeRequestMessage = legacyResumeMessage
+	if err = prepareReplyOverrides(&item, previous, lib); err != nil {
+		return PositionAutoReplyConfig{}, err
+	}
+	overrides, err := json.Marshal(item.PhraseOverrides)
+	if err != nil {
+		return PositionAutoReplyConfig{}, err
+	}
 	if err = preserveAutoReplyConditionIDs(ctx, tx, &item); err != nil {
 		return PositionAutoReplyConfig{}, err
 	}
@@ -180,14 +209,15 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 		INSERT INTO position_auto_reply_configs (
 			position_id, tenant_id, company_profile_id, enabled, position_description,
 			resume_request_message, poll_interval_seconds, max_threads_per_checkpoint,
-			version, updated_by_user_id
-		) VALUES ($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,$7,$8,1,$9)
+			version, updated_by_user_id, phrase_overrides
+		) VALUES ($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,$7,$8,1,$9,$10::jsonb)
 		ON CONFLICT (position_id) DO UPDATE SET
 			tenant_id=EXCLUDED.tenant_id,
 			company_profile_id=EXCLUDED.company_profile_id,
 			enabled=EXCLUDED.enabled,
 			position_description=EXCLUDED.position_description,
 			resume_request_message=EXCLUDED.resume_request_message,
+			phrase_overrides=EXCLUDED.phrase_overrides,
 			poll_interval_seconds=EXCLUDED.poll_interval_seconds,
 			max_threads_per_checkpoint=EXCLUDED.max_threads_per_checkpoint,
 			version=position_auto_reply_configs.version+1,
@@ -195,7 +225,7 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 			updated_at=now()
 	`, item.PositionID, item.TenantID, item.CompanyProfileID, item.Enabled,
 		strings.TrimSpace(item.PositionDescription), strings.TrimSpace(item.ResumeRequestMessage),
-		item.PollIntervalSeconds, item.MaxThreadsPerCheckpoint, userID)
+		item.PollIntervalSeconds, item.MaxThreadsPerCheckpoint, userID, string(overrides))
 	if err != nil {
 		return PositionAutoReplyConfig{}, err
 	}
@@ -226,7 +256,11 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 	if err = tx.Commit(); err != nil {
 		return PositionAutoReplyConfig{}, err
 	}
-	return s.GetPositionAutoReplyConfig(ctx, item.TenantID, item.PositionID)
+	saved, err := s.GetPositionAutoReplyConfig(ctx, item.TenantID, item.PositionID)
+	if err == nil {
+		applyReplyLibrary(&saved, lib)
+	}
+	return saved, err
 }
 
 // preserveAutoReplyConditionIDs 保留当前岗位条件的稳定编号，兼容未提交编号的旧客户端，拒绝外部或重复编号。
@@ -273,23 +307,27 @@ func preserveAutoReplyConditionIDs(ctx context.Context, tx *sql.Tx, item *Positi
 // GetPositionAutoReplyConfig 读取岗位自动回复配置和有序条件。
 func (s *PostgresAutoReplyStore) GetPositionAutoReplyConfig(ctx context.Context, tenantID, positionID string) (PositionAutoReplyConfig, error) {
 	var item PositionAutoReplyConfig
+	var overrides []byte
 	err := s.db.QueryRowContext(ctx, `
 		SELECT position_id, tenant_id, COALESCE(company_profile_id::text,''), enabled,
 			position_description, resume_request_message, poll_interval_seconds,
-			max_threads_per_checkpoint, version, COALESCE(updated_by_user_id::text,''), created_at, updated_at
+			max_threads_per_checkpoint, version, COALESCE(updated_by_user_id::text,''), created_at, updated_at, phrase_overrides
 		FROM position_auto_reply_configs
 		WHERE tenant_id=$1 AND position_id=$2
 	`, tenantID, positionID).Scan(
 		&item.PositionID, &item.TenantID, &item.CompanyProfileID, &item.Enabled,
 		&item.PositionDescription, &item.ResumeRequestMessage, &item.PollIntervalSeconds,
 		&item.MaxThreadsPerCheckpoint, &item.Version, &item.UpdatedByUserID,
-		&item.CreatedAt, &item.UpdatedAt,
+		&item.CreatedAt, &item.UpdatedAt, &overrides,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PositionAutoReplyConfig{}, ErrNotFound
 	}
 	if err != nil {
 		return PositionAutoReplyConfig{}, err
+	}
+	if err = json.Unmarshal(overrides, &item.PhraseOverrides); err != nil {
+		return item, err
 	}
 	item.Conditions, err = s.listPositionReplyConditions(ctx, tenantID, positionID)
 	return item, err

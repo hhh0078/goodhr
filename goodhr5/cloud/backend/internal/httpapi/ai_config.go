@@ -92,9 +92,14 @@ func (s *AIConfigService) Test(w http.ResponseWriter, r *http.Request) {
 // requestAITest 请求用户填写的 AI 服务，并返回助手响应正文。
 // ctx 控制请求超时，config 为待验证的 AI 配置。
 func (s *AIConfigService) requestAITest(ctx context.Context, config aiConfigRequest) (string, error) {
+	return s.requestAIText(ctx, config, []AIMsg{{Role: "user", Content: "请只返回两个字：成功"}})
+}
+
+// requestAIText 复用已校验的用户接口、响应解析和超时控制，执行一次文字请求。
+func (s *AIConfigService) requestAIText(ctx context.Context, config aiConfigRequest, messages []AIMsg) (string, error) {
 	payload, err := json.Marshal(map[string]any{
 		"model":       strings.TrimSpace(config.Model),
-		"messages":    []map[string]string{{"role": "user", "content": "请只返回两个字：成功"}},
+		"messages":    messages,
 		"temperature": 0,
 		"stream":      false,
 	})

@@ -1,4 +1,4 @@
-// Package auto_reply 本文件把有效决策形成的推荐保存为本机持久待办，按当前账号恢复并在发布前复核来源版本。
+// Package auto_reply 本文件把有效决策形成的推荐保存为服务器待办，按当前账号恢复并在发布前复核来源版本。
 package auto_reply
 
 import (
@@ -32,7 +32,7 @@ func (r *AIResponder) QueueRecommendation(ctx context.Context, input ReplyContex
 	if !qualified {
 		return nil
 	}
-	hash, err := recommendationInputHash(source)
+	hash, err := recommendationInputHash(source, input.Position.Config.Prompts.Recommendation)
 	if err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func (r *AIResponder) processRecommendation(ctx context.Context, credentials clo
 		}
 		model = config.Model
 		billingCtx := shared.WithAIBilling(ctx, r.Logger, "", job.Position.Position.ID, job.Source.Candidate.Name, "AI 推荐报告")
-		report, err = r.AI.GenerateAutoReplyRecommendation(billingCtx, config, job.Source)
+		report, err = r.AI.GenerateAutoReplyRecommendation(billingCtx, config, job.Source, job.Position.Config.Prompts.Recommendation)
 		if err != nil {
 			return false, err
 		}
@@ -203,7 +203,7 @@ func (r *AIResponder) processRecommendation(ctx context.Context, credentials clo
 	return true, nil
 }
 
-// recommendationJobCurrent 检查本机最新证据与云端授权，任何旧快照都不能继续公开或生成推荐。
+// recommendationJobCurrent 复核服务器保存的最新沟通证据与当前岗位授权，任何旧快照都不能继续公开或生成推荐。
 func (r *AIResponder) recommendationJobCurrent(ctx context.Context, credentials cloud.AgentCredentials, job cloud.AutoReplyRecommendationJob) (bool, error) {
 	snapshot, err := r.Cloud.AutoReplySnapshot(ctx, credentials, job.Position.Position.ID)
 	if err != nil {
@@ -236,7 +236,7 @@ func (r *AIResponder) recommendationJobCurrent(ctx context.Context, credentials 
 	if !qualified {
 		return false, nil
 	}
-	hash, err := recommendationInputHash(source)
+	hash, err := recommendationInputHash(source, snapshot.Config.Prompts.Recommendation)
 	return err == nil && hash == job.InputHash, err
 }
 
@@ -272,7 +272,7 @@ func recommendationSource(input ReplyContext, items []cloud.CandidateConfirmatio
 }
 
 // recommendationInputHash 忽略模型对同一证据的解释措辞，防止资格没有变化却反复付费生成报告。
-func recommendationInputHash(source cloud.AutoReplyRecommendationReport) (string, error) {
+func recommendationInputHash(source cloud.AutoReplyRecommendationReport, prompt ...string) (string, error) {
 	source.Conditions = append([]cloud.AutoReplyReportCondition(nil), source.Conditions...)
 	for index := range source.Conditions {
 		source.Conditions[index].StatusReason = ""
@@ -280,6 +280,10 @@ func recommendationInputHash(source cloud.AutoReplyRecommendationReport) (string
 	encoded, err := json.Marshal(source)
 	if err != nil {
 		return "", err
+	}
+	if len(prompt) > 0 && prompt[0] != "" {
+		encoded = append(encoded, 0)
+		encoded = append(encoded, []byte(prompt[0])...)
 	}
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:]), nil

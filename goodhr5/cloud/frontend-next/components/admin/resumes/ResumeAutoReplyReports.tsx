@@ -9,7 +9,7 @@ import { normalizeRecommendation, type CandidateRecommendation } from "@/lib/rec
 import AdminDialog from "../AdminDialog";
 import RecommendationReportClient from "@/app/recommendations/[publicId]/RecommendationReportClient";
 
-/** ResumeAutoReplyReports 展示本地生成并获准同步的报告，允许复制公开链接或撤销分享。 */
+/** ResumeAutoReplyReports 展示服务器保存的历史报告，允许复制公开链接或撤销分享。 */
 export default function ResumeAutoReplyReports({ candidateID }: { candidateID: string }) {
   const { notify, confirm } = useAdmin();
   const [reports, setReports] = useState<CandidateRecommendation[]>([]);
@@ -54,11 +54,12 @@ export default function ResumeAutoReplyReports({ candidateID }: { candidateID: s
     finally { setRevoking(""); }
   }
   return <Flex vertical gap={12} aria-busy={loading}>
-    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>条件确认与 AI 处理留在本机；岗位里将“是否生成简历”选为“需要”后，这里展示已同步的推荐结果。详细运行过程可到运行日志查看。</Typography.Paragraph>
+    <Typography.Title level={5} style={{ margin: 0 }}>自动回复推荐报告</Typography.Title>
     {error ? <Alert type="warning" showIcon title={error} action={<Button onClick={() => void load()}>重试</Button>} /> : null}
-    {!loading && !reports.length && !error ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有同步的自动回复报告，先让本地小助手认真聊一聊。" /> : null}
+    {!loading && !reports.length && !error ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这份简历还没有自动回复推荐报告。" /> : null}
+    {reports.length > 0 && <Typography.Text type="secondary">报告保留生成时的资料；后续意向有变化，请以上方沟通目标为准。</Typography.Text>}
     {reports.map((item) => <section key={item.publicID} style={{ borderBottom: "1px solid var(--ant-color-border-secondary)", paddingBottom: 12 }}>
-      <Flex gap={8} wrap align="center"><Typography.Text strong>{item.report.position.name || "推荐岗位"}</Typography.Text><Tag>{item.shareEnabled ? "可分享" : "未公开"}</Tag><Typography.Text type="secondary">{formatDate(item.generatedAt)}</Typography.Text></Flex>
+      <Flex gap={8} wrap align="center"><Typography.Text strong>{item.report.position.name || "推荐岗位"}</Typography.Text><Tag>{item.shareEnabled ? "可分享" : "未公开"}</Tag><Tag>第 {item.version || 1} 版</Tag><Typography.Text type="secondary">{formatDate(item.generatedAt) === "--" ? "--" : new Date(item.generatedAt).toLocaleString("zh-CN", { hour12: false })}</Typography.Text></Flex>
       <Typography.Paragraph style={{ marginBlock: 8 }}>{item.report.executiveSummary || item.summary || "报告已生成，打开后查看详细结果。"}</Typography.Paragraph>
       <Flex gap={8} wrap>
         <Button icon={<ExportOutlined aria-hidden="true" />} onClick={() => setPreview(item)}>查看报告</Button>

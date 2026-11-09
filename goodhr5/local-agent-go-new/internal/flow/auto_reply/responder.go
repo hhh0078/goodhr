@@ -1,4 +1,4 @@
-// Package auto_reply 本文件实现自动回复 AI 工具循环、调用上限、参数修正和本地完整审计。
+// Package auto_reply 本文件实现自动回复 AI 工具循环、调用上限、参数修正和服务器审计记录。
 package auto_reply
 
 import (
@@ -27,7 +27,7 @@ const (
 	maxAutoReplyProtocolRepairs = 2
 )
 
-// AIResponder 组装 AI 客户端、本地审计和运行小窗日志。
+// AIResponder 组装 AI 客户端、服务器审计记录和运行进度。
 type AIResponder struct {
 	AI               *ai.Client
 	Cloud            *cloud.Client
@@ -47,10 +47,10 @@ type toolErrorResult struct {
 	Error       string `json:"error"`
 }
 
-// StructureResume 复用本地文件解析和简历AI能力，附件与完整响应均留在本机。
+// StructureResume 在服务器从已归档的附件提取正文，再调用 AI 整理简历。
 func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructureContext) (StructuredResume, error) {
 	if r == nil || r.Cloud == nil || r.AI == nil {
-		return StructuredResume{}, fmt.Errorf("自动回复本地简历处理器没有准备完整")
+		return StructuredResume{}, fmt.Errorf("简历整理暂时不可用，请稍后再试")
 	}
 	ids := make([]string, 0, len(input.Attachments))
 	for _, attachment := range input.Attachments {
@@ -72,10 +72,12 @@ func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructure
 	if input.Resume.OnlineResumeText != "" {
 		parts = append(parts, input.Resume.OnlineResumeText)
 	}
-	r.reportResume(input, "loading", "AI 正在本机整理候选人简历", false)
+	r.reportResume(input, "loading", "AI 正在整理候选人简历", nil)
 	text := strings.Join(parts, "\n\n")
 	billingCtx := shared.WithAIBilling(ctx, r.Logger, input.TaskID, input.Position.Position.ID, input.PageSnapshot.CandidateName, "AI 简历整理")
-	candidate, err := r.AI.ParseResume(billingCtx, input.AIConfig, text)
+	began := time.Now()
+	candidate, err := r.AI.ParseAutoReplyResume(billingCtx, input.AIConfig, text, input.Position.Config.Prompts.Resume)
+	elapsedMS := time.Since(began).Milliseconds()
 	if err != nil {
 		return StructuredResume{}, err
 	}
@@ -84,7 +86,7 @@ func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructure
 	}
 	birthYM, birthPrecision := explicitResumeBirthMonth(candidate.BirthYM, text)
 	candidate.BirthYM = birthYM
-	r.reportResume(input, "result", "候选人简历已经整理完成", true)
+	r.reportResume(input, "result", "简历字段已提取，正在保存", &elapsedMS)
 	return StructuredResume{Candidate: candidate.StructuredCandidate, Gender: candidate.Gender, BirthYMPrecision: birthPrecision, Wechat: candidate.Wechat, RawText: text}, nil
 }
 
@@ -169,9 +171,9 @@ func explicitResumeBirthMonth(value, source string) (string, string) {
 }
 
 // reportResume 把简历结构化请求状态同步到当前运行小窗。
-func (r *AIResponder) reportResume(input ResumeStructureContext, phase string, reason string, terminal bool) {
+func (r *AIResponder) reportResume(input ResumeStructureContext, phase string, reason string, elapsedMS *int64) {
 	shared.ReportAnalysis(r.Logger, input.TaskID, shared.AnalysisStatus{
-		Kind: "auto_reply", PositionID: input.Position.Position.ID, Phase: phase, Stage: "resume_ai", Terminal: terminal,
+		Kind: "auto_reply", PositionID: input.Position.Position.ID, Phase: phase, Stage: "resume_ai", DurationMS: elapsedMS,
 		CandidateName: input.PageSnapshot.CandidateName, Reason: reason,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	})
@@ -284,7 +286,7 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 			return r.completeRun(input, run, assistantMessages, totalTokens, decision)
 		}
 		if state.manualReason != "" {
-			decision := ReplyDecision{ManualReason: state.manualReason, ReasonKey: state.manualKey, ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions}
+			decision := ReplyDecision{HandoffQuestions: state.handoffQuestions, KnownAnswer: state.knownAnswer, ManualReason: state.manualReason, ReasonKey: state.manualKey, ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions}
 			return r.completeRun(input, run, assistantMessages, totalTokens, decision)
 		}
 	}
@@ -292,18 +294,21 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 
 // executeAuditedTool 先保存工具开始记录，再执行并保存强类型结果或错误。
 func (r *AIResponder) executeAuditedTool(ctx context.Context, input ReplyContext, run cloud.AutoReplyAIRun, state *toolExecutionState, call ai.ToolCall, sequence int) (json.RawMessage, error) {
+	now := time.Now().UTC()
 	arguments := validAuditArguments(call.Function.Arguments)
 	toolName := firstNonEmpty(call.Function.Name, "unknown")
 	started := cloud.AutoReplyToolCall{
 		AIRunID: run.ID, ToolCallID: call.ID, SequenceNo: sequence,
 		ToolName: toolName, ArgumentsJSON: arguments,
-		ResultJSON: json.RawMessage(`{}`), Status: "running",
+		ResultJSON: json.RawMessage(`{}`), Status: "running", StartedAt: now, CreatedAt: now,
 	}
 	if _, err := r.Cloud.SaveAutoReplyToolCall(ctx, input.Credentials, started); err != nil {
 		return nil, fmt.Errorf("保存 AI 工具开始记录失败：%w", err)
 	}
 	result, executeErr := state.execute(ctx, call)
 	finished := started
+	completedAt := time.Now().UTC()
+	finished.CompletedAt = &completedAt
 	finished.Status = "completed"
 	finished.ResultJSON = result
 	if executeErr != nil {
@@ -373,7 +378,7 @@ func (r *AIResponder) failRun(input ReplyContext, run cloud.AutoReplyAIRun, assi
 	return cause
 }
 
-// report 把当前 AI 轮次、工具和结果同步给本地运行小窗。
+// report 记录当前 AI 轮次、工具和结果，供运行进度展示。
 func (r *AIResponder) report(input ReplyContext, phase string, stage string, reason string, terminal bool) {
 	shared.ReportAnalysis(r.Logger, input.TaskID, shared.AnalysisStatus{
 		Kind: "auto_reply", PositionID: input.Position.Position.ID, Phase: phase, Stage: stage, Terminal: terminal,

@@ -14,7 +14,16 @@ export function emptyPositionAutoReplyConfig(positionID: string) {
     max_threads_per_checkpoint: 3,
     version: 0,
     conditions: [],
+    default_phrases: [],
+    phrase_overrides: [],
+    condition_options: [],
+    phrases_version: "",
   };
+}
+
+/** conditionContentKey 用相同规则识别旧岗位条件、常用选项和新生成建议。 */
+export function conditionContentKey(content: string) {
+  return content.toLocaleLowerCase("zh-CN").replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
 /** duplicateConditionContent 返回忽略空白和标点后的第一条重复条件。 */
@@ -25,9 +34,7 @@ export function duplicateConditionContent(
   for (const condition of conditions) {
     const content = condition.content.trim();
     if (!content) continue;
-    const key = content
-      .toLocaleLowerCase("zh-CN")
-      .replace(/[\s\p{P}\p{S}]+/gu, "");
+    const key = conditionContentKey(content);
     if (seen.has(key)) return content;
     seen.add(key);
   }

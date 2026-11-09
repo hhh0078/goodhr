@@ -75,6 +75,7 @@ type CandidateProfileInput struct {
 	ReopenProof           *candidateReopenProof // 仅经认证的自动回复写入入口可设置新消息和附件摘要。
 	ReopenPlatformAccount string                // 本次真实招聘账号绑定标记，用于限制代次收据重放。
 	ReopenIsAdmin         bool                  // 经服务端验证的团队管理权限，供删除事件授权校验。
+	ReopenServerWitness   bool                  // 仅持服务凭证的云编排可引用已入库的平台命令收据核对旧删除代次。
 	AutoReplyPositionID   string                // 云端核实过的自动回复岗位，用于建立本次沟通与结构化简历的关联。
 	// Tags 仅保存平台或AI提供的原始简历技能标签，不参与收藏夹创建和关联。
 	Tags                []string

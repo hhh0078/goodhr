@@ -29,7 +29,7 @@ func (c *Client) BeginAutoReplyCapture(ctx context.Context, credentials AgentCre
 		if err != nil {
 			return err
 		}
-		if boundary != nil && (len(items) == 0 || items[0].DeletionBoundary == nil || items[0].DeletionBoundary.Sequence != boundary.Sequence) {
+		if boundary != nil && (len(items) == 0 || items[0].DeletionBoundary == nil || items[0].DeletionBoundary.Sequence != boundary.Sequence || !items[0].DeletionBoundary.HistoryCutoff().Equal(boundary.HistoryCutoff())) {
 			return storage.ErrAutoReplyCandidateDeleted
 		}
 		now := time.Now().UTC()

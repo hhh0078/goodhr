@@ -23,6 +23,20 @@ type attachmentCompletionBrowser struct {
 	downloaded       bool
 }
 
+// TestResumeRequestMissingDoesNotWaitForClick 验证已打开同人聊天但没有索要入口时，明确返回文本备用信号且不尝试点击。
+func TestResumeRequestMissingDoesNotWaitForClick(t *testing.T) {
+	b := &liepinReplyBrowserStub{conversationOpen: true}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"message.current_name":     testLiepinSelector("测试当前候选人"),
+		"message.current_position": testLiepinSelector("测试当前岗位"),
+		"candidate.request_resume": testLiepinSelector("测试索要简历"),
+	}}
+	err := (&Runtime{}).RequestAutoReplyResume(context.Background(), b, cfg, model.AutoReplyConversationSnapshot{CandidateName: "邓云川", CommunicationPosition: "测试岗位"})
+	if !errors.Is(err, model.ErrAutoReplyResumeRequestUnavailable) || len(b.clicks) != 0 {
+		t.Fatalf("缺少入口仍等待点击或丢失备用信号：clicks=%v err=%v", b.clicks, err)
+	}
+}
+
 // Read 模拟附件正文不可读，以及附件下载后的最终身份核对失败。
 func (b *attachmentCompletionBrowser) Read(ctx context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
 	if request.Selector.Description == "测试附件正文" {

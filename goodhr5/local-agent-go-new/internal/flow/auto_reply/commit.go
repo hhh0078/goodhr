@@ -4,6 +4,7 @@ package auto_reply
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -37,6 +38,10 @@ func canAcknowledgeResumeCard(input ReplyContext) bool {
 				return false
 			}
 		}
+	}
+	// 新版所有纯卡统一读岗位签收配置，首条简历也不触发模型或恢复已删除的话术。
+	if input.Position.Config.PhrasesVersion != "" {
+		return true
 	}
 	for _, item := range input.ConfirmationItems {
 		if item.Status == "matched" || item.Status == "unmatched" {
@@ -77,7 +82,7 @@ func (f *Flow) verifyCurrentReplyConfiguration(ctx context.Context, prepared sha
 			return fmt.Errorf("公司资料已修改，本轮先放下旧答案，下一轮重新看")
 		}
 	}
-	if current.Config.Version != expected.Config.Version {
+	if current.Config.Version != expected.Config.Version || current.Config.PhrasesVersion != expected.Config.PhrasesVersion || current.Config.Prompts != expected.Config.Prompts {
 		return fmt.Errorf("岗位回复资料已修改，本轮先放下旧答案，下一轮重新看")
 	}
 	return nil
@@ -103,8 +108,16 @@ func (f *Flow) completeReplyBatch(ctx context.Context, prepared shared.PreparedT
 }
 
 // requestResumeAfterAnswer 在本轮只有一条答案时补充首次简历索要，等待简历不再阻断以后的问答。
-func (f *Flow) requestResumeAfterAnswer(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, position cloud.AutoReplyPositionSnapshot, conversation *cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, state cloud.AutoReplyCandidateState, messageKey, previousContent string) error {
+func (f *Flow) requestResumeAfterAnswer(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, position cloud.AutoReplyPositionSnapshot, conversation *cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, state cloud.AutoReplyCandidateState, messageKey, previousContent string, alreadyRequested bool) error {
+	message := fixedReplyPhrase(position.Config, "request_resume")
 	if state.HasResumeAttachment || snapshot.ResumeCardAvailable || conversation.Status == "waiting_resume" {
+		return nil
+	}
+	if alreadyRequested {
+		// 已送达正文已经索要，只记等待状态，不再点卡片或发送第二份索要话术。
+		return f.saveResumeConversationStatus(ctx, prepared, conversation, "waiting_resume")
+	}
+	if message == "" {
 		return nil
 	}
 	if err := f.verifyCurrentReplyConfiguration(ctx, prepared, position); err != nil {
@@ -118,8 +131,15 @@ func (f *Flow) requestResumeAfterAnswer(ctx context.Context, prepared shared.Pre
 	if err = f.saveResumeConversationStatus(ctx, prepared, conversation, "waiting_resume"); err != nil {
 		return err
 	}
+	// 主答案已确认送达，先提交这一批水位；可选索要卡断线不能让同一问题再次调用 AI。
+	if err = f.Cloud.CompleteAutoReplyMessage(ctx, credentials(prepared), conversation.ID, messageKey, "sent"); err != nil {
+		return err
+	}
 	if err = runtime.RequestAutoReplyResume(ctx, f.Browser, prepared.Platform, snapshot); err != nil {
-		return fmt.Errorf("索要简历结果暂时不确定，请在招聘页面确认：%w", err)
+		if !errors.Is(err, model.ErrAutoReplyResumeRequestUnavailable) {
+			return fmt.Errorf("索要简历结果暂时不确定，请在招聘页面确认：%w", err)
+		}
+		f.log(prepared.Request.TaskID, "resume_request_text_fallback", "warning", time.Now(), nil)
 	}
 	ready, lastKey, err := f.latestMessageAllowsFollowup(ctx, runtime, prepared, snapshot, previousContent)
 	if err != nil || !ready {
@@ -129,7 +149,7 @@ func (f *Flow) requestResumeAfterAnswer(ctx context.Context, prepared shared.Pre
 		return err
 	}
 	snapshot.ExpectedSendMessageKey = lastKey
-	message := firstNonEmpty(position.Config.ResumeRequestMessage, "方便发一份简历吗？我再认真看看。")
+
 	_, err = f.sendVerifiedMessage(ctx, prepared, runtime, *conversation, snapshot, messageKey, message, false, 2)
 	return err
 }

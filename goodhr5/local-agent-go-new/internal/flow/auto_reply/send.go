@@ -87,7 +87,10 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 	if len(sequence) > 0 {
 		messageSequence = sequence[0]
 	}
-	if prepared.Platform.Behavior.AutoReplySendEnterFirst {
+	remote, remoteSend := runtime.(interface {
+		SendAutoReplyWithReceipt(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot, string) (model.ConversationMessage, error)
+	})
+	if !remoteSend && prepared.Platform.Behavior.AutoReplySendEnterFirst {
 		page, err := common.UniqueCurrentPageURL(ctx, f.Browser)
 		if err != nil {
 			return false, err
@@ -107,7 +110,13 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 	if verifyCandidateBefore {
 		snapshot.ExpectedSendMessageKey = basedOnMessageKey
 	}
-	if err = runtime.SendAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot, message); err != nil {
+	var latest model.ConversationMessage
+	if remoteSend {
+		latest, err = remote.SendAutoReplyWithReceipt(ctx, nil, prepared.Platform, snapshot, message)
+	} else {
+		err = runtime.SendAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot, message)
+	}
+	if err != nil {
 		if errors.Is(err, model.ErrAutoReplySupersededBeforeSend) {
 			if releaseErr := f.Cloud.ReleaseUnsentAutoReply(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, message); releaseErr != nil {
 				return false, releaseErr
@@ -117,17 +126,16 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 		_ = f.Cloud.FinishAutoReplySend(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, "unknown")
 		return false, fmt.Errorf("%w：%v", errAutoReplySendNeedsReview, err)
 	}
-	var latest model.ConversationMessage
-	if snapshot.DeliveryPageURL != "" {
+	if !remoteSend && snapshot.DeliveryPageURL != "" {
 		latest, err = f.confirmOpenReplyDelivery(ctx, prepared, runtime, snapshot, message)
-	} else {
+	} else if !remoteSend {
 		latest, err = runtime.ReadLatestAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot)
 	}
 	if err != nil || !strings.EqualFold(strings.TrimSpace(latest.Direction), "self") || strings.TrimSpace(latest.TextContent) != message {
 		_ = f.Cloud.FinishAutoReplySend(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, "unknown")
 		return false, errors.Join(errAutoReplySendNeedsReview, err)
 	}
-	if err = f.Cloud.FinishAutoReplySend(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, "sent"); err != nil {
+	if err = f.Cloud.FinishAutoReplySend(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, "sent", firstNonEmpty(latest.PlatformMessageID, latest.Key)); err != nil {
 		return false, fmt.Errorf("%w：保存发送结果失败", errAutoReplySendNeedsReview)
 	}
 	messages, _, err := convertMessages([]model.ConversationMessage{latest})

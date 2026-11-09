@@ -342,3 +342,80 @@ func TestStandaloneResumeReceiptKeepsResumeReview(t *testing.T) {
 	}
 
 }
+
+// publicationProgress 收集每个简历阶段，验证界面不会把已解析误报成已正式发布。
+type publicationProgress struct{ states []shared.AnalysisStatus }
+
+// Step 在合成流程中跳过额外设备日志。
+func (p *publicationProgress) Step(string, string, string, string, time.Time, error) {}
+
+// ReportAnalysis 记录每一次实际阶段和说明。
+func (p *publicationProgress) ReportAnalysis(_ string, s shared.AnalysisStatus) {
+	p.states = append(p.states, s)
+}
+
+// AnalysisStatus 返回最新阶段供旧检查点统计使用。
+func (p *publicationProgress) AnalysisStatus(string) *shared.AnalysisStatus {
+	if len(p.states) == 0 {
+		return nil
+	}
+	return &p.states[len(p.states)-1]
+}
+
+// ResetAnalysis 清空本次合成会话的界面状态。
+func (p *publicationProgress) ResetAnalysis(string) { p.states = nil }
+
+// TestPublicationConflictReusesStructuredAttachment 使用实际发布 HTTP 拒绝、保存事务和第二次会话读取证明不重复下载和 AI 解析。
+func TestPublicationConflictReusesStructuredAttachment(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auto-reply/agent/candidates" {
+			t.Errorf("意外云请求 %s", r.URL.Path)
+		}
+		attempts++
+		w.WriteHeader(409)
+		_, _ = w.Write([]byte(`{"code":"CANDIDATE_REOPEN_PROOF_CONFLICT"}`))
+	}))
+	defer server.Close()
+	ctx := context.Background()
+	f, p := newReliabilityFlow(t, server.URL)
+	progress := &publicationProgress{}
+	f.Logger = progress
+	f.serverAnswers = map[string][]cloud.AutoReplyAnswer{}
+	responder := &resumeRetryResponder{}
+	f.Responder = responder
+	cred := credentials(p)
+	q := cloud.AutoReplyCandidateLookup{PlatformID: p.Platform.ID, PlatformAccountID: p.Request.PlatformAccountID, PlatformThreadID: "fixture-thread", PlatformCandidateID: "person"}
+	conv, e := f.Cloud.SaveAutoReplyConversation(ctx, cred, cloud.AutoReplyConversation{PositionID: "p", PlatformID: q.PlatformID, PlatformAccountID: q.PlatformAccountID, PlatformThreadID: q.PlatformThreadID, CandidateName: "合成人选"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	const source = "source"
+	_, e = f.Cloud.SyncAutoReplyMessages(ctx, cred, cloud.AutoReplyMessageSyncRequest{ConversationID: conv.ID, Messages: []cloud.AutoReplyMessage{{PlatformMessageID: source, Direction: "candidate", MessageType: "resume"}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	path := filepath.Join(t.TempDir(), "test.txt")
+	if e = os.WriteFile(path, []byte("五年教学经验"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	rt := &autoReplyRuntimeStub{resumeBundle: model.AutoReplyResumeBundle{CandidateName: "合成人选", AttachmentPaths: []string{path}, ResumeSourceMessageID: source}}
+	page := model.AutoReplyConversationSnapshot{CandidateName: "合成人选", PlatformThreadID: q.PlatformThreadID, PlatformCandidateID: q.PlatformCandidateID, PlatformAccountID: q.PlatformAccountID, ResumeSourceMessageID: source, ResumeCardAvailable: true, Messages: []model.ConversationMessage{{PlatformMessageID: source, Direction: "candidate", MessageType: "resume"}}}
+	pos := cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "p", OutputStructuredResume: true}}
+	for i := 0; i < 2; i++ {
+		state, e := f.Cloud.AutoReplyCandidateState(ctx, cred, q)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, _, e = f.ensureResume(ctx, p, rt, pos, &conv, page, state, source, &shared.Stats{}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if attempts != 1 || responder.structures != 1 || rt.resumeCollects != 1 {
+		t.Fatalf("重试重复触发了操作 upload=%d parse=%d download=%d", attempts, responder.structures, rt.resumeCollects)
+	}
+	last := progress.AnalysisStatus("")
+	if last == nil || last.Stage != "resume_publish_pending" || last.Phase != "error" || !strings.Contains(last.Reason, "尚未确认发布") {
+		t.Fatalf("真实上传失败仍显示成功 %+v", last)
+	}
+}

@@ -58,7 +58,7 @@ func (s *AutoReplyService) agentSendNotification(w http.ResponseWriter, r *http.
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "duplicate": true, "email_sent": existingStatus == "sent", "warning": warning})
 		return
 	}
-	plain := strings.Join([]string{"我小声提醒一下，这位候选人需要你接手。", "岗位：" + position.Name, "候选人：" + item.CandidateName, "原因：" + item.Reason, "详细消息保存在本机，其他候选人照常处理。"}, "\n")
+	plain := strings.Join([]string{"我小声提醒一下，这位候选人需要你接手。", "岗位：" + position.Name, "候选人：" + item.CandidateName, "原因：" + item.Reason, "可以在岗位待确认问题或简历详情里查看沟通记录。"}, "\n")
 	status := "failed"
 	if s.mailer != nil {
 		err = s.mailer.SendCustomHTML(requestContext.Session.Email, "GoodHR 自动回复需要接手："+position.Name, "<p>"+strings.ReplaceAll(html.EscapeString(plain), "\n", "<br>")+"</p>", plain)
@@ -103,7 +103,7 @@ func autoReplyNoticeDedupeKey(positionID string, item autoReplyNoticeRequest) st
 // validateAutoReplyNotice 限制通知摘要长度，明确拒绝上传候选人的最新消息正文。
 func validateAutoReplyNotice(item autoReplyNoticeRequest) error {
 	if item.LatestMessage != "" {
-		return newAutoReplyValidationError("候选人消息请留在本机，提醒只需一小段原因")
+		return newAutoReplyValidationError("提醒只需一小段原因，原话可以从沟通记录查看")
 	}
 	if strings.TrimSpace(item.BasedOnMessageKey) == "" || strings.TrimSpace(item.ReasonKey) == "" || strings.TrimSpace(item.Reason) == "" {
 		return newAutoReplyValidationError("提醒还缺少原因或去重标识")

@@ -23,6 +23,8 @@ var (
 	ErrAutoReplyConversationNotOpen = errors.New("当前聊天暂未打开")
 	// ErrAutoReplySupersededBeforeSend 表示已核实新来信到达且还没触发任何可能的发送。
 	ErrAutoReplySupersededBeforeSend = errors.New("候选人又发来了消息，上一条回复已放下")
+	// ErrAutoReplyResumeRequestUnavailable 仅表示发送前已确认平台索要入口不可用，可以改用文本索要。
+	ErrAutoReplyResumeRequestUnavailable = errors.New("当前平台简历索要入口不可用，尚未触发发送")
 )
 
 // Browser 定义平台适配层可以调用的 Worker 封装能力。
@@ -159,8 +161,8 @@ type DetailBrowser interface {
 
 // Conversation 表示未读会话摘要。
 type Conversation struct {
-	ReplyAfter            time.Time         `json:"-"` // 首次采集时历史可读，但开始监听以前的消息不触发答复。
-	WitnessDigest         string            `json:"-"` // 已观察到变化的可见摘要，用于核对同分钟的新消息。
+	ReplyAfter            time.Time         `json:"reply_after,omitempty"`    // 首次采集时历史可读，但开始监听以前的消息不触发答复。
+	WitnessDigest         string            `json:"witness_digest,omitempty"` // 已观察到变化的可见摘要，用于核对同分钟的新消息。
 	Index                 int               `json:"index"`
 	Key                   string            `json:"key"`
 	Name                  string            `json:"name"`
@@ -188,9 +190,9 @@ type ConversationMessage struct {
 
 // AutoReplyConversationSnapshot 表示打开会话后一次性读取的身份、岗位、消息和简历卡片状态。
 type AutoReplyConversationSnapshot struct {
-	DeliveryPageURL        string                `json:"-"` // 仅在单条发送调用内保存原页，确认送达时只允许读取这个页面的当前聊天尾部。
-	ExpectedSendMessageKey string                `json:"-"` // 输入期间核对触发本次发送的候选人来信。
-	HistoryAfter           *time.Time            `json:"-"` // 重新联系时只接受可信删除时间之后的消息，普通会话留空。
+	DeliveryPageURL        string                `json:"delivery_page_url,omitempty"`         // 仅在单条发送调用内保存原页，确认送达时只允许读取这个页面的当前聊天尾部。
+	ExpectedSendMessageKey string                `json:"expected_send_message_key,omitempty"` // 输入期间核对触发本次发送的候选人来信。
+	HistoryAfter           *time.Time            `json:"history_after,omitempty"`             // 重新联系时只接受可信删除时间之后的消息，普通会话留空。
 	Conversation           Conversation          `json:"conversation"`
 	CandidateName          string                `json:"candidate_name"`
 	AvatarURL              string                `json:"avatar_url"`

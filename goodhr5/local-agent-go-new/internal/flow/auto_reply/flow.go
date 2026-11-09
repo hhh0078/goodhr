@@ -39,6 +39,7 @@ type ResumeStructurer interface {
 
 // ReplyContext 表示一次自动回复决策已经完成同步和身份校验的全部上下文。
 type ReplyContext struct {
+	KnownQuestions    []knownRecruitmentQuestion
 	TaskID            string
 	Credentials       cloud.AgentCredentials
 	AIConfig          cloud.AIConfig
@@ -52,6 +53,7 @@ type ReplyContext struct {
 	PageSnapshot      model.AutoReplyConversationSnapshot
 	Resume            *model.AutoReplyResumeBundle
 	BasedOnMessageKey string
+	PhoneContact      phoneContactState
 	ConditionsOnly    bool // 简历待办恢复只复核内部条件，禁止生成或发送历史回复。
 }
 
@@ -82,11 +84,14 @@ type ReplyMessage struct {
 	Type               string `json:"type"`
 	Content            string `json:"content"`
 	ConfirmationItemID string `json:"confirmation_item_id,omitempty"`
+	RequestsResume     bool   `json:"requests_resume,omitempty"` // 这条已准备的正文是否明确索要简历，避免答案后重复索要。
 }
 
 // ReplyDecision 表示 AI 工具循环最终决定发送最多两条消息或转人工。
 type ReplyDecision struct {
+	HandoffQuestions    []handoffQuestion                 `json:"handoff_questions,omitempty"`
 	Messages            []ReplyMessage                    `json:"messages"`
+	KnownAnswer         string                            `json:"known_answer,omitempty"`
 	ManualReason        string                            `json:"manual_reason,omitempty"`
 	ReasonKey           string                            `json:"reason_key,omitempty"`
 	ConfirmationUpdates []cloud.CandidateConfirmationItem `json:"confirmation_updates,omitempty"`
@@ -95,6 +100,7 @@ type ReplyDecision struct {
 
 // Flow 组装自动回复主流程依赖。
 type Flow struct {
+	serverAnswers       map[string][]cloud.AutoReplyAnswer
 	Browser             Browser
 	Store               *storage.Store
 	Cloud               *cloud.Client
@@ -114,24 +120,12 @@ type flowStep struct {
 // Run 按平铺步骤复用浏览器、确认当前平台、初始化页面并持续处理未读会话。
 func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime) (shared.Stats, error) {
 	stats := shared.Stats{}
-	if strings.TrimSpace(prepared.Request.PlatformAccountID) == "" {
-		return stats, fmt.Errorf("开始前请确认当前招聘账号")
-	}
-	target, err := shared.ResolveAutoReplyTarget("auto_reply", prepared.Request.AutoReplyTarget)
+	replyRuntime, err := prepareReplyRuntime(&prepared, runtime, false)
 	if err != nil {
 		return stats, err
 	}
-	prepared.Request.AutoReplyTarget = target
 	if binder, ok := f.Logger.(interface{ SetTaskPosition(string, string) }); ok {
 		defer binder.SetTaskPosition(prepared.Request.TaskID, "")
-	}
-	replyRuntime, ok := runtime.(model.AutoReplyRuntime)
-	if !ok {
-		return stats, fmt.Errorf("%s 自动回复页面能力还没有准备完整", prepared.Platform.Name)
-	}
-	replyRuntime, err = restrictAutoReplyRuntime(replyRuntime, prepared.Request.AutoReplyTarget)
-	if err != nil {
-		return stats, err
 	}
 	if err := f.validateDependencies(); err != nil {
 		return stats, err
@@ -171,7 +165,7 @@ func (f *Flow) validateDependencies() error {
 		return fmt.Errorf("自动回复运行组件没有准备完整")
 	}
 	if !f.Cloud.LocalAutoReplyEnabled() {
-		return fmt.Errorf("本地自动回复存储还没准备好")
+		return fmt.Errorf("自动回复存储还没准备好")
 	}
 	if f.Responder == nil {
 		return fmt.Errorf("自动回复 AI 处理器没有准备完整")
@@ -213,4 +207,53 @@ func (f *Flow) log(taskID string, step string, status string, startedAt time.Tim
 	if f.Logger != nil {
 		f.Logger.Step(taskID, "auto_reply", step, status, startedAt, err)
 	}
+}
+
+// RunServer 在服务器执行完整自动回复循环，设备端初始化已绑定的浏览器及平台页面。
+func (f *Flow) RunServer(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime) (stats shared.Stats, err error) {
+	if f.Store == nil || f.Cloud == nil || f.Responder == nil || !f.Cloud.LocalAutoReplyEnabled() {
+		return stats, fmt.Errorf("服务器自动回复组件没有准备好")
+	}
+	adapter, err := prepareReplyRuntime(&prepared, runtime, true)
+	if err != nil {
+		return stats, err
+	}
+	if err = adapter.InitializeAutoReplyPage(ctx, nil, prepared.Platform, nil); err != nil {
+		return stats, err
+	}
+	f.serverAnswers = map[string][]cloud.AutoReplyAnswer{}
+	err = f.runLoop(ctx, prepared, runtime, adapter, &stats)
+	return stats, err
+}
+
+// prepareReplyRuntime 统一两种入口的账号、平台能力与单候选限制，远程执行另保留经核实的出站回执。
+func prepareReplyRuntime(prepared *shared.PreparedTask, runtime model.Runtime, server bool) (model.AutoReplyRuntime, error) {
+	if strings.TrimSpace(prepared.Request.PlatformAccountID) == "" {
+		return nil, fmt.Errorf("开始前请确认当前招聘账号")
+	}
+	target, err := shared.ResolveAutoReplyTarget("auto_reply", prepared.Request.AutoReplyTarget)
+	if err != nil {
+		return nil, err
+	}
+	prepared.Request.AutoReplyTarget = target
+	adapter, ok := runtime.(model.AutoReplyRuntime)
+	if !ok {
+		return nil, fmt.Errorf("%s 自动回复页面能力还没有准备完整", prepared.Platform.Name)
+	}
+	guarded, err := restrictAutoReplyRuntime(adapter, target)
+	if err != nil {
+		return nil, err
+	}
+	if !server || target == nil {
+		return guarded, nil
+	}
+	typed, ok := guarded.(*targetedAutoReplyRuntime)
+	remote, capable := adapter.(interface {
+		SendAutoReplyWithReceipt(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot, string) (model.ConversationMessage, error)
+		ReadAutoReplyAvatar(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot) ([]byte, error)
+	})
+	if !ok || !capable {
+		return nil, fmt.Errorf("指定人选的云任务需要完整的身份复核和发送回执")
+	}
+	return &targetedServerPlatform{targetedAutoReplyRuntime: typed, remote: remote}, nil
 }

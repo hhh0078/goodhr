@@ -77,7 +77,7 @@ func seedBlockedAutoReplyReport(t *testing.T, s *Server, token string) cloud.Age
 }
 
 // TestAutoReplyRetryReportsIsAccountScoped 验证状态数量、当前账号人工重试，以及已确认发送记录均保持隔离。
-func TestAutoReplyRetryReportsIsAccountScoped(t *testing.T) {
+func TestLegacyAutoReplyRetryReportsIsAccountScoped(t *testing.T) {
 	s := newAutoReplyRetryServer(t, nil)
 	ctx := context.Background()
 	first := seedBlockedAutoReplyReport(t, s, "account-a")
@@ -109,7 +109,8 @@ func TestAutoReplyRetryReportsIsAccountScoped(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &status); err != nil || w.Code != http.StatusOK || status.Data.Status != "stopped" || status.Data.Blocked != 1 || status.Data.Resumes != 1 {
 		t.Fatalf("状态未返回当前账号待处理数量：%d %s %v", w.Code, w.Body.String(), err)
 	}
-	w = extensionPairTestRequest(s, "/api/v1/local/auto-reply/retry-reports", agentBindRequest{Token: "account-a"})
+	w = httptest.NewRecorder()
+	s.handleLocalAutoReplyRetryReports(w, httptest.NewRequest(http.MethodPost, "/api/v1/local/auto-reply/retry-reports", strings.NewReader(`{"token":"account-a"}`)))
 	var result struct {
 		Data struct {
 			Count   int `json:"retried_count"`

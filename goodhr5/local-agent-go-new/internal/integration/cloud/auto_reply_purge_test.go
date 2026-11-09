@@ -211,6 +211,12 @@ func TestPurgeLateCloudReceipt(t *testing.T) {
 				if err := tx.Put("candidates", local, AutoReplyStoredCandidate{ID: local}); err != nil {
 					return err
 				}
+				if gone {
+					// 此时云端编号已建立精确映射；先到的独立删除事件可以确定本地归属。
+					if err := tx.Put("cloud_links", "candidate:"+local, localCloudLink{Value: "cloud-late"}); err != nil {
+						return err
+					}
+				}
 				return tx.Put("outbox", "in-flight", autoReplyOutboxItem{ID: "in-flight", Kind: "candidate", Status: "pending", Payload: payload})
 			}); err != nil {
 				t.Fatal(err)
@@ -329,5 +335,62 @@ func TestPurgeSkipsSymlinkTarget(t *testing.T) {
 	}
 	if got, err := os.ReadFile(filepath.Join(outside, name)); err != nil || string(got) != string(data) {
 		t.Fatal("外部文件被修改")
+	}
+}
+
+// serverPurgeFixture 只保存测试事务版本，让临时投影复用真实的 PG 回收意图结构。
+type serverPurgeFixture struct {
+	snapshot storage.AutoReplyStateSnapshot
+}
+
+// Load 返回上次提交的数据，已加载版本的读取只返回命中信号。
+func (f *serverPurgeFixture) Load(_ context.Context, version *int64) (storage.AutoReplyStateSnapshot, bool, error) {
+	return f.snapshot, version != nil && *version == f.snapshot.Version, nil
+}
+
+// Commit 保存测试回收意图；若临时投影擅自删除，调用方能从版本和文件状态发现。
+func (f *serverPurgeFixture) Commit(_ context.Context, expected int64, changes []storage.AutoReplyStateChange) (int64, error) {
+	if expected != f.snapshot.Version {
+		return 0, errors.New("版本冲突")
+	}
+	f.snapshot.Version++
+	f.snapshot.Entities = append(f.snapshot.Entities, changes...)
+	return f.snapshot.Version, nil
+}
+
+// TestServerPurgeDelegatesToPGLockedCollector 验证即使共享卷可写，服务器投影也不直接删除文件或提前确认回收意图。
+func TestServerPurgeDelegatesToPGLockedCollector(t *testing.T) {
+	authority := &serverPurgeFixture{}
+	db, err := storage.OpenAutoReplyScratch(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cred := AgentCredentials{Token: "test-token", MachineID: "device"}
+	c := New("http://127.0.0.1")
+	c.localAutoOwners.Store(autoReplyDigest(cred.Token), "server-user")
+	root := t.TempDir()
+	c.EnableLocalAutoReply(db, root)
+	data := []byte("synthetic")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	relative := filepath.Join(autoReplyDigest(c.localAutoReplyKey(cred)), "attachments", digest+".pdf")
+	path := filepath.Join(root, relative)
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err = c.autoReplyTransaction(ctx, cred, func(tx *storage.AutoReplyTx) error { return tx.QueuePurgedAttachment("test-event", relative, digest) }); err != nil {
+		t.Fatal(err)
+	}
+	v := authority.snapshot.Version
+	if err = c.cleanPurgedEventFiles(ctx, cred, "test-event"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(path); err != nil || authority.snapshot.Version != v {
+		t.Fatal("投影擅自回收了共享卷或确认了待办", err)
 	}
 }

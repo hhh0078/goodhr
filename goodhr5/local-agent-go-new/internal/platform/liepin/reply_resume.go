@@ -32,6 +32,13 @@ func (r *Runtime) RequestAutoReplyResume(ctx context.Context, browser model.Brow
 	if _, _, err := waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName, snapshot.CommunicationPosition); err != nil {
 		return err
 	}
+	available, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.request_resume")
+	if err != nil {
+		return err
+	}
+	if !available {
+		return model.ErrAutoReplyResumeRequestUnavailable
+	}
 	return common.RequestCandidateInfo(ctx, browser, cfg, model.CandidateInfoRequest{RequestResume: true})
 }
 

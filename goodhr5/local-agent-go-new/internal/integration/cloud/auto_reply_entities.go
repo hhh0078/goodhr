@@ -54,7 +54,7 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 		return true, err
 	}
 	route := strings.TrimPrefix(parsed.Path, autoReplyAgentBasePath)
-	if !strings.HasPrefix(parsed.Path, autoReplyAgentBasePath+"/") || strings.HasPrefix(route, "/positions") || route == "/recommendations/completed" {
+	if !strings.HasPrefix(parsed.Path, autoReplyAgentBasePath+"/") || strings.HasPrefix(route, "/positions") || strings.HasPrefix(route, "/questions/") || route == "/recommendations/completed" {
 		return false, nil
 	}
 	encoded, err := json.Marshal(payload)

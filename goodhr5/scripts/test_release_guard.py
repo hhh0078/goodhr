@@ -15,7 +15,7 @@ guard = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(guard)
 BACKEND_RUNTIME = "sha256:" + "a" * 64
 FRONTEND_RUNTIME = "sha256:" + "b" * 64
-POLICY = {"backend": {BACKEND_RUNTIME}, "frontend": {FRONTEND_RUNTIME}}
+POLICY = {"backend": {BACKEND_RUNTIME}, "frontend": {FRONTEND_RUNTIME}, "auto-reply": set()}
 
 
 def image_id(character):
@@ -82,6 +82,15 @@ class DockerfileTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(guard.GuardError):
                 guard.check_dockerfile(text, "backend", POLICY)
 
+    def test_auto_reply_bases_are_role_specific(self):
+        """自动回复只用专属构建与运行基础，旧前后端角色继续拒绝这些基础。"""
+        for kind in ("backend", "frontend"):
+            with self.subTest(kind=kind), self.assertRaises(guard.GuardError):
+                guard.check_dockerfile("FROM golang:1.25-bookworm AS build\nFROM debian:bookworm-slim", kind, POLICY)
+        for base in ("golang:1.25-bookworm", "alpine:3.22", "debian:latest", BACKEND_RUNTIME, "goodhr-production-auto-reply:old"):
+            with self.subTest(base=base), self.assertRaises(guard.GuardError):
+                guard.check_dockerfile("FROM " + base, "auto-reply", POLICY)
+
     def test_unsupported_or_malformed_syntax_fails_closed(self):
         """不完整续行、自定义转义、heredoc与重复stage不能绕过检查。"""
         for text in ("FROM alpine:3.22 \\", "# escape=`\nFROM alpine:3.22", "# syntax=other/parser\nFROM alpine:3.22", "FROM alpine:3.22 AS same\nFROM same AS same", "FROM alpine:3.22\nRUN <<EOF\nFROM bad\nEOF", "FROM alpine:3.22 # trailing", "RUN true"):
@@ -98,6 +107,11 @@ class DockerfileTests(unittest.TestCase):
                 path.write_text(json.dumps(value), encoding="utf-8")
                 with self.subTest(value=value), self.assertRaises(guard.GuardError):
                     guard.load_policy(path)
+            invalid = {kind: sorted(refs) for kind, refs in POLICY.items()}
+            invalid["auto-reply"] = [image_id("c")]
+            path.write_text(json.dumps({"trusted_runtime_images": invalid}), encoding="utf-8")
+            with self.assertRaises(guard.GuardError):
+                guard.load_policy(path)
             path.write_text(json.dumps({"trusted_runtime_images": {kind: sorted(refs) for kind, refs in POLICY.items()}}), encoding="utf-8")
             self.assertEqual(guard.load_policy(path), POLICY)
 
@@ -117,6 +131,21 @@ class ImageTests(unittest.TestCase):
         """使用离线Docker适配器运行完整候选镜像检查。"""
         reader = FakeDocker(values, candidate["Id"], business, history)
         return guard.check_image("candidate", "backend", self.dockerfile, POLICY, reader)
+
+    def test_auto_reply_image_requires_its_own_build_proof(self):
+        """自动回复候选须匹配专属构建文件，保留历史业务镜像祖先拒绝规则。"""
+        source = guard.DOCKERFILES["auto-reply"]
+        sha = hashlib.sha256(source.read_bytes()).hexdigest()
+        candidate = image("e", "13", label=sha)
+        reader = FakeDocker([candidate], candidate["Id"])
+        self.assertEqual(guard.check_image("candidate", "auto-reply", source, POLICY, reader)["dockerfile_sha256"], sha)
+        candidate["DockerfileSHA"] = self.digest
+        with self.assertRaises(guard.GuardError):
+            guard.check_image("candidate", "auto-reply", source, POLICY, reader)
+        old = image("d", "1", business=True)
+        candidate.update(DockerfileSHA=sha, Parent=old["Id"])
+        with self.assertRaises(guard.GuardError):
+            guard.check_image("candidate", "auto-reply", source, POLICY, FakeDocker([old, candidate], candidate["Id"], [old["Id"]]))
 
     def test_clean_shared_base_and_identical_application_layers_pass(self):
         """共享官方基础、甚至完全相同的应用文件层都不会被当成继承业务镜像。"""

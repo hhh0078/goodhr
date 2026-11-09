@@ -97,6 +97,8 @@ func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
 	current := generation == s.extensionGeneration
 	if current {
 		s.bindExtensionSessionLocked(request.Token, session.UserID)
+		// 首次绑定及换号会更新会话代际，后台迁移必须使用成功绑定后的值。
+		generation = s.extensionGeneration
 	}
 	s.extensionMu.Unlock()
 	if current && s.incidents != nil {
@@ -104,6 +106,7 @@ func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
 	}
 	if current {
 		s.startupSync.start(request.Token)
+		go s.migrateAfterBind(cloud.AgentCredentials{Token: request.Token, MachineID: machineID}, session.UserID, generation)
 	}
 	writeSuccess(w, http.StatusOK, binding)
 }

@@ -2,10 +2,7 @@
 package shared
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"log"
-	"strings"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
@@ -56,6 +53,7 @@ type AnalysisEvent struct {
 
 // AnalysisStatus 表示悬浮窗展示的 AI 或关键词判断状态。
 type AnalysisStatus struct {
+	DurationMS      *int64          `json:"duration_ms,omitempty"` // 当前步骤实测耗时，无计时依据时留空。
 	PositionID      string          `json:"position_id,omitempty"`
 	Kind            string          `json:"kind"`
 	Phase           string          `json:"phase"`
@@ -157,6 +155,5 @@ func (StandardLogger) Step(taskID string, flow string, step string, status strin
 
 // AutoReplyAccountKey 把用户本次明确选择的平台账号标记转换为本地隔离键，不代表平台身份已自动核验。
 func AutoReplyAccountKey(platformID, label string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(platformID) + "\n" + strings.TrimSpace(label)))
-	return "bound:" + hex.EncodeToString(sum[:])
+	return cloud.AutoReplyAccountKey(platformID, label)
 }
