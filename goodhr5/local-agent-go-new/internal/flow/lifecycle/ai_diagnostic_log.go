@@ -11,7 +11,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 )
 
-// taskLogOutput 保存步骤状态及 AI 失败的完整回复，原文只进入按需展开的诊断字段。
+// taskLogOutput 保存步骤状态及可展开的 AI、浏览器诊断详情。
 func (l *TaskLogger) taskLogOutput(status string, durationMS int64, err error) json.RawMessage {
 	var response *ai.ResponseDiagnostic
 	reference := ""
@@ -43,7 +43,8 @@ func (l *TaskLogger) taskLogOutput(status string, durationMS int64, err error) j
 		DurationMS           int64                  `json:"duration_ms"`
 		AIResponseDiagnostic *ai.ResponseDiagnostic `json:"ai_response_diagnostic,omitempty"`
 		AIResponseReference  string                 `json:"ai_response_reference,omitempty"`
-	}{status, durationMS, response, reference})
+		BrowserDiagnostic    *browserDiagnostic     `json:"browser_diagnostic,omitempty"`
+	}{status, durationMS, response, reference, browserDiagnosticFromError(err)})
 	return json.RawMessage(strings.TrimSpace(string(diagnostics.Redact(output))))
 }
 

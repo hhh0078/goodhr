@@ -18,6 +18,7 @@ export interface ActionContext {
   started_at: number;
   request_id?: string;
   deadline_at?: number;
+  inspect_request_id?: string;
   signal?: AbortSignal;
 }
 

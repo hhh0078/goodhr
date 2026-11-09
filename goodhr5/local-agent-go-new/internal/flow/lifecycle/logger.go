@@ -298,8 +298,11 @@ func (l *TaskLogger) Step(taskID string, flow string, step string, status string
 		}
 		var diagnostic struct {
 			AIResponse json.RawMessage `json:"ai_response_diagnostic"`
+			Browser    struct {
+				List json.RawMessage `json:"list"`
+			} `json:"browser_diagnostic"`
 		}
-		if json.Unmarshal(output, &diagnostic) == nil && len(diagnostic.AIResponse) > 0 {
+		if json.Unmarshal(output, &diagnostic) == nil && (len(diagnostic.AIResponse) > 0 || len(diagnostic.Browser.List) > 0) {
 			if line, marshalErr := json.Marshal(map[string]any{
 				"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "task_id": taskID,
 				"action": flow, "step": step, "status": status, "category": category,

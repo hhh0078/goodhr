@@ -19,6 +19,8 @@ import AIResponseDiagnosticDetails, {
   ordinaryDiagnosticOutput,
 } from "@/components/admin/AIResponseDiagnosticDetails";
 
+import BrowserDiagnosticDetails, { browserDiagnosticText } from "@/components/admin/BrowserDiagnosticDetails";
+
 type DiagnosticEvent = {
   timestamp: string;
   category: string;
@@ -97,7 +99,10 @@ export default function DiagnosticShareView() {
   const filtered = useMemo(
     () =>
       (onlyErrors ? errors : ordered).filter((item) => {
+        if (!query.trim()) return true;
         const text = [
+          item.event?.task_id,
+          browserDiagnosticText(item.event?.output),
           item.event?.message,
           item.event?.error_message,
           item.event?.action,
@@ -168,13 +173,13 @@ export default function DiagnosticShareView() {
                   </Flex>
                 </Flex>
                 <Input
-                  aria-label="搜索错误、方法或步骤"
+                  aria-label="搜索错误、步骤或请求编号"
                   value={query}
                   onChange={(event) => {
                     setQuery(event.target.value);
                     setVisibleCount(100);
                   }}
-                  placeholder="搜索错误、方法或步骤"
+                  placeholder="搜索错误、步骤或请求编号"
                 />
               </Flex>
             </Card>
@@ -261,6 +266,7 @@ function DiagnosticLine({ item }: { item: SharedLog }) {
         event.error_message !== event.message ? (
           <Alert type="error" title={event.error_message} showIcon />
         ) : null}
+        {event ? <BrowserDiagnosticDetails output={event.output} /> : null}
         {event ? <AIResponseDiagnosticDetails output={event.output} /> : null}
         {event ? (
           <Collapse

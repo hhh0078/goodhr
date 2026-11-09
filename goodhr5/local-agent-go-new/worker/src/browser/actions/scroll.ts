@@ -8,6 +8,7 @@ import {
   normalizeWorkerError,
   WorkerError,
 } from "../../errors/worker-error.js";
+import { markRequestProgress, observeRequestPage } from "../../logging/request-progress.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { LocatorPrimitive, type ResolvedElement } from "../primitives/locator.js";
 import { MousePrimitive } from "../primitives/mouse.js";
@@ -59,6 +60,8 @@ export class ScrollAction {
     });
     try {
       const page = await this.session.requirePage(actionContext, step);
+      observeRequestPage(actionContext, page);
+      markRequestProgress(actionContext, "scroll_target");
       const target = request.target
         ? await this.find.one(request.target, actionContext, true)
         : null;
@@ -66,12 +69,14 @@ export class ScrollAction {
         ? await this.find.one(request.progress_target, actionContext, true)
         : null;
       const progressBefore = progress ? progress.resolved.view : undefined;
+      markRequestProgress(actionContext, "scroll_anchor");
       const anchor = request.wheel_anchor
         ? await this.find.one(request.wheel_anchor, actionContext, true)
         : target;
       if (progress && anchor && !target && request.wheel_anchor && request.stop_when_progress_visible && !isDocumentScrollAnchor(anchor)) {
         return await this.scrollToContainerEdge(request, progress, anchor, actionContext);
       }
+      markRequestProgress(actionContext, "scroll_move");
       const progressArea = progress
         ? calculateVisibleArea(progress.resolved.view, request.wheel_anchor ? scrollContainerView(anchor) : undefined, 0)
         : undefined;
@@ -146,8 +151,10 @@ export class ScrollAction {
           attempt: index + 1,
           delta_x: distance.x, delta_y: distance.y,
         });
+        markRequestProgress(actionContext, "scroll_wheel");
         await wheelGesture(this.mouse, page, distance.x, distance.y, actionContext, this.logger);
         attempts += 1;
+        markRequestProgress(actionContext, "scroll_verify");
         await readingPause(Math.max(50, request.wait_ms ?? 250), actionContext);
         after = target
           ? await this.refreshTarget(target.resolved)
@@ -286,6 +293,7 @@ export class ScrollAction {
     const maxAttempts = Math.max(1, request.max_attempts ?? 1);
     /** moveInside 将落点限制在滚动容器可见交集内，重新选点时改用中部偏左，避开固定按钮。 */
     const moveInside = async (): Promise<void> => {
+      markRequestProgress(ctx, "scroll_move");
       const clip = area();
       assertTargetCanFit(current, clip, false, ctx);
       if (alternate) {
@@ -313,7 +321,9 @@ export class ScrollAction {
       if (attempts === 0) await moveInside();
       const delta = variedDistance(request.distance);
       this.logger.info(ctx, "wheel", "start", { attempt: attempts + 1, delta_x: 0, delta_y: delta });
+      markRequestProgress(ctx, "scroll_wheel");
       await wheelGesture(this.mouse, progress.resolved.page, 0, delta, ctx, this.logger);
+      markRequestProgress(ctx, "scroll_verify");
       await readingPause(Math.max(50, request.wait_ms ?? 250), ctx);
       attempts++;
       await refreshBoxes();
@@ -428,7 +438,9 @@ export class ScrollAction {
         visibleArea,
         request.require_full ?? false,
       );
+      markRequestProgress(actionContext, "scroll_wheel");
       await wheelGesture(this.mouse, found.resolved.page, distance.x, distance.y, actionContext, this.logger);
+      markRequestProgress(actionContext, "scroll_verify");
       await readingPause(220, actionContext);
       found.resolved.view = await this.refreshTarget(found.resolved);
       const anchorView = anchor

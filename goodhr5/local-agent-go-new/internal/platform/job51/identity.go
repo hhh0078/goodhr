@@ -28,6 +28,14 @@ func (b identityBrowser) FindAll(ctx context.Context, request contract.ElementFi
 	if _, requested := request.Fields["platform_candidate_id"]; !requested {
 		return items, nil
 	}
+	trace := common.CandidateTrace(ctx)
+	if trace != nil {
+		n := len(items)
+		trace.Facts.CardsRead = &n
+		trace.RecordMatches(items)
+		trace.Done()
+		trace.Begin("核对卡片身份编号与列表行号", "candidate.item")
+	}
 	items = append([]contract.FindAllItem(nil), items...)
 	for index := range items {
 		raw := strings.TrimSpace(items[index].Fields["platform_candidate_id"])

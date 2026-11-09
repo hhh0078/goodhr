@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -272,6 +273,7 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 		}
 	}
 	entries[1004].IsError = true
+	entries[1003].Output = json.RawMessage(`{"browser_diagnostic":{"agent_version":"6","list":{"stage":"读取候选人卡片","loading_visible":false,"timeline":["+12ms 加载层探测完成"]},"request":{"request_id":"request-123","response_received":false,"field_key":"name","item_index":0,"candidate_name":"不能分享的名字"}}}`)
 	entries[1004].ErrorMessage = "点击失败 password=private-secret 手机 13800138000 邮箱 candidate@example.com"
 	entries[1004].Input = json.RawMessage(`{"token":"private-token","candidateName":"张三","target":"按钮"}`)
 	entries[1004].Output = json.RawMessage(`{"request_id":"mouse-request","step_duration_ms":5001,"native_mouse":{"schema_version":1,"mouse_safety_version":"v6","stage":"apz_repaint","apz_flush_requested":true,"apz_repaint_received":false,"events_sent":0,"window_at_failure":{"window_minimized":true,"chrome_has_focus":false}}}`)
@@ -346,7 +348,13 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 	if diagnostic.RequestID != "mouse-request" || diagnostic.NativeMouse.Stage != "apz_repaint" || diagnostic.NativeMouse.EventsSent != 0 || !diagnostic.NativeMouse.Window.Minimized {
 		t.Fatalf("分享日志没有完整保留原生诊断证据：%+v", diagnostic)
 	}
-	for _, sensitive := range []string{"private-secret", "private-token", "13800138000", "candidate@example.com", "张三"} {
+	browserEvidence := string(publicResult.Logs[1].Event.Output)
+	for _, required := range []string{"读取候选人卡片", "+12ms 加载层探测完成", "request-123", `"response_received":false`, `"item_index":0`, `"field_key":"name"`} {
+		if !strings.Contains(browserEvidence, required) {
+			t.Fatalf("公开快照丢失列表诊断 %s：%s", required, browserEvidence)
+		}
+	}
+	for _, sensitive := range []string{"private-secret", "private-token", "13800138000", "candidate@example.com", "张三", "不能分享的名字"} {
 		if bytes.Contains(publicResponse.Body.Bytes(), []byte(sensitive)) {
 			t.Fatalf("shared logs contain sensitive content: %s", sensitive)
 		}

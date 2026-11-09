@@ -358,6 +358,16 @@ Node 必须为 22 或更高。Worker 就绪检查同时验证编译入口和 `cl
 - 临时截图和组件下载压缩包保留最多 24 小时，程序更新包保留最多 7 天。
 - 用户下载目录、浏览器 Profile、Cookie 和书签不参与自动清理。
 
+### 前程无忧候选人列表超时
+
+打开岗位日志或新生成的排障链接，展开失败记录的“查看浏览器排障详情”。从最近执行步骤能看到哪一步已完成，以及故障出现在加载提示、卡片读取、滚轮还是滚动后的复查。请求编号对应一次浏览器调用；同一编号出现在平台错误和任务结束记录中，表示同一次故障。
+
+“收到响应头”说明本地程序收到了 Worker 的 HTTP 响应。连接中断时，本地程序会另外用最多 500 毫秒查询该编号的进度。没有收到进度时，Worker 是否开始执行仍未知。并行读取时，卡片下标从 0 开始，字段名和等待时间仅描述采样当时的状态。新的诊断不采集页面正文、候选人姓名或 Cookie。历史分享保留创建时的快照。
+
+Windows x64、macOS Apple Silicon 和 Intel 共用 `internal/browser/client` 的 HTTP 诊断、`internal/platform/job51` 的列表步骤和 `worker/src/logging/request-progress.ts` 的进度记录，使用相同的 Go 和 Node API。发布时需要配套更新本地程序与 Worker。可用 `TestCandidateListFailureReachesPositionLog` 验证从平台异常到岗位日志上传，用 `TestPositionDiagnosticReplaceAndShare` 验证公开快照。
+
+2026-11-09 验证了上述三个架构的主程序编译。macOS Apple Silicon 上用隔离的 Camoufox 读取 150 张模拟卡片，分别触发请求断开和执行超时，两次都保留了本次请求尚在等待的字段和毫秒数。Windows 与 Intel Mac 本次验证到编译，真实招聘账号的原故障仍需新版客户端复现。
+
 ## 15. 首条真实筛选结果与教程事实
 
 关键词拒绝和纯关键词最终判断属于筛选终态。关键词通过后仍需要 AI 最终评分时，仅发布 `preview`、`terminal=false`，不能提前完成教程；AI 最终评分返回后才发布终态。

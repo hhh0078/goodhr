@@ -798,7 +798,7 @@ test("置顶小窗在独立窗口内显示样式，并正确更新和关闭", as
 });
 
 test("AI 诊断折叠后能完整显示长原文和零字节位置", async ({ page }) => {
-  await mockSession(page, { diagnostic: true });
+  await mockSession(page, { diagnostic: true, tutorialState: "completed" });
   await page.goto("/admin/logs");
   await page.getByRole("row").filter({ hasText: "测试诊断岗位" }).click();
   await page
@@ -956,3 +956,58 @@ test("官网服务端正文、结构化数据和 llms 说明三段招聘能力",
   for (const text of ["结构化简历库", "猎头推荐流程", "企业 HR 招聘流程", "不会互相覆盖"])
     expect(llms).toContain(text);
 });
+
+/** browserLogFixture 构造同一份公开快照和本地岗位记录，覆盖假值、零下标和旧文本。 */
+function browserLogFixture() {
+  const event = {
+    timestamp: "2026-11-09T08:00:00Z", category: "错误", action: "platform", step: "find_candidates", is_error: true,
+    task_id: "fixture-task", message: "候选人列表读取超时", input: {},
+    output: { browser_diagnostic: {
+      list: { stage: "读取候选人卡片", last_success_stage: "找到候选人列表", cards_read: 2,
+        timeline: ["+12 ms 找到候选人列表", "+20 ms 开始读取卡片", "+45680 ms 请求超时"] },
+      request: { request_id: "fixture-request-001", phase: "wait_response_headers", reason: "request_deadline", worker_phase: "read_field", elapsed_ms: 45680, item_index: 0, response_received: false,
+        pending_reads: [{ worker_phase: "read_field", item_index: 1, field_key: "name", elapsed_ms: 45000 }] },
+      os: "windows", arch: "amd64", agent_version: "6.2.12.4（模拟）",
+    } },
+  };
+  return {
+    share: [{ id: "err", level: "error", created_at: event.timestamp, event, message: event.message },
+      { id: "old", level: "info", created_at: event.timestamp, message: "旧版纯文本日志" }],
+    local: [{ ...event, id: "err", level: "error", created_at: event.timestamp }],
+  };
+}
+
+for (const width of [1366, 390]) {
+  test(`浏览器排障详情 ${width}px 支持本地日志和公开快照`, async ({ page }, testInfo) => {
+    await mockSession(page, { tutorialState: "completed" });
+    await page.setViewportSize({ width, height: 900 });
+    const { share, local } = browserLogFixture();
+    await page.route("**/api/public/position-log-shares/*", route => route.fulfill({ json: { logs: share, expires_at: "2026-11-16T08:00:00Z" } }));
+    await page.goto(`/diagnostics/${"a".repeat(64)}`);
+    await expect(page.getByText("旧版纯文本日志", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "查看浏览器排障详情" })).toHaveCount(1);
+    await page.getByRole("textbox").fill("fixture-request-001");
+    await expect(page.getByText("旧版纯文本日志", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/失败时的步骤：读取候选人卡片/)).toBeVisible();
+    await page.getByRole("button", { name: "查看浏览器排障详情" }).click();
+    await expect(page.getByText("+12 ms 找到候选人列表")).toBeVisible();
+    await expect(page.getByText("45.68 秒（45680 ms）", { exact: true })).toBeVisible();
+    await expect(page.getByText(/卡片下标（从 0 起）：1 · 字段：姓名（name）/)).toBeVisible();
+    await expect(page.locator("dd").getByText("否", { exact: true })).toBeVisible();
+    await expect(page.locator("dd").getByText("0", { exact: true })).toBeVisible();
+    const bounds = await page.getByText("fixture-request-001", { exact: true }).boundingBox();
+    expect(bounds && bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: testInfo.outputPath(`share-${width}.png`), fullPage: true, animations: "disabled", style: "nextjs-portal { display:none }" });
+
+    await page.route(/\/api\/positions(?:\?.*)?$/, route => route.fulfill({ json: { positions: [
+      { id: "fixture-position", name: "合成测试岗位", status: "stopped", is_open: true, platform_id: "51job", config: {} },
+    ] } }));
+    await page.route("**/api/v1/local/positions/fixture-position/logs?*", route => route.fulfill({ json: { logs: local } }));
+    await page.goto("/admin/positions");
+    await page.getByRole("button", { name: "日志", exact: true }).first().click();
+    await page.getByRole("button", { name: "查看浏览器排障详情" }).click();
+    await expect(page.getByText("fixture-request-001", { exact: true })).toBeVisible();
+    await expect(page.locator("dd").getByText("否", { exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`position-${width}.png`), fullPage: true, animations: "disabled", style: "nextjs-portal { display:none }" });
+  });
+}

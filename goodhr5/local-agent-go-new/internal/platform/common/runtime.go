@@ -153,6 +153,8 @@ func ApplyConfiguredActions(ctx context.Context, browser model.Browser, cfg mode
 
 // FindCandidates 读取当前候选人列表并整理成统一结构。
 func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, platformID string, options model.CandidateListOptions) ([]model.Candidate, error) {
+	trace := CandidateTrace(ctx)
+	trace.Begin("准备候选人卡片选择器", "candidate.item")
 	selector, err := RequiredSelector(cfg, "candidate.item")
 	if err != nil {
 		return nil, err
@@ -166,9 +168,14 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 	}
 	readID := time.Now().UnixNano()
 	readStarted := time.Now()
+	trace.readStage(request, 1)
 	items, err := browser.FindAll(ctx, request)
 	if err != nil {
 		return nil, err
+	}
+	trace.Done()
+	if trace != nil {
+		trace.Facts.CardsRead = observed(len(items))
 	}
 	// 姓名是稳定定位依据；字段暂时为空时重读整批，禁止用会变化的简历正文代替姓名。
 	if _, required := cfg.CandidateFields["name"]; required {
@@ -179,18 +186,27 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 					missing++
 				}
 			}
+			if trace != nil {
+				trace.Facts.MissingNames = observed(missing)
+			}
 			logCandidateNameRead(platformID, readID, attempt+1, items, time.Since(readStarted))
 			if missing == 0 {
 				break
 			}
 			if attempt == 1 {
+				trace.Begin("核对卡片姓名完整性", "candidate.item")
 				logCandidatePage(ctx, browser, cfg, platformID, readID)
 				return nil, fmt.Errorf("候选人列表有 %d 张卡片的姓名尚未读到，重新读取后仍不完整，暂不操作", missing)
 			}
 			readStarted = time.Now()
+			trace.readStage(request, 2)
 			items, err = browser.FindAll(ctx, request)
 			if err != nil {
 				return nil, err
+			}
+			trace.Done()
+			if trace != nil {
+				trace.Facts.CardsRead = observed(len(items))
 			}
 		}
 	}

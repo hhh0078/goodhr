@@ -1,6 +1,7 @@
 // 文件作用说明：注册 Worker 通用封装能力路由，完成 unknown 校验、Trace ID 和统一响应。
 
 import { actionContextStorage } from "../logging/operation.js";
+import { finishRequestProgress, requestID, requestProgress, startRequestProgress } from "../logging/request-progress.js";
 import { WorkerLogger } from "../logging/logger.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -85,13 +86,18 @@ export class WorkerRouter {
       trace_id: traceID,
       action: route.action,
       started_at: Date.now(),
-      request_id: randomUUID(),
+      request_id: requestID(request.headers["x-request-id"]) ?? randomUUID(),
       deadline_at: Date.now() + timeout,
       signal: controller.signal,
     };
+    const inspect = requestID(request.headers["x-inspect-request-id"]);
+    if (route.action === "health" && inspect) context.inspect_request_id = inspect;
+    if (method === "POST") startRequestProgress(context);
     const logger = new WorkerLogger();
     /** onClose 连接在响应结束前断开时取消尚未执行的操作。 */
-    const onClose = (): void => { if (!response.writableEnded) controller.abort(); };
+    const onClose = (): void => {
+      if (!response.writableEnded) { finishRequestProgress(context.request_id); controller.abort(); }
+    };
     response.on("close", onClose);
     const logRequest = route.action !== "health" && route.action !== "downloads.list";
     if (logRequest) logger.info(context, "http", "received", { timeout_ms: timeout });
@@ -113,12 +119,17 @@ export class WorkerRouter {
         trace_id: traceID,
       });
       if (normalized.code !== "ELEMENT_NOT_FOUND") logger.failure(context, normalized);
+      const body = normalized.toBody();
+      if (method === "POST") {
+        body.details = { ...body.details, request_progress: requestProgress(context.request_id, this.actions.healthStatus().queue) };
+      }
       this.writeJSON(response, statusForError(normalized), {
         ok: false,
-        error: normalized.toBody(),
+        error: body,
         trace_id: traceID,
       });
     } finally {
+      if (method === "POST") finishRequestProgress(context.request_id);
       response.off("close", onClose);
       if (logRequest) logger.info(context, "http", "finished");
     }
@@ -127,7 +138,10 @@ export class WorkerRouter {
   /** createRoutes 创建全部通用 Worker 路由。 */
   private createRoutes(): Route[] {
     return [
-      this.get("/health", "health", () => this.actions.healthStatus()),
+      this.get("/health", "health", (_body, context) => {
+        const health = this.actions.healthStatus();
+        return context.inspect_request_id ? { ...health, request_progress: requestProgress(context.inspect_request_id, health.queue) } : health;
+      }),
       this.post("/api/v1/browser/start", "browser.start", (body, context) =>
         this.actions.startBrowser(
           parseBrowserStartRequest(body, context.trace_id, context.action),

@@ -4,6 +4,7 @@ import type { Locator } from "playwright-core";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import type { FindResult, SelectorSpec } from "../../contracts/selector.js";
 import { normalizeWorkerError, WorkerError } from "../../errors/worker-error.js";
+import { beginRequestRead, markRequestProgress, observeRequestPage } from "../../logging/request-progress.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import {
   LocatorPrimitive,
@@ -59,6 +60,7 @@ export class FindAction {
     try {
       assertRequestActive(actionContext);
       const page = await this.session.requirePage(actionContext, step);
+      observeRequestPage(actionContext, page);
       const resolved = await this.primitive.resolve(page, spec, {
         trace_id: actionContext.trace_id,
         action: actionContext.action,
@@ -136,7 +138,10 @@ export class FindAction {
     }
     try {
       assertRequestActive(actionContext);
+      markRequestProgress(actionContext, "require_page");
       const page = await this.session.requirePage(actionContext, step);
+      observeRequestPage(actionContext, page);
+      markRequestProgress(actionContext, "resolve_list");
       const resolvedItems = await this.primitive.resolveAll(
         page,
         spec,
@@ -154,6 +159,7 @@ export class FindAction {
         diagnostic: true, input: diagnosticInput, output: { count: resolvedItems.length,
           selector_attempts: this.logger.fromUnknown(resolvedItems[0]?.attempts ?? []).value ?? [], page_state: pageDiagnostic(page) },
       });
+      markRequestProgress(actionContext, "list_resolved", undefined, undefined, resolvedItems.length);
       if (diagnostic.probe_only) return resolvedItems.map((resolved, index) => ({
         index: resolved.list_index ?? index + startIndex, total_matches: resolved.list_total ?? resolvedItems.length, element_ref: "", text: "", fields: {},
       }));
@@ -189,7 +195,7 @@ export class FindAction {
               fieldSpec,
               actionContext,
               fieldName,
-              index,
+              listIndex,
               diagnoseNames,
             )),
           ] as const),
@@ -279,6 +285,7 @@ export class FindAction {
   /** readListText 读取整张卡片文字；失败返回空结果供调用方逐项补读，不记录简历正文。 */
   private async readListText(root: Locator, context: ActionContext, index: number, phase: string, diagnose: boolean): Promise<string | null> {
     const started = Date.now();
+    const read = beginRequestRead(context, "read_card", index);
     try {
       assertRequestActive(context);
       return await this.readPrimitive.text(root);
@@ -295,7 +302,7 @@ export class FindAction {
         ...readFailureDetails(error),
       });
       return null;
-    }
+    } finally { read?.done(); }
   }
 
   /** readRelativeField 在列表项内部读取一个字段，找不到时返回空字符串。 */
@@ -309,6 +316,7 @@ export class FindAction {
     diagnose: boolean,
   ): Promise<string> {
     const started = Date.now();
+    const read = beginRequestRead(actionContext, "locate_field", index, fieldName);
     let phase = "locate";
     let resolved: ResolvedElement | undefined;
     try {
@@ -330,6 +338,7 @@ export class FindAction {
       );
       assertRequestActive(actionContext);
       phase = "read";
+      read?.readValue();
       const selectedSpec = resolved.resolved_spec ?? spec;
       if (selectedSpec.read_attribute) {
         return await this.readPrimitive.attribute(
@@ -360,7 +369,7 @@ export class FindAction {
         ...readFailureDetails(error),
       });
       return "";
-    }
+    } finally { read?.done(); }
   }
 
   /** retryMissingFields 对关键字段逐项补读，并核对卡片正文，防止重读时串人。 */
@@ -381,10 +390,10 @@ export class FindAction {
         const fieldSpec = fields[fieldName];
         if (!fieldSpec || String(item.fields[fieldName] ?? "").trim()) continue;
         for (let attempt = 1; attempt <= 2 && !String(item.fields[fieldName] ?? "").trim(); attempt++) {
-          const beforeText = await readWithSlot(() => this.readListText(root, actionContext, index, `${fieldName}_retry_before`, diagnose));
+          const beforeText = await readWithSlot(() => this.readListText(root, actionContext, item.index, `${fieldName}_retry_before`, diagnose));
           if (beforeText === null || beforeText !== item.text) { items[index] = null; break; }
-          const value = await readWithSlot(() => this.readRelativeField(page, root, fieldSpec, actionContext, fieldName, index, diagnose));
-          const afterText = await readWithSlot(() => this.readListText(root, actionContext, index, `${fieldName}_retry_after`, diagnose));
+          const value = await readWithSlot(() => this.readRelativeField(page, root, fieldSpec, actionContext, fieldName, item.index, diagnose));
+          const afterText = await readWithSlot(() => this.readListText(root, actionContext, item.index, `${fieldName}_retry_after`, diagnose));
           if (afterText === null || afterText !== beforeText) { items[index] = null; break; }
           item.fields[fieldName] = value;
           if (diagnose) this.logger.info(actionContext, `read_field:${fieldName}`, value ? "retry_read" : "retry_empty", {

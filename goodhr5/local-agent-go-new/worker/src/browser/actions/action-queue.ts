@@ -2,6 +2,7 @@
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { WorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
+import { finishRequestProgress, markRequestProgress } from "../../logging/request-progress.js";
 import { exitDiagnostics } from "../../logging/exit-diagnostics.js";
 import { actionContextStorage } from "../../logging/operation.js";
 import { waitForNativeInputs } from "../primitives/input-lifecycle.js";
@@ -86,6 +87,7 @@ export class ActionQueue {
       signal: requestSignal ? AbortSignal.any([requestSignal, executionCancel.signal]) : executionCancel.signal };
     const faultSignal = this.faultSignal.signal;
     this.pending++;
+    markRequestProgress(context, "queued");
     this.logger.info(context, "queue", "queued", this.status());
     let readFault: WorkerError | undefined;
     let started = false;
@@ -99,6 +101,7 @@ export class ActionQueue {
         if (requestSignal?.aborted || Date.now() >= (context.deadline_at ?? Infinity)) throw this.cancelError(context, false);
         started = true;
         this.active = context;
+        markRequestProgress(context, "executing");
         this.logger.info(context, "queue", "start", this.status());
         try {
           const value = await actionContextStorage.run(executionContext, operation);
@@ -137,6 +140,7 @@ export class ActionQueue {
     /** cancel 取消未执行请求；已开始的动作无法安全撤销，因此隔离整个队列。 */
     const cancel = (): void => {
       if (finished) return;
+      finishRequestProgress(context.request_id);
       const error = this.cancelError(context, started);
       if (started) {
         if (recoverCancelledScroll && !this.fault && !requestSignal?.aborted) this.scrollDrainFault = error;

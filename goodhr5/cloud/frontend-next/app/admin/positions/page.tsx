@@ -47,6 +47,7 @@ import { isOnboardingTaskEnded } from "@/lib/onboarding-task-feedback";
 import AIResponseDiagnosticDetails, {
   aiResponseDiagnosticFromOutput,
 } from "@/components/admin/AIResponseDiagnosticDetails";
+import BrowserDiagnosticDetails, { browserDiagnosticText } from "@/components/admin/BrowserDiagnosticDetails";
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
   EmptyState,
@@ -3393,6 +3394,7 @@ function PositionLogList(props: { logs: any[]; maxHeight: number | string }) {
 function PositionLogLine(props: { item: any; previous: any | null }) {
   const { item, previous } = props;
   const appearance = positionLogAppearance(item.level, item.is_error);
+  const output = positionLogEvent(item)?.output;
   return (
     <div
       className={styles.s113}
@@ -3438,7 +3440,8 @@ function PositionLogLine(props: { item: any; previous: any | null }) {
         >
           {positionLogMessage(item)}
         </Typography.Paragraph>
-        <AIResponseDiagnosticDetails output={positionLogEvent(item)?.output} />
+        <BrowserDiagnosticDetails output={output} />
+        <AIResponseDiagnosticDetails output={output} />
       </Flex>
     </div>
   );
@@ -3515,12 +3518,10 @@ function buildPositionLogText(logs: any[]) {
       const previous =
         index < orderedLogs.length - 1 ? orderedLogs[index + 1] : null;
       const summary = `${formatPositionLogTime(item.created_at || item.time)} ${positionLogDelta(item, previous)} ${positionLogAppearance(item.level, item.is_error).label} ${positionLogMessage(item)}`;
-      const aiResponse = aiResponseDiagnosticFromOutput(
-        positionLogEvent(item)?.output,
-      );
-      return aiResponse
-        ? `${summary}\nAI 完整诊断：\n${JSON.stringify(aiResponse, null, 2)}`
-        : summary;
+      const output = positionLogEvent(item)?.output;
+      const aiResponse = aiResponseDiagnosticFromOutput(output);
+      const browser = browserDiagnosticText(output);
+      return [summary, browser && `浏览器排障详情：\n${browser}`, aiResponse && `AI 完整诊断：\n${JSON.stringify(aiResponse, null, 2)}`].filter(Boolean).join("\n");
     })
     .join("\n");
 }

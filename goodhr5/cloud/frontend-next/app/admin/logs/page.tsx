@@ -27,6 +27,8 @@ import { cloudRequest } from "@/lib/admin-api";
 import AIResponseDiagnosticDetails, {
   ordinaryDiagnosticOutput,
 } from "@/components/admin/AIResponseDiagnosticDetails";
+import BrowserDiagnosticDetails from "@/components/admin/BrowserDiagnosticDetails";
+
 type LogEvent = {
   message?: string;
   error_message?: string;
@@ -175,6 +177,7 @@ function LogDetails({ item }: { item: LogItem }) {
           跟踪编号：{logText(event?.trace_id)}
         </Typography.Text>
       )}
+      <BrowserDiagnosticDetails output={event?.output} />
       <AIResponseDiagnosticDetails output={event?.output} />
       {(event?.input || event?.output) && (
         <Flex gap={16} wrap>
