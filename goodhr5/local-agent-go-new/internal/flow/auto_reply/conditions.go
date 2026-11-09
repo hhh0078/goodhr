@@ -83,8 +83,18 @@ func (f *Flow) syncPositionConfirmationItems(ctx context.Context, credentials cl
 		}
 		existing = append(existing, saved)
 	}
-	activeItems, _ := configuredConfirmations(position, existing)
-	return activeItems, nil
+	return dialogueConfirmations(position, conversation.ID, existing), nil
+}
+
+// dialogueConfirmations 合并仍生效的岗位条件与当前会话的 AI 沟通目标，不把旧会话或归档任务重新交给模型。
+func dialogueConfirmations(position cloud.AutoReplyPositionSnapshot, conversationID string, items []cloud.CandidateConfirmationItem) []cloud.CandidateConfirmationItem {
+	active, _ := configuredConfirmations(position, items)
+	for _, item := range items {
+		if item.SourceType == "ai" && item.CreatedByKind == "ai" && item.ConversationID == conversationID && item.PositionID == position.Position.ID && item.ArchivedAt == nil && item.ID != "" {
+			active = append(active, item)
+		}
+	}
+	return active
 }
 
 // configuredConfirmations 按 HR 当前启用的配置筛选可询问、可评估的确认项，并检查每个必要条件都有唯一对应记录。

@@ -123,6 +123,9 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 			}
 		}
 		conversation.LastSyncedMessageKey = key
+		if conversation.GoalFollowup != nil && key != conversation.GoalFollowup.ExpectedLatestKey && (item.Direction == "candidate" || item.Direction == "self") {
+			conversation.GoalFollowup = nil
+		}
 		if item.Direction == "candidate" {
 			conversation.LastCandidateMessageKey = key
 		}

@@ -183,6 +183,9 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	if resumeOnly && positionErr == nil && len(f.serverAnswers[cloudConversation.ID]) > 0 {
 		return f.deliverAnswer(ctx, prepared, runtime, position, cloudConversation, pageSnapshot, state, f.serverAnswers[cloudConversation.ID][0], stats)
 	}
+	if resumeOnly && positionErr == nil && cloudConversation.GoalFollowup != nil {
+		return f.deliverGoalFollowup(ctx, prepared, runtime, position, cloudConversation, pageSnapshot)
+	}
 	if resumeOnly && !autoReplyResumeRetryDue(cloudConversation.ResumeRetry, time.Now()) {
 		stats.Skipped++
 		if positionErr == nil && cloudConversation.ResumeRetry == nil {
@@ -302,7 +305,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			AIConfig: prepared.Position.AI, EnableThinking: prepared.Position.EnableThinking,
 			Conversation: cloudConversation, CandidateState: state, Messages: messages,
 			ConfirmationItems: confirmations, PageSnapshot: pageSnapshot, Resume: resume,
-			BasedOnMessageKey: latestCandidateKey, ConditionsOnly: true,
+			BasedOnMessageKey: latestCandidateKey, ConditionsOnly: true, AllowGoalFollowup: true,
 		})
 	}
 	for refreshes := 0; ; refreshes++ {
@@ -321,7 +324,22 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			if body := fixedReplyPhrase(position.Config, fixedID); body != "" && (fixedID != "receive_phone" || !previouslyReceivedPhone(replyInput)) {
 				decision.Messages = []ReplyMessage{{Type: "answer", Content: body}}
 			}
-
+			if fixedID == "receive_phone" {
+				// 手机号是新证据；固定签收之外仍让 AI 推进目标，避免收完联系方式就停住。
+				reviewInput := replyInput
+				reviewInput.ConditionsOnly, reviewInput.AllowGoalFollowup, reviewInput.ReceiptFollowup = true, true, true
+				review, messageChanged, reviewErr := f.replyWhileMonitoring(ctx, prepared, runtime, pageSnapshot, reviewInput)
+				changed = messageChanged
+				if reviewErr != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					f.log(prepared.Request.TaskID, "phone_goal_review", "warning", time.Now(), reviewErr)
+				} else if review.ManualReason == "" && len(review.Suggestions) == 0 && (len(review.Messages) == 0 || len(review.Messages) == 1 && review.Messages[0].Type == "confirmation") {
+					decision.ConfirmationUpdates = review.ConfirmationUpdates
+					decision.Messages = append(decision.Messages, review.Messages...)
+				}
+			}
 		} else {
 			shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
 				PositionID: position.Position.ID, Kind: "auto_reply", Phase: "loading", Stage: "ai", CandidateName: pageSnapshot.CandidateName,
@@ -442,6 +460,13 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			}
 			if reasonKey == "missing_recruitment_info" {
 				decision.Messages = handoffReplyMessages(decision.KnownAnswer, fixedReplyPhrase(position.Config, "manual_followup"))
+				if len(decision.Messages) > 0 {
+					// 等 HR 补资料不等于 HR 已接管，后续简历证据仍可推进候选人的独立目标。
+					outcome = "awaiting_hr"
+				}
+				if len(decision.Messages) == 1 && decision.HandoffFollowup != nil {
+					decision.Messages = append(decision.Messages, *decision.HandoffFollowup)
+				}
 			}
 			if len(decision.Messages) == 0 {
 				stats.Skipped++
@@ -478,7 +503,19 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			if err = checkPhoneReply(inspectPhoneContact(replyInput), position.Config, content); err != nil {
 				return err
 			}
-			sent, sendErr := f.sendVerifiedMessage(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, content, index == 0, index+1)
+			var goalBinding *cloud.AutoReplyGoalSend
+			if reply.Type == "confirmation" {
+				for _, goal := range confirmations {
+					if goal.ID == reply.ConfirmationItemID && cloud.AutoReplyGoalCanAsk(goal) && (reply.GoalContentKey == "" || reply.GoalContentKey == cloud.AutoReplyGoalContentKey(goal)) {
+						goalBinding = &cloud.AutoReplyGoalSend{ConfirmationItemID: goal.ID, ExpectedVersion: cloud.AutoReplyConfirmationRevision(goal), BasedOnMessageKey: latestCandidateKey, ExpectedLatestKey: pageSnapshot.ExpectedSendMessageKey}
+						break
+					}
+				}
+				if goalBinding == nil || candidateEndedContact(pending) {
+					break
+				}
+			}
+			sent, sendErr := f.sendVerifiedMessageWithGoal(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, content, index == 0, goalBinding, index+1)
 			if errors.Is(sendErr, model.ErrAutoReplySupersededBeforeSend) {
 				f.reportChangedMessage(prepared.Request.TaskID, pageSnapshot.CandidateName)
 				break
@@ -498,19 +535,34 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 				continue
 			}
 			sentCount++
-			if reply.Type == "confirmation" {
-				if err = f.markConfirmationAsked(ctx, credentials(prepared), cloudConversation, reply.ConfirmationItemID, confirmations); err != nil {
-					stats.Failed++
-					return err
-				}
-			}
 		}
 		if sentCount == 0 {
 			stats.Skipped++
 			return nil
 		}
-		if sentCount == 1 && len(decision.Messages) == 1 && outcome == "sent" && fixedID == "" && !candidateEndedContact(pending) {
-			if err = f.requestResumeAfterAnswer(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, previousContent, decision.Messages[0].RequestsResume); err != nil {
+		if sentCount == 1 && len(decision.Messages) == 1 && (outcome == "sent" || outcome == "awaiting_hr") && fixedID == "" && !candidateEndedContact(pending) {
+			goalPlanned := false
+			reviewPlan := decision
+			if outcome == "awaiting_hr" {
+				reviewPlan.ManualReason = ""
+			}
+			if cloudConversation.ResumeRetry == nil && needsMessageGoalReview(reviewPlan, confirmations) {
+				var goalSent bool
+				goalPlanned, goalSent, err = f.reviewGoalsAfterAnswer(ctx, prepared, runtime, replyInput, previousContent)
+				if err != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					f.log(prepared.Request.TaskID, "message_goal_review", "warning", time.Now(), err)
+				}
+				if goalSent {
+					sentCount++
+				}
+			}
+			if outcome == "sent" && !goalPlanned {
+				err = f.requestResumeAfterAnswer(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, previousContent, decision.Messages[0].RequestsResume)
+			}
+			if err != nil && !goalPlanned && outcome == "sent" {
 				return err
 			}
 		}

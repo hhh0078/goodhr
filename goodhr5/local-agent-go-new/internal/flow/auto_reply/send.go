@@ -54,7 +54,14 @@ func (f *Flow) replyWhileMonitoring(ctx context.Context, prepared shared.Prepare
 			if changed || monitorErr != nil {
 				continue
 			}
-			unchanged, err := f.latestCandidateMessageUnchanged(ctx, runtime, prepared, snapshot, input.BasedOnMessageKey)
+			var unchanged bool
+			var err error
+			if input.MessageFollowup {
+				latest, opened, readErr := runtime.ReadOpenAutoReplyLatestMessage(ctx, f.Browser, prepared.Platform, snapshot)
+				unchanged, err = opened && firstNonEmpty(latest.PlatformMessageID, latest.Key) == snapshot.ExpectedSendMessageKey, readErr
+			} else {
+				unchanged, err = f.latestCandidateMessageUnchanged(ctx, runtime, prepared, snapshot, input.BasedOnMessageKey)
+			}
 			if err != nil {
 				monitorErr = err
 				continue
@@ -70,6 +77,11 @@ func (f *Flow) replyWhileMonitoring(ctx context.Context, prepared shared.Prepare
 
 // sendVerifiedMessage 发送一条消息并回读确认，结果未知时不直接重发。
 func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, conversation cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, basedOnMessageKey string, message string, verifyCandidateBefore bool, sequence ...int) (bool, error) {
+	return f.sendVerifiedMessageWithGoal(ctx, prepared, runtime, conversation, snapshot, basedOnMessageKey, message, verifyCandidateBefore, nil, sequence...)
+}
+
+// sendVerifiedMessageWithGoal 沿用同一发送链，在服务器意图里绑定目标版本并原子记录真正送达的追问。
+func (f *Flow) sendVerifiedMessageWithGoal(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, conversation cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, basedOnMessageKey string, message string, verifyCandidateBefore bool, goal *cloud.AutoReplyGoalSend, sequence ...int) (bool, error) {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return false, fmt.Errorf("候选人回复内容不能为空")
@@ -97,8 +109,11 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 		}
 		snapshot.DeliveryPageURL = page
 	}
-	status, claimed, err := f.Cloud.ClaimAutoReplySend(ctx, credentials(prepared), conversation.ID, basedOnMessageKey, message, messageSequence)
+	status, claimed, err := f.Cloud.ClaimAutoReplySend(ctx, credentials(prepared), conversation.ID, basedOnMessageKey, message, messageSequence, goal)
 	if err != nil {
+		if errors.Is(err, cloud.ErrAutoReplyGoalChanged) {
+			return false, model.ErrAutoReplySupersededBeforeSend
+		}
 		return false, err
 	}
 	if !claimed {
@@ -110,6 +125,7 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 	if verifyCandidateBefore {
 		snapshot.ExpectedSendMessageKey = basedOnMessageKey
 	}
+	ctx = cloud.WithAutoReplySendIntent(ctx, cloud.AutoReplySendIntentID(conversation.ID, basedOnMessageKey, messageSequence))
 	var latest model.ConversationMessage
 	if remoteSend {
 		latest, err = remote.SendAutoReplyWithReceipt(ctx, nil, prepared.Platform, snapshot, message)
@@ -117,6 +133,9 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 		err = runtime.SendAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot, message)
 	}
 	if err != nil {
+		if errors.Is(err, cloud.ErrAutoReplyGoalChanged) {
+			err = model.ErrAutoReplySupersededBeforeSend
+		}
 		if errors.Is(err, model.ErrAutoReplySupersededBeforeSend) {
 			if releaseErr := f.Cloud.ReleaseUnsentAutoReply(context.WithoutCancel(ctx), credentials(prepared), conversation.ID, basedOnMessageKey, messageSequence, message); releaseErr != nil {
 				return false, releaseErr

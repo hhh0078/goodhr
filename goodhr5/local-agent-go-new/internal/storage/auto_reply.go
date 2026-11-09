@@ -207,6 +207,16 @@ func (t *AutoReplyTx) CompleteMessages(conversationID, messageKey, outcome strin
 	return err
 }
 
+// MessageOutcome 读取精确来信的处理结果，主动追问不能越过已转人工的同一轮消息。
+func (t *AutoReplyTx) MessageOutcome(conversationID, messageKey string) (string, error) {
+	var outcome string
+	err := t.tx.QueryRowContext(t.ctx, "SELECT processed_status FROM auto_reply_messages WHERE owner_id=? AND conversation_id=? AND message_key=?", t.owner, conversationID, messageKey).Scan(&outcome)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return outcome, err
+}
+
 // PruneAudits 只裁剪已完成的旧AI审计，保留运行中的任务与其工具记录。
 func (t *AutoReplyTx) PruneAudits() error {
 	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM auto_reply_runs WHERE owner_id=? AND id IN (SELECT id FROM auto_reply_runs WHERE owner_id=? AND json_extract(payload_json,'$.status')!='running' ORDER BY sequence DESC LIMIT -1 OFFSET 1000)`, t.owner, t.owner)
@@ -265,6 +275,7 @@ func (t *AutoReplyTx) PendingConversations(platformID, accountID string) ([]Auto
 	rows, err := t.tx.QueryContext(t.ctx, `SELECT c.id,c.payload_json,c.revision FROM auto_reply_conversations c
 		WHERE c.owner_id=? AND c.platform_id=? AND c.account_id=?
 		AND (json_type(c.payload_json,'$.capture_intent')='object'
+		OR json_type(c.payload_json,'$.goal_followup')='object'
 		OR (json_type(c.payload_json,'$.resume_retry')='object'
 			AND COALESCE(json_extract(c.payload_json,'$.resume_retry.attempts'),0)<3
 			AND julianday(json_extract(c.payload_json,'$.resume_retry.next_attempt_at'))<=julianday(?))

@@ -1,5 +1,12 @@
 # Prototype Instructions
 
+## 自动回复工作台约定（2026-11-09）
+
+- 岗位管理顶部自动回复按钮打开统一面板，面板内保留启停与运行状态；右上角显示服务器返回的本人可处理待确认数量。未连接本机也可以打开和处理云端问题，不能把读取失败显示成零条。
+- 待确认问题集中在工作台，点击问题标题展开候选人原话，不再单独占一列。关闭岗位仍可能有待办；同一问题多条原话只计一次，处理中与已解决不计为待补充。
+- HR 补充要写入真实可编辑的岗位或公司正文，人工后续删改为最新事实，不能在页面之外再次追加旧答案。公司和岗位保存均须防止旧草稿覆盖新资料。
+- 候选人沟通目标包含 HR 条件与 AI 动态目标。AI 目标可增改和归档，必要条件仍由 HR 控制；已归档目标不再出现在进行中目标里，历史操作仍可核对。
+
 Run the local server yourself and open the preview in the in-app browser. Do not give the user server-start instructions when you can run it.
 
 Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.

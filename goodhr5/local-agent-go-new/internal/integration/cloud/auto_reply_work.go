@@ -12,6 +12,12 @@ import (
 
 // localAutoReplySend 固定同一轮消息的发送正文，重启后不因模型重写而重复发送。
 type localAutoReplySend struct {
+	ConfirmationItemID string    `json:"confirmation_item_id,omitempty"`
+	GoalVersion        string    `json:"goal_version,omitempty"`
+	GoalContentKey     string    `json:"goal_content_key,omitempty"`
+	BasedOnMessageKey  string    `json:"based_on_message_key,omitempty"`
+	ExpectedLatestKey  string    `json:"expected_latest_key,omitempty"`
+	AllowNoPending     bool      `json:"allow_no_pending,omitempty"`
 	OutboundMessageKey string    `json:"outbound_message_key,omitempty"`
 	ConversationID     string    `json:"conversation_id"`
 	MessageKey         string    `json:"message_key"`
@@ -134,7 +140,7 @@ func (c *Client) ListPendingAutoReplyConversations(ctx context.Context, credenti
 
 // CompleteAutoReplyMessage 原子完成本轮消息及其之前的同会话消息，采集失败时调用方不得调用。
 func (c *Client) CompleteAutoReplyMessage(ctx context.Context, credentials AgentCredentials, conversationID, messageKey, outcome string) error {
-	if outcome != "sent" && outcome != "manual" && outcome != "skipped_self" && outcome != "completed" {
+	if outcome != "sent" && outcome != "manual" && outcome != "awaiting_hr" && outcome != "skipped_self" && outcome != "completed" {
 		return fmt.Errorf("未知消息处理结果")
 	}
 	return c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error { return tx.CompleteMessages(conversationID, messageKey, outcome) })
@@ -146,7 +152,7 @@ func autoReplySendID(conversationID, messageKey string, sequence int) string {
 }
 
 // ClaimAutoReplySend 在真正发送前持久写入sending；重启遇到sending或unknown时禁止自动重发。
-func (c *Client) ClaimAutoReplySend(ctx context.Context, credentials AgentCredentials, conversationID, messageKey, content string, sequence int) (status string, claimed bool, err error) {
+func (c *Client) ClaimAutoReplySend(ctx context.Context, credentials AgentCredentials, conversationID, messageKey, content string, sequence int, goal ...*AutoReplyGoalSend) (status string, claimed bool, err error) {
 	if content == "" || sequence < 0 {
 		return "", false, fmt.Errorf("发送内容或顺序不正确")
 	}
@@ -170,6 +176,18 @@ func (c *Client) ClaimAutoReplySend(ctx context.Context, credentials AgentCreden
 		if !found {
 			return fmt.Errorf("发送会话没有找到")
 		}
+		intent := localAutoReplySend{ConversationID: conversationID, MessageKey: messageKey, Content: content, Sequence: sequence}
+		if len(goal) > 0 && goal[0] != nil {
+			binding := goal[0]
+			intent.ConfirmationItemID, intent.GoalVersion = binding.ConfirmationItemID, binding.ExpectedVersion
+			intent.BasedOnMessageKey, intent.AllowNoPending = binding.BasedOnMessageKey, binding.AllowNoPending
+			intent.ExpectedLatestKey = binding.ExpectedLatestKey
+			item, validErr := validateGoalSend(tx, conversation, intent)
+			if validErr != nil {
+				return validErr
+			}
+			intent.GoalContentKey = AutoReplyGoalContentKey(item)
+		}
 		legacyHash := autoReplyDigest(fmt.Sprintf("%s\n%d\n%s", strings.TrimSpace(messageKey), sequence, strings.TrimSpace(content)))
 		legacy := ""
 		if conversation.PlatformAccountID == "" {
@@ -187,7 +205,8 @@ func (c *Client) ClaimAutoReplySend(ctx context.Context, credentials AgentCreden
 			status = "unknown"
 			claimed = false
 		}
-		return tx.Put("sends", id, localAutoReplySend{ConversationID: conversationID, MessageKey: messageKey, Content: content, Sequence: sequence, Status: status, UpdatedAt: time.Now().UTC()})
+		intent.Status, intent.UpdatedAt = status, time.Now().UTC()
+		return tx.Put("sends", id, intent)
 	})
 	return
 }
@@ -214,22 +233,11 @@ func (c *Client) FinishAutoReplySend(ctx context.Context, credentials AgentCrede
 	}
 	return c.autoReplyTransaction(ctx, credentials, func(tx *storage.AutoReplyTx) error {
 		id := autoReplySendID(conversationID, messageKey, sequence)
-		item, found, err := getAutoReplyEntity[localAutoReplySend](tx, "sends", id)
-		if err != nil {
-			return err
+		key := ""
+		if len(outbound) > 0 {
+			key = strings.TrimSpace(outbound[0])
 		}
-		if !found {
-			return fmt.Errorf("发送意图没有找到")
-		}
-		if item.Status == "sent" {
-			return nil
-		}
-		if status == "sent" && len(outbound) > 0 {
-			item.OutboundMessageKey = strings.TrimSpace(outbound[0])
-		}
-		item.Status = status
-		item.UpdatedAt = time.Now().UTC()
-		return tx.Put("sends", id, item)
+		return finishAutoReplySend(tx, id, status, key)
 	})
 }
 

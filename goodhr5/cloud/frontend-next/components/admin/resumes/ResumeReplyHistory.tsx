@@ -12,7 +12,7 @@ import styles from "./resume-reply-history.module.css";
 type Thread = { id: string; position_name: string; platform: string; candidate_name: string; status: string; updated_at: string };
 type Message = { id: string; side: string; sender_type: string; text: string; sent_at: string; message_type?: string; attachments?: ReplyAttachment[] };
 type Event = { id: string; title: string; description: string; occurred_at: string; status: string; duration_ms?: number | null };
-type Goal = { id: string; title: string; status: string; evidence: string; evidence_message_ids?: string[]; updated_at: string };
+type Goal = { id: string; title: string; status: string; source_type?: string; evidence: string; evidence_message_ids?: string[]; updated_at: string };
 type History = {
   threads: Thread[]; thread_id: string; messages: Message[]; events: Event[]; goals: Goal[];
   next_message_cursor: string; next_event_cursor: string;
@@ -120,6 +120,7 @@ function GoalList({ goals, messages }: { goals: Goal[]; messages: Message[] }) {
   return <ul className={styles.goals}>{goals.map(goal => {
     const references = (goal.evidence_message_ids || []).map(id => messagesByID.get(id)).filter((item): item is Message => Boolean(item));
     return <li key={goal.id}><div className={styles.goalHeading}><strong>{goal.title}</strong><HistoryStatus status={goal.status} /></div>
+      {goal.source_type && <Tag>{goal.source_type === "ai" ? "AI 沟通目标" : "岗位条件"}</Tag>}
       {goal.evidence && <blockquote>{goal.evidence}</blockquote>}
       {references.length > 0 && <details><summary>查看关联原话（{references.length}）</summary>{references.map(item => <blockquote key={item.id}>{messageText(item)} <small>{historyTime(item.sent_at)}</small></blockquote>)}</details>}
       {!goal.evidence && !references.length && <span className={styles.muted}>{goal.evidence_message_ids?.length ? "关联原话在更早的聊天记录中。" : goalResolved(goal) ? "这项目标没留下判断依据。" : "等待新的简历或聊天证据。"}</span>}

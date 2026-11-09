@@ -48,22 +48,25 @@ func (s *PostgresAutoReplyStore) SaveCompanyProfile(ctx context.Context, tenantI
 			&saved.CreatedAt, &saved.UpdatedAt,
 		)
 	} else {
+		if item.UpdatedAt.IsZero() {
+			return CompanyProfile{}, errReplyStateConflict
+		}
 		err = s.db.QueryRowContext(ctx, `
 			UPDATE tenant_company_profiles
 			SET name=$3, address=$4, contact=$5, overview=$6, extra_info=$7,
 				updated_by_user_id=$8, updated_at=now()
-			WHERE id=$1 AND tenant_id=$2
+			WHERE id=$1 AND tenant_id=$2 AND updated_at=$9
 			RETURNING id, tenant_id, name, address, contact, overview, extra_info,
 				COALESCE(created_by_user_id::text,''), COALESCE(updated_by_user_id::text,''), created_at, updated_at
 		`, item.ID, tenantID, strings.TrimSpace(item.Name), strings.TrimSpace(item.Address),
-			strings.TrimSpace(item.Contact), strings.TrimSpace(item.Overview), strings.TrimSpace(item.ExtraInfo), userID).Scan(
+			strings.TrimSpace(item.Contact), strings.TrimSpace(item.Overview), strings.TrimSpace(item.ExtraInfo), userID, item.UpdatedAt).Scan(
 			&saved.ID, &saved.TenantID, &saved.Name, &saved.Address, &saved.Contact,
 			&saved.Overview, &saved.ExtraInfo, &saved.CreatedByUserID, &saved.UpdatedByUserID,
 			&saved.CreatedAt, &saved.UpdatedAt,
 		)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
-		return CompanyProfile{}, ErrNotFound
+		return CompanyProfile{}, errReplyStateConflict
 	}
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
@@ -164,7 +167,9 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 	}
 	var currentVersion int
 	var previousJSON []byte
-	err = tx.QueryRowContext(ctx, `SELECT version,phrase_overrides FROM position_auto_reply_configs WHERE position_id=$1`, item.PositionID).Scan(&currentVersion, &previousJSON)
+	// 与 HR 补充归档锁定同一配置行；版本核对到写入之间不能插入一次新归档。
+	// 顺序固定为岗位、配置、话术库；归档不会反向锁岗位，避免引入互相等待。
+	err = tx.QueryRowContext(ctx, `SELECT version,phrase_overrides FROM position_auto_reply_configs WHERE position_id=$1 FOR UPDATE`, item.PositionID).Scan(&currentVersion, &previousJSON)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return PositionAutoReplyConfig{}, err
 	}

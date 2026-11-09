@@ -35,6 +35,12 @@ type Result struct {
 // RemoteError 保留可判定的结果类别，未知发送结果不得降级为重试。
 type RemoteError struct{ Code, Message string }
 
+// CommandRejectedError 表示派发前已核实旧草稿失效，设备尚未收到命令，可以安全取消而不重试。
+type CommandRejectedError struct{ Message string }
+
+// Error 返回供旧草稿调用方停止本次发送的原因。
+func (e *CommandRejectedError) Error() string { return e.Message }
+
 // Error 返回原始动作的可读错误。
 func (e *RemoteError) Error() string { return e.Message }
 
@@ -180,6 +186,13 @@ func (b *Broker) Next(ctx context.Context) (Command, error) {
 				continue
 			}
 			if err := b.persist(ctx, p.command, "executing", Result{}); err != nil {
+				var rejected *CommandRejectedError
+				if errors.As(err, &rejected) {
+					p.finished, p.resultCode, p.resultError = true, "REPLY_SUPERSEDED", rejected.Error()
+					p.done <- Result{ID: p.command.ID, Code: p.resultCode, Error: p.resultError}
+					b.mu.Unlock()
+					continue
+				}
 				// 此时指令没有交给设备，允许下次仅重试领取事务。
 				if p.caller.Err() == nil && time.Now().Before(p.command.Deadline) {
 					select {

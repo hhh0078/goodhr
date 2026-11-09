@@ -279,14 +279,14 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 			})
 		}
 		if state.reviewFinished {
-			return r.completeRun(input, run, assistantMessages, totalTokens, ReplyDecision{ConfirmationUpdates: state.confirmationUpdates})
+			return r.completeRun(input, run, assistantMessages, totalTokens, ReplyDecision{ConfirmationUpdates: state.confirmationUpdates, Messages: state.pendingMessages})
 		}
 		if len(state.pendingMessages) > 0 {
 			decision := ReplyDecision{Messages: append([]ReplyMessage(nil), state.pendingMessages...), ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions}
 			return r.completeRun(input, run, assistantMessages, totalTokens, decision)
 		}
 		if state.manualReason != "" {
-			decision := ReplyDecision{HandoffQuestions: state.handoffQuestions, KnownAnswer: state.knownAnswer, ManualReason: state.manualReason, ReasonKey: state.manualKey, ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions}
+			decision := ReplyDecision{HandoffFollowup: state.manualFollowup, HandoffQuestions: state.handoffQuestions, KnownAnswer: state.knownAnswer, ManualReason: state.manualReason, ReasonKey: state.manualKey, ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions}
 			return r.completeRun(input, run, assistantMessages, totalTokens, decision)
 		}
 	}
@@ -434,7 +434,8 @@ func toolDisplayName(name string) string {
 		toolGetContext: "查看岗位和候选人", toolGetChatHistory: "查看聊天记录",
 		toolGetResume: "查看简历", toolGetConfirmations: "查看确认项",
 		toolUpsertConfirmations: "更新确认项", toolRequestResume: "核对简历状态",
-		toolSendMessages: "准备回复", toolSuggestConfig: "提交资料建议", toolNotifyHR: "转人工",
+		toolArchiveConfirmations: "删除沟通目标",
+		toolSendMessages:         "准备回复", toolSuggestConfig: "提交资料建议", toolNotifyHR: "转人工",
 		toolFinishReview: "完成简历补审",
 	}
 	if label := labels[strings.TrimSpace(name)]; label != "" {

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -21,7 +22,7 @@ func autoReplyStateTestDB(t *testing.T, stopBefore ...string) *sql.DB {
 		t.Fatal(err)
 	}
 	applyAutoReplyTestMigrations(t, db)
-	for _, name := range []string{"0112_auto_reply_cloud_state.sql", "0113_auto_reply_import_receipts.sql", "0114_auto_reply_answer_receipts.sql", "0115_auto_reply_attachment_cleanup.sql", "0116_auto_reply_question_privacy.sql", "0117_auto_reply_authoritative_boundaries.sql", "0118_auto_reply_sealed_audits.sql"} {
+	for _, name := range []string{"0112_auto_reply_cloud_state.sql", "0113_auto_reply_import_receipts.sql", "0114_auto_reply_answer_receipts.sql", "0115_auto_reply_attachment_cleanup.sql", "0116_auto_reply_question_privacy.sql", "0117_auto_reply_authoritative_boundaries.sql", "0118_auto_reply_sealed_audits.sql", "0119_auto_reply_editable_facts.sql"} {
 		if len(stopBefore) > 0 && stopBefore[0] == name {
 			break
 		}
@@ -216,10 +217,13 @@ func TestAutoReplyCloudStateFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := PositionAutoReplyConfig{TenantID: tenant, PositionID: pos, CompanyProfileID: company, PositionDescription: "休息日尚未确认"}
-	co := CompanyProfile{ID: company}
-	if err = s.appendConfirmedFacts(ctx, &cfg, &co); err != nil || co.ExtraInfo != "" || cfg.PositionDescription != "休息日尚未确认\n\n"+confirmedReplyFactsHeading+"\n本岗周日休息" || len(cfg.ConfirmedFacts) != 1 || cfg.ConfirmedFacts[0] != "本岗周日休息" {
-		t.Fatal("改归属残留旧事实", err)
+	cfg, err := s.GetPositionAutoReplyConfig(ctx, tenant, pos)
+	if err != nil || !strings.Contains(cfg.PositionDescription, "本岗周日休息") || strings.Contains(cfg.PositionDescription, "公司统一双休") {
+		t.Fatal("岗位没有保存可编辑的新事实", err)
+	}
+	co, err := s.GetCompanyProfile(ctx, tenant, company)
+	if err != nil || co.ExtraInfo != "" {
+		t.Fatal("改归属残留旧公司事实", err)
 	}
 	archiveDigest := normalizeAutoReplyDedupeKey("archive")
 	imported, err := s.ImportAutoReplyState(ctx, tenant, uid, archiveDigest, changes, 1)

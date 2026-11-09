@@ -33,7 +33,9 @@ const answerSources = `WITH source AS (
  JOIN auto_reply_cloud_entities c ON c.tenant_id=m.tenant_id AND c.user_id=m.user_id AND c.kind='conversations' AND c.id=m.payload->>'conversation_id' AND c.payload->>'position_id'=q.position_id::text
  JOIN position_auto_reply_configs cfg ON cfg.position_id=q.position_id AND cfg.tenant_id=q.tenant_id AND cfg.enabled
  JOIN positions p ON p.id=q.position_id AND p.user_id=x.user_id
- WHERE q.tenant_id=$1 AND x.user_id=$2 AND q.status='resolved' AND char_length(q.fact) BETWEEN 1 AND 200
+	WHERE q.tenant_id=$1 AND x.user_id=$2 AND q.status='resolved' AND q.applied_version=q.version AND char_length(q.fact) BETWEEN 1 AND 200
+	 AND (q.publish_target NOT IN ('position','both') OR strpos(E'\n'||btrim(cfg.position_description)||E'\n',E'\n'||q.fact||E'\n')>0)
+	 AND (q.publish_target NOT IN ('company','both') OR EXISTS(SELECT 1 FROM tenant_company_profiles co WHERE co.id=cfg.company_profile_id AND co.id=q.applied_company_profile_id AND co.tenant_id=q.tenant_id AND strpos(E'\n'||btrim(co.extra_info)||E'\n',E'\n'||q.fact||E'\n')>0))
  ORDER BY q.id,c.id,m.message_order DESC,m.sequence DESC,m.id DESC) `
 
 // agentQuestionAnswers 只通过服务运行凭证、已登录的成员及当前绑定设备领取或更新补答。

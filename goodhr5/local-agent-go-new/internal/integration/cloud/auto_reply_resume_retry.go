@@ -102,7 +102,7 @@ func (c *Client) FinishAutoReplyResumeRetry(ctx context.Context, credentials Age
 	})
 }
 
-// AutoReplyResumeRevision 对完整本地资料计算版本；头像刷新不改变简历事实或重复触发模型补审。
+// AutoReplyResumeRevision 对完整候选资料计算版本；头像刷新不改变简历事实或重复触发模型补审。
 func AutoReplyResumeRevision(candidate AutoReplyStoredCandidate) string {
 	candidate.AvatarURL = ""
 	raw, _ := json.Marshal(candidate)
@@ -128,7 +128,7 @@ func (c *Client) ResetAutoReplyResumeRetries(ctx context.Context, credentials Ag
 }
 
 // CommitAutoReplyResumeProposal 只补审已回答会话的条件，并同事务结束待办、登记独立推荐收据，不产生发送动作。
-func (c *Client) CommitAutoReplyResumeProposal(ctx context.Context, credentials AgentCredentials, conversationID, basedOnMessageKey, sourceMessageID, expectedResumeRevision string, configVersion int, confirmations []CandidateConfirmationItem) error {
+func (c *Client) CommitAutoReplyResumeProposal(ctx context.Context, credentials AgentCredentials, conversationID, basedOnMessageKey, sourceMessageID, expectedResumeRevision string, configVersion int, confirmations []CandidateConfirmationItem, followup ...AutoReplyGoalFollowup) error {
 	if configVersion <= 0 || basedOnMessageKey == "" || expectedResumeRevision == "" {
 		return fmt.Errorf("简历补审所需的消息或岗位版本尚未确认")
 	}
@@ -163,6 +163,27 @@ func (c *Client) CommitAutoReplyResumeProposal(ctx context.Context, credentials 
 			}
 		}
 		conversation.ResumeRetry = nil
+		if len(followup) > 0 {
+			draft := followup[0]
+			if draft.Content == "" || len([]rune(draft.Content)) > 200 || strings.ContainsAny(draft.Content, "{}｛｝") {
+				return fmt.Errorf("新证据追问正文尚未核实")
+			}
+			goal, found, err := getAutoReplyEntity[CandidateConfirmationItem](tx, "confirmations", draft.ConfirmationItemID)
+			if err != nil {
+				return err
+			}
+			if found && AutoReplyGoalCanAsk(goal) && goal.ConversationID == conversationID && (draft.ExpectedContentKey == "" || draft.ExpectedContentKey == AutoReplyGoalContentKey(goal)) {
+				draft.EventKey = autoReplyDigest("resume-goal|" + conversationID + "|" + sourceMessageID + "|" + expectedResumeRevision + "|" + basedOnMessageKey)
+				draft.BasedOnMessageKey, draft.ExpectedGoalVersion, draft.ResumeRevision = basedOnMessageKey, AutoReplyConfirmationRevision(goal), expectedResumeRevision
+				draft.ExpectedLatestKey, draft.CreatedAt = conversation.LastSyncedMessageKey, time.Now().UTC()
+				conversation.GoalFollowup = &draft
+				if _, valid, err := currentGoalFollowup(tx, conversation); err != nil {
+					return err
+				} else if !valid {
+					conversation.GoalFollowup = nil
+				}
+			}
+		}
 		conversation.UpdatedAt = time.Now().UTC()
 		if err = tx.Put("conversations", conversationID, conversation); err != nil {
 			return err

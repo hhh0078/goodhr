@@ -238,6 +238,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auto-reply/company-profiles", s.autoReply.CompanyProfiles)
 	mux.HandleFunc("/api/auto-reply/company-profiles/", s.autoReply.CompanyProfile)
 	mux.HandleFunc("/api/auto-reply/positions/", s.autoReply.Position)
+	mux.HandleFunc("/api/auto-reply/questions/summary", s.autoReply.QuestionSummary)
+	mux.HandleFunc("/api/auto-reply/questions", s.autoReply.QuestionsInbox)
 	mux.HandleFunc("/api/auto-reply/runtime/", s.autoReply.runtimeProxy)
 	mux.HandleFunc("/internal/auto-reply/state/", s.autoReply.internalState)
 	mux.HandleFunc("/api/auto-reply/agent/", s.autoReply.Agent)

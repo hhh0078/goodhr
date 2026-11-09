@@ -28,7 +28,11 @@ func (f *Flow) notifyUnresolved(ctx context.Context, prepared shared.PreparedTas
 		PlatformID: prepared.Platform.ID, Reason: reason, LatestMessage: latestMessage,
 	})
 	if err != nil {
-		f.log(prepared.Request.TaskID, "notify_manual_handoff", "warning", time.Now(), err)
+		stage := "notify_manual_handoff"
+		if result.Queued && reasonKey == "missing_recruitment_info" {
+			stage = "awaiting_hr_notice"
+		}
+		f.log(prepared.Request.TaskID, stage, "warning", time.Now(), err)
 		if !result.Queued {
 			return fmt.Errorf("人工协助通知尚未入队，已保留待处理消息：%w", err)
 		}
@@ -37,10 +41,18 @@ func (f *Flow) notifyUnresolved(ctx context.Context, prepared shared.PreparedTas
 		return fmt.Errorf("人工协助通知尚未送达，已保留待处理消息供重试")
 	}
 	if result.Warning != "" {
-		f.log(prepared.Request.TaskID, "notify_manual_handoff", "warning", time.Now(), fmt.Errorf("%s", result.Warning))
+		stage := "notify_manual_handoff"
+		if reasonKey == "missing_recruitment_info" {
+			stage = "awaiting_hr_notice"
+		}
+		f.log(prepared.Request.TaskID, stage, "warning", time.Now(), fmt.Errorf("%s", result.Warning))
+	}
+	stage := "manual"
+	if reasonKey == "missing_recruitment_info" {
+		stage = "waiting_hr"
 	}
 	shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
-		PositionID: position.Position.ID, Kind: "auto_reply", Phase: "result", Stage: "manual", Terminal: true,
+		PositionID: position.Position.ID, Kind: "auto_reply", Phase: "result", Stage: stage, Terminal: true,
 		CandidateName: snapshot.CandidateName, Accepted: boolPointer(false), Reason: reason,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	})

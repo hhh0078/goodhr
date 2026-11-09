@@ -120,10 +120,6 @@ func (s *AutoReplyService) listCompanyProfiles(w http.ResponseWriter, r *http.Re
 		writeAutoReplyInternalError(w, "COMPANY_PROFILE_LIST_FAILED", "公司档案暂时没读出来，请稍后再试", err)
 		return
 	}
-	if err = s.store.loadCompanyConfirmedFacts(r.Context(), requestContext.Tenant.ID, items); err != nil {
-		writeAutoReplyStoreError(w, err, "公司补充资料暂时没读出来")
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "company_profiles": items})
 }
 
@@ -184,12 +180,6 @@ func (s *AutoReplyService) getPositionConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	applyReplyLibrary(&config, lib)
-	info := config
-	if err = s.store.appendConfirmedFacts(r.Context(), &info, &CompanyProfile{ID: config.CompanyProfileID}); err != nil {
-		writeAutoReplyStoreError(w, err, "岗位补充资料暂时没读出来")
-		return
-	}
-	config.ConfirmedFacts = info.ConfirmedFacts
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "position": publicAutoReplyPosition(position), "config": config,
 		"subscription": publicSubscriptionAccess(requestContext.Access),

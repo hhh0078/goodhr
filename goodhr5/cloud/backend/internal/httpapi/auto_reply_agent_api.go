@@ -118,10 +118,6 @@ func (s *AutoReplyService) agentPositionSnapshots(w http.ResponseWriter, r *http
 			return
 		}
 		applyReplyLibrary(&config, lib)
-		if err = s.store.appendConfirmedFacts(r.Context(), &config, &company); err != nil {
-			writeAutoReplyStoreError(w, err, "招聘事实暂时没读出来")
-			return
-		}
 		config.AutoReplyPrompts = prompts
 		items = append(items, map[string]any{
 			"ok": true, "position": publicAutoReplyPosition(position), "config": config.forAgent(),
@@ -161,10 +157,6 @@ func (s *AutoReplyService) agentPositionSnapshot(w http.ResponseWriter, r *http.
 		return
 	}
 	applyReplyLibrary(&config, lib)
-	if err = s.store.appendConfirmedFacts(r.Context(), &config, &company); err != nil {
-		writeAutoReplyStoreError(w, err, "招聘事实暂时没读出来")
-		return
-	}
 	config.AutoReplyPrompts, err = loadAutoReplyPrompts(s.systemConfigs)
 	if err != nil {
 		writeAutoReplyInternalError(w, "AUTO_REPLY_PROMPTS_FAILED", "提示词暂时没读出来", err)

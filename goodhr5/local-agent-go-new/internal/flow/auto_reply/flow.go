@@ -54,7 +54,10 @@ type ReplyContext struct {
 	Resume            *model.AutoReplyResumeBundle
 	BasedOnMessageKey string
 	PhoneContact      phoneContactState
-	ConditionsOnly    bool // 简历待办恢复只复核内部条件，禁止生成或发送历史回复。
+	ConditionsOnly    bool // 简历待办恢复不补答历史，只复核目标。
+	AllowGoalFollowup bool // 新资料事件可准备一条尚未问过的目标追问，不启动定时催问。
+	ReceiptFollowup   bool // 手机号由固定话术签收，模型只更新目标并提议一条独立追问。
+	MessageFollowup   bool // 普通答复已实际送达，只检查本次新消息尚未规划的目标。
 }
 
 // ResumeStructureContext 表示结构化简历请求需要的会话、AI配置和页面原文。
@@ -81,6 +84,7 @@ type StructuredResume struct {
 
 // ReplyMessage 表示 AI 准备的一条回答或条件确认消息。
 type ReplyMessage struct {
+	GoalContentKey     string `json:"-"` // 服务器提议绑定的目标正文，删改后旧问题不能套用到新版本。
 	Type               string `json:"type"`
 	Content            string `json:"content"`
 	ConfirmationItemID string `json:"confirmation_item_id,omitempty"`
@@ -89,6 +93,7 @@ type ReplyMessage struct {
 
 // ReplyDecision 表示 AI 工具循环最终决定发送最多两条消息或转人工。
 type ReplyDecision struct {
+	HandoffFollowup     *ReplyMessage                     `json:"handoff_followup,omitempty"`
 	HandoffQuestions    []handoffQuestion                 `json:"handoff_questions,omitempty"`
 	Messages            []ReplyMessage                    `json:"messages"`
 	KnownAnswer         string                            `json:"known_answer,omitempty"`

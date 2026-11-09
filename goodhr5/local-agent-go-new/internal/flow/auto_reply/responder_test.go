@@ -32,10 +32,10 @@ type responderTestState struct {
 	chatCallNumber          int
 }
 
-// TestAutoReplyToolDefinitionsAreStableAndUnique 验证四个工具名称唯一且每份参数定义都是合法 JSON。
+// TestAutoReplyToolDefinitionsAreStableAndUnique 验证目标与回复工具名称唯一且每份参数定义都是合法 JSON。
 func TestAutoReplyToolDefinitionsAreStableAndUnique(t *testing.T) {
 	definitions := autoReplyToolDefinitions()
-	if len(definitions) != 4 {
+	if len(definitions) != 5 {
 		t.Fatalf("tool count = %d", len(definitions))
 	}
 	seen := make(map[string]struct{}, len(definitions))
@@ -57,11 +57,11 @@ func TestAutoReplySystemPromptKeepsHumanHRReplyBoundaries(t *testing.T) {
 		"你就是当前岗位的招聘方 HR",
 		"对话中不存在另一个需要你转达的“招聘方”",
 		"pending_messages 是本轮尚未处理的连续消息批次",
-		"不要重写未变化条件",
+		"优先按语义匹配已有目标",
 		"条件状态只能是 pending、matched、unmatched",
 		"资料和聊天没有提到时必须是 pending",
-		"bonus 只是低权重加分项",
-		"回答完成后，用独立的第二条 confirmation 消息询问一个",
+		"HR 配置的 required 和 confirm 决定岗位准入",
+		"用独立第二条 confirmation 主动追问一个",
 		"如果本轮问题都没有可靠答案，只调用 notify_hr",
 		"不要承诺后续主动反馈或具体时间，也不要声称已经转达",
 		"禁止提及 GoodHR、AI、系统、工具、岗位资料或另一个“招聘方”",

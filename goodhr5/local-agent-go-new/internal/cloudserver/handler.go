@@ -354,6 +354,10 @@ func safeRunFailure(stage string) string {
 		return "岗位配置暂时读不到，请确认岗位已开启自动回复后重试。"
 	case "ai", "resume_ai", "structure_resume":
 		return "AI 处理未完成，请检查模型配置，再查看候选人的处理记录。"
+	case "awaiting_hr_notice":
+		return "待确认问题已记下，提醒还在排队；其他消息继续处理。"
+	case "message_goal_review", "phone_goal_review":
+		return "目标复核暂未完成，有依据的回复和新消息会继续处理。"
 	case "process_conversation", "sync", "sent", "message_changed":
 		return "这条沟通没能处理完，请先查看聊天记录和发送回执，再重新启动。"
 	default:

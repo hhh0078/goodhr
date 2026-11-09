@@ -4,12 +4,36 @@ package replybridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
+
+// TestRejectedQueuedGoalNeverReachesDevice 验证领取前失效的追问直接取消，不按临时故障反复领取，也不把新业务字段发给设备。
+func TestRejectedQueuedGoalNeverReachesDevice(t *testing.T) {
+	b := NewBroker(func(_ context.Context, _ Command, status string, _ Result) error {
+		if status == "executing" {
+			return &CommandRejectedError{Message: "目标已删除"}
+		}
+		return nil
+	})
+	b.RunID, b.PlatformID = "run", "liepin"
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- b.Call(ctx, "send", Request{Message: "已经失效的追问"}, nil) }()
+	next, stop := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer stop()
+	if command, err := b.Next(next); err == nil || command.ID != "" {
+		t.Fatal("已删除目标的命令仍交给了设备")
+	}
+	if err := <-done; !errors.Is(err, model.ErrAutoReplySupersededBeforeSend) {
+		t.Fatal("取消未返回可安全放弃的旧草稿类型", err)
+	}
+}
 
 // TestBrokerPersistsBeforeExecutingAndAcceptsSameReceipt 验证持久化顺序和重复回执不触发重复操作。
 func TestBrokerPersistsBeforeExecutingAndAcceptsSameReceipt(t *testing.T) {

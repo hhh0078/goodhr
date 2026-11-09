@@ -4,14 +4,21 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ReplyPhrase, ReplyPhraseOverride } from "../../lib/auto-reply-phrases";
 import type { PositionReplyCondition } from "../../lib/auto-reply";
+import type { ReplyQuestion } from "../../lib/auto-reply-inbox";
 import { mockUniformAdmin, uniformOrigin } from "./admin-uniform-fixture";
 
 const output = resolve(process.env.UI_TEST_SCREENSHOT_DIR || "output/auto-reply-20261030");
 test.use({ storageState: { cookies: [], origins: [{ origin: uniformOrigin, localStorage: [{ name: "goodhr5_access_token", value: "auto-reply-synthetic-token" }] }] } });
 
 /** fixture 在内存中模拟岗位配置和本地任务，未列入的写操作不会触达任何服务。 */
-async function fixture(page: Page) {
+async function fixture(page: Page, agentOnline = true) {
   const base = await mockUniformAdmin(page);
+  await page.addLocatorHandler(page.getByRole("dialog", {name:"请先安装本地程序"}), async () => { await page.keyboard.press("Escape"); });
+  // 本组验证已连接设备的业务界面；端口探测本身另有单测，避免450ms探测被模拟路由调度耗时干扰。
+  await page.addInitScript(({port,online}) => {
+    if(online) localStorage.setItem("goodhr5_local_agent_detect_cache",JSON.stringify({baseURL:`http://127.0.0.1:${port}`,checkedAt:Date.now()}));
+    else localStorage.removeItem("goodhr5_local_agent_detect_cache");
+  }, {port:process.env.UI_UNIFORM_AGENT_PORT || "43129",online:agentOnline});
   const reports = { blocked: 0, resumeBlocked: 0, retries: 0, failure: "" };
   const defaults: ReplyPhrase[] = [
     { id: "receive_resume", title: "收到简历", category: "简历", scene: "候选人刚刚发来简历", content: "简历收到了，谢谢你发过来。" },
@@ -24,6 +31,8 @@ async function fixture(page: Page) {
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
     let data: unknown;
     if (path.endsWith("/auto-reply/start")) { expect(request.postDataJSON().platform_account_id).toBe("合成招聘账号"); state.starts++; state.running = true; data = { ok: true, data: { status: "running", task_id: "synthetic-auto-reply" } }; }
+    else if (path === "/api/auto-reply/questions/summary") data = { pending_count: 0, positions: [] };
+    else if (path === "/api/auto-reply/questions") data = { questions: [], next_cursor: "", pending_count: 0 };
     else if (path.endsWith("/questions") && method === "GET") data = { questions: [] };
     else if (path.endsWith("/auto-reply/stop")) { state.stops++; state.running = false; data = { ok: true, data: { status: "stopped" } }; }
     else if (path.endsWith("/auto-reply/status")) data = { ok: true, data: { status: state.running ? "running" : reports.failure ? "failed" : "stopped", current_step: reports.failure ? "finished" : "合成任务状态", error_code: reports.failure ? "TASK_FLOW_FAILED" : "", error_message: reports.failure, blocked_report_count: reports.blocked, blocked_resume_count: reports.resumeBlocked } };
@@ -44,6 +53,145 @@ async function fixture(page: Page) {
   return { state, base, reports };
 }
 
+/** openReplyWorkspace 只打开统一面板，不能因为查看待办而顺带启动浏览器任务。 */
+async function openReplyWorkspace(page: Page) {
+  await page.getByTestId("auto-reply-global").click();
+  const dialog = page.getByRole("dialog", { name: "自动回复", exact: true });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+/** inboxFixture 模拟服务器汇总、当前页原话和版本化答复，不访问真实招聘账号。 */
+async function inboxFixture(page: Page, agentOnline = true) {
+  const base = await fixture(page, agentOnline);
+  const rows: ReplyQuestion[] = Array.from({length:13},(_,i)=>({ id:`inbox-${i+1}`,position_id:i===12?"closed-position":"uniform-position-1",question:`可以确认事项${i+1}吗？`,answer:"",status:"pending",publish_target:"",error:"",version:1,source_messages:[{message_id:`source-${i+1}`,text:`候选人的合成原话${i+1}`,candidate_name:`合成候选人${i+1}`}] }));
+  const inbox = { rows, summaryFailure:false, invalidCursor:false, invalidateOnReply:false, replies:0, reads:0 };
+  const headers={"access-control-allow-origin":"*","access-control-allow-methods":"*","access-control-allow-headers":"*"};
+  await page.route(/\/api\/auto-reply\/(?:questions(?:\/summary|\?|$)|positions\/[^/]+\/questions\/reply$)/,async route=>{
+    const req=route.request(),url=new URL(req.url());
+    if(req.method()==="OPTIONS")return route.fulfill({status:204,headers});
+    const pending=inbox.rows.filter(row=>row.status==="pending"||row.status==="failed");
+    if(url.pathname.endsWith("/summary")){
+      if(inbox.summaryFailure)return route.fulfill({status:503,headers,json:{message:"汇总读取测试失败"}});
+      return route.fulfill({headers,json:{pending_count:pending.length,positions:[{position_id:"uniform-position-1",position_name:"合成待确认岗位",platform_id:"boss",is_open:true,pending_count:pending.filter(row=>row.position_id==="uniform-position-1").length},{position_id:"closed-position",position_name:"已关闭的合成岗位",platform_id:"liepin",is_open:false,pending_count:pending.filter(row=>row.position_id==="closed-position").length}]}});
+    }
+    if(url.pathname.endsWith("/reply")){
+      const body=req.postDataJSON();const row=inbox.rows.find(item=>item.id===body.id);expect(row).toBeTruthy();expect(body.version).toBe(row!.version);
+      row!.answer=body.answer;row!.status="resolved";row!.publish_target="position";row!.version++;inbox.replies++;
+      if(inbox.invalidateOnReply){inbox.invalidCursor=true;inbox.invalidateOnReply=false;}
+      return route.fulfill({headers,json:{question:row}});
+    }
+    inbox.reads++;
+    if(inbox.invalidCursor&&url.searchParams.get("cursor"))return route.fulfill({status:400,headers,json:{code:"AUTO_REPLY_VALIDATION_FAILED",message:"列表刚有更新，请重新打开"}});
+    const filtered=(url.searchParams.get("view")==="all"?inbox.rows:pending).filter(row=>row.position_id===url.searchParams.get("position_id"));
+    const offset=url.searchParams.get("cursor")?10:0;
+    return route.fulfill({headers,json:{questions:filtered.slice(offset,offset+10),next_cursor:filtered.length>offset+10?"page-two-cursor":"",pending_count:pending.length}});
+  });
+  return { ...base,inbox };
+}
+
+for (const width of [1440,390]) test(`待确认统一入口 ${width}px 标题原话、分页草稿与游标失效恢复`,async({page})=>{
+  const {inbox,state,base}=await inboxFixture(page);await page.setViewportSize({width,height:960});await page.goto("/admin/positions");
+  await expect(page.getByTitle("13 项待确认补充",{exact:true})).toBeVisible();
+  const badgeBounds=await page.getByTitle("13 项待确认补充",{exact:true}).boundingBox();
+  const toolbarBounds=await page.getByTestId("positions-toolbar").boundingBox();
+  expect(badgeBounds!.y).toBeGreaterThanOrEqual(toolbarBounds!.y);
+  expect(badgeBounds!.y+badgeBounds!.height).toBeLessThanOrEqual(toolbarBounds!.y+toolbarBounds!.height);
+  expect((await page.getByTestId("auto-reply-global").boundingBox())!.height).toBe(32);
+  mkdirSync(output,{recursive:true});await page.screenshot({path:resolve(output,`inbox-entry-${width}.png`),fullPage:true,animations:"disabled"});
+  const dialog=await openReplyWorkspace(page);
+  await expect(dialog.getByRole("columnheader",{name:"候选人原话",exact:true})).toHaveCount(0);
+  const first=dialog.getByRole("textbox",{name:"回复可以确认事项1吗？",exact:true});await first.fill("第一页仍未提交的答复");
+  await dialog.getByRole("button",{name:/可以确认事项1吗？/}).click();
+  await expect(dialog.getByText("候选人的合成原话1",{exact:true})).toBeVisible();
+  await dialog.getByRole("button",{name:"下一页",exact:true}).click();
+  const second=dialog.getByRole("textbox",{name:"回复可以确认事项11吗？",exact:true});await second.fill("第二页确认后的答复");
+  inbox.invalidateOnReply=true;await dialog.getByRole("button",{name:"保存回复",exact:true}).first().click();
+  await expect(dialog.getByText("列表刚有更新，已回到第一页，填写的草稿还在。",{exact:true})).toBeVisible();
+  await expect(first).toHaveValue("第一页仍未提交的答复");
+  await expect(page.getByTitle("12 项待确认补充",{exact:true})).toBeVisible();
+  const select=dialog.getByRole("combobox",{name:"待确认所属岗位",exact:true});await select.click();await page.locator(".ant-select-item-option").filter({hasText:/已关闭的合成岗位/}).click();
+  await expect(dialog.getByRole("textbox",{name:"回复可以确认事项13吗？",exact:true})).toBeVisible();
+  await select.click();await page.locator(".ant-select-item-option").filter({hasText:/合成待确认岗位/}).click();await expect(first).toHaveValue("第一页仍未提交的答复");
+  await dialog.getByText("全部记录",{exact:true}).click();
+  await expect(first).toHaveValue("第一页仍未提交的答复");
+  await dialog.getByRole("button",{name:/可以确认事项1吗？/}).click();
+  await expect(dialog.getByText("候选人的合成原话1",{exact:true})).toBeVisible();
+  await dialog.getByText("消息接待",{exact:true}).scrollIntoViewIfNeeded();
+  await expect(page.getByText("已补入对应资料。这条已处理，可在全部记录里查看。",{exact:true})).toHaveCount(0);
+  mkdirSync(output,{recursive:true});await page.screenshot({path:resolve(output,`inbox-${width}.png`),fullPage:true,animations:"disabled"});
+  const bounds=await dialog.boundingBox();expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width);
+  expect(state.starts).toBe(0);expect(inbox.replies).toBe(1);expect(base.unknown).toEqual([]);
+});
+
+test("待确认汇总失败显示未知，离线仍可回复，处理最后一题不跳到其他岗位",async({page})=>{
+  const {inbox,state}=await inboxFixture(page,false);inbox.rows=inbox.rows.filter(row=>row.id==="inbox-1"||row.id==="inbox-13");inbox.summaryFailure=true;
+  await page.route(/http:\/\/127\.0\.0\.1:43999\//,route=>route.abort());
+  await page.goto("/admin/positions");await page.addLocatorHandler(page.getByRole("dialog",{name:"请先安装本地程序"}),async()=>{await page.keyboard.press("Escape");});
+  const dialog=await openReplyWorkspace(page);await expect(dialog.getByText("数量暂未读到",{exact:true})).toBeVisible();await expect(dialog.getByText("0 项待处理",{exact:true})).toHaveCount(0);
+  await expect(dialog.getByRole("button",{name:"开始自动回复",exact:true})).toBeDisabled();
+  inbox.summaryFailure=false;await dialog.getByRole("button",{name:"重试",exact:true}).click();
+  await dialog.getByRole("textbox",{name:"回复可以确认事项1吗？",exact:true}).fill("已核实的信息");await dialog.getByRole("button",{name:"保存回复",exact:true}).click();
+  await expect(dialog.getByText("这个岗位暂时没有需要补充的问题。",{exact:true})).toBeVisible();
+  await expect(dialog.getByRole("textbox",{name:"回复可以确认事项13吗？",exact:true})).toHaveCount(0);
+  await expect(dialog.getByText("合成待确认岗位",{exact:true})).toBeVisible();
+  await expect(page.getByTitle("1 项待确认补充",{exact:true})).toBeVisible();expect(state.starts).toBe(0);expect(inbox.replies).toBe(1);
+});
+
+test("保存答复响应省略来源时，不把仍在读取的原话显示成已清理",async({page})=>{
+  const {inbox}=await inboxFixture(page);inbox.rows=inbox.rows.slice(0,1);
+  let hold=false;let release=()=>{};const gate=new Promise<void>(resolve=>{release=resolve;});
+  await page.route(/\/api\/auto-reply\/questions\?/,async route=>{if(hold)await gate;await route.fallback();});
+  await page.route("**/api/auto-reply/positions/*/questions/reply",async route=>{
+    const headers={"access-control-allow-origin":"*","access-control-allow-methods":"*","access-control-allow-headers":"*"};
+    if(route.request().method()==="OPTIONS")return route.fulfill({status:204,headers});
+    const row=inbox.rows[0];row.answer=route.request().postDataJSON().answer;row.status="resolved";row.publish_target="position";row.version++;hold=true;
+    const {source_messages:omitted,...saved}=row;void omitted;await route.fulfill({headers,json:{question:saved}});
+  });
+  try{
+    await page.goto("/admin/positions");const dialog=await openReplyWorkspace(page);await dialog.getByText("全部记录",{exact:true}).click();
+    await dialog.getByRole("button",{name:/可以确认事项1吗？/}).click();await dialog.getByRole("textbox",{name:"回复可以确认事项1吗？",exact:true}).fill("已确认答复");
+    await dialog.getByRole("button",{name:"保存回复",exact:true}).click();await expect(dialog.getByRole("table").getByText("已补充",{exact:true})).toBeVisible();
+    await expect(dialog.getByText("候选人的合成原话1",{exact:true})).toBeVisible();await expect(dialog.getByText("原话已清理",{exact:true})).toHaveCount(0);
+  }finally{release();}
+});
+
+test("答复草稿固定首次版本，每次并发更新都需核对，自己的归档失败仍可直接重试",async({page})=>{
+  test.setTimeout(60000);
+  const {inbox}=await inboxFixture(page);inbox.rows=inbox.rows.slice(0,1);
+  const question=inbox.rows[0];question.answer="上次中断时保存的原答复";question.status="failed";
+  let firstAttempt=true;
+  await page.route("**/api/auto-reply/positions/*/questions/reply",async route=>{
+    if(route.request().method()==="OPTIONS"||!firstAttempt)return route.fallback();
+    const body=route.request().postDataJSON();expect(body.version).toBe(3);firstAttempt=false;
+    question.answer=body.answer;question.version++;question.status="failed";question.error="整理没完成，可以重新保存。";inbox.replies++;
+    await route.fulfill({headers:{"access-control-allow-origin":"*"},json:{question}});
+  });
+  await page.goto("/admin/positions");const dialog=await openReplyWorkspace(page);
+  const row=dialog.getByRole("table").getByRole("row").filter({hasText:"可以确认事项1吗？"});
+  const input=row.getByRole("textbox",{name:"回复可以确认事项1吗？",exact:true});
+  const save=row.getByRole("button",{name:"保存回复",exact:true});
+  await expect(input).toHaveValue("上次中断时保存的原答复");await expect(save).toBeEnabled();
+  await input.fill("本页仍未提交的人工草稿");
+  question.version=2;question.answer="另一个页面刚保存的答复";
+  await expect(row.getByText("最新已保存答复：另一个页面刚保存的答复",{exact:true})).toBeVisible({timeout:15000});
+  await expect(input).toHaveValue("本页仍未提交的人工草稿");await expect(save).toBeDisabled();expect(inbox.replies).toBe(0);
+  await row.getByRole("button",{name:"已核对，继续用我的草稿",exact:true}).click();await expect(save).toBeEnabled();
+  question.version=3;question.answer="核对后另一个页面再次保存的答复";
+  await expect(row.getByText("最新已保存答复：核对后另一个页面再次保存的答复",{exact:true})).toBeVisible({timeout:15000});
+  await expect(save).toBeDisabled();await expect(input).toHaveValue("本页仍未提交的人工草稿");expect(inbox.replies).toBe(0);
+  await page.setViewportSize({width:390,height:960});
+  const reviewBounds=await dialog.getByRole("button",{name:"已核对，继续用我的草稿",exact:true}).boundingBox();const dialogBounds=await dialog.boundingBox();
+  expect(reviewBounds!.x+reviewBounds!.width).toBeLessThanOrEqual(dialogBounds!.x+dialogBounds!.width);expect(reviewBounds!.height).toBe(32);
+  mkdirSync(output,{recursive:true});await page.screenshot({path:resolve(output,"inbox-draft-conflict-390.png"),fullPage:true,animations:"disabled"});
+  await page.setViewportSize({width:1440,height:960});
+  await row.getByRole("button",{name:"已核对，继续用我的草稿",exact:true}).click();await save.click();
+  await expect(row.getByText("整理没完成，可以重新保存。",{exact:true})).toBeVisible();
+  await expect(save).toBeEnabled();await expect(row.getByRole("button",{name:"已核对，继续用我的草稿",exact:true})).toHaveCount(0);
+  await save.click();await expect(dialog.getByText("这个岗位暂时没有需要补充的问题。",{exact:true})).toBeVisible();
+  expect(inbox.replies).toBe(2);expect(question.answer).toBe("本页仍未提交的人工草稿");
+});
+
 test("慢轮询不重叠，读取失败重试后保留岗位待确认问题的草稿", async ({ page }) => {
   test.setTimeout(60000);
   await fixture(page);
@@ -55,7 +203,8 @@ test("慢轮询不重叠，读取失败重试后保留岗位待确认问题的�
   // 开发模式会试挂载组件，所有初始读取共用闸门，避免已取消的首请求抢先放行。
   const firstResponse = new Promise<void>(resolve => { releaseFirst = resolve; });
   const question = { id:"slow-question", question:"能否远程办公？", source_messages:[], status:"pending", version: 1 };
-  await page.route("**/api/auto-reply/positions/*/questions", async route => {
+  await page.route("**/api/auto-reply/questions/summary", async route => route.fulfill({ headers: { "access-control-allow-origin":"*" }, json: { pending_count: 1, positions:[{position_id:"uniform-position-1",position_name:"合成岗位",platform_id:"boss",is_open:true,pending_count:1}] } }));
+  await page.route(/\/api\/auto-reply\/questions(?:\?|$)/, async route => {
     const headers = { "access-control-allow-origin":"*", "access-control-allow-headers":"*" };
     if (route.request().method() === "OPTIONS") return route.fulfill({status:204,headers});
     reads++;
@@ -66,17 +215,17 @@ test("慢轮询不重叠，读取失败重试后保留岗位待确认问题的�
       await new Promise<void>(resolve => { release=resolve; });
       return route.fulfill({status:503,headers,json:{message:"问题列表暂时没读出来"}});
     }
-    await route.fulfill({headers,json:{questions:[question]}});
+    await route.fulfill({headers,json:{questions:[question],next_cursor:"",pending_count:1}});
   });
   await page.goto("/admin/positions");
-  await page.addLocatorHandler(page.getByRole("dialog",{name:"请先安装本地程序"}),async () => {await page.keyboard.press("Escape");});
-  await page.locator('.ant-card[data-position-id="uniform-position-1"]').getByRole("button",{name:/自动回复设置$/}).click();
+  await openReplyWorkspace(page);
   await expect(page.getByRole("status").filter({hasText:"正在读取待确认问题"})).toBeVisible();
   await expect(page.getByText("暂时没有需要你补充的问题。")).toHaveCount(0);
   await expect.poll(() => reads).toBeGreaterThan(0);
   releaseFirst();
   const questionInput=page.getByRole("textbox",{name:"回复能否远程办公？"});
   await questionInput.fill("HR正在填写的答案");
+  await page.getByRole("button", {name:/能否远程办公？/}).click();
   await expect(page.getByText("原话已清理", {exact:true})).toBeVisible();
   await expect(page.getByText("0 条原话", {exact:true})).toHaveCount(0);
   holdNext = true;
@@ -212,7 +361,8 @@ for (const width of [1366, 390]) {
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
     mkdirSync(output, { recursive: true });
     await page.screenshot({ path: resolve(output, `failure-${width}.png`), fullPage: true, animations: "disabled" });
-    await page.getByRole("button", { name: "开始自动回复", exact: true }).click();
+    const workspace = await openReplyWorkspace(page);
+    await workspace.getByRole("button", { name: "开始自动回复", exact: true }).click();
     const account = page.getByRole("dialog", { name: "确认当前招聘账号", exact: true });
     await account.getByRole("textbox", { name: "当前招聘账号", exact: true }).fill("合成招聘账号");
     await account.getByRole("button", { name: "确认账号并开始", exact: true }).click();
@@ -237,7 +387,8 @@ for (const width of [1366, 390]) {
     await dialog.getByRole("button", { name: "保存配置", exact: true }).click();
     await expect(dialog).not.toBeVisible();
     expect(state.config.position_description).toContain("合成新说明"); expect(state.config.enabled).toBe(true);
-    await page.getByRole("button", { name: "开始自动回复", exact: true }).click();
+    const workspace = await openReplyWorkspace(page);
+    await workspace.getByRole("button", { name: "开始自动回复", exact: true }).click();
     const account = page.getByRole("dialog", { name: "确认当前招聘账号", exact: true });
     await expect(account.getByRole("button", { name: "确认账号并开始", exact: true })).toBeDisabled();
     await account.getByRole("textbox", { name: "当前招聘账号", exact: true }).fill("合成招聘账号");
@@ -248,8 +399,10 @@ for (const width of [1366, 390]) {
     await account.getByRole("button", { name: "确认账号并开始", exact: true }).click();
     await expect(page.getByRole("button", { name: "停止自动回复", exact: true })).toBeVisible(); expect(state.starts).toBe(1);
     await page.reload();
-    await page.getByRole("button", { name: "停止自动回复", exact: true }).click();
+    const restoredWorkspace = await openReplyWorkspace(page);
+    await restoredWorkspace.getByRole("button", { name: "停止自动回复", exact: true }).click();
     await expect(page.getByRole("button", { name: "开始自动回复", exact: true })).toBeVisible(); expect(state.stops).toBe(1);
+    await restoredWorkspace.getByRole("button", { name: "关闭", exact: true }).last().click();
     await page.screenshot({ path: resolve(output, `positions-${width}.png`), fullPage: true, animations: "disabled" });
     const create = await page.getByRole("button", { name: "新建岗位", exact: true }).boundingBox();
     expect(create!.x + create!.width).toBeLessThanOrEqual(width);
@@ -261,6 +414,7 @@ for (const width of [1366, 390]) {
     reports.blocked = 1; reports.resumeBlocked = 1;
     await page.setViewportSize({ width, height: 960 });
     await page.goto("/admin/positions");
+    await openReplyWorkspace(page);
     await page.getByRole("button", { name: "重试待办（2）", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "重试待办", exact: true });
     await expect(dialog).toContainText("使用 AI 余额");
@@ -416,7 +570,9 @@ test("主动退出先撤销本机内存凭证再返回登录页", async ({ page 
     await route.fulfill({ headers, json: { ok: true, data: { unbound: true } } });
   });
   await page.goto("/admin/positions");
-  await expect(page.getByRole("button", { name: "开始自动回复", exact: true })).toBeEnabled();
+  const workspace = await openReplyWorkspace(page);
+  await expect(workspace.getByRole("button", { name:"开始自动回复", exact:true })).toBeEnabled();
+  await workspace.getByRole("button", {name:"关闭",exact:true}).last().click();
   await page.getByRole("button", { name: "退出登录", exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
   expect(unbound).toBe(true);
@@ -425,7 +581,8 @@ test("主动退出先撤销本机内存凭证再返回登录页", async ({ page 
 test("本地程序同端口重启后，开始自动回复重新绑定并等待启动检查", async ({ page }) => {
   const { state } = await fixture(page);
   await page.goto("/admin/positions");
-  await expect(page.getByRole("button", { name: "开始自动回复", exact: true })).toBeEnabled();
+  const workspace = await openReplyWorkspace(page);
+  await expect(workspace.getByRole("button", {name:"开始自动回复",exact:true})).toBeEnabled();
   let bound = false;
   let checks = 0;
   let ready = false;
@@ -440,7 +597,7 @@ test("本地程序同端口重启后，开始自动回复重新绑定并等待�
     if (bound) checks++;
     return route.fulfill({ headers, json: { ok: true, data: { camoufox_ready: false, worker_ready: false, camoufox_installed: ready, camoufox_version: "", install_progress: { running: !ready, stage: ready ? "installed" : "queued" }, native_input_safety: { ready: true } } } });
   });
-  await page.getByRole("button", { name: "开始自动回复", exact: true }).click();
+  await workspace.getByRole("button", { name: "开始自动回复", exact: true }).click();
   const account = page.getByRole("dialog", { name: "确认当前招聘账号", exact: true });
   await account.getByRole("textbox", { name: "当前招聘账号", exact: true }).fill("合成招聘账号");
   await account.getByRole("button", { name: "确认账号并开始", exact: true }).click();

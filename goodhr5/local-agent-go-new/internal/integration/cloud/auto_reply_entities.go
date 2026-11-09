@@ -129,6 +129,7 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 				item.CaptureIntent = old.CaptureIntent
 				// 简历待办只由领取、完成和补审事务改变，普通页面保存不能抹掉待办。
 				item.ResumeRetry = old.ResumeRetry
+				item.GoalFollowup = old.GoalFollowup
 				if item.CandidateID == "" {
 					item.CandidateID = old.CandidateID
 				}
@@ -390,8 +391,17 @@ func putLocalAutoReplyConfirmation(tx *storage.AutoReplyTx, item CandidateConfir
 	}
 	now := time.Now().UTC()
 	if exists {
+		if item.RequireAbsent || item.ExpectedUpdatedAt != nil && !old.UpdatedAt.Equal(*item.ExpectedUpdatedAt) {
+			return item, fmt.Errorf("沟通目标已变化，本轮旧提议不再生效")
+		}
 		if old.CandidateID != item.CandidateID || old.PositionID != item.PositionID {
 			return item, fmt.Errorf("确认项归属不一致")
+		}
+		if item.AIProposal && old.ConversationID != item.ConversationID {
+			return item, fmt.Errorf("AI 目标不能转移到其他会话")
+		}
+		if item.AIProposal && old.SourceType == "position" && (item.SourceType != old.SourceType || item.PositionConditionID != old.PositionConditionID || item.Content != old.Content || item.ItemType != old.ItemType || item.ArchivedAt != nil) {
+			return item, fmt.Errorf("岗位必要条件只能由 HR 修改，AI 不能删除或放宽")
 		}
 		item.CreatedAt = old.CreatedAt
 		changedPositionCondition := old.SourceType == "position" && item.SourceType == "position" && old.PositionConditionID != "" && item.PositionConditionID == old.PositionConditionID && (old.Content != item.Content || old.ItemType != item.ItemType)
@@ -400,6 +410,12 @@ func putLocalAutoReplyConfirmation(tx *storage.AutoReplyTx, item CandidateConfir
 			item.LastAskedAt = old.LastAskedAt
 		}
 	} else {
+		if item.ExpectedUpdatedAt != nil {
+			return item, fmt.Errorf("沟通目标已删除，本轮旧提议不再生效")
+		}
+		if item.AIProposal && (item.SourceType != "ai" || item.CreatedByKind != "ai" || item.ItemType != "confirm" || item.PositionConditionID != "" || item.ConversationID == "") {
+			return item, fmt.Errorf("AI 只能为当前会话新增沟通确认目标，不能创建岗位门槛")
+		}
 		item.CreatedAt = now
 	}
 	item.UpdatedAt = now

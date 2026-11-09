@@ -96,6 +96,7 @@ export async function saveCompanyProfile(item: CompanyProfile) {
         contact: item.contact.trim(),
         overview: item.overview.trim(),
         extra_info: item.extra_info.trim(),
+        updated_at: item.updated_at || undefined,
       },
     }),
   );

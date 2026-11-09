@@ -163,6 +163,7 @@ type AutoReplyConversation struct {
 	UpdatedAt               time.Time                  `json:"updated_at"`
 	CaptureIntent           *AutoReplyCaptureIntent    `json:"capture_intent,omitempty"`
 	ResumeRetry             *AutoReplyResumeRetry      `json:"resume_retry,omitempty"`
+	GoalFollowup            *AutoReplyGoalFollowup     `json:"goal_followup,omitempty"` // 新证据完成后的一次追问，发送或失效后清除，不是定时催问。
 }
 
 // AutoReplyResumeRetry 保存尚未完成的简历采集或补审；次数在操作前落盘，最多自动尝试三次。
@@ -260,6 +261,9 @@ type AutoReplyResumeStructureResult struct {
 
 // CandidateConfirmationItem 表示候选人与岗位之间的一条结构化确认项。
 type CandidateConfirmationItem struct {
+	ExpectedUpdatedAt   *time.Time `json:"-"` // AI 提议使用的原版本，只用于提交前比较，不写入业务实体。
+	RequireAbsent       bool       `json:"-"` // 新建提议不能覆盖同编号的已有目标。
+	AIProposal          bool       `json:"-"` // 提交时保持岗位条件的正文、归属和启用权不被 AI 放宽。
 	ID                  string     `json:"id"`
 	ReviewID            string     `json:"review_id"`
 	ConversationID      string     `json:"conversation_id"`
@@ -277,12 +281,37 @@ type CandidateConfirmationItem struct {
 	Summary             string     `json:"summary"`
 	CreatedByKind       string     `json:"created_by_kind"`
 	AskCount            int        `json:"ask_count"`
+	LastAskedContentKey string     `json:"last_asked_content_key,omitempty"`
 	LastAskedAt         *time.Time `json:"last_asked_at"`
 	LastAnsweredAt      *time.Time `json:"last_answered_at"`
 	LastReviewedAt      *time.Time `json:"last_reviewed_at"`
 	ArchivedAt          *time.Time `json:"archived_at"`
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
+// AutoReplyGoalFollowup 保存新简历事件拟定的一次追问，复用原会话与发送账本恢复，不产生独立目标库。
+type AutoReplyGoalFollowup struct {
+	EventKind           string    `json:"event_kind,omitempty"`
+	ContextRevision     string    `json:"context_revision,omitempty"`
+	ExpectedContentKey  string    `json:"expected_content_key,omitempty"`
+	EventKey            string    `json:"event_key"`
+	ConfirmationItemID  string    `json:"confirmation_item_id"`
+	Content             string    `json:"content"`
+	BasedOnMessageKey   string    `json:"based_on_message_key"`
+	ExpectedGoalVersion string    `json:"expected_goal_version"`
+	ExpectedLatestKey   string    `json:"expected_latest_key"`
+	ResumeRevision      string    `json:"resume_revision"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+// AutoReplyGoalSend 把将发出的追问绑定到目标版本；同一次发送成功时原子登记询问记录。
+type AutoReplyGoalSend struct {
+	ConfirmationItemID string
+	ExpectedVersion    string
+	BasedOnMessageKey  string
+	ExpectedLatestKey  string
+	AllowNoPending     bool
 }
 
 // AutoReplyAIRun 表示一次自动回复 AI 总记录。

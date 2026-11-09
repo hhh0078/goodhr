@@ -6,7 +6,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { duplicateConditionContent, emptyPositionAutoReplyConfig, loadCompanyProfiles, loadPositionAutoReplyConfig, savePositionAutoReplyConfig,
   type CompanyProfile, type PositionAutoReplyConfig } from "@/lib/auto-reply";
 import AdminDialog from "./AdminDialog";
-import PositionReplyQuestions from "./PositionReplyQuestions";
 
 import PositionReplyCompanies from "./PositionReplyCompanies";
 import PositionReplyConditions from "./PositionReplyConditions";
@@ -87,13 +86,11 @@ function PositionForm({ position, allowAutoReply, notify, confirm, onRequireMax,
             <Input.TextArea id={id} aria-label="自动回复岗位描述" value={config.position_description} autoSize={{ minRows: 2, maxRows: 8 }}
               placeholder="填写可以告诉候选人的职责、工作地点、薪资和时间。" onChange={event => setConfig({ ...config, position_description: event.target.value })} />
           </Form.Item>
-          {config.confirmed_facts?.length ? <div className={styles.muted}><strong>HR 已确认</strong>{config.confirmed_facts.map((fact,index) => <p key={index} style={{margin:"4px 0",whiteSpace:"pre-wrap"}}>{fact}</p>)}</div> : null}
         </section>
         <PositionReplyCompanies profiles={profiles} selected={config.company_profile_id} onProfiles={setProfiles}
           onSelect={company_profile_id => setConfig(current => ({ ...current, company_profile_id }))} notify={notify} confirm={confirm} />
         <PositionReplyConditions positionID={position.id} requirement={position.requirement || ""} description={config.position_description} conditions={config.conditions}
           presets={config.condition_options} onChange={conditions => setConfig(current => ({ ...current, conditions }))} />
-        <PositionReplyQuestions positionID={position.id} onApplied={() => setConflict(true)} />
         <PositionReplyPhrases config={config} onChange={phrase_overrides => setConfig(current => ({ ...current, phrase_overrides }))}
           onLegacyChange={resume_request_message => setConfig(current => ({ ...current, resume_request_message }))} />
         <p className={styles.foot}>岗位里将“是否生成简历”选为“需要”，资料和推荐报告才会进简历库。</p>

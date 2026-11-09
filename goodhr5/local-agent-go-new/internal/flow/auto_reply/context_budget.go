@@ -15,7 +15,7 @@ const maxReplyContextBytes = 128 * 1024
 func boundedReplyContext(input ReplyContext) (ReplyContext, error) {
 	result := input
 	result.PhoneContact = inspectPhoneContact(input)
-	result.ConfirmationItems, _ = configuredConfirmations(input.Position, input.ConfirmationItems)
+	result.ConfirmationItems = dialogueConfirmations(input.Position, input.Conversation.ID, input.ConfirmationItems)
 	result.Messages = append([]cloud.AutoReplyMessage(nil), input.Messages...)
 	result.PendingMessages = append([]cloud.AutoReplyMessage(nil), input.PendingMessages...)
 	if len(result.PendingMessages) == 0 && !input.ConditionsOnly {

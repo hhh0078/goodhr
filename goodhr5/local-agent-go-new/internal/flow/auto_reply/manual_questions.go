@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// knownRecruitmentQuestion 只向模型提供当前岗位题目、状态及已归档的公开答复，不夹带其他候选人来源。
+// knownRecruitmentQuestion 只向模型提供本岗位题目及历史状态；事实只从当前可编辑岗位、公司正文读取。
 type knownRecruitmentQuestion struct {
 	ID       string `json:"id"`
 	Question string `json:"question"`
@@ -33,15 +33,12 @@ func (f *Flow) loadKnownQuestions(ctx context.Context, input *ReplyContext) erro
 	input.KnownQuestions = make([]knownRecruitmentQuestion, 0, len(rows))
 	for _, row := range rows {
 		item := knownRecruitmentQuestion{ID: row.ID, Question: row.Question, Status: row.Status}
-		if row.Status == "resolved" {
-			item.Answer = row.Answer
-		}
 		input.KnownQuestions = append(input.KnownQuestions, item)
 	}
 	return nil
 }
 
-// verifiedHandoffQuestions 检查每道题都来自本批候选人原话，模型引用旧题只能使用已展示且待确认的岗位题目。
+// verifiedHandoffQuestions 核对本轮真实原话；当前资料仍不足时允许引用历史已归档题目重新确认。
 func verifiedHandoffQuestions(input ReplyContext, args notifyHRToolArgs) ([]handoffQuestion, error) {
 	questions := args.Questions
 	if args.Question != "" || args.ExistingQuestionID != "" {
@@ -79,13 +76,13 @@ func verifiedHandoffQuestions(input ReplyContext, args notifyHRToolArgs) ([]hand
 		if q.ExistingQuestionID != "" {
 			found := false
 			for _, known := range input.KnownQuestions {
-				if known.ID == q.ExistingQuestionID && known.Status != "resolved" {
+				if known.ID == q.ExistingQuestionID {
 					found = true
 					break
 				}
 			}
 			if !found {
-				return nil, argumentError("existing_question_id 只能引用本岗位已提供的未归档问题")
+				return nil, argumentError("existing_question_id 只能引用本岗位已提供的问题")
 			}
 		}
 		seen[q.Question] = true

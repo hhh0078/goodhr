@@ -48,6 +48,7 @@ type replyEventView struct {
 	DurationMS  *int64 `json:"duration_ms,omitempty"`
 }
 type replyGoalView struct {
+	SourceType  string   `json:"source_type,omitempty"`
 	ID          string   `json:"id"`
 	Title       string   `json:"title"`
 	Status      string   `json:"status"`
@@ -212,7 +213,7 @@ func readHistoryEvents(ctx context.Context, tx *sql.Tx, tenant, user, thread, cu
 	defer rows.Close()
 	titles := map[string]string{"runtime_commands": "招聘页面操作", "runtime_events": "运行进度", "runs": "AI 对话判断", "sends": "发送消息收据", "tools": "AI 工具调用", "attachments": "收到简历附件", "recommendations": "岗位推荐", "reports": "推荐报告已生成"}
 	actions := map[string]string{"initialize": "打开消息页", "scan": "查看会话列表", "inspect": "核对候选人与岗位", "open": "打开候选人会话", "messages": "读取聊天记录", "latest": "检查最新消息", "open_latest": "检查当前会话的新消息", "verify": "核对当前会话身份", "request_resume": "请求简历卡", "collect_resume": "下载简历附件", "send": "发送平台消息", "close": "关闭会话", "avatar": "读取候选人头像"}
-	stages := map[string]string{"sync": "同步聊天记录", "ai": "AI 分析进度", "tool": "AI 工具进度", "reply": "准备回复", "sent": "消息已回复", "resume_ai": "AI 整理简历", "resume_saved": "保存简历资料", "resume_published": "发布简历", "resume_publish_pending": "简历等待发布", "resume_review": "复核沟通目标", "process_conversation": "处理候选人会话", "finish_review": "完成简历复核", "upsert_confirmation_items": "更新沟通目标", "send_messages": "拟定回复", "notify_hr": "登记待确认问题", "suggest_config_change": "建议更新岗位资料"}
+	stages := map[string]string{"sync": "同步聊天记录", "ai": "AI 分析进度", "tool": "AI 工具进度", "reply": "准备回复", "sent": "消息已回复", "resume_ai": "AI 整理简历", "resume_saved": "保存简历资料", "resume_published": "发布简历", "resume_publish_pending": "简历等待发布", "resume_review": "复核沟通目标", "process_conversation": "处理候选人会话", "finish_review": "完成简历复核", "upsert_confirmation_items": "更新沟通目标", "archive_confirmation_items": "删除沟通目标", "goal_followup": "主动确认信息", "waiting_hr": "等待 HR 补充", "awaiting_hr_notice": "待确认提醒排队", "send_messages": "拟定回复", "notify_hr": "登记待确认问题", "suggest_config_change": "建议更新岗位资料"}
 	for rows.Next() {
 		var e replyEventView
 		var kind, label, started, ended string
@@ -246,7 +247,7 @@ func readHistoryEvents(ctx context.Context, tx *sql.Tx, tenant, user, thread, cu
 
 // readHistoryGoals 从确认记录返回条件和引文；仅链接同一会话中由来源编号和原文共同验证的消息。
 func readHistoryGoals(ctx context.Context, tx *sql.Tx, tenant, user, thread string, out *candidateReplyHistory) error {
-	rows, err := tx.QueryContext(ctx, `SELECT g.id,coalesce(g.payload->>'content',''),coalesce(g.payload->>'status',''),coalesce(g.payload->>'evidence_text',''),coalesce(g.payload->>'updated_at',g.updated_at),coalesce((SELECT m.id FROM auto_reply_cloud_entities m WHERE m.tenant_id=g.tenant_id AND m.user_id=g.user_id AND m.kind='messages' AND m.payload->>'conversation_id'=$3 AND g.payload->>'source_ref' IN (m.id,m.payload->>'platform_message_id',m.payload->>'fingerprint') AND nullif(g.payload->>'evidence_text','') IS NOT NULL AND strpos(m.payload->>'text_content',g.payload->>'evidence_text')>0 ORDER BY m.sequence LIMIT 1),'') FROM auto_reply_cloud_entities g WHERE g.tenant_id=$1 AND g.user_id=$2 AND g.kind='confirmations' AND g.payload->>'conversation_id'=$3 ORDER BY g.sequence,g.id`, tenant, user, thread)
+	rows, err := tx.QueryContext(ctx, `SELECT g.id,coalesce(g.payload->>'content',''),coalesce(g.payload->>'status',''),coalesce(g.payload->>'evidence_text',''),coalesce(g.payload->>'updated_at',g.updated_at),coalesce((SELECT m.id FROM auto_reply_cloud_entities m WHERE m.tenant_id=g.tenant_id AND m.user_id=g.user_id AND m.kind='messages' AND m.payload->>'conversation_id'=$3 AND g.payload->>'source_ref' IN (m.id,m.payload->>'platform_message_id',m.payload->>'fingerprint') AND nullif(g.payload->>'evidence_text','') IS NOT NULL AND strpos(m.payload->>'text_content',g.payload->>'evidence_text')>0 ORDER BY m.sequence LIMIT 1),''),coalesce(nullif(g.payload->>'source_type',''),'position') FROM auto_reply_cloud_entities g WHERE g.tenant_id=$1 AND g.user_id=$2 AND g.kind='confirmations' AND g.payload->>'conversation_id'=$3 AND nullif(g.payload->>'archived_at','') IS NULL ORDER BY g.sequence,g.id`, tenant, user, thread)
 	if err != nil {
 		return err
 	}
@@ -254,7 +255,7 @@ func readHistoryGoals(ctx context.Context, tx *sql.Tx, tenant, user, thread stri
 	for rows.Next() {
 		var g replyGoalView
 		var id string
-		if err = rows.Scan(&g.ID, &g.Title, &g.Status, &g.Evidence, &g.UpdatedAt, &id); err != nil {
+		if err = rows.Scan(&g.ID, &g.Title, &g.Status, &g.Evidence, &g.UpdatedAt, &id, &g.SourceType); err != nil {
 			return err
 		}
 		if id != "" {

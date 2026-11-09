@@ -30,6 +30,9 @@ type resumeRetryResponder struct {
 
 // Reply 分别模拟岗位回答和内部证据复核，测试不调用真实AI。
 func (r *resumeRetryResponder) Reply(_ context.Context, input ReplyContext) (ReplyDecision, error) {
+	if input.MessageFollowup {
+		return ReplyDecision{}, nil
+	}
 	if !input.ConditionsOnly {
 		r.answers++
 		r.firstInput = input
@@ -193,7 +196,7 @@ func TestConditionsOnlyRejectsSendingAndUnparsedResume(t *testing.T) {
 		t.Fatalf("补审把历史问题重新当作待答：%+v %v", bounded.PendingMessages, err)
 	}
 	tools := autoReplyToolsForContext(input)
-	if len(tools) != 2 || tools[0].Function.Name != toolUpsertConfirmations || tools[1].Function.Name != toolFinishReview {
+	if len(tools) != 3 || tools[0].Function.Name != toolUpsertConfirmations || tools[1].Function.Name != toolArchiveConfirmations || tools[2].Function.Name != toolFinishReview {
 		t.Fatalf("补审工具范围不正确：%+v", tools)
 	}
 	state := toolExecutionState{input: input}

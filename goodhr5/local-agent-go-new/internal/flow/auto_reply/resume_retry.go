@@ -11,7 +11,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// autoReplyResumeRetryDue 判断本地简历待办是否到期；三次自动尝试耗尽后保留错误供人工检查。
+// autoReplyResumeRetryDue 判断服务器简历待办是否到期；三次自动尝试耗尽后保留错误供人工检查。
 func autoReplyResumeRetryDue(retry *cloud.AutoReplyResumeRetry, now time.Time) bool {
 	return retry != nil && retry.Attempts < 3 && !retry.NextAttemptAt.After(now)
 }
@@ -50,7 +50,7 @@ func (f *Flow) recordResumeRetryFailure(ctx context.Context, prepared shared.Pre
 	return nil
 }
 
-// reviewRecoveredResume 只复核补齐简历后的内部条件；前后核对页面和配置，再提交报告收据，不调用发送方法。
+// reviewRecoveredResume 在新简历证据完成后维护目标；不补答历史，必要时登记并送达一次未问目标。
 func (f *Flow) reviewRecoveredResume(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, input ReplyContext) error {
 	if input.CandidateState.Candidate == nil || !input.CandidateState.Candidate.ResumeStructured {
 		return f.recordResumeRetryFailure(ctx, prepared, &input.Conversation, input.PageSnapshot, fmt.Errorf("简历还没有成功结构化，暂不复核推荐条件"))
@@ -70,7 +70,8 @@ func (f *Flow) reviewRecoveredResume(ctx context.Context, prepared shared.Prepar
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if err == nil && (len(decision.Messages) != 0 || decision.ManualReason != "" || len(decision.Suggestions) != 0) {
+	validFollowup := input.AllowGoalFollowup && len(decision.Messages) == 1 && decision.Messages[0].Type == "confirmation" && decision.Messages[0].ConfirmationItemID != ""
+	if err == nil && (len(decision.Messages) != 0 && !validFollowup || decision.ManualReason != "" || len(decision.Suggestions) != 0) {
 		err = fmt.Errorf("本轮仅补审条件，模型没有返回有效的内部复核结果")
 	}
 	if err != nil {
@@ -86,9 +87,16 @@ func (f *Flow) reviewRecoveredResume(ctx context.Context, prepared shared.Prepar
 	if err = f.verifyCurrentReplyConfiguration(ctx, prepared, input.Position); err != nil {
 		return err
 	}
-	if err = f.Cloud.CommitAutoReplyResumeProposal(ctx, input.Credentials, input.Conversation.ID, input.BasedOnMessageKey, input.Conversation.ResumeRetry.SourceMessageID, cloud.AutoReplyResumeRevision(*input.CandidateState.Candidate), input.Position.Config.Version, decision.ConfirmationUpdates); err != nil {
+	var followup []cloud.AutoReplyGoalFollowup
+	if validFollowup {
+		followup = append(followup, cloud.AutoReplyGoalFollowup{EventKind: "resume", ContextRevision: cloud.AutoReplyGoalContextRevision(input.Position), ConfirmationItemID: decision.Messages[0].ConfirmationItemID, Content: decision.Messages[0].Content, ExpectedContentKey: decision.Messages[0].GoalContentKey})
+	}
+	if input.Conversation.ResumeRetry == nil {
+		return fmt.Errorf("新简历复核缺少已领取的证据事件")
+	}
+	if err = f.Cloud.CommitAutoReplyResumeProposal(ctx, input.Credentials, input.Conversation.ID, input.BasedOnMessageKey, input.Conversation.ResumeRetry.SourceMessageID, cloud.AutoReplyResumeRevision(*input.CandidateState.Candidate), input.Position.Config.Version, decision.ConfirmationUpdates, followup...); err != nil {
 		return err
 	}
-	// Commit 已原子登记推荐收据并结束简历待办，退出后登录后台仍能恢复资格检查。
-	return nil
+	// 新目标追问和补审结果同时落账，发送前再核对原页；重启也能恢复这一次事件。
+	return f.deliverGoalFollowup(ctx, prepared, runtime, input.Position, input.Conversation, input.PageSnapshot)
 }

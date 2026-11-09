@@ -83,13 +83,13 @@
   "selectors": {
     "message.weekly_report": {
       "_comment": "按现场可见周报标题定位同一弹层，不使用变化的样式哈希。",
-      "target": { "selectors": [{ "type": "css", "value": "text=我的招聘周报 >> .. >> .." }] },
+      "target": { "_comment": "由当前可见周报标题定位同一弹层。", "selectors": [{ "_comment": "只匹配招聘周报的标题容器。", "type": "css", "value": "text=我的招聘周报 >> .. >> .." }] },
       "state": "visible", "timeout_ms": 600,
       "description": "猎聘企业端我的招聘周报弹层"
     },
     "message.weekly_report_close": {
       "_comment": "Esc 未能收起同一周报时，只点击该周报自身关闭按钮。",
-      "target": { "selectors": [{ "type": "css", "value": "text=我的招聘周报 >> .. >> .. >> button[aria-label='关闭']" }] },
+      "target": { "_comment": "周报弹层自身的备用关闭按钮。", "selectors": [{ "_comment": "按可见标题及明确关闭名称限定按钮。", "type": "css", "value": "text=我的招聘周报 >> .. >> .. >> button[aria-label='关闭']" }] },
       "state": "visible", "timeout_ms": 600,
       "description": "猎聘企业端招聘周报关闭按钮"
     },

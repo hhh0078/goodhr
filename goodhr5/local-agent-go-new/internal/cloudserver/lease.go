@@ -4,10 +4,12 @@ package cloudserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/replybridge"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
@@ -78,6 +80,7 @@ func (r *activeRun) updateLease(ctx context.Context, action string) error {
 
 // commandState 在首次派发时绑定操作对象与源消息，延迟回执不能借用后来打开的候选人窗口。
 type commandState struct {
+	SendIntentID       string    `json:"send_intent_id,omitempty"` // 仅服务器账本保存，设备协议不携带目标或业务版本。
 	IssuedAt           time.Time `json:"issued_at,omitzero"`
 	StartedAt          time.Time `json:"started_at,omitzero"`
 	RunID              string    `json:"run_id"`
@@ -101,7 +104,8 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 	if c.ID == "" || c.RunID != r.id || c.PlatformID != r.platform {
 		return fmt.Errorf("命令与当前运行不匹配")
 	}
-	return r.client.ServerAutoReplyTransaction(ctx, r.cred, func(tx *storage.AutoReplyTx) error {
+	rejected := false
+	err := r.client.ServerAutoReplyTransaction(ctx, r.cred, func(tx *storage.AutoReplyTx) error {
 		raw, err := tx.ServerLedger("runtime_runs", r.leaseKey, nil)
 		if err != nil {
 			return err
@@ -128,6 +132,12 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 			conversationID := r.conversation
 			r.mu.Unlock()
 			bound = commandState{IssuedAt: now, RunID: r.id, PositionID: r.position, MachineID: r.scope.machine, ConversationID: conversationID, Action: c.Action, Deadline: c.Deadline}
+			if c.Action == "send" {
+				bound.SendIntentID = cloud.AutoReplySendIntentFromContext(ctx)
+				if err = cloud.ValidateAutoReplySendIntent(tx, bound.SendIntentID, conversationID, req.Message); err != nil {
+					return err
+				}
+			}
 			if conversationID != "" {
 				bound.ThreadID, bound.AccountID, bound.SourceKey = req.Snapshot.PlatformThreadID, req.Snapshot.PlatformAccountID, req.Snapshot.ResumeSourceMessageID
 			}
@@ -139,6 +149,21 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 			case "executing":
 				if bound.Status != "pending" || !bound.Deadline.After(now) {
 					return fmt.Errorf("命令已领取或过期")
+				}
+				if c.Action == "send" && bound.SendIntentID != "" {
+					var req replybridge.Request
+					if err = json.Unmarshal(c.Payload, &req); err != nil {
+						return err
+					}
+					if err = cloud.ValidateAutoReplySendIntent(tx, bound.SendIntentID, bound.ConversationID, req.Message); err != nil {
+						if !errors.Is(err, cloud.ErrAutoReplyGoalChanged) {
+							return err
+						}
+						bound.Status, bound.ResultCode, bound.UpdatedAt = "cancelled", "REPLY_SUPERSEDED", now
+						_, err = tx.ServerLedger("runtime_commands", c.ID, bound)
+						rejected = err == nil
+						return err
+					}
 				}
 				bound.StartedAt = now
 			case "completed":
@@ -158,6 +183,13 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 					if bound.OutboundMessageKey == "" {
 						bound.OutboundMessageKey = response.Latest.Key
 					}
+					var req replybridge.Request
+					if err = json.Unmarshal(c.Payload, &req); err != nil {
+						return err
+					}
+					if err = cloud.ConfirmAutoReplySendIntent(tx, bound.SendIntentID, bound.ConversationID, req.Message, bound.OutboundMessageKey); err != nil {
+						return err
+					}
 				}
 			case "unknown":
 				if bound.Status != "pending" && bound.Status != "executing" {
@@ -173,4 +205,8 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 		_, err = tx.ServerLedger("runtime_commands", c.ID, bound)
 		return err
 	})
+	if err == nil && rejected {
+		return &replybridge.CommandRejectedError{Message: cloud.ErrAutoReplyGoalChanged.Error()}
+	}
+	return err
 }
