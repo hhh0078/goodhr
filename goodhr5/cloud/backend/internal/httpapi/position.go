@@ -217,6 +217,7 @@ func (s *PositionService) Save(w http.ResponseWriter, r *http.Request) {
 
 // requireAIMembership 统一检查用户是否可以使用岗位 AI 功能。
 func (s *PositionService) requireAIMembership(w http.ResponseWriter, email string) bool {
+	/* 2026-11-10：会员限制暂停，保留原检查供以后恢复。
 	if s.subscriptions == nil {
 		writeError(w, http.StatusServiceUnavailable, "会员状态暂时没查清楚，请稍后再试")
 		return false
@@ -235,6 +236,7 @@ func (s *PositionService) requireAIMembership(w http.ResponseWriter, email strin
 		writeError(w, http.StatusForbidden, "AI 筛选和 AI 详情识别需要有效的 Plus 或 Max 会员")
 		return false
 	}
+	*/
 	return true
 }
 
@@ -459,6 +461,8 @@ func applyPositionPlatformRules(position *Position) {
 		position.CommonConfig["output_structured_resume"] = false
 	}
 	position.CommonConfig["detail_mode"] = positionDetailMode(position.PlatformID)
+	// 关键词筛选暂不开放，原配置和关键词保留，运行统一使用 AI。
+	position.CommonConfig["mode_default"] = "ai"
 }
 
 // positionDetailMode 返回当前平台固定的详情读取策略，不信任旧客户端提交的OCR选项。

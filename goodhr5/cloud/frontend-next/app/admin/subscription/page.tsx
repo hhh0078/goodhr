@@ -653,6 +653,7 @@ export default function SubscriptionPage() {
         onAmountChange={setRechargeAmount}
         onClose={() => setRechargeDialogOpen(false)}
         onConfirm={() => void requestAIRecharge()}
+        onModelSaved={config => { setAIConfig(config); setCurrentAIModel(String(config.model || "")); }}
       />
 
       <PaymentUnderstandingDialog

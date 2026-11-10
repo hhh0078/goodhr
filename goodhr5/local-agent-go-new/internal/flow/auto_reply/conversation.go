@@ -268,7 +268,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		if fetchErr != nil {
 			return fmt.Errorf("读取本轮岗位话术和提示词失败：%w", fetchErr)
 		}
-		if !fresh.Config.Enabled || !fresh.Subscription.Active || !fresh.Subscription.AllowAutoReply || fresh.Position.ID != position.Position.ID {
+		if !fresh.Config.Enabled /* 会员限制暂停：|| !fresh.Subscription.Active || !fresh.Subscription.AllowAutoReply */ || fresh.Position.ID != position.Position.ID {
 			return fmt.Errorf("岗位自动回复已关闭或权限已变化，已保留本轮消息")
 		}
 		position = fresh

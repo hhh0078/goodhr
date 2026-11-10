@@ -205,7 +205,7 @@ func NewServer() (*Server, error) {
 		notificationProfile:   NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:      NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:             NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:     NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
+		positionExecution:     NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, aiConfigStore),
 		positionLogs:          positionLogs,
 		screeningRecords:      NewScreeningRecordService(auth, positionStore, tenantStore, screeningStore),
 		browserEvents:         NewBrowserEventService(auth, db),

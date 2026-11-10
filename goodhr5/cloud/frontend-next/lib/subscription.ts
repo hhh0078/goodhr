@@ -88,14 +88,17 @@ export function normalizeSubscriptionPlans(value: unknown): SubscriptionPlan[] {
     .filter((plan) => plan.id);
 }
 
-/** canUseAI 判断当前会员是否允许使用 AI 岗位能力。 */
+/** canUseAI 暂停会员功能拦截，保留原判断供以后恢复。 */
 export function canUseAI(subscription: SubscriptionStatus) {
-  return subscription.active && subscription.allow_ai;
+  // 会员限制暂停，恢复时启用：return subscription.active && subscription.allow_ai;
+  return true;
 }
 
-/** canUseAutoReply 判断当前会员是否允许使用自动回复。 */
+/** canUseAutoReply 暂停套餐拦截，独立灰度开关仍决定是否可以启用。 */
 export function canUseAutoReply(subscription: SubscriptionStatus) {
-  return subscription.active && subscription.allow_auto_reply;
+  // 会员限制暂停，恢复时启用：return subscription.active && subscription.allow_auto_reply;
+  // 是否公开启用自动回复，继续由独立灰度开关控制。
+  return true;
 }
 
 /** membershipName 返回会员类型对应的中文名称。 */

@@ -117,33 +117,23 @@ async function fillFirstPosition(page: Page, request: APIRequestContext, user: T
   const name = `教程测试${filterMode}-${detailMode}`;
   await nameInput.fill(name);
   await page.keyboard.press("Tab");
-  await expectStep(page, "position-filter-mode");
+  await expectStep(page, "position-requirement");
+  await expect(page.locator('[data-onboarding="position-filter-mode"], [data-onboarding="position-detail-mode"]')).toHaveCount(0);
   await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
   await expectStep(page, "position-name");
   await expect(nameInput).toHaveValue(name);
   await nameInput.focus();
   await page.keyboard.press("Tab");
-  await expectStep(page, "position-filter-mode");
-  await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: filterMode === "ai" ? /^AI 筛选/ : /^关键词筛选/ }).click();
-  await expectStep(page, "position-detail-mode");
-  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: detailMode === "ai" ? /^AI 识别/ : detailMode === "dom" ? /^页面文字识别/ : /^本地识别/ }).click();
-  if (filterMode === "ai" || detailMode === "ai") {
-    await expectStep(page, "position-requirement");
-    const requirement = page.locator('[data-onboarding="position-requirement"]');
-    await requirement.focus();
-    await page.keyboard.press("Tab");
-    await expectStep(page, "position-requirement");
-    await requirement.fill("3 年以上后端开发经验，熟悉 Java 和 Spring，有电商项目经验。");
-    await page.keyboard.press("Tab");
-  }
-  if (filterMode === "keyword") {
-    await expectStep(page, "position-keywords");
-    await page.locator('[data-onboarding="position-keywords"]').fill("Java，Spring，后端开发");
-    await page.keyboard.press("Tab");
-  }
+  await expectStep(page, "position-requirement");
+  const requirement = page.locator('[data-onboarding="position-requirement"]');
+  await requirement.focus();
+  await page.keyboard.press("Tab");
+  await expectStep(page, "position-requirement");
+  await requirement.fill("3 年以上后端开发经验，熟悉 Java 和 Spring，有电商项目经验。");
+  await page.keyboard.press("Tab");
   await expectStep(page, "position-save");
   await expectMaskAround(page, '[data-onboarding="position-save"]');
-  await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/${filterMode}-${detailMode}-position.png`, fullPage: true });
+  await page.screenshot({ path: test.info().outputPath(`${filterMode}-${detailMode}-position.png`), fullPage: true });
   const beforeSave = await readAgentState(request);
   expect(beforeSave.calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path)), "岗位保存前不能打开或检测招聘平台登录").toHaveLength(0);
   if (!savePosition) return { name };
@@ -155,8 +145,8 @@ async function fillFirstPosition(page: Page, request: APIRequestContext, user: T
   const positions = (await response.json()).positions;
   const position = positions.find((item: Record<string, unknown>) => item.name === name);
   expect(position, "岗位必须已保存到实际 Go 后端").toBeTruthy();
-  expect(position.common_config.mode_default).toBe(filterMode);
-  expect(position.common_config.detail_mode).toBe(detailMode);
+  expect(position.common_config.mode_default).toBe("ai");
+  expect(position.common_config.detail_mode).toBe(position.platform_id === "boss" ? "ai" : "dom");
   const savedStorage = (await page.context().storageState()).origins.find((entry) => entry.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
   expect(savedStorage.filter((entry) => entry.name.startsWith("goodhr_onboarding_position_draft_v1_"))).toHaveLength(0);
   return position;
@@ -304,14 +294,14 @@ for (const width of [1440, 390]) {
     } finally { await restored.context.close(); }
   });
 
-  test(`${width}px表单改平台保留名称并重新确认识别方式，保存前不登录`, async ({ scenario, request }) => {
+  test(`${width}px表单改平台保留名称并跳过已取消的模式选择，保存前不登录`, async ({ scenario, request }) => {
     const { page, user, context } = scenario;
     await page.setViewportSize({ width, height: 960 });
     await page.route("**/api/platforms/config/**", (route) => route.fulfill({ json: { configs: [platformConfig("boss", true), platformConfig("zhaopin", true)] } }));
     await openFirstPositionForm(page);
     await page.locator('[data-onboarding="position-name"]').fill("切换平台时保留这条岗位名称");
     await page.keyboard.press("Tab");
-    await expectStep(page, "position-filter-mode");
+    await expectStep(page, "position-requirement");
     await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
     await expectStep(page, "position-name");
     await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
@@ -322,16 +312,15 @@ for (const width of [1440, 390]) {
     await expect(page.locator(".ant-tour")).toContainText(/岗位管理/);
     await page.locator('[data-onboarding="position-name"]').focus();
     await page.keyboard.press("Tab");
-    await expectStep(page, "position-filter-mode");
-    await expectFilterModeCostsReadable(page, width);
+    await expectStep(page, "position-requirement");
+    await expectFixedAIMode(page, width);
     const values = (await context.storageState()).origins.find((origin) => origin.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
     const state = JSON.parse(values.find((entry) => entry.name === onboardingStorageKey(user.id))?.value || "{}");
     expect(state.platformId).toBe("zhaopin");
     expect(state.platformLoggedIn).toBe(false);
     expect(state.completedFields).not.toContain("detail-mode");
     expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path))).toHaveLength(0);
-    await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选（免费模式）/ }).click();
-    await expectStep(page, "position-detail-mode");
+    await expectStep(page, "position-requirement");
   });
 
   test(`${width}px旧开窗登录筛选缓存恢复原岗位开始，不能自动打开或检测平台`, async ({ scenario, request, browser }) => {
@@ -383,109 +372,44 @@ async function expectFeedbackBelowProgress(page: Page, feedback: Locator) {
   }, { message: "必要弹框的标题、原因和按钮应完整位于教程进度条下方的可视范围" }).toBeGreaterThanOrEqual(-1);
 }
 
-/** expectFilterModeCostsReadable 用真实滚轮读取长费用说明，固定标题和操作按钮不能被进度条或内部滚动遮挡。 */
-async function expectFilterModeCostsReadable(page: Page, width: number) {
-  const tour = page.locator(".ant-tour");
-  const section = tour.locator(".ant-tour-section");
-  const description = tour.locator(".ant-tour-description");
-  const title = page.getByTestId("onboarding-tour");
-  const back = tour.getByRole("button", { name: "上一步", exact: true });
-  const costs = page.getByTestId("onboarding-filter-mode-costs");
-  await expect(costs).toContainText("基础筛选免费");
-  await expect(costs).toContainText("付费模式");
-  await expect(costs).toContainText(/会员/);
-  await expect(costs).toContainText(/AI.*用量|按.*用量/);
-  await expect(costs).toContainText(/自定义.*服务商.*计费/);
-  await expect(tour).toContainText(/AI 详情.*调用费用/);
-  const field = page.locator('[data-onboarding="position-filter-mode"]');
-  await expect(field.getByRole("radio", { name: /^关键词筛选（免费模式）/ })).toBeVisible();
-  await expect(field.getByRole("radio", { name: /^AI 筛选（付费模式）/ })).toBeVisible();
-  await expectFeedbackBelowProgress(page, section);
-  await expect(title).toBeInViewport({ ratio: 1 });
-  await expect(back).toBeInViewport({ ratio: 1 });
-  await expectMaskAround(page, field);
-  await expectTourClearOfButton(page, field);
-  await page.screenshot({ path: test.info().outputPath(`filter-mode-costs-${width}.png`), fullPage: true });
-  const [titleBefore, backBefore, bodyBox, contentBox] = await Promise.all([title.boundingBox(), back.boundingBox(), description.boundingBox(), page.getByTestId("onboarding-mode-description").boundingBox()]);
-  expect(bodyBox).toBeTruthy();
-  expect(contentBox).toBeTruthy();
-  const fee = costs.getByText(/需有效会员；内置 AI 按用量/);
-  if (contentBox!.height > bodyBox!.height + 1) {
-    const free = costs.getByText("基础筛选免费", { exact: true });
-    const freeBefore = await free.boundingBox();
-    expect(freeBefore).toBeTruthy();
-    await page.mouse.move(bodyBox!.x + bodyBox!.width / 2, bodyBox!.y + Math.min(30, bodyBox!.height / 2));
-    await page.mouse.wheel(0, 80);
-    await expect.poll(async () => (await free.boundingBox())?.y ?? Number.POSITIVE_INFINITY, { message: "费用说明超长时必须通过真实滚轮在说明区内滚动" }).toBeLessThan(freeBefore!.y - 1);
-  }
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try { await expect(fee).toBeInViewport({ ratio: 1, timeout: 500 }); break; }
-    catch (error) {
-      if (attempt === 4) throw error;
-      await page.mouse.move(bodyBox!.x + bodyBox!.width / 2, bodyBox!.y + Math.min(30, bodyBox!.height / 2));
-      await page.mouse.wheel(0, 60);
-    }
-  }
-  await expect(title).toBeInViewport({ ratio: 1 });
-  await expect(back).toBeInViewport({ ratio: 1 });
-  const [titleAfter, backAfter] = await Promise.all([title.boundingBox(), back.boundingBox()]);
-  expect(Math.abs(titleAfter!.y - titleBefore!.y), "说明滚动时标题应保持位置").toBeLessThan(2);
-  expect(Math.abs(backAfter!.y - backBefore!.y), "说明滚动时操作按钮应保持位置").toBeLessThan(2);
-  await page.screenshot({ path: test.info().outputPath(`filter-mode-costs-${width}-fee-details.png`), fullPage: true });
-  await back.click();
+/** expectFixedAIMode 确认教程不会圈住已经移除的模式或OCR选项，返回名称后可再次进入岗位要求。 */
+async function expectFixedAIMode(page: Page, _width: number) {
+  await expectStep(page, "position-requirement");
+  await expect(page.locator('[data-onboarding="position-filter-mode"], [data-onboarding="position-detail-mode"], [data-onboarding="position-keywords"]')).toHaveCount(0);
+  await expectModalFieldVisible(page, '[data-onboarding="position-requirement"]');
+  await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
   await expectStep(page, "position-name");
   await page.locator('[data-onboarding="position-name"]').focus();
   await page.keyboard.press("Tab");
-  await expectStep(page, "position-filter-mode");
+  await expectStep(page, "position-requirement");
 }
 
-for (const [filterMode, detailMode] of [["ai", "ai"], ["keyword", "ocr"], ["keyword", "ai"]] as const) {
-  test(`完整教程 ${filterMode}+${detailMode}：扫描不算完成，明确判断可以跑通`, async ({ scenario, request }) => {
+for (const width of [1366, 390]) {
+  test(`完整教程 固定AI无OCR ${width}px：上一步可用，关键词和扫描不能冒充AI完成`, async ({ scenario, request }) => {
     const { page, user } = scenario;
-    const position = await fillFirstPosition(page, request, user, filterMode, detailMode);
+    await page.setViewportSize({ width, height: 960 });
+    await page.route("**/api/platforms/config/**", route => route.fulfill({ json: { configs: [platformConfig("boss", true), platformConfig("zhaopin", true)] } }));
+    const position = await fillFirstPosition(page, request, user, "ai", width === 390 ? "dom" : "ai", true, { platformName: width === 390 ? /智联招聘/ : /BOSS\s*直聘/i });
+    expect(position.common_config.mode_default).toBe("ai");
     await startFirstPosition(page, position.id);
-    if (filterMode === "ai") {
-      await agentControl(request, { available: false });
-      await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "agent-menu", { timeout: 15_000 });
-      await expect(page.getByRole("region", { name: "新手教程总进度" })).toContainText("上手进度 4/5");
-      const disconnectedStorage = (await scenario.context.storageState()).origins.find((entry) => entry.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
-      const progress = disconnectedStorage.filter((entry) => entry.name.startsWith("goodhr_onboarding_v2_")).map((entry) => JSON.parse(entry.value)).find((entry) => entry.positionId === position.id);
-      expect(progress.positionStarted).toBe(true);
-      expect(progress.positionId).toBe(position.id);
-      await expect(page.getByRole("dialog", { name: /安装本地程序/ })).toHaveCount(0);
-      await agentControl(request, { available: true });
-      await expectStep(page, "first-result");
-    }
     await agentControl(request, { positionID: position.id, scannedCount: 37, analysis: null });
     await expectStep(page, "first-result");
     expect((await readUserFlow(request, user)).tutorial_completed).toBe(false);
-    await agentControl(request, { positionID: position.id, analysis: { kind: filterMode, phase: "analyzing", terminal: false, accepted: false, candidate_name: "测试候选人", reason: "正在分析" } });
-    await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toHaveCount(0);
+    await agentControl(request, { positionID: position.id, analysis: { kind: "keyword", phase: "result", terminal: true, accepted: true, candidate_name: "合成候选人", reason: "旧客户端的关键词结果" } });
+    const before = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/status`)).length;
+    await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/status`)).length).toBeGreaterThan(before + 1);
+    await expectStep(page, "first-result");
     expect((await readUserFlow(request, user)).tutorial_completed).toBe(false);
-    if (filterMode === "keyword" && detailMode === "ai") {
-      const before = (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/status`).length;
-      await agentControl(request, { positionID: position.id, analysis: { kind: "keyword", phase: "result", terminal: true, accepted: true, candidate_name: "测试候选人", reason: "基础关键词命中，仍需等待详情 AI", keywords: ["Java"], matched_keywords: ["Java"] } });
-      await expect.poll(async () => (await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/status`).length).toBeGreaterThan(before + 1);
-      await expectStep(page, "first-result");
-      expect((await readUserFlow(request, user)).tutorial_completed).toBe(false);
-    }
-    const resultKind = filterMode === "keyword" && detailMode === "ai" ? "ai" : filterMode;
-    const accepted = filterMode === "keyword" && detailMode === "ocr";
-    await agentControl(request, { positionID: position.id, analysis: { kind: resultKind, phase: "result", terminal: true, accepted, candidate_name: "测试候选人", score: accepted ? 80 : 40, threshold: 70, reason: accepted ? "关键词命中，已经得到合适的筛选结果" : "经验未达到要求，已跳过", keywords: ["Java"], matched_keywords: accepted ? ["Java"] : [] } });
+    await agentControl(request, { positionID: position.id, analysis: { kind: "ai", phase: "result", terminal: true, accepted: false, candidate_name: "合成候选人", score: 40, threshold: 70, reason: "经验未达到要求，已跳过" } });
     await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toBeVisible({ timeout: 20_000 });
     await expect.poll(async () => (await readUserFlow(request, user)).tutorial_completed).toBe(true);
-    await expect(page.locator("canvas").first(), "正常动态偏好下应播放礼炮").toBeVisible();
-    await expect(page.locator('[class*="celebrationToast"]')).toHaveCount(0);
-    await expect(page.getByRole("dialog", { name: /首轮跑通/ })).toHaveCSS("animation-name", "none");
-    await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/${filterMode}-${detailMode}-complete.png`, fullPage: true });
     const agent = await readAgentState(request);
-    expect(agent.calls.some((item: { path: string }) => item.path.endsWith(`/${position.id}/run`))).toBe(true);
-    expect(agent.calls.filter((item: { path: string }) => item.path === "/api/v1/app-update/start")).toHaveLength(0);
     expect(agent.tasks[position.id].greeted_count).toBe(0);
+    expect(agent.calls.filter((call: { path: string }) => call.path === "/api/v1/runtime/install").some((call: { body: { components?: string[] } }) => call.body.components?.includes("ocr"))).toBe(false);
+    await page.screenshot({ path: test.info().outputPath(`fixed-ai-onboarding-${width}.png`), fullPage: true, animations: "disabled" });
     await page.getByRole("button", { name: "开始正式使用", exact: true }).click();
     await page.reload();
     await expect(page.getByTestId("onboarding-welcome")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toHaveCount(0);
   });
 }
 
@@ -591,36 +515,20 @@ test("强制教程半填岗位刷新恢复草稿，字段上一步能回到新�
   await expect(page.locator('[data-onboarding="position-create"]')).toBeVisible();
 });
 
-test("要求和关键词半填刷新保留六项草稿，换号不会带入岗位", async ({ scenario, request, browser }) => {
-  const { page, context, user } = scenario;
+test("AI岗位要求半填刷新保留草稿，换号不会带入岗位", async ({ scenario, request, browser }) => {
+  const { page, user, context } = scenario;
   await openFirstPositionForm(page);
-  await page.locator('[data-onboarding="position-name"]').fill("六项草稿测试岗位");
+  await page.locator('[data-onboarding="position-name"]').fill("AI草稿测试岗位");
   await page.keyboard.press("Tab");
-  await expectStep(page, "position-filter-mode");
-  await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选/ }).click();
-  await expectStep(page, "position-detail-mode");
-  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: /^AI 识别/ }).click();
   await expectStep(page, "position-requirement");
   await page.locator('[data-onboarding="position-requirement"]').fill("半填岗位要求：后端开发，熟悉 Java");
-  await expect.poll(async () => (await context.storageState()).origins.some((origin) => origin.localStorage.some((entry) => entry.name.startsWith("goodhr_onboarding_position_draft_v1_") && entry.value.includes("半填岗位要求")))).toBe(true);
+  await expect.poll(async () => (await context.storageState()).origins.some(origin => origin.localStorage.some(entry => entry.name.startsWith("goodhr_onboarding_position_draft_v1_") && entry.value.includes("半填岗位要求")))).toBe(true);
   await page.reload();
-  await expectStep(page, "position-requirement");
-  await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue("六项草稿测试岗位");
-  await expect(page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选/ })).toBeChecked();
-  await expect(page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: /^AI 识别/ })).toBeChecked();
   await expect(page.locator('[data-onboarding="position-requirement"]')).toHaveValue("半填岗位要求：后端开发，熟悉 Java");
-  await page.locator('[data-onboarding="position-requirement"]').focus();
-  await page.keyboard.press("Tab");
-  await expectStep(page, "position-keywords");
-  await page.locator('[data-onboarding="position-keywords"]').fill("Java，Spring");
-  await expect.poll(async () => (await context.storageState()).origins.some((origin) => origin.localStorage.some((entry) => entry.name.startsWith("goodhr_onboarding_position_draft_v1_") && entry.value.includes("Java，Spring")))).toBe(true);
-  await page.reload();
-  await expectStep(page, "position-keywords");
-  await expect(page.locator('[data-onboarding="position-keywords"]')).toHaveValue("Java，Spring");
-  const cache = (await context.storageState()).origins.find((entry) => entry.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
-  const draft = cache.find((entry) => entry.name === `goodhr_onboarding_position_draft_v1_${encodeURIComponent(user.id)}`);
-  expect(draft, "当前账号应保存独立草稿").toBeTruthy();
-  expect(JSON.parse(draft!.value).draft).toEqual({ name: "六项草稿测试岗位", platform_id: "boss", mode_default: "keyword", detail_mode: "ai", position_requirement: "半填岗位要求：后端开发，熟悉 Java", keywords: "Java，Spring" });
+  await expect(page.locator('[data-onboarding="position-filter-mode"], [data-onboarding="position-detail-mode"], [data-onboarding="position-keywords"]')).toHaveCount(0);
+  const cache = (await context.storageState()).origins.find(entry => entry.origin === new URL(PREVIEW_URL).origin)?.localStorage || [];
+  const draft = JSON.parse(cache.find(entry => entry.name === `goodhr_onboarding_position_draft_v1_${encodeURIComponent(user.id)}`)!.value).draft;
+  expect(draft).toMatchObject({ name: "AI草稿测试岗位", mode_default: "ai", detail_mode: "ai", position_requirement: "半填岗位要求：后端开发，熟悉 Java" });
   const otherUser = await registerUser(request, "onboarding-draft-isolation");
   const other = await browser.newContext({ storageState: userStorageState(otherUser, cache), viewport: { width: 1440, height: 1080 } });
   const forbidden: string[] = [];
@@ -664,7 +572,7 @@ test("本地连接和组件安装只占一个必要弹框，公告更新不盖�
   await expect(page.getByTestId("onboarding-welcome")).toBeVisible();
   await page.getByRole("button", { name: "好，带我跑一遍", exact: true }).click();
   await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "agent-menu");
-  await expect(page).toHaveURL(/\/admin\?local_port=43130$/);
+  await expect(page).toHaveURL(new RegExp(`/admin\\?local_port=${new URL(AGENT_URL).port}$`));
   const connectionHelp = page.getByRole("dialog", { name: "本地小助手还没连上", exact: true });
   await expect(connectionHelp.getByRole("img", { name: "Chrome 设备上的应用权限开关位置" })).toBeVisible();
   await connectionHelp.getByRole("button", { name: "前往组件信息", exact: true }).click();
@@ -683,7 +591,7 @@ test("本地连接和组件安装只占一个必要弹框，公告更新不盖�
   await expectPositionEntry(page);
   const agent = await readAgentState(request);
   expect(agent.calls.filter((item: { path: string }) => item.path === "/api/v1/runtime/install")).toHaveLength(1);
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/after-runtime-install.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("after-runtime-install.png"), fullPage: true });
 });
 
 for (const changeDuring of ["welcome", "active"] as const) {
@@ -705,7 +613,7 @@ for (const changeDuring of ["welcome", "active"] as const) {
     await expectMaskAround(page, '[data-onboarding="runtime-install"]');
     await expect(page.getByTestId("onboarding-target-loading")).toHaveCount(0);
     await expectNoCompletion(page, request, user);
-    await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/runtime-became-missing-${changeDuring}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`runtime-became-missing-${changeDuring}.png`), fullPage: true });
     await installer.getByRole("button", { name: /安装必要组件$/ }).click();
     await expectPositionEntry(page);
     await expect(installer).not.toBeVisible();
@@ -736,7 +644,7 @@ test("微软运行库缺失时先圈下载和重新检查，再引导安装浏�
   await expect(page.locator(".ant-tour")).toContainText(/检查/);
   const download = actions.getByRole("link", { name: /下载微软运行库/ });
   await expect(download).toHaveAttribute("href", "https://example.invalid/test-only-runtime.exe");
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/11-system-runtime-guide.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("manual-full-walkthrough/11-system-runtime-guide.png"), fullPage: true });
   const popupPromise = context.waitForEvent("page");
   await download.click();
   const popup = await popupPromise;
@@ -781,12 +689,10 @@ test("关闭的平台不可选，缓存平台关闭后必须重新选择且不�
   await expectStep(page, "position-name");
   await page.locator('[data-onboarding="position-name"]').fill("平台关闭后新建智联岗位");
   await page.keyboard.press("Tab");
-  await expectStep(page, "position-filter-mode");
-  await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选/ }).click();
-  await expectStep(page, "position-detail-mode");
-  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: /^页面文字识别/ }).click();
-  await expectStep(page, "position-keywords");
-  await page.locator('[data-onboarding="position-keywords"]').fill("招聘");
+  await expectStep(page, "position-requirement");
+  await expectStep(page, "position-requirement");
+  await expectStep(page, "position-requirement");
+  await page.locator('[data-onboarding="position-requirement"]').fill("有招聘工作经验");
   await page.keyboard.press("Tab");
   await expectStep(page, "position-save");
   await page.locator('[data-onboarding="position-save"]').click();
@@ -833,7 +739,7 @@ test(`${viewport.width}px启动检查失败展示真实原因与恢复按钮，�
   await expect(page.locator(".ant-tour")).toContainText(/重新检查|处理|修复/);
   expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path === `/api/v1/local/positions/${position.id}/run`)).toHaveLength(0);
   await expectNoCompletion(page, request, user);
-  await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/12-start-error-recovery-${viewport.width}.png`, fullPage: true });
+  await page.screenshot({ path: test.info().outputPath(`manual-full-walkthrough/12-start-error-recovery-${viewport.width}.png`), fullPage: true });
   if (viewport.width === 390) {
     await recheck.click();
     await expectStep(page, "position-run");
@@ -885,7 +791,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 
       expect((await readTutorialPositions(request, user)).map((item) => item.id)).toEqual([position.id]);
       await expectNoCompletion(page, request, user);
     }
-    await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/20-release-config-missing-${viewport.width}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`manual-full-walkthrough/20-release-config-missing-${viewport.width}.png`), fullPage: true });
 
     // 后台修复后透传实际 Go 发布列表，重新检查只恢复待确认，不重开平台或自动运行。
     await agentControl(request, { runtimeAgentReleases: null });
@@ -904,7 +810,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 
     expect(recovered.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
     expect((await readTutorialPositions(request, user)).map((item) => item.id)).toEqual([position.id]);
     await expectNoCompletion(page, request, user);
-    await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/20-release-config-recovered-${viewport.width}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`manual-full-walkthrough/20-release-config-recovered-${viewport.width}.png`), fullPage: true });
     await page.locator('[data-onboarding="position-run-confirm"]').click();
     await expectStep(page, "first-result");
     const started = await readAgentState(request);
@@ -935,7 +841,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 
     let state = await readAgentState(request);
     expect(state.calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(0);
     expect(state.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
-    await page.screenshot({ path: `C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/21-local-version-missing-${viewport.width}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`manual-full-walkthrough/21-local-version-missing-${viewport.width}.png`), fullPage: true });
     await agentControl(request, { version: "6.2.11.0" });
     await recheck.click();
     await expectStep(page, "position-run");
@@ -977,7 +883,7 @@ test("旧上下文版本要求已更新时，重查和再次确认均读最新�
   expect(state.calls.filter((call: { path: string }) => call.path === "/api/v1/page/open")).toHaveLength(opened);
   expect((await readTutorialPositions(request, user)).map((item) => item.id)).toEqual([position.id]);
   await expectNoCompletion(page, request, user);
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/22-fresh-config-confirm.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("manual-full-walkthrough/22-fresh-config-confirm.png"), fullPage: true });
 });
 
 test("启动发现必要升级时遮罩和立即更新按钮相符，回退不会误启动", async ({ scenario, request }) => {
@@ -1003,7 +909,7 @@ test("启动发现必要升级时遮罩和立即更新按钮相符，回退不�
   await expect(page.getByRole("dialog")).toHaveCount(1);
   await expectNoCompletion(page, request, user);
   expect((await readAgentState(request)).calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(0);
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/13-start-update-guide.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("manual-full-walkthrough/13-start-update-guide.png"), fullPage: true });
   await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
   await expectStep(page, "position-start");
   await openRunConfirmation(page, position.id);
@@ -1059,7 +965,7 @@ for (const width of [1280, 390]) {
       expect(state.calls.filter((call: { path: string }) => call.path.endsWith(`/${position.id}/run`))).toHaveLength(2);
       expect(state.tasks[position.id].analysis).toBeNull();
       await expectNoCompletion(page, request, user);
-      await agentControl(request, { positionID: position.id, analysis: { kind: "keyword", phase: "result", terminal: true, accepted: false, reason: "本机验收：重新运行后关键词未命中，已跳过" } });
+      await agentControl(request, { positionID: position.id, analysis: { kind: "ai", phase: "result", terminal: true, accepted: false, reason: "本机验收：重新运行后AI判断不符合，已跳过" } });
       await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toBeVisible({ timeout: 20_000 });
       await expect.poll(async () => (await readUserFlow(request, user)).tutorial_completed).toBe(true);
     });
@@ -1219,7 +1125,7 @@ test("岗位保存迟到响应遇到实际退出换号，不得把旧账号岗�
     expect((await originalPositions.json()).positions.some((position: { id: string }) => position.id === capturedPositionID)).toBe(true);
     expect((await newUserPositions.json()).positions).toHaveLength(0);
     await expectNoCompletion(page, request, otherUser);
-    await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/15-late-save-account-isolation.png", fullPage: true });
+    await page.screenshot({ path: test.info().outputPath("manual-full-walkthrough/15-late-save-account-isolation.png"), fullPage: true });
   } finally { releaseSave(); }
 });
 
@@ -1240,7 +1146,7 @@ test("有公告和可选更新时，欢迎弹框与教程遮罩仍然独占引�
   await expect(page.getByRole("dialog", { name: /系统公告|更新本地程序/ })).toHaveCount(0);
   const state = await readAgentState(request);
   expect(state.calls.filter((item: { path: string }) => item.path === "/api/v1/app-update/start")).toHaveLength(0);
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/optional-update-deferred.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("optional-update-deferred.png"), fullPage: true });
 });
 
 test("必要升级优先完成，组件安装与教程不会叠加弹框", async ({ scenario, request }) => {
@@ -1262,7 +1168,7 @@ test("必要升级优先完成，组件安装与教程不会叠加弹框", async
   await expect(page.getByRole("dialog")).toHaveCount(1);
   await expect(page.getByTestId("onboarding-tour")).toHaveCount(0);
   await update.getByText("更新本地程序", { exact: true }).click({ trial: true });
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/manual-full-walkthrough/16-mobile-required-update.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("manual-full-walkthrough/16-mobile-required-update.png"), fullPage: true });
   await update.getByRole("button", { name: "立即更新", exact: true }).click();
   await expect(update).not.toBeVisible({ timeout: 20_000 });
   const installer = page.getByRole("dialog", { name: "准备必要组件", exact: true });
@@ -1536,7 +1442,7 @@ test("390px手机能打开菜单并真实进入岗位管理", async ({ scenario 
   await page.getByRole("menuitem", { name: "岗位管理", exact: true }).click();
   await expectStep(page, "position-create");
   await expect(page.locator('[data-onboarding="position-create"]')).toBeVisible();
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/mobile-390-position-menu.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("mobile-390-position-menu.png"), fullPage: true });
 });
 
 test("1280x720弹框真实滚轮和Tab后字段不被裁切，遮罩同步且完整跑到结果", async ({ scenario, request }) => {
@@ -1549,42 +1455,36 @@ test("1280x720弹框真实滚轮和Tab后字段不被裁切，遮罩同步且完
   expect(beforeWheel).toBeTruthy();
   await page.mouse.move(beforeWheel!.x + beforeWheel!.width / 2, beforeWheel!.y + beforeWheel!.height / 2);
   await page.mouse.wheel(0, 480);
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-name-wheel.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("desktop-1280x720-name-wheel.png"), fullPage: true });
   await expectModalFieldVisible(page, '[data-onboarding="position-name"]');
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-name-wheel.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("desktop-1280x720-name-wheel.png"), fullPage: true });
   await name.click();
   await name.fill("低窗口滚动联调岗位");
   await page.keyboard.press("Tab");
-  await expectStep(page, "position-filter-mode");
-  await expectModalFieldVisible(page, '[data-onboarding="position-filter-mode"]');
-  await expectFilterModeCostsReadable(page, 1280);
-  await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选/ }).click();
-  await expectStep(page, "position-detail-mode");
-  await expectModalFieldVisible(page, '[data-onboarding="position-detail-mode"]');
-  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: /^AI 识别/ }).click();
+  await expectStep(page, "position-requirement");
+  await expectFixedAIMode(page, 1280);
+  await expectStep(page, "position-requirement");
   await expectStep(page, "position-requirement");
   await expectModalFieldVisible(page, '[data-onboarding="position-requirement"]');
   const requirement = page.locator('[data-onboarding="position-requirement"]');
   const requirementBox = await requirement.boundingBox();
   await page.mouse.move(requirementBox!.x + requirementBox!.width / 2, requirementBox!.y + requirementBox!.height / 2);
   await page.mouse.wheel(0, -280);
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-requirement-wheel.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("desktop-1280x720-requirement-wheel.png"), fullPage: true });
   await expectModalFieldVisible(page, '[data-onboarding="position-requirement"]');
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-requirement-wheel.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("desktop-1280x720-requirement-wheel.png"), fullPage: true });
   await requirement.click();
   await requirement.fill("后端开发 3 年以上。\n熟悉 Java 与 Spring。\n有电商项目经验。\n熟悉关系型数据库。\n能独立完成接口设计。\n有团队协作经验。\n具备问题排查能力。");
   await expect(page.getByTestId("onboarding-experience")).toHaveAttribute("data-step", "position-requirement");
   await expect(requirement, "文本框增高导致遮罩重测时仍应保留输入焦点").toBeFocused();
   await expectModalFieldVisible(page, '[data-onboarding="position-requirement"]');
   await page.keyboard.press("Tab");
-  await expectStep(page, "position-keywords");
-  await expectModalFieldVisible(page, '[data-onboarding="position-keywords"]');
-  await page.locator('[data-onboarding="position-keywords"]').click();
-  await page.locator('[data-onboarding="position-keywords"]').fill("Java，Spring");
+  await expectStep(page, "position-requirement");
+  await page.locator('[data-onboarding="position-requirement"]').fill("有招聘工作经验");
   await page.keyboard.press("Tab");
   await expectStep(page, "position-save");
   await expectMaskAround(page, '[data-onboarding="position-save"]');
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-save.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("desktop-1280x720-save.png"), fullPage: true });
   expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path))).toHaveLength(0);
   await page.locator('[data-onboarding="position-save"]').click();
   await expectStep(page, "position-start");
@@ -1592,7 +1492,7 @@ test("1280x720弹框真实滚轮和Tab后字段不被裁切，遮罩同步且完
   expect(response.ok()).toBeTruthy();
   const position = (await response.json()).positions.find((item: { name: string }) => item.name === "低窗口滚动联调岗位");
   expect(position).toBeTruthy();
-  expect(position.common_config.mode_default).toBe("keyword");
+  expect(position.common_config.mode_default).toBe("ai");
   expect(position.common_config.detail_mode).toBe("ai");
   await startFirstPosition(page, position.id);
   await agentControl(request, { positionID: position.id, analysis: { kind: "ai", phase: "result", terminal: true, accepted: false, candidate_name: "测试候选人", reason: "本机联调：经验不符合要求，已跳过" } });
@@ -1600,7 +1500,7 @@ test("1280x720弹框真实滚轮和Tab后字段不被裁切，遮罩同步且完
   await expect.poll(async () => (await readUserFlow(request, user)).tutorial_completed).toBe(true);
   expect((await readAgentState(request)).tasks[position.id].greeted_count).toBe(0);
   await expect(page.getByRole("dialog", { name: /首轮跑通/ })).toHaveCSS("animation-name", "none");
-  await page.screenshot({ path: "C:/Users/Administrator/Documents/Codex/2026-10-15/goodhr-onboarding-local/desktop-1280x720-complete.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("desktop-1280x720-complete.png"), fullPage: true });
 });
 
 test("减少动态效果时保留鼓励文字并禁用礼炮", async ({ scenario, request }) => {
@@ -1608,7 +1508,7 @@ test("减少动态效果时保留鼓励文字并禁用礼炮", async ({ scenario
   await page.emulateMedia({ reducedMotion: "reduce" });
   const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
   await startFirstPosition(page, position.id);
-  await agentControl(request, { positionID: position.id, analysis: { kind: "keyword", phase: "result", terminal: true, accepted: false, candidate_name: "测试候选人", reason: "关键词未命中，已跳过" } });
+  await agentControl(request, { positionID: position.id, analysis: { kind: "ai", phase: "result", terminal: true, accepted: false, candidate_name: "测试候选人", reason: "AI判断不符合，已跳过" } });
   await expect(page.getByRole("button", { name: "开始正式使用", exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator("canvas")).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: /首轮跑通/ })).toContainText("第一条真实筛选结果已经出来了");
@@ -1673,7 +1573,7 @@ for (const width of [1440, 390]) {
     await openTutorialPositionReview(page, position.id);
     await expectStep(page, "position-save");
     await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue(position.name);
-    for (const step of ["position-keywords", "position-detail-mode", "position-filter-mode", "position-name", "position-platform"]) {
+    for (const step of ["position-requirement", "position-name", "position-platform"]) {
       await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
       await expectStep(page, step);
       await expectMaskAround(page, `[data-onboarding="${step}"]`);
@@ -1687,8 +1587,8 @@ for (const width of [1440, 390]) {
     await platform.getByRole("button", { name: "确认使用此平台", exact: true }).click();
     await expectStep(page, "position-save");
     await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
-    await expectStep(page, "position-keywords");
-    await page.locator('[data-onboarding="position-keywords"]').fill(`Java Spring 修改条件${width}`);
+    await expectStep(page, "position-requirement");
+    await page.locator('[data-onboarding="position-requirement"]').fill(`Java Spring 修改条件${width}`);
     await page.keyboard.press("Tab");
     await expectStep(page, "position-save");
     const form = page.getByRole("dialog", { name: "编辑岗位模板", exact: true });
@@ -1698,7 +1598,7 @@ for (const width of [1440, 390]) {
     await expectStep(page, "position-start");
     const positions = await readTutorialPositions(request, user);
     expect(positions).toHaveLength(1);
-    expect(positions[0]).toMatchObject({ id: position.id, name: position.name, platform_id: "boss", keywords: ["Java", "Spring", `修改条件${width}`] });
+    expect(positions[0]).toMatchObject({ id: position.id, name: position.name, platform_id: "boss", ai_config: { position_requirement: `Java Spring 修改条件${width}` } });
     expect(await readTutorialProgress(page, user)).toMatchObject({ positionId: position.id, platformLoggedIn: false });
     expect((await readAgentState(request)).calls.filter((call: { path: string }) => ["/api/v1/page/open", "/api/v1/page/url"].includes(call.path) || /\/(run|stop)$/.test(call.path))).toHaveLength(0);
   });
@@ -1709,7 +1609,7 @@ test("已有岗位编辑草稿刷新后保留同ID，取消回编辑入口且不
   const position = await fillFirstPosition(page, request, user, "keyword", "ocr");
   await openTutorialPositionReview(page, position.id);
   await expectStep(page, "position-save");
-  for (const step of ["position-keywords", "position-detail-mode", "position-filter-mode", "position-name"]) {
+  for (const step of ["position-requirement", "position-name"]) {
     await page.locator(".ant-tour").getByRole("button", { name: "上一步", exact: true }).click();
     await expectStep(page, step);
   }
@@ -1801,13 +1701,9 @@ test("帮助里可以返回原岗位，并从头重走邀请和平台确认而�
   await expect(page.locator('[data-onboarding="position-name"]')).toHaveValue(position.name);
   await page.locator('[data-onboarding="position-name"]').focus();
   await page.keyboard.press("Tab");
-  await expectStep(page, "position-filter-mode");
-  await page.locator('[data-onboarding="position-filter-mode"]').getByRole("radio", { name: /^关键词筛选/ }).click();
-  await expectStep(page, "position-detail-mode");
-  await page.locator('[data-onboarding="position-detail-mode"]').getByRole("radio", { name: /^本地识别/ }).click();
-  await expectStep(page, "position-keywords");
-  expect((await page.locator('[data-onboarding="position-keywords"]').inputValue()).split(/[，,\s]+/)).toEqual(["Java", "Spring", "后端开发"]);
-  await page.locator('[data-onboarding="position-keywords"]').focus();
+  await expectStep(page, "position-requirement");
+  await expect(page.locator('[data-onboarding="position-requirement"]')).toHaveValue(position.ai_config.position_requirement);
+  await page.locator('[data-onboarding="position-requirement"]').focus();
   await page.keyboard.press("Tab");
   await expectStep(page, "position-save");
   await page.getByRole("dialog", { name: "编辑岗位模板", exact: true }).getByRole("button", { name: "保存修改", exact: true }).click();

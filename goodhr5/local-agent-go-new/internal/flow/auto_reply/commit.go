@@ -73,7 +73,7 @@ func (f *Flow) verifyCurrentReplyConfiguration(ctx context.Context, prepared sha
 	if err != nil {
 		return fmt.Errorf("复核自动回复配置失败：%w", err)
 	}
-	if !current.Config.Enabled || !current.Subscription.Active || !current.Subscription.AllowAutoReply {
+	if !current.Config.Enabled /* 会员限制暂停：|| !current.Subscription.Active || !current.Subscription.AllowAutoReply */ {
 		return fmt.Errorf("这个岗位的自动回复已关闭或权限已变化，本轮没有继续发送")
 	}
 	if expected.CompanyProfile.ID != "" {

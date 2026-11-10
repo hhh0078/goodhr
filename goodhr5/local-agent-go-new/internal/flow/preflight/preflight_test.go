@@ -163,8 +163,8 @@ func TestLoadPlatformAllowsZhaopinAutoReplyNewPageDocument(t *testing.T) {
 	}
 }
 
-// TestAutoReplyRequiresMaxPermission 验证自动回复会额外检查 Max 权限。
-func TestAutoReplyRequiresMaxPermission(t *testing.T) {
+// TestAutoReplySkipsMembershipPermission 验证会员限制暂停后预检查不再拦截Plus，灰度在执行入口单独检查。
+func TestAutoReplySkipsMembershipPermission(t *testing.T) {
 	checker := &Checker{Cloud: subscriptionCloudStub{subscription: cloud.Subscription{
 		Active: true, AllowAI: true, MemberType: "plus", AllowAutoReply: false,
 	}}}
@@ -172,8 +172,8 @@ func TestAutoReplyRequiresMaxPermission(t *testing.T) {
 		Request:  shared.StartRequest{TaskType: "auto_reply"},
 		Position: cloud.PositionSnapshot{RequiresAI: true},
 	}
-	if err := checker.checkSubscription(context.Background(), prepared); err == nil {
-		t.Fatal("Plus 会员启动自动回复时应返回 Max 权限错误")
+	if err := checker.checkSubscription(context.Background(), prepared); err != nil {
+		t.Fatalf("会员检查已暂停，灰度继续由独立入口控制：%v", err)
 	}
 }
 

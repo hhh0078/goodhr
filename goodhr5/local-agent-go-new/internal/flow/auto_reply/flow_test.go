@@ -733,12 +733,12 @@ func TestCheckpointSettingsCapsThree(t *testing.T) {
 	}
 }
 
-// TestRunCheckpointSkipsWithoutAutoReplyAccess 验证 Plus 或过期会员的打招呼任务不会误调自动回复接口。
-func TestRunCheckpointSkipsWithoutAutoReplyAccess(t *testing.T) {
+// TestRunCheckpointStillChecksDependenciesWithoutMembership 验证取消会员限制后，检查点仍明确拒绝缺失的执行依赖。
+func TestRunCheckpointStillChecksDependenciesWithoutMembership(t *testing.T) {
 	result, err := (&Flow{}).RunCheckpoint(
 		context.Background(), shared.PreparedTask{}, nil, &CheckpointSession{},
 	)
-	if err != nil || result.Enabled || result.TouchedPage || result.Processed != 0 {
+	if err == nil || result.Enabled || result.TouchedPage || result.Processed != 0 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }

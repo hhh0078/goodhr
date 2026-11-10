@@ -23,17 +23,10 @@ import styles from "./heavy-ui.module.css";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
-import AIRechargeDialog from "@/components/payment/AIRechargeDialog";
-import { AI_RECHARGE_POLICY, AI_RECHARGE_REFUND_POLICY, MAX_AI_RECHARGE_CENTS, MIN_AI_RECHARGE_CENTS, defaultAIRechargeAmount, rechargeAmountCents } from "@/lib/ai-recharge";
-import {
-  WechatPayDialog,
-  wechatPaymentFromResponse,
-  type WechatPaymentState,
-} from "@/components/payment/WechatPayDialog";
+import AIRechargeFlow from "@/components/payment/AIRechargeFlow";
 import {
   cloudRequest,
   localRequest,
-  requirePaymentLocalAgent,
 } from "@/lib/admin-api";
 import { type UserFlowState } from "@/lib/user-flow";
 import { publishOnboardingEvent } from "@/lib/onboarding-events";
@@ -55,13 +48,7 @@ export default function DashboardPage() {
   const [aiConfig, setAIConfig] = useState<any>({});
   const [currentAIModel, setCurrentAIModel] = useState("");
   const [wallet, setWallet] = useState<any>({});
-  const [rechargeAmountDraft, setRechargeAmount] = useState<string | null>(null);
-  const rechargeAmount = rechargeAmountDraft ?? defaultAIRechargeAmount(wallet.recharge_promotions);
-  const [recharging, setRecharging] = useState(false);
   const [rechargeDialogOpen, setRechargeDialogOpen] = useState(false);
-  const [wechatPayment, setWechatPayment] = useState<WechatPaymentState | null>(
-    null,
-  );
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
   const [savingModel, setSavingModel] = useState(false);
@@ -141,45 +128,6 @@ export default function DashboardPage() {
     ["运行中岗位运行", summary.running, SolutionOutlined],
     ["简历数量", resumeCount, FileTextOutlined],
   ] as const;
-  /** rechargeAI 创建内置 AI 余额充值订单。 */
-  async function rechargeAI() {
-    const amountCents = rechargeAmountCents(rechargeAmount);
-    if (amountCents === null || amountCents < MIN_AI_RECHARGE_CENTS || amountCents > MAX_AI_RECHARGE_CENTS) {
-      notify("充值金额需在 1–1000 元之间，最多保留两位小数。", "warning");
-      return;
-    }
-    try {
-      await requirePaymentLocalAgent(agentBase);
-    } catch (error) {
-      notify((error as Error).message, "error");
-      return;
-    }
-    const accepted = await confirm(
-      "支付前请确认",
-      `AI 余额仅用于 GoodHR 内置 AI 调用。${AI_RECHARGE_POLICY}${AI_RECHARGE_REFUND_POLICY}需要开发票请联系作者处理，发票开出后该笔订单不支持退费。`,
-    );
-    if (!accepted) return;
-    setRecharging(true);
-    try {
-      await requirePaymentLocalAgent(agentBase);
-      const data = await cloudRequest("/api/payment/ai-balance", {
-        method: "POST",
-        body: { amount_yuan: rechargeAmount || "10" },
-      });
-      setWechatPayment(wechatPaymentFromResponse(data, "AI 余额充值"));
-      setRechargeDialogOpen(false);
-      notify("微信支付二维码准备好了，扫一下就行。", "success");
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "充值订单没创建成功，我们再试一次。",
-        "error",
-      );
-    } finally {
-      setRecharging(false);
-    }
-  }
   /** openModelDialog 打开内置 AI 模型选择弹框。 */
   function openModelDialog() {
     const models = Array.isArray(wallet.models) ? wallet.models : [];
@@ -410,24 +358,9 @@ export default function DashboardPage() {
           />
         </Form.Item>
       </Modal>
-      <AIRechargeDialog
-        open={rechargeDialogOpen}
-        amount={rechargeAmount}
-        promotions={wallet.recharge_promotions}
-        loading={recharging}
-        onAmountChange={setRechargeAmount}
-        onClose={() => setRechargeDialogOpen(false)}
-        onConfirm={() => void rechargeAI()}
-      />
-      <WechatPayDialog
-        payment={wechatPayment}
-        onClose={() => setWechatPayment(null)}
-        onPaid={async () => {
-          setWechatPayment(null);
-          notify("支付成功，AI 余额已经到账。", "success");
-          await Promise.all([load(), refreshSession()]);
-        }}
-      />
+      <AIRechargeFlow open={rechargeDialogOpen} wallet={wallet} agentBase={agentBase} onClose={() => setRechargeDialogOpen(false)}
+        onPaid={async () => { await Promise.all([load(), refreshSession()]); }} confirm={confirm} notify={notify}
+        onModelSaved={config => { setAIConfig(config); setCurrentAIModel(String(config.model || "")); }} />
     </>
   );
 }

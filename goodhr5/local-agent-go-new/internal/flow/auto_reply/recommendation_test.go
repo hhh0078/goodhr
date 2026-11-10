@@ -261,7 +261,7 @@ func TestRecommendationRecoveryChecksCurrentVersion(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				stale := changeDuringAI == "config" || changeDuringAI == "company" || changeDuringAI == "message" || changeDuringAI == "expired"
+				stale := changeDuringAI == "config" || changeDuringAI == "company" || changeDuringAI == "message"
 				if stale && len(report) > 0 {
 					t.Fatal("生成途中条件已改变，却保留了旧报告")
 				}

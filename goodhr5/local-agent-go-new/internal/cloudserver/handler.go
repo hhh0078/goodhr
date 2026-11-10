@@ -220,7 +220,7 @@ func (s *Service) start(ctx context.Context, scope runScope, token string, in ru
 		return nil, fmt.Errorf("无法确认这次登录的用户")
 	}
 	snapshot, err := client.AutoReplySnapshot(ctx, cloud.AgentCredentials{Token: token, MachineID: scope.machine}, in.PositionID)
-	if err != nil || snapshot.Position.PlatformID != in.PlatformID || !snapshot.Subscription.Active || !snapshot.Subscription.AllowAutoReply || !snapshot.Config.Enabled {
+	if err != nil || snapshot.Position.PlatformID != in.PlatformID /* 会员限制暂停：|| !snapshot.Subscription.Active || !snapshot.Subscription.AllowAutoReply */ || !snapshot.Config.Enabled {
 		return nil, fmt.Errorf("岗位自动回复未开启或账号无权使用")
 	}
 	modelConfig, err := client.EffectiveAI(ctx, token)

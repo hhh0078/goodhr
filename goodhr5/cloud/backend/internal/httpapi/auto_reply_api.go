@@ -207,7 +207,7 @@ func (s *AutoReplyService) savePositionConfig(w http.ResponseWriter, r *http.Req
 	}
 	item.PositionID = position.ID
 	item.TenantID = requestContext.Tenant.ID
-	if item.Enabled && !requestContext.Access.AllowAutoReply {
+	if item.Enabled /* 会员限制暂停：&& !requestContext.Access.AllowAutoReply */ {
 		// 未开放时先说明灰度限制，不把一次新开启误导成升级会员即可使用。
 		if !autoReplyPublicRolloutOpen {
 			current, loadErr := s.store.GetPositionAutoReplyConfig(r.Context(), requestContext.Tenant.ID, position.ID)
@@ -220,8 +220,10 @@ func (s *AutoReplyService) savePositionConfig(w http.ResponseWriter, r *http.Req
 				return
 			}
 		}
+		/* 会员限制暂停，灰度开启判断继续保留。
 		writeAutoReplyError(w, http.StatusForbidden, "AUTO_REPLY_MAX_REQUIRED", "自动回复属于 Max 全能版，当前套餐暂时不能开启")
 		return
+		*/
 	}
 	saved, err := s.store.SavePositionAutoReplyConfig(r.Context(), requestContext.Session.Email, item, expectedVersion...)
 	if err != nil {
@@ -288,10 +290,12 @@ func (s *AutoReplyService) authenticatedRequestContext(w http.ResponseWriter, r 
 		writeAutoReplyInternalError(w, "SUBSCRIPTION_CHECK_FAILED", "会员套餐配置暂时没读明白，请稍后再试", err)
 		return autoReplyRequestContext{}, false
 	}
+	/* 2026-11-10：会员限制暂停，灰度与设备权限校验不变。
 	if requireAutoReply && !access.AllowAutoReply {
 		writeAutoReplyError(w, http.StatusForbidden, "AUTO_REPLY_MAX_REQUIRED", "自动回复属于 Max 全能版，当前套餐暂时不能使用")
 		return autoReplyRequestContext{}, false
 	}
+	*/
 	if requireAgent {
 		machineID := strings.TrimSpace(r.Header.Get("X-GoodHR-Machine-ID"))
 		if s.agents == nil {

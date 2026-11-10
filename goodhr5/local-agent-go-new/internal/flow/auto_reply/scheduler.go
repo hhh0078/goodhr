@@ -32,9 +32,11 @@ func (f *Flow) RunCheckpoint(ctx context.Context, prepared shared.PreparedTask, 
 	if shared.GracefulStopRequested(ctx) {
 		return result, nil
 	}
+	/* 2026-11-10：会员限制暂停，原判断保留。
 	if !prepared.Subscription.Active || !prepared.Subscription.AllowAutoReply {
 		return result, nil
 	}
+	*/
 	if f == nil || f.Cloud == nil {
 		return result, fmt.Errorf("自动回复云端组件没有准备完整")
 	}

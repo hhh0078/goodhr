@@ -115,8 +115,8 @@ func TestPositionStartRejectsInsufficientAIBalance(t *testing.T) {
 	}
 }
 
-// TestPositionStartRejectsExpiredSubscription 验证 AI 岗位会员到期时不会启动。
-func TestPositionStartRejectsExpiredSubscription(t *testing.T) {
+// TestPositionStartAllowsExpiredSubscription 验证取消会员限制后，会员到期仍可启动余额充足的AI岗位。
+func TestPositionStartAllowsExpiredSubscription(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	email := "position-subscription@example.com"
@@ -128,16 +128,13 @@ func TestPositionStartRejectsExpiredSubscription(t *testing.T) {
 	}
 
 	resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/start", `{"task_type":"greeting","machine_id":"`+positionTestMachineID+`"}`)
-	if resp.Code != http.StatusForbidden {
-		t.Fatalf("start status = %d, body = %s", resp.Code, resp.Body.String())
-	}
-	if code := positionStartErrorCodeForTest(t, resp); code != "SUBSCRIPTION_REQUIRED" {
-		t.Fatalf("error code = %s", code)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("过期会员应可启动：%d %s", resp.Code, resp.Body.String())
 	}
 }
 
-// TestPositionStartRequiresMaxForAutoReply 验证 Plus 有效时仍不能启动自动回复。
-func TestPositionStartRequiresMaxForAutoReply(t *testing.T) {
+// TestPositionStartKeepsAutoReplyGrayGate 验证取消会员限制后，自动回复仍被独立灰度拦截。
+func TestPositionStartKeepsAutoReplyGrayGate(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	email := "position-auto-reply@example.com"
@@ -152,7 +149,7 @@ func TestPositionStartRequiresMaxForAutoReply(t *testing.T) {
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("start status = %d, body = %s", resp.Code, resp.Body.String())
 	}
-	if code := positionStartErrorCodeForTest(t, resp); code != "AUTO_REPLY_MAX_REQUIRED" {
+	if code := positionStartErrorCodeForTest(t, resp); code != autoReplyRolloutCode {
 		t.Fatalf("error code = %s", code)
 	}
 }

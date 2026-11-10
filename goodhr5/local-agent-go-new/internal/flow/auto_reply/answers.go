@@ -22,7 +22,7 @@ func (f *Flow) readAnswerQueue(ctx context.Context, prepared shared.PreparedTask
 	var queue []cloud.AutoReplyConversation
 	allowed := map[string]bool{}
 	for _, p := range positions {
-		if p.Config.Enabled && p.Subscription.Active && p.Subscription.AllowAutoReply {
+		if p.Config.Enabled /* 会员限制暂停：&& p.Subscription.Active && p.Subscription.AllowAutoReply */ {
 			allowed[p.Position.ID] = true
 		}
 	}

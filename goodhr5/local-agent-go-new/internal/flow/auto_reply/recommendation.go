@@ -212,7 +212,7 @@ func (r *AIResponder) recommendationJobCurrent(ctx context.Context, credentials 
 	}
 	oldCompany, _ := json.Marshal(job.Position.CompanyProfile)
 	newCompany, _ := json.Marshal(snapshot.CompanyProfile)
-	if !snapshot.Config.Enabled || !snapshot.Subscription.Active || !snapshot.Subscription.AllowAutoReply || snapshot.Config.Version != job.ConfigVersion || string(oldCompany) != string(newCompany) || snapshot.Position.OutputStructuredResume != job.Position.Position.OutputStructuredResume {
+	if !snapshot.Config.Enabled /* 会员限制暂停：|| !snapshot.Subscription.Active || !snapshot.Subscription.AllowAutoReply */ || snapshot.Config.Version != job.ConfigVersion || string(oldCompany) != string(newCompany) || snapshot.Position.OutputStructuredResume != job.Position.Position.OutputStructuredResume {
 		return false, nil
 	}
 	messages, err := r.Cloud.AutoReplyMessages(ctx, credentials, job.ConversationID)

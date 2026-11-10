@@ -90,7 +90,7 @@ function coreOnboardingPositionDraft(draft: OnboardingPositionDraft): Onboarding
     ...(draft.position_id?.trim() ? { position_id: draft.position_id.trim() } : {}),
     name: draft.name,
     platform_id: draft.platform_id,
-    mode_default: draft.mode_default,
+    mode_default: "ai",
     detail_mode: positionDetailMode(draft.platform_id),
     position_requirement: draft.position_requirement,
     keywords: draft.keywords,

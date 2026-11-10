@@ -16,7 +16,7 @@ test("旧ocr/ai/dom草稿按平台固定兼容，BOSS关键词仍需要AI详情"
       const storage = { getItem: key => key === onboardingPositionDraftKey("test") ? raw : null };
       assert.equal(readOnboardingPositionDraft("test", storage)?.detail_mode, want);
       assert.equal(draft.detail_mode, legacy);
-      assert.equal(positionUsesAI({ platform_id: platform, common_config: { mode_default: "keyword", detail_mode: legacy } }), platform === "boss");
+      assert.equal(positionUsesAI({ platform_id: platform, common_config: { mode_default: "keyword", detail_mode: legacy } }), true);
     }
   }
 });
@@ -27,6 +27,6 @@ test("停在旧详情选择步骤的教程恢复时直接进入本平台真正�
     const storage = { getItem: key => key === onboardingStorageKey("test") ? JSON.stringify(state) : null };
     const restored = readOnboardingState("test", storage);
     assert.equal(restored.detailMode, platform === "boss" ? "ai" : "dom");
-    assert.equal(restored.step, platform === "boss" ? "position-requirement" : "position-keywords");
+    assert.equal(restored.step, "position-requirement");
   }
 });

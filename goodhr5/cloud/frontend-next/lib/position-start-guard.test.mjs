@@ -35,7 +35,7 @@ test("本地程序版本过低时提示刷新并触发更新提醒", () => {
 test("基础筛选或详情筛选启用 AI 时识别为 AI 岗位", () => {
   assert.equal(positionUsesAI({ common_config: { mode_default: "ai", detail_mode: "ocr" } }), true);
   assert.equal(positionUsesAI({ platform_id: "boss", common_config: { mode_default: "keyword", detail_mode: "ai" } }), true);
-  assert.equal(positionUsesAI({ platform_id: "liepin", common_config: { mode_default: "keyword", detail_mode: "ocr" } }), false);
+  assert.equal(positionUsesAI({ platform_id: "liepin", common_config: { mode_default: "keyword", detail_mode: "ocr" } }), true);
 });
 
 test("第四段及之后的小补丁可以忽略，忽略后允许开始岗位任务", () => {

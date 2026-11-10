@@ -503,11 +503,12 @@ func normalizePosition(position PositionSnapshot) PositionSnapshot {
 	if position.MaxBatches <= 0 {
 		position.MaxBatches = position.CommonConfig.ScanRounds
 	}
-	mode := strings.ToLower(strings.TrimSpace(position.CommonConfig.ModeDefault))
+	// 关键词筛选暂不开放，公共任务统一使用AI；不删除旧岗位关键词与入库设置。
+	position.CommonConfig.ModeDefault = "ai"
 	detailMode := model.DetailRecognitionMode(position.PlatformID)
 	position.CommonConfig.DetailMode = detailMode
 	position.RequiresOCR = false // 历史requires_ocr与detail_mode=ocr保留兼容，当前流程不再启动OCR。
-	position.RequiresAI = mode != "keyword" || detailMode == "ai"
+	position.RequiresAI = true
 	position.RequestPhone = position.RequestPhone || position.CommonConfig.RequestPhone
 	position.RequestWechat = position.RequestWechat || position.CommonConfig.RequestWechat
 	position.RequestResume = position.RequestResume || position.CommonConfig.RequestResume

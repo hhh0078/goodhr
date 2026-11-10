@@ -51,7 +51,7 @@ func (r *AIResponder) recoverCommittedRecommendation(ctx context.Context, creden
 		}
 		return readErr
 	}
-	if snapshot.Config.Enabled && snapshot.Subscription.Active && snapshot.Subscription.AllowAutoReply && snapshot.Config.Version == receipt.ConfigVersion {
+	if snapshot.Config.Enabled /* 会员限制暂停：&& snapshot.Subscription.Active && snapshot.Subscription.AllowAutoReply */ && snapshot.Config.Version == receipt.ConfigVersion {
 		messages, readErr := r.Cloud.AutoReplyMessages(ctx, credentials, receipt.ConversationID)
 		if readErr != nil {
 			return readErr

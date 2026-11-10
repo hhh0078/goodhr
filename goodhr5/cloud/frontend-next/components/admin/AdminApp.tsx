@@ -53,6 +53,7 @@ import AssistantDialog from "./assistant/AssistantDialog";
 import { AI_SEARCH_ENABLED } from "@/lib/ai-search-feature";
 import { AUTO_REPLY_ROLLOUT_MESSAGE } from "@/lib/auto-reply-rollout";
 import BrandMark from "@/components/BrandMark";
+import AIRechargeFlow from "@/components/payment/AIRechargeFlow";
 import PasswordSetupDialog from "@/components/PasswordSetupDialog";
 import { useUserTheme } from "@/app/providers";
 import { normalizeThemePreset } from "@/app/theme";
@@ -220,6 +221,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [subscription, setSubscription] =
     useState<SubscriptionStatus>(EMPTY_SUBSCRIPTION);
   const [aiWallet, setAIWallet] = useState<any>({});
+  const [rechargeOpen, setRechargeOpen] = useState(false);
   const [appConfig, setAppConfig] = useState<any>({});
   const [onboardingConfig, setOnboardingConfig] = useState<any>({});
   const [wechatOfficialStatus, setWechatOfficialStatus] =
@@ -529,11 +531,14 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     );
     setPasswordSetupRequired(nextPasswordSetupRequired);
     const welcomeKey = `goodhr_trial_welcome_${nextUser?.email || ""}`;
+    /* 会员限制暂停，试用会员到账弹框保留供以后恢复。
     setTrialWelcomeOpen(
       !nextPasswordSetupRequired &&
         Boolean(authPayload.show_trial_welcome) &&
         !localStorage.getItem(welcomeKey),
     );
+    */
+    setTrialWelcomeOpen(false);
     if (results[1].status === "fulfilled") {
       const nextSubscription = normalizeSubscription(
         results[1].value.subscription || {},
@@ -771,12 +776,13 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 />
               </Tooltip>
               <Button
-                className="goodhr-desktop-lg"
-                onClick={() => router.push("/admin/subscription")}
+                aria-label="AI余额充值"
+                onClick={() => setRechargeOpen(true)}
               >
-                {subscription.active
+                {/* 会员限制暂停，天数展示保留以便恢复：subscription.active
                   ? `剩${subscription.remaining_days}天 · AI余额 ${formatAIBalance(aiWallet)}`
-                  : `${subscription.expires_at ? `已过期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}`}
+                  : `${subscription.expires_at ? `已过期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}` */}
+                {`AI余额 ${formatAIBalance(aiWallet)}`}
               </Button>
               <Button
                 data-testid="local-agent-status"
@@ -818,6 +824,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               {children}
             </Card>
           </Layout.Content>
+          <AIRechargeFlow key={`recharge:${user?.id || user?.email || ""}`} open={rechargeOpen} wallet={aiWallet} agentBase={agentBase} onClose={() => setRechargeOpen(false)} onPaid={refreshSession} confirm={confirm} notify={notify} />
           <AdminDialog
             open={trialWelcomeOpen && teamInvitations.length === 0 && !onboardingActivity.engaged}
             title={`${subscription.member_name || "Max 全能体验版"}已到账`}

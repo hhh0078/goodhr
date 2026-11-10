@@ -74,7 +74,9 @@ export function positionUsesAI(position: any) {
   const commonConfig = position?.common_config || {};
   const baseMode = String(commonConfig.mode_default || "").trim().toLowerCase();
   const detailMode = positionDetailMode(position?.platform_id);
-  return baseMode === "ai" || detailMode === "ai";
+  // 基础筛选固定AI，旧关键词配置也必须检查AI余额；原判断保留供恢复。
+  // return baseMode === "ai" || detailMode === "ai";
+  return true;
 }
 
 /** walletBalanceYuan 将钱包接口的不同余额字段统一转换为元。 */

@@ -37,7 +37,7 @@ export function createOnboardingState(): OnboardingState {
 /** restartOnboardingState 仅重置当前账号的教程微步骤，复核原岗位而不删除、复制或启停业务岗位。 */
 export function restartOnboardingState(state: OnboardingState, environmentReady: boolean): OnboardingState {
   return { ...createOnboardingState(), platformId: state.platformId, positionId: state.positionId,
-    filterMode: state.filterMode, detailMode: state.detailMode, environmentReady,
+    filterMode: "ai", detailMode: positionDetailMode(state.platformId), environmentReady,
     reviewPosition: Boolean(state.positionId), replaying: true,
     step: environmentReady ? state.positionId ? "position-edit" : "position-menu" : "agent-menu" };
 }
@@ -63,8 +63,8 @@ export function readOnboardingState(identity: string, storage?: Pick<Storage, "g
     // 开始弹框不会跨刷新保留；新旧开窗等待缓存都回到原岗位开始入口，不自动打开或导航招聘页。
     const startDialogStep = ["platform-select", "platform-open", "platform-login", "platform-filter", "position-run", "position-start-check", "position-start-error", "position-start-update"].includes(step);
     const normalizedStep = startDialogStep ? positionId ? raw.reviewPosition === true ? "position-edit" : "position-start" : "position-menu" : step;
-    const restored: OnboardingState = { ...fallback, status, step: normalizedStep, platformId, positionId, environmentReady: raw.environmentReady === true, platformLoggedIn: Boolean(positionId) && raw.platformLoggedIn === true, positionStarted: raw.positionStarted === true, filterMode: raw.filterMode === "keyword" ? "keyword" : "ai", detailMode: positionDetailMode(platformId), completedFields: stringList(raw.completedFields), celebrated: stringList(raw.celebrated), reviewPosition: Boolean(positionId) && raw.reviewPosition === true, replaying: raw.replaying === true, updatedAt: Number.isFinite(raw.updatedAt) ? Number(raw.updatedAt) : Date.now(), completionKind: raw.completionKind === "keyword" || raw.completionKind === "ai" ? raw.completionKind : undefined };
-    return restored.step === "position-detail-mode" ? { ...restored, step: nextOnboardingFormStep(restored) } : restored;
+    const restored: OnboardingState = { ...fallback, status, step: normalizedStep, platformId, positionId, environmentReady: raw.environmentReady === true, platformLoggedIn: Boolean(positionId) && raw.platformLoggedIn === true, positionStarted: raw.positionStarted === true, filterMode: "ai", detailMode: positionDetailMode(platformId), completedFields: stringList(raw.completedFields), celebrated: stringList(raw.celebrated), reviewPosition: Boolean(positionId) && raw.reviewPosition === true, replaying: raw.replaying === true, updatedAt: Number.isFinite(raw.updatedAt) ? Number(raw.updatedAt) : Date.now(), completionKind: raw.completionKind === "keyword" || raw.completionKind === "ai" ? raw.completionKind : undefined };
+    return ["position-filter-mode", "position-detail-mode", "position-keywords"].includes(restored.step) ? { ...restored, step: nextOnboardingFormStep(restored) } : restored;
   } catch { return fallback; }
 }
 
@@ -104,17 +104,18 @@ export function onboardingRemainingTime(state: OnboardingState): string {
 
 /** needsPositionRequirement 判断基础或详情任一 AI 模式是否需要岗位要求。 */
 export function needsPositionRequirement(state: Pick<OnboardingState, "filterMode" | "detailMode">): boolean {
-  return state.filterMode === "ai" || state.detailMode === "ai";
+  // 基础筛选固定AI；原判断保留：return state.filterMode === "ai" || state.detailMode === "ai";
+  return true;
 }
 
 /** nextOnboardingFormStep 在模式切换后重新选择真正缺少的字段，不把填写次数当业务完成。 */
 export function nextOnboardingFormStep(state: OnboardingState): OnboardingStep {
   if (!state.completedFields.includes("platform")) return "position-platform";
   if (!state.completedFields.includes("name")) return "position-name";
-  if (!state.completedFields.includes("filter-mode")) return "position-filter-mode";
+  // 模式固定AI，不再等待用户选择：if (!state.completedFields.includes("filter-mode")) return "position-filter-mode";
   // 详情方式按平台固定，保留旧步骤类型兼容缓存，但不再要求用户选择或确认。
   if (needsPositionRequirement(state) && !state.completedFields.includes("position-requirement")) return "position-requirement";
-  if (state.filterMode === "keyword" && !state.completedFields.includes("keywords")) return "position-keywords";
+  // 关键词模式暂停：if (state.filterMode === "keyword" && !state.completedFields.includes("keywords")) return "position-keywords";
   return "position-save";
 }
 
@@ -139,7 +140,7 @@ export function normalizeOnboardingPosition(state: OnboardingState, position: On
   const platformLoggedIn = !changed && state.platformLoggedIn;
   const requiresStartEntry = changed || ["platform-select", "platform-open"].includes(state.step);
   return { ...state, platformId, platformLoggedIn,
-    filterMode: position.common_config?.mode_default === "keyword" ? "keyword" : position.common_config?.mode_default === "ai" ? "ai" : state.filterMode,
+    filterMode: "ai",
     detailMode: positionDetailMode(platformId),
     step: requiresStartEntry && !state.positionStarted && state.status !== "completed" ? "position-start" : state.step };
 }

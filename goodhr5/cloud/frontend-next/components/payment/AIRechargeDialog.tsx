@@ -1,7 +1,8 @@
 /** 本文件提供控制台和会员页共用的 AI 余额充值及活动选择弹框。 */
 "use client";
 import { Form, InputNumber, Typography } from "antd";
-import { useId } from "react";
+import { useId, useState } from "react";
+import RechargeAIModel from "./RechargeAIModel";
 import AdminDialog from "@/components/admin/AdminDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import {
@@ -17,7 +18,7 @@ import {
 
 /** AIRechargeDialog 保留自定义充值金额，并展示最高达标活动及退款规则。 */
 export default function AIRechargeDialog({
-  open, amount, promotions, loading, onAmountChange, onClose, onConfirm,
+  open, amount, promotions, loading, onAmountChange, onClose, onConfirm, onModelSaved,
 }: {
   open: boolean;
   amount: string;
@@ -26,8 +27,10 @@ export default function AIRechargeDialog({
   onAmountChange: (amount: string) => void;
   onClose: () => void;
   onConfirm: () => void;
+  onModelSaved?: (config: Record<string, unknown>) => void;
 }) {
   const amountID = useId();
+  const [modelSaving, setModelSaving] = useState(false);
   const activities = normalizeAIRechargePromotions(promotions);
   const cents = rechargeAmountCents(amount);
   const bonus = rechargeBonusCents(amount, activities);
@@ -41,8 +44,8 @@ export default function AIRechargeDialog({
       cancelText="先不充"
       confirmText="去支付"
       loadingText="下单中"
-      loading={loading}
-      confirmDisabled={cents === null || cents < MIN_AI_RECHARGE_CENTS || cents > MAX_AI_RECHARGE_CENTS}
+      loading={loading || modelSaving}
+      confirmDisabled={modelSaving || cents === null || cents < MIN_AI_RECHARGE_CENTS || cents > MAX_AI_RECHARGE_CENTS}
       onClose={onClose}
       onConfirm={onConfirm}
     >
@@ -89,7 +92,8 @@ export default function AIRechargeDialog({
           <Typography.Text type="secondary">按最高达标档赠送，不叠加；以支付订单为准。</Typography.Text>
         </Typography.Paragraph>
       ) : null}
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>
+      {open ? <RechargeAIModel onBusyChange={setModelSaving} onSaved={onModelSaved} /> : null}
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 4, marginTop: 12 }}>
         {AI_RECHARGE_POLICY}
       </Typography.Paragraph>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>

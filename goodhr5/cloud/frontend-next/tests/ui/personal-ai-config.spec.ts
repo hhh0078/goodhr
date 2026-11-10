@@ -1,4 +1,4 @@
-/** 本文件使用隔离接口验证个人 AI 配置整合、站内模型选择和外部模型自由输入。 */
+/** 本文件使用隔离接口验证个人 AI 配置整合、内置模型选择和外部接口主动迁移。 */
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 const previewOrigin = new URL(
   process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190",
 ).origin;
-const builtinAddress = `${previewOrigin}/api/ai-compatible/v1/chat/completions`;
+const builtinAddress = "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions";
 const models = [
   {
     id: "qwen3.8-flash",
@@ -203,37 +203,26 @@ test("合并 AI 页面，站内模型显示价格与提示并保存选项", asyn
   await page.screenshot({ path: testInfo.outputPath("personal-ai-desktop.png"), fullPage: true });
 });
 
-test("外部地址可填写任意模型，切回内置地址后改为单选", async ({ page }) => {
+test("自定义接口必须主动切换，Esc和遮罩不能关闭说明", async ({ page }) => {
   const calls = await mockPersonalAI(page, { external: true });
-  const model = page.getByLabel("模型名称", { exact: true });
-  await expect(model).toHaveValue("my-own-model");
-  await model.fill("external-unlisted-model");
-  await page.getByRole("button", { name: "保存配置", exact: true }).click();
-  await expect(page.getByText("个人配置已保存", { exact: true })).toBeVisible();
-  expect(calls.find((call) => call.path === "/api/config/user-ai")?.body.model).toBe("external-unlisted-model");
-  await page.getByRole("button", { name: "使用内置 AI", exact: true }).click();
-  await expect(page.getByLabel("API 地址", { exact: true })).toHaveValue(builtinAddress);
-  await expect(model).toHaveAttribute("role", "combobox");
-  await expect(page.getByText(`${models[0].name} (${models[0].id})`, { exact: true })).toBeVisible();
-  await expect(page.getByLabel("API Key", { exact: true })).toHaveValue("ghai_test-only-key");
-  expect(calls.filter((call) => call.path === "/api/ai-wallet/use-builtin")).toHaveLength(1);
-  await page.getByLabel("API 地址", { exact: true }).fill("https://another.example.invalid/v1");
-  await expect(model).not.toHaveAttribute("role", "combobox");
-  await model.fill("another-free-model");
-  await page.getByRole("button", { name: "先测试 AI", exact: true }).click();
-  await expect(page.getByText("AI 接口测试成功", { exact: true })).toBeVisible();
-  expect(calls.find((call) => call.path === "/api/config/test-ai")?.body.model).toBe("another-free-model");
+  const dialog = page.getByRole("dialog", { name: "作者来小声求个支持", exact: true });
+  await expect(dialog).toContainText("不需要额外购买会员");
+  await expect(dialog).toContainText("0.10 元");
+  expect(calls.filter(call => call.path === "/api/ai-wallet/use-builtin")).toHaveLength(0);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "好吧，那就使用内置 AI 吧", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByLabel("模型名称", { exact: true })).toHaveAttribute("role", "combobox");
+  await expect(page.getByLabel("API 地址", { exact: true })).toHaveAttribute("readonly", "");
+  expect(calls.filter(call => call.path === "/api/ai-wallet/use-builtin")).toHaveLength(1);
 });
 
-test("模型列表读取失败不覆写旧模型，外部地址仍可保存", async ({ page }) => {
+test("模型读取失败不覆写旧模型，也不重新开放外部接口", async ({ page }) => {
   const calls = await mockPersonalAI(page, { walletFailure: true });
   await expect(page.getByRole("button", { name: "保存配置", exact: true })).toBeDisabled();
-  expect(calls.filter((call) => call.path === "/api/config/user-ai")).toHaveLength(0);
-  await page.getByLabel("API 地址", { exact: true }).fill("https://custom.example.invalid/v1");
-  await page.getByLabel("模型名称", { exact: true }).fill("still-free-model");
-  await page.getByRole("button", { name: "保存配置", exact: true }).click();
-  await expect(page.getByText("个人配置已保存", { exact: true })).toBeVisible();
-  expect(calls.find((call) => call.path === "/api/config/user-ai")?.body.model).toBe("still-free-model");
+  await expect(page.getByLabel("API 地址", { exact: true })).toHaveAttribute("readonly", "");
+  expect(calls.filter(call => call.path === "/api/config/user-ai")).toHaveLength(0);
 });
 
 test("空模型列表阻止站内保存并提供重新读取", async ({ page }) => {

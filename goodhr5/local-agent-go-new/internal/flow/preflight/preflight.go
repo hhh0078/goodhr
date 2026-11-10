@@ -142,7 +142,7 @@ func (c *Checker) steps() []checkStep {
 		{name: "check_cloud_session", label: "登录状态", run: c.checkCloudSession},
 		{name: "check_device_binding", label: "设备绑定", run: c.checkDeviceBinding},
 		{name: "load_position_snapshot", label: "岗位配置", run: c.loadPosition},
-		{name: "check_subscription", label: "会员状态", run: c.checkSubscription},
+		// 会员限制暂停，原启动步骤保留：{name: "check_subscription", label: "会员状态", run: c.checkSubscription},
 		{name: "load_user_preferences", label: "个人设置", run: c.loadPreferences},
 		{name: "load_local_platform_config", label: "平台配置", run: c.loadPlatform},
 		{name: "check_profile", label: "浏览器账号", run: c.checkProfile},
@@ -222,6 +222,7 @@ func (c *Checker) checkDeviceBinding(ctx context.Context, prepared *shared.Prepa
 
 // checkSubscription 检查会员状态。
 func (c *Checker) checkSubscription(ctx context.Context, prepared *shared.PreparedTask) error {
+	/* 2026-11-10：会员限制暂停，原检查保留供以后恢复，云端仍检查登录及0.10元启动余额。
 	if !prepared.Position.RequiresAI && prepared.Request.TaskType != "auto_reply" {
 		return nil
 	}
@@ -236,6 +237,7 @@ func (c *Checker) checkSubscription(ctx context.Context, prepared *shared.Prepar
 	if prepared.Request.TaskType == "auto_reply" && !subscription.AllowAutoReply {
 		return fmt.Errorf("自动回复属于 Max 全能版，当前套餐暂时不能使用")
 	}
+	*/
 	return nil
 }
 
@@ -342,6 +344,9 @@ func (c *Checker) checkStorage(ctx context.Context, _ *shared.PreparedTask) erro
 func (c *Checker) checkAI(ctx context.Context, prepared *shared.PreparedTask) error {
 	if !prepared.Position.RequiresAI && prepared.Request.TaskType != "auto_reply" {
 		return nil
+	}
+	if c.AI == nil {
+		return fmt.Errorf("AI 组件还没准备好，请重启本地程序后再试")
 	}
 	config, err := c.Cloud.EffectiveAI(ctx, prepared.Request.Token)
 	if err != nil {

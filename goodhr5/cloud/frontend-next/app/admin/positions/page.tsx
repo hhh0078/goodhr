@@ -359,7 +359,7 @@ export default function PositionsPage() {
       ...createEmptyForm(),
       ...(draft || {}),
       platform_id: platformID,
-      mode_default: draft?.mode_default || defaultCreateMode(aiMembership),
+      mode_default: "ai",
       detail_mode: normalizeDetailMode(platformID, draft?.detail_mode || defaultCreateDetailMode(platformID, aiMembership)),
     };
     draftOwnerIdentity.current = draftIdentity;
@@ -484,7 +484,7 @@ export default function PositionsPage() {
     const draft = context.active ? readOnboardingPositionDraft(draftIdentity) : null;
     const next = { ...createEmptyForm(), ...(draft || {}) };
     next.platform_id = context.active ? draft?.platform_id || "" : openPlatformID;
-    next.mode_default = draft?.mode_default || defaultCreateMode(aiMembership);
+    next.mode_default = "ai";
     next.detail_mode = normalizeDetailMode(next.platform_id, draft?.detail_mode || defaultCreateDetailMode(next.platform_id, aiMembership));
     draftOwnerIdentity.current = draftIdentity;
     positionFormEpoch.current += 1;
@@ -599,7 +599,7 @@ export default function PositionsPage() {
       ...actual,
       platform_id: draft.platform_id,
       name: draft.name,
-      mode_default: draft.mode_default,
+      mode_default: "ai",
       detail_mode: normalizeDetailMode(draft.platform_id, draft.detail_mode),
       position_requirement: draft.position_requirement,
       keywords: draft.keywords,
@@ -695,7 +695,7 @@ export default function PositionsPage() {
           greet_message: form.greet_message.trim(),
           is_and_mode: form.is_and_mode,
           common_config: {
-            mode_default: form.mode_default,
+            mode_default: "ai",
             detail_mode: detailMode,
             output_structured_resume: form.output_structured_resume,
             hliepin_shortcut_search_name:
@@ -1038,6 +1038,7 @@ export default function PositionsPage() {
         }).catch(() => undefined);
         return;
       }
+      /* 2026-11-10：会员限制及免费额度提示暂停，原逻辑保留。
       const usesAI = positionUsesAI(item);
       if (usesAI && !canUseAI(currentSubscription)) {
         const message = "这个岗位用了会员 AI 功能，订阅后我才能继续开工。";
@@ -1058,6 +1059,7 @@ export default function PositionsPage() {
           "当前是免费版，今天的打招呼数量会按免费额度来，我会省着点用。",
           "info",
         );
+      */
       setStartStatus("登录确认好了，正在启动岗位...");
       if (!canContinueStart()) return;
       await localRequest(
@@ -1578,6 +1580,8 @@ export default function PositionsPage() {
                       className={`${styles.text} ${styles.s7}`}
                     >
                       {platformLabel(item.platform_id)}·{" "}
+                      AI 筛选 · 详情：{detailModeLabel(positionDetailMode(item.platform_id))}
+                      {/* 关键词模式暂停，原卡片内容保留供恢复。
                       {item.common_config?.mode_default === "ai"
                         ? "AI 筛选"
                         : "关键词筛选"}{" "}
@@ -1589,6 +1593,7 @@ export default function PositionsPage() {
                           (item.keywords || []).join(" / ") || "无",
                         )}
                       </span>
+                      */}
                     </Typography.Paragraph>
                   </div>
                   {isCurrentUserPosition(item, user?.email) ? (
@@ -1888,7 +1893,7 @@ export default function PositionsPage() {
       <AdminDialog
         open={dialogOpen}
         title={form.id ? "编辑岗位模板" : "新建岗位模板"}
-        description={simpleOnboardingForm ? (form.id ? "核对这份岗位，保存后我陪你接着走，不会再新建一份。" : "先把第一个岗位建好，我陪你继续跑下一步。") : "按运行顺序填写。只有当前选择模式需要的字段会显示。"}
+        description={simpleOnboardingForm ? (form.id ? "核对这份岗位，保存后我陪你接着走，不会再新建一份。" : "先把第一个岗位建好，我陪你继续跑下一步。") : "按运行顺序填写，统一使用 AI 筛选，入库设置保持你的选择。"}
         maxWidth="md"
         confirmText={form.id ? "保存修改" : "创建岗位"}
         confirmDataOnboarding="position-save"
@@ -1928,7 +1933,8 @@ export default function PositionsPage() {
                 placeholder="粘贴平台“岗位管理”里的完整岗位名称"
               />
             </Form.Item>
-            <div data-onboarding="position-filter-mode" onClick={(event) => reportOnboardingModeClick(event, "filter-mode")}>
+            {/* 基础筛选固定为AI，原模式选择保留供以后恢复。
+<div data-onboarding="position-filter-mode" onClick={(event) => reportOnboardingModeClick(event, "filter-mode")}>
               <ChoiceCards
                 label="基础信息筛选方式"
                 value={form.mode_default}
@@ -1937,6 +1943,7 @@ export default function PositionsPage() {
                 options={ONBOARDING_FILTER_MODE_OPTIONS}
               />
             </div>
+*/}
             {/* 旧详情识别方式选择框保留：当前按平台固定AI/DOM，不再展示或允许选择OCR。
 <div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
               <ChoiceCards
@@ -1968,7 +1975,7 @@ export default function PositionsPage() {
                   />
                 </Form.Item>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  AI 需有效会员；内置 AI 按用量扣余额，自定义接口按服务商规则计费。开始前会检查会员与余额。
+                  AI 按实际用量扣余额，无需额外购买会员。启动至少需要 0.10 元，并使用内置 AI。
                 </Typography.Text>
               </>
             ) : null}
@@ -2091,7 +2098,7 @@ export default function PositionsPage() {
                 disabled:
                   !isPlatformOpen(platformConfigs, "boss"),
                 description: isPlatformOpen(platformConfigs, "boss")
-                  ? "详情固定使用 AI 识别，需要相应会员及 AI 配置。"
+                  ? "详情固定使用 AI 识别，需要内置 AI 配置和充足余额。"
                   : "暂未开放",
                 iconSrc: platformIconSrc("boss"),
               },
@@ -2188,6 +2195,7 @@ export default function PositionsPage() {
               ) : null}
             </div>
           </Card>
+{/* 基础筛选固定为AI，原模式选择保留供以后恢复。
           <div data-onboarding="position-filter-mode" onClick={(event) => reportOnboardingModeClick(event, "filter-mode")}>
           <ChoiceCards
             label="基础信息筛选模式   (决定是否打开查看详情)"
@@ -2196,6 +2204,7 @@ export default function PositionsPage() {
             options={ONBOARDING_FILTER_MODE_OPTIONS}
           />
           </div>
+*/}
           {/* 旧详情识别方式选择框保留：当前按平台固定AI/DOM，不再展示或允许选择OCR。
 <div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
             <>
@@ -3005,7 +3014,7 @@ function createEmptyForm() {
     name: "",
     is_open: true,
     platform_id: "boss",
-    mode_default: "keyword",
+    mode_default: "ai",
     detail_mode: "ai",
     keywords: "",
     exclude_keywords: "",
@@ -3052,7 +3061,7 @@ function formFromItem(
       name: item.name || "",
       is_open: item.is_open !== false,
       platform_id: item.platform_id || "boss",
-      mode_default: common.mode_default || "keyword",
+      mode_default: "ai",
       detail_mode: normalizeDetailMode(
         item.platform_id,
         common.detail_mode || positionDetailMode(item.platform_id),
@@ -3155,7 +3164,8 @@ function defaultCreateDetailMode(platformID: string, _memberActive: boolean) {
 }
 /** defaultCreateMode 返回新增岗位时自动使用的基础筛选模式。 */
 function defaultCreateMode(memberActive: boolean) {
-  return memberActive ? "ai" : "keyword";
+  // 原会员分流保留：return memberActive ? "ai" : "keyword";
+  return "ai";
 }
 /** isDOMOnlyPlatform 判断平台是否只支持 DOM 详情识别。 */
 function isDOMOnlyPlatform(platformID: string) {

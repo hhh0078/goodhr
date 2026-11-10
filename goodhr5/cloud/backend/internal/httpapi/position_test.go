@@ -113,8 +113,8 @@ func TestPositionSaveChangesPlatform(t *testing.T) {
 	}
 }
 
-// TestPositionSaveRejectsAIForExpiredMember 验证岗位保存接口不会只依赖前端会员判断。
-func TestPositionSaveRejectsAIForExpiredMember(t *testing.T) {
+// TestPositionSaveAllowsAIForExpiredMember 验证会员限制暂停后，过期会员仍可保存AI岗位。
+func TestPositionSaveAllowsAIForExpiredMember(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	email := "position-save-member@example.com"
@@ -130,7 +130,7 @@ func TestPositionSaveRejectsAIForExpiredMember(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp := httptest.NewRecorder()
 	routes.ServeHTTP(resp, req)
-	if resp.Code != http.StatusForbidden {
+	if resp.Code != http.StatusOK {
 		t.Fatalf("save status = %d, body = %s", resp.Code, resp.Body.String())
 	}
 }

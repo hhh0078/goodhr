@@ -435,7 +435,7 @@ func TestNormalizePositionFixedDetailMode(t *testing.T) {
 			if wantAI {
 				wantMode = "ai"
 			}
-			if position.RequiresOCR || position.RequiresAI != wantAI || position.CommonConfig.DetailMode != wantMode {
+			if position.RequiresOCR || !position.RequiresAI || position.CommonConfig.ModeDefault != "ai" || position.CommonConfig.DetailMode != wantMode {
 				t.Fatalf("平台%s旧模式%s未归一：%+v", platform, legacy, position)
 			}
 		}
