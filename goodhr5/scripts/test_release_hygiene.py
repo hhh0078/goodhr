@@ -319,6 +319,39 @@ class HygieneTests(unittest.TestCase):
         self.assertEqual(backup.read_bytes(), b"PGDMP original")
         self.assertEqual(report.read_text(), '{"success":true}')
 
+    def test_failed_restore_requires_explicit_user_scope_and_both_cli_modes(self):
+        """失败副本默认保留；只有精确路径批准、真实失败记录和双重显式模式才可清理。"""
+        pg = self.release / "rehearsal/pgdata"
+        pg.mkdir(parents=True)
+        (pg / "PG_VERSION").write_text("18")
+        backup = self.release / "rehearsal/database.dump"
+        backup.write_bytes(b"PGDMP original")
+        report = self.release / "rehearsal/journal.json"
+        report.write_text('{"success":false}')
+        self.manifest.update(status="failed", completed_workdirs=[], isolated_postgres=[{
+            "path": "rehearsal/pgdata", "stopped": True, "container_ids": ["c" * 64],
+            "backup": {"path": "rehearsal/database.dump", "sha256": hygiene.file_sha(backup)},
+            "rehearsal": {"passed": False, "report_path": "rehearsal/journal.json", "report_sha256": hygiene.file_sha(report)}}])
+        self.write_manifest()
+        with self.assertRaises(hygiene.HygieneError):
+            hygiene.create_plan(self.release, self.reader, allow_failed_restore=True)
+        self.manifest["failed_restore_cleanup_approval"] = {
+            "approved": True, "reason": "测试中的明确路径批准", "paths": ["rehearsal/pgdata"]}
+        self.write_manifest()
+        self.assertEqual(hygiene.create_plan(self.release, self.reader)["candidates"], [])
+        plan = hygiene.create_plan(self.release, self.reader, allow_failed_restore=True)
+        path = self.release / "failed-pg-plan.json"
+        hygiene.write_json(path, plan)
+        digest = hygiene.file_sha(path)
+        with self.assertRaises(hygiene.HygieneError):
+            hygiene.apply_plan(path, digest, self.reader)
+        with patch.object(hygiene.shutil.rmtree, "avoids_symlink_attacks", True, create=True):
+            result = hygiene.apply_plan(path, digest, self.reader, allow_failed_restore=True)
+        self.assertEqual(result["deleted"], [str(pg)])
+        self.assertTrue(self.cache.exists())
+        self.assertEqual(backup.read_bytes(), b"PGDMP original")
+        self.assertEqual(report.read_text(), '{"success":false}')
+
 
 if __name__ == "__main__":
     unittest.main()

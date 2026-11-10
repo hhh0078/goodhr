@@ -237,10 +237,11 @@ class Rehearsal:
         result = {}
         for table in tables:
             schema, name = table.split("\t")
+            print(json.dumps({"隔离数据核对": "开始", "表": schema + "." + name}, ensure_ascii=False), flush=True)
             target = quote_identifier(schema) + "." + quote_identifier(name)
             selected = ",".join(quote_identifier(key) for key in columns[table]) if columns is not None else "*"
             condition = " WHERE config_key<>'system.auto_reply_library'" if preserve_default_library and table == "public\tsystem_configs" else ""
-            sql = "SET statement_timeout='90s'; COPY (SELECT row_to_json(t)::text FROM (SELECT " + selected + " FROM " + target + condition + ") t ORDER BY row_to_json(t)::text COLLATE \"C\") TO STDOUT;"
+            sql = "SET statement_timeout='600s'; COPY (SELECT row_to_json(t)::text FROM (SELECT " + selected + " FROM " + target + condition + ") t ORDER BY row_to_json(t)::text COLLATE \"C\") TO STDOUT;"
             digest, rows = hashlib.sha256(), 0
             with tempfile.TemporaryFile() as errors:
                 process = subprocess.Popen(["docker", "exec", "-i", self.pg, "psql", "-XqAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", self.args.database], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors)
@@ -250,13 +251,14 @@ class Rehearsal:
                     for line in process.stdout:
                         digest.update(line)
                         rows += 1
-                    require(process.wait(timeout=120) == 0, "恢复库表摘要计算失败：" + table)
+                    require(process.wait(timeout=630) == 0, "恢复库表摘要计算失败：" + table)
                 finally:
                     process.stdout.close()
                     if process.poll() is None:
                         process.kill()
                         process.wait()
             result[table] = {"rows": rows, "sha256": digest.hexdigest()}
+            print(json.dumps({"隔离数据核对": "完成", "表": schema + "." + name, "行数": rows}, ensure_ascii=False), flush=True)
         require(result, "恢复库没有业务表")
         return result
 

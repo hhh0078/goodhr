@@ -25,7 +25,7 @@ CACHE_PATHS = frozenset({
     "frontend-runner/standalone/node_modules", "frontend-runner/standalone/.next",
     "backend-build/go-cache", "go-cache",
 })
-PG_PATHS = frozenset({"rehearsal-pgdata", "clone-pgdata-v2", "rehearsal-pgdata-before-readiness-fix", "pgdata", "rehearsal/pgdata"})
+PG_PATHS = frozenset({"rehearsal-pgdata", "clone-pgdata-v2", "rehearsal-pgdata-before-readiness-fix", "pgdata", "rehearsal/pgdata", "failed-rehearsal-timeout/pgdata"})
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 PROTECTED_NAMES = {MANIFEST_NAME, "configs-before.json", "configs-after.json", "manifest.private.json",
                    "windows-release-manifest.json", "deployment-result.private.json", "deploy-state.private.json", "rollback.sql"}
@@ -226,11 +226,17 @@ def proof_file(release, value):
     return {"path": str(path), "sha256": value["sha256"], "identity": before}
 
 
-def candidate_specs(release, manifest, reader):
+def candidate_specs(release, manifest, reader, allow_failed_restore=False):
     """candidate_specs 仅生成manifest显式完成的白名单目标，历史无验证manifest的PG目录不自动清理。"""
     rows = [{"relative_path": value, "kind": "cache"} for value in manifest["completed_workdirs"]]
     containers = None
-    for resource in manifest.get("isolated_postgres", []) if manifest["status"] == "succeeded" else []:
+    if allow_failed_restore:
+        approval = manifest.get("failed_restore_cleanup_approval") or {}
+        require(manifest["status"] == "failed" and not rows and approval.get("approved") is True
+                and isinstance(approval.get("reason"), str) and approval["reason"].strip()
+                and approval.get("paths") == [row.get("path") for row in manifest.get("isolated_postgres", [])],
+                "删除失败副本必须有用户对这份精确路径清单的明确批准，不能混入其他缓存")
+    for resource in manifest.get("isolated_postgres", []) if manifest["status"] == "succeeded" or allow_failed_restore else []:
         require(isinstance(resource, dict) and resource.get("path") in PG_PATHS and resource.get("stopped") is True, "隔离PG资源尚未明确停止")
         ids = resource.get("container_ids")
         require(isinstance(ids, list) and ids and all(isinstance(value, str) and SHA256.fullmatch(value) for value in ids), "隔离PG资源缺少原容器身份")
@@ -238,9 +244,13 @@ def candidate_specs(release, manifest, reader):
         require(not any(row["id"] in ids and row["status"] not in {"exited", "dead"} for row in containers), "隔离PG资源仍在运行")
         rehearsal = resource.get("rehearsal", {})
         require(isinstance(rehearsal, dict), "隔离恢复演练证据格式异常")
-        require(rehearsal.get("passed") is True, "隔离恢复演练尚未通过")
+        require(rehearsal.get("passed") is (False if allow_failed_restore else True),
+                "失败副本必须如实记录未通过，普通收尾只能回收已通过的副本")
         backup = proof_file(release, resource.get("backup"))
         report = proof_file(release, {"path": rehearsal.get("report_path"), "sha256": rehearsal.get("report_sha256")})
+        if allow_failed_restore:
+            require(json.loads(Path(report["path"]).read_text()).get("success") is False,
+                    "失败副本批准必须绑定原始失败记录，不得伪造成功演练")
         with Path(backup["path"]).open("rb") as stream:
             require(stream.read(5) == b"PGDMP", "保留dump格式异常")
         backup["toc_sha256"] = reader.dump_toc(Path(backup["path"]))
@@ -254,12 +264,13 @@ def candidate_specs(release, manifest, reader):
     return rows
 
 
-def create_plan(release_dir, reader=None):
+def create_plan(release_dir, reader=None, allow_failed_restore=False):
     """create_plan 仅进行只读侦察和指纹计算，不修改服务器目录、容器或镜像。"""
     release = release_path(release_dir)
     reader = reader or SafetyReader()
     manifest, manifest_sha = load_manifest(release)
-    specs = candidate_specs(release, manifest, reader)
+    require(isinstance(allow_failed_restore, bool), "失败副本批准模式格式异常")
+    specs = candidate_specs(release, manifest, reader, allow_failed_restore)
     rows = []
     for spec in specs:
         target = relative_path(release, spec["relative_path"])
@@ -273,7 +284,8 @@ def create_plan(release_dir, reader=None):
     for row in rows:
         row["fingerprint"] = fingerprint(Path(row["path"]), row["kind"])
     require(file_sha(release / MANIFEST_NAME) == manifest_sha, "计划期间发布manifest变化")
-    return {"schema_version": 1, "purpose": "仅回收已完成发布的显式可重建目录；保留所有源码、备份、SQL和发布证据",
+    purpose = "按用户对精确路径的批准回收失败隔离副本；保留完整dump及原始失败记录" if allow_failed_restore else "仅回收已完成发布的显式可重建目录；保留所有源码、备份、SQL和发布证据"
+    return {"schema_version": 1, "allow_failed_restore": allow_failed_restore, "purpose": purpose,
             "host": socket.gethostname(), "release_dir": str(release), "release_identity": identity(release)[:2],
             "manifest_sha256": manifest_sha, "candidates": rows,
             "visibility": "只核验全容器挂载、发布活动标签和宿主挂载；不声称读取全部受限proc的cwd/fd/maps"}
@@ -287,18 +299,20 @@ def write_json(path, value):
         stream.write("\n")
 
 
-def apply_plan(plan_path, expected_sha, reader=None):
+def apply_plan(plan_path, expected_sha, reader=None, allow_failed_restore=False):
     """apply_plan 校验固定计划及全部保护后精确逐项删除；逐项记录日志，异常不继续。"""
     path = real_path(plan_path)
     require(isinstance(expected_sha, str) and SHA256.fullmatch(expected_sha) and file_sha(path) == expected_sha, "计划SHA不匹配")
     plan = json.loads(path.read_text(encoding="utf-8"))
     require(isinstance(plan, dict), "清理计划必须为对象")
+    require(plan.get("allow_failed_restore", False) is allow_failed_restore,
+            "执行失败副本清理必须再次显式提供批准模式，普通自动收尾不能调用")
     require(plan.get("schema_version") == 1 and plan.get("host") == socket.gethostname(), "计划主机或格式不匹配")
     release = release_path(plan.get("release_dir"))
     require(identity(release)[:2] == plan.get("release_identity"), "发布目录身份变化")
     require(file_sha(release / MANIFEST_NAME) == plan.get("manifest_sha256"), "发布manifest变化")
     reader = reader or SafetyReader()
-    current = create_plan(release, reader)
+    current = create_plan(release, reader, allow_failed_restore)
     require(current == plan, "目标、保留证据或全树指纹已变化，停止清理")
     require(getattr(shutil.rmtree, "avoids_symlink_attacks", False), "本机不支持安全目录删除；只能在受支持的Linux主机执行")
     rows = plan["candidates"]
@@ -343,19 +357,21 @@ def main(argv=None):
     plan_command = operations.add_parser("plan")
     plan_command.add_argument("--release-dir", required=True)
     plan_command.add_argument("--out", required=True)
+    plan_command.add_argument("--allow-failed-restore", action="store_true", help="仅用户已批准精确路径时生成失败恢复副本清理计划")
     apply_command = operations.add_parser("apply")
     apply_command.add_argument("--plan", required=True)
     apply_command.add_argument("--sha256", required=True)
+    apply_command.add_argument("--allow-failed-restore", action="store_true", help="再次明确执行已批准的失败恢复副本计划")
     args = parser.parse_args(argv)
     try:
         if args.operation == "plan":
-            value = create_plan(args.release_dir)
+            value = create_plan(args.release_dir, allow_failed_restore=args.allow_failed_restore)
             output = Path(args.out).absolute()
             require(output.parent.resolve() == output.parent and not any(overlaps(output, Path(row["path"])) for row in value["candidates"]), "计划输出路径不安全")
             write_json(output, value)
             result = {"plan": str(output), "sha256": file_sha(output), "targets": len(value["candidates"])}
         else:
-            result = apply_plan(args.plan, args.sha256)
+            result = apply_plan(args.plan, args.sha256, allow_failed_restore=args.allow_failed_restore)
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (HygieneError, GuardError, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
