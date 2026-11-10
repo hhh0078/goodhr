@@ -255,6 +255,62 @@ class AutomaticReleaseTests(unittest.TestCase):
             self.assertEqual(invoke_mock.call_count, 1)
             self.assertIn("plan", invoke_mock.call_args.args[0])
 
+    def test_cache_gc_uses_cache_only_plan_and_the_real_apply_arguments(self):
+        """空间维护只清构建缓存，apply使用计划已绑定的登记，不传不存在的registry选项。"""
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            registry = base / "fixture/retention-registry.json"
+            registry.parent.mkdir()
+            registry.write_text("{}")
+            job = AutomaticRelease(base / "goodhr5", Engine(), base / "state")
+            job.state_root.mkdir()
+            job.release = base / "candidate"
+            job.release.mkdir()
+            images = {"backend": "sha256:" + "2" * 64, "frontend": "sha256:" + "3" * 64}
+
+            def invoke(arguments, environment):
+                """invoke 提供有明确候选保护且不删容器的缓存计划，记录最终CLI契约。"""
+                if "plan" in arguments:
+                    (job.release / "preactivation-retention-plan.json").write_text(json.dumps({
+                        "cache_only": True, "protected_image_ids": list(images.values()), "containers_to_remove": []}))
+
+            with patch("auto_release.RELEASE_ROOT", base), patch("auto_release.command", return_value=str(base).encode()), \
+                    patch("auto_release.shutil.disk_usage", side_effect=[SimpleNamespace(free=0), SimpleNamespace(free=4 * 1024**3)]), \
+                    patch.object(job, "invoke", side_effect=invoke) as invoke_mock:
+                job.reclaim_build_cache(job.live(), images, {})
+            self.assertIn("--cache-only", invoke_mock.call_args_list[0].args[0])
+            self.assertNotIn("--registry", invoke_mock.call_args_list[1].args[0])
+            self.assertIn("apply", invoke_mock.call_args_list[1].args[0])
+
+    def test_low_space_releases_completed_cache_without_deleting_applications(self):
+        """保留一条缓存后仍不足时，第二份独立计划只释放已完成缓存，继续保护所有应用。"""
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            registry = base / "fixture/retention-registry.json"
+            registry.parent.mkdir()
+            registry.write_text("{}")
+            job = AutomaticRelease(base / "goodhr5", Engine(), base / "state")
+            job.state_root.mkdir()
+            job.release = base / "candidate"
+            job.release.mkdir()
+            images = {"backend": "sha256:" + "2" * 64, "frontend": "sha256:" + "3" * 64}
+
+            def invoke(arguments, environment):
+                """invoke 记录两份独立只缓存计划，不执行实际删除。"""
+                if "plan" in arguments:
+                    Path(arguments[arguments.index("--out") + 1]).write_text(json.dumps({
+                        "cache_only": True, "protected_image_ids": list(images.values()), "containers_to_remove": []}))
+
+            free = [SimpleNamespace(free=value * 1024**3) for value in (0, 2, 4)]
+            with patch("auto_release.RELEASE_ROOT", base), patch("auto_release.command", return_value=str(base).encode()), \
+                    patch("auto_release.shutil.disk_usage", side_effect=free), patch.object(job, "invoke", side_effect=invoke) as invoke_mock:
+                job.reclaim_build_cache(job.live(), images, {})
+            self.assertEqual(invoke_mock.call_count, 4)
+            self.assertNotIn("--drop-build-cache", invoke_mock.call_args_list[0].args[0])
+            self.assertIn("--drop-build-cache", invoke_mock.call_args_list[2].args[0])
+
 
 class MigrationGateTests(unittest.TestCase):
     """覆盖冻结SQL、旧账本完整性和自定义话术的边界，避免为自动化放宽数据检查。"""

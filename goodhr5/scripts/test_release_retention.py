@@ -98,6 +98,43 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual({row["id"] for row in plan["images_to_remove"]}, {iid(7), iid(8)})
         self.assertTrue({iid(1), iid(2), iid(3), iid(4), iid(5), iid(6)} <= set(plan["protected_image_ids"]))
 
+    def test_cache_only_preserves_every_application_without_claiming_missing_rollback(self):
+        """更老镜像缺失时只允许有当前组合证据的构建缓存维护，不能删除或伪造历史应用回退。"""
+        self.registry["verified_releases"] = [self.record("current", 3, 4, "2026-10-15T08:00:00+08:00")]
+        del self.snapshot["images"][iid(5)]
+        del self.snapshot["images"][iid(6)]
+        for value, created in ((20, "2026-10-14T00:00:00Z"), (21, "2026-10-15T00:00:00Z")):
+            row = image(value, role="builder", parent=1, tags=[])
+            row.update(Project="goodhr", BuildStage="backend-builder", BuildFinished="true", Created=created)
+            self.snapshot["images"][iid(value)] = row
+        with self.assertRaises(retention.GuardError):
+            self.plan()
+        plan = retention.make_plan(self.snapshot, self.registry, self.policy, cache_only=True)
+        self.assertEqual(plan["containers_to_remove"], [])
+        self.assertEqual(plan["compatible_rollback_records"], [])
+        self.assertEqual([row["id"] for row in plan["images_to_remove"]], [iid(20)])
+        self.assertTrue({iid(1), iid(2), iid(3), iid(4), iid(7), iid(8), iid(21)} <= set(plan["protected_image_ids"]))
+        reader = FakeDocker(self.snapshot)
+        retention.execute_plan(plan, self.registry, self.policy, reader, self.root / "cache-audit.json")
+        self.assertEqual(reader.actions, [("image", iid(20))])
+        self.assertEqual(len(reader.state["containers"]), len(self.snapshot["containers"]))
+        drop = retention.make_plan(self.snapshot, self.registry, self.policy, cache_only=True, drop_build_cache=True)
+        self.assertEqual({row["id"] for row in drop["images_to_remove"]}, {iid(20), iid(21)})
+        self.assertEqual(drop["containers_to_remove"], [])
+        self.assertTrue({iid(3), iid(4), iid(7), iid(8)} <= set(drop["protected_image_ids"]))
+
+    def test_cache_only_still_requires_current_pair_evidence(self):
+        """只清缓存也不能拿其他版本或损坏报告冒充当前配对的同账本证据。"""
+        with self.assertRaises(retention.GuardError):
+            retention.make_plan(self.snapshot, self.registry, self.policy, cache_only=True)
+
+    def test_cache_only_rejects_application_allowlists(self):
+        """缓存维护模式不得夹带应用容器批准名单而扩大删除边界。"""
+        with self.assertRaises(retention.GuardError):
+            retention.make_plan(self.snapshot, self.registry, self.policy, known_names=["old-app"], cache_only=True)
+        with self.assertRaises(retention.GuardError):
+            retention.make_plan(self.snapshot, self.registry, self.policy, drop_build_cache=True)
+
     def test_all_running_and_other_project_stopped_containers_protect_images(self):
         """即使使用本项目旧镜像，运行容器及其他项目停止容器也保护镜像及祖先。"""
         self.snapshot["containers"].extend([container(10, "unrelated-stopped-job", 7, role="foreign"), container(11, "goodhr-production-frontend-1-backup-running", 8, True, "frontend")])

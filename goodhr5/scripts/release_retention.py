@@ -277,9 +277,12 @@ def select_rollbacks(records, current, images):
     return selected, historical
 
 
-def make_plan(snapshot, registry, policy, known_names=(), evidence_hash=digest_file, evidence_reader=None, legacy_allowlist=None, legacy_evidence_hash=digest_file, legacy_evidence_reader=None):
+def make_plan(snapshot, registry, policy, known_names=(), evidence_hash=digest_file, evidence_reader=None, legacy_allowlist=None, legacy_evidence_hash=digest_file, legacy_evidence_reader=None, cache_only=False, drop_build_cache=False):
     """make_plan 由完整只读快照生成精确删除白名单，所有其他容器与外部镜像都进入保护闭包。"""
     runtimes = policy_values(policy)
+    require(isinstance(cache_only, bool) and (not cache_only or not known_names and legacy_allowlist is None),
+            "仅缓存模式不能包含任何应用容器批准名单")
+    require(isinstance(drop_build_cache, bool) and (not drop_build_cache or cache_only), "不保留构建缓存仅能用于全部应用受保护的缓存模式")
     require(all(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]+", name) for name in known_names), "额外容器白名单必须是精确简单名称")
     host, containers, images = snapshot["host"], snapshot["containers"], snapshot["images"]
     require(registry["host"] == host, "登记与快照服务器身份不一致")
@@ -289,8 +292,13 @@ def make_plan(snapshot, registry, policy, known_names=(), evidence_hash=digest_f
         require(len(matches) == 1, "当前正式" + role + "运行容器不唯一，禁止回收")
         current[role] = matches[0]["Image"]
     records, excluded = verified_records(registry, host, evidence_hash, evidence_reader)
-    selected, historical = select_rollbacks(records, current, images)
-    default_targets = [row for row in containers if target_container(row, images[row["Image"]], known_names)]
+    if cache_only:
+        require(any(all(row[role + "_image"] == current[role] for role in ROLES) for row in records),
+                "当前完整生产组合没有同账本有效证据，禁止缓存维护")
+        selected, historical = [], {role: set() for role in ROLES}
+    else:
+        selected, historical = select_rollbacks(records, current, images)
+    default_targets = [] if cache_only else [row for row in containers if target_container(row, images[row["Image"]], known_names)]
     legacy_targets, legacy_refs = legacy_entries(legacy_allowlist, snapshot, legacy_evidence_hash, legacy_evidence_reader)
     target_ids = {row["Id"] for row in default_targets + legacy_targets}
     rollback_images = {row[role + "_image"] for row in selected for role in ROLES}
@@ -300,20 +308,26 @@ def make_plan(snapshot, registry, policy, known_names=(), evidence_hash=digest_f
     removed_ids = {row["Id"] for row in remove_containers}
     keep_containers = [row for row in containers if row["Id"] not in removed_ids]
     possible = ancestor_closure({row["Image"] for row in remove_containers}, images)
-    possible.update(key for key, image in images.items() if business_image(image))
+    if not cache_only:
+        possible.update(key for key, image in images.items() if business_image(image))
     builders = {key for key, image in images.items() if build_image(image)}
     possible.update(ancestor_closure(builders, images))
-    retained_builds = retained_build_leaves(images)
+    retained_builds = set() if drop_build_cache else retained_build_leaves(images)
     foreign = {key for key, image in images.items() if any(not business_ref(ref) and ref not in legacy_refs.get(key, []) for ref in image["RepoTags"] + image["RepoDigests"])}
     protected_seeds = {row["Image"] for row in keep_containers} | rollback_images | retained_builds | foreign | (runtimes & set(images)) | (set(images) - possible)
+    if cache_only:
+        # 缓存维护不删除任何应用、标签或容器，也不把已缺失的历史镜像冒充可用回退。
+        protected_seeds.update(key for key, image in images.items() if business_image(image) or image["RepoTags"] or image["RepoDigests"])
     protected = ancestor_closure(protected_seeds, images)
     removable = possible - protected
+    if cache_only:
+        removable.intersection_update(builders)
     actions = []
     for key in deletion_order(removable, images):
         image = images[key]
         require(all(business_ref(ref) or ref in legacy_refs.get(key, []) for ref in image["RepoTags"] + image["RepoDigests"]), "候选包含外部镜像引用")
         actions.append({"id": key, "refs": sorted(image["RepoTags"]) or [key]})
-    return {"schema_version": 1, "host": host, "current_migration_fingerprint": registry["current_migration_fingerprint"], "known_container_names": sorted(set(known_names)), "legacy_allowlist": legacy_allowlist, "approved_legacy_image_refs": legacy_refs, "snapshot": snapshot, "current_images": current, "compatible_rollback_records": selected, "historical_images": {role: sorted(values) for role, values in historical.items()}, "retained_build_cache_leaf_ids": sorted(retained_builds), "excluded_registry_records": excluded, "protected_container_ids": sorted(row["Id"] for row in keep_containers), "protected_image_ids": sorted(protected), "containers_to_remove": sorted(remove_containers, key=lambda row: row["Id"]), "images_to_remove": actions}
+    return {"schema_version": 1, "cache_only": cache_only, "drop_build_cache": drop_build_cache, "host": host, "current_migration_fingerprint": registry["current_migration_fingerprint"], "known_container_names": sorted(set(known_names)), "legacy_allowlist": legacy_allowlist, "approved_legacy_image_refs": legacy_refs, "snapshot": snapshot, "current_images": current, "compatible_rollback_records": selected, "historical_images": {role: sorted(values) for role, values in historical.items()}, "retained_build_cache_leaf_ids": sorted(retained_builds), "excluded_registry_records": excluded, "protected_container_ids": sorted(row["Id"] for row in keep_containers), "protected_image_ids": sorted(protected), "containers_to_remove": sorted(remove_containers, key=lambda row: row["Id"]), "images_to_remove": actions}
 
 
 def check_activation(registry, evidence, reader=None, policy=None):
@@ -448,7 +462,7 @@ def execute_plan(plan, registry, policy, reader, audit_path):
     try:
         require(reader.snapshot() == expected, "全局Docker快照已变化，必须重新生成计划")
         reader.migration_fingerprint(registry, expected)
-        rebuilt = make_plan(expected, registry, policy, plan["known_container_names"], legacy_allowlist=plan.get("legacy_allowlist"))
+        rebuilt = make_plan(expected, registry, policy, plan["known_container_names"], legacy_allowlist=plan.get("legacy_allowlist"), cache_only=plan.get("cache_only", False), drop_build_cache=plan.get("drop_build_cache", False))
         for key in ("current_images", "compatible_rollback_records", "historical_images", "retained_build_cache_leaf_ids", "approved_legacy_image_refs", "protected_container_ids", "protected_image_ids", "containers_to_remove", "images_to_remove"):
             require(rebuilt[key] == plan[key], "批准计划与当前安全规则或证据不一致")
         for row in plan["containers_to_remove"]:
@@ -497,6 +511,8 @@ def main(argv=None):
     plan_parser.add_argument("--container-name", action="append", default=[])
     plan_parser.add_argument("--legacy-allowlist")
     plan_parser.add_argument("--legacy-sha256")
+    plan_parser.add_argument("--cache-only", action="store_true", help="仅回收带明确标签的无引用构建缓存，保护全部应用镜像与容器")
+    plan_parser.add_argument("--drop-build-cache", action="store_true", help="仅缓存模式下不保留已完成构建缓存，应用镜像和容器仍全部保护")
     check_parser = commands.add_parser("check")
     check_parser.add_argument("--registry", default=REGISTRY_PATH)
     check_parser.add_argument("--evidence", required=True)
@@ -520,7 +536,7 @@ def main(argv=None):
             legacy, legacy_sha = read_json(args.legacy_allowlist)
             require(SHA.fullmatch(args.legacy_sha256) and legacy_sha == args.legacy_sha256, "历史三元批准文件SHA不匹配")
             legacy_input = {"path": str(Path(args.legacy_allowlist).resolve()), "sha256": legacy_sha}
-        plan = make_plan(snapshot, registry, policy, args.container_name, legacy_allowlist=legacy)
+        plan = make_plan(snapshot, registry, policy, args.container_name, legacy_allowlist=legacy, cache_only=args.cache_only, drop_build_cache=args.drop_build_cache)
         plan["legacy_allowlist_input"] = legacy_input
         plan.update(registry_path=str(Path(args.registry).resolve()), registry_sha256=registry_sha, policy_path=str(Path(args.policy).resolve()), policy_sha256=policy_sha)
         require(reader.snapshot() == snapshot, "计划生成期间Docker快照变化")

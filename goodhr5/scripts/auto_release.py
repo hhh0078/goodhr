@@ -269,13 +269,21 @@ class AutomaticRelease:
                 "当前完整版本编号不一致，无法自动回收缓存")
         registry = RELEASE_ROOT / release_id / "retention-registry.json"
         require(registry.is_file() and registry.resolve() == registry, "缺少当前真实版本的兼容登记，停止回收")
-        self.update("回收已过期构建缓存")
-        plan = (plan_directory or self.release) / "preactivation-retention-plan.json"
-        self.invoke(["python3", "scripts/release_retention.py", "plan", "--registry", str(registry), "--out", str(plan)], environment)
-        value = json.loads(plan.read_text())
-        require(set(images.values()) <= set(value.get("protected_image_ids", [])), "新候选未被本轮隔离容器保护，停止回收")
-        self.invoke(["python3", "scripts/release_retention.py", "apply", "--registry", str(registry),
-                     "--plan", str(plan), "--sha256", digest_file(plan)], environment)
+        for drop in (False, True):
+            self.update("回收已过期构建缓存", drop_completed_build_cache=drop)
+            plan = (plan_directory or self.release) / ("preactivation-retention-plan-drop.json" if drop else "preactivation-retention-plan.json")
+            arguments = ["python3", "scripts/release_retention.py", "plan", "--cache-only", "--registry", str(registry), "--out", str(plan)]
+            if drop:
+                arguments.append("--drop-build-cache")
+            self.invoke(arguments, environment)
+            value = json.loads(plan.read_text())
+            require(set(images.values()) <= set(value.get("protected_image_ids", [])), "新候选未被本轮隔离容器保护，停止回收")
+            require(value.get("cache_only") is True and not value.get("containers_to_remove"), "空间维护不能删除应用容器")
+            self.invoke(["python3", "scripts/release_retention.py", "apply", "--plan", str(plan),
+                         "--sha256", digest_file(plan)], environment)
+            if shutil.disk_usage(docker_root).free >= 3 * 1024**3:
+                return
+        raise CutoverError("已回收允许删除的构建缓存，但空间仍不足；所有应用镜像和容器继续保留")
 
     def check_health(self):
         """check_health 实际检查正式前后端及公开域名，仅成功返回才记为已上线。"""
