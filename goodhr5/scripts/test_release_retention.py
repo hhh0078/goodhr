@@ -428,6 +428,30 @@ class RetentionTests(unittest.TestCase):
         with self.assertRaises(retention.GuardError):
             retention.make_plan(self.snapshot, self.registry, self.policy, legacy_allowlist=approval)
 
+    def test_legacy_candidate_requires_exact_approval_and_remains_stopped(self):
+        """无标签旧候选默认保留，只有来源三元一致且已停止的明确候选允许回收。"""
+        baseline = copy.deepcopy(self.snapshot)
+        for role in retention.ROLES:
+            with self.subTest(role=role):
+                self.snapshot = copy.deepcopy(baseline)
+                approval = self.legacy_approval()
+                row = next(value for value in self.snapshot["containers"] if value["Image"] == iid(7))
+                row["Name"] = "/goodhr-production-" + role + "-candidate-ff5d23cf"
+                self.snapshot["images"][iid(7)]["RepoTags"] = ["goodhr-production-" + role + ":mac-agent-ff5d23cf"]
+                source = Path(approval["source_snapshot_path"])
+                source.write_text(json.dumps(self.snapshot), encoding="utf-8")
+                approval["source_snapshot_sha256"] = hashlib.sha256(source.read_bytes()).hexdigest()
+                approval["containers"][0].update(name=row["Name"], role=role)
+                self.assertNotIn(iid(7), {value["id"] for value in self.plan()["images_to_remove"]})
+                plan = retention.make_plan(self.snapshot, self.registry, self.policy, legacy_allowlist=approval)
+                self.assertIn(row["Id"], {value["Id"] for value in plan["containers_to_remove"]})
+                self.assertIn(iid(7), {value["id"] for value in plan["images_to_remove"]})
+                reader = FakeDocker(self.snapshot)
+                self.assertTrue(retention.execute_plan(plan, self.registry, self.policy, reader, self.root / (role + "-candidate-audit.json"))["success"])
+                row["Running"] = True
+                with self.assertRaises(retention.GuardError):
+                    retention.make_plan(self.snapshot, self.registry, self.policy, legacy_allowlist=approval)
+
     def test_legacy_approval_cannot_remove_compatible_or_other_service_image(self):
         """兼容回退与其他项目容器所用镜像不接受历史三元清除。"""
         approval = self.legacy_approval()
