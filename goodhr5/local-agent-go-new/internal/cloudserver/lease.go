@@ -10,6 +10,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/replybridge"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
@@ -80,7 +81,8 @@ func (r *activeRun) updateLease(ctx context.Context, action string) error {
 
 // commandState 在首次派发时绑定操作对象与源消息，延迟回执不能借用后来打开的候选人窗口。
 type commandState struct {
-	SendIntentID       string    `json:"send_intent_id,omitempty"` // 仅服务器账本保存，设备协议不携带目标或业务版本。
+	SendIntentID       string    `json:"send_intent_id,omitempty"`          // 仅服务器账本保存，设备协议不携带目标或业务版本。
+	ResumeOfferKey     string    `json:"resume_offer_message_id,omitempty"` // 区分候选人主动邀约的同意与HR主动索要，不向网页暴露原生卡片内容。
 	IssuedAt           time.Time `json:"issued_at,omitzero"`
 	StartedAt          time.Time `json:"started_at,omitzero"`
 	RunID              string    `json:"run_id"`
@@ -132,14 +134,42 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 			conversationID := r.conversation
 			r.mu.Unlock()
 			bound = commandState{IssuedAt: now, RunID: r.id, PositionID: r.position, MachineID: r.scope.machine, ConversationID: conversationID, Action: c.Action, Deadline: c.Deadline}
-			if c.Action == "send" {
+			if conversationID != "" {
+				// 账号任务可处理多个岗位，命令凭据必须采用本次已绑定会话的真实岗位，不能沿用启动岗位。
+				row, found, readErr := tx.Get("conversations", conversationID)
+				if readErr != nil {
+					return readErr
+				}
+				var conversation cloud.AutoReplyConversation
+				if !found || json.Unmarshal(row.Data, &conversation) != nil || conversation.PlatformID != r.platform {
+					return fmt.Errorf("设备命令尚未绑定真实平台会话")
+				}
+				if conversation.PositionID != "" {
+					bound.PositionID = conversation.PositionID
+				} else if c.Action == "read_online_profile" || c.Action == "request_info" {
+					return fmt.Errorf("资料命令尚未核实当前会话岗位")
+				}
+				if req.Snapshot.PlatformThreadID != "" && req.Snapshot.PlatformThreadID != conversation.PlatformThreadID || req.Snapshot.PlatformAccountID != "" && req.Snapshot.PlatformAccountID != conversation.PlatformAccountID {
+					return fmt.Errorf("设备命令来源与已绑定会话不一致")
+				}
+			}
+			if c.Action == "send" || c.Action == "request_info" {
 				bound.SendIntentID = cloud.AutoReplySendIntentFromContext(ctx)
-				if err = cloud.ValidateAutoReplySendIntent(tx, bound.SendIntentID, conversationID, req.Message); err != nil {
+				if c.Action == "request_info" && (bound.SendIntentID == "" || model.CandidateInfoRequestKind(req.InfoRequest) == "") {
+					return fmt.Errorf("平台资料请求必须绑定单一类型的服务器发送意图")
+				}
+				if err = cloud.ValidateAutoReplySendIntent(tx, bound.SendIntentID, conversationID, commandOutboundContent(c.Action, req)); err != nil {
+					return err
+				}
+				if err = validateResumeOfferCommand(tx, c.Action, req, conversationID, bound.SendIntentID); err != nil {
 					return err
 				}
 			}
 			if conversationID != "" {
 				bound.ThreadID, bound.AccountID, bound.SourceKey = req.Snapshot.PlatformThreadID, req.Snapshot.PlatformAccountID, req.Snapshot.ResumeSourceMessageID
+				if c.Action == "request_info" && req.Snapshot.ResumeOfferMessageID != "" {
+					bound.ResumeOfferKey, bound.SourceKey = req.Snapshot.ResumeOfferMessageID, req.Snapshot.ResumeOfferMessageID
+				}
 			}
 		} else {
 			if json.Unmarshal(raw, &bound) != nil || bound.RunID != r.id || bound.MachineID != r.scope.machine || bound.Action != c.Action {
@@ -150,12 +180,16 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 				if bound.Status != "pending" || !bound.Deadline.After(now) {
 					return fmt.Errorf("命令已领取或过期")
 				}
-				if c.Action == "send" && bound.SendIntentID != "" {
+				if (c.Action == "send" || c.Action == "request_info") && bound.SendIntentID != "" {
 					var req replybridge.Request
 					if err = json.Unmarshal(c.Payload, &req); err != nil {
 						return err
 					}
-					if err = cloud.ValidateAutoReplySendIntent(tx, bound.SendIntentID, bound.ConversationID, req.Message); err != nil {
+					err = cloud.ValidateAutoReplySendIntent(tx, bound.SendIntentID, bound.ConversationID, commandOutboundContent(c.Action, req))
+					if err == nil {
+						err = validateResumeOfferCommand(tx, c.Action, req, bound.ConversationID, bound.SendIntentID)
+					}
+					if err != nil {
 						if !errors.Is(err, cloud.ErrAutoReplyGoalChanged) {
 							return err
 						}
@@ -169,6 +203,13 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 			case "completed":
 				if bound.Status != "executing" || !bound.Deadline.After(now) {
 					return fmt.Errorf("命令已失效，拒绝新的结果")
+				}
+				if c.Action == "read_online_profile" && result.Error == "" {
+					var metadata replybridge.Response
+					if json.Unmarshal(result.Value, &metadata) != nil || metadata.OnlineProfile.SourceKey == "" || len(metadata.OnlineProfile.Screenshots) > 0 {
+						return fmt.Errorf("在线资料回执缺少来源摘要或包含不应持久化的截图")
+					}
+					bound.SourceKey = metadata.OnlineProfile.SourceKey
 				}
 				bound.AttachmentIDs, err = r.fileReceipts(ctx, tx, bound, c, result)
 				if err != nil {
@@ -209,4 +250,33 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 		return &replybridge.CommandRejectedError{Message: cloud.ErrAutoReplyGoalChanged.Error()}
 	}
 	return err
+}
+
+// commandOutboundContent 让原生资料命令与普通发送共用账本校验，资料动作只使用固定类型说明，不把候选人号码放入命令摘要。
+func commandOutboundContent(action string, request replybridge.Request) string {
+	if action == "request_info" {
+		if kind := model.CandidateInfoRequestKind(request.InfoRequest); kind != "" {
+			if request.Snapshot.ResumeOfferMessageID != "" {
+				if kind == "resume" {
+					return cloud.AutoReplyResumeOfferContent
+				}
+				return ""
+			}
+			return "平台资料索要：" + kind
+		}
+		return ""
+	}
+	return request.Message
+}
+
+// validateResumeOfferCommand 在派发和领取时复核同一来源及其独立发送意图，普通索要账本不能借来点击同意。
+func validateResumeOfferCommand(tx *storage.AutoReplyTx, action string, request replybridge.Request, conversation, intent string) error {
+	if action != "request_info" || request.Snapshot.ResumeOfferMessageID == "" {
+		return nil
+	}
+	offer := request.Snapshot.ResumeOfferMessageID
+	if model.CandidateInfoRequestKind(request.InfoRequest) != "resume" || intent != cloud.AutoReplySendIntentID(conversation, cloud.AutoReplyResumeOfferSendKey(offer), 0) {
+		return fmt.Errorf("%w：接收邀请未绑定其原生来源的独立操作", cloud.ErrAutoReplyGoalChanged)
+	}
+	return cloud.ValidateAutoReplyResumeOfferSource(tx, conversation, offer)
 }

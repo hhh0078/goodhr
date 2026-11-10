@@ -462,6 +462,7 @@ func (s *PostgresCandidateStore) SaveCandidateRecommendation(scope CandidateLibr
 
 // saveAutomaticCandidate 保留旧岗位同步入口，增加来源映射和人工字段保护。
 func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileInput) (PositionCandidate, error) {
+	usesOnlineProfile := input.OnlineProfileCandidateID != "" || input.OnlineProfileKey != ""
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	userID, err := ensureUserID(ctx, s.db, input.UserEmail)
@@ -472,7 +473,7 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	if err != nil {
 		return PositionCandidate{}, err
 	}
-	if input.ReopenProof != nil && input.TenantID != tenantID {
+	if (input.ReopenProof != nil || usesOnlineProfile) && input.TenantID != tenantID {
 		return PositionCandidate{}, errCandidateDeleted
 	}
 	scope := CandidateLibraryScope{TenantID: tenantID, UserEmail: input.UserEmail, IsAdmin: true}
@@ -485,7 +486,7 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 		return PositionCandidate{}, err
 	}
 	sourceHash := purgeSourceHash(input.PlatformID, candidateIdentityKey(input))
-	if input.ReopenProof == nil {
+	if input.ReopenProof == nil && !usesOnlineProfile {
 		if err = rejectPurgedKey(ctx, tx, tenantID, "source", sourceHash); err != nil {
 			return PositionCandidate{}, err
 		}
@@ -507,7 +508,11 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	}
 	var receipt candidateReopenReceipt
 	var replay bool
-	if input.ReopenProof != nil {
+	if usesOnlineProfile {
+		if err = verifyOnlineCandidateContinuation(ctx, tx, scope, userID, id, input); err != nil {
+			return PositionCandidate{}, err
+		}
+	} else if input.ReopenProof != nil {
 		receipt, replay, err = verifyReopenTx(ctx, tx, tenantID, sourceHash, id, input)
 		if err != nil {
 			return PositionCandidate{}, err
@@ -534,7 +539,7 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 		if phoneErr != nil {
 			return PositionCandidate{}, phoneErr
 		}
-		if input.ReopenProof != nil && byPhone != id {
+		if (input.ReopenProof != nil || usesOnlineProfile) && byPhone != id {
 			return PositionCandidate{}, ErrCandidateDuplicate
 		}
 		id = byPhone
@@ -572,11 +577,18 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	if old.ID == "" {
 		fields["source_type"] = "automatic"
 	}
-	if err = candidateWriteTx(ctx, tx, scope, userID, id, old, fields, false); err != nil {
-		return PositionCandidate{}, err
+	if usesOnlineProfile {
+		fields = onlyEmptyOnlineCandidateFields(old, fields)
 	}
-	if err = candidateSaveSourceTx(ctx, tx, tenantID, id, fields); err != nil {
-		return PositionCandidate{}, err
+	if !usesOnlineProfile || hasOnlineCandidateFill(fields) {
+		if err = candidateWriteTx(ctx, tx, scope, userID, id, old, fields, false); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
+	if !usesOnlineProfile {
+		if err = candidateSaveSourceTx(ctx, tx, tenantID, id, fields); err != nil {
+			return PositionCandidate{}, err
+		}
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE candidate_profiles SET ai_detail_reason=COALESCE(NULLIF($2,''),ai_detail_reason),ai_detail_score=COALESCE($3,ai_detail_score),ai_greet_reason=COALESCE(NULLIF($4,''),ai_greet_reason),ai_greet_score=COALESCE($5,ai_greet_score),first_seen_at=COALESCE(first_seen_at,$6) WHERE id=$1`, id, input.AIDetailReason, input.AIDetailScore, input.AIGreetReason, input.AIGreetScore, input.FirstSeenAt)
 	if err != nil {
@@ -596,7 +608,7 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 			return PositionCandidate{}, err
 		}
 	}
-	if input.ReopenProof != nil {
+	if input.ReopenProof != nil && !usesOnlineProfile {
 		if err = saveReopenReceiptTx(ctx, tx, tenantID, sourceHash, id, receipt.sequence, receipt); err != nil {
 			return PositionCandidate{}, err
 		}

@@ -8,6 +8,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
@@ -89,7 +90,7 @@ func (f *Flow) reviewRecoveredResume(ctx context.Context, prepared shared.Prepar
 	}
 	var followup []cloud.AutoReplyGoalFollowup
 	if validFollowup {
-		followup = append(followup, cloud.AutoReplyGoalFollowup{EventKind: "resume", ContextRevision: cloud.AutoReplyGoalContextRevision(input.Position), ConfirmationItemID: decision.Messages[0].ConfirmationItemID, Content: decision.Messages[0].Content, ExpectedContentKey: decision.Messages[0].GoalContentKey})
+		followup = append(followup, cloud.AutoReplyGoalFollowup{EventKind: "resume", ContextRevision: cloud.AutoReplyGoalContextRevision(input.Position), ConfirmationItemID: decision.Messages[0].ConfirmationItemID, Content: common.NormalizeAutoReplyOutgoingText(prepared.Platform, decision.Messages[0].Content), ExpectedContentKey: decision.Messages[0].GoalContentKey})
 	}
 	if input.Conversation.ResumeRetry == nil {
 		return fmt.Errorf("新简历复核缺少已领取的证据事件")

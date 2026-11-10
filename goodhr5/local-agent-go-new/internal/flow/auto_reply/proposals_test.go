@@ -31,7 +31,7 @@ func proposalState() *toolExecutionState {
 func TestConfirmationProposalRejectsInventedEvidence(t *testing.T) {
 	for _, item := range []confirmationToolItem{
 		{ID: "travel", ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "模型判断", SourceRef: "message-1"},
-		{ID: "travel", ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "模型判断", SourceRef: "invented", EvidenceText: "我可以接受出差"},
+		{ID: "travel", ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "模型判断", SourceRef: "resume", EvidenceText: "我可以接受出差"},
 		{ID: "travel", ItemType: "required", Content: "接受出差", Status: "matched", StatusReason: "模型判断", SourceRef: "message-1", EvidenceText: "完全不存在的证据"},
 	} {
 		state := proposalState()

@@ -97,6 +97,8 @@ func (e *Executor) Execute(ctx context.Context, command Command) Result {
 		result.Code = "ACTION_FAILED"
 		if errors.Is(err, model.ErrAutoReplySupersededBeforeSend) {
 			result.Code = "REPLY_SUPERSEDED"
+		} else if errors.Is(err, model.ErrAutoReplyOnlineProfileUnavailable) {
+			result.Code = "ONLINE_PROFILE_UNAVAILABLE"
 		} else if errors.Is(err, model.ErrAutoReplyConversationNotOpen) {
 			result.Code = "CONVERSATION_NOT_OPEN"
 		} else if errors.Is(err, model.ErrAutoReplyResumeRequestUnavailable) {
@@ -160,6 +162,27 @@ func (e *Executor) execute(ctx context.Context, action string, request Request) 
 		err = verifier.VerifyAutoReplyConversationIdentity(ctx, e.Browser, e.Config, request.Snapshot)
 	case "request_resume":
 		err = r.RequestAutoReplyResume(ctx, e.Browser, e.Config, request.Snapshot)
+	case "read_online_profile":
+		reader, ok := e.Runtime.(model.AutoReplyOnlineProfileReader)
+		if !ok {
+			return response, model.ErrAutoReplyOnlineProfileUnavailable
+		}
+		response.OnlineProfile, err = reader.ReadAutoReplyOnlineProfile(ctx, e.Browser, e.Config, request.Snapshot)
+		if err == nil {
+			err = ValidateOnlineProfileScreenshots(response.OnlineProfile.Screenshots)
+		}
+	case "request_info":
+		requester, ok := e.Runtime.(model.AutoReplyInfoRequester)
+		if !ok || !e.Config.Behavior.AutoReplyNativeInfoRequests {
+			return response, errors.New("当前平台尚未提供原生资料索要能力")
+		}
+		if model.CandidateInfoRequestKind(request.InfoRequest) == "" {
+			return response, errors.New("每次只能索要一种明确的候选人资料")
+		}
+		if request.Snapshot.ResumeOfferMessageID != "" && model.CandidateInfoRequestKind(request.InfoRequest) != "resume" {
+			return response, errors.New("原生简历邀请只能执行接收简历操作")
+		}
+		response.InfoResult, err = requester.RequestAutoReplyCandidateInfo(ctx, e.Browser, e.Config, request.Snapshot, request.InfoRequest)
 	case "collect_resume":
 		response.Resume, err = r.CollectAutoReplyResume(ctx, e.Browser, e.Config, request.Snapshot)
 		if err == nil {

@@ -1,5 +1,6 @@
 /** 本文件编排跨页面新手引导，复用实际登录、安装和岗位状态；仅微步骤保存在本机。 */
 "use client";
+import { positionDetailMode } from "@/lib/position-detail-mode";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { clearLocalAgentDetectCache, cloudRequest, localRequest } from "@/lib/admin-api";
@@ -395,7 +396,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
         if (event.completed) completedFields.push(event.field!);
         const platformChanged = event.field === "platform" && event.platformId !== value.platformId;
         const fields = platformChanged ? completedFields.filter((field) => field !== "detail-mode" && field !== "name") : completedFields;
-        const next = { ...value, completedFields: fields, ...(event.field === "platform" ? { platformId: event.platformId || "", platformLoggedIn: false } : {}), ...(event.field === "filter-mode" ? { filterMode: event.mode === "keyword" ? "keyword" as const : "ai" as const } : {}), ...(event.field === "detail-mode" ? { detailMode: event.mode || value.detailMode } : {}) };
+        const next = { ...value, completedFields: fields, ...(event.field === "platform" ? { platformId: event.platformId || "", detailMode: positionDetailMode(event.platformId), platformLoggedIn: false } : {}), ...(event.field === "filter-mode" ? { filterMode: event.mode === "keyword" ? "keyword" as const : "ai" as const } : {}), ...(event.field === "detail-mode" ? { detailMode: event.mode || value.detailMode } : {}) };
         return { ...next, step: nextOnboardingFormStep(next) };
       });
     }
@@ -655,7 +656,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       publishOnboardingEvent({ type: "position-start-close-requested" });
       return;
     }
-    const previous: Partial<Record<OnboardingStep, OnboardingStep>> = { "agent-connect": "agent-download", "platform-login": "platform-filter", "position-create": "position-menu", "position-platform": "position-create", "position-name": "position-platform", "position-filter-mode": "position-name", "position-detail-mode": "position-filter-mode", "position-requirement": "position-detail-mode", "position-keywords": needsPositionRequirement(current) ? "position-requirement" : "position-detail-mode", "position-save": current.filterMode === "keyword" ? "position-keywords" : "position-requirement", "platform-filter": "position-start", "position-run": "platform-filter", "first-result": "position-start" };
+    const previous: Partial<Record<OnboardingStep, OnboardingStep>> = { "agent-connect": "agent-download", "platform-login": "platform-filter", "position-create": "position-menu", "position-platform": "position-create", "position-name": "position-platform", "position-filter-mode": "position-name", "position-detail-mode": "position-filter-mode", "position-requirement": "position-filter-mode", "position-keywords": needsPositionRequirement(current) ? "position-requirement" : "position-filter-mode", "position-save": current.filterMode === "keyword" ? "position-keywords" : "position-requirement", "platform-filter": "position-start", "position-run": "platform-filter", "first-result": "position-start" };
     update((value) => ({ ...value, step: previous[step] || value.step })); setError("");
   }
   /** openAgentComponents 仅在用户主动选择时前往组件页，保留当前教程和岗位进度。 */

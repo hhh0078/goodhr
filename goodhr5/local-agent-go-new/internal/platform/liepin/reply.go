@@ -3,7 +3,6 @@ package liepin
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"net/url"
 	"strings"
@@ -317,7 +316,7 @@ func ensureLiepinAutoReplyConversation(ctx context.Context, browser model.Browse
 
 // liepinAutoReplyConversationMatches 同时核对猎聘企业端当前聊天框的候选人和沟通岗位。
 func liepinAutoReplyConversationMatches(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (bool, error) {
-	name, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_name")
+	name, found, err := readLiepinCurrentConversationName(ctx, browser, cfg)
 	if err != nil || !found || !common.CandidateNamesMatch(snapshot.CandidateName, name) {
 		return false, err
 	}
@@ -513,9 +512,7 @@ func liepinConversations(items []contract.FindAllItem) ([]model.Conversation, er
 			item.Fields["contact_activity_at"] = liepinContactActivityAt(item.Fields["contact_time"], now)
 		}
 		// 列表正文包含可见时间。持久基线只需摘要，不保存整行联系人文本。
-		item.Fields["contact_list_signature"] = fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join([]string{
-			name, lastMessage, item.Text, strings.TrimSpace(item.Fields["contact_time"]),
-		}, "\x00"))))
+		item.Fields["contact_list_signature"] = common.AutoReplyContactListSignature(name, lastMessage, item.Text, item.Fields["contact_time"])
 		result = append(result, model.Conversation{
 			Index: item.Index, Key: key, Name: name, AvatarURL: strings.TrimSpace(item.Fields["avatar_url"]), PlatformThreadID: threadID,
 			Summary: lastMessage, Fields: item.Fields,
@@ -551,7 +548,7 @@ func waitLiepinConversation(ctx context.Context, browser model.Browser, cfg mode
 		expectedPosition = strings.TrimSpace(expectedPositions[0])
 	}
 	for attempt := 1; attempt <= liepinConversationPollAttempts; attempt++ {
-		name, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_name")
+		name, found, err := readLiepinCurrentConversationName(ctx, browser, cfg)
 		if err != nil {
 			return "", "", err
 		}

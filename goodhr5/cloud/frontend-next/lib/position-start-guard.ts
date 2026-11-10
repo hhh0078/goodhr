@@ -1,4 +1,5 @@
 /** 本文件负责浏览器端岗位运行启动前的 AI 余额和本地程序版本强制校验。 */
+import { positionDetailMode } from "./position-detail-mode.ts";
 
 export const MINIMUM_POSITION_BALANCE_YUAN = 0.1;
 
@@ -72,7 +73,7 @@ export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown,
 export function positionUsesAI(position: any) {
   const commonConfig = position?.common_config || {};
   const baseMode = String(commonConfig.mode_default || "").trim().toLowerCase();
-  const detailMode = String(commonConfig.detail_mode || "").trim().toLowerCase();
+  const detailMode = positionDetailMode(position?.platform_id);
   return baseMode === "ai" || detailMode === "ai";
 }
 

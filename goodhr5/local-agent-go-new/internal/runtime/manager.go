@@ -204,7 +204,6 @@ func (m *Manager) PrepareWorkerStop(reason string) {
 func (m *Manager) Status() Status {
 	nodePath := m.NodePath()
 	browserPath := m.CamoufoxPath()
-	ocrPath := m.OCRPath()
 	return Status{
 		NodeInstalled:       m.CheckNode() == nil,
 		NodePath:            nodePath,
@@ -213,8 +212,8 @@ func (m *Manager) Status() Status {
 		WorkerDependency:    m.WorkerDependencyPath(),
 		CamoufoxInstalled:   !m.StartupCamoufoxSyncPending() && fileExists(browserPath),
 		CamoufoxPath:        browserPath,
-		OCRInstalled:        m.OCRInstalled(),
-		OCRPath:             ocrPath,
+		OCRInstalled:        false, // 保留兼容响应字段，不检查或展示旧OCR组件。
+		OCRPath:             "",
 		RuntimeDir:          m.runtimeDir,
 		Platform:            platformKey(),
 		InstalledVersions:   m.loadVersions(),

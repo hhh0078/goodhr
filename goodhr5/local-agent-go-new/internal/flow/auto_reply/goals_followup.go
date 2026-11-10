@@ -10,6 +10,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
@@ -24,6 +25,7 @@ func (f *Flow) deliverGoalFollowup(ctx context.Context, prepared shared.Prepared
 		return nil
 	}
 	intent := *current.GoalFollowup
+	intent.Content = common.NormalizeAutoReplyOutgoingText(prepared.Platform, intent.Content)
 	finish := func() error { return f.Cloud.FinishAutoReplyGoalFollowup(ctx, cred, current.ID, intent.EventKey) }
 	if !valid {
 		return finish()
@@ -147,7 +149,7 @@ func (f *Flow) reviewGoalsAfterAnswer(ctx context.Context, prepared shared.Prepa
 	var followup []cloud.AutoReplyGoalFollowup
 	if len(decision.Messages) == 1 {
 		message := decision.Messages[0]
-		followup = append(followup, cloud.AutoReplyGoalFollowup{EventKind: "message", ContextRevision: cloud.AutoReplyGoalContextRevision(input.Position), ConfirmationItemID: message.ConfirmationItemID, Content: message.Content, ExpectedContentKey: message.GoalContentKey})
+		followup = append(followup, cloud.AutoReplyGoalFollowup{EventKind: "message", ContextRevision: cloud.AutoReplyGoalContextRevision(input.Position), ConfirmationItemID: message.ConfirmationItemID, Content: common.NormalizeAutoReplyOutgoingText(prepared.Platform, message.Content), ExpectedContentKey: message.GoalContentKey})
 	}
 	if err = f.Cloud.CommitAutoReplyMessageGoalReview(ctx, input.Credentials, input.Conversation.ID, input.BasedOnMessageKey, anchor, decision.ConfirmationUpdates, followup...); err != nil {
 		return false, false, err

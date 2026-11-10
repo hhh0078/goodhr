@@ -191,14 +191,20 @@ test("九字招呼语放慢逐字输入后仍保持合理总时长", async () =>
   assert.ok(Date.now() - startedAt < 3_500);
 });
 
-test("完整草稿只用一次原生文字输入，保留换行和表情，不触发发送", async () => {
+for (const rich of [false, true]) {
+test(`完整草稿只用一次原生文字输入，${rich ? '富文本' : '输入框'}保留换行和表情，不触发发送`, async () => {
   const page = {};
   const calls = [];
   let value = "";
   const locator = {
     async boundingBox() { return { x: 100, y: 100, width: 100, height: 40 }; },
     locator() { return { async count() { return 1; } }; },
-    async inputValue() { return value; },
+    async inputValue() {
+      if (rich) throw new Error("Node is not an <input>, <textarea> or <select> element");
+      return value;
+    },
+    async textContent() { return value; },
+    async innerText() { return value.replaceAll("\n", ""); },
   };
   const found = visibleElement(page, locator);
   const action = new InputAction(
@@ -217,3 +223,4 @@ test("完整草稿只用一次原生文字输入，保留换行和表情，不�
   assert.deepEqual(calls, [text]);
   assert.equal(result.verified, true);
 });
+}

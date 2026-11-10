@@ -388,7 +388,7 @@ func TestStopPositionDuringSlowPreflightRejectsOldStart(t *testing.T) {
 				case "/api/agents/bind":
 					_, _ = w.Write([]byte(`{"agent":{"machine_id":"machine-stop","bind_status":"active"}}`))
 				case "/api/positions/position-stop":
-					_, _ = w.Write([]byte(`{"position":{"id":"position-stop","platform_id":"boss","profile_id":"profile-stop","common_config":{"mode_default":"keyword","detail_mode":"text"}}}`))
+					_, _ = w.Write([]byte(`{"position":{"id":"position-stop","platform_id":"zhaopin","profile_id":"profile-stop","common_config":{"mode_default":"keyword","detail_mode":"dom"}}}`))
 				case "/api/config/user-preferences":
 					_, _ = w.Write([]byte(`{"config":{}}`))
 				case "/api/positions/position-stop/stop":

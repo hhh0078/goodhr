@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
 // confirmOpenReplyDelivery 正常气泡一次回读即可通过；原消息未变时短等，新来信抢到末尾时只在真实锚点之后寻找己方新气泡。
 func (f *Flow) confirmOpenReplyDelivery(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, snapshot model.AutoReplyConversationSnapshot, content string) (model.ConversationMessage, error) {
+	content = common.NormalizeAutoReplyOutgoingText(prepared.Platform, content)
 	anchor := snapshot.ExpectedSendMessageKey
 	if anchor == "" {
 		return model.ConversationMessage{}, fmt.Errorf("缺少发送前的消息编号，暂无法核对送达")

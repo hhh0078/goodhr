@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"strings"
 )
@@ -76,7 +77,7 @@ func (f *Flow) deliverAnswer(ctx context.Context, p shared.PreparedTask, rt mode
 	if !found {
 		return f.Cloud.FinishAutoReplyAnswer(ctx, cred, a, "manual", "")
 	}
-	answer := strings.TrimSpace(a.Answer)
+	answer := common.NormalizeAutoReplyOutgoingText(p.Platform, a.Answer)
 	if answer == "" || len([]rune(answer)) > maxAutoReplyMessageRunes || strings.ContainsAny(answer, "{}｛｝") || checkPhoneReply(inspectPhoneContact(ReplyContext{Position: pos, CandidateState: state, PageSnapshot: page, Messages: history}), pos.Config, answer) != nil {
 		return f.Cloud.FinishAutoReplyAnswer(ctx, cred, a, "manual", "")
 	}

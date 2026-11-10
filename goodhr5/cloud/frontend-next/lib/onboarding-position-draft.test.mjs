@@ -23,7 +23,7 @@ function storageFixture() {
 
 /** draftFixture 创建包含部分未填字段的核心草稿，恢复不替用户伪造输入。 */
 function draftFixture(overrides = {}) {
-  return { name: "Java 开发", platform_id: "boss", mode_default: "keyword", detail_mode: "ocr", position_requirement: "", keywords: "Java, Spring", ...overrides };
+  return { name: "Java 开发", platform_id: "boss", mode_default: "keyword", detail_mode: "ai", position_requirement: "", keywords: "Java, Spring", ...overrides };
 }
 
 test("只持久化六项核心字段，完整岗位设置和账号数据被排除", () => {

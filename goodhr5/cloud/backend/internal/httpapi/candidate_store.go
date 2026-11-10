@@ -72,11 +72,14 @@ type PositionCandidate struct {
 
 // CandidateProfileInput 表示候选人主体保存参数。
 type CandidateProfileInput struct {
-	ReopenProof           *candidateReopenProof // 仅经认证的自动回复写入入口可设置新消息和附件摘要。
-	ReopenPlatformAccount string                // 本次真实招聘账号绑定标记，用于限制代次收据重放。
-	ReopenIsAdmin         bool                  // 经服务端验证的团队管理权限，供删除事件授权校验。
-	ReopenServerWitness   bool                  // 仅持服务凭证的云编排可引用已入库的平台命令收据核对旧删除代次。
-	AutoReplyPositionID   string                // 云端核实过的自动回复岗位，用于建立本次沟通与结构化简历的关联。
+	OnlineProfileCandidateID string                // 仅服务器在线资料流程可引用已确认的当前代简历库编号。
+	OnlineProfileKey         string                // 与上述编号配对的服务端在线资料指纹，不能由姓名推测。
+	OnlineProfileMachineID   string                // 已验证请求头中的实际设备，不从HTTP正文接收。
+	ReopenProof              *candidateReopenProof // 仅经认证的自动回复写入入口可设置新消息和附件摘要。
+	ReopenPlatformAccount    string                // 本次真实招聘账号绑定标记，用于限制代次收据重放。
+	ReopenIsAdmin            bool                  // 经服务端验证的团队管理权限，供删除事件授权校验。
+	ReopenServerWitness      bool                  // 仅持服务凭证的云编排可引用已入库的平台命令收据核对旧删除代次。
+	AutoReplyPositionID      string                // 云端核实过的自动回复岗位，用于建立本次沟通与结构化简历的关联。
 	// Tags 仅保存平台或AI提供的原始简历技能标签，不参与收藏夹创建和关联。
 	Tags                []string
 	TenantID            string
@@ -241,6 +244,9 @@ func NewMemoryCandidateStore() *MemoryCandidateStore {
 // SaveCandidateProfile 新增或更新候选人主体。
 // item 为候选人简历字段，返回保存后的简历库记录。
 func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) (PositionCandidate, error) {
+	if item.OnlineProfileCandidateID != "" || item.OnlineProfileKey != "" {
+		return PositionCandidate{}, ErrAutoReplyForbidden // 在线续写只使用带真实命令证据的PostgreSQL权威存储。
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

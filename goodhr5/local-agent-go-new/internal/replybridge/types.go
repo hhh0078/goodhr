@@ -13,6 +13,7 @@ type Request struct {
 	Known        []string                            `json:"known,omitempty"`
 	MaxHistory   int                                 `json:"max_history,omitempty"`
 	Message      string                              `json:"message,omitempty"`
+	InfoRequest  model.CandidateInfoRequest          `json:"info_request,omitempty"`
 }
 
 const maxTransferFiles = 5
@@ -39,4 +40,6 @@ type Response struct {
 	Files         []File                              `json:"files,omitempty"`
 	Avatar        []byte                              `json:"avatar,omitempty"`
 	ObservedAt    time.Time                           `json:"observed_at"`
+	InfoResult    model.AutoReplyInfoRequestResult    `json:"info_result,omitempty"`
+	OnlineProfile model.AutoReplyOnlineProfile        `json:"online_profile,omitempty"`
 }

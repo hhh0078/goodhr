@@ -20,8 +20,19 @@ import (
 type identityAssemblyBrowser struct {
 	model.Browser
 	candidateID string
+	pageURL     string
 	startCalls  int
 	startError  error
+}
+
+// ListPages 为正式核身提供唯一当前招聘页，避免嵌入的空Browser接口被误调用。
+func (b *identityAssemblyBrowser) ListPages(context.Context) (contract.PageListResult, error) {
+	return contract.PageListResult{Count: 1, Pages: []contract.PageInfo{{PageID: "identity-original", URL: b.pageURL, Current: true}}}, nil
+}
+
+// FindAll 模拟聊天姓名的标准短探测，本夹具不负责真实DOM定位或页面等待。
+func (*identityAssemblyBrowser) FindAll(context.Context, contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	return []contract.FindAllItem{{Index: 0, TotalMatches: 1}}, nil
 }
 
 // Read 提供正式猎聘核验方法所需的姓名和当前 cid，其他浏览器动作均不可用。
@@ -65,7 +76,7 @@ func TestLoggedLiepinTargetAssembly(t *testing.T) {
 	if !ok {
 		t.Fatal("正式猎聘日志包装丢失实时身份核验能力")
 	}
-	browser := &identityAssemblyBrowser{candidateID: "synthetic-cid", startError: errors.New("已进入隔离启动步骤")}
+	browser := &identityAssemblyBrowser{candidateID: "synthetic-cid", pageURL: cfg.MessagesURL, startError: errors.New("已进入隔离启动步骤")}
 	snapshot := model.AutoReplyConversationSnapshot{CandidateName: "合成目标", PlatformCandidateID: "synthetic-cid"}
 	if err = identity.VerifyAutoReplyConversationIdentity(context.Background(), browser, cfg, snapshot); err != nil {
 		t.Fatal(err)

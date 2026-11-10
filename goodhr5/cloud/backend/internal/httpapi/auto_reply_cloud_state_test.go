@@ -22,7 +22,7 @@ func autoReplyStateTestDB(t *testing.T, stopBefore ...string) *sql.DB {
 		t.Fatal(err)
 	}
 	applyAutoReplyTestMigrations(t, db)
-	for _, name := range []string{"0112_auto_reply_cloud_state.sql", "0113_auto_reply_import_receipts.sql", "0114_auto_reply_answer_receipts.sql", "0115_auto_reply_attachment_cleanup.sql", "0116_auto_reply_question_privacy.sql", "0117_auto_reply_authoritative_boundaries.sql", "0118_auto_reply_sealed_audits.sql", "0119_auto_reply_editable_facts.sql"} {
+	for _, name := range []string{"0112_auto_reply_cloud_state.sql", "0113_auto_reply_import_receipts.sql", "0114_auto_reply_answer_receipts.sql", "0115_auto_reply_attachment_cleanup.sql", "0116_auto_reply_question_privacy.sql", "0117_auto_reply_authoritative_boundaries.sql", "0118_auto_reply_sealed_audits.sql", "0119_auto_reply_editable_facts.sql", "0120_online_profiles_and_temporary_retention.sql"} {
 		if len(stopBefore) > 0 && stopBefore[0] == name {
 			break
 		}

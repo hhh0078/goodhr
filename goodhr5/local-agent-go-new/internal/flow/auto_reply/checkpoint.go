@@ -216,8 +216,10 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 			return 0, openConversation, nil
 		}
 		if prepared.Platform.Behavior.AutoReplyAllContactInbox {
+			reviewStarted := time.Now()
 			unread, reviews, err = f.reviewAllContacts(ctx, prepared, unread)
 			if err != nil {
+				f.log(prepared.Request.TaskID, "review_contact_list", "failed", reviewStarted, err)
 				return 0, openConversation, err
 			}
 		}

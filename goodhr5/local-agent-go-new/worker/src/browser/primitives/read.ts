@@ -33,8 +33,16 @@ export class ReadPrimitive {
     return readWhileActive(() => locator.inputValue({ timeout: elementReadTimeoutMS }));
   }
 
-  /** editableValue 兼容读取普通输入框和富文本编辑器的当前文字。 */
+  /** editableValue 读取原始草稿，富文本保留换行和空格，缺失、超时和取消仍报错。 */
   async editableValue(locator: Locator): Promise<string> {
-    return this.inputValue(locator).catch(() => this.text(locator));
+    try {
+      return await this.inputValue(locator);
+    } catch (error) {
+      // 复用 Playwright 的明确类型错误，不能把读取失败或断线误当成已清空的草稿。
+      if (!(error instanceof Error) || error.name === "TimeoutError" || !error.message.includes("Node is not an <input>, <textarea> or <select> element")) throw error;
+      const value = await readWhileActive(() => locator.textContent({ timeout: elementReadTimeoutMS }));
+      if (value === null) throw new Error("输入框原始草稿尚未读到，暂不继续发送");
+      return value;
+    }
   }
 }

@@ -3,17 +3,17 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-// TestCandidatePurgePostgres 验证无外键数据手动清除、搜索失效触发器、已删来源拒绝旧上传及同名资料保留。
-func TestCandidatePurgePostgres(t *testing.T) {
-	db, screen, _ := screeningPostgresFixture(t)
-	ctx := context.Background()
-	for _, name := range []string{"0089_candidate_shares.sql", "0090_recruitment_workflows.sql", "0091_recruitment_mail.sql", "0101_resume_vector_receipts.sql", "0102_resume_search_invalidation.sql", "0105_auto_reply_result_summaries.sql"} {
+// applyCandidatePurgeSchema 复用完整删除的真实关联表迁移，维护清理与人工删除使用同样的数据库边界。
+func applyCandidatePurgeSchema(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, name := range []string{"0103_position_screening_records.sql", "0089_candidate_shares.sql", "0090_recruitment_workflows.sql", "0091_recruitment_mail.sql", "0101_resume_vector_receipts.sql", "0102_resume_search_invalidation.sql", "0105_auto_reply_result_summaries.sql"} {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", name))
 		if err != nil {
 			t.Fatal(err)
@@ -22,6 +22,13 @@ func TestCandidatePurgePostgres(t *testing.T) {
 			t.Fatal(name, err)
 		}
 	}
+}
+
+// TestCandidatePurgePostgres 验证无外键数据手动清除、搜索失效触发器、已删来源拒绝旧上传及同名资料保留。
+func TestCandidatePurgePostgres(t *testing.T) {
+	db, screen, _ := screeningPostgresFixture(t)
+	ctx := context.Background()
+	applyCandidatePurgeSchema(t, db)
 	store := NewPostgresCandidateStore(db)
 	scope := CandidateLibraryScope{TenantID: screen.TenantID, UserEmail: screen.UserEmail}
 	input := CandidateProfileInput{UserEmail: scope.UserEmail, PlatformID: "boss", PlatformCandidateID: "verified-source", Phone: "13800138000", CandidateName: "合成同名人选"}

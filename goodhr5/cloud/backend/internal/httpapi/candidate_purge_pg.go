@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 )
 
 // lockCandidateDeletion 以团队共享锁保护并行上传，排他锁保证删除、事件序号及提交顺序一致。
@@ -60,6 +61,14 @@ func (s *PostgresCandidateStore) purgeCandidate(ctx context.Context, scope Candi
 	if err = lockCandidateDeletion(ctx, tx, scope.TenantID, true); err != nil {
 		return err
 	}
+	if err = s.purgeCandidateLockedTx(ctx, tx, scope, id, version); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// purgeCandidateLockedTx 在已有团队删除锁和事务中复用完整清理，维护任务与人工删除保持同样的封印和附件回收。
+func (s *PostgresCandidateStore) purgeCandidateLockedTx(ctx context.Context, tx *sql.Tx, scope CandidateLibraryScope, id string, version int64) error {
 	item, err := candidateReadTx(ctx, tx, scope, id, true)
 	if errors.Is(err, ErrNotFound) && !scope.IsExtension && id != builtinCandidateID {
 		var previous int64
@@ -83,6 +92,16 @@ func (s *PostgresCandidateStore) purgeCandidate(ctx context.Context, scope Candi
 	}
 	if item.RowVersion != version {
 		return ErrCandidateVersion
+	}
+	if scope.retentionCutoff != nil {
+		var touched time.Time
+		var temporary, protected bool
+		if err = tx.QueryRowContext(ctx, `SELECT greatest(updated_at,coalesce(last_communication_at,created_at)),`+retentionOnlineTemporarySQL+`,`+retentionProtectedActorSQL+` FROM candidate_profiles cp WHERE tenant_id=$2 AND id=$3`, *scope.retentionCutoff, scope.TenantID, id).Scan(&touched, &temporary, &protected); err != nil {
+			return err
+		}
+		if normalizeCandidatePhone(item.Phone) != "" || !temporary || protected || !touched.Before(*scope.retentionCutoff) {
+			return errCandidateRetentionChanged
+		}
 	}
 	audience := map[string][]string{}
 	anchors := map[string]map[string]string{}
@@ -145,6 +164,34 @@ func (s *PostgresCandidateStore) purgeCandidate(ctx context.Context, scope Candi
 		return err
 	}
 	sources = append(sources, primary)
+	// 仅有云端身份而未入库、未关联岗位的其它成员也必须收到删除回执和解析缓存清理任务。
+	// 未启用云端自动回复表的旧库仍沿用原本的人工删除路径。
+	var cloudStateAvailable bool
+	if err = tx.QueryRowContext(ctx, `SELECT to_regclass('auto_reply_cloud_entities') IS NOT NULL`).Scan(&cloudStateAvailable); err != nil {
+		return err
+	}
+	if cloudStateAvailable {
+		rows, err = tx.QueryContext(ctx, `SELECT DISTINCT u.email FROM auto_reply_cloud_entities e JOIN users u ON u.tenant_id=e.tenant_id AND u.id=e.user_id
+ WHERE e.tenant_id=$1 AND ((e.kind='cloud_links' AND left(e.id,10)='candidate:' AND e.payload->>'value'=$2) OR
+ (e.kind='identities' AND coalesce(e.payload->>'platform_candidate_id','')<>'' AND ((e.payload->>'platform_id'=$3 AND e.payload->>'platform_candidate_id'=$4)
+	 OR EXISTS(SELECT 1 FROM candidate_profile_sources s WHERE s.tenant_id=$1 AND s.candidate_id::text=$2 AND s.platform_id=e.payload->>'platform_id' AND s.platform_candidate_id=e.payload->>'platform_candidate_id'))))`, scope.TenantID, id, primary.PlatformID, primary.PlatformCandidateID)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var email string
+			if err = rows.Scan(&email); err != nil {
+				rows.Close()
+				return err
+			}
+			addActor(email)
+		}
+		if err = rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+	}
 	seen := map[string]bool{}
 	hashes := []string{}
 	for _, source := range sources {
@@ -255,7 +302,12 @@ func (s *PostgresCandidateStore) purgeCandidate(ctx context.Context, scope Candi
 		}
 
 	}
-	return tx.Commit()
+	if scope.retentionJobID != "" {
+		if _, err = tx.ExecContext(ctx, `UPDATE candidate_retention_jobs SET deleted_count=deleted_count+1,lease_until=now()+interval '2 minutes',updated_at=now() WHERE id=$1 AND status='running'`, scope.retentionJobID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // candidateDeletions 只查询本团队且与当前账号有关的删除事件，额外一条用于判断是否还有下页。

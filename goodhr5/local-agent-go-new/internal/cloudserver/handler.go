@@ -21,7 +21,6 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
-	"goodhr5/local-agent-go-new/internal/integration/ocr"
 	"goodhr5/local-agent-go-new/internal/platform"
 	"goodhr5/local-agent-go-new/internal/replybridge"
 	"goodhr5/local-agent-go-new/internal/storage"
@@ -325,10 +324,8 @@ func (r *activeRun) execute(ctx context.Context, prepared shared.PreparedTask, a
 	}
 	platformRuntime := replybridge.NewPlatform(r.platform, r.broker.Call, temp)
 	logger := &runLogger{run: r}
-	responder := &auto_reply.AIResponder{AI: aiClient, Cloud: r.client, Logger: logger, OCR: serverOCR{}}
-	if exe := strings.TrimSpace(os.Getenv("GOODHR_OCR_EXECUTABLE")); exe != "" {
-		responder.OCR = ocr.New(exe)
-	}
+	responder := &auto_reply.AIResponder{AI: aiClient, Cloud: r.client, Logger: logger}
+	// 本机及旧服务器OCR注入停用，源码serverOCR保留；扫描附件统一复用服务器AI图片识别。
 	flow := auto_reply.Flow{Cloud: r.client, Store: r.store, Responder: responder, Logger: logger}
 	background := auto_reply.NewBackground(r.client, responder, r.scope.machine)
 	background.Bind(r.scope.user, r.cred.Token)
@@ -383,6 +380,8 @@ func safeRunFailure(stage string) string {
 		return "没能确认招聘页面，请打开已登录的招聘平台聊天页后重试。"
 	case "scan_unread_conversations":
 		return "没能读到会话列表，请确认招聘平台的「全部」列表可见后重试。"
+	case "review_contact_list":
+		return "联系人变化还没核对好，本轮没有继续回复，请查看运行记录后重试。"
 	case "load_positions":
 		return "岗位配置暂时读不到，请确认岗位已开启自动回复后重试。"
 	case "ai", "resume_ai", "structure_resume":

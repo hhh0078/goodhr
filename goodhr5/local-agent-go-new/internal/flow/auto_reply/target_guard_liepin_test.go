@@ -17,13 +17,19 @@ import (
 // targetLiepinBrowser 模拟全部联系人及当前聊天，所有请求仍经过真实平台运行时和选择器配置。
 type targetLiepinBrowser struct {
 	autoReplyBrowserStub
-	cfg                  model.Config
-	snapshot             model.AutoReplyConversationSnapshot
-	opened               bool
-	name, candidateID    string
-	readErr              error
-	scanErr              error
-	contactClicks, scans int
+	cfg                   model.Config
+	snapshot              model.AutoReplyConversationSnapshot
+	opened                bool
+	name, candidateID     string
+	readErr               error
+	scanErr               error
+	contactClicks, scans  int
+	nameReads, nameProbes int
+}
+
+// ListPages 提供本夹具唯一且已观测的当前招聘页，保留真实运行时对换页和多当前页的生产守卫。
+func (b *targetLiepinBrowser) ListPages(context.Context) (contract.PageListResult, error) {
+	return contract.PageListResult{Pages: []contract.PageInfo{{PageID: "target-liepin", URL: b.cfg.MessagesURL, Current: true}}, Count: 1}, nil
 }
 
 // key 把生产选择器映射回逻辑键，避免在测试内复制平台CSS。
@@ -40,6 +46,7 @@ func (b *targetLiepinBrowser) key(selector contract.SelectorSpec) string {
 func (b *targetLiepinBrowser) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
 	switch b.key(request.Selector) {
 	case "message.current_name":
+		b.nameReads++
 		if b.readErr != nil {
 			return contract.ReadResult{}, b.readErr
 		}
@@ -60,6 +67,12 @@ func (b *targetLiepinBrowser) Read(_ context.Context, request contract.ElementRe
 func (b *targetLiepinBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	exists := false
 	switch b.key(request.Selector) {
+	case "message.current_name":
+		b.nameProbes++
+		if !request.ProbeOnly || !request.ExpectedMissing || request.Selector.TimeoutMS > 600 {
+			return nil, fmt.Errorf("当前聊天应使用短预算存在性探测")
+		}
+		exists = b.opened
 	case "message.drawer":
 		exists = true
 	case "message.all_tab_selected":
@@ -150,7 +163,8 @@ func TestTargetLiepinRuntimeAllScanKeepsChatAndRecoversManualClose(t *testing.T)
 		t.Fatalf("读全部联系人关窗或改变了消息：open=%t latest=%+v scans=%d clicks=%d err=%v", open, latest, browser.scans, browser.contactClicks, err)
 	}
 	browser.opened = false
-	if _, open, err := guarded.ReadOpenAutoReplyLatestMessage(ctx, browser, browser.cfg, browser.snapshot); err != nil || open || browser.opened || browser.contactClicks != 0 {
+	nameReadsBeforeClose := browser.nameReads
+	if _, open, err := guarded.ReadOpenAutoReplyLatestMessage(ctx, browser, browser.cfg, browser.snapshot); err != nil || open || browser.opened || browser.contactClicks != 0 || browser.nameReads != nameReadsBeforeClose {
 		t.Fatalf("已收起聊天没有按关闭处理：open=%v err=%v clicks=%d", open, err, browser.contactClicks)
 	}
 	snapshot, err := guarded.OpenAutoReplyConversation(ctx, browser, browser.cfg, browser.snapshot.Conversation, []string{"last-self"}, 5000)

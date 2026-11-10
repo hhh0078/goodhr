@@ -38,7 +38,7 @@ const componentNames: Record<string, string> = {
   node_runtime: "Node 运行环境",
   node_worker: "浏览器控制 Worker",
   camoufox: "Camoufox 浏览器",
-  ocr: "OCR 组件",
+  // OCR旧组件不再展示、检查或下载安装。
 };
 /** AgentDownloadPage 展示组件状态、扩展安装方法并触发运行组件更新。 */
 export default function AgentDownloadPage() {
@@ -399,7 +399,7 @@ function buildComponents(
     return {
       key,
       name: componentNames[key],
-      required: key !== "ocr",
+      required: true,
       bundled: key === "node_worker",
       installed: Boolean(
         textValue(local.version) ||

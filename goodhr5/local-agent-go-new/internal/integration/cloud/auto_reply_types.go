@@ -3,6 +3,7 @@ package cloud
 
 import (
 	"encoding/json"
+	"goodhr5/local-agent-go-new/internal/platform/model"
 	"time"
 )
 
@@ -138,32 +139,40 @@ type CandidatePlatformIdentity struct {
 
 // AutoReplyConversation 表示可以先于正式简历存在的平台聊天会话。
 type AutoReplyConversation struct {
-	DeletionBoundary        *AutoReplyDeletionBoundary `json:"deletion_boundary,omitempty"`   // 本次重新联系所依据的删除边界，仅在新代会话存在。
-	ReopenInboundHash       string                     `json:"reopen_inbound_hash,omitempty"` // 新入站依据的稳定消息键摘要。
-	ReopenInboundAt         *time.Time                 `json:"reopen_inbound_at,omitempty"`   // 已核实新入站的平台时间。
-	ID                      string                     `json:"id"`
-	CandidateID             string                     `json:"candidate_id"`
-	PlatformIdentityID      string                     `json:"platform_identity_id"`
-	EngagementID            string                     `json:"engagement_id"`
-	PositionID              string                     `json:"position_id"`
-	PlatformAccountID       string                     `json:"platform_account_id"`
-	PlatformID              string                     `json:"platform_id"`
-	PlatformThreadID        string                     `json:"platform_thread_id"`
-	CandidateName           string                     `json:"candidate_name"`
-	Gender                  string                     `json:"gender"`
-	PagePositionText        string                     `json:"page_position_text"`
-	Status                  string                     `json:"status"`
-	HistoryComplete         bool                       `json:"history_complete"`
-	MessageIdentityVersion  int                        `json:"message_identity_version,omitempty"` // 仅完整历史同步成功后记录已使用的消息键版本。
-	LastSyncedMessageKey    string                     `json:"last_synced_message_key"`
-	LastCandidateMessageKey string                     `json:"last_candidate_message_key"`
-	UnresolvedReason        string                     `json:"unresolved_reason"`
-	LastCheckedAt           *time.Time                 `json:"last_checked_at"`
-	CreatedAt               time.Time                  `json:"created_at"`
-	UpdatedAt               time.Time                  `json:"updated_at"`
-	CaptureIntent           *AutoReplyCaptureIntent    `json:"capture_intent,omitempty"`
-	ResumeRetry             *AutoReplyResumeRetry      `json:"resume_retry,omitempty"`
-	GoalFollowup            *AutoReplyGoalFollowup     `json:"goal_followup,omitempty"` // 新证据完成后的一次追问，发送或失效后清除，不是定时催问。
+	DeletionBoundary        *AutoReplyDeletionBoundary              `json:"deletion_boundary,omitempty"`   // 本次重新联系所依据的删除边界，仅在新代会话存在。
+	ReopenInboundHash       string                                  `json:"reopen_inbound_hash,omitempty"` // 新入站依据的稳定消息键摘要。
+	ReopenInboundAt         *time.Time                              `json:"reopen_inbound_at,omitempty"`   // 已核实新入站的平台时间。
+	ID                      string                                  `json:"id"`
+	CandidateID             string                                  `json:"candidate_id"`
+	PlatformIdentityID      string                                  `json:"platform_identity_id"`
+	EngagementID            string                                  `json:"engagement_id"`
+	PositionID              string                                  `json:"position_id"`
+	PlatformAccountID       string                                  `json:"platform_account_id"`
+	PlatformID              string                                  `json:"platform_id"`
+	PlatformThreadID        string                                  `json:"platform_thread_id"`
+	CandidateName           string                                  `json:"candidate_name"`
+	Gender                  string                                  `json:"gender"`
+	PagePositionText        string                                  `json:"page_position_text"`
+	Status                  string                                  `json:"status"`
+	HistoryComplete         bool                                    `json:"history_complete"`
+	MessageIdentityVersion  int                                     `json:"message_identity_version,omitempty"` // 仅完整历史同步成功后记录已使用的消息键版本。
+	LastSyncedMessageKey    string                                  `json:"last_synced_message_key"`
+	LastCandidateMessageKey string                                  `json:"last_candidate_message_key"`
+	UnresolvedReason        string                                  `json:"unresolved_reason"`
+	LastCheckedAt           *time.Time                              `json:"last_checked_at"`
+	CreatedAt               time.Time                               `json:"created_at"`
+	UpdatedAt               time.Time                               `json:"updated_at"`
+	CaptureIntent           *AutoReplyCaptureIntent                 `json:"capture_intent,omitempty"`
+	ResumeRetry             *AutoReplyResumeRetry                   `json:"resume_retry,omitempty"`
+	GoalFollowup            *AutoReplyGoalFollowup                  `json:"goal_followup,omitempty"` // 新证据完成后的一次追问，发送或失效后清除，不是定时催问。
+	InfoRequests            map[string]AutoReplyInfoRequestProgress `json:"info_requests,omitempty"` // 原生资料索要的服务器状态，键只允许resume、phone和wechat。
+}
+
+// AutoReplyInfoRequestProgress 保存单类资料的请求状态，明确暂缓只在下一条新沟通后重新评估。
+type AutoReplyInfoRequestProgress struct {
+	Status                string    `json:"status"`
+	LastAttemptMessageKey string    `json:"last_attempt_message_key,omitempty"`
+	UpdatedAt             time.Time `json:"updated_at"`
 }
 
 // AutoReplyResumeRetry 保存尚未完成的简历采集或补审；次数在操作前落盘，最多自动尝试三次。
@@ -406,6 +415,7 @@ type AutoReplyCandidateLookup struct {
 // AutoReplyStoredCandidate 表示云端已有的正式简历。
 // 当前候选人存储模型仍使用 Go 字段名输出，因此这里显式兼容该现有协议。
 type AutoReplyStoredCandidate struct {
+	OnlineProfile         *AutoReplyOnlineProfileState `json:"online_profile,omitempty"`           // 已读取并经服务器匹配的当前在线资料，独立于附件解析成功状态。
 	ResumeSourceMessageID string                       `json:"resume_source_message_id,omitempty"` // 本地结构化资料对应的平台来源消息键。
 	ResumeStructured      bool                         `json:"resume_structured,omitempty"`        // 本地已成功解析简历，不依赖是否有手机号。
 	ID                    string                       `json:"ID"`
@@ -436,6 +446,16 @@ type AutoReplyStoredCandidate struct {
 	Communications        []CandidateCommunication     `json:"Communications"`
 }
 
+// AutoReplyOnlineProfileState 保存在线资料缓存与简历库关联，CandidateID是简历库编号，不替换本轮候选人实体ID。
+type AutoReplyOnlineProfileState struct {
+	SourceKey   string                       `json:"source_key"`
+	ProfileKey  string                       `json:"profile_key"`
+	CandidateID string                       `json:"candidate_id"`
+	MatchStatus string                       `json:"match_status"`
+	Profile     model.AutoReplyOnlineProfile `json:"profile"`
+	UpdatedAt   time.Time                    `json:"updated_at"`
+}
+
 // AutoReplyCandidateState 表示已有简历、身份、会话和附件状态。
 type AutoReplyCandidateState struct {
 	OK                  bool                       `json:"ok"`
@@ -450,9 +470,11 @@ type AutoReplyCandidateState struct {
 
 // AutoReplyCandidateInput 表示本地清洗并校验后准备正式入库的简历。
 type AutoReplyCandidateInput struct {
-	ReopenProof           *AutoReplyReopenProof `json:"reopen_proof,omitempty"`             // 本机从已核实的新入站及附件生成的上传依据。
-	ResumeSourceMessageID string                `json:"resume_source_message_id,omitempty"` // 已核实的简历来源消息键。
-	LocalCandidateID      string                `json:"-"`                                  // 已有本机候选人标识，不上传云端。
+	OnlineProfileCandidateID string                `json:"online_profile_candidate_id,omitempty"` // 已由服务器在线建档确认的当前代简历库编号，不能取代本轮候选人实体ID。
+	OnlineProfileKey         string                `json:"online_profile_key,omitempty"`          // 与上述编号配对的服务器来源摘要，旧任务缺此证明仍受删除封印限制。
+	ReopenProof              *AutoReplyReopenProof `json:"reopen_proof,omitempty"`                // 本机从已核实的新入站及附件生成的上传依据。
+	ResumeSourceMessageID    string                `json:"resume_source_message_id,omitempty"`    // 已核实的简历来源消息键。
+	LocalCandidateID         string                `json:"-"`                                     // 已有本机候选人标识，不上传云端。
 	StructuredCandidate
 	PositionID          string `json:"position_id"`
 	PlatformID          string `json:"platform_id"`

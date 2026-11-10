@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
@@ -232,7 +233,7 @@ func (r *AIResponder) recommendationJobCurrent(ctx context.Context, credentials 
 	if state.Candidate == nil || state.Candidate.ID != job.CandidateID || (state.Conversation != nil && state.Conversation.ResumeRetry != nil) {
 		return false, nil
 	}
-	source, qualified := recommendationSource(ReplyContext{Position: snapshot, CandidateState: state, Messages: messages}, items)
+	source, qualified := recommendationSource(ReplyContext{Position: snapshot, Conversation: job.Conversation, CandidateState: state, Messages: messages}, items)
 	if !qualified {
 		return false, nil
 	}
@@ -244,7 +245,7 @@ func (r *AIResponder) recommendationJobCurrent(ctx context.Context, credentials 
 func recommendationSource(input ReplyContext, items []cloud.CandidateConfirmationItem) (cloud.AutoReplyRecommendationReport, bool) {
 	position, candidate := input.Position, input.CandidateState.Candidate
 	configured, complete := configuredConfirmations(position, items)
-	if candidate == nil || !candidate.ResumeStructured || !complete {
+	if candidate == nil || !complete || !candidate.ResumeStructured && !trustedOnlineRecommendationCandidate(input) {
 		return cloud.AutoReplyRecommendationReport{}, false
 	}
 	validation := toolExecutionState{input: input}
@@ -266,9 +267,19 @@ func recommendationSource(input ReplyContext, items []cloud.CandidateConfirmatio
 	}
 	sort.Slice(conditions, func(i, j int) bool { return conditions[i].ID < conditions[j].ID })
 	return cloud.AutoReplyRecommendationReport{
-		Candidate: cloud.AutoReplyReportCandidate{ID: candidate.ID, Name: candidate.CandidateName, Gender: candidate.Gender, BirthYM: candidate.BirthYM, Phone: candidate.Phone, Email: candidate.Email, Wechat: candidate.Wechat, WorkRegion: candidate.WorkRegion, WorkYears: candidate.WorkYears, EducationLevel: candidate.EducationLevel, ExpectedPosition: candidate.ExpectedPosition, ExpectedSalaryMin: candidate.ExpectedSalaryMin, ExpectedSalaryMax: candidate.ExpectedSalaryMax, WorkStatus: candidate.WorkStatus, OnlineStatus: candidate.OnlineStatus, PersonalDescription: candidate.PersonalDescription, WorkExperiences: candidate.WorkExperiences, Educations: candidate.Educations, Certificates: candidate.Certificates, Honors: candidate.Honors, ProjectExperiences: candidate.ProjectExperiences},
+		Candidate: cloud.AutoReplyReportCandidate{ID: candidate.ID, Name: candidate.CandidateName, Gender: candidate.Gender, BirthYM: candidate.BirthYM, Phone: candidate.Phone, Email: candidate.Email, Wechat: candidate.Wechat, WorkRegion: candidate.WorkRegion, WorkYears: candidate.WorkYears, EducationLevel: candidate.EducationLevel, ExpectedPosition: candidate.ExpectedPosition, ExpectedSalaryMin: candidate.ExpectedSalaryMin, ExpectedSalaryMax: candidate.ExpectedSalaryMax, WorkStatus: candidate.WorkStatus, OnlineStatus: candidate.OnlineStatus, PersonalDescription: candidate.PersonalDescription, BasicInfo: candidate.BasicInfo, WorkExperiences: candidate.WorkExperiences, Educations: candidate.Educations, Certificates: candidate.Certificates, Honors: candidate.Honors, ProjectExperiences: candidate.ProjectExperiences},
 		Position:  cloud.AutoReplyReportPosition{ID: position.Position.ID, Name: position.Position.Name, PlatformID: position.Position.PlatformID, Description: position.Config.PositionDescription, CompanyName: position.CompanyProfile.Name, Address: position.CompanyProfile.Address, Contact: position.CompanyProfile.Contact, Overview: position.CompanyProfile.Overview, ExtraInfo: position.CompanyProfile.ExtraInfo}, Conditions: conditions,
 	}, true
+}
+
+// trustedOnlineRecommendationCandidate 只允许已按岗位开关入库、来源经服务器确认且手机完整的在线资料参与推荐，不假装已收到附件。
+func trustedOnlineRecommendationCandidate(input ReplyContext) bool {
+	candidate := input.CandidateState.Candidate
+	if candidate == nil || !input.Position.Position.OutputStructuredResume || completeOnlinePhone(candidate.Phone) == "" || candidate.OnlineProfile == nil {
+		return false
+	}
+	profile := candidate.OnlineProfile
+	return profile.CandidateID != "" && profile.ProfileKey != "" && profile.SourceKey != "" && strings.TrimSpace(profile.Profile.RawText) != ""
 }
 
 // recommendationInputHash 忽略模型对同一证据的解释措辞，防止资格没有变化却反复付费生成报告。

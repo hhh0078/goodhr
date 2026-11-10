@@ -39,25 +39,27 @@ type ResumeStructurer interface {
 
 // ReplyContext 表示一次自动回复决策已经完成同步和身份校验的全部上下文。
 type ReplyContext struct {
-	KnownQuestions    []knownRecruitmentQuestion
-	TaskID            string
-	Credentials       cloud.AgentCredentials
-	AIConfig          cloud.AIConfig
-	EnableThinking    bool
-	Position          cloud.AutoReplyPositionSnapshot
-	Conversation      cloud.AutoReplyConversation
-	CandidateState    cloud.AutoReplyCandidateState
-	Messages          []cloud.AutoReplyMessage
-	PendingMessages   []cloud.AutoReplyMessage
-	ConfirmationItems []cloud.CandidateConfirmationItem
-	PageSnapshot      model.AutoReplyConversationSnapshot
-	Resume            *model.AutoReplyResumeBundle
-	BasedOnMessageKey string
-	PhoneContact      phoneContactState
-	ConditionsOnly    bool // 简历待办恢复不补答历史，只复核目标。
-	AllowGoalFollowup bool // 新资料事件可准备一条尚未问过的目标追问，不启动定时催问。
-	ReceiptFollowup   bool // 手机号由固定话术签收，模型只更新目标并提议一条独立追问。
-	MessageFollowup   bool // 普通答复已实际送达，只检查本次新消息尚未规划的目标。
+	KnownQuestions     []knownRecruitmentQuestion
+	TaskID             string
+	Credentials        cloud.AgentCredentials
+	AIConfig           cloud.AIConfig
+	EnableThinking     bool
+	Position           cloud.AutoReplyPositionSnapshot
+	Conversation       cloud.AutoReplyConversation
+	CandidateState     cloud.AutoReplyCandidateState
+	Messages           []cloud.AutoReplyMessage
+	PendingMessages    []cloud.AutoReplyMessage
+	ConfirmationItems  []cloud.CandidateConfirmationItem
+	PageSnapshot       model.AutoReplyConversationSnapshot
+	Resume             *model.AutoReplyResumeBundle
+	BasedOnMessageKey  string
+	PhoneContact       phoneContactState
+	NativeInfoRequests bool // 平台声明原生资料索要能力时，AI只提议动作，不把索要混入普通答复。
+	InfoContact        map[string]infoContactState
+	ConditionsOnly     bool // 简历待办恢复不补答历史，只复核目标。
+	AllowGoalFollowup  bool // 新资料事件可准备一条尚未问过的目标追问，不启动定时催问。
+	ReceiptFollowup    bool // 手机号由固定话术签收，模型只更新目标并提议一条独立追问。
+	MessageFollowup    bool // 普通答复已实际送达，只检查本次新消息尚未规划的目标。
 }
 
 // ResumeStructureContext 表示结构化简历请求需要的会话、AI配置和页面原文。
@@ -101,6 +103,7 @@ type ReplyDecision struct {
 	ReasonKey           string                            `json:"reason_key,omitempty"`
 	ConfirmationUpdates []cloud.CandidateConfirmationItem `json:"confirmation_updates,omitempty"`
 	Suggestions         []cloud.AutoReplyConfigSuggestion `json:"suggestions,omitempty"`
+	InfoRequests        model.CandidateInfoRequest        `json:"info_requests,omitempty"`
 }
 
 // Flow 组装自动回复主流程依赖。

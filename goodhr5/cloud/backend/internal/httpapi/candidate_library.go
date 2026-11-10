@@ -27,6 +27,8 @@ type CandidateLibraryScope struct {
 	TenantID, UserEmail, AuthorName string
 	IsAdmin                         bool
 	IsExtension                     bool
+	retentionCutoff                 *time.Time // 仅维护任务可设置，删除事务内重新核对手机号及最近活动，HTTP表单不能传入。
+	retentionJobID                  string     // 完整删除和任务计数在同一事务提交，重启不能漏记已删除数量。
 }
 
 // CandidateSource 表示一条明确确认的候选人平台来源。

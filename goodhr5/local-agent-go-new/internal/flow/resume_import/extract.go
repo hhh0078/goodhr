@@ -188,7 +188,7 @@ func (e *Extractor) extractImage(ctx context.Context, path string) (string, erro
 		return "", fmt.Errorf("图片超过2500万像素，请缩小后导入")
 	}
 	if e.OCR == nil {
-		return "", fmt.Errorf("本地OCR还没准备好，请在本地程序里安装OCR后重试")
+		return "", fmt.Errorf("当前图片简历没有可读取的文字，本地OCR已停用；请上传文字版PDF或DOCX")
 	}
 	result, err := e.OCR.Recognize(ctx, path)
 	return result.Text, err

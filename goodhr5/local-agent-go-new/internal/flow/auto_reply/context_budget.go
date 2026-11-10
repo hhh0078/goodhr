@@ -15,6 +15,7 @@ const maxReplyContextBytes = 128 * 1024
 func boundedReplyContext(input ReplyContext) (ReplyContext, error) {
 	result := input
 	result.PhoneContact = inspectPhoneContact(input)
+	result.InfoContact = inspectInfoContacts(input)
 	result.ConfirmationItems = dialogueConfirmations(input.Position, input.Conversation.ID, input.ConfirmationItems)
 	result.Messages = append([]cloud.AutoReplyMessage(nil), input.Messages...)
 	result.PendingMessages = append([]cloud.AutoReplyMessage(nil), input.PendingMessages...)
@@ -60,6 +61,19 @@ func boundedReplyContext(input ReplyContext) (ReplyContext, error) {
 	result.CandidateState.Identity = nil
 	if input.CandidateState.Candidate != nil {
 		candidate := *input.CandidateState.Candidate
+		if candidate.OnlineProfile != nil {
+			cache := *candidate.OnlineProfile
+			cache.Profile.Screenshots = nil
+			cache.Profile.RawText = boundedText(cache.Profile.RawText, 12000)
+			// 相同在线正文只给模型一次；不改变服务器缓存或真实附件原文。
+			if !candidate.ResumeStructured && candidate.RawText == candidate.OnlineProfile.Profile.RawText {
+				candidate.RawText = ""
+			}
+			if candidate.BasicInfo == candidate.OnlineProfile.Profile.RawText {
+				candidate.BasicInfo = ""
+			}
+			candidate.OnlineProfile = &cache
+		}
 		candidate.RawText = boundedText(candidate.RawText, 12000)
 		candidate.BasicInfo = boundedText(candidate.BasicInfo, 4000)
 		candidate.PersonalDescription = boundedText(candidate.PersonalDescription, 4000)

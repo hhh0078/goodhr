@@ -107,6 +107,12 @@ export class ActionQueue {
           const value = await actionContextStorage.run(executionContext, operation);
           if (!finished) resolve(value);
         } catch (error) {
+          // 同步计算或原生回执可能先于定时器发现整份截止；统一走原cancel路径，不能误报为未开始的普通取消。
+          if (error instanceof WorkerError && error.code === "ACTION_CANCELLED" && error.details.reason === "deadline_exceeded" &&
+              !requestSignal?.aborted && Date.now() >= (context.deadline_at ?? Infinity)) {
+            cancel();
+            return;
+          }
           // 只有本队列主动取消的同一错误可安全恢复；原生限时、断连和其他真实错误不能借预算取消放行。
           if (recoverCancelledScroll && this.scrollDrainFault && !causedBy(error, this.scrollDrainFault)) this.scrollDrainFault = undefined;
           if (error instanceof WorkerError && error.code === "WORKER_UNRESPONSIVE") {

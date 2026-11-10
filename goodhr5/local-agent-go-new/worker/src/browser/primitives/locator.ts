@@ -106,7 +106,12 @@ export class LocatorPrimitive {
     const scope = await this.resolveScope(page, spec, attempts, context);
     for (const candidate of spec.target.selectors) {
       assertRequestActive();
-      const locator = this.candidateLocator(scope, candidate, spec.target);
+      let locator = this.candidateLocator(scope, candidate, spec.target);
+      if (spec.target.index === undefined && Object.keys(spec.target.attributes ?? {}).length > 0) {
+        // 无显式序号时先按属性收紧候选集，再计数和分页；否则小窗口会漏掉原列表靠后的目标。
+        // 显式序号仍针对原始列表选中后核验属性，保持与单元素定位一致的旧语义。
+        locator = locator.and(scope.locator(attributeFilter(spec.target.attributes!)));
+      }
       let queryError: string | undefined;
       const count = await locator.count().catch(error => { queryError = queryErrorType(error); return 0; });
       assertRequestActive();

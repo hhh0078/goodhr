@@ -61,7 +61,7 @@ export class ReadAction {
         );
         property = `attribute:${readAttribute}`;
       } else if (readProperty === "value") {
-        value = await this.primitive.inputValue(found.resolved.locator);
+        value = await this.primitive.editableValue(found.resolved.locator);
         property = "value";
       } else if (readProperty === "html") {
         value = await this.primitive.html(found.resolved.locator);

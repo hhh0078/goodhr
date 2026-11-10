@@ -27,6 +27,7 @@ type Server struct {
 	attachmentImports     *AttachmentImportService
 	aiWallet              *AIWalletService
 	aiUsageRetention      *AIUsageRetentionService
+	candidateRetention    *CandidateRetentionService
 	assistant             *AssistantService
 	resumeVectors         *ResumeVectorService
 	headhunter            *HeadhunterService
@@ -196,6 +197,7 @@ func NewServer() (*Server, error) {
 		attachmentImports:     attachmentImports,
 		aiWallet:              aiWalletService,
 		aiUsageRetention:      NewAIUsageRetentionService(aiWalletStore),
+		candidateRetention:    NewCandidateRetentionService(candidateStore),
 		assistant:             assistant,
 		resumeVectors:         resumeVectors,
 		headhunter:            headhunterService,
@@ -301,6 +303,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/ai-compatible/v1/embeddings", s.aiWallet.Embeddings)
 	if s.aiUsageRetention != nil {
 		mux.HandleFunc("/api/internal/ai-usage/cleanup", s.aiUsageRetention.Cleanup)
+	}
+	if s.candidateRetention != nil {
+		mux.HandleFunc("/api/internal/temporary-resumes/cleanup", s.candidateRetention.Cleanup)
 	}
 	if s.assistant != nil {
 		mux.HandleFunc("/api/assistant/", s.assistant.Route)

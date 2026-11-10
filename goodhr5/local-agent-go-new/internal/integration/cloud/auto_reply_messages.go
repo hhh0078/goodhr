@@ -2,6 +2,7 @@
 package cloud
 
 import (
+	"encoding/json"
 	"fmt"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"strings"
@@ -71,6 +72,20 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 	now := time.Now().UTC()
 	for index, item := range input.Messages {
 		if known[index] {
+			// 旧系统卡只补确定的原生元数据；未知顺序的封存行不因Put的初始化规则改变排序。
+			if orders[index] != 0 {
+				row, found, readErr := tx.MessageByKey(input.ConversationID, localAutoReplyMessageKey(item))
+				if readErr != nil {
+					return result, false, readErr
+				}
+				if found {
+					if raw, enriched := enrichKnownSystemInfoCard(row.Data, item, conversation); enriched {
+						if err = tx.Put("messages", row.ID, raw); err != nil {
+							return result, false, err
+						}
+					}
+				}
+			}
 			continue
 		}
 		key := localAutoReplyMessageKey(item)
@@ -144,4 +159,67 @@ func syncLocalAutoReplyMessages(tx *storage.AutoReplyTx, input AutoReplyMessageS
 	result.LastSyncedMessageKey = conversation.LastSyncedMessageKey
 	result.LastCandidateMessageKey = conversation.LastCandidateMessageKey
 	return result, unverified, nil
+}
+
+// knownSystemInfoMetadata 只允许补入已核实的资料种类、状态及完整联系方式，其它卡片字段保持原样。
+type knownSystemInfoMetadata struct {
+	InfoType   string `json:"info_type"`
+	InfoStatus string `json:"info_status"`
+	Phone      string `json:"phone"`
+	Wechat     string `json:"wechat"`
+	OwnerName  string `json:"owner_name"`
+}
+
+// enrichKnownSystemInfoCard 仅同源补齐系统卡或候选人的原生简历邀请，保留原摘要、正文、时间、未知字段和稳定编号。
+func enrichKnownSystemInfoCard(raw json.RawMessage, incoming AutoReplyMessage, conversation AutoReplyConversation) (json.RawMessage, bool) {
+	var original AutoReplyMessage
+	if json.Unmarshal(raw, &original) != nil || localAutoReplyMessageKey(original) == "" || localAutoReplyMessageKey(original) != localAutoReplyMessageKey(incoming) || original.ConversationID != conversation.ID || incoming.ConversationID != "" && incoming.ConversationID != conversation.ID || incoming.Direction != original.Direction || incoming.MessageType != original.MessageType || incoming.TextContent != original.TextContent || original.MessageType != "system" && original.MessageType != "card" {
+		return nil, false
+	}
+	var old, next knownSystemInfoMetadata
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(original.CardContent, &old) != nil || json.Unmarshal(incoming.CardContent, &next) != nil || json.Unmarshal(original.CardContent, &fields) != nil || fields == nil {
+		return nil, false
+	}
+	var summary string
+	if json.Unmarshal(fields["summary"], &summary) != nil || strings.TrimSpace(summary) == "" {
+		return nil, false
+	}
+	offer := original.Direction == "candidate" && original.MessageType == "card" && next.InfoType == "resume" && next.InfoStatus == "offered" && next.Phone == "" && next.Wechat == "" && next.OwnerName == ""
+	if !offer && (original.Direction != "system" || next.InfoType != "resume" && next.InfoType != "phone" && next.InfoType != "wechat" && next.InfoType != "contact" || next.InfoStatus != "requested" && next.InfoStatus != "received" && next.InfoStatus != "declined") {
+		return nil, false
+	}
+	// 泛联系方式申请是旧版已保存的合法类型，但不能据此把同一条泛提示改为另一种确定资料。
+	if next.InfoType == "contact" && next.InfoStatus != "requested" || old.InfoType != "" && old.InfoType != next.InfoType || old.InfoStatus != "" && old.InfoStatus != next.InfoStatus || next.OwnerName != "" && next.OwnerName != strings.TrimSpace(conversation.CandidateName) {
+		return nil, false
+	}
+	if next.InfoStatus == "received" && (next.InfoType == "phone" && (!nativePhoneValue.MatchString(next.Phone) || !strings.Contains(original.TextContent, next.Phone)) || next.InfoType == "wechat" && (!nativeWechatValue.MatchString(next.Wechat) || !strings.Contains(original.TextContent, next.Wechat))) {
+		return nil, false
+	}
+	if next.InfoType == "phone" && (next.Wechat != "" || old.Wechat != "") || next.InfoType == "wechat" && (next.Phone != "" || old.Phone != "") {
+		return nil, false
+	}
+	previous := map[string]string{"info_type": old.InfoType, "info_status": old.InfoStatus, "phone": old.Phone, "wechat": old.Wechat, "owner_name": old.OwnerName}
+	values := map[string]string{"info_type": next.InfoType, "info_status": next.InfoStatus, "phone": next.Phone, "wechat": next.Wechat, "owner_name": next.OwnerName}
+	changed := false
+	for key, value := range values {
+		if value == "" || value == previous[key] {
+			continue
+		}
+		if previous[key] != "" {
+			return nil, false
+		}
+		fields[key], _ = json.Marshal(value)
+		changed = true
+	}
+	if !changed {
+		return nil, false
+	}
+	var payload map[string]json.RawMessage
+	if json.Unmarshal(raw, &payload) != nil {
+		return nil, false
+	}
+	payload["card_content"], _ = json.Marshal(fields) // 仅替换白名单元数据，原summary及其它字段仍来自旧记录。
+	enriched, err := json.Marshal(payload)
+	return enriched, err == nil
 }

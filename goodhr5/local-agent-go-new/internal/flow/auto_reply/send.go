@@ -82,7 +82,8 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 
 // sendVerifiedMessageWithGoal 沿用同一发送链，在服务器意图里绑定目标版本并原子记录真正送达的追问。
 func (f *Flow) sendVerifiedMessageWithGoal(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, conversation cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, basedOnMessageKey string, message string, verifyCandidateBefore bool, goal *cloud.AutoReplyGoalSend, sequence ...int) (bool, error) {
-	message = strings.TrimSpace(message)
+	// 发送意图、设备输入和严格回执必须共用平台最终正文，不能在登记后再改写换行。
+	message = common.NormalizeAutoReplyOutgoingText(prepared.Platform, message)
 	if message == "" {
 		return false, fmt.Errorf("候选人回复内容不能为空")
 	}
@@ -184,11 +185,12 @@ func (f *Flow) latestCandidateMessageUnchanged(ctx context.Context, runtime mode
 
 // latestMessageAllowsFollowup 确认第一条回复仍是页面最新消息，候选人没有在两条消息之间插入新内容。
 func (f *Flow) latestMessageAllowsFollowup(ctx context.Context, runtime model.AutoReplyRuntime, prepared shared.PreparedTask, snapshot model.AutoReplyConversationSnapshot, previousContent string) (bool, string, error) {
+	previousContent = common.NormalizeAutoReplyOutgoingText(prepared.Platform, previousContent)
 	latest, err := runtime.ReadLatestAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot)
 	if err != nil {
 		return false, "", fmt.Errorf("发送第二条消息前复核最新聊天失败：%w", err)
 	}
-	return strings.EqualFold(strings.TrimSpace(latest.Direction), "self") && strings.TrimSpace(latest.TextContent) == strings.TrimSpace(previousContent), firstNonEmpty(latest.PlatformMessageID, latest.Key, messageFingerprint(latest, 0)), nil
+	return strings.EqualFold(strings.TrimSpace(latest.Direction), "self") && strings.TrimSpace(latest.TextContent) == previousContent, firstNonEmpty(latest.PlatformMessageID, latest.Key, messageFingerprint(latest, 0)), nil
 }
 
 // reportChangedMessage 向悬浮窗说明旧回复已废弃，等待下一轮重新分析。

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
@@ -503,9 +504,10 @@ func normalizePosition(position PositionSnapshot) PositionSnapshot {
 		position.MaxBatches = position.CommonConfig.ScanRounds
 	}
 	mode := strings.ToLower(strings.TrimSpace(position.CommonConfig.ModeDefault))
-	detailMode := strings.ToLower(strings.TrimSpace(position.CommonConfig.DetailMode))
-	position.RequiresOCR = position.RequiresOCR || detailMode == "ocr"
-	position.RequiresAI = position.RequiresAI || mode != "keyword" || detailMode == "ai"
+	detailMode := model.DetailRecognitionMode(position.PlatformID)
+	position.CommonConfig.DetailMode = detailMode
+	position.RequiresOCR = false // 历史requires_ocr与detail_mode=ocr保留兼容，当前流程不再启动OCR。
+	position.RequiresAI = mode != "keyword" || detailMode == "ai"
 	position.RequestPhone = position.RequestPhone || position.CommonConfig.RequestPhone
 	position.RequestWechat = position.RequestWechat || position.CommonConfig.RequestWechat
 	position.RequestResume = position.RequestResume || position.CommonConfig.RequestResume
@@ -555,7 +557,7 @@ func (c *Client) doBody(ctx context.Context, method string, path string, token s
 	if strings.TrimSpace(machineID) != "" {
 		request.Header.Set("X-GoodHR-Machine-ID", strings.TrimSpace(machineID))
 	}
-	if strings.HasPrefix(path, autoReplyAgentBasePath+"/questions/") || path == autoReplyAgentBasePath+"/candidates" && c.localAutoStore.UsesAutoReplyAuthority() {
+	if strings.HasPrefix(path, autoReplyAgentBasePath+"/questions/") || (path == autoReplyAgentBasePath+"/candidates" || path == autoReplyAgentBasePath+"/online-profile") && c.localAutoStore.UsesAutoReplyAuthority() {
 		request.Header.Set("X-GoodHR-Runtime-Service", os.Getenv("GOODHR_AUTO_REPLY_SERVICE_TOKEN"))
 	}
 	started := time.Now()

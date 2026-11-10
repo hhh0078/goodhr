@@ -24,9 +24,7 @@ func (s *Server) initResumeImports(manager *resumeflow.Manager) {
 	}
 	root := filepath.Join(s.cfg.DataDir, "resume-import")
 	extractor := &resumeflow.Extractor{Root: root}
-	if s.ocr != nil {
-		extractor.OCR = s.ocr
-	}
+	// 本机OCR已停用；保留OCRReader接口和旧源码，不再注入本机识别器。
 	value, err := resumeflow.New(s.store, s.cloud, ai.New(), extractor, root)
 	if err != nil {
 		log.Printf("本地简历导入初始化未完成：%v", err)

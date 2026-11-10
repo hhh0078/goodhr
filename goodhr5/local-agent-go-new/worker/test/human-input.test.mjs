@@ -12,15 +12,15 @@ test("中文岗位词会拆成多个输入片段且不丢字", () => {
   assert.ok(segments.length > 1);
 });
 
-test("富文本输入框使用可见文本验证输入结果", async () => {
+test("富文本输入框使用原始文本验证输入结果", async () => {
   const reader = new ReadPrimitive();
   const value = await reader.editableValue({
     async inputValue() {
-      throw new Error("contenteditable 不支持 inputValue");
+      throw new Error("Node is not an <input>, <textarea> or <select> element");
     },
-    async innerText() {
-      return "你好";
+    async textContent() {
+      return "你好\n第二行";
     },
   });
-  assert.equal(value, "你好");
+  assert.equal(value, "你好\n第二行");
 });

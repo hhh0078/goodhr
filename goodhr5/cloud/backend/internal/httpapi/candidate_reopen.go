@@ -86,11 +86,16 @@ func verifyReopenTx(ctx context.Context, tx *sql.Tx, tenant, source, currentID s
 	}
 	var old candidateReopenReceipt
 	var oldSource string
-	err = tx.QueryRowContext(ctx, `SELECT source_hash,candidate_id::text,actor_hash,proof_hash,attachment_at FROM candidate_reopen_receipts WHERE deletion_sequence=$1 LIMIT 1`, seq).Scan(&oldSource, &old.candidateID, &old.actorHash, &old.proofHash, &old.attachmentAt)
+	var proofType string
+	err = tx.QueryRowContext(ctx, `SELECT source_hash,candidate_id::text,actor_hash,proof_hash,attachment_at,proof_type FROM candidate_reopen_receipts WHERE deletion_sequence=$1 LIMIT 1`, seq).Scan(&oldSource, &old.candidateID, &old.actorHash, &old.proofHash, &old.attachmentAt, &proofType)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return old, false, err
 	}
 	if oldSource != "" && oldSource != source {
+		return old, false, errCandidateDeleted
+	}
+	if proofType == "online_profile" {
+		// 在线新档必须走服务端双字段续写证明；旧客户端不能把它当成旧附件收据使用。
 		return old, false, errCandidateDeleted
 	}
 	if in.ReopenServerWitness && currentID != "" {

@@ -16,6 +16,17 @@ type identityBrowserStub struct {
 	name, candidateID string
 }
 
+// FindAll 让身份桩的聊天可见性与实际姓名保持一致，避免只模拟读取却略过真实存在性探测。
+func (b *identityBrowserStub) FindAll(ctx context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if request.Selector.Description == "测试当前候选人" {
+		if b.name != "" {
+			return []contract.FindAllItem{{Index: 0, TotalMatches: 1}}, nil
+		}
+		return nil, nil
+	}
+	return b.liepinReplyBrowserStub.FindAll(ctx, request)
+}
+
 // Read 返回当前聊天姓名与按钮cid，不提供历史消息后备。
 func (b *identityBrowserStub) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
 	if request.Attribute == "data-tlg-scm" {

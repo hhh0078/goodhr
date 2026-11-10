@@ -1,4 +1,4 @@
-# 文件作用：从官方基础镜像编译服务器自动回复程序，运行层只带程序、中英文 OCR 与证书。
+# 文件作用：从官方基础镜像编译服务器自动回复程序；保留OCR源码，当前运行层只带程序、时区与证书。
 FROM golang:1.25-bookworm AS builder
 LABEL goodhr.project="goodhr" goodhr.build.stage="auto-reply-builder"
 ENV GOPROXY=https://goproxy.cn,direct
@@ -12,9 +12,10 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/goodhr-auto-reply-
 LABEL goodhr.build.finished="true"
 
 FROM debian:bookworm-slim
+# 历史OCR包不再安装：tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng。
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /var/lib/goodhr/auto-reply \
     && chown 65532:65532 /var/lib/goodhr/auto-reply

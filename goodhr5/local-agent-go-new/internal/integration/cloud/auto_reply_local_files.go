@@ -250,6 +250,10 @@ func (c *Client) saveLocalAutoReplyCandidate(ctx context.Context, credentials Ag
 			}
 		}
 		candidate.ID = id
+		input, err = protectConfirmedNativePhoneTx(tx, candidate, identity, input)
+		if err != nil {
+			return err
+		}
 		candidate.ResumeStructured = true
 		mergeLocalAutoReplyCandidate(&candidate, input)
 		if err = tx.Put("candidates", id, candidate); err != nil {

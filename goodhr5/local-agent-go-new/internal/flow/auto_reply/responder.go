@@ -33,7 +33,7 @@ type AIResponder struct {
 	AI               *ai.Client
 	Cloud            *cloud.Client
 	Logger           shared.Logger
-	OCR              resume_import.OCRReader
+	OCR              resume_import.OCRReader // 保留旧注入协议供兼容；自动回复不再使用本机OCR，扫描页改由服务器AI识别。
 	recommendationMu sync.Mutex
 }
 
@@ -63,9 +63,11 @@ func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructure
 		return StructuredResume{}, err
 	}
 	parts := []string{}
+	attachmentCtx := shared.WithAIBilling(ctx, r.Logger, input.TaskID, input.Position.Position.ID, input.PageSnapshot.CandidateName, "AI 扫描附件识别")
 	for _, path := range paths {
-		extractor := resume_import.Extractor{Root: filepath.Dir(path), OCR: r.OCR}
-		text, extractErr := extractor.Extract(ctx, path)
+		// 旧本机OCR注入停止使用；PDF文字层仍直接读取，仅扫描页才调用服务器AI。
+		extractor := resume_import.Extractor{Root: filepath.Dir(path), OCR: serverResumeVisionReader{client: r.AI, config: input.AIConfig, prompt: input.Position.Config.Prompts.Resume}}
+		text, extractErr := extractor.Extract(attachmentCtx, path)
 		if extractErr != nil {
 			return StructuredResume{}, extractErr
 		}
@@ -284,14 +286,14 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 			})
 		}
 		if state.reviewFinished {
-			return r.completeRun(input, run, assistantMessages, totalTokens, ReplyDecision{ConfirmationUpdates: state.confirmationUpdates, Messages: state.pendingMessages})
+			return r.completeRun(input, run, assistantMessages, totalTokens, ReplyDecision{ConfirmationUpdates: state.confirmationUpdates, Messages: state.pendingMessages, InfoRequests: state.infoRequests})
 		}
 		if len(state.pendingMessages) > 0 {
-			decision := ReplyDecision{Messages: append([]ReplyMessage(nil), state.pendingMessages...), ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions}
+			decision := ReplyDecision{Messages: append([]ReplyMessage(nil), state.pendingMessages...), ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions, InfoRequests: state.infoRequests}
 			return r.completeRun(input, run, assistantMessages, totalTokens, decision)
 		}
 		if state.manualReason != "" {
-			decision := ReplyDecision{HandoffFollowup: state.manualFollowup, HandoffQuestions: state.handoffQuestions, KnownAnswer: state.knownAnswer, ManualReason: state.manualReason, ReasonKey: state.manualKey, ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions}
+			decision := ReplyDecision{HandoffFollowup: state.manualFollowup, HandoffQuestions: state.handoffQuestions, KnownAnswer: state.knownAnswer, ManualReason: state.manualReason, ReasonKey: state.manualKey, ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions, InfoRequests: state.infoRequests}
 			return r.completeRun(input, run, assistantMessages, totalTokens, decision)
 		}
 	}

@@ -57,6 +57,9 @@ func (l *loggedDetailAutoReplyRuntime) BrowseCandidateDetail(ctx context.Context
 func newLoggedRuntime(runtime model.Runtime, taskID string, logger shared.Logger) model.Runtime {
 	logged := &loggedRuntime{Runtime: runtime, taskID: taskID, logger: logger}
 	if replyRuntime, ok := runtime.(model.AutoReplyRuntime); ok {
+		if requester, supportsInfo := runtime.(model.AutoReplyInfoRequester); supportsInfo {
+			return newLoggedNativeInfoRuntime(logged, runtime, replyRuntime, requester)
+		}
 		reply := &loggedAutoReplyRuntime{loggedRuntime: logged, AutoReplyRuntime: replyRuntime}
 		identity, canVerify := runtime.(model.AutoReplyIdentityVerifier)
 		if detailBrowser, ok := runtime.(model.DetailBrowser); ok {

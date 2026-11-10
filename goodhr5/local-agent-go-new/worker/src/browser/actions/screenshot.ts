@@ -14,6 +14,7 @@ import type { ActionContext } from "../../contracts/common.js";
 import { normalizeWorkerError, WorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { markRequestProgress } from "../../logging/request-progress.js";
+import { assertRequestActive } from "../primitives/request-lifecycle.js";
 import { ScreenshotPrimitive, screenshotTimedOut, screenshotTimeoutMS } from "../primitives/screenshot.js";
 import { MousePrimitive } from "../primitives/mouse.js";
 import { BrowserSession } from "../session/browser-session.js";
@@ -50,6 +51,7 @@ export class ScreenshotAction {
     try {
       markRequestProgress(actionContext, "require_page");
       const page = await this.session.requirePage(actionContext, step);
+      assertRequestActive(actionContext);
       markRequestProgress(actionContext, "screenshot_prepare");
       const size = request.viewport_only
         ? await this.captureVisibleTarget(page, request, filePath, actionContext)
@@ -143,21 +145,31 @@ export class ScreenshotAction {
         ? await this.find.one(request.wheel_anchor, actionContext, true)
         : target;
       await this.move.toElement(anchor.resolved, actionContext, { centered: true });
+      assertRequestActive(actionContext);
       const box = target.resolved.view.box;
       const viewportHeight = target.resolved.view.viewport.height;
       const visibleHeight = Math.min(viewportHeight, box.y + box.height) - Math.max(0, box.y);
       if (visibleHeight < 80) throw new Error("详情截图区域太小，无法保证相邻画面完整重叠");
       // 每段最多跨过可见高度的 65%，为变速滚动和长图拼接保留重叠。
       const distance = Math.max(40, Math.min(request.distance ?? 520, Math.floor(visibleHeight * 0.65)));
-      let topBuffer = await this.primitive.elementBuffer(target.resolved.locator);
+      /** captureActive 等待原生截图后再次核对ALS执行预算，迟到结果不能进入判重或写文件。 */
+      const captureActive = async (): Promise<Buffer> => {
+        assertRequestActive(actionContext);
+        const buffer = await this.primitive.elementBuffer(target.resolved.locator);
+        assertRequestActive(actionContext);
+        return buffer;
+      };
+      let topBuffer = await captureActive();
       let topStable = 0;
       for (let attempt = 0; attempt < maxParts + 2 && topStable < 2; attempt++) {
-        actionContext.signal?.throwIfAborted();
+        assertRequestActive(actionContext);
         markRequestProgress(actionContext, "screenshot_top");
         await wheelGesture(this.mouse, page, 0, -variedDistance(distance), actionContext, this.logger);
         await readingPause(waitMS, actionContext);
-        const next = await this.primitive.elementBuffer(target.resolved.locator);
-        topStable = screenshotsAreDuplicate(topBuffer, next) ? topStable + 1 : 0;
+        const next = await captureActive();
+        const duplicate = screenshotsAreDuplicate(topBuffer, next);
+        assertRequestActive(actionContext);
+        topStable = duplicate ? topStable + 1 : 0;
         topBuffer = next;
       }
       if (topStable < 2) throw new Error("详情截图前未能确认已回到顶部，避免漏掉开头内容");
@@ -167,14 +179,11 @@ export class ScreenshotAction {
       let scrollPosition = 0;
       let duplicateFrames = 0;
       for (let attempt = 0; attempt < maxParts + 2; attempt += 1) {
-        actionContext.signal?.throwIfAborted();
-        const currentBuffer = await this.primitive.elementBuffer(
-          target.resolved.locator,
-        );
-        if (
-          previousBuffer &&
-          screenshotsAreDuplicate(previousBuffer, currentBuffer)
-        ) {
+        assertRequestActive(actionContext);
+        const currentBuffer = await captureActive();
+        const duplicate = previousBuffer && screenshotsAreDuplicate(previousBuffer, currentBuffer);
+        assertRequestActive(actionContext);
+        if (duplicate) {
           duplicateFrames++;
           if (duplicateFrames >= 2) { complete = true; break; }
         } else {
@@ -184,9 +193,13 @@ export class ScreenshotAction {
           const filename = `${baseFilename}.part-${String(index + 1).padStart(3, "0")}.png`;
           const filePath = path.join(request.directory, filename);
           markRequestProgress(actionContext, "screenshot_save");
+          assertRequestActive(actionContext);
           await fs.mkdir(request.directory, { recursive: true });
+          assertRequestActive(actionContext);
           await fs.writeFile(filePath, currentBuffer);
+          assertRequestActive(actionContext);
           const size = (await fs.stat(filePath)).size;
+          assertRequestActive(actionContext);
           parts.push({ path: filePath, filename, size, index, scroll_position: scrollPosition });
           this.logger.info(actionContext, "capture_part", "success", { index: index + 1, scroll_position: scrollPosition });
         }
@@ -202,6 +215,7 @@ export class ScreenshotAction {
         count: parts.length,
         complete,
       };
+      assertRequestActive(actionContext);
       if (result.count === 0) {
         throw new Error("长截图没有生成任何分段");
       }
@@ -242,6 +256,7 @@ function safePNGFilename(rawName: string): string {
 interface DecodedPNG {
   width: number;
   height: number;
+  channels: number;
   data: Buffer;
 }
 
@@ -250,6 +265,8 @@ export function screenshotsAreDuplicate(
   previous: Buffer,
   current: Buffer,
 ): boolean {
+  // 相同PNG无需重复解码；不同压缩或过滤方式仍走原像素容差规则。
+  if (previous.equals(current)) return true;
   const previousImage = decodePNG(previous);
   const currentImage = decodePNG(current);
   if (!previousImage || !currentImage) {
@@ -273,19 +290,17 @@ export function screenshotsAreDuplicate(
   let total = 0;
   for (let y = startY; y < endY; y += stepY) {
     for (let x = startX; x < endX; x += stepX) {
-      const offset = (y * width + x) * 4;
+      const previousOffset = (y * width + x) * previousImage.channels;
+      const currentOffset = (y * width + x) * currentImage.channels;
       const difference =
         Math.abs(
-          previousImage.data.readUInt8(offset) -
-            currentImage.data.readUInt8(offset),
+          previousImage.data[previousOffset]! - currentImage.data[currentOffset]!,
         ) +
         Math.abs(
-          previousImage.data.readUInt8(offset + 1) -
-            currentImage.data.readUInt8(offset + 1),
+          previousImage.data[previousOffset + 1]! - currentImage.data[currentOffset + 1]!,
         ) +
         Math.abs(
-          previousImage.data.readUInt8(offset + 2) -
-            currentImage.data.readUInt8(offset + 2),
+          previousImage.data[previousOffset + 2]! - currentImage.data[currentOffset + 2]!,
         );
       total += 1;
       if (difference <= 24) {
@@ -321,7 +336,7 @@ function compressedScreenshotsAreDuplicate(
   return total > 0 && same / total >= 0.985;
 }
 
-/** decodePNG 使用 Node 标准库把 Playwright PNG 解码为 RGBA 像素。 */
+/** decodePNG 使用Node标准库还原RGB/RGBA原始行，直接采样原通道，避免整图再次扩成RGBA。 */
 function decodePNG(buffer: Buffer): DecodedPNG | null {
   try {
     if (
@@ -365,6 +380,7 @@ function decodePNG(buffer: Buffer): DecodedPNG | null {
     const channels = colorType === 6 ? 4 : 3;
     const stride = width * channels;
     const inflated = inflateSync(Buffer.concat(imageData));
+    if (inflated.length < height * (stride + 1)) return null;
     const raw = Buffer.alloc(height * stride);
     let inputOffset = 0;
     for (let y = 0; y < height; y += 1) {
@@ -374,14 +390,7 @@ function decodePNG(buffer: Buffer): DecodedPNG | null {
       inputOffset += stride;
       unfilterPNGRow(row, raw, y, stride, channels, filter);
     }
-    const rgba = Buffer.alloc(width * height * 4);
-    for (let source = 0, target = 0; source < raw.length; source += channels, target += 4) {
-      rgba[target] = raw.readUInt8(source);
-      rgba[target + 1] = raw.readUInt8(source + 1);
-      rgba[target + 2] = raw.readUInt8(source + 2);
-      rgba[target + 3] = channels === 4 ? raw.readUInt8(source + 3) : 255;
-    }
-    return { width, height, data: rgba };
+    return { width, height, channels, data: raw };
   } catch {
     return null;
   }
@@ -398,15 +407,16 @@ function unfilterPNGRow(
 ): void {
   const rowStart = y * stride;
   const previousStart = rowStart - stride;
+  if (filter < 1 || filter > 4) {
+    row.copy(output, rowStart);
+    return;
+  }
   for (let x = 0; x < stride; x += 1) {
-    const left =
-      x >= channels ? output.readUInt8(rowStart + x - channels) : 0;
-    const up = y > 0 ? output.readUInt8(previousStart + x) : 0;
-    const upLeft =
-      y > 0 && x >= channels
-        ? output.readUInt8(previousStart + x - channels)
-        : 0;
-    let value = row.readUInt8(x);
+    // 上层已验证完整行长度，邻接偏移均由当前行及channels边界约束。
+    const left = x >= channels ? output[rowStart + x - channels]! : 0;
+    const up = y > 0 ? output[previousStart + x]! : 0;
+    const upLeft = y > 0 && x >= channels ? output[previousStart + x - channels]! : 0;
+    let value = row[x]!;
     if (filter === 1) value += left;
     if (filter === 2) value += up;
     if (filter === 3) value += Math.floor((left + up) / 2);

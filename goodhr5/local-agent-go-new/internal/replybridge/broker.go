@@ -52,6 +52,8 @@ func (e *RemoteError) Unwrap() error {
 		return model.ErrAutoReplyConversationNotOpen
 	case "REPLY_SUPERSEDED":
 		return model.ErrAutoReplySupersededBeforeSend
+	case "ONLINE_PROFILE_UNAVAILABLE":
+		return model.ErrAutoReplyOnlineProfileUnavailable
 	}
 	return nil
 }
@@ -246,7 +248,11 @@ func (b *Broker) Complete(ctx context.Context, result Result) error {
 		}
 		return nil
 	}
-	if err := b.persist(ctx, p.command, "completed", result); err != nil {
+	persistedResult, err := onlineProfilePersistenceResult(p.command, result)
+	if err != nil {
+		return err
+	}
+	if err := b.persist(ctx, p.command, "completed", persistedResult); err != nil {
 		return err
 	}
 	p.finished, p.valueDigest, p.resultCode, p.resultError = true, digest, result.Code, result.Error

@@ -54,7 +54,7 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 		return true, err
 	}
 	route := strings.TrimPrefix(parsed.Path, autoReplyAgentBasePath)
-	if !strings.HasPrefix(parsed.Path, autoReplyAgentBasePath+"/") || strings.HasPrefix(route, "/positions") || strings.HasPrefix(route, "/questions/") || route == "/recommendations/completed" {
+	if !strings.HasPrefix(parsed.Path, autoReplyAgentBasePath+"/") || strings.HasPrefix(route, "/positions") || strings.HasPrefix(route, "/questions/") || route == "/recommendations/completed" || route == "/online-profile" {
 		return false, nil
 	}
 	encoded, err := json.Marshal(payload)
@@ -94,6 +94,10 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 				if item.CandidateID == "" {
 					item.CandidateID = old.CandidateID
 				}
+				// 普通聊天头通常不含手机号；同一已绑定原生身份的空快照不能擦掉真实交换得到的号码。
+				if strings.TrimSpace(item.NormalizedPhone) == "" && item.CandidateID == old.CandidateID && item.PlatformID == old.PlatformID && item.PlatformAccountID == old.PlatformAccountID && item.PlatformCandidateID == old.PlatformCandidateID {
+					item.NormalizedPhone = old.NormalizedPhone
+				}
 				item.FirstSeenAt = old.FirstSeenAt
 			} else {
 				item.FirstSeenAt = now
@@ -130,6 +134,8 @@ func (c *Client) handleLocalAutoReply(ctx context.Context, method, path string, 
 				// 简历待办只由领取、完成和补审事务改变，普通页面保存不能抹掉待办。
 				item.ResumeRetry = old.ResumeRetry
 				item.GoalFollowup = old.GoalFollowup
+				// 原生索要状态只由资料动作事务推进，普通会话保存不能清空或回滚。
+				item.InfoRequests = old.InfoRequests
 				if item.CandidateID == "" {
 					item.CandidateID = old.CandidateID
 				}

@@ -17,10 +17,10 @@ func (r *Runtime) VerifyAutoReplyConversationIdentity(ctx context.Context, brows
 		return fmt.Errorf("指定候选人的姓名或平台编号不完整，已阻止页面动作")
 	}
 	// 缺少配置不能当成聊天关闭，只有 Worker 明确找不到姓名节点才允许流程重新打开目标。
-	if _, err := common.RequiredSelector(cfg, "message.current_name"); err != nil {
+	if _, err := common.RequiredSelector(cfg, "message.candidate_id_source"); err != nil {
 		return err
 	}
-	name, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_name")
+	name, found, err := readLiepinCurrentConversationName(ctx, browser, cfg)
 	if err != nil {
 		return err
 	}
@@ -38,6 +38,40 @@ func (r *Runtime) VerifyAutoReplyConversationIdentity(ctx context.Context, brows
 		return fmt.Errorf("当前聊天框的候选人编号无法核实，已阻止页面动作")
 	}
 	return nil
+}
+
+// readLiepinCurrentConversationName 先短探测当前原页的聊天姓名，缺失时不执行配置中三秒等待的读取，节点消失的竞态也仅用短预算。
+func readLiepinCurrentConversationName(ctx context.Context, browser model.Browser, cfg model.Config) (string, bool, error) {
+	selector, err := common.RequiredSelector(cfg, "message.current_name")
+	if err != nil {
+		return "", false, err
+	}
+	if strings.TrimSpace(cfg.MessagesURL) != "" {
+		page, err := common.UniqueCurrentPageURL(ctx, browser)
+		if err != nil {
+			return "", false, err
+		}
+		if !common.PageURLMatches(page, cfg.MessagesURL) {
+			return "", false, fmt.Errorf("当前页面与招聘会话入口不符，暂不核对聊天")
+		}
+	}
+	// 只复制本次只读配置，不能把临时预算改回共享平台配置。
+	readCfg := cfg
+	readCfg.Selectors = map[string]contract.SelectorSpec{"message.current_name": selector.MapVariants(func(spec contract.SelectorSpec) contract.SelectorSpec {
+		if spec.TimeoutMS <= 0 || spec.TimeoutMS > 600 {
+			spec.TimeoutMS = 600
+		}
+		return spec
+	})}
+	found, err := common.ProbeSelectorExists(ctx, browser, readCfg, "message.current_name")
+	if err != nil || !found {
+		return "", false, err
+	}
+	name, found, err := common.ReadOptional(ctx, browser, readCfg, "message.current_name")
+	if err == nil && found && strings.TrimSpace(name) == "" {
+		return "", false, fmt.Errorf("当前聊天姓名为空，暂不猜测候选人")
+	}
+	return name, found, err
 }
 
 // openLiepinConversation 优先按稳定会话属性点击，避免同名或列表重排点错人；无平台属性的普通会话兼容旧入口。

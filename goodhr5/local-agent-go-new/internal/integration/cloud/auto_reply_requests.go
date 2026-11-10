@@ -3,37 +3,40 @@ package cloud
 
 // autoReplyCandidateRequest 只包含授权的结构化资料，来源消息、头像地址、原始简历和沟通记录留在本机。
 type autoReplyCandidateRequest struct {
-	ReopenProof         *AutoReplyReopenProof        `json:"reopen_proof,omitempty"`
-	PositionID          string                       `json:"position_id"`
-	PlatformID          string                       `json:"platform_id"`
-	PlatformAccountID   string                       `json:"platform_account_id,omitempty"`
-	PlatformCandidateID string                       `json:"platform_candidate_id"`
-	CandidateName       string                       `json:"candidate_name"`
-	Gender              string                       `json:"gender,omitempty"`
-	BirthYM             string                       `json:"birth_ym,omitempty"`
-	BirthYMPrecision    string                       `json:"birth_ym_precision,omitempty"`
-	Phone               string                       `json:"phone"`
-	Email               string                       `json:"email,omitempty"`
-	Wechat              string                       `json:"wechat,omitempty"`
-	WorkRegion          string                       `json:"work_region,omitempty"`
-	WorkYears           string                       `json:"work_years,omitempty"`
-	ExpectedSalaryMin   *float64                     `json:"expected_salary_min,omitempty"`
-	ExpectedSalaryMax   *float64                     `json:"expected_salary_max,omitempty"`
-	EducationLevel      string                       `json:"education_level,omitempty"`
-	ExpectedPosition    string                       `json:"expected_position,omitempty"`
-	OnlineStatus        string                       `json:"online_status,omitempty"`
-	PersonalDescription string                       `json:"personal_description,omitempty"`
-	WorkStatus          string                       `json:"work_status,omitempty"`
-	WorkExperiences     []CandidateWorkExperience    `json:"work_experiences,omitempty"`
-	Educations          []CandidateEducation         `json:"educations,omitempty"`
-	Certificates        []CandidateCertificate       `json:"certificates,omitempty"`
-	Honors              []CandidateHonor             `json:"honors,omitempty"`
-	ProjectExperiences  []CandidateProjectExperience `json:"project_experiences,omitempty"`
+	OnlineProfileCandidateID string                       `json:"online_profile_candidate_id,omitempty"`
+	OnlineProfileKey         string                       `json:"online_profile_key,omitempty"`
+	ReopenProof              *AutoReplyReopenProof        `json:"reopen_proof,omitempty"`
+	PositionID               string                       `json:"position_id"`
+	PlatformID               string                       `json:"platform_id"`
+	PlatformAccountID        string                       `json:"platform_account_id,omitempty"`
+	PlatformCandidateID      string                       `json:"platform_candidate_id"`
+	CandidateName            string                       `json:"candidate_name"`
+	Gender                   string                       `json:"gender,omitempty"`
+	BirthYM                  string                       `json:"birth_ym,omitempty"`
+	BirthYMPrecision         string                       `json:"birth_ym_precision,omitempty"`
+	Phone                    string                       `json:"phone"`
+	Email                    string                       `json:"email,omitempty"`
+	Wechat                   string                       `json:"wechat,omitempty"`
+	WorkRegion               string                       `json:"work_region,omitempty"`
+	WorkYears                string                       `json:"work_years,omitempty"`
+	ExpectedSalaryMin        *float64                     `json:"expected_salary_min,omitempty"`
+	ExpectedSalaryMax        *float64                     `json:"expected_salary_max,omitempty"`
+	EducationLevel           string                       `json:"education_level,omitempty"`
+	ExpectedPosition         string                       `json:"expected_position,omitempty"`
+	OnlineStatus             string                       `json:"online_status,omitempty"`
+	PersonalDescription      string                       `json:"personal_description,omitempty"`
+	WorkStatus               string                       `json:"work_status,omitempty"`
+	WorkExperiences          []CandidateWorkExperience    `json:"work_experiences,omitempty"`
+	Educations               []CandidateEducation         `json:"educations,omitempty"`
+	Certificates             []CandidateCertificate       `json:"certificates,omitempty"`
+	Honors                   []CandidateHonor             `json:"honors,omitempty"`
+	ProjectExperiences       []CandidateProjectExperience `json:"project_experiences,omitempty"`
 }
 
 // candidateCloudRequest 在发送边界从本机资料取出允许字段，旧版本已保存的待办同样经过此处。
 func candidateCloudRequest(in AutoReplyCandidateInput) autoReplyCandidateRequest {
 	return autoReplyCandidateRequest{
+		OnlineProfileCandidateID: in.OnlineProfileCandidateID, OnlineProfileKey: in.OnlineProfileKey,
 		ReopenProof: in.ReopenProof,
 		PositionID:  in.PositionID, PlatformID: in.PlatformID, PlatformAccountID: in.PlatformAccountID, PlatformCandidateID: in.PlatformCandidateID,
 		CandidateName: in.CandidateName, Gender: in.Gender, BirthYM: in.BirthYM, BirthYMPrecision: in.BirthYMPrecision,

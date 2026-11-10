@@ -11,6 +11,73 @@ import (
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 )
 
+// TestPromptEmployerContextExcludesPlatformLabels 验证完整模型输入隔离平台标题及嵌套运行副本，保留HR正文、候选原话和防重状态。
+func TestPromptEmployerContextExcludesPlatformLabels(t *testing.T) {
+	for _, review := range []bool{false, true} {
+		name := "dialogue"
+		if review {
+			name = "review"
+		}
+		t.Run(name, func(t *testing.T) {
+			input := responderInput("https://example.test")
+			label := "前台销售（无3500+入职校长带教）"
+			input.ConditionsOnly = review
+			input.Position.Position.Name = label
+			input.Position.CompanyProfile = cloud.CompanyProfile{ID: "internal-company-id", Name: "内部公司卡片名", Contact: "内部对接人",
+				Address: "成都", Overview: "当前可公开的公司介绍。", ExtraInfo: "具体工作内容与带教安排尚未确认。"}
+			input.Position.Config.PositionDescription = "已知工作地点：成都。工作内容需要HR确认，不能按页面标签推断。"
+			input.Position.Config.Phrases = []cloud.AutoReplyPhrase{{ID: "manual_followup", Content: "这个问题我需要确认下，稍后再回复你。"}}
+			input.Position.Config.Conditions = []cloud.PositionReplyCondition{{ID: "location", Type: "required", Content: "可到成都到岗", Enabled: true}}
+			input.Conversation.PagePositionText = label
+			input.Conversation.CaptureIntent = &cloud.AutoReplyCaptureIntent{PagePositionText: label, WitnessDigest: "internal-capture-proof"}
+			input.Conversation.Status = "waiting_resume"
+			input.Conversation.InfoRequests = map[string]cloud.AutoReplyInfoRequestProgress{"phone": {Status: "requested"}}
+			input.CandidateState.Conversation = &input.Conversation
+			candidateText := "我以前做过培训销售，希望有带教。请问工作地点和内容？"
+			input.Messages[0].TextContent = candidateText
+			input.PendingMessages = input.Messages
+			original, _ := json.Marshal(input)
+			bounded, err := boundedReplyContext(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err := initialToolMessages(bounded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// 检查实际发送的完整user JSON，不只检查被缩减的三个字段。
+			raw := rows[len(rows)-1].Content
+			for _, forbidden := range []string{label, "page_position_text", "capture_intent", "internal-capture-proof", "internal-company-id", "内部公司卡片名", "内部对接人", "output_structured_resume", "last_checked_at"} {
+				if strings.Contains(raw, forbidden) {
+					t.Fatalf("模型完整输入仍带出平台或调度字段 %q", forbidden)
+				}
+			}
+			var dynamic replyPromptInput
+			if err = json.Unmarshal([]byte(raw), &dynamic); err != nil {
+				t.Fatal(err)
+			}
+			if dynamic.Position.Config.PositionDescription != input.Position.Config.PositionDescription || dynamic.Position.CompanyProfile.Address != "成都" ||
+				dynamic.Position.CompanyProfile.Overview != input.Position.CompanyProfile.Overview || dynamic.Position.CompanyProfile.ExtraInfo != input.Position.CompanyProfile.ExtraInfo ||
+				len(dynamic.Position.Config.Conditions) != 1 || dynamic.Position.Config.Conditions[0].ID != "location" || len(dynamic.Position.Config.Phrases) != 1 {
+				t.Fatal("当前HR正文、条件或话术被遗漏")
+			}
+			if len(dynamic.PendingMessages) != 1 || dynamic.PendingMessages[0].TextContent != candidateText || dynamic.PendingMessages[0].SourceRef != input.BasedOnMessageKey ||
+				dynamic.Conversation.Status != "waiting_resume" || dynamic.Conversation.InfoRequests["phone"].Status != "requested" || dynamic.CandidateState.Conversation != nil {
+				t.Fatal("候选原话来源、嵌套投影或防重复沟通状态不正确")
+			}
+			for _, system := range rows[:len(rows)-1] {
+				if !strings.Contains(system.Content, "平台岗位名称和页面标签只用于匹配会话") || !strings.Contains(system.Content, "候选人的经历、求职期望和意向只证明候选人自己的情况") {
+					t.Fatal("固定工具合同没有隔离标签和候选人经历的雇主事实权限")
+				}
+			}
+			after, _ := json.Marshal(input)
+			if string(original) != string(after) {
+				t.Fatal("提示词投影修改了运行实体或候选人原文")
+			}
+		})
+	}
+}
+
 // TestPromptHistoryCannotRestoreWithdrawnEmployerFact 回归实际停车补答撤回案例，旧己方正文与卡片摘要不再进入模型。
 func TestPromptHistoryCannotRestoreWithdrawnEmployerFact(t *testing.T) {
 	input := responderInput("https://example.test")

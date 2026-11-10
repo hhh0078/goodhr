@@ -303,7 +303,7 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 // positionUsesAI 判断岗位的基础筛选或详情筛选是否明确使用 AI。
 func positionUsesAI(position Position) bool {
 	mode := strings.ToLower(strings.TrimSpace(positionConfigString(position.CommonConfig, "mode_default")))
-	detailMode := strings.ToLower(strings.TrimSpace(positionConfigString(position.CommonConfig, "detail_mode")))
+	detailMode := positionDetailMode(position.PlatformID)
 	return mode != "keyword" || detailMode == "ai"
 }
 

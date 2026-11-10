@@ -153,6 +153,9 @@ func (s *PostgresAutoReplyStore) CommitAutoReplyState(ctx context.Context, tenan
 			return version, err
 		}
 	}
+	if err = touchCandidateCommunicationsTx(ctx, tx, tenantID, userID, changes); err != nil {
+		return version, err
+	}
 	if len(changes) > 0 {
 		version++
 		if _, err = tx.ExecContext(ctx, "UPDATE auto_reply_state_owners SET version=$3 WHERE tenant_id=$1 AND user_id=$2", tenantID, userID, version); err != nil {

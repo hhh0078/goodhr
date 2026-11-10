@@ -63,7 +63,7 @@ func (e *Extractor) extractPDF(ctx context.Context, path string) (string, error)
 		pageText := strings.TrimSpace(result.Text)
 		if len([]rune(pageText)) < 20 {
 			if e.OCR == nil {
-				return "", fmt.Errorf("PDF第%d页需要OCR，请先安装本地OCR后重试", index+1)
+				return "", fmt.Errorf("PDF第%d页是扫描图片，本地OCR已停用；请换文字版PDF或DOCX", index+1)
 			}
 			rendered, err := instance.RenderPageInPixels(&requests.RenderPageInPixels{Page: page, Width: 1600, Height: 2200})
 			if err != nil {

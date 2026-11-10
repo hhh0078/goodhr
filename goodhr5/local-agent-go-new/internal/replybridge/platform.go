@@ -85,6 +85,23 @@ func (p *Platform) RequestAutoReplyResume(ctx context.Context, _ model.Browser, 
 	return err
 }
 
+// ReadAutoReplyOnlineProfile 复用本机既有平台读取能力，不在服务器直连或注入招聘页面。
+func (p *Platform) ReadAutoReplyOnlineProfile(ctx context.Context, _ model.Browser, _ model.Config, snapshot model.AutoReplyConversationSnapshot) (model.AutoReplyOnlineProfile, error) {
+	var response Response
+	err := p.call(ctx, "read_online_profile", Request{Snapshot: snapshot}, &response)
+	return response.OnlineProfile, err
+}
+
+// RequestAutoReplyCandidateInfo 通过同一已入库白名单命令请求单类资料，明确暂缓结果不会变成文字发送。
+func (p *Platform) RequestAutoReplyCandidateInfo(ctx context.Context, _ model.Browser, _ model.Config, snapshot model.AutoReplyConversationSnapshot, request model.CandidateInfoRequest) (model.AutoReplyInfoRequestResult, error) {
+	if model.CandidateInfoRequestKind(request) == "" {
+		return model.AutoReplyInfoRequestResult{}, errors.New("每次只能索要一种明确的候选人资料")
+	}
+	var response Response
+	err := p.call(ctx, "request_info", Request{Snapshot: snapshot, InfoRequest: request}, &response)
+	return response.InfoResult, err
+}
+
 // CollectAutoReplyResume 接收真实下载数据并校验摘要，不访问设备上的文件路径。
 func (p *Platform) CollectAutoReplyResume(ctx context.Context, _ model.Browser, _ model.Config, snapshot model.AutoReplyConversationSnapshot) (model.AutoReplyResumeBundle, error) {
 	var response Response

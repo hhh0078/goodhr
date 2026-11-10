@@ -85,7 +85,7 @@ func TestSuccessfulGreetingAlwaysClosesPanels(t *testing.T) {
 	}
 }
 
-// TestImageDetailReachesScreenshotWithoutDOM 验证 OCR 和 AI 看图直接进入截图，截图失败必须关闭详情且不能计为招呼成功。
+// TestImageDetailReachesScreenshotWithoutDOM 验证BOSS历史OCR和AI配置均按固定AI策略进入截图，截图失败必须关闭详情且不能计为招呼成功。
 func TestImageDetailReachesScreenshotWithoutDOM(t *testing.T) {
 	for _, mode := range []string{"ocr", "ai"} {
 		t.Run(mode, func(t *testing.T) {
@@ -106,7 +106,7 @@ func TestImageDetailReachesScreenshotWithoutDOM(t *testing.T) {
 			defer store.Close()
 			prepared := shared.PreparedTask{
 				Position: cloud.PositionSnapshot{RequiresOCR: mode == "ocr", RequiresAI: mode == "ai", CommonConfig: cloud.PositionCommonConfig{ModeDefault: "ai", DetailMode: mode}},
-				Platform: model.Config{Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}}},
+				Platform: model.Config{ID: "boss", Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}}},
 			}
 			flow := Flow{Browser: client.New(server.URL), Store: store, ScreenshotsDir: t.TempDir()}
 			runtime := &imageDetailRuntime{}
@@ -139,7 +139,7 @@ func TestOCRKeepsOriginalScreenshotSegments(t *testing.T) {
 	defer server.Close()
 	prepared := shared.PreparedTask{
 		Position: cloud.PositionSnapshot{RequiresOCR: true},
-		Platform: model.Config{Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}}},
+		Platform: model.Config{ID: "boss", Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}}},
 	}
 	prepared.Platform.Behavior.StitchDetailScreenshots = true
 	flow := Flow{Browser: client.New(server.URL), ScreenshotsDir: t.TempDir()}
@@ -197,7 +197,7 @@ func TestVisionKeywordReadsDetailBeforeMatching(t *testing.T) {
 			if excluded {
 				position.ExcludeKeywords = []string{"运营"}
 			}
-			prepared := shared.PreparedTask{Position: position, Platform: model.Config{Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}}}}
+			prepared := shared.PreparedTask{Position: position, Platform: model.Config{ID: "boss", Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}}}}
 			logger := &screeningTestLogger{}
 			flow := Flow{Browser: client.New(server.URL), AI: ai.New(), Cloud: cloud.New(server.URL), Logger: logger, Store: store, ScreenshotsDir: dir}
 			runtime := &imageDetailRuntime{}

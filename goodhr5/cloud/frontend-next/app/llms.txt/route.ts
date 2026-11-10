@@ -38,7 +38,7 @@ ${RECRUITMENT_PLATFORM_FACTS.map((platform) => `- ${platform.name}：招聘自�
 ${AUTO_REPLY_RELEASE_NOTICE}
 
 ## 数据与隐私
-招聘平台登录状态、Cookie、浏览器资料、截图和 OCR 数据保存在用户本机。云端负责账号、岗位、运行配置、订阅、团队以及用户导入的结构化简历数据。本文件和下列文章文件仅提供无需登录的官网内容，不提供账号、候选人简历或团队内部资料。
+招聘平台登录状态、Cookie、浏览器资料、截图数据保存在用户本机。云端负责账号、岗位、运行配置、订阅、团队以及用户导入的结构化简历数据。本文件和下列文章文件仅提供无需登录的官网内容，不提供账号、候选人简历或团队内部资料。
 
 ## 官方页面
 ${PUBLIC_SITE_PAGES.map((page) => `- [${aiMarkdownText(page.title)}](${absoluteURL(page.path)})：${page.description}`).join("\n")}

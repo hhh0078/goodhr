@@ -56,7 +56,8 @@ type confirmationToolArgs struct {
 }
 
 type sendMessagesToolArgs struct {
-	Messages []ReplyMessage `json:"messages"`
+	Messages     []ReplyMessage             `json:"messages"`
+	InfoRequests model.CandidateInfoRequest `json:"info_requests,omitempty"`
 }
 
 type suggestionToolArgs struct {
@@ -89,6 +90,7 @@ type toolExecutionState struct {
 	confirmationUpdates []cloud.CandidateConfirmationItem
 	suggestions         []cloud.AutoReplyConfigSuggestion
 	reviewFinished      bool
+	infoRequests        model.CandidateInfoRequest
 }
 
 // autoReplyToolsForContext 复用目标工具；新简历事件可提议一次追问，普通内部复核仍不暴露发送能力。
@@ -107,8 +109,8 @@ func autoReplyToolsForContext(input ReplyContext) []ai.ToolDefinition {
 // autoReplyToolDefinitions 返回只产生提议的动作工具，不重复提供已有上下文的查询工具。
 func autoReplyToolDefinitions() []ai.ToolDefinition {
 	return []ai.ToolDefinition{
-		newToolDefinition(toolUpsertConfirmations, "维护沟通目标：已有目标按id更新；新增目标id留空、item_type=confirm、status=pending，并用source_ref及evidence_text引用岗位position、简历resume或真实来信的建档依据。AI自建目标可改写，HR岗位条件只能更新有证据的判断，不能改正文、类型或放宽。先查已有目标避免同义重复。每批最多50项。matched/unmatched必须有候选人或简历的真实证据。", `{"type":"object","properties":{"items":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":128},"position_condition_id":{"type":"string","maxLength":128},"item_type":{"type":"string","enum":["required","confirm","bonus"]},"content":{"type":"string","minLength":1,"maxLength":1000},"status":{"type":"string","enum":["pending","matched","unmatched"]},"status_reason":{"type":"string","minLength":1,"maxLength":500},"source_ref":{"type":"string","maxLength":256},"evidence_text":{"type":"string","maxLength":2000}},"required":["id","item_type","content","status","status_reason","source_ref","evidence_text"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false}`),
-		newToolDefinition(toolSendMessages, "准备最多两条候选人消息：可先回答最新问题，再询问一个未确认条件。正文已经索要简历时 requests_resume 必须为 true，系统不会重复索要；其他正文为 false。信息不足时改用 notify_hr。", `{"type":"object","properties":{"messages":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","properties":{"type":{"type":"string","enum":["answer","confirmation"]},"content":{"type":"string","minLength":1,"maxLength":200},"confirmation_item_id":{"type":"string","maxLength":128},"requests_resume":{"type":"boolean"}},"required":["type","content","requests_resume"],"additionalProperties":false}}},"required":["messages"],"additionalProperties":false}`),
+		newToolDefinition(toolUpsertConfirmations, "维护沟通目标：已有目标按id更新；新增目标id留空、item_type=confirm、status=pending，并用source_ref及evidence_text引用岗位position、在线资料online_profile、简历resume或真实来信的建档依据。AI自建目标可改写，HR岗位条件只能更新有证据的判断，不能改正文、类型或放宽。先查已有目标避免同义重复。每批最多50项。matched/unmatched必须有候选人或简历的真实证据。", `{"type":"object","properties":{"items":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":128},"position_condition_id":{"type":"string","maxLength":128},"item_type":{"type":"string","enum":["required","confirm","bonus"]},"content":{"type":"string","minLength":1,"maxLength":1000},"status":{"type":"string","enum":["pending","matched","unmatched"]},"status_reason":{"type":"string","minLength":1,"maxLength":500},"source_ref":{"type":"string","maxLength":256},"evidence_text":{"type":"string","maxLength":2000}},"required":["id","item_type","content","status","status_reason","source_ref","evidence_text"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false}`),
+		newToolDefinition(toolSendMessages, "准备最多两条候选人消息：先回答再询问一个目标。native_info_requests=true时普通答复不能混入索要资料；确需电话或微信时可附info_requests单独提议，系统在答案送达及平台条件满足后操作原生按钮。其他平台可按需提议附件，正文原已索要时保持requests_resume原约定。信息不足时改用 notify_hr。", `{"type":"object","properties":{"info_requests":{"type":"object","properties":{"request_phone":{"type":"boolean"},"request_wechat":{"type":"boolean"},"request_resume":{"type":"boolean"}},"additionalProperties":false},"messages":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","properties":{"type":{"type":"string","enum":["answer","confirmation"]},"content":{"type":"string","minLength":1,"maxLength":200},"confirmation_item_id":{"type":"string","maxLength":128},"requests_resume":{"type":"boolean"}},"required":["type","content","requests_resume"],"additionalProperties":false}}},"required":["messages"],"additionalProperties":false}`),
 		newToolDefinition(toolSuggestConfig, "提交岗位或公司资料的新增、修改或删除建议，等待 HR 审核。", `{"type":"object","properties":{"suggestion_type":{"type":"string","enum":["position","company"]},"operation":{"type":"string","enum":["create","update","delete"]},"target_id":{"type":"string","maxLength":128},"proposed_value":{"type":"object"},"reason":{"type":"string","minLength":1,"maxLength":1000}},"required":["suggestion_type","operation","proposed_value","reason"],"additionalProperties":false}`),
 		newToolDefinition(toolNotifyHR, "没有可靠答案或问题与招聘无关时，通知当前招聘团队人工接管；missing_recruitment_info 表示需要核实的招聘问题，可附上混合问题中有依据的 known_answer。系统登记人工待办后才可以按配置发回执，技术问题或无关问题只作内部通知。登记缺失招聘信息时，如另有尚未问过的候选人目标，可附followup（content与confirmation_item_id），系统会先发已登记的回执再最多追问一次。", `{"type":"object","properties":{"followup":{"type":"object","properties":{"content":{"type":"string","minLength":1,"maxLength":200},"confirmation_item_id":{"type":"string","minLength":1,"maxLength":128}},"required":["content","confirmation_item_id"],"additionalProperties":false},"reason":{"type":"string","minLength":1,"maxLength":500},"reason_key":{"type":"string","minLength":1,"maxLength":100},"known_answer":{"type":"string","maxLength":200},"question":{"type":"string","maxLength":300},"existing_question_id":{"type":"string","maxLength":128},"questions":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"question":{"type":"string","maxLength":300},"existing_question_id":{"type":"string","maxLength":128}},"required":["question"],"additionalProperties":false}}},"required":["reason","reason_key"],"additionalProperties":false}`),
 		newToolDefinition(toolArchiveConfirmations, "删除已不再需要或被其他任务替代的AI自建沟通目标，保留审计；不能删除HR岗位必要条件。请列出已有id及原因，不要删除后用同义问题重新催问。", `{"type":"object","properties":{"ids":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"string","minLength":1,"maxLength":128}},"reason":{"type":"string","minLength":1,"maxLength":500}},"required":["ids","reason"],"additionalProperties":false}`),
@@ -221,26 +223,8 @@ func (s *toolExecutionState) validateConfirmationEvidence(item cloud.CandidateCo
 	if item.Status == "pending" {
 		return nil
 	}
-	evidence := strings.TrimSpace(item.EvidenceText)
-	ref := strings.TrimSpace(item.SourceRef)
-	if evidence == "" || ref == "" {
-		return argumentError("符合或不符合需要真实来源编号和证据原文；没有证据请保持pending")
-	}
-	for _, message := range s.input.Messages {
-		if (ref == message.ID || ref == message.PlatformMessageID || ref == message.Fingerprint) && message.Direction == "candidate" && strings.Contains(message.TextContent, evidence) {
-			return nil
-		}
-	}
-	if ref == "resume" && s.input.CandidateState.Candidate != nil && s.input.CandidateState.Candidate.ResumeStructured {
-		raw, _ := json.Marshal(s.input.CandidateState.Candidate)
-		if strings.Contains(string(raw), evidence) {
-			return nil
-		}
-	}
-	if ref == "resume" && s.input.Resume != nil && strings.Contains(s.input.Resume.OnlineResumeText, evidence) {
-		return nil
-	}
-	return argumentError("证据没有对应到本轮可见的候选人消息或简历，请引用真实原文，否则保持pending")
+	_, err := s.normalizeConfirmationSource(item.SourceRef, item.EvidenceText, false)
+	return err
 }
 
 // normalizeConfirmationContent 生成仅用于本轮匹配的稳定确认项正文。
@@ -280,6 +264,9 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 
 	if len(args.Messages) == 0 || len(args.Messages) > 2 {
 		return nil, argumentError("messages 需要包含1到2条消息")
+	}
+	if err := validateNativeInfoProposal(s.input, args.InfoRequests, args.Messages); err != nil {
+		return nil, err
 	}
 	if s.input.ConditionsOnly && (!s.input.AllowGoalFollowup || len(args.Messages) != 1 || args.Messages[0].Type != "confirmation") {
 		return nil, argumentError("简历新证据轮只可追问一个尚未问过的目标，不能补答历史消息")
@@ -333,6 +320,7 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 		prepared = append(prepared, item)
 	}
 	s.pendingMessages = prepared
+	s.infoRequests = args.InfoRequests
 	return marshalToolResult(struct {
 		Prepared int `json:"prepared"`
 	}{len(prepared)})

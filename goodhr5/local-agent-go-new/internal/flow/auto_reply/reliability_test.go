@@ -198,7 +198,7 @@ func checkQuestionsAnsweredBeforeAndWhileWaitingResume(t *testing.T, enter bool)
 	flow, prepared := newReliabilityFlow(t, server.URL)
 	flow.Browser = &autoReplyBrowserStub{pages: []contract.PageInfo{{URL: "https://example.test/recruit", PageID: "0", Current: true}}}
 	prepared.Platform.Behavior.AutoReplySendEnterFirst = enter
-	flow.Responder = &reliabilityResponder{decision: ReplyDecision{Messages: []ReplyMessage{{Type: "answer", Content: "这个岗位双休"}}}}
+	flow.Responder = &reliabilityResponder{decision: ReplyDecision{InfoRequests: model.CandidateInfoRequest{RequestResume: true}, Messages: []ReplyMessage{{Type: "answer", Content: "这个岗位双休"}}}}
 	message := model.ConversationMessage{PlatformMessageID: "m1", Direction: "candidate", MessageType: "text", TextContent: "双休吗？"}
 	runtime := &answeringRuntime{autoReplyRuntimeStub: &autoReplyRuntimeStub{opened: model.AutoReplyConversationSnapshot{CandidateName: "候选人甲", PlatformThreadID: "thread", CommunicationPosition: "工程师", Messages: []model.ConversationMessage{message}}, latestBefore: message}}
 	positions := []cloud.AutoReplyPositionSnapshot{{Position: cloud.AutoReplyPosition{ID: "position", Name: "工程师"}, Config: cloud.PositionAutoReplyConfig{Version: 1}}}
@@ -257,7 +257,7 @@ func TestResumeRequestAvoidsDuplicateAndUsesTextFallback(t *testing.T) {
 			if tc.asked {
 				text += "方便发一份简历吗？"
 			}
-			flow.Responder = &reliabilityResponder{decision: ReplyDecision{Messages: []ReplyMessage{{Type: "answer", Content: text, RequestsResume: tc.asked}}}}
+			flow.Responder = &reliabilityResponder{decision: ReplyDecision{InfoRequests: model.CandidateInfoRequest{RequestResume: true}, Messages: []ReplyMessage{{Type: "answer", Content: text, RequestsResume: tc.asked}}}}
 			message := model.ConversationMessage{PlatformMessageID: "m1", Direction: "candidate", MessageType: "text", TextContent: "工作地点在哪里？"}
 			runtime := &answeringRuntime{autoReplyRuntimeStub: &autoReplyRuntimeStub{opened: model.AutoReplyConversationSnapshot{CandidateName: "候选人甲", PlatformThreadID: "thread", CommunicationPosition: "工程师", Messages: []model.ConversationMessage{message}}, latestBefore: message, resumeRequestErr: tc.nativeErr}}
 			positions := []cloud.AutoReplyPositionSnapshot{{Position: cloud.AutoReplyPosition{ID: "position", Name: "工程师"}, Config: cloud.PositionAutoReplyConfig{Version: 1}}}

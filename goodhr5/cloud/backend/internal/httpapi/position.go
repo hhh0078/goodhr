@@ -447,7 +447,7 @@ func normalizePositionPlatformID(platformID string) string {
 }
 
 // applyPositionPlatformRules 根据平台修正岗位模板参数。
-// position 为岗位模板；Boss 不支持 DOM 时改为 OCR，智联、猎聘和前程无忧只允许 DOM。
+// position 为岗位模板；BOSS固定AI，其它平台固定DOM，兼容历史ocr/ai/dom配置。
 func applyPositionPlatformRules(position *Position) {
 	if position == nil {
 		return
@@ -458,13 +458,15 @@ func applyPositionPlatformRules(position *Position) {
 	if _, ok := position.CommonConfig["output_structured_resume"]; !ok {
 		position.CommonConfig["output_structured_resume"] = false
 	}
-	if isDOMOnlyPlatform(position.PlatformID) {
-		position.CommonConfig["detail_mode"] = "dom"
-		return
+	position.CommonConfig["detail_mode"] = positionDetailMode(position.PlatformID)
+}
+
+// positionDetailMode 返回当前平台固定的详情读取策略，不信任旧客户端提交的OCR选项。
+func positionDetailMode(platformID string) string {
+	if normalizePositionPlatformID(platformID) == "boss" {
+		return "ai"
 	}
-	if strings.EqualFold(position.PlatformID, "boss") && strings.EqualFold(fmt.Sprint(position.CommonConfig["detail_mode"]), "dom") {
-		position.CommonConfig["detail_mode"] = "ocr"
-	}
+	return "dom"
 }
 
 // isDOMOnlyPlatform 判断平台是否只支持 DOM 详情识别。
@@ -498,6 +500,8 @@ func publicPositionsForUser(items []Position, currentEmail string) []map[string]
 
 // publicPosition 将岗位配置转换为前端响应结构。
 func publicPosition(item Position) map[string]any {
+	item.CommonConfig = cloneMap(item.CommonConfig)
+	applyPositionPlatformRules(&item)
 	return map[string]any{
 		"is_open":             item.IsOpen,
 		"id":                  item.ID,

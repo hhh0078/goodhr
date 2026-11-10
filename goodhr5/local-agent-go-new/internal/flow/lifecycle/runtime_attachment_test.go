@@ -114,10 +114,13 @@ func (b *attachmentPageBrowser) Read(_ context.Context, request contract.Element
 	return contract.ReadResult{}, nil
 }
 
-// FindAll 只允许在已恢复的原招聘页检查附件预览是否消失。
-func (b *attachmentPageBrowser) FindAll(_ context.Context, _ contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+// FindAll 在原招聘页分别探测聊天姓名和附件预览，避免把“尚未打开预览”误当成“聊天已关闭”。
+func (b *attachmentPageBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	if b.pdfCurrent {
 		return nil, errors.New("错误地在 PDF 页判断附件已关闭")
+	}
+	if request.Selector.Description == b.cfg.Selectors["message.current_name"].Description {
+		return []contract.FindAllItem{{Index: 0, TotalMatches: 1}}, nil
 	}
 	if b.previewOpen {
 		return []contract.FindAllItem{{Index: 0}}, nil

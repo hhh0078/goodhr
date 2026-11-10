@@ -9,37 +9,39 @@ import (
 
 // autoReplyCandidateRequest 表示本地清洗完成、准备进入正式简历库的候选人资料。
 type autoReplyCandidateRequest struct {
-	ReopenProof         *candidateReopenProof        `json:"reopen_proof,omitempty"`
-	PositionID          string                       `json:"position_id"`
-	PlatformID          string                       `json:"platform_id"`
-	PlatformAccountID   string                       `json:"platform_account_id"`
-	PlatformCandidateID string                       `json:"platform_candidate_id"`
-	AvatarDataURL       string                       `json:"avatar_data_url"`
-	AvatarURL           string                       `json:"avatar_url"`
-	CandidateName       string                       `json:"candidate_name"`
-	Gender              string                       `json:"gender"`
-	BirthYM             string                       `json:"birth_ym"`
-	BirthYMPrecision    string                       `json:"birth_ym_precision"`
-	Phone               string                       `json:"phone"`
-	Email               string                       `json:"email"`
-	Wechat              string                       `json:"wechat"`
-	WorkRegion          string                       `json:"work_region"`
-	WorkYears           string                       `json:"work_years"`
-	ExpectedSalaryMin   *float64                     `json:"expected_salary_min"`
-	ExpectedSalaryMax   *float64                     `json:"expected_salary_max"`
-	BasicInfo           string                       `json:"basic_info"`
-	EducationLevel      string                       `json:"education_level"`
-	ExpectedPosition    string                       `json:"expected_position"`
-	OnlineStatus        string                       `json:"online_status"`
-	PersonalDescription string                       `json:"personal_description"`
-	WorkStatus          string                       `json:"work_status"`
-	RawText             string                       `json:"raw_text"`
-	WorkExperiences     []CandidateWorkExperience    `json:"work_experiences"`
-	Educations          []CandidateEducation         `json:"educations"`
-	Certificates        []CandidateCertificate       `json:"certificates"`
-	Honors              []CandidateHonor             `json:"honors"`
-	ProjectExperiences  []CandidateProjectExperience `json:"project_experiences"`
-	Communications      []CandidateCommunication     `json:"colleague_communications"`
+	OnlineProfileCandidateID string                       `json:"online_profile_candidate_id,omitempty"`
+	OnlineProfileKey         string                       `json:"online_profile_key,omitempty"`
+	ReopenProof              *candidateReopenProof        `json:"reopen_proof,omitempty"`
+	PositionID               string                       `json:"position_id"`
+	PlatformID               string                       `json:"platform_id"`
+	PlatformAccountID        string                       `json:"platform_account_id"`
+	PlatformCandidateID      string                       `json:"platform_candidate_id"`
+	AvatarDataURL            string                       `json:"avatar_data_url"`
+	AvatarURL                string                       `json:"avatar_url"`
+	CandidateName            string                       `json:"candidate_name"`
+	Gender                   string                       `json:"gender"`
+	BirthYM                  string                       `json:"birth_ym"`
+	BirthYMPrecision         string                       `json:"birth_ym_precision"`
+	Phone                    string                       `json:"phone"`
+	Email                    string                       `json:"email"`
+	Wechat                   string                       `json:"wechat"`
+	WorkRegion               string                       `json:"work_region"`
+	WorkYears                string                       `json:"work_years"`
+	ExpectedSalaryMin        *float64                     `json:"expected_salary_min"`
+	ExpectedSalaryMax        *float64                     `json:"expected_salary_max"`
+	BasicInfo                string                       `json:"basic_info"`
+	EducationLevel           string                       `json:"education_level"`
+	ExpectedPosition         string                       `json:"expected_position"`
+	OnlineStatus             string                       `json:"online_status"`
+	PersonalDescription      string                       `json:"personal_description"`
+	WorkStatus               string                       `json:"work_status"`
+	RawText                  string                       `json:"raw_text"`
+	WorkExperiences          []CandidateWorkExperience    `json:"work_experiences"`
+	Educations               []CandidateEducation         `json:"educations"`
+	Certificates             []CandidateCertificate       `json:"certificates"`
+	Honors                   []CandidateHonor             `json:"honors"`
+	ProjectExperiences       []CandidateProjectExperience `json:"project_experiences"`
+	Communications           []CandidateCommunication     `json:"colleague_communications"`
 }
 
 // Agent 只开放配置、授权结构化结果和简短通知，原始业务实体和AI事务由云端执行服务管理。
@@ -60,6 +62,8 @@ func (s *AutoReplyService) Agent(w http.ResponseWriter, r *http.Request) {
 		s.agentCandidateDeletions(w, r)
 	case path == "candidates":
 		s.agentSaveCandidate(w, r)
+	case path == "online-profile":
+		s.agentOnlineProfile(w, r)
 	case path == "notifications":
 		s.agentSendNotification(w, r)
 	case path == "recommendations/completed":

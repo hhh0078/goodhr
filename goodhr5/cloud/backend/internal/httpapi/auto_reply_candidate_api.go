@@ -46,8 +46,14 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 		return
 	}
 	secret := strings.TrimSpace(os.Getenv("GOODHR_AUTO_REPLY_SERVICE_TOKEN"))
+	serverWitness := secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(r.Header.Get("X-GoodHR-Runtime-Service"))) == 1
+	if (payload.OnlineProfileCandidateID != "" || payload.OnlineProfileKey != "") && (!serverWitness || payload.OnlineProfileCandidateID == "" || !validPurgeHash(payload.OnlineProfileKey)) {
+		writeAutoReplyError(w, 403, "ONLINE_PROFILE_AUTH_REQUIRED", "在线资料续写需要服务器核实本轮来源")
+		return
+	}
 	profile, err := s.candidates.SaveCandidateProfile(CandidateProfileInput{
-		ReopenServerWitness: secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(r.Header.Get("X-GoodHR-Runtime-Service"))) == 1,
+		OnlineProfileCandidateID: payload.OnlineProfileCandidateID, OnlineProfileKey: payload.OnlineProfileKey, OnlineProfileMachineID: strings.TrimSpace(r.Header.Get("X-GoodHR-Machine-ID")),
+		ReopenServerWitness: serverWitness,
 		ReopenProof:         payload.ReopenProof, ReopenPlatformAccount: payload.PlatformAccountID, ReopenIsAdmin: requestContext.IsAdmin,
 		TenantID: requestContext.Tenant.ID, UserEmail: requestContext.Session.Email, AutoReplyPositionID: position.ID,
 		PlatformID: position.PlatformID, PlatformCandidateID: strings.TrimSpace(payload.PlatformCandidateID),

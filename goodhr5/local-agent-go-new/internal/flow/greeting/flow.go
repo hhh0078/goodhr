@@ -407,8 +407,13 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), reason, "skipped", nil)
 		return nil
 	}
-	detailMode := strings.ToLower(strings.TrimSpace(prepared.Position.CommonConfig.DetailMode))
-	needsDetail := needsCandidateDetail(prepared)
+	detailMode := model.DetailRecognitionMode(prepared.Platform.ID)
+	needsDetail := needsCandidateDetail(prepared) // 读取旧配置前先保留原有是否查看详情的判断。
+	prepared.Position.CommonConfig.DetailMode = detailMode
+	prepared.Position.RequiresOCR = false // OCR实现保留，岗位固定策略不再进入本机OCR分支。
+	if detailMode == "ai" {
+		prepared.Position.RequiresAI = true
+	}
 	deferKeywordDecision := isKeywordMode(prepared.Position) && needsDetail
 	if !deferKeywordDecision {
 		keywordStarted := time.Now()

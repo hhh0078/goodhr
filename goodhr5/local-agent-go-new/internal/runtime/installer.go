@@ -1,4 +1,4 @@
-// Package runtime 文件作用：下载、校验并安装 Node、Camoufox 和 OCR 运行组件。
+// Package runtime 文件作用：下载、校验并安装 Node 和 Camoufox；OCR历史安装能力保留但不进入当前安装清单。
 package runtime
 
 import (
@@ -57,7 +57,7 @@ func (m *Manager) StartInstall(manifest Manifest) (Status, error) {
 	return m.Status(), nil
 }
 
-// install 按 Node、Camoufox、OCR 的顺序安装当前平台资源。
+// install 只安装Node与Camoufox，旧清单中的OCR资源不再检查或下载。
 func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 	platform := platformKey()
 	steps := []struct {
@@ -69,7 +69,8 @@ func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 	}{
 		{component: "node_runtime", label: "Node 运行环境", target: "node", asset: manifest.NodeRuntime[platform]},
 		{component: "camoufox", label: "Camoufox 浏览器", target: "camoufox", asset: manifest.Camoufox[platform]},
-		{component: "ocr", label: "OCR 组件", target: "ocr", asset: manifest.OCR[platform], optional: true},
+		// 历史OCR安装项保留说明，但当前发行版本不再下载安装。
+		// {component: "ocr", label: "OCR 组件", target: "ocr", asset: manifest.OCR[platform], optional: true},
 	}
 	for index, step := range steps {
 		if step.component == "node_runtime" && m.CheckNode() == nil {
@@ -274,7 +275,7 @@ func (m *Manager) componentInstalled(component string) bool {
 
 // manifestHasAssets 判断清单是否至少配置了一个下载资源。
 func manifestHasAssets(manifest Manifest) bool {
-	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.Camoufox, manifest.OCR} {
+	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.Camoufox} {
 		for _, asset := range group {
 			if strings.TrimSpace(asset.URL) != "" {
 				return true

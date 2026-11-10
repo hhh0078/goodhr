@@ -80,6 +80,7 @@ func TestPromptMessagesKeepOneVerifiableCopy(t *testing.T) {
 	sentAt := time.Date(2026, 11, 7, 8, 3, 0, 0, time.UTC)
 	history := cloud.AutoReplyMessage{ID: "local-only", ConversationID: "hidden-thread", Fingerprint: "key-history", Direction: "candidate",
 		MessageType: "resume", TextContent: "已发  简历\n请查收", CardContent: json.RawMessage(`{"summary":"简历附件.pdf","candidate_id":"hidden-cid"}`), PlatformSentAt: &sentAt}
+	input.Conversation.ID = history.ConversationID
 	pending := cloud.AutoReplyMessage{ID: "legacy-key", PlatformMessageID: "platform-key", Fingerprint: "hidden-fingerprint", Direction: "candidate",
 		MessageType: "text", TextContent: "请问薪资范围？", CardContent: json.RawMessage(`{"summary":"请问薪资范围？"}`), CreatedAt: sentAt, IngestedAt: sentAt}
 	input.Messages, input.PendingMessages, input.BasedOnMessageKey = []cloud.AutoReplyMessage{history, pending}, []cloud.AutoReplyMessage{pending}, pending.ID
@@ -257,7 +258,7 @@ func TestAIResponderRepairsArgumentsAndKeepsPromptBoundary(t *testing.T) {
 	if len(firstRequest.Messages) < 2 || strings.Contains(firstRequest.Messages[0].Content, "AI应用开发工程师") {
 		t.Fatalf("system 消息混入动态岗位：%+v", firstRequest.Messages)
 	}
-	if !strings.Contains(firstRequest.Messages[1].Content, "AI应用开发工程师") || !strings.Contains(firstRequest.Messages[1].Content, "薪资是多少") {
+	if strings.Contains(firstRequest.Messages[1].Content, input.Position.Position.Name) || !strings.Contains(firstRequest.Messages[1].Content, input.Position.Config.PositionDescription) || !strings.Contains(firstRequest.Messages[1].Content, "薪资是多少") {
 		t.Fatalf("user 消息缺少动态上下文：%s", firstRequest.Messages[1].Content)
 	}
 	var dynamic replyPromptInput

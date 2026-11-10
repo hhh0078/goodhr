@@ -42,7 +42,7 @@ export class KeyboardAction {
       if (request.target) {
         const target = await this.locator.resolve(page, request.target, { ...actionContext, step, require_unique: true, view_mode: "state" });
         if (!await target.locator.isVisible()) throw new Error("原操作目标已隐藏");
-        if (request.expected_value !== undefined && await new ReadPrimitive().inputValue(target.locator) !== request.expected_value) throw new Error("输入框草稿已经变化");
+        if (request.expected_value !== undefined && await new ReadPrimitive().editableValue(target.locator) !== request.expected_value) throw new Error("输入框草稿已经变化");
         if (request.require_focus && !(await new ReadPrimitive().focused(target.locator))) throw new Error("原输入框已经失去焦点");
       }
       if (request.expected_page_url && page.url() !== request.expected_page_url) throw new Error("操作页面已切换");

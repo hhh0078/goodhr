@@ -37,6 +37,10 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "auto_reply_online_profile_hides_conversation": true,
+    "_comment_auto_reply_online_profile_hides_conversation": "已实测头部在线简历弹层打开后隐藏聊天；仅本次从原生身份已核实入口打开且弹层全名一致时读取，关闭后必须恢复并重核原生身份。",
+    "auto_reply_online_profile_fragment": "preview",
+    "_comment_auto_reply_online_profile_fragment": "已实测在线弹层只在同源同路径同查询的空片段与preview之间变化；关闭后片段可能保留，仍须核原聊天。",
     "auto_reply_all_contact_inbox": true,
     "_comment_auto_reply_all_contact_inbox": "在全部联系人中发现新来信，按账号对比可见消息变化并核对聊天。",
     "auto_reply_send_enter_first": true,
@@ -1357,6 +1361,123 @@
       "state": "attached",
       "timeout_ms": 3000,
       "description": "猎聘企业端当前候选人头像"
+    },
+    "message.online_profile_entry": {
+      "_comment": "已实测点击当前聊天头部姓名打开同页在线简历，无需先收到任何简历附件。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端当前候选人头部在线简历入口目标。",
+        "selectors": [
+          { "_comment": "已实测点击当前聊天头部姓名打开同页在线简历，无需先收到任何简历附件。", "type": "css", "value": ".im-ui-basic-chat-modal:visible .im-ui-basic-chat-header-name" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "猎聘企业端当前候选人头部在线简历入口"
+    },
+    "message.online_profile_panel": {
+      "_comment": "已真页验证唯一可见在线正文容器，不匹配其它弹框或整页body。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端当前在线简历面板目标。",
+        "selectors": [
+          { "_comment": "已真页验证唯一可见在线正文容器，不匹配其它弹框或整页body。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "猎聘企业端当前在线简历面板"
+    },
+    "message.online_profile_name": {
+      "_comment": "只读当前可见在线正文的个人信息姓名，真页已核实唯一且与当前聊天一致。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端在线简历候选人姓名目标。",
+        "selectors": [
+          { "_comment": "只读当前可见在线正文的个人信息姓名，真页已核实唯一且与当前聊天一致。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body [class^=\"individualInfo--\"] [class^=\"name--\"]" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "猎聘企业端在线简历候选人姓名"
+    },
+    "message.online_profile_body": {
+      "_comment": "只读取真实在线正文根节点，排除整页导航、聊天及其它候选人资料。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端当前在线简历正文目标。",
+        "selectors": [
+          { "_comment": "只读取真实在线正文根节点，排除整页导航、聊天及其它候选人资料。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body .xpath-resume-body" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "猎聘企业端当前在线简历正文"
+    },
+    "message.online_profile_close": {
+      "_comment": "优先Esc，仍可见时复用当前可见简历弹层已实证的关闭埋点。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端关闭当前在线简历备用按钮目标。",
+        "selectors": [
+          { "_comment": "优先Esc，仍可见时复用当前可见简历弹层已实证的关闭埋点。", "type": "css", "value": ".ant-lpt-modal:visible [data-tlg-elem-id=\"b_pc_pop_res_detail_close_btn\"]" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 2000,
+      "description": "猎聘企业端关闭当前在线简历备用按钮"
+    },
+    "message.online_profile_work_item": {
+      "_comment": "真实工作区内每个workCont为一条经历，不能把整个工作区当单条或按DOM首条判断最早。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端在线工作经历行目标。",
+        "selectors": [
+          { "_comment": "真实工作区内每个workCont为一条经历，不能把整个工作区当单条或按DOM首条判断最早。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body .xpath-work-experience [class^=\"workCont--\"]" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端在线工作经历行"
+    },
+    "message.online_profile_school_item": {
+      "_comment": "逐条读取当前在线资料可见教育行，按真实开始年月求最早。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端在线教育经历行目标。",
+        "selectors": [
+          { "_comment": "逐条读取当前在线资料可见教育行，按真实开始年月求最早。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body .xpath-education-experience-wrap li" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端在线教育经历行"
+    },
+    "message.online_profile_age": {
+      "_comment": "只读取头部带生日图标的明确岁数，不用生日或工龄推算。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端在线头部明确年龄目标。",
+        "selectors": [
+          { "_comment": "只读取头部带生日图标的明确岁数，不用生日或工龄推算。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body [class^=\"individualDetail--\"] [class^=\"infoItem--\"]:has([aria-label=\"birthday\"])" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端在线头部明确年龄"
+    },
+    "message.online_profile_education": {
+      "_comment": "头部教育行同时含学校和专业，公共层只提取唯一明确学历词，不把整行写成学历。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端在线头部学历目标。",
+        "selectors": [
+          { "_comment": "头部教育行同时含学校和专业，公共层只提取唯一明确学历词，不把整行写成学历。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body [class^=\"individualDetail--\"] [class^=\"infoItem--\"]:has([aria-label=\"education\"])" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端在线头部学历"
     }
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
@@ -1428,6 +1549,58 @@
       "state": "attached",
       "timeout_ms": 1500,
       "description": "猎聘企业端候选人描述"
+    },
+    "online_profile_work_name": {
+      "_comment": "只读当前工作行header中的公司名称。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端工作行公司名称目标。",
+        "selectors": [
+          { "_comment": "只读当前工作行header中的公司名称。", "type": "css", "value": "header .xpath-work-cont-company" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端工作行公司名称"
+    },
+    "online_profile_work_period": {
+      "_comment": "公司与时间来自同一工作行header，保留原始年月，不猜缺失时间。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端工作行起止年月目标。",
+        "selectors": [
+          { "_comment": "公司与时间来自同一工作行header，保留原始年月，不猜缺失时间。", "type": "css", "value": "header [class^=\"time--\"]" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端工作行起止年月"
+    },
+    "online_profile_school_name": {
+      "_comment": "只读当前教育行学校名称。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端教育行学校名称目标。",
+        "selectors": [
+          { "_comment": "只读当前教育行学校名称。", "type": "css", "value": "[class^=\"schoolName--\"]" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端教育行学校名称"
+    },
+    "online_profile_school_period": {
+      "_comment": "只读当前教育行time元素的实际起止时间。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端教育行起止年月目标。",
+        "selectors": [
+          { "_comment": "只读当前教育行time元素的实际起止时间。", "type": "css", "value": "time" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端教育行起止年月"
     }
   },
   "conversation_fields": {

@@ -46,6 +46,20 @@ const initialAutoReplyLibrary = `{
       "content": "号码收到了，谢谢。"
     },
     {
+      "id": "request_wechat",
+      "category": "联系方式",
+      "title": "索要微信",
+      "scene": "确需微信沟通，尚未获得、申请或被拒绝；平台支持时先核对双方沟通资格",
+      "content": "如果方便后续沟通，可以交换微信；想在这里聊也可以。"
+    },
+    {
+      "id": "receive_wechat",
+      "category": "联系方式",
+      "title": "收到微信",
+      "scene": "候选人新提供了可核实的微信号或确认平台交换",
+      "content": "微信收到了，谢谢，咱们也可以继续在这里聊。"
+    },
+    {
       "id": "call_time",
       "category": "联系方式",
       "title": "确认通话时间",
@@ -86,6 +100,13 @@ const initialAutoReplyLibrary = `{
       "title": "候选人暂不考虑",
       "scene": "候选人明确表示暂不考虑这个岗位",
       "content": "好的，了解了，谢谢您告诉我。祝您找工作顺利。"
+    },
+    {
+      "id": "required_mismatch",
+      "category": "岗位沟通",
+      "title": "必要条件明确不符",
+      "scene": "当前HR必要条件已有真实明确反证；未知或资料缺少不能使用",
+      "content": "这个岗位有项必要要求和您目前的情况不太一致，这次可能不太合适，感谢您愿意了解。"
     }
   ],
   "condition_options": [

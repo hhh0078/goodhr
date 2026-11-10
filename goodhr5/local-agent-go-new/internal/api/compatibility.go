@@ -363,41 +363,41 @@ func (s *Server) handleWorkerStatus(w http.ResponseWriter, r *http.Request) {
 	}{Installed: buildErr == nil, Running: healthErr == nil})
 }
 
-// handleOCRStatus 返回本机 OCR 组件是否完整可用。
+// handleOCRStatus 保留旧接口合同，但不再检查或启动本机OCR组件。
 func (s *Server) handleOCRStatus(w http.ResponseWriter, _ *http.Request) {
-	err := s.ocr.Ready()
-	message := ""
-	if err != nil {
-		message = err.Error()
-	}
 	writeSuccess(w, http.StatusOK, struct {
 		Installed bool   `json:"installed"`
+		Enabled   bool   `json:"enabled"`
 		Message   string `json:"message"`
-	}{Installed: err == nil, Message: message})
+	}{Installed: false, Enabled: false, Message: "本地OCR已停用，岗位会按平台读取详情。"})
 }
 
 // handleOCRRecognize 校验本地图片路径后调用常驻 OCR 组件。
 func (s *Server) handleOCRRecognize(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		FilePath       string `json:"file_path"`
-		Path           string `json:"path"`
-		ScreenshotPath string `json:"screenshot_path"`
-	}
-	if err := decodeJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
-		return
-	}
-	imagePath := firstNonEmpty(request.FilePath, request.Path, request.ScreenshotPath)
-	if !pathWithin(imagePath, s.cfg.DataDir) && !pathWithin(imagePath, s.cfg.ScreenshotsDir) {
-		writeError(w, http.StatusBadRequest, "INVALID_IMAGE_PATH", fmt.Errorf("只能识别 GoodHR 本地数据目录内的图片"))
-		return
-	}
-	result, err := s.ocr.Recognize(r.Context(), imagePath)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "OCR_FAILED", err)
-		return
-	}
-	writeSuccess(w, http.StatusOK, result)
+	writeError(w, http.StatusGone, "OCR_DISABLED", fmt.Errorf("本地OCR已停用，BOSS使用AI，其它平台读取页面文字"))
+	// 历史OCR识别实现保留，当前入口不再调用本机识别进程。
+	/*
+		var request struct {
+			FilePath       string `json:"file_path"`
+			Path           string `json:"path"`
+			ScreenshotPath string `json:"screenshot_path"`
+		}
+		if err := decodeJSON(w, r, &request); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+			return
+		}
+		imagePath := firstNonEmpty(request.FilePath, request.Path, request.ScreenshotPath)
+		if !pathWithin(imagePath, s.cfg.DataDir) && !pathWithin(imagePath, s.cfg.ScreenshotsDir) {
+			writeError(w, http.StatusBadRequest, "INVALID_IMAGE_PATH", fmt.Errorf("只能识别 GoodHR 本地数据目录内的图片"))
+			return
+		}
+		result, err := s.ocr.Recognize(r.Context(), imagePath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "OCR_FAILED", err)
+			return
+		}
+		writeSuccess(w, http.StatusOK, result)
+	*/
 }
 
 // handleRulesStatus 返回平台规则随本地程序发布的兼容状态。

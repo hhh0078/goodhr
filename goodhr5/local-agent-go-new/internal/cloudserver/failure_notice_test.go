@@ -16,6 +16,33 @@ import (
 	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
+// TestContactListBusinessFailureHasSafeAudit 验证成功扫描之后的业务合同错误以实际列表阶段入库，且只保留固定安全原因。
+func TestContactListBusinessFailureHasSafeAudit(t *testing.T) {
+	r, fixture, _, _, _, _ := serverGoalFixture(t)
+	r.currentStep = "initialize_auto_reply_page"
+	logger := &runLogger{run: r}
+	cause := failurediag.Wrap(errors.New("PRIVATE-CANDIDATE https://private.invalid?token=PRIVATE-KEY"), failurediag.Detail{Source: "联系人列表", Operation: "核对变化", Reason: "联系人稳定编号或变化摘要缺失", Impact: "本轮没有打开候选人或发送消息"})
+	logger.Step("task", "auto_reply", "review_contact_list", "failed", time.Now(), cause)
+	if r.currentStep != "review_contact_list" || safeRunFailure(r.currentStep) == safeRunFailure("initialize_auto_reply_page") {
+		t.Fatalf("列表合同错误仍指向页面初始化：%s", r.currentStep)
+	}
+	found := false
+	for key, entry := range fixture.data {
+		if strings.HasPrefix(key, "runtime_events|") {
+			raw := string(entry.Payload)
+			if strings.Contains(raw, "review_contact_list") && strings.Contains(raw, "联系人稳定编号或变化摘要缺失") && strings.Contains(raw, "failure_diagnostics") {
+				found = true
+			}
+			if strings.Contains(raw, "PRIVATE-") || strings.Contains(raw, "private.invalid") {
+				t.Fatal("技术错误原文进入用户审计")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("列表业务失败没有生成可审计安全事件")
+	}
+}
+
 // TestFailureNoticeStoredBeforeReplay 核对真实服务器事件、序号、重复补领和旧设备兼容性。
 func TestFailureNoticeStoredBeforeReplay(t *testing.T) {
 	r, fixture, conv, _, _, _ := serverGoalFixture(t)

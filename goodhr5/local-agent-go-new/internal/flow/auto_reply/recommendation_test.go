@@ -15,6 +15,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
@@ -59,6 +60,28 @@ func TestRecommendationRequiresEveryEnabledHRGate(t *testing.T) {
 		if _, qualified := recommendationSource(input, scenario.items); qualified {
 			t.Errorf("%s 不能生成推荐", scenario.name)
 		}
+	}
+}
+
+// TestRecommendationEvidenceKeepsConversationScope 验证有效推荐仍要求逐字证据来自当前会话，恢复时不能省略上下文或借用别人的同文消息。
+func TestRecommendationEvidenceKeepsConversationScope(t *testing.T) {
+	for _, scope := range []string{"conv", "other-conversation", "missing-context"} {
+		t.Run(scope, func(t *testing.T) {
+			input := proposalState().input
+			input.CandidateState.Candidate = &cloud.AutoReplyStoredCandidate{ID: "candidate", ResumeStructured: true}
+			input.Position.Config.Conditions = []cloud.PositionReplyCondition{{ID: "travel", Type: "confirm", Content: "接受出差", Enabled: true}}
+			item := cloud.CandidateConfirmationItem{ID: "configured", SourceType: "position", PositionConditionID: "travel", PositionID: "position", ItemType: "confirm", Content: "接受出差", Status: "matched", SourceRef: "message-1", EvidenceText: "我可以接受出差"}
+			input.Messages[0].ConversationID = "conv"
+			if scope == "other-conversation" {
+				input.Messages[0].ConversationID = scope
+			}
+			if scope == "missing-context" {
+				input.Conversation = cloud.AutoReplyConversation{}
+			}
+			if _, qualified := recommendationSource(input, []cloud.CandidateConfirmationItem{item}); qualified != (scope == "conv") {
+				t.Fatal("推荐没有保留精确会话证据", scope, qualified)
+			}
+		})
 	}
 }
 
@@ -257,5 +280,46 @@ func TestRecommendationRecoveryChecksCurrentVersion(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestOnlineRecommendationRequiresServerProfilePhoneAndAllGates 验证在线资料可独立于附件生成推荐，缺手机、关闭入库、来源未确认或条件缺证据都不能放行。
+func TestOnlineRecommendationRequiresServerProfilePhoneAndAllGates(t *testing.T) {
+	for _, scenario := range []string{"ready", "no_phone", "masked_phone", "disabled", "no_canonical", "no_profile_key", "no_raw", "pending", "invented"} {
+		t.Run(scenario, func(t *testing.T) {
+			input := proposalState().input
+			input.Position.Position.OutputStructuredResume = true
+			input.Position.Config.Conditions = []cloud.PositionReplyCondition{{ID: "travel", Type: "required", Content: "接受出差", Enabled: true}}
+			input.CandidateState.Candidate = &cloud.AutoReplyStoredCandidate{ID: "runtime-candidate", CandidateName: "合成候选人", Phone: "13800138000", BasicInfo: "在线资料：我可以接受出差", OnlineProfile: &cloud.AutoReplyOnlineProfileState{CandidateID: "canonical", ProfileKey: "server-key", SourceKey: "image-key", Profile: model.AutoReplyOnlineProfile{CandidateName: "合成候选人", RawText: "我可以接受出差"}}}
+			item := cloud.CandidateConfirmationItem{ID: "travel-goal", PositionID: "position", SourceType: "position", PositionConditionID: "travel", ItemType: "required", Content: "接受出差", Status: "matched", SourceRef: "online_profile", EvidenceText: "我可以接受出差"}
+			switch scenario {
+			case "no_phone":
+				input.CandidateState.Candidate.Phone = ""
+			case "masked_phone":
+				input.CandidateState.Candidate.Phone = "138****8000"
+			case "disabled":
+				input.Position.Position.OutputStructuredResume = false
+			case "no_canonical":
+				input.CandidateState.Candidate.OnlineProfile.CandidateID = ""
+			case "no_profile_key":
+				input.CandidateState.Candidate.OnlineProfile.ProfileKey = ""
+			case "no_raw":
+				input.CandidateState.Candidate.OnlineProfile.Profile.RawText = ""
+			case "pending":
+				item.Status = "pending"
+			case "invented":
+				item.EvidenceText = "我愿意无偿出差"
+			}
+			report, qualified := recommendationSource(input, []cloud.CandidateConfirmationItem{item})
+			if qualified != (scenario == "ready") {
+				t.Fatal("在线推荐边界不正确", qualified)
+			}
+			if qualified && report.Candidate.BasicInfo == "" {
+				t.Fatal("推荐缺少实际在线正文")
+			}
+			if input.CandidateState.Candidate.ResumeStructured || input.CandidateState.HasResumeAttachment {
+				t.Fatal("在线流程冒充附件")
+			}
+		})
 	}
 }

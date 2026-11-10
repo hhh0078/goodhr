@@ -424,3 +424,20 @@ func TestCloudStatusBeforeParentBudget(t *testing.T) {
 		t.Fatalf("未保留网关状态或真实的正文中断来源：%+v %v", details, err)
 	}
 }
+
+// TestNormalizePositionFixedDetailMode 验证旧OCR与AI标记按平台归一，不能重新启用本机识别。
+func TestNormalizePositionFixedDetailMode(t *testing.T) {
+	for _, platform := range []string{"boss", "liepin", "hliepin", "zhaopin", "51job"} {
+		for _, legacy := range []string{"ocr", "ai", "dom", ""} {
+			position := normalizePosition(PositionSnapshot{PlatformID: platform, RequiresOCR: true, RequiresAI: true, CommonConfig: PositionCommonConfig{ModeDefault: "keyword", DetailMode: legacy}})
+			wantAI := platform == "boss"
+			wantMode := "dom"
+			if wantAI {
+				wantMode = "ai"
+			}
+			if position.RequiresOCR || position.RequiresAI != wantAI || position.CommonConfig.DetailMode != wantMode {
+				t.Fatalf("平台%s旧模式%s未归一：%+v", platform, legacy, position)
+			}
+		}
+	}
+}

@@ -11,12 +11,13 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // reviewAllContacts 仅记录任务范围内的联系人摘要，待核对项继续经过原有采集、消息去重与发送回执流程。
 func (f *Flow) reviewAllContacts(ctx context.Context, prepared shared.PreparedTask, rows []model.Conversation) ([]model.Conversation, map[string]cloud.AutoReplyListReview, error) {
 	if f.Cloud == nil || !f.Cloud.LocalAutoReplyEnabled() {
-		return nil, nil, fmt.Errorf("消息记录还没有准备好，暂不根据联系人列表回复")
+		return nil, nil, failurediag.Wrap(fmt.Errorf("消息记录还没有准备好，暂不根据联系人列表回复"), failurediag.Detail{Source: "联系人列表", Operation: "核对变化", Reason: "服务器消息记录尚未准备好", Impact: "本轮没有打开候选人或发送消息"})
 	}
 	// 没有读到任何实际联系人，可能是抽屉刚打开尚未渲染。该轮保留原水位和已登记待办。
 	if len(rows) == 0 {
@@ -36,7 +37,7 @@ func (f *Flow) reviewAllContacts(ctx context.Context, prepared shared.PreparedTa
 		thread := persistentConversationThreadID(row.PlatformThreadID, row.Key)
 		signature := row.Fields["contact_list_signature"]
 		if thread == "" || signature == "" {
-			return nil, nil, fmt.Errorf("有一条联系人记录的身份或摘要不完整，稍后重新查看")
+			return nil, nil, failurediag.Wrap(fmt.Errorf("有一条联系人记录的身份或摘要不完整，稍后重新查看"), failurediag.Detail{Source: "联系人列表", Operation: "核对变化", Reason: "联系人稳定编号或变化摘要缺失", Impact: "本轮没有打开候选人或发送消息"})
 		}
 		obs := cloud.AutoReplyListObservation{ThreadID: thread, Signature: signature}
 		if preview := strings.TrimSpace(row.Summary); preview != "" {
@@ -50,7 +51,7 @@ func (f *Flow) reviewAllContacts(ctx context.Context, prepared shared.PreparedTa
 	}
 	reviews, err := f.Cloud.ObserveAutoReplyList(ctx, credentials(prepared), prepared.Platform.ID, prepared.Request.PlatformAccountID, scope, observations, time.Now())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, failurediag.Wrap(err, failurediag.Detail{Source: "联系人列表", Operation: "核对变化", Reason: "服务器未能保存联系人变化记录", Impact: "原有处理水位已保留，本轮没有继续回复"})
 	}
 	pending := make([]model.Conversation, 0, len(reviews))
 	byReview := make(map[string]cloud.AutoReplyListReview, len(reviews))

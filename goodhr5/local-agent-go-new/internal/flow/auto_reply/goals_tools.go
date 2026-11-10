@@ -51,30 +51,8 @@ func (s *toolExecutionState) goalContentExists(content string) (cloud.CandidateC
 
 // validateGoalMotivation 要求新增或改写的沟通任务有当前岗位、简历或来信依据，不能凭岗位名称造招聘门槛。
 func (s *toolExecutionState) validateGoalMotivation(item confirmationToolItem) error {
-	ref, quote := strings.TrimSpace(item.SourceRef), strings.TrimSpace(item.EvidenceText)
-	if quote == "" {
-		return argumentError("新目标需要说明为何要问：source_ref 使用真实消息、resume 或 position，evidence_text 引用依据原文")
-	}
-	if ref == "position" && strings.Contains(s.input.Position.Config.PositionDescription, quote) {
-		return nil
-	}
-	if ref == "resume" {
-		if s.input.Resume != nil && strings.Contains(s.input.Resume.OnlineResumeText, quote) {
-			return nil
-		}
-		if s.input.CandidateState.Candidate != nil && s.input.CandidateState.Candidate.ResumeStructured {
-			b, _ := json.Marshal(s.input.CandidateState.Candidate)
-			if strings.Contains(string(b), quote) {
-				return nil
-			}
-		}
-	}
-	for _, m := range s.input.Messages {
-		if m.Direction == "candidate" && (ref == m.ID || ref == m.PlatformMessageID || ref == m.Fingerprint) && strings.Contains(m.TextContent, quote) {
-			return nil
-		}
-	}
-	return argumentError("新目标依据没有对应到本轮岗位说明、候选人消息或简历，请引用真实原文")
+	_, err := s.normalizeConfirmationSource(item.SourceRef, item.EvidenceText, true)
+	return err
 }
 
 // proposeGoalUpdates 整批验证后才合并提议；新项目只作沟通确认，不能变成推荐的硬门槛。
@@ -117,6 +95,13 @@ func (s *toolExecutionState) proposeGoalUpdates(call ai.ToolCall) (json.RawMessa
 		changed := found && (result.ItemType != item.ItemType || strings.TrimSpace(result.Content) != strings.TrimSpace(item.Content))
 		if found && changed && !editable {
 			return nil, argumentError("HR 岗位条件只能更新判断，不能改变正文、类型或放宽条件")
+		}
+		if !found || changed || item.Status != "pending" {
+			canonical, err := s.normalizeConfirmationSource(item.SourceRef, item.EvidenceText, !found || changed)
+			if err != nil {
+				return nil, err
+			}
+			item.SourceRef = canonical
 		}
 		if !found || changed {
 			if item.ItemType != "confirm" {

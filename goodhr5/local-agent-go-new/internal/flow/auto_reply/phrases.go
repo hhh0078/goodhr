@@ -52,11 +52,22 @@ func phoneDigits(value string) string {
 
 // asksForPhone 识别已配置的索号话术及常见索号问法，以免对已经给过或明确拒绝的人重复追问。
 func asksForPhone(text, configured string) bool {
+	return asksForInfoInSameClause(text, configured,
+		[]string{"手机号", "电话号码", "联系电话", "联系方式", "电话号", "留个电话", "留个号码", "留电话"},
+		[]string{"方便", "请问", "留", "提供", "给我", "发我", "发个", "给个", "发一下", "多少", "交换", "可以", "能否", "能给", "告诉", "您的号码是"})
+}
+
+// asksForInfoInSameClause 优先识别完整配置话术，其余仅在同一自然分句同时出现资料词与请求动作时命中。
+func asksForInfoInSameClause(text, configured string, subjects, actions []string) bool {
 	if configured != "" && strings.Contains(text, configured) {
 		return true
 	}
-	return containsAnyText(text, "手机号", "电话号码", "联系电话", "联系方式", "电话号", "留个电话", "留个号码", "留电话") &&
-		containsAnyText(text, "方便", "请问", "留", "提供", "给我", "发我", "发个", "给个", "发一下", "多少", "交换", "可以", "能否", "能给", "告诉", "您的号码是")
+	for _, clause := range strings.FieldsFunc(text, func(r rune) bool { return strings.ContainsRune("。！？!?；;，,\r\n～~", r) }) {
+		if containsAnyText(clause, subjects...) && containsAnyText(clause, actions...) {
+			return true
+		}
+	}
+	return false
 }
 
 // inspectPhoneContact 使用完整本机记录生成简短状态，早于最近八十条对话的拒绝也能保留。

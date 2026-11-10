@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -14,7 +16,7 @@ import (
 // TestReplyLibraryInheritance 复现编辑、隐藏、恢复、管理员删除及老界面改其他字段等情形。
 func TestReplyLibraryInheritance(t *testing.T) {
 	lib, err := parseAutoReplyLibrary(initialAutoReplyLibrary)
-	if err != nil || len(lib.Phrases) != 12 {
+	if err != nil || len(lib.Phrases) != 15 {
 		t.Fatalf("默认话术异常: %v", err)
 	}
 	job := lib.Phrases[0]
@@ -27,7 +29,7 @@ func TestReplyLibraryInheritance(t *testing.T) {
 	if err := prepareReplyOverrides(&item, nil, lib); err != nil {
 		t.Fatal(err)
 	}
-	if item.ResumeRequestMessage != edit.Content || len(item.Phrases) != 12 || slices.Contains(item.Phrases, lib.Phrases[5]) {
+	if item.ResumeRequestMessage != edit.Content || len(item.Phrases) != 15 || slices.Contains(item.Phrases, lib.Phrases[5]) {
 		t.Fatal("岗位覆盖、删除或自建没有生效")
 	}
 	changed := lib
@@ -88,6 +90,14 @@ func TestPostgresReplyLibraryMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	applyAutoReplyTestMigrations(t, db)
+	// 比较当前内存默认前先执行真实数据升级；公共旧版迁移夹具仍保留12项，供兼容测试复现升级起点。
+	upgrade, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "0121_auto_reply_wechat_defaults.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(upgrade)); err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	var tenantID, posID string
 	if err := db.QueryRow(`INSERT INTO tenants DEFAULT VALUES RETURNING id`).Scan(&tenantID); err != nil {

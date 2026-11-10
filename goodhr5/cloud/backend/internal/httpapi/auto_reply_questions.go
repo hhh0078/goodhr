@@ -164,7 +164,8 @@ func (s *PostgresAutoReplyStore) recordQuestion(ctx context.Context, tenant, use
 	}
 	defer tx.Rollback()
 	var messageID, source string
-	err = tx.QueryRowContext(ctx, `SELECT m.id,m.payload->>'text_content' FROM auto_reply_cloud_entities m JOIN auto_reply_cloud_entities c ON c.tenant_id=m.tenant_id AND c.user_id=m.user_id AND c.kind='conversations' AND c.id=m.payload->>'conversation_id' WHERE m.tenant_id=$1 AND m.user_id=$2 AND c.id=$3 AND c.payload->>'position_id'=$4 AND m.kind='messages' AND m.payload->>'direction'='candidate' AND coalesce(nullif(m.payload->>'platform_message_id',''),m.payload->>'fingerprint')=$5 FOR SHARE OF m,c`, tenant, user, thread, pos, key).Scan(&messageID, &source)
+	// 同一条真实来信串行登记，防止长题和子题在并发请求中都看到“尚无待办”；会话仍保留共享锁。
+	err = tx.QueryRowContext(ctx, `SELECT m.id,m.payload->>'text_content' FROM auto_reply_cloud_entities m JOIN auto_reply_cloud_entities c ON c.tenant_id=m.tenant_id AND c.user_id=m.user_id AND c.kind='conversations' AND c.id=m.payload->>'conversation_id' WHERE m.tenant_id=$1 AND m.user_id=$2 AND c.id=$3 AND c.payload->>'position_id'=$4 AND m.kind='messages' AND m.payload->>'direction'='candidate' AND coalesce(nullif(m.payload->>'platform_message_id',''),m.payload->>'fingerprint')=$5 FOR UPDATE OF m FOR SHARE OF c`, tenant, user, thread, pos, key).Scan(&messageID, &source)
 	if errors.Is(err, sql.ErrNoRows) {
 		return q, newAutoReplyValidationError("这个岗位没有找到对应的候选人来信")
 	}
@@ -175,7 +176,15 @@ func (s *PostgresAutoReplyStore) recordQuestion(ctx context.Context, tenant, use
 		return q, newAutoReplyValidationError("登记的问题需要引用这条来信的实际文字")
 	}
 	if existing == "" {
-		q, err = scanReplyQuestion(tx.QueryRowContext(ctx, "INSERT INTO auto_reply_cloud_questions(tenant_id,position_id,dedupe_key,question) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,position_id,dedupe_key) DO UPDATE SET dedupe_key=EXCLUDED.dedupe_key RETURNING "+questionCols, tenant, pos, normalizeAutoReplyDedupeKey(question), question))
+		// 原有精确题义优先；只有没有精确问题时才尝试同源包含，不能改变已有答复的归属。
+		q, err = scanReplyQuestion(tx.QueryRowContext(ctx, "SELECT "+questionCols+" FROM auto_reply_cloud_questions WHERE tenant_id=$1 AND position_id=$2 AND dedupe_key=$3 FOR UPDATE", tenant, pos, normalizeAutoReplyDedupeKey(question)))
+		if errors.Is(err, ErrNotFound) {
+			var reused bool
+			q, reused, err = findContainedSourceQuestion(ctx, tx, tenant, user, pos, messageID, question)
+			if err == nil && !reused {
+				q, err = scanReplyQuestion(tx.QueryRowContext(ctx, "INSERT INTO auto_reply_cloud_questions(tenant_id,position_id,dedupe_key,question) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,position_id,dedupe_key) DO UPDATE SET dedupe_key=EXCLUDED.dedupe_key RETURNING "+questionCols, tenant, pos, normalizeAutoReplyDedupeKey(question), question))
+			}
+		}
 	} else {
 		q, err = scanReplyQuestion(tx.QueryRowContext(ctx, "SELECT "+questionCols+" FROM auto_reply_cloud_questions WHERE tenant_id=$1 AND position_id=$2 AND id::text=$3 AND question<>'' FOR UPDATE", tenant, pos, existing))
 	}

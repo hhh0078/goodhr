@@ -97,6 +97,9 @@ func (f *Flow) completeReplyBatch(ctx context.Context, prepared shared.PreparedT
 	if err := f.reuseStoredStructuredResume(ctx, prepared, input.Position, input.Conversation, input.PageSnapshot, input.CandidateState, false); err != nil {
 		f.log(prepared.Request.TaskID, "backfill_resume_birth_month", "warning", time.Now(), err)
 	}
+	if err := f.publishOnlineCandidateIfPhoneReady(ctx, prepared, input.Position, input.Conversation, input.PageSnapshot, input.CandidateState); err != nil {
+		return err
+	}
 	if queue, ok := f.Responder.(interface {
 		QueueRecommendation(context.Context, ReplyContext) error
 	}); ok {

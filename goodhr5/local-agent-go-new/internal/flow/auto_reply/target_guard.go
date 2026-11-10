@@ -120,6 +120,37 @@ func (r *targetedAutoReplyRuntime) ReadAutoReplyMessages(ctx context.Context, br
 	return messages, complete, nil
 }
 
+// ReadAutoReplyOnlineProfile 在读取前后核对同一个目标，在线资料弹层切人时不允许把资料写进服务器。
+func (r *targetedAutoReplyRuntime) ReadAutoReplyOnlineProfile(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (model.AutoReplyOnlineProfile, error) {
+	if err := r.checkPage(ctx, browser, cfg, snapshot); err != nil {
+		return model.AutoReplyOnlineProfile{}, err
+	}
+	reader, ok := r.AutoReplyRuntime.(model.AutoReplyOnlineProfileReader)
+	if !ok {
+		return model.AutoReplyOnlineProfile{}, model.ErrAutoReplyOnlineProfileUnavailable
+	}
+	profile, err := reader.ReadAutoReplyOnlineProfile(ctx, browser, cfg, snapshot)
+	if err != nil {
+		return model.AutoReplyOnlineProfile{}, err
+	}
+	if err = r.checkPage(ctx, browser, cfg, snapshot); err != nil {
+		return model.AutoReplyOnlineProfile{}, err
+	}
+	return profile, nil
+}
+
+// RequestAutoReplyCandidateInfo 将三类原生资料索要纳入同一实时目标核验，不允许绕过单会话限制。
+func (r *targetedAutoReplyRuntime) RequestAutoReplyCandidateInfo(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot, request model.CandidateInfoRequest) (model.AutoReplyInfoRequestResult, error) {
+	if err := r.checkPage(ctx, browser, cfg, snapshot); err != nil {
+		return model.AutoReplyInfoRequestResult{}, err
+	}
+	requester, ok := r.AutoReplyRuntime.(model.AutoReplyInfoRequester)
+	if !ok || !cfg.Behavior.AutoReplyNativeInfoRequests {
+		return model.AutoReplyInfoRequestResult{}, fmt.Errorf("当前平台尚未提供原生资料索要能力")
+	}
+	return requester.RequestAutoReplyCandidateInfo(ctx, browser, cfg, snapshot, request)
+}
+
 // RequestAutoReplyResume 把平台索要简历按钮也纳入单会话限制，避免绕过文本发送守卫。
 func (r *targetedAutoReplyRuntime) RequestAutoReplyResume(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) error {
 	if err := r.checkPage(ctx, browser, cfg, snapshot); err != nil {

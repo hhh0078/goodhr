@@ -192,7 +192,7 @@ test("关键词加 AI 详情必须同时有岗位要求和关键词，切换方�
   assert.equal(nextOnboardingFormStep({ ...base, filterMode: "ai", detailMode: "ocr", completedFields: [...base.completedFields, "position-requirement"] }), "position-save");
 });
 
-test("表单先确认平台，再确认名称和两种模式，AI/OCR 各走正确字段", () => {
+test("表单确认平台名称和筛选方式，固定详情策略不再要求选择", () => {
   let state = activeState({ filterMode: "ai", detailMode: "ocr" });
   assert.equal(nextOnboardingFormStep(state), "position-platform");
   state = { ...state, completedFields: ["platform"] };
@@ -200,7 +200,7 @@ test("表单先确认平台，再确认名称和两种模式，AI/OCR 各走正�
   state = { ...state, completedFields: ["platform", "name"] };
   assert.equal(nextOnboardingFormStep(state), "position-filter-mode");
   state = { ...state, completedFields: [...state.completedFields, "filter-mode"] };
-  assert.equal(nextOnboardingFormStep(state), "position-detail-mode");
+  assert.equal(nextOnboardingFormStep(state), "position-requirement");
   state = { ...state, completedFields: [...state.completedFields, "detail-mode"] };
   assert.equal(nextOnboardingFormStep(state), "position-requirement");
   const keyword = { ...state, filterMode: "keyword" };
@@ -430,7 +430,7 @@ test("开始弹框不持久化，旧开窗登录和筛选缓存刷新后回同�
       assert.equal(restored.platformLoggedIn, false);
       assert.equal(restored.positionStarted, false);
       assert.equal(restored.filterMode, "keyword");
-      assert.equal(restored.detailMode, "ocr");
+      assert.equal(restored.detailMode, "dom");
       assert.deepEqual(restored.completedFields, ["platform", "name"]);
       assert.equal(saved.step, step, "缓存迁移不修改当前会话对象");
     }
@@ -448,7 +448,7 @@ test("实际岗位平台变化时撤销旧平台登录，在开始入口重新�
     assert.equal(normalized.positionStarted, false);
     assert.equal(normalized.step, "position-start");
     assert.equal(normalized.filterMode, "keyword");
-    assert.equal(normalized.detailMode, "ocr");
+    assert.equal(normalized.detailMode, "dom");
     assert.equal(previous.platformId, "boss");
   }
 });

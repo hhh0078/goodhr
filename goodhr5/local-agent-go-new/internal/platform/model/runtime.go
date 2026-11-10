@@ -76,6 +76,7 @@ type ConfiguredAction struct {
 // Behavior 表示平台翻页、详情和岗位选择行为。
 type Behavior struct {
 	AutoReplyAllContactInbox    bool   `json:"auto_reply_all_contact_inbox"`    // 扫描全部联系人，主流程按本机水位发现待核实的消息。
+	AutoReplyNativeInfoRequests bool   `json:"auto_reply_native_info_requests"` // 资料索要使用平台原生能力，未满足平台条件时明确暂缓且不降级成文字。
 	SupportsPostDeletionHistory bool   `json:"supports_post_deletion_history"`  // 可按稳定会话核身并且只读取删除后的消息。
 	AutoReplyResumeLoadsHistory bool   `json:"auto_reply_resume_loads_history"` // 平台采集简历时自行加载并核验来源，公共流程无需先读历史再回到底部。
 	AutoReplyAvatarContainerKey string `json:"auto_reply_avatar_container_key"` // 聊天历史内的头像使用已有滚动容器限定截图；页头头像无需配置。
@@ -89,17 +90,21 @@ type Behavior struct {
 	AttachmentAllowedScheme     string `json:"attachment_allowed_scheme"`
 	AttachmentAllowedHost       string `json:"attachment_allowed_host"`
 	AttachmentAllowedPath       string `json:"attachment_allowed_path"`
+	AttachmentPreviewPath       string `json:"attachment_preview_path"` // 从当前可见预览文件地址验证的路径前缀，未知形态不得推测下载地址。
 	SkipPositionSelection       bool   `json:"skip_position_selection"`
 	DirectPositionSelection     bool   `json:"direct_position_selection"`
 	SelectFirstPositionResult   bool   `json:"select_first_position_result"`
 	NeedsDetail                 bool   `json:"needs_detail"`
 	StitchDetailScreenshots     bool   `json:"stitch_detail_screenshots"`
-	DetailCloseEscapeFirst      bool   `json:"detail_close_escape_first"`   // 先按 Escape 并确认详情消失，未关闭时才点击备用关闭按钮。
-	AutoReplySendEnterFirst     bool   `json:"auto_reply_send_enter_first"` // 自动回复优先用焦点已核验的回车发送。
-	MessageSendEnterFallback    bool   `json:"message_send_enter_fallback"` // 发送按钮明确尚未点击时，允许聚焦输入框后按回车兜底。
-	MessageSendVerifyEmpty      bool   `json:"message_send_verify_empty"`   // 发送后确认输入框清空，避免把按键成功当成消息发送成功。
+	DetailCloseEscapeFirst      bool   `json:"detail_close_escape_first"`       // 先按 Escape 并确认详情消失，未关闭时才点击备用关闭按钮。
+	AutoReplySendEnterFirst     bool   `json:"auto_reply_send_enter_first"`     // 自动回复优先用焦点已核验的回车发送。
+	AutoReplySingleLineMessages bool   `json:"auto_reply_single_line_messages"` // 出站正文先把CRLF/LF换成普通空格，避免单行平台发送时直接连词。
+	MessageSendEnterFallback    bool   `json:"message_send_enter_fallback"`     // 发送按钮明确尚未点击时，允许聚焦输入框后按回车兜底。
+	MessageSendVerifyEmpty      bool   `json:"message_send_verify_empty"`       // 发送后确认输入框清空，避免把按键成功当成消息发送成功。
 
-	AutoReplyMessageIdentityVersion int `json:"auto_reply_message_identity_version"` // 平台消息键算法版本；零值不启用旧会话的一次性完整重采。
+	AutoReplyOnlineProfileFragment          string `json:"auto_reply_online_profile_fragment"`           // 在线弹层允许的唯一URL片段；仅同源同路径同查询的空片段和此值可切换，空值保持原URL严格校验。
+	AutoReplyOnlineProfileHidesConversation bool   `json:"auto_reply_online_profile_hides_conversation"` // 已实证的DOM在线弹层会隐藏原聊天；仅本次从原生核身入口打开后允许临时缺少聊天，关闭后仍须重新核身。
+	AutoReplyMessageIdentityVersion         int    `json:"auto_reply_message_identity_version"`          // 平台消息键算法版本；零值不启用旧会话的一次性完整重采。
 }
 
 // Position 表示平台准备阶段所需的岗位信息。
@@ -206,6 +211,7 @@ type AutoReplyConversationSnapshot struct {
 	HistoryComplete        bool                  `json:"history_complete"`
 	ResumeCardAvailable    bool                  `json:"resume_card_available"`
 	ResumeSourceMessageID  string                `json:"resume_source_message_id"`
+	ResumeOfferMessageID   string                `json:"resume_offer_message_id,omitempty"` // 显式接收候选人本轮附件邀约的来源键，与实际文件卡来源分开。
 }
 
 // AutoReplyResumeBundle 表示平台读取的在线简历原文和本地已下载附件。

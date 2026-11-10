@@ -1,5 +1,6 @@
 /** 本文件负责岗位模板完整的新增、编辑、会员校验、模式联动和提示词管理。 */
 "use client";
+import { positionDetailMode } from "@/lib/position-detail-mode";
 import {
   Alert,
   Button,
@@ -1581,7 +1582,7 @@ export default function PositionsPage() {
                         ? "AI 筛选"
                         : "关键词筛选"}{" "}
                       · 详情：
-                      {detailModeLabel(item.common_config?.detail_mode)}·
+                      {detailModeLabel(positionDetailMode(item.platform_id))}·
                       关键词：
                       <span title={(item.keywords || []).join(" / ") || "无"}>
                         {truncatePositionCardText(
@@ -1936,7 +1937,8 @@ export default function PositionsPage() {
                 options={ONBOARDING_FILTER_MODE_OPTIONS}
               />
             </div>
-            <div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
+            {/* 旧详情识别方式选择框保留：当前按平台固定AI/DOM，不再展示或允许选择OCR。
+<div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
               <ChoiceCards
                 label="详情识别方式"
                 value={form.detail_mode}
@@ -1951,6 +1953,7 @@ export default function PositionsPage() {
                 ]}
               />
             </div>
+            */}
             {form.mode_default === "ai" || form.detail_mode === "ai" ? (
               <>
                 <Form.Item layout="vertical" label="岗位要求" extra="粘贴岗位要求，写清必须具备的经验和技能，福利可以先不贴。" style={{ marginBottom: 0 }}>
@@ -2088,7 +2091,7 @@ export default function PositionsPage() {
                 disabled:
                   !isPlatformOpen(platformConfigs, "boss"),
                 description: isPlatformOpen(platformConfigs, "boss")
-                  ? "支持 OCR 和 AI 详情识别。"
+                  ? "详情固定使用 AI 识别，需要相应会员及 AI 配置。"
                   : "暂未开放",
                 iconSrc: platformIconSrc("boss"),
               },
@@ -2193,7 +2196,8 @@ export default function PositionsPage() {
             options={ONBOARDING_FILTER_MODE_OPTIONS}
           />
           </div>
-          <div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
+          {/* 旧详情识别方式选择框保留：当前按平台固定AI/DOM，不再展示或允许选择OCR。
+<div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
             <>
               <Typography.Paragraph className={`${styles.text} ${styles.s34}`}>
                 选择哪种详情方式就只使用哪一种：DOM 最快，OCR
@@ -2229,6 +2233,7 @@ export default function PositionsPage() {
               />
             </>
           </div>
+          */}
           {form.mode_default === "keyword" ? (
             <>
               <Divider />
@@ -2770,7 +2775,7 @@ export default function PositionsPage() {
               description={
                 <>
                   {" "}
-                  当前会员已到期，AI 选项无法保存。可以改为关键词筛选和 OCR
+                  当前会员已到期，BOSS 详情固定用 AI。可以续费，或选择其它平台使用关键词筛选和 DOM
                   识别。
                 </>
               }
@@ -3001,7 +3006,7 @@ function createEmptyForm() {
     is_open: true,
     platform_id: "boss",
     mode_default: "keyword",
-    detail_mode: "ocr",
+    detail_mode: "ai",
     keywords: "",
     exclude_keywords: "",
     is_and_mode: false,
@@ -3050,7 +3055,7 @@ function formFromItem(
       mode_default: common.mode_default || "keyword",
       detail_mode: normalizeDetailMode(
         item.platform_id,
-        common.detail_mode || "ocr",
+        common.detail_mode || positionDetailMode(item.platform_id),
       ),
       output_structured_resume: Boolean(common.output_structured_resume),
       request_phone: Boolean(common.request_phone),
@@ -3141,15 +3146,12 @@ function normalizePrompt(value: unknown) {
   return String(value || "").replace(/\\n/g, "\n");
 }
 /** normalizeDetailMode 修正平台不支持的详情模式。 */
-function normalizeDetailMode(platformID: string, mode: string) {
-  if (isDOMOnlyPlatform(platformID)) return "dom";
-  if (platformID === "boss" && mode === "dom") return "ocr";
-  return ["dom", "ocr", "ai"].includes(mode) ? mode : "ocr";
+function normalizeDetailMode(platformID: string, _mode: string) {
+  return positionDetailMode(platformID);
 }
 /** defaultCreateDetailMode 返回新增岗位时自动使用的详情识别模式。 */
-function defaultCreateDetailMode(platformID: string, memberActive: boolean) {
-  if (platformID === "boss") return memberActive ? "ai" : "ocr";
-  return "dom";
+function defaultCreateDetailMode(platformID: string, _memberActive: boolean) {
+  return positionDetailMode(platformID);
 }
 /** defaultCreateMode 返回新增岗位时自动使用的基础筛选模式。 */
 function defaultCreateMode(memberActive: boolean) {
@@ -3174,7 +3176,7 @@ function splitKeywords(value: string) {
 }
 /** detailModeLabel 返回详情模式中文名称。 */
 function detailModeLabel(value: string) {
-  return value === "dom" ? "DOM识别" : value === "ai" ? "AI识别" : "OCR识别";
+  return value === "ai" ? "AI识别" : "DOM识别";
 }
 /** normalizePositionTaskStats 把本地最近任务统计转换成安全的非负整数。 */
 function normalizePositionTaskStats(task: any): PositionTaskStats {

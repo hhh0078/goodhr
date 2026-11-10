@@ -13,6 +13,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"goodhr5/local-agent-go-new/internal/system/failurediag"
@@ -203,6 +204,37 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	if err != nil {
 		return fmt.Errorf("读取待回复消息失败：%w", err)
 	}
+	state, err = f.syncNativeChatContacts(ctx, prepared, cloudConversation, pageSnapshot, state)
+	if err != nil {
+		return err
+	}
+	pageSnapshot.ResumeOfferMessageID = visibleResumeOffer(pageSnapshot)
+	if (pageSnapshot.ResumeOfferMessageID != "" || pageSnapshot.ResumeCardAvailable) && state.Candidate == nil {
+		candidate, candidateErr := f.Cloud.EnsureLocalAutoReplyCandidate(ctx, credentials(prepared), cloudConversation)
+		if candidateErr != nil {
+			return candidateErr
+		}
+		state.Candidate, cloudConversation.CandidateID = &candidate, candidate.ID
+	}
+	if pageSnapshot.ResumeOfferMessageID != "" {
+		if positionErr != nil {
+			return fmt.Errorf("简历邀请的岗位还没核实，本轮没有点击或发送回复")
+		}
+		if err = f.acceptResumeOffer(ctx, prepared, runtime, position, &cloudConversation, &pageSnapshot); err != nil {
+			return err
+		}
+		pending, err = f.Cloud.PendingAutoReplyMessages(ctx, credentials(prepared), cloudConversation.ID)
+		if err != nil {
+			return err
+		}
+	}
+	if err = f.enqueueObservedResume(ctx, prepared, &cloudConversation, pageSnapshot, state); err != nil {
+		return err
+	}
+	pending = withoutResumeOffers(pending)
+	if openSnapshot != nil {
+		*openSnapshot = pageSnapshot
+	}
 	resumeOnly := len(pending) == 0
 	if resumeOnly && positionErr == nil && len(f.serverAnswers[cloudConversation.ID]) > 0 {
 		return f.deliverAnswer(ctx, prepared, runtime, position, cloudConversation, pageSnapshot, state, f.serverAnswers[cloudConversation.ID][0], stats)
@@ -213,6 +245,9 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	if resumeOnly && !autoReplyResumeRetryDue(cloudConversation.ResumeRetry, time.Now()) {
 		stats.Skipped++
 		if positionErr == nil && cloudConversation.ResumeRetry == nil {
+			if err = f.publishOnlineCandidateIfPhoneReady(ctx, prepared, position, cloudConversation, pageSnapshot, state); err != nil {
+				return err
+			}
 			return f.reuseStoredStructuredResume(ctx, prepared, position, cloudConversation, pageSnapshot, state, false)
 		}
 		return nil
@@ -249,9 +284,13 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return fmt.Errorf("读取完整聊天记录失败：%w", err)
 	}
 	pageSnapshot = mergeCloudResumeCard(pageSnapshot, messages)
-	if retry := cloudConversation.ResumeRetry; retry != nil && retry.SourceMessageID != "" && pageSnapshot.ResumeSourceMessageID == "" {
+	if retry := cloudConversation.ResumeRetry; retry != nil && retry.SourceMessageID != "" {
 		pageSnapshot.ResumeCardAvailable = true
 		pageSnapshot.ResumeSourceMessageID = retry.SourceMessageID
+	}
+	latestCandidateKey, messages, err = f.resumeOfferReplyContext(ctx, prepared, cloudConversation, pageSnapshot, latestCandidateKey, messages)
+	if err != nil {
+		return err
 	}
 	if openSnapshot != nil {
 		*openSnapshot = pageSnapshot
@@ -263,6 +302,12 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		}
 		state.Candidate = &candidate
 		cloudConversation.CandidateID = candidate.ID
+	}
+	if !resumeOnly {
+		state, err = f.prepareOnlineProfile(ctx, prepared, runtime, position, cloudConversation, pageSnapshot, state)
+		if err != nil {
+			return err
+		}
 	}
 	avatarHandled := f.syncCandidateAvatarBestEffort(ctx, prepared, pageSnapshot, state.Candidate, runtime)
 	var resume *model.AutoReplyResumeBundle
@@ -324,8 +369,11 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return fmt.Errorf("自动回复 AI 处理器没有准备完整")
 	}
 	if resumeOnly {
+		if err = f.requestInfoAfterRecoveredResume(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state); err != nil {
+			return err
+		}
 		return f.reviewRecoveredResume(ctx, prepared, runtime, ReplyContext{
-			TaskID: prepared.Request.TaskID, Credentials: credentials(prepared), Position: position,
+			TaskID: prepared.Request.TaskID, Credentials: credentials(prepared), Position: position, NativeInfoRequests: prepared.Platform.Behavior.AutoReplyNativeInfoRequests,
 			AIConfig: prepared.Position.AI, EnableThinking: prepared.Position.EnableThinking,
 			Conversation: cloudConversation, CandidateState: state, Messages: messages,
 			ConfirmationItems: confirmations, PageSnapshot: pageSnapshot, Resume: resume,
@@ -335,7 +383,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	for refreshes := 0; ; refreshes++ {
 
 		replyInput := ReplyContext{
-			TaskID: prepared.Request.TaskID, Credentials: credentials(prepared), Position: position,
+			TaskID: prepared.Request.TaskID, Credentials: credentials(prepared), Position: position, NativeInfoRequests: prepared.Platform.Behavior.AutoReplyNativeInfoRequests,
 			AIConfig: prepared.Position.AI, EnableThinking: prepared.Position.EnableThinking,
 			Conversation: cloudConversation, CandidateState: state, Messages: messages, PendingMessages: pending,
 			ConfirmationItems: confirmations, PageSnapshot: pageSnapshot, Resume: resume,
@@ -452,6 +500,18 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		if err != nil {
 			return err
 		}
+		hardMismatch := hasExplicitRequiredMismatch(position, confirmations)
+		if !hardMismatch && hasPersonalAttributeMismatch(position, confirmations) {
+			decision.Messages = nil
+			decision.InfoRequests = model.CandidateInfoRequest{}
+			decision.ManualReason, decision.ReasonKey = "涉及个人属性的岗位判断需要HR确认，本轮没有自动发出拒绝消息", "personal_attribute_review"
+		}
+		if hardMismatch {
+			decision.InfoRequests = model.CandidateInfoRequest{}
+			if body := fixedReplyPhrase(position.Config, "required_mismatch"); body != "" && decision.ManualReason == "" {
+				decision.Messages = []ReplyMessage{{Type: "answer", Content: body}}
+			}
+		}
 		if fixedID == "receive_phone" && state.Candidate != nil {
 			phone := phoneDigits(mainlandChatMobile.FindString(pending[0].TextContent))
 			if err = f.Cloud.SaveAutoReplyChatPhone(ctx, credentials(prepared), cloudConversation.ID, state.Candidate.ID, latestCandidateKey, phone); err != nil {
@@ -519,7 +579,10 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			if err = f.verifyCurrentReplyConfiguration(ctx, prepared, position); err != nil {
 				return err
 			}
-			content := strings.TrimSpace(reply.Content)
+			if err = validateNativeInfoProposal(replyInput, model.CandidateInfoRequest{}, []ReplyMessage{reply}); err != nil {
+				return err
+			}
+			content := common.NormalizeAutoReplyOutgoingText(prepared.Platform, reply.Content)
 			if !oneOf(reply.Type, "answer", "confirmation") || content == "" || len([]rune(content)) > maxAutoReplyMessageRunes {
 				stats.Failed++
 				return fmt.Errorf("AI 第%d条消息类型不正确、内容为空或超过200字", index+1)
@@ -560,17 +623,24 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			}
 			sentCount++
 		}
+		nativeInfoHandled := false
+		if !hardMismatch && prepared.Platform.Behavior.AutoReplyNativeInfoRequests && outcome == "sent" && sentCount > 0 && len(decision.Messages) == 1 && decision.Messages[0].Type == "answer" && !candidateEndedAllContact(pending) {
+			nativeInfoHandled, err = f.requestNativeInfoAfterAnswer(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, previousContent, decision.InfoRequests)
+			if err != nil {
+				return err
+			}
+		}
 		if sentCount == 0 {
 			stats.Skipped++
 			return nil
 		}
-		if sentCount == 1 && len(decision.Messages) == 1 && (outcome == "sent" || outcome == "awaiting_hr") && fixedID == "" && !candidateEndedContact(pending) {
+		if !hardMismatch && sentCount == 1 && len(decision.Messages) == 1 && (outcome == "sent" || outcome == "awaiting_hr") && fixedID == "" && !candidateEndedContact(pending) {
 			goalPlanned := false
 			reviewPlan := decision
 			if outcome == "awaiting_hr" {
 				reviewPlan.ManualReason = ""
 			}
-			if cloudConversation.ResumeRetry == nil && needsMessageGoalReview(reviewPlan, confirmations) {
+			if !nativeInfoHandled && cloudConversation.ResumeRetry == nil && needsMessageGoalReview(reviewPlan, confirmations) {
 				var goalSent bool
 				goalPlanned, goalSent, err = f.reviewGoalsAfterAnswer(ctx, prepared, runtime, replyInput, previousContent)
 				if err != nil {
@@ -578,12 +648,13 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 						return ctx.Err()
 					}
 					f.log(prepared.Request.TaskID, "message_goal_review", "warning", time.Now(), err)
+					err = nil // 可选复核失败不能把已经送达的正常答复改成失败，也不能为了清错默认索要附件。
 				}
 				if goalSent {
 					sentCount++
 				}
 			}
-			if outcome == "sent" && !goalPlanned {
+			if outcome == "sent" && !goalPlanned && !prepared.Platform.Behavior.AutoReplyNativeInfoRequests && (decision.InfoRequests.RequestResume || decision.Messages[0].RequestsResume) {
 				err = f.requestResumeAfterAnswer(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, previousContent, decision.Messages[0].RequestsResume)
 			}
 			if err != nil && !goalPlanned && outcome == "sent" {

@@ -153,7 +153,8 @@ func (c *Checker) steps() []checkStep {
 		{name: "check_camoufox", label: "隐身浏览器", run: c.checkCamoufox},
 		{name: "check_local_storage", label: "本地数据", run: c.checkStorage},
 		{name: "check_required_ai", label: "AI 配置", run: c.checkAI},
-		{name: "check_required_ocr", label: "文字识别组件", run: c.checkOCR},
+		// OCR旧检查方法保留，岗位固定AI/DOM策略后不再检查或安装该组件。
+		// {name: "check_required_ocr", label: "文字识别组件", run: c.checkOCR},
 		{name: "check_power_guard", label: "防休眠能力", optional: true, run: c.checkPower},
 	}
 }
@@ -359,12 +360,10 @@ func (c *Checker) checkAI(ctx context.Context, prepared *shared.PreparedTask) er
 	return c.AI.Ready(prepared.Position.AI)
 }
 
-// checkOCR 仅在岗位明确需要 OCR 时检查组件。
+// checkOCR 保留旧调用合同，当前固定AI/DOM策略不再检查OCR文件或进程。
 func (c *Checker) checkOCR(_ context.Context, prepared *shared.PreparedTask) error {
-	if !prepared.Position.RequiresOCR {
-		return nil
-	}
-	return c.OCR.Ready()
+	prepared.Position.RequiresOCR = false
+	return nil
 }
 
 // checkPower 检查系统防睡眠能力，失败时允许任务降级继续。

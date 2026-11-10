@@ -47,7 +47,7 @@ const features = [
   {
     icon: AutoAwesomeRoundedIcon,
     title: "候选人详情分析",
-    text: "支持 AI、OCR 和页面结构三种详情读取方式，并按岗位模板继续判断。",
+    text: "BOSS 通过 AI 读取详情，其它平台读取页面文字，再按岗位要求继续判断。",
   },
   {
     icon: ManageAccountsRoundedIcon,
@@ -57,7 +57,7 @@ const features = [
   {
     icon: SmartToyRoundedIcon,
     title: "本地自动执行",
-    text: "页面滚动、截图、OCR、提示音和浏览器操作由本地程序完成。",
+    text: "页面滚动、截图、提示音和浏览器操作由本地程序完成。",
   },
   {
     icon: QueryStatsRoundedIcon,

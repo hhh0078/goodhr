@@ -109,9 +109,17 @@ func (c *Client) SyncAutoReplyStructuredCandidate(ctx context.Context, credentia
 		}
 		// 重试使用已保存的附件来源，避免相同结果因调用方省略内部字段而绕过发布退避。
 		safe.ResumeSourceMessageID = candidate.ResumeSourceMessageID
-		safe.ReopenProof, err = storedContactAttachmentProof(tx, conv, candidate.ResumeSourceMessageID)
-		if err != nil {
-			return err
+		if candidate.OnlineProfile != nil {
+			safe.OnlineProfileCandidateID, safe.OnlineProfileKey = candidate.OnlineProfile.CandidateID, candidate.OnlineProfile.ProfileKey
+		}
+		if c.localAutoStore.UsesAutoReplyAuthority() && safe.OnlineProfileCandidateID != "" && safe.OnlineProfileKey != "" {
+			// 在线重建只使用服务器本代receipt续写；真实旧附件仍不能提供这一对新编号与摘要。
+			safe.ReopenProof = nil
+		} else {
+			safe.ReopenProof, err = storedContactAttachmentProof(tx, conv, candidate.ResumeSourceMessageID)
+			if err != nil {
+				return err
+			}
 		}
 		if safe.ReopenProof != nil && c.localAutoStore.UsesAutoReplyAuthority() {
 			safe.ReopenProof.ConversationID, safe.ReopenProof.LocalCandidateID = conv.ID, localCandidateID

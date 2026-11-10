@@ -87,7 +87,7 @@ func TestPositionSaveChangesPlatform(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range []struct{ platform, mode, want string }{
-		{"zhaopin", "ocr", "dom"}, {"51job", "ai", "dom"}, {"boss", "dom", "ocr"},
+		{"zhaopin", "ocr", "dom"}, {"51job", "ai", "dom"}, {"boss", "dom", "ai"},
 	} {
 		body, err := json.Marshal(map[string]any{
 			"id": position.ID, "name": position.Name, "platform_id": item.platform,
@@ -143,12 +143,12 @@ func TestApplyPositionPlatformRules(t *testing.T) {
 		mode       string
 		want       string
 	}{
-		{name: "Boss 不支持 DOM", platformID: "boss", mode: "dom", want: "ocr"},
+		{name: "Boss 固定 AI", platformID: "boss", mode: "dom", want: "ai"},
 		{name: "猎聘猎头端只支持 DOM", platformID: "hliepin", mode: "ai", want: "dom"},
 		{name: "猎聘企业端只支持 DOM", platformID: "liepin", mode: "ocr", want: "dom"},
 		{name: "智联只支持 DOM", platformID: "zhaopin", mode: "ai", want: "dom"},
 		{name: "前程无忧只支持 DOM", platformID: "51job", mode: "ocr", want: "dom"},
-		{name: "普通平台保留 OCR", platformID: "other", mode: "ocr", want: "ocr"},
+		{name: "其它平台固定 DOM", platformID: "other", mode: "ocr", want: "dom"},
 	}
 
 	for _, item := range cases {
