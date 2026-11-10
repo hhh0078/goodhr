@@ -3,10 +3,31 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"reflect"
 	"testing"
 	"time"
 )
+
+// TestPositionLogRetentionPersistentStore 验证正式配置启用Redis时仍使用同一PG持久层，且无PG时不启动清理。
+func TestPositionLogRetentionPersistentStore(t *testing.T) {
+	db := new(sql.DB)
+	for _, redisAddr := range []string{"", "127.0.0.1:6379"} {
+		store := (Config{RedisAddr: redisAddr}).PositionLogStore(db)
+		if cache, ok := store.(*RedisPositionLogStore); ok {
+			defer cache.client.Close()
+		}
+		service := newPositionLogRetentionService(store)
+		if service == nil || service.store.db != db {
+			t.Fatalf("Redis=%q时未复用正式PG连接", redisAddr)
+		}
+	}
+	for _, store := range []PositionLogStore{nil, NewMemoryPositionLogStore(), (*RedisPositionLogStore)(nil), &RedisPositionLogStore{}, &RedisPositionLogStore{persistent: NewMemoryPositionLogStore()}} {
+		if newPositionLogRetentionService(store) != nil {
+			t.Fatal("没有PG持久层时不应启动清理")
+		}
+	}
+}
 
 // TestNextPositionLogCleanupAt 验证UTC输入、05:00边界及跨月仍严格按北京时间安排下一轮。
 func TestNextPositionLogCleanupAt(t *testing.T) {
@@ -51,7 +72,13 @@ func TestPositionLogPostgresRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := NewPostgresPositionLogStore(db)
+	cache := (Config{RedisAddr: "127.0.0.1:6379"}).PositionLogStore(db).(*RedisPositionLogStore)
+	defer cache.client.Close()
+	retention := newPositionLogRetentionService(cache)
+	if retention == nil {
+		t.Fatal("正式Redis加PG配置未启用清理")
+	}
+	store := retention.store
 	guard, err := db.Begin()
 	if err != nil {
 		t.Fatal(err)

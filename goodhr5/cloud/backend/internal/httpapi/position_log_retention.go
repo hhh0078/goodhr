@@ -26,8 +26,11 @@ type PositionLogRetentionService struct {
 	once  sync.Once
 }
 
-// newPositionLogRetentionService 仅为PostgreSQL启用定时清理，其他存储不启动无效后台任务。
+// newPositionLogRetentionService 从Redis包装中取得实际PostgreSQL持久层；纯内存存储不启动后台清理。
 func newPositionLogRetentionService(store PositionLogStore) *PositionLogRetentionService {
+	if cache, ok := store.(*RedisPositionLogStore); ok && cache != nil {
+		store = cache.persistent
+	}
 	postgres, ok := store.(*PostgresPositionLogStore)
 	if !ok || postgres == nil || postgres.db == nil {
 		return nil
