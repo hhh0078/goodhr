@@ -297,6 +297,28 @@ class HygieneTests(unittest.TestCase):
         self.assertTrue(pg.exists())
         self.assertTrue(self.cache.exists())
 
+    def test_nested_rehearsal_pg_cleanup_preserves_sibling_dump_and_report(self):
+        """自动验收的嵌套PG目录可精确回收，同级完整dump和验收报告必须原样保留。"""
+        pg = self.release / "rehearsal/pgdata"
+        pg.mkdir(parents=True)
+        (pg / "PG_VERSION").write_text("18")
+        backup = self.release / "rehearsal/database.dump"
+        backup.write_bytes(b"PGDMP original")
+        report = self.release / "isolated-validation.json"
+        report.write_text('{"success":true}')
+        self.manifest["completed_stage"] = "isolated_validation"
+        self.manifest["isolated_postgres"] = [{"path": "rehearsal/pgdata", "stopped": True,
+            "container_ids": ["c" * 64], "backup": {"path": "rehearsal/database.dump", "sha256": hygiene.file_sha(backup)},
+            "rehearsal": {"passed": True, "report_path": report.name, "report_sha256": hygiene.file_sha(report)}}]
+        self.write_manifest()
+        path, digest = self.plan_file()
+        with patch.object(hygiene.shutil.rmtree, "avoids_symlink_attacks", True, create=True):
+            result = hygiene.apply_plan(path, digest, self.reader)
+        self.assertIn(str(pg), result["deleted"])
+        self.assertFalse(pg.exists())
+        self.assertEqual(backup.read_bytes(), b"PGDMP original")
+        self.assertEqual(report.read_text(), '{"success":true}')
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,11 +14,12 @@ import sys
 import time
 import urllib.request
 
-from release_activate import COMMIT, DockerEngine, save_json
+from release_activate import COMMIT, TAG, DockerEngine, save_json
 from release_cutover import CutoverError, require
 from release_rehearse import IDENTIFIER, command, dsn_database
 from release_rehearse_auto import APPROVED
 from release_retention import digest_file
+import release_hygiene as hygiene
 
 
 ROLES = ("backend", "frontend")
@@ -81,6 +82,51 @@ def cleanup_rehearsal(engine, release):
     command(["docker", "network", "rm", network["Id"]])
     save_json(directory / "automatic-cleanup.json", {"success": True, "plan_sha256": record["sha256"],
               "containers": items, "network": network["Id"], "files_preserved": True})
+
+
+def cleanup_restore_cache(release):
+    """cleanup_restore_cache 仅回收本自动发布已验收且已移除容器的恢复副本，经原manifest和固定SHA门禁保留原始dump。"""
+    require(release.parent == RELEASE_ROOT and release.resolve() == release and TAG.fullmatch(release.name),
+            "自动验收缓存路径越界")
+    pg = release / "rehearsal/pgdata"
+    evidence_path = release / "isolated-validation.json"
+    if not pg.exists() or not evidence_path.exists():
+        return
+    evidence = json.loads(evidence_path.read_text())
+    journal = json.loads((release / "rehearsal/journal.json").read_text())
+    require(evidence.get("stage") == "isolated_validation" and evidence.get("host") == socket.gethostname()
+            and all(evidence.get(key) is True for key in ("success", "legacy_data_preserved", "rollback_verified"))
+            and journal.get("success") is True and evidence.get("source_commit") == journal.get("source_commit")
+            and evidence.get("release_id") == journal.get("release_id") == release.name
+            and release.name.startswith("auto-" + evidence["source_commit"][:12] + "-"),
+            "恢复副本未完成本轮验收，保留排错现场")
+    cleanup = json.loads((release / "rehearsal/automatic-cleanup.json").read_text())
+    require(cleanup.get("success") is True and cleanup.get("plan_sha256") == journal["cleanup_plan"]["sha256"],
+            "本轮临时容器与网络尚未完成精确收尾")
+    pg_ids = [value for name, value in journal["created"].items() if name.endswith("-pg")]
+    require(len(pg_ids) == 1 and pg_ids[0] in cleanup.get("containers", []), "本轮恢复容器身份或收尾记录不明确")
+    dump = release / "rehearsal/database.dump"
+    resource = {"path": "rehearsal/pgdata", "stopped": True, "container_ids": pg_ids,
+                "backup": {"path": "rehearsal/database.dump", "sha256": digest_file(dump)},
+                "rehearsal": {"passed": True, "report_path": "isolated-validation.json",
+                              "report_sha256": digest_file(evidence_path)}}
+    manifest_path = release / hygiene.MANIFEST_NAME
+    manifest = {"schema_version": 1, "host": socket.gethostname(), "release_dir": str(release),
+                "status": "succeeded", "completed_stage": "isolated_validation", "production_activation_claimed": False,
+                "completed_workdirs": [], "isolated_postgres": [resource]}
+    if manifest_path.exists():
+        old = json.loads(manifest_path.read_text())
+        require(old.get("host") == socket.gethostname() and old.get("release_dir") == str(release),
+                "既有缓存manifest身份不符")
+        save_json(release / ("cache-manifest-before-" + str(time.time_ns()) + ".json"), old, exclusive=True)
+        manifest["completed_workdirs"] = old.get("completed_workdirs", [])
+        require(not old.get("isolated_postgres") or old["isolated_postgres"] == [resource],
+                "既有manifest包含其他恢复资源，停止合并")
+    save_json(manifest_path, manifest)
+    plan_path = release / ("isolated-cache-plan-" + str(time.time_ns()) + ".json")
+    hygiene.write_json(plan_path, hygiene.create_plan(release))
+    result = hygiene.apply_plan(plan_path, hygiene.file_sha(plan_path))
+    print(json.dumps({"已验收恢复缓存收尾": result, "原始备份保留": str(dump)}, ensure_ascii=False), flush=True)
 
 
 class AutomaticRelease:
@@ -150,6 +196,10 @@ class AutomaticRelease:
                   if not path.name.endswith(".down.sql")}
         pending = pending_migrations(source, ledger)
         docker_root = command(["docker", "info", "--format", "{{.DockerRootDir}}"]).decode().strip()
+        if shutil.disk_usage(docker_root).free < 3 * 1024**3:
+            maintenance = self.state_root / ("cache-maintenance-" + str(time.time_ns()))
+            maintenance.mkdir(mode=0o700)
+            self.reclaim_build_cache(containers, {}, dict(os.environ), maintenance)
         for path, minimum in ((RELEASE_ROOT, 6), (Path(docker_root), 3)):
             require(shutil.disk_usage(path).free >= minimum * 1024**3,
                     "发布可用空间不足：" + str(path) + "，保留当前线上版本")
@@ -164,6 +214,14 @@ class AutomaticRelease:
 
     def execute(self, commit, containers):
         """execute 按同一不可变标签依次构建、完整隔离与回退验收、精确收尾和正式激活。"""
+        previous = self.state.get("previous_release_id")
+        if previous:
+            require(TAG.fullmatch(previous), "上轮自动发布编号异常")
+            previous_dir = RELEASE_ROOT / previous
+            if (previous_dir / "rehearsal/journal.json").exists():
+                if not (previous_dir / "rehearsal/automatic-cleanup.json").exists():
+                    cleanup_rehearsal(self.engine, previous_dir)
+                cleanup_restore_cache(previous_dir)
         database, postgres, user, redis, pending = self.preflight(containers)
         tag = "auto-" + commit[:12] + "-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         self.release = RELEASE_ROOT / tag
@@ -186,17 +244,38 @@ class AutomaticRelease:
             arguments.extend(["--" + name, value])
         try:
             self.invoke(arguments, environment)
+            evidence = json.loads((self.release / "isolated-validation.json").read_text())
+            require(evidence.get("success") is True and evidence.get("source_commit") == commit
+                    and all(evidence.get(role + "_image") == images[role] for role in ROLES), "隔离证据未绑定本次候选")
+            self.reclaim_build_cache(containers, images, environment)
         finally:
             cleanup_rehearsal(self.engine, self.release)
-        evidence = json.loads((self.release / "isolated-validation.json").read_text())
-        require(evidence.get("success") is True and evidence.get("source_commit") == commit
-                and all(evidence.get(role + "_image") == images[role] for role in ROLES), "隔离证据未绑定本次候选")
+            cleanup_restore_cache(self.release)
         self.verify_live(containers)
         self.update("更新正式前后端")
         self.invoke(["bash", "scripts/deploy-build.sh", "--activate-only"], environment)
         require(current_release(self.live(), commit), "切换后的前后端源码提交不一致")
         self.check_health()
         self.update("已上线", deployed_commit=commit, retry_after=0)
+
+    def reclaim_build_cache(self, containers, images, environment, plan_directory=None):
+        """reclaim_build_cache 空间低时使用当前真实版本的旧账本兼容登记精确回收，候选由本轮停止容器保护。"""
+        docker_root = command(["docker", "info", "--format", "{{.DockerRootDir}}"]).decode().strip()
+        if shutil.disk_usage(docker_root).free >= 3 * 1024**3:
+            return
+        labels = [item["Config"].get("Labels") or {} for item in containers.values()]
+        release_id = labels[0].get("goodhr.release.id", "")
+        require(TAG.fullmatch(release_id) and all(row.get("goodhr.release.id") == release_id for row in labels),
+                "当前完整版本编号不一致，无法自动回收缓存")
+        registry = RELEASE_ROOT / release_id / "retention-registry.json"
+        require(registry.is_file() and registry.resolve() == registry, "缺少当前真实版本的兼容登记，停止回收")
+        self.update("回收已过期构建缓存")
+        plan = (plan_directory or self.release) / "preactivation-retention-plan.json"
+        self.invoke(["python3", "scripts/release_retention.py", "plan", "--registry", str(registry), "--out", str(plan)], environment)
+        value = json.loads(plan.read_text())
+        require(set(images.values()) <= set(value.get("protected_image_ids", [])), "新候选未被本轮隔离容器保护，停止回收")
+        self.invoke(["python3", "scripts/release_retention.py", "apply", "--registry", str(registry),
+                     "--plan", str(plan), "--sha256", digest_file(plan)], environment)
 
     def check_health(self):
         """check_health 实际检查正式前后端及公开域名，仅成功返回才记为已上线。"""
@@ -229,7 +308,9 @@ class AutomaticRelease:
         if self.state.get("source_commit") == commit and self.state.get("retry_after", 0) > time.time():
             print("上轮未通过，等待自动重试；正式站点保留旧版。", flush=True)
             return
-        self.state = {"source_commit": commit, "original_images": {role: containers[role]["Image"] for role in ROLES}}
+        previous = self.state.get("release_id") or self.state.get("previous_release_id")
+        self.state = {"source_commit": commit, "original_images": {role: containers[role]["Image"] for role in ROLES},
+                      "previous_release_id": previous}
         try:
             self.update("发布前检查")
             self.execute(commit, containers)

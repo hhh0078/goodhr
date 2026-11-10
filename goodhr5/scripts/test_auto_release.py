@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from auto_release import AutomaticRelease, cleanup_rehearsal, current_release, pending_migrations
+from auto_release import AutomaticRelease, cleanup_rehearsal, cleanup_restore_cache, current_release, pending_migrations
 from release_cutover import CutoverError
 from release_rehearse_auto import APPROVED, check_archives, check_ledger, check_library
 
@@ -155,6 +155,7 @@ class AutomaticReleaseTests(unittest.TestCase):
 
             with patch("auto_release.RELEASE_ROOT", base / "releases"), \
                     patch.object(job, "preflight", return_value=preflight), patch.object(job, "check_target"), \
+                    patch.object(job, "reclaim_build_cache"), \
                     patch.object(job, "invoke", side_effect=invoke), patch.object(job, "check_health"), \
                     patch("auto_release.command", return_value=("sha256:" + "2" * 64).encode()), \
                     patch("auto_release.cleanup_rehearsal") as cleanup:
@@ -211,6 +212,48 @@ class AutomaticReleaseTests(unittest.TestCase):
             with patch("auto_release.command") as command, self.assertRaises(CutoverError):
                 cleanup_rehearsal(engine, release)
             command.assert_not_called()
+
+    def test_failed_restore_data_is_never_deleted(self):
+        """只有真实验收和临时对象收尾都通过才可回收PG副本，失败现场继续保留。"""
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            release = base / ("auto-" + COMMIT[:12] + "-fixture")
+            pg = release / "rehearsal/pgdata"
+            pg.mkdir(parents=True)
+            (pg / "failed-state").write_text("保留排错")
+            (release / "isolated-validation.json").write_text(json.dumps({"stage": "isolated_validation",
+                "host": socket.gethostname(), "source_commit": COMMIT, "success": True,
+                "legacy_data_preserved": True, "rollback_verified": True}))
+            (release / "rehearsal/journal.json").write_text('{"success":false}')
+            with patch("auto_release.RELEASE_ROOT", base), patch("auto_release.hygiene.apply_plan") as apply, \
+                    self.assertRaises(CutoverError):
+                cleanup_restore_cache(release)
+            apply.assert_not_called()
+            self.assertTrue((pg / "failed-state").exists())
+
+    def test_cache_gc_requires_candidate_image_protection(self):
+        """当前旧版账本的回收计划也必须保护本轮候选，缺失保护就不能执行任何删除。"""
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            registry = base / "fixture/retention-registry.json"
+            registry.parent.mkdir()
+            registry.write_text("{}")
+            job = AutomaticRelease(base / "goodhr5", Engine(), base / "state")
+            job.state_root.mkdir()
+            job.release = base / "candidate"
+            job.release.mkdir()
+
+            def invoke(arguments, environment):
+                """invoke 仅提供不保护候选的错误计划，测试必须在apply之前阻断。"""
+                (job.release / "preactivation-retention-plan.json").write_text('{"protected_image_ids":[]}')
+
+            with patch("auto_release.RELEASE_ROOT", base), patch("auto_release.command", return_value=str(base).encode()), \
+                    patch("auto_release.shutil.disk_usage", return_value=SimpleNamespace(free=0)), \
+                    patch.object(job, "invoke", side_effect=invoke) as invoke_mock, self.assertRaises(CutoverError):
+                job.reclaim_build_cache(job.live(), {"backend": "sha256:" + "2" * 64, "frontend": "sha256:" + "3" * 64}, {})
+            self.assertEqual(invoke_mock.call_count, 1)
+            self.assertIn("plan", invoke_mock.call_args.args[0])
 
 
 class MigrationGateTests(unittest.TestCase):

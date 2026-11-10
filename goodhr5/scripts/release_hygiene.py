@@ -25,7 +25,7 @@ CACHE_PATHS = frozenset({
     "frontend-runner/standalone/node_modules", "frontend-runner/standalone/.next",
     "backend-build/go-cache", "go-cache",
 })
-PG_PATHS = frozenset({"rehearsal-pgdata", "clone-pgdata-v2", "rehearsal-pgdata-before-readiness-fix", "pgdata"})
+PG_PATHS = frozenset({"rehearsal-pgdata", "clone-pgdata-v2", "rehearsal-pgdata-before-readiness-fix", "pgdata", "rehearsal/pgdata"})
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 PROTECTED_NAMES = {MANIFEST_NAME, "configs-before.json", "configs-after.json", "manifest.private.json",
                    "windows-release-manifest.json", "deployment-result.private.json", "deploy-state.private.json", "rollback.sql"}
