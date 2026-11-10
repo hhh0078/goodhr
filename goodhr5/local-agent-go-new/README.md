@@ -154,6 +154,8 @@ Go 与 Worker 步骤日志统一写入岗位日志，每个岗位只保留最近
 
 下载同步在 Browser Worker 第一次启动前会安静等待，不会把正常的未启动状态打印成错误；Worker 曾经连接成功后如果意外断开，仍会记录提醒。
 
+Windows、Mac 打包入口和中文用法统一放在 [`package-tools/`](package-tools/README.md)。Windows 分发 ZIP 包含安装程序和 `安装教程图片.jpg`；Mac 包不放图片。旧脚本路径继续可用。
+
 macOS 正式包只在 Mac 上生成：
 
 ```bash
@@ -177,7 +179,7 @@ cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
 
 Windows 脚本会独立编译 `windows/amd64` GUI 主程序，打包 Worker 生产依赖，同时生成以下文件：
 
-- `release\goodhr-local-agent-v6-windows-x64.zip`
+- `release\goodhr-local-agent-v6-windows-x64.zip`（安装程序和安装说明图片，发给用户用这个）
 - `release\GoodHR-Local-Agent-Setup-v6-windows-x64.exe`
 
 每次构建会先删除本版本的旧安装器，避免遗留文件与 Windows 图标缓存混淆。安装器首次安装默认按 `D → B → E → C` 选择存在的磁盘，优先安装到 `D:\GoodHRLocalAgent`；C 盘兜底使用当前用户的 `%LOCALAPPDATA%\Programs\GoodHRLocalAgent`。升级时保留用户上一次选定的目录。

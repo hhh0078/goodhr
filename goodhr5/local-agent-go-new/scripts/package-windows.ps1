@@ -21,11 +21,20 @@ $ArchivePath = Join-Path $ReleaseRoot "$PackageName.zip"
 $InstallerPath = Join-Path $ReleaseRoot "GoodHR-Local-Agent-Setup-v$Version$EnvironmentSuffix-windows-x64.exe"
 $LegacyInstallerPath = Join-Path $ReleaseRoot "GoodHRLocalAgentSetup-$Version-windows-x64.exe"
 $InstallerScript = Join-Path $ProjectDir "packaging\GoodHRLocalAgent.iss"
+$InstallGuidePath = Join-Path $ProjectDir "package-tools\安装教程图片.jpg"
 $NpmRegistry = if ($env:GOODHR_NPM_REGISTRY) { $env:GOODHR_NPM_REGISTRY } else { "https://registry.npmmirror.com" }
 $GoProxy = if ($env:GOPROXY) { $env:GOPROXY } else { "https://goproxy.cn,direct" }
 
 if ($Version -notmatch '^[0-9A-Za-z._-]+$') {
   throw "版本号只能包含数字、字母、点、下划线和短横线"
+}
+
+# 图片是 Windows 分发包的必需文件，缺失时在清理旧产物和下载依赖前停止。
+if (-not (Test-Path -LiteralPath $InstallGuidePath -PathType Leaf)) {
+  throw "没有找到安装说明图片：$InstallGuidePath，请恢复 package-tools 里的图片后再打包"
+}
+if ((Get-Item -LiteralPath $InstallGuidePath).Length -eq 0) {
+  throw "安装说明图片是空文件，请替换后再打包"
 }
 
 # Write-Step 输出当前 Windows 打包步骤。
@@ -167,13 +176,33 @@ Copy-Item -Force (Join-Path $ProjectDir "README.md") (Join-Path $PackageDir "REA
 Copy-Item -Recurse -Force (Join-Path $ProjectDir "licenses") (Join-Path $PackageDir "licenses")
 @{ version = $Version; environment = $Environment; public_base_url = $PublicBaseURL } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PackageDir "build-info.json") -Encoding UTF8
 
-Write-Step "生成 Windows ZIP 发布包"
-Compress-Archive -Path $PackageDir -DestinationPath $ArchivePath -CompressionLevel Optimal
-
 Write-Step "生成 Inno Setup 安装器"
 & $InnoSetup "/Q" "/DMyAppVersion=$Version" "/DMyEnvironmentSuffix=$EnvironmentSuffix" $InstallerScript
 if ($LASTEXITCODE -ne 0) {
   throw "Windows 安装器生成失败，退出码：$LASTEXITCODE"
+}
+
+# 安装器生成成功后再压缩，确保分发 ZIP 根目录始终包含安装程序和安装说明图片。
+if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf) -or (Get-Item -LiteralPath $InstallerPath).Length -eq 0) {
+  throw "安装程序没有生成或为空，暂时不能生成 Windows 分发压缩包"
+}
+Write-Step "生成 Windows ZIP 发布包（安装程序和安装说明图片）"
+Compress-Archive -LiteralPath $InstallerPath, $InstallGuidePath -DestinationPath $ArchivePath -CompressionLevel Optimal
+
+Write-Step "检查 Windows ZIP 内的安装程序和安装说明图片"
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$Archive = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+try {
+  foreach ($RequiredPath in @($InstallerPath, $InstallGuidePath)) {
+    $RequiredFile = Get-Item -LiteralPath $RequiredPath
+    $Entry = $Archive.GetEntry($RequiredFile.Name)
+    if ($null -eq $Entry -or $Entry.Length -ne $RequiredFile.Length) {
+      throw "Windows ZIP 缺少完整的 $($RequiredFile.Name)，请重新打包"
+    }
+  }
+}
+finally {
+  $Archive.Dispose()
 }
 
 Write-Step "Windows 发布包已生成：$ArchivePath"
