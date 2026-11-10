@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import socket
 import tempfile
@@ -41,6 +42,8 @@ class DailyBackupTests(unittest.TestCase):
     def command(self, arguments, **kwargs):
         """command 只模拟固定归档生成及TOC读取，其他命令立即让测试失败。"""
         if "--list" in arguments:
+            # 子进程直接继承文件描述符，必须从PGDMP开头读取，不能落在Python缓冲区预读后的偏移。
+            self.assertEqual(os.read(kwargs["source"].fileno(), 5), b"PGDMP")
             return TOC
         if any("exec pg_dump" in value for value in arguments):
             if self.fail_dump:

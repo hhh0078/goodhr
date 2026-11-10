@@ -61,8 +61,8 @@ def production_database():
 
 
 def archive_toc(path, postgres):
-    """archive_toc 使用原PostgreSQL容器的同版本工具离线验证完整备份目录，不恢复或修改业务数据库。"""
-    with safe_file(path).open("rb") as stream:
+    """archive_toc 使用同版本工具离线验证目录；无缓冲读取确保子进程从归档开头接收文件，不恢复或修改业务数据库。"""
+    with safe_file(path).open("rb", buffering=0) as stream:
         require(stream.read(5) == b"PGDMP", "每日备份不是PostgreSQL自定义归档")
         stream.seek(0)
         toc = command(["docker", "exec", "-i", postgres, "pg_restore", "--list"], source=stream, timeout=60)
