@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
@@ -37,7 +38,7 @@ const syntheticAttachmentURL = "https://example.invalid/synthetic-resume.pdf"
 
 // ListPages 模拟下载打开 PDF，同时其他标签关闭导致原页序号变化。
 func (b *attachmentPageBrowser) ListPages(context.Context) (contract.PageListResult, error) {
-	viewer := (&url.URL{Scheme: "file", Path: filepath.ToSlash(b.filePath)}).String()
+	viewer := attachmentFixtureFileURL(b.filePath)
 	if !b.downloaded {
 		pages := []contract.PageInfo{{PageID: "0", URL: b.originURL, Current: true}}
 		switch b.scenario {
@@ -73,7 +74,7 @@ func (b *attachmentPageBrowser) UsePage(ctx context.Context, request contract.Pa
 	}
 	b.usedPageID = request.PageID
 	if request.PageID != "7" || request.DismissDownload == nil || request.DismissDownload.OriginalURL != b.originURL || request.DismissDownload.DownloadID != "native_download_proof" ||
-		(!b.viewerWatch || !request.DismissDownload.AwaitViewer || (b.scenario != "delayed_viewer" && request.DismissDownload.ViewerURL != (&url.URL{Scheme: "file", Path: filepath.ToSlash(b.filePath)}).String())) {
+		(!b.viewerWatch || !request.DismissDownload.AwaitViewer || (b.scenario != "delayed_viewer" && request.DismissDownload.ViewerURL != attachmentFixtureFileURL(b.filePath))) {
 		return contract.PageInfo{}, errors.New("误用下载前的旧页面序号")
 	}
 	b.pdfCurrent = false
@@ -240,4 +241,13 @@ func TestLoggedLiepinAttachmentRestoresOriginalPage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// attachmentFixtureFileURL 按 Windows 盘符和 Unix 绝对路径生成标准文件 URL。
+func attachmentFixtureFileURL(path string) string {
+	normalized := filepath.ToSlash(path)
+	if !strings.HasPrefix(normalized, "/") {
+		normalized = "/" + normalized
+	}
+	return (&url.URL{Scheme: "file", Path: normalized}).String()
 }

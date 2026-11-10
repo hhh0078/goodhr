@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { ActionService } from '../dist/browser/actions/action-service.js';
 
 /** actionContext 为合成会话创建独立、可取消的请求。 */
@@ -61,9 +63,9 @@ test('Use 原页后晚到 PDF、关闭预览后的新 PDF 都不抢走后续 Rea
   const preview = f.addPage('https://example.test/preview');
   await f.session.usePage('1', actionContext());
   await f.session.usePage('0', actionContext());
-  f.addPage('file:///tmp/synthetic-resume.pdf');
+  f.addPage(pathToFileURL(resolve('/tmp/synthetic-resume.pdf')).href);
   await preview.close();
-  f.addPage('file:///tmp/synthetic-resume-2.pdf');
+  f.addPage(pathToFileURL(resolve('/tmp/synthetic-resume-2.pdf')).href);
   assert.equal((await f.service.readElement({ selector }, actionContext('element.read'))).value, f.original.url());
   const list = await f.session.listPages();
   assert.deepEqual(list.pages.filter(page => page.current).map(page => page.url), [f.original.url()]);
@@ -75,7 +77,7 @@ test('Click wait_for_new_page 显式提交新页，返回 URL 和后续 Read 仍
   let detail;
   f.service.mouse.down = async () => {
     detail = f.addPage('https://example.test/detail');
-    detail.onFront = async () => { f.addPage('file:///tmp/late-download.pdf'); };
+    detail.onFront = async () => { f.addPage(pathToFileURL(resolve('/tmp/late-download.pdf')).href); };
   };
   const result = await f.service.clickElement({ selector, wait_for_new_page: true }, actionContext('element.click'));
   assert.equal(result.new_page_opened, true);
@@ -86,7 +88,7 @@ test('Click wait_for_new_page 显式提交新页，返回 URL 和后续 Read 仍
 
 test('普通 Click 产生新标签仍保留来源页，不凭新页事件改变读取归属', async t => {
   const f = fixture(t);
-  f.service.mouse.down = async () => { f.addPage('file:///tmp/download.pdf'); };
+  f.service.mouse.down = async () => { f.addPage(pathToFileURL(resolve('/tmp/download.pdf')).href); };
   const result = await f.service.clickElement({ selector }, actionContext('element.click'));
   assert.equal(result.new_page_opened, false);
   assert.equal(result.new_page_url, '');
@@ -128,7 +130,7 @@ for (const failure of ['cancelled', 'closed', 'foreign_context', 'activation_fai
 test('Open 新页或复用页都在激活完成后选择，失败和取消不提交', async t => {
   const f = fixture(t);
   const reused = f.addPage('https://example.test/reused');
-  reused.onFront = async () => { assert.equal(f.session.currentPage, f.original); f.addPage('file:///tmp/late.pdf'); };
+  reused.onFront = async () => { assert.equal(f.session.currentPage, f.original); f.addPage(pathToFileURL(resolve('/tmp/late.pdf')).href); };
   assert.equal((await f.session.open({ url: reused.url() }, actionContext('page.open'))).current, true);
   const opened = await f.session.open({ url: 'https://example.test/new', new_tab: true }, actionContext('page.open'));
   assert.equal(opened.current, true);
@@ -151,7 +153,7 @@ test('窗口恢复创建临时页、期间下载新页后仍回到同一原页',
   f.browserContext.newPage = async () => {
     const temporary = f.addPage('about:blank');
     observed.push(f.session.currentPage);
-    temporary.onFront = async () => { f.addPage('file:///tmp/late-window.pdf'); observed.push(f.session.currentPage); };
+    temporary.onFront = async () => { f.addPage(pathToFileURL(resolve('/tmp/late-window.pdf')).href); observed.push(f.session.currentPage); };
     return temporary;
   };
   await f.session.reactivatePage(f.original, actionContext('element.scroll'));
@@ -174,7 +176,7 @@ test('旧会话新页事件不注册为新会话当前页，显式 Close 与失�
   newContext.pages = () => [fallback];
   f.session.context = newContext;
   f.session.registerContext(newContext);
-  const late = f.addPage('file:///tmp/old-session.pdf');
+  const late = f.addPage(pathToFileURL(resolve('/tmp/old-session.pdf')).href);
   assert.equal(f.session.currentPage, fallback);
   assert.equal(f.session.registeredPages.has(late), false);
 });
@@ -183,10 +185,10 @@ test('旧会话新页事件不注册为新会话当前页，显式 Close 与失�
 test('按本次下载回执收起文件页，只剩原页才显式激活', async t => {
   for (const others of [false, true]) {
     const f = fixture(t);
-    const url = 'file:///tmp/resume-2.pdf';
+    const url = pathToFileURL(resolve('/tmp/resume-2.pdf')).href;
     const viewer = f.addPage(url);
-    const manual = others ? f.addPage('file:///other/resume-2.pdf') : null;
-    const item = { id: 'native_download_24', status: 'saved', page_url: f.original.url(), file_path: '/tmp/resume-2.pdf' };
+    const manual = others ? f.addPage(pathToFileURL(resolve('/other/resume-2.pdf')).href) : null;
+    const item = { id: 'native_download_24', status: 'saved', page_url: f.original.url(), file_path: resolve('/tmp/resume-2.pdf') };
     f.session.downloadManager.list = async () => ({ downloads: [item] });
     const restore = { original_url: f.original.url(), viewer_url: url, download_id: item.id };
     const result = await f.session.usePage('0', actionContext(), restore);
@@ -204,13 +206,13 @@ test('按本次下载回执收起文件页，只剩原页才显式激活', async
 test('下载文件页面或原生回执存在歧义时，保留所有页面', async t => {
   for (const scenario of ['duplicate','wrong_file','wrong_origin','other_page','wrong_receipt']) {
     const f = fixture(t);
-    const viewer = f.addPage('file:///tmp/sample.pdf');
+    const viewer = f.addPage(pathToFileURL(resolve('/tmp/sample.pdf')).href);
     if (scenario==='duplicate') f.addPage(viewer.url());
     if (scenario==='other_page') {
       f.addPage('https://manual.test');
       await f.session.usePage('2', actionContext());
     }
-    const item = {id:'native_download_24', status:'saved', page_url: f.original.url(), file_path: scenario==='wrong_file' ? '/other/sample.pdf' : '/tmp/sample.pdf'};
+    const item = {id:'native_download_24', status:'saved', page_url: f.original.url(), file_path: scenario==='wrong_file' ? resolve('/other/sample.pdf') : resolve('/tmp/sample.pdf')};
     f.session.downloadManager.list = async () => ({downloads:[item]});
     await assert.rejects(f.session.usePage('0',actionContext(),{
       original_url: scenario==='wrong_origin' ? 'https://other.test' : f.original.url(),
@@ -225,9 +227,9 @@ test('下载文件页面或原生回执存在歧义时，保留所有页面', as
 test('复用已有文件标签时保留原页和文件，出现第三页不抢焦点',async t => {
   for (const third of [false,true]) {
     const f=fixture(t);
-    const viewer=f.addPage('file:///tmp/resume-5.pdf');
+    const viewer=f.addPage(pathToFileURL(resolve('/tmp/resume-5.pdf')).href);
     if(third) f.addPage('https://example.test/manual');
-    const item={id:'native_download_repeat_path',status:'saved',page_url:f.original.url(),file_path:'/tmp/resume-5.pdf'};
+    const item={id:'native_download_repeat_path',status:'saved',page_url:f.original.url(),file_path: resolve('/tmp/resume-5.pdf')};
     f.session.downloadManager.list=async()=>({downloads:[item]});
     const req={original_url:f.original.url(),download_id:item.id,viewer_url:viewer.url(),keep_viewer:true};
     if(third) await assert.rejects(f.session.usePage('0',actionContext(),req));
@@ -241,15 +243,15 @@ test('复用已有文件标签时保留原页和文件，出现第三页不抢�
 test('本次 PDF 文件查看页在下载回执之后才创建或完成导航，仍按标准事件收起',async t=>{
   for (const scenario of ['already-ready','late-page','blank-then-file','existing','unrelated']) {
     const f=fixture(t);
-    const uri='file:///tmp/verified%20attachment.pdf';
+    const uri=pathToFileURL(resolve('/tmp/verified attachment.pdf')).href;
     let viewer = scenario==='existing' ? f.addPage(uri) : undefined;
     await f.session.watchDownloadViewer(actionContext());
-    const item={id:'native_download_event', status:'saved', created_at:new Date().toISOString(), page_url:f.original.url(), file_path:'/tmp/verified attachment.pdf'};
+    const item={id:'native_download_event', status:'saved', created_at:new Date().toISOString(), page_url:f.original.url(), file_path: resolve('/tmp/verified attachment.pdf')};
     f.session.downloadManager.list=async()=>({downloads:[item]});
     if(scenario==='blank-then-file') viewer=f.addPage('about:blank');
     if(scenario==='already-ready') viewer=f.addPage(uri);
     let unrelated;
-    if(scenario==='unrelated') unrelated=f.addPage('file:///other/verified%20attachment.pdf');
+    if(scenario==='unrelated') unrelated=f.addPage(pathToFileURL(resolve('/other/verified attachment.pdf')).href);
     const restore={original_url:f.original.url(),download_id:item.id,viewer_url:'',await_viewer:true};
     const result=f.session.usePage('0',actionContext(),restore);
     if(scenario==='blank-then-file' || scenario==='late-page' || scenario==='unrelated') {
@@ -276,6 +278,6 @@ test('等候下载页超时和取消后不再执行标签动作',async t=>{
     const pending=watch.wait('/tmp/late.pdf',abort.signal,1000);
     abort.abort();
     await assert.rejects(pending);
-    const late=f.addPage('file:///tmp/late.pdf'); assert.equal(late.closed,false);
+    const late=f.addPage(pathToFileURL(resolve('/tmp/late.pdf')).href); assert.equal(late.closed,false);
   } finally {watch.dispose();}
 });

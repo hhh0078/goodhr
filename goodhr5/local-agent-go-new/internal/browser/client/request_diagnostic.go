@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -253,7 +254,8 @@ func transportReason(parent context.Context, err error) (string, string) {
 			return "parent_deadline", "context_deadline_exceeded"
 		}
 		return "request_deadline", "context_deadline_exceeded"
-	case errors.Is(err, syscall.ECONNREFUSED):
+	// Windows 的 Winsock 使用 WSAECONNREFUSED (10061)，Unix 使用 ECONNREFUSED。
+	case errors.Is(err, syscall.ECONNREFUSED) || (runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(10061))):
 		return "connection_refused", "connection_refused"
 	case errors.Is(err, syscall.ECONNRESET):
 		return "connection_reset", "connection_reset"
