@@ -182,7 +182,7 @@ class AutomaticReleaseTests(unittest.TestCase):
             (tools / "flock").write_text("#!/bin/sh\n# 文件作用：本地入口测试不使用服务器全局锁。\nexit 0\n")
             (tools / "flock").chmod(0o755)
             git = shutil.which("git")
-            for args in (["init", "-b", "main"], ["add", "."],
+            for args in (["init"], ["symbolic-ref", "HEAD", "refs/heads/main"], ["add", "."],
                          ["-c", "user.name=自动部署测试", "-c", "user.email=auto-test@example.invalid", "commit", "-m", "测试初始提交"],
                          ["remote", "add", "origin", str(repo)]):
                 subprocess.run([git] + args, cwd=repo, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
