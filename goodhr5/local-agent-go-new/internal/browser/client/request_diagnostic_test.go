@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -149,7 +150,8 @@ func TestRefusedConnectionErrorType(t *testing.T) {
 	_, err := New(addr).FindAll(context.Background(), contract.ElementFindAllRequest{})
 	var workerErr *contract.WorkerError
 	var transport *transportDiagnosticError
-	if !errors.Is(err, syscall.ECONNREFUSED) || errors.As(err, &workerErr) || !errors.As(err, &transport) || !strings.HasPrefix(err.Error(), "连接 Browser Worker 失败：") {
+	refused := errors.Is(err, syscall.ECONNREFUSED) || (runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(10061)))
+	if !refused || errors.As(err, &workerErr) || !errors.As(err, &transport) || !strings.HasPrefix(err.Error(), "连接 Browser Worker 失败：") {
 		t.Fatalf("连接错误语义改变 %v", err)
 	}
 	d := transport.BrowserRequestDiagnostic()
