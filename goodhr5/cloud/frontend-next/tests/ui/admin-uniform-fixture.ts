@@ -2,6 +2,7 @@
 import { expect, type Page } from "@playwright/test";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { shanghaiDate } from "../../lib/system-statistics.ts";
 
 export const uniformOrigin = new URL(process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190").origin;
 // 默认保留独立 Agent 测试端口；教程联调显式指定 43130，云端与 Agent 同端口时仍按既有路径合同模拟。
@@ -138,6 +139,7 @@ export async function mockUniformAdmin(page: Page, empty = false, withMessages =
     else if (path === "/api/subscription/plans") data = { plans: [] };
     else if (path === "/api/payment/orders") data = { orders: [] };
     else if (path === "/api/admin/payment/orders") data = { orders: empty ? [] : orders, stats: { monthly_ai_consumption: "1.2345" } };
+    else if (path === "/api/admin/statistics") data = uniformSystemStatistics(empty, url);
     else if (path === "/api/admin/users") data = { users: empty ? [] : pageRows(users, url), total: empty ? 0 : users.length, stats: { today_registered_count: 0, agent_binding_count: 0, remaining_ai_balance: "12.3456", ai_recharge_amount: "10.00" } };
     else if (path === "/api/admin/logs") data = { logs: empty ? [] : pageRows(logs, url, 50), total: empty ? 0 : logs.length };
     else if (path === "/api/admin/activation-codes") data = { codes: empty ? [] : codes };
@@ -175,6 +177,33 @@ export async function mockUniformAdmin(page: Page, empty = false, withMessages =
     return fulfillFixture(200, data);
   });
   return state;
+}
+
+/** uniformSystemStatistics 返回全站聚合模拟数据，覆盖默认七日曲线、零值、长模型名称与时间筛选。 */
+function uniformSystemStatistics(empty: boolean, url: URL) {
+  const today = shanghaiDate();
+  const period = url.searchParams.get("period") || "today";
+  const last = period === "yesterday" ? shanghaiDate(new Date(Date.now() - 86400000)) : today;
+  const size = period === "last7" ? 7 : period === "last30" ? 30 : 1;
+  const start = period === "custom" ? url.searchParams.get("start_date") || today : shanghaiDate(new Date(new Date(`${last}T00:00:00+08:00`).getTime() - (size - 1) * 86400000));
+  const end = period === "custom" ? url.searchParams.get("end_date") || today : last;
+  const curveDays = start === end ? 7 : Math.round((new Date(`${end}T00:00:00+08:00`).getTime() - new Date(`${start}T00:00:00+08:00`).getTime()) / 86400000) + 1;
+  const count = empty ? 0 : 18;
+  const metrics = Object.fromEntries(["registered", "active_users", "active_teams", "screening_users", "new_positions", "greeted", "processed_resumes", "new_resumes", "charged_calls", "consumers", "prompt_tokens", "completion_tokens", "paid_orders", "payers", "refund_count", "screenings", "first_done", "first_pass", "second_done", "second_pass", "screening_failed", "recommendations", "recommendation_updates", "applications", "interviews", "onboardings", "new_customers", "new_customer_jobs", "runtime_errors", "affected_users"].map((key) => [key, count]));
+  Object.assign(metrics, { first_done: empty ? 0 : 120, first_pass: empty ? 0 : 80, second_done: empty ? 0 : 80, second_pass: empty ? 0 : 32, average_screening_ms: empty ? undefined : 2350, retention_1_eligible: 0, retention_1_returned: 0, retention_7_eligible: 0, retention_7_returned: 0 });
+  const amounts = Object.fromEntries(["consumption", "principal_consumption", "bonus_consumption", "receipts", "ai_recharge", "refunds", "net_receipts", "gift", "admin_increase", "admin_decrease"].map((key) => [key, empty ? "0.0000" : key === "consumption" ? "12.3456" : key === "receipts" ? "200.00" : "1.2345"]));
+  const curve = Array.from({ length: curveDays }, (_, index) => ({ date: shanghaiDate(new Date(new Date(`${end}T00:00:00+08:00`).getTime() - (curveDays - index - 1) * 86400000)), amount: empty ? "0.0000" : index === curveDays - 1 ? "12.3456" : (index * 1.2345).toFixed(4), calls: count }));
+  return { ok: true, stats: {
+    start_date: start, end_date: end, as_of: new Date().toISOString(), metrics, amounts,
+    current: { users: empty ? 0 : 1280, positions: empty ? 0 : 832, running_positions: empty ? 0 : 16, resumes: empty ? 0 : 12568, teams: empty ? 0 : 89, bound_users: empty ? 0 : 736 },
+    current_amounts: { balance: empty ? "0.0000" : "3456.7890", principal: empty ? "0.0000" : "3000.0000", bonus: empty ? "0.0000" : "456.7890" },
+    funnel: ["注册账号", "启动本地程序", "安装运行组件", "创建岗位", "登录招聘平台", "启动岗位", "处理首份简历", "首次打招呼成功"].map((label, index) => ({ key: `step-${index}`, label, count: empty ? 0 : [18, 16, 14, 12, 10, 8, 7, 5][index] })), curve,
+    platforms: empty ? [] : [{ name: "boss", count: 120 }, { name: "zhaopin", count: 36 }],
+    models: empty ? [] : [{ name: "合成长模型名称 · 用于验证桌面及手机统计布局始终完整可读", count: 12, amount: "10.0000" }, { name: "synthetic-model", count: 6, amount: "2.3456" }],
+    sources: empty ? [] : [{ name: "browser_extension", count: 8 }, { name: "ai_import", count: 10 }],
+    versions: empty ? [] : [{ name: "6.2.12.4", count: 500 }, { name: "6.2.12.3", count: 236 }],
+    errors: empty ? [] : [{ name: "browser.exit", count: 2 }], blocked: empty ? [] : [{ name: "runtime_ready", count: 2 }], warnings: [],
+  } };
 }
 
 /** expectUniformNetwork 确认页面没有未知业务请求、真实写入或前端运行异常。 */

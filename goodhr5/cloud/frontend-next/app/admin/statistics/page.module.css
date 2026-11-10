@@ -1,0 +1,61 @@
+/* 文件作用：复用后台主题的紧凑统计布局，桌面双图并排，手机单列，不修改共享控件尺寸。 */
+.rangePicker { max-width: 100%; }
+.rangeLabel { font-size: 12px; white-space: nowrap; }
+.warning { margin-bottom: 12px; }
+.summary.summary { margin-bottom: 12px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(144px, 1fr)); gap: 20px 16px; padding: 4px 0 16px; }
+.metric { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.metricLabel { color: var(--goodhr-text-secondary); font-size: 12px; }
+.metricValue { color: var(--goodhr-text); font-size: 21px; font-weight: 650; line-height: 1.35; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.metricNote { font-size: 12px; line-height: 1.5; color: var(--goodhr-text-secondary); }
+.summary .metricValue { font-size: 25px; }
+.charts { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; align-items: start; }
+.charts > * { min-width: 0; }
+.figure { margin: 0; min-width: 0; }
+.chartHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.chartHeading h5, .group h5 { margin: 0 !important; font-size: 14px; }
+.chartHeading > span { font-size: 12px; }
+.chartDescription { margin: 4px 0 12px !important; font-size: 12px; }
+.lineChart { width: 100%; display: block; overflow: visible; min-height: 180px; }
+.gridLine { stroke: var(--goodhr-border, #e8e8e8); stroke-width: 1; }
+.axis { fill: var(--goodhr-text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.line { stroke: var(--goodhr-primary); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.point { fill: var(--goodhr-primary); stroke: var(--goodhr-panel, #fff); stroke-width: 2; cursor: help; outline: none; }
+.point:focus-visible { stroke: var(--goodhr-text); stroke-width: 3; }
+.dailyDetails { margin-top: 12px; color: var(--goodhr-text-secondary); font-size: 12px; }
+.dailyDetails summary { cursor: pointer; padding-block: 8px; }
+.dailyRows { max-height: 280px; overflow: auto; }
+.dailyRows > div { display: grid; grid-template-columns: minmax(0, 1fr) auto 64px; gap: 8px; padding-block: 6px; font-variant-numeric: tabular-nums; }
+.dailyRows strong { color: var(--goodhr-text); font-weight: 500; }
+.dailyRows > div > :last-child { text-align: right; }
+.funnel { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.funnelLabel { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 4px; }
+.funnelLabel strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+.funnelLine { display: flex; align-items: center; gap: 8px; }
+.funnelTrack { flex: 1; display: flex; justify-content: center; background: var(--goodhr-primary-soft); height: 13px; border-radius: 2px; overflow: hidden; }
+.funnelBar { background: var(--goodhr-primary); height: 100%; border-radius: 2px; }
+.funnelRate { width: 54px; text-align: right; font-size: 12px; color: var(--goodhr-text-secondary); font-variant-numeric: tabular-nums; }
+.explanation { font-size: 12px; line-height: 1.7; margin: 12px 0 0 !important; }
+.details.details { margin-bottom: 12px; }
+.groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 20px; }
+.group { min-width: 0; }
+.groupList { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.groupLabel { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; font-size: 13px; }
+.groupLabel > span { overflow-wrap: anywhere; min-width: 0; }
+.groupLabel strong { font-weight: 550; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.groupLabel small { font-weight: 400; color: var(--goodhr-text-secondary); }
+.groupTrack { height: 4px; margin-top: 6px; border-radius: 2px; background: var(--goodhr-primary-soft); overflow: hidden; }
+.groupTrack > div { background: var(--goodhr-primary); height: 100%; border-radius: 2px; }
+.rates { display: flex; flex-wrap: wrap; gap: 12px 24px; padding-block: 12px; border-top: 1px solid var(--goodhr-border, #e8e8e8); }
+.rates span { color: var(--goodhr-text-secondary); font-size: 12px; }
+.rates strong { margin-left: 8px; color: var(--goodhr-text); font-variant-numeric: tabular-nums; }
+.timestamp { font-size: 12px; text-align: right; margin-bottom: 0 !important; }
+@media (max-width: 1000px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 599px) {
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+  .metricValue, .summary .metricValue { font-size: 21px; }
+  .groups { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .rangeLabel { white-space: normal; flex: 1 1 100%; }
+  .rangePicker { width: 100%; }
+  .lineChart { min-height: 150px; }
+}

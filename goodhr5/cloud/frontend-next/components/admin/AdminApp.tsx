@@ -152,6 +152,7 @@ const menuGroups: MenuGroup[] = [
     label: "系统管理",
     superOnly: true,
     items: [
+      ["/admin/statistics", "系统统计", DashboardRoundedIcon],
       ["/admin/users", "用户管理", PersonRoundedIcon],
       ["/admin/logs", "运行日志", ManageSearchRoundedIcon],
       ["/admin/articles", "文章管理", ArticleRoundedIcon],

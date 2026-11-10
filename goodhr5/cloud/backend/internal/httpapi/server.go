@@ -55,6 +55,7 @@ type Server struct {
 	publicStats           *PublicStatsService
 	articles              *ArticleService
 	teamStats             *TeamStatsService
+	systemStatistics      *SystemStatisticsService
 	dailyStats            SystemDailyStatsStore
 	help                  *HelpService
 	systemConfigs         SystemConfigStore
@@ -124,6 +125,7 @@ func NewServer() (*Server, error) {
 	emailCampaignStore := config.EmailCampaignStore(db)
 	paymentStore := config.PaymentStore(db)
 	adminUserStore := config.AdminUserStore(db, subscriptionStore, aiWalletStore, paymentStore, candidateStore)
+	adminUserService := NewAdminUserService(auth, adminUserStore, subscriptionStore, systemConfigStore, mailer, agentStore, aiWalletStore)
 	positionLogs := NewPositionLogService(auth, positionStore, config.PositionLogStore(db), tenantStore)
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(systemConfigStore))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
@@ -220,7 +222,8 @@ func NewServer() (*Server, error) {
 		runtimeConfig:         NewRuntimeConfigService(auth, systemConfigStore),
 		invitations:           NewInvitationService(auth, invitationStore, systemConfigStore),
 		activationCodes:       NewActivationCodeService(auth, activationCodeStore, subscriptionStore, systemConfigStore, mailer),
-		adminUsers:            NewAdminUserService(auth, adminUserStore, subscriptionStore, systemConfigStore, mailer, agentStore, aiWalletStore),
+		adminUsers:            adminUserService,
+		systemStatistics:      NewSystemStatisticsService(adminUserService, db),
 		adminEmails:           adminEmails,
 		publicStats:           NewPublicStatsService(adminUserStore, positionStore, agentStore, dailyStatsStore),
 		articles:              NewArticleService(auth, articleStore),
@@ -342,6 +345,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/activation-codes/redeem", s.activationCodes.Redeem)
 	mux.HandleFunc("/api/admin/activation-codes", s.activationCodes.AdminCollection)
 	mux.HandleFunc("/api/admin/users", s.adminUsers.Collection)
+	mux.HandleFunc("/api/admin/statistics", s.systemStatistics.Summary)
 	mux.HandleFunc("/api/admin/logs", s.browserEvents.AdminLogs)
 	mux.HandleFunc("/api/browser-events", s.browserEvents.Upload)
 	mux.HandleFunc("/api/admin/users/unbind-agent", s.adminUsers.UnbindAgent)
