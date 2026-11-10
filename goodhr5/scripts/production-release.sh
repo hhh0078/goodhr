@@ -124,13 +124,20 @@ production_finalize() {
 import json, os, pathlib, socket, sys
 p = pathlib.Path(sys.argv[1])
 if p.exists():
-    raise SystemExit("收尾记录已存在，请核对上次发布结果后再处理")
-with p.open("x", encoding="utf-8") as f:
-    os.chmod(p, 0o600)
-    json.dump({"schema_version": 1, "host": socket.gethostname(), "release_dir": sys.argv[2],
-               "status": "succeeded", "completed_workdirs": []}, f, ensure_ascii=False, indent=2)
+    value = json.loads(p.read_text(encoding="utf-8"))
+    if (p.is_symlink() or p.resolve() != p.absolute() or not isinstance(value, dict)
+            or value.get("schema_version") != 1 or value.get("host") != socket.gethostname()
+            or value.get("release_dir") != sys.argv[2] or value.get("status") != "succeeded"):
+        raise SystemExit("既有收尾记录身份或完成状态不符，停止清理")
+    # 隔离恢复缓存与正式收尾共用同一份显式manifest，保留原证据并由下方planner重新核验。
+else:
+    with p.open("x", encoding="utf-8") as f:
+        os.chmod(p, 0o600)
+        json.dump({"schema_version": 1, "host": socket.gethostname(), "release_dir": sys.argv[2],
+                   "status": "succeeded", "completed_workdirs": []}, f, ensure_ascii=False, indent=2)
 PY
-  local plan="$production_release_dir/hygiene-plan.json" plan_sha
+  local finalize_id="$(date -u +%Y%m%dT%H%M%S)-$$"
+  local plan="$production_release_dir/hygiene-plan-$finalize_id.json" plan_sha
   python3 "$root/scripts/release_hygiene.py" plan --release-dir "$production_release_dir" --out "$plan" || return
   plan_sha="$(sha256sum "$plan" | cut -d' ' -f1)" || return
   python3 "$root/scripts/release_hygiene.py" apply --plan "$plan" --sha256 "$plan_sha" || return
@@ -138,7 +145,7 @@ PY
   flock -u 9 || return
   flock -u 8 || return
   flock -u 10 || return
-  plan="$production_release_dir/docker-retention-plan.json"
+  plan="$production_release_dir/docker-retention-plan-$finalize_id.json"
   python3 "$root/scripts/release_retention.py" plan \
     --registry "${GOODHR_RETENTION_REGISTRY:-/opt/goodhr-release/retention-registry.json}" --out "$plan" || return
   plan_sha="$(sha256sum "$plan" | cut -d' ' -f1)" || return

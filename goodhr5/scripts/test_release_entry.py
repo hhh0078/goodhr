@@ -328,6 +328,37 @@ class EntryTests(unittest.TestCase):
         checks = [call for call in self.calls if call[0] == "python3" and call[1].endswith("release_retention.py") and "check" in call]
         self.assertEqual(len(checks), 1)
 
+    def test_activation_preserves_existing_isolated_cleanup_manifest(self):
+        """隔离收尾已写manifest时，正式收尾保留原证据并生成新计划，不冒充新建空记录。"""
+        release = self.home / "release"
+        release.mkdir()
+        manifest = release / "release-hygiene-manifest.json"
+        value = {"schema_version": 1, "host": socket.gethostname(), "release_dir": str(release),
+                 "status": "succeeded", "completed_workdirs": [], "completed_stage": "isolated_validation",
+                 "isolated_postgres": [{"path": "rehearsal/pgdata", "rehearsal": {"passed": True}}]}
+        write_fixture(manifest, json.dumps(value))
+        before = manifest.read_bytes()
+        for name in ("hygiene-plan.json", "docker-retention-plan.json"):
+            write_fixture(release / name, "previous plan evidence")
+        result = self.run_entry()
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(manifest.read_bytes(), before)
+        for name in ("hygiene-plan.json", "docker-retention-plan.json"):
+            self.assertEqual((release / name).read_text(), "previous plan evidence")
+        self.assertTrue(any(call[0] == "python3" and call[1].endswith("release_retention.py") and "apply" in call for call in self.calls))
+
+    def test_failed_cleanup_manifest_never_runs_gc(self):
+        """未完成收尾证据必须阻断文件和Docker回收。"""
+        release = self.home / "release"
+        release.mkdir()
+        manifest = release / "release-hygiene-manifest.json"
+        write_fixture(manifest, json.dumps({"schema_version": 1, "host": socket.gethostname(),
+                      "release_dir": str(release), "status": "failed", "completed_workdirs": []}))
+        result = self.run_entry()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"cleanup_pending", result.stderr)
+        self.assertFalse(any(call[0] == "python3" and call[1].endswith(("release_hygiene.py", "release_retention.py")) and "plan" in call for call in self.calls))
+
     def test_keep_artifacts_finalize_never_calls_cleanup_commands(self):
         """保留开关直接加载真实收尾函数，命令桩证明没有进入Docker或文件回收路径。"""
         env = dict(os.environ, GOODHR_RELEASE_KEEP_ARTIFACTS="1", FIXTURE_LOG=str(self.log))
