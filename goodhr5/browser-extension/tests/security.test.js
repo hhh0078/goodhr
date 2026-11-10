@@ -701,3 +701,75 @@ test("退出期间迟到的登录会话只进入撤销队列，不能恢复登�
   assert.equal(value.values.session, undefined); assert.equal(value.values.pending_revoke.cloud_tokens[0], "private-late-token");
   await value.message({ type: "REVOKE_RETRY" }, uiSender); assert.equal(value.values.pending_revoke, undefined);
 });
+
+test("删除对账只发本账号稳定编号或摘要，优先云编号并阻止旧窗口复活草稿", async () => {
+  const a = "10000000-1111-4000-8000-000000000001", b = "10000000-1111-4000-8000-000000000002";
+  const hash = crypto.createHash("sha256").update("boss\0stable-1").digest("hex");
+  const value = backgroundFixture(async () => response({ ok: true, candidate_ids: [a], source_hashes: [hash] }));
+  value.values.data_use_accepted = true;
+  const account = JSON.stringify(["fixture", "fixture@example.test"]);
+  const identity = JSON.stringify(["boss", "stable-1", "https://www.zhipin.com/web/chat/index", "合成人"]);
+  const keys = ["有编号", identity, "新云编号", "仅姓名", "旧附件", "别的账号", "新建中", "回执冲突"];
+  const records = [{ candidate_id: a }, {}, { candidate_id: b, source_hash: hash }, {}, { attachment: { save_history: [{ candidate_id: a }] } }, { candidate_id: a }, { attachment: { save_request: { operation: "create" }, save_history: [{ candidate_id: a }] } }, { attachment: { save_request: { candidate_id: b }, save_task: { candidate_id: a } } }];
+  const storeKeys = keys.map((id, i) => JSON.stringify([i === 5 ? "another-account" : account, id]));
+  value.values.ui_drafts = Object.fromEntries(storeKeys.map((key, i) => [key, { instance: "seen-" + i, updated_at: Date.now(), data: { ...records[i], fields: { note: "不能上传的私人备注" } } }]));
+  const result = await value.message({ type: "DRAFT_GET", payload: { account_key: account, identity: keys[0] } }, uiSender);
+  assert.equal(result.ok, true); assert.equal(result.data.draft, null);
+  assert.equal(value.requests.length, 1);
+  assert.deepEqual(JSON.parse(value.requests[0].options.body), { candidate_ids: [a, b], source_hashes: [hash] });
+  assert.deepEqual(Object.keys(value.values.ui_drafts), [storeKeys[2], storeKeys[3], storeKeys[5], storeKeys[6], storeKeys[7]]);
+  const stale = await value.message({ type: "DRAFT_SAVE", payload: { account_key: account, identity: keys[0], draft_instance: "seen-0", draft: { candidate_id: a, fields: { note: "旧窗口迟到" } } } }, uiSender);
+  assert.equal(stale.ok, false); assert.equal(value.values.ui_drafts[storeKeys[0]], undefined);
+});
+
+test("插件对账晚到时保留新修改及切号之前的草稿", async () => {
+  const id = "10000000-1111-4000-8000-000000000001", account = JSON.stringify(["fixture", "fixture@example.test"]);
+  for (const change of ["edit", "switch", "offline"]) {
+    let accept, seen;
+    const observed = new Promise((resolve) => { seen = resolve; });
+    const wait = new Promise((resolve) => { accept = resolve; });
+    const value = backgroundFixture(async () => { seen(); await wait; return change === "offline" ? response({}, 503) : response({ ok: true, candidate_ids: [id], source_hashes: [] }); });
+    value.values.data_use_accepted = true;
+    const key = JSON.stringify([account, "定向草稿"]);
+    value.values.ui_drafts = { [key]: { instance: "old-instance", updated_at: Date.now(), data: { candidate_id: id, fields: { note: "原备注" } } } };
+    const reading = value.message({ type: "DRAFT_GET", payload: { account_key: account, identity: "定向草稿" } }, uiSender);
+    await observed;
+    if (change === "edit") {
+      const saved = await value.message({ type: "DRAFT_SAVE", payload: { account_key: account, identity: "定向草稿", draft_instance: "old-instance", draft: { candidate_id: id, fields: { note: "刚修改" } } } }, uiSender);
+      assert.equal(saved.ok, true);
+    } else if (change === "switch") value.values.session.user = { id: "other", email: "other@example.test" };
+    accept(); await reading;
+    assert.equal(value.values.ui_drafts[key]?.data.fields.note, change === "edit" ? "刚修改" : "原备注");
+  }
+});
+
+test("真实 Chrome 插件在打开旧草稿时按云端回执清理私有存储", { timeout: 25000 }, async () => {
+  const { chromium } = require(path.join(__dirname, "..", "..", "cloud", "frontend-next", "node_modules", "@playwright", "test"));
+  const { preparePackageDirectory } = require("../scripts/build.js");
+  const work = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "goodhr-draft-purge-")), directory = path.join(work, "extension");
+  let context;
+  try {
+    preparePackageDirectory(directory, "chrome", true);
+    context = await chromium.launchPersistentContext(path.join(work, "profile"), { channel: "chrome", headless: true, ignoreDefaultArgs: ["--disable-extensions"], args: ["--enable-unsafe-extension-debugging", "--disable-background-networking"] });
+    const cdp = await context.browser().newBrowserCDPSession();
+    await cdp.send("Extensions.loadUnpacked", { path: directory });
+    const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    const result = await worker.evaluate(async () => {
+      const candidate = "11111111-2222-4000-8000-000000000001", account = JSON.stringify(["fixture", "synthetic@example.invalid"]);
+      const key = JSON.stringify([account, "本次合成资料"]), other = JSON.stringify(["another-account", "另一份草稿"]);
+      const row = { updated_at: Date.now(), data: { candidate_id: candidate, fields: { note: "私有合成文本" } } };
+      const calls = [];
+      // 仅在测试插件自己的后台替换 fetch，不打开招聘页，不向任何站点发请求。
+      globalThis.fetch = async (url, options) => {
+        calls.push({ path: new URL(url).pathname, body: JSON.parse(options.body) });
+        return new Response(JSON.stringify({ ok: true, candidate_ids: [candidate], source_hashes: [] }));
+      };
+      await chrome.storage.local.set({ session: { token: "only-test", user: { id: "fixture", email: "synthetic@example.invalid" } }, data_use_accepted: true, ui_drafts: { [key]: row, [other]: row } });
+      const restored = await handleUIMessage({ type: "DRAFT_GET", payload: { account_key: account, identity: "本次合成资料" } }, null);
+      const after = (await chrome.storage.local.get("ui_drafts")).ui_drafts;
+      return { absent: !after[key] && restored.draft === null, otherIntact: !!after[other], calls };
+    });
+    assert.equal(result.absent, true); assert.equal(result.otherIntact, true);
+    assert.deepEqual(result.calls, [{ path: "/api/candidates/deletions/check", body: { candidate_ids: ["11111111-2222-4000-8000-000000000001"], source_hashes: [] } }]);
+  } finally { await context?.close(); fs.rmSync(work, { recursive: true, force: true }); }
+});

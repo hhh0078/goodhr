@@ -8,16 +8,18 @@ import {
   normalizeWorkerError,
   WorkerError,
 } from "../../errors/worker-error.js";
+import { markRequestProgress, observeRequestPage } from "../../logging/request-progress.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { LocatorPrimitive, type ResolvedElement } from "../primitives/locator.js";
 import { MousePrimitive } from "../primitives/mouse.js";
 import { ScreenshotPrimitive } from "../primitives/screenshot.js";
 import { ViewportPrimitive } from "../primitives/viewport.js";
+import { assertRequestActive } from "../primitives/request-lifecycle.js";
 import { BrowserSession } from "../session/browser-session.js";
 import type { FindAction, FoundElement } from "./find.js";
 import { MoveAction } from "./move.js";
 import { variedDistance, wheelGesture, readingPause } from "./wheel-gesture.js";
-import { assertTargetCanFit, directedWheel, intersectsViewport, targetGap, viewAccepted, visibleArea as calculateVisibleArea } from "./scroll-geometry.js";
+import { assertTargetCanFit, directedWheel, intersectsViewport, targetGap, viewAccepted, visibleArea as calculateVisibleArea, type VisibleArea } from "./scroll-geometry.js";
 
 /** ScrollResult 表示真实滚轮滚动次数和前后状态。 */
 export interface ScrollResult extends JsonObject {
@@ -58,6 +60,8 @@ export class ScrollAction {
     });
     try {
       const page = await this.session.requirePage(actionContext, step);
+      observeRequestPage(actionContext, page);
+      markRequestProgress(actionContext, "scroll_target");
       const target = request.target
         ? await this.find.one(request.target, actionContext, true)
         : null;
@@ -65,9 +69,14 @@ export class ScrollAction {
         ? await this.find.one(request.progress_target, actionContext, true)
         : null;
       const progressBefore = progress ? progress.resolved.view : undefined;
+      markRequestProgress(actionContext, "scroll_anchor");
       const anchor = request.wheel_anchor
         ? await this.find.one(request.wheel_anchor, actionContext, true)
         : target;
+      if (progress && anchor && !target && request.wheel_anchor && request.stop_when_progress_visible && !isDocumentScrollAnchor(anchor)) {
+        return await this.scrollToContainerEdge(request, progress, anchor, actionContext);
+      }
+      markRequestProgress(actionContext, "scroll_move");
       const progressArea = progress
         ? calculateVisibleArea(progress.resolved.view, request.wheel_anchor ? scrollContainerView(anchor) : undefined, 0)
         : undefined;
@@ -113,7 +122,11 @@ export class ScrollAction {
           ? targetGap(target.resolved.view, visibleArea, request.require_full ?? false)
           : 0;
       let noProgressCount = 0;
+      let progressAfter = progressBefore;
       for (let index = 0; index < maxAttempts; index += 1) {
+        if (request.stop_when_progress_visible && progressAfter && progressEdgeVisible(progressAfter, anchor, request.distance)) {
+          break;
+        }
         if (
           target &&
           visibleArea &&
@@ -138,12 +151,19 @@ export class ScrollAction {
           attempt: index + 1,
           delta_x: distance.x, delta_y: distance.y,
         });
+        markRequestProgress(actionContext, "scroll_wheel");
         await wheelGesture(this.mouse, page, distance.x, distance.y, actionContext, this.logger);
         attempts += 1;
+        markRequestProgress(actionContext, "scroll_verify");
         await readingPause(Math.max(50, request.wait_ms ?? 250), actionContext);
         after = target
           ? await this.refreshTarget(target.resolved)
           : await this.screenshotState(page);
+        // 最后一轮统一使用结束处的新鲜读取；只有继续下一轮时才在此复核，避免重复截图读取相同节点。
+        if (progress && index + 1 < maxAttempts) {
+          progressAfter = await this.refreshTarget(progress.resolved);
+          if (anchor) anchor.resolved.view = await this.refreshTarget(anchor.resolved);
+        }
         if (target) {
           target.resolved.view = after as ElementView;
           const anchorView =
@@ -227,13 +247,13 @@ export class ScrollAction {
         result.progress_target_moved = (["x", "y", "width", "height"] as const).some(
           key => Math.abs(progressAfter.box[key] - progressBefore.box[key]) > 1,
         );
-        const area = calculateVisibleArea(progressAfter, request.wheel_anchor ? scrollContainerView(anchor, anchor ? await this.refreshTarget(anchor.resolved) : undefined) : undefined, 0);
-        const bottom = progressAfter.box.y + progressAfter.box.height;
-        result.progress_target_visible = progressAfter.visible && area.height > 0 &&
-          bottom <= area.bottom + 1 && bottom > area.top;
+        if (anchor) anchor.resolved.view = await this.refreshTarget(anchor.resolved);
+        result.progress_target_visible = progressEdgeVisible(progressAfter, anchor, request.distance);
         this.logger.info(actionContext, "scroll_progress", "success", {
           progress_target_visible: result.progress_target_visible,
           progress_target_moved: result.progress_target_moved,
+          direction: request.distance < 0 ? "up" : "down",
+          attempts,
           before_y: progressBefore.box.y, after_y: progressAfter.box.y,
         });
       }
@@ -258,7 +278,87 @@ export class ScrollAction {
     }
   }
 
-  /** ensureVisible 让已经找到的目标进入视口，不重新查找目标。 */
+  /** scrollToContainerEdge 将真实滚轮放在容器中部，核实消息边缘相对于容器的位移，防止页面浮层接收滚轮。 */
+  private async scrollToContainerEdge(request: ScrollRequest, progress: FoundElement, anchor: FoundElement, ctx: ActionContext): Promise<ScrollResult> {
+    const before = progress.resolved.view;
+    let current = before;
+    const area = () => calculateVisibleArea(current, anchor.resolved.view, 0);
+    const relativeEdge = () => current.box.y - anchor.resolved.view.box.y + (request.distance > 0 ? current.box.height : 0);
+    const initialEdge = relativeEdge();
+    const initialAnchor = anchor.resolved.view.box;
+    let previousEdge = initialEdge;
+    let attempts = 0;
+    let stalled = 0;
+    let alternate = false;
+    const maxAttempts = Math.max(1, request.max_attempts ?? 1);
+    /** moveInside 将落点限制在滚动容器可见交集内，重新选点时改用中部偏左，避开固定按钮。 */
+    const moveInside = async (): Promise<void> => {
+      markRequestProgress(ctx, "scroll_move");
+      const clip = area();
+      assertTargetCanFit(current, clip, false, ctx);
+      if (alternate) {
+        clip.right = clip.left + clip.width * 0.32;
+        clip.left += clip.width * 0.12;
+        clip.width = clip.right - clip.left;
+      }
+      await this.move.toElement(anchor.resolved, ctx, { centered: true, visibleArea: clip });
+    };
+    /** refreshBoxes 使用标准 Locator 仅读两处矩形，最终可见判断另以实时视口复核。 */
+    const refreshBoxes = async (): Promise<void> => {
+      assertRequestActive(ctx);
+      const [box, anchorBox] = await Promise.all([progress.resolved.locator.boundingBox(), anchor.resolved.locator.boundingBox()]);
+      assertRequestActive(ctx);
+      if (!box || !anchorBox || box.height <= 0 || anchorBox.height <= 0 || box.width <= 0 || anchorBox.width <= 0) {
+        throw new WorkerError({ code: "SCROLL_FAILED", message: "滚动容器或目标已离开页面，请重新读取", action: ctx.action,
+          step: "scroll", trace_id: ctx.trace_id, retryable: true });
+      }
+      const viewport = progress.resolved.page.viewportSize() ?? current.viewport;
+      current = { ...current, box, viewport };
+      anchor.resolved.view = { ...anchor.resolved.view, box: anchorBox, viewport };
+    };
+    this.logGeometry(ctx, "progress_initial", current, anchor, area());
+    while (attempts < maxAttempts && !progressEdgeVisible(current, anchor, request.distance)) {
+      if (attempts === 0) await moveInside();
+      const delta = variedDistance(request.distance);
+      this.logger.info(ctx, "wheel", "start", { attempt: attempts + 1, delta_x: 0, delta_y: delta });
+      markRequestProgress(ctx, "scroll_wheel");
+      await wheelGesture(this.mouse, progress.resolved.page, 0, delta, ctx, this.logger);
+      markRequestProgress(ctx, "scroll_verify");
+      await readingPause(Math.max(50, request.wait_ms ?? 250), ctx);
+      attempts++;
+      await refreshBoxes();
+      const edge = relativeEdge();
+      stalled = Math.abs(edge - previousEdge) <= 1 ? stalled + 1 : 0;
+      previousEdge = edge;
+      const visible = progressEdgeVisible(current, anchor, request.distance);
+      this.logger.info(ctx, "wheel", "success", { attempt: attempts, delta_y: delta, relative_edge_y: edge,
+        target_y: current.box.y, anchor_y: anchor.resolved.view.box.y, progress_target_visible: visible });
+      if (!visible && stalled >= 3 && !alternate && attempts < maxAttempts) {
+        alternate = true;
+        stalled = 0;
+        await moveInside();
+      } else if (!visible && stalled >= 3 && alternate) {
+        this.logGeometry(ctx, "progress_stalled", current, anchor, area());
+        throw new WorkerError({ code: "SCROLL_NO_PROGRESS", message: "已换过滚轮落点，列表目标仍未靠近边缘，请检查遮挡后再试",
+          action: ctx.action, step: "wheel", trace_id: ctx.trace_id, retryable: true,
+          details: { attempts, initial_relative_y: initialEdge, last_relative_y: edge } });
+      }
+    }
+    // 零轮和滚动后的成功均需复核实际视口；固定视口未配置时仅在最终核验读取一次视口截图。
+    current = await this.refreshTarget(progress.resolved);
+    await refreshBoxes();
+    const visible = progressEdgeVisible(current, anchor, request.distance);
+    const moved = Math.abs(relativeEdge() - initialEdge) > 1;
+    this.logGeometry(ctx, "progress_final", current, anchor, area());
+    this.logger.info(ctx, "scroll_progress", "success", { attempts, progress_target_moved: moved, progress_target_visible: visible,
+      before_y: before.box.y, after_y: current.box.y, initial_relative_y: initialEdge, last_relative_y: relativeEdge() });
+    this.logger.info(ctx, "scroll", "success", { attempts });
+    return { scrolled: attempts > 0 && moved, attempts, distance: request.distance, progress_target_visible: visible, progress_target_moved: moved,
+      before: { target_box: { ...before.box }, anchor_box: { ...initialAnchor }, relative_edge_y: initialEdge },
+      after: { target_box: { ...current.box }, anchor_box: { ...anchor.resolved.view.box }, relative_edge_y: relativeEdge() } };
+  }
+
+  /** ensureVisible 让目标进入视口，并返回移动前重读容器交集的方法；目标稳定和原生恢复后也不沿用旧裁剪区。 */
   async ensureVisible(
     found: FoundElement,
     request: {
@@ -269,7 +369,7 @@ export class ScrollAction {
       require_full?: boolean;
     },
     actionContext: ActionContext,
-  ): Promise<void> {
+  ): Promise<() => Promise<VisibleArea>> {
     let anchor: FoundElement | undefined;
     if (request.wheel_anchor) {
       anchor = await this.find.one(
@@ -278,6 +378,22 @@ export class ScrollAction {
         true,
       );
     }
+    /** readVisibleArea 在目标坐标稳定后刷新容器；仅读取，不再次滚动或重新定位目标。 */
+    const readVisibleArea = async (): Promise<VisibleArea> => {
+      assertRequestActive(actionContext);
+      const currentAnchor = anchor ? await this.refreshTarget(anchor.resolved) : undefined;
+      assertRequestActive(actionContext);
+      const container = scrollContainerView(anchor, currentAnchor);
+      if (container && (!container.visible || container.box.width <= 0 || container.box.height <= 0)) {
+        throw new WorkerError({ code: "ELEMENT_NOT_VISIBLE", message: "目标所在区域已经隐藏，鼠标没有继续操作",
+          action: actionContext.action, step: "ensure_visible", trace_id: actionContext.trace_id, retryable: true });
+      }
+      if (currentAnchor) found.resolved.view.viewport = currentAnchor.viewport;
+      const area = calculateVisibleArea(found.resolved.view, container, request.viewport_margin ?? 0);
+      assertTargetCanFit(found.resolved.view, area, false, actionContext);
+      this.logGeometry(actionContext, "before_move", found.resolved.view, anchor, area, currentAnchor);
+      return area;
+    };
     let visibleArea = calculateVisibleArea(
       found.resolved.view,
       scrollContainerView(anchor),
@@ -297,7 +413,7 @@ export class ScrollAction {
         visibleArea,
       )
     ) {
-      return;
+      return readVisibleArea;
     }
     if (anchor && intersectsViewport(anchor.resolved.view)) {
       await this.move.toElement(anchor.resolved, actionContext, { centered: true });
@@ -322,7 +438,9 @@ export class ScrollAction {
         visibleArea,
         request.require_full ?? false,
       );
+      markRequestProgress(actionContext, "scroll_wheel");
       await wheelGesture(this.mouse, found.resolved.page, distance.x, distance.y, actionContext, this.logger);
+      markRequestProgress(actionContext, "scroll_verify");
       await readingPause(220, actionContext);
       found.resolved.view = await this.refreshTarget(found.resolved);
       const anchorView = anchor
@@ -376,7 +494,7 @@ export class ScrollAction {
           visibleArea,
         )
       ) {
-        return;
+        return readVisibleArea;
       }
     }
     throw new Error("元素滚动后仍未进入可操作区域");
@@ -430,6 +548,15 @@ export class ScrollAction {
       },
     });
   }
+}
+
+/** progressEdgeVisible 按滚轮方向核对首边或末边，长消息也能判断是否真正到达对应边缘。 */
+function progressEdgeVisible(view: ElementView, anchor: FoundElement | null | undefined, distance: number): boolean {
+  const area = calculateVisibleArea(view, scrollContainerView(anchor), 0);
+  const edge = distance < 0 ? view.box.y : view.box.y + view.box.height;
+  return view.visible && area.height > 0 && (distance < 0
+    ? edge >= area.top - 1 && edge < area.bottom
+    : edge <= area.bottom + 1 && edge > area.top);
 }
 
 /** scrollContainerView 只让真实滚动容器限制安全区域，整页锚点始终使用浏览器视口。 */

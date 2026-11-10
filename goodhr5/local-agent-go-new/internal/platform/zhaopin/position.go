@@ -4,13 +4,22 @@ package zhaopin
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// SelectPosition 在智联职位选择弹层选择任务岗位。
+// SelectPosition 沿用智联手动搜索结果，推荐页仍在职位选择弹层选择任务岗位。
 func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config, position model.Position) error {
+	manualSearch, err := common.CurrentPageUsesManualSearch(ctx, browser, cfg)
+	if err != nil {
+		return err
+	}
+	r.positionName = strings.TrimSpace(position.Name)
+	if manualSearch {
+		return nil
+	}
 	before, err := common.FindCandidates(ctx, browser, cfg, cfg.ID, model.CandidateListOptions{})
 	if err != nil && !common.IsElementMissing(err) {
 		return fmt.Errorf("读取切岗前的候选人列表失败：%w", err)
@@ -28,7 +37,11 @@ func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg
 	return common.WaitForStableCandidateList(ctx, browser, cfg, cfg.ID)
 }
 
-// ApplyBasicFilters 按平台配置顺序应用智联基础筛选。
+// ApplyBasicFilters 在推荐页按平台配置应用基础筛选，手动搜索页保留用户筛选。
 func (r *Runtime) ApplyBasicFilters(ctx context.Context, browser model.Browser, cfg model.Config, _ model.Position) error {
+	manualSearch, err := common.CurrentPageUsesManualSearch(ctx, browser, cfg)
+	if err != nil || manualSearch {
+		return err
+	}
 	return common.ApplyConfiguredActions(ctx, browser, cfg, cfg.FilterActions)
 }

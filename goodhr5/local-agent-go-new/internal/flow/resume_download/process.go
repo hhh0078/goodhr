@@ -159,6 +159,21 @@ func (m *Manager) notify(ctx context.Context, token string, item entry, check fu
 	if err := check(ctx); err != nil {
 		return err
 	}
+	// 核验账号可能跨网络等待。重新核对条目并登记在途请求，使已清理的旧副本无法推送文件名。
+	m.mu.Lock()
+	if current, ok := m.entries[item.ID]; !ok || current != item {
+		m.mu.Unlock()
+		return nil
+	}
+	sendCtx, cancel := context.WithCancel(ctx)
+	m.notification = &downloadNotification{owner: item.Owner, taskID: item.TaskID, cancel: cancel}
+	m.mu.Unlock()
+	defer func() {
+		cancel()
+		m.mu.Lock()
+		m.notification = nil
+		m.mu.Unlock()
+	}()
 	link := "/admin/resumes"
 	if item.TaskID != "" {
 		link += "?resume_import_id=" + url.QueryEscape(item.TaskID)
@@ -167,7 +182,7 @@ func (m *Manager) notify(ctx context.Context, token string, item entry, check fu
 	if item.Status == "not_resume" {
 		title = "这份下载我先跳过了"
 	}
-	if err := m.cloud.PushResumeMessage(ctx, token, title, item.Name+"："+item.Message, link, "resume-download:"+item.ID); err != nil {
+	if err := m.cloud.PushResumeMessage(sendCtx, token, title, item.Name+"："+item.Message, link, "resume-download:"+item.ID); err != nil {
 		return err
 	}
 	item.Notified = true

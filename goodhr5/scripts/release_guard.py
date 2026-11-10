@@ -15,10 +15,15 @@ POLICY_PATH = SCRIPT_ROOT / "release-policy.json"
 DOCKERFILES = {
     "backend": SCRIPT_ROOT.parent / "cloud/backend/Dockerfile.release",
     "frontend": SCRIPT_ROOT.parent / "cloud/frontend-next/Dockerfile",
+    "auto-reply": SCRIPT_ROOT.parent / "local-agent-go-new/Dockerfile.auto-reply-server",
 }
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
-OFFICIAL_BASES = {"backend": {"golang:1.24-alpine", "alpine:3.22"}, "frontend": {"node:22-alpine"}}
-RUNNER_BASES = {"backend": {"alpine:3.22"}, "frontend": {"node:22-alpine"}}
+OFFICIAL_BASES = {
+    "backend": {"golang:1.24-alpine", "alpine:3.22"},
+    "frontend": {"node:22-alpine"},
+    "auto-reply": {"golang:1.25-bookworm", "debian:bookworm-slim"},
+}
+RUNNER_BASES = {"backend": {"alpine:3.22"}, "frontend": {"node:22-alpine"}, "auto-reply": {"debian:bookworm-slim"}}
 DOCKERFILE_LABEL = "goodhr.dockerfile_sha256"
 
 
@@ -37,8 +42,11 @@ def load_policy(path=POLICY_PATH):
     try:
         value = json.loads(Path(path).read_text(encoding="utf-8-sig"))
         images = value["trusted_runtime_images"]
-        require(isinstance(images, dict) and set(images) == set(DOCKERFILES), "发布策略必须分别声明backend和frontend运行镜像")
+        require(isinstance(images, dict) and set(images) == set(DOCKERFILES), "发布策略必须分别声明backend、frontend和auto-reply运行镜像")
         for kind, refs in images.items():
+            if kind == "auto-reply":
+                require(refs == [], "自动回复只允许专用官方基础，运行镜像白名单必须为空")
+                continue
             require(isinstance(refs, list) and refs and all(isinstance(ref, str) and DIGEST.fullmatch(ref) for ref in refs), "发布策略运行镜像必须为非空的完整sha256数组：" + kind)
             require(len(refs) == len(set(refs)), "发布策略运行镜像存在重复项：" + kind)
         require(not set(images["backend"]) & set(images["frontend"]), "发布策略不能把同一运行镜像分配给两个角色")
@@ -234,6 +242,7 @@ def main(argv=None):
     files = subparsers.add_parser("dockerfiles")
     files.add_argument("--backend", default=str(DOCKERFILES["backend"]))
     files.add_argument("--frontend", default=str(DOCKERFILES["frontend"]))
+    files.add_argument("--auto-reply", nargs="?", const=str(DOCKERFILES["auto-reply"]), metavar="DOCKERFILE", help="同时检查自动回复服务的正式构建文件，可指定候选路径")
     image = subparsers.add_parser("image")
     image.add_argument("--image", required=True)
     image.add_argument("--kind", choices=tuple(DOCKERFILES), required=True)
@@ -241,7 +250,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     policy = load_policy(args.policy)
     if args.operation == "dockerfiles":
-        result = [check_dockerfile_path(getattr(args, kind), kind, policy) for kind in DOCKERFILES]
+        result = []
+        for kind in DOCKERFILES:
+            path = getattr(args, kind.replace("-", "_"))
+            if path:
+                result.append(check_dockerfile_path(path, kind, policy))
     else:
         result = check_image(args.image, args.kind, args.dockerfile or DOCKERFILES[args.kind], policy)
     print(json.dumps({"success": True, "checks": result}, ensure_ascii=False))

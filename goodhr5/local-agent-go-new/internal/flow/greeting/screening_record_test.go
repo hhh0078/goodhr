@@ -257,7 +257,7 @@ func TestScreeningGreetingLimitKeepsInFlightResults(t *testing.T) {
 	stats := shared.Stats{}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	err := flow.processBatches(ctx, prepared, runtime, &stats)
+	err := flow.processBatches(ctx, prepared, runtime, nil, &stats)
 	flow.finalizeScreeningTask(ctx, prepared, stats, err)
 	if err != nil || stats.Succeeded != 1 || aiCalls.Load() != 6 {
 		t.Fatalf("招呼上限路径错误: err=%v stats=%+v calls=%d", err, stats, aiCalls.Load())

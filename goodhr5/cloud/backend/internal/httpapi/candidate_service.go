@@ -4,6 +4,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 // CandidateService 处理简历库和岗位候选人查询请求。
 type CandidateService struct {
+	autoReply     *PostgresAutoReplyStore
 	auth          *AuthService
 	store         CandidateStore
 	tenantStore   TenantStore
@@ -42,6 +44,31 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodDelete {
+		// 全库旧入口接受无参数请求；明确的单份编号或版本不能解释为清空团队。
+		keys := []string{"id", "candidate_id", "candidate_ids", "candidateId", "row_version", "rowVersion"}
+		single := false
+		for _, key := range keys {
+			if r.URL.Query().Has(key) {
+				single = true
+			}
+		}
+		if !single && r.Body != nil && r.ContentLength != 0 {
+			var body map[string]any
+			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10))
+			if err := dec.Decode(&body); err != nil && err != io.EOF {
+				single = true
+			} else {
+				for _, key := range keys {
+					if _, ok := body[key]; ok {
+						single = true
+					}
+				}
+			}
+		}
+		if single {
+			writeError(w, 400, "缺少要删除的简历编号，请回到简历详情再试")
+			return
+		}
 		s.ClearTeam(w, r)
 		return
 	}
@@ -83,6 +110,10 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list candidates")
 		return
+	}
+	scope := CandidateLibraryScope{UserEmail: session.Email, IsAdmin: isAdmin, IsExtension: session.Kind == extensionSessionKind}
+	for _, item := range items {
+		item["can_delete"] = canPurgeCandidate(scope, candidateString(item, "id"), candidateString(item, "user_email"), item["readonly"] == true)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
@@ -130,6 +161,10 @@ func (s *CandidateService) ClearTeam(w http.ResponseWriter, r *http.Request) {
 // Detail 处理单个候选人详情请求。
 // 路径格式为 /api/candidates/{id}，只允许查看当前团队内候选人。
 func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		s.deleteCandidate(w, r)
+		return
+	}
 	if r.Method == http.MethodPatch {
 		s.Save(w, r)
 		return
@@ -163,9 +198,11 @@ func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load candidate")
 		return
 	}
+	result := publicPositionCandidate(item)
+	result["can_delete"] = canPurgeCandidate(CandidateLibraryScope{UserEmail: session.Email, IsAdmin: isAdmin, IsExtension: session.Kind == extensionSessionKind}, item.ID, item.UserEmail, result["readonly"] == true)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,
-		"candidate": publicPositionCandidate(item),
+		"candidate": result,
 	})
 }
 

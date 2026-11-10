@@ -15,3 +15,15 @@ GoodHR 托管 Firefox 的原生下载观察器提供来源与文件路径，Go �
 `go test ./...` 验证本地逻辑；真实下载和 AI 费用另按发布验收检查。正式客户端版本由 `scripts/package-windows.ps1 -Version <版本> build` 或 `scripts/package-release.sh` 注入 `internal/version.Value`，只部署云端不会更新旧客户端。
 
 新增容器解析依赖 `github.com/richardlehane/mscfb v1.0.4` 及其 `msoleps v1.0.1` 为 Apache-2.0，许可证及版权说明随安装包的 `licenses` 目录交付。
+
+## 从简历库永久删除后
+
+云端删除会生成带旧简历编号的清理通知。设备登录原 GoodHR 账号后，由现有后台循环领取通知。自动回复资料按云端映射或可靠的平台身份清理，筛选记录按岗位任务和平台身份核对。导入条目按候选人编号或入库收据匹配。同批其他草稿保留。网页生成的新摘要保存独立的候选人关联，传给模型的职业资料仍会脱敏。
+
+Windows x64、macOS Apple Silicon 和 Intel 共用 `internal/flow/resume_import/purge.go` 与 `internal/integration/cloud/auto_reply_purge.go`。文件删除通过 Go 的受限目录句柄定位。自动回复附件按账号、内容摘要和剩余引用核验。Windows 上正在占用的文件会保留待办，等解除占用后重试。手动选取的源文件、用户下载目录和招聘网站上的原消息不属于 GoodHR 托管副本。旧资料缺少稳定归属时不按姓名猜测。
+
+验证本流程可运行 `go test ./internal/flow/resume_import ./internal/flow/resume_summary ./internal/flow/screening_sync ./internal/integration/cloud ./internal/storage`，并用 `CGO_ENABLED=0` 分别为 `darwin/arm64`、`darwin/amd64`、`windows/amd64` 构建 `./cmd/goodhr-local-agent`。端到端验收需先让设备离线，在网页删除专用测试简历，再登录该设备检查专有附件、共用文件和同名候选人。
+
+已知精确删除时间时，本地程序先核对当前账号的云端入库收据或正式附件 SHA-256。不同字节的 PDF 还需来自相同平台，下载任务号必须与该账号和当前文件摘要吻合，且两份本地提取的完整正文去掉排版空白后相同，内含姓名、手机号和邮箱。已归属另一云端简历、删除后创建或证据不足的草稿继续保留。旧删除事件只有升级时间时，HR 可在简历库「添加简历 → AI 批量上传」逐份预览并点击「移除草稿」；确认时重新核对当前账号、条目版本和文件摘要，文件暂时被占用可点「继续移除」。
+
+导入私有副本按任务和条目编号定位。下载原件仅当同时位于应用数据目录的实体 `downloads` 子目录、有匹配的下载记录、摘要正确且无其他引用时清理。Windows 先关闭校验文件句柄再删除，macOS 也核对目录符号链接和文件身份。用户的下载文件夹只清理对应的 GoodHR 索引。可用 `go test -race ./internal/flow/resume_import ./internal/flow/resume_download -run 'Test(PurgeFour|DiscardChecks|PrivateDownload)'` 在临时目录验证这些边界。

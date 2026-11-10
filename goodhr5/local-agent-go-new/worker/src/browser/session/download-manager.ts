@@ -48,6 +48,8 @@ export class DownloadManager {
       "browser.download.dir": this.downloadsPath,
       "browser.download.folderList": 2,
       "browser.download.useDownloadDir": true,
+      // 仅禁止下载开始时自动展开工具栏面板，用户仍可手动打开，文件继续由原生下载器保存。
+      "browser.download.alwaysOpenPanel": false,
     };
   }
 
@@ -64,6 +66,14 @@ export class DownloadManager {
 
   /** directory 返回浏览器确认过的 GoodHR 下载目录。 */
   directory(): string { return this.downloadsPath; }
+
+  /** registerFetchedDocument 记录通过当前 Firefox 会话保存的文档页。 */
+  registerFetchedDocument(record: DownloadRecord): void {
+    if (this.cleared.has(record.id)) return;
+    this.downloads.set(record.id, record);
+    const sorted = [...this.downloads.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    for (const old of sorted.slice(100)) this.downloads.delete(old.id);
+  }
 
   /** list 同步原生下载状态并返回最近一百条 GoodHR 记录。 */
   async list(): Promise<DownloadListResult> {

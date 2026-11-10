@@ -21,10 +21,19 @@ async function mergeBookmarks(bookmarks, parentId, nodes, pinToFront = false) {
   }
 }
 
-/** initializeBookmarks 补齐默认书签与迁移各分组，不删除已有节点。 */
+/** isRetiredDefaultBookmark 仅识别旧程序默认的 goodhr5 根入口，保留改名、子路径及同名的其他地址。 */
+function isRetiredDefaultBookmark(node) {
+  return typeof node.title === "string" && node.title.trim().toLowerCase() === "goodhr5.58it.cn"
+    && (node.url === "https://goodhr5.58it.cn/" || node.url === "https://goodhr5.58it.cn");
+}
+
+/** initializeBookmarks 只移除书签栏中明确退役的默认入口，补齐默认书签并保留其他分组。 */
 async function initializeBookmarks(bookmarks, configuration) {
+  for (const node of await bookmarks.getChildren("toolbar_____")) {
+    if (isRetiredDefaultBookmark(node)) await bookmarks.remove(node.id);
+  }
   await mergeBookmarks(bookmarks, "toolbar_____", configuration.defaults, true);
-  await mergeBookmarks(bookmarks, "toolbar_____", configuration.toolbar ?? []);
+  await mergeBookmarks(bookmarks, "toolbar_____", (configuration.toolbar ?? []).filter((node) => !isRetiredDefaultBookmark(node)));
   await mergeBookmarks(bookmarks, "unfiled_____", configuration.other ?? []);
   await mergeBookmarks(bookmarks, "mobile______", configuration.mobile ?? []);
 }

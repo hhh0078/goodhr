@@ -24,9 +24,7 @@ func (s *Server) initResumeImports(manager *resumeflow.Manager) {
 	}
 	root := filepath.Join(s.cfg.DataDir, "resume-import")
 	extractor := &resumeflow.Extractor{Root: root}
-	if s.ocr != nil {
-		extractor.OCR = s.ocr
-	}
+	// 本机OCR已停用；保留OCRReader接口和旧源码，不再注入本机识别器。
 	value, err := resumeflow.New(s.store, s.cloud, ai.New(), extractor, root)
 	if err != nil {
 		log.Printf("本地简历导入初始化未完成：%v", err)
@@ -43,6 +41,8 @@ func (s *Server) registerResumeImportRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/resume-import/tasks/{task_id}/cancel", s.handleResumeImportCancel)
 	mux.HandleFunc("POST /api/v1/resume-import/tasks/{task_id}/retry", s.handleResumeImportRetry)
 	mux.HandleFunc("POST /api/v1/resume-import/tasks/{task_id}/confirm", s.handleResumeImportConfirm)
+	mux.HandleFunc("GET /api/v1/resume-import/tasks/{task_id}/items/{item_id}/discard", s.handleResumeDraftDiscardPreview)
+	mux.HandleFunc("POST /api/v1/resume-import/tasks/{task_id}/items/{item_id}/discard", s.handleResumeDraftDiscard)
 	mux.HandleFunc("POST /api/v1/resume-import/tasks/{task_id}/mark-saved", s.handleResumeImportMarkSaved)
 }
 
@@ -225,6 +225,48 @@ func (s *Server) handleResumeImportMarkSaved(w http.ResponseWriter, r *http.Requ
 	s.writeResumeImportTask(w, task, err)
 }
 
+// handleResumeDraftDiscardPreview 获取用户此刻选中的一份未入库草稿版本，读取不会启动AI。
+func (s *Server) handleResumeDraftDiscardPreview(w http.ResponseWriter, r *http.Request) {
+	owner, _, ok := s.resumeImportOwner(w, r)
+	if !ok {
+		return
+	}
+	revision, err := s.resumeImports.DiscardPreview(owner, r.PathValue("task_id"), r.PathValue("item_id"))
+	if err != nil {
+		s.writeResumeImportTask(w, resumeflow.Task{}, err)
+		return
+	}
+	writeSuccess(w, 200, map[string]string{"revision": revision})
+}
+
+// handleResumeDraftDiscard 核对网页会话和待确认版本后清除草稿，受管下载由同一个队列核验。
+func (s *Server) handleResumeDraftDiscard(w http.ResponseWriter, r *http.Request) {
+	owner, _, ok := s.resumeImportOwner(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Revision string `json:"revision"`
+	}
+	if !decodeResumeImportBody(w, r, &req) {
+		return
+	}
+	s.extensionMu.Lock()
+	defer s.extensionMu.Unlock()
+	if s.extensionUserID != "" && s.extensionUserID != owner {
+		writeError(w, 401, "LOCAL_ACCOUNT_CHANGED", fmt.Errorf("本地账号已变化，请重新连接"))
+		return
+	}
+	purge := func(ctx context.Context, owner, taskID string) error {
+		if s.resumeDownloads == nil || s.store == nil {
+			return resumeflow.ErrBusy
+		}
+		return s.resumeDownloads.PurgeImportTask(ctx, owner, taskID, s.store.HidePurgedDownload)
+	}
+	task, err := s.resumeImports.DiscardDraft(r.Context(), owner, r.PathValue("task_id"), r.PathValue("item_id"), req.Revision, purge)
+	s.writeResumeImportTask(w, task, err)
+}
+
 // decodeResumeImportBody 限制JSON正文大小且拒绝多余的第二个对象。
 func decodeResumeImportBody(w http.ResponseWriter, r *http.Request, target any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
@@ -248,7 +290,7 @@ func (s *Server) writeResumeImportTask(w http.ResponseWriter, task resumeflow.Ta
 		if errors.Is(err, resumeflow.ErrNotFound) {
 			status = 404
 		}
-		if errors.Is(err, resumeflow.ErrBusy) {
+		if errors.Is(err, resumeflow.ErrBusy) || errors.Is(err, resumeflow.ErrDraftChanged) {
 			status = 409
 		}
 		writeError(w, status, "RESUME_IMPORT_FAILED", err)

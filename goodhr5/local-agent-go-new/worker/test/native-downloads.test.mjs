@@ -49,6 +49,9 @@ test("观察终态、清除记录和关闭都不会删除用户下载", async ()
  try {
   await manager.prepare(directory);
   const prefs = await manager.prepareNativeSession();
+  assert.equal(prefs["browser.download.alwaysOpenPanel"], false);
+  assert.equal(prefs["browser.download.useDownloadDir"], true);
+  assert.equal(prefs["browser.download.dir"], directory);
   const filePath = path.join(directory, "简历.pdf");
   await fs.writeFile(filePath, "%PDF-1.4 test");
   const snapshotPath = prefs["goodhr.downloads.snapshot"];

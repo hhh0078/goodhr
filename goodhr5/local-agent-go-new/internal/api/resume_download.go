@@ -6,6 +6,8 @@ import (
 	downloadresume "goodhr5/local-agent-go-new/internal/flow/resume_download"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 )
 
 // initResumeDownloads 复用同一个浏览器下载监控与导入管理器，不增加第二条浏览器链路。
@@ -18,9 +20,22 @@ func (s *Server) initResumeDownloads() {
 		log.Printf("下载简历导入初始化未完成：%v", err)
 		return
 	}
+	// 用户选择的下载目录（包括 ~/Downloads）只清索引；仅 Agent 数据目录中的专用下载副本可删除。
+	manager.SetFilePurge(s.store.ListDownloads, s.privateDownloadPath)
 	s.resumeDownloads = manager
 	s.downloads.Observer = manager.Observe
 	manager.Start()
+}
+
+// privateDownloadPath 只允许数据目录内的实体 downloads 子目录，不接受指向个人下载目录的符号链接。
+func (s *Server) privateDownloadPath(path string) bool {
+	base, err := filepath.EvalSymlinks(s.cfg.DataDir)
+	if err != nil || !filepath.IsAbs(base) {
+		return false
+	}
+	root := filepath.Join(base, "downloads")
+	info, err := os.Lstat(root)
+	return err == nil && info.IsDir() && pathWithin(path, root)
 }
 
 // handleResumeDownloadSettingsRefresh 验证当前网页登录后重新读云端设置，客户端不能绕过云端开关。

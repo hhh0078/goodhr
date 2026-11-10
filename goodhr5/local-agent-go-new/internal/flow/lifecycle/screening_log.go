@@ -11,10 +11,11 @@ import (
 	"goodhr5/local-agent-go-new/internal/screening"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"goodhr5/local-agent-go-new/internal/system/diagnostics"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // ScreeningRound 使用判定现场传入的候选人和毫秒数落日志，避免SQLite写入及后台尾部响应污染耗时。
-func (l *TaskLogger) ScreeningRound(taskID, candidateName string, number int, round screening.Round) {
+func (l *TaskLogger) ScreeningRound(taskID, candidateName string, number int, round screening.Round, cause error) {
 	if l == nil {
 		return
 	}
@@ -40,7 +41,10 @@ func (l *TaskLogger) ScreeningRound(taskID, candidateName string, number int, ro
 	if l.store == nil {
 		return
 	}
-	output, _ := json.Marshal(round)
+	output, _ := json.Marshal(struct {
+		screening.Round
+		FailureDiagnostics []failurediag.Detail `json:"failure_diagnostics,omitempty"`
+	}{Round: round, FailureDiagnostics: taskFailureDetails(cause, nil)})
 	output = diagnostics.Redact(output)
 	category := "运行"
 	isError := round.Status == "failed"

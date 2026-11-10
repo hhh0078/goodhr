@@ -30,13 +30,29 @@
   "_comment_login_url": "平台登录页面地址。",
   "entry_url": "https://lpt.liepin.com/recommend",
   "_comment_entry_url": "主动打招呼流程入口页面地址。",
-  "messages_url": "",
-  "_comment_messages_url": "旧配置没有独立消息页地址，接入自动回复前必须补齐。",
+  "messages_url": "https://lpt.liepin.com/recommend",
+  "_comment_messages_url": "自动回复继续使用人才推荐页右侧联系人入口，不跳转独立沟通页面。",
   "scroll_distance": 620,
   "_comment_scroll_distance": "候选人列表每次真实滚轮的基础距离。",
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "auto_reply_online_profile_hides_conversation": true,
+    "_comment_auto_reply_online_profile_hides_conversation": "已实测头部在线简历弹层打开后隐藏聊天；仅本次从原生身份已核实入口打开且弹层全名一致时读取，关闭后必须恢复并重核原生身份。",
+    "auto_reply_online_profile_fragment": "preview",
+    "_comment_auto_reply_online_profile_fragment": "已实测在线弹层只在同源同路径同查询的空片段与preview之间变化；关闭后片段可能保留，仍须核原聊天。",
+    "auto_reply_all_contact_inbox": true,
+    "_comment_auto_reply_all_contact_inbox": "在全部联系人中发现新来信，按账号对比可见消息变化并核对聊天。",
+    "auto_reply_send_enter_first": true,
+    "_comment_auto_reply_send_enter_first": "对当前聊天输入框按回车发送，未能核实发送结果时保留人工复核。",
+    "auto_reply_resume_loads_history": true,
+    "supports_post_deletion_history": true,
+    "_comment_supports_post_deletion_history": "删除简历后再次收到候选人消息时，核对猎聘会话身份，只读取删除时间之后的消息。",
+    "auto_reply_message_identity_version": 1,
+    "_comment_auto_reply_message_identity_version": "同分钟重复消息按出现次数生成稳定编号；旧会话须一次完整重采并安全回填，成功后恢复增量读取。",
+    "_comment_auto_reply_resume_loads_history": "简历采集在平台内部轻量加载来源卡片，核验后直接打开附件，不先恢复最新端。",
+    "auto_reply_avatar_container_key": "message.history_scroll",
+    "_comment_auto_reply_avatar_container_key": "头像截图必须完整位于聊天滚动区域内，避免截图操作滚动到旧消息；不可见时沿用安全下载兜底。",
     "_comment": "猎聘企业端页面行为开关。",
     "supports_paging": false,
     "_comment_supports_paging": "当前推荐页按滚动加载。",
@@ -69,6 +85,18 @@
   "_comment_filter_actions": "旧版猎聘企业端没有自动基础筛选动作。",
   "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
   "selectors": {
+    "message.weekly_report": {
+      "_comment": "按现场可见周报标题定位同一弹层，不使用变化的样式哈希。",
+      "target": { "_comment": "由当前可见周报标题定位同一弹层。", "selectors": [{ "_comment": "只匹配招聘周报的标题容器。", "type": "css", "value": "text=我的招聘周报 >> .. >> .." }] },
+      "state": "visible", "timeout_ms": 600,
+      "description": "猎聘企业端我的招聘周报弹层"
+    },
+    "message.weekly_report_close": {
+      "_comment": "Esc 未能收起同一周报时，只点击该周报自身关闭按钮。",
+      "target": { "_comment": "周报弹层自身的备用关闭按钮。", "selectors": [{ "_comment": "按可见标题及明确关闭名称限定按钮。", "type": "css", "value": "text=我的招聘周报 >> .. >> .. >> button[aria-label='关闭']" }] },
+      "state": "visible", "timeout_ms": 600,
+      "description": "猎聘企业端招聘周报关闭按钮"
+    },
     "entry.dismiss": {
       "_comment": "现场确认的猎聘广告 SDK 推广弹框关闭按钮。",
       "target": { "_comment": "广告关闭目标。", "selectors": [{ "_comment": "广告 SDK 关闭按钮的固定属性。", "type": "css", "value": "[data-selector='adslot-sdk-dialog-close']" }] },
@@ -349,10 +377,12 @@
         }
       ],
       "target": {
-        "_comment": "简历操作目标。",
+        "_comment": "只点击索要简历，避免把看简历按钮当作索要入口。",
         "selectors": [
           { "_comment": "CSS 候选选择器。", "type": "css", "value": ".im-ui-action-button.action-item.action-resume" }
-        ]
+        ],
+        "text": "索要简历",
+        "exact_text": true
       },
       "state": "enabled",
       "timeout_ms": 5000,
@@ -557,6 +587,897 @@
       "state": "visible",
       "timeout_ms": 1500,
       "description": "猎聘企业端候选人会话项"
+    },
+    "message.entry": {
+      "_comment": "猎聘推荐页右侧联系人入口容器；必须点击带平台事件的容器，内部 SVG 不会打开联系人抽屉。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人入口可点击容器。",
+        "selectors": [
+          {
+            "_comment": "猎聘推荐页 IM 浮动入口统计属性。",
+            "type": "css",
+            "value": "[data-tlg-elem-id='b_pc_im_light_btn']"
+          },
+          {
+            "_comment": "猎聘推荐页 IM 浮动入口稳定类名。",
+            "type": "css",
+            "value": ".im-ui-basic-entry"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端未读联系人入口"
+    },
+    "message.entry_unread_count": {
+      "_comment": "联系人入口上的未读总数；没有该数字时本轮不打开侧边栏。",
+      "parents": [],
+      "target": {
+        "_comment": "入口未读数字的稳定类名和徽标兜底。",
+        "selectors": [
+          {
+            "_comment": "猎聘联系人入口未读数字。",
+            "type": "css",
+            "value": ".im-ui-basic-entry-unread-count"
+          },
+          {
+            "_comment": "猎聘联系人入口 Ant Design 徽标。",
+            "type": "css",
+            "value": ".im-ui-basic-entry .ant-im-badge-count"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "猎聘企业端未读消息数量"
+    },
+    "message.unread_tab": {
+      "_comment": "联系人抽屉的未读标签；自动回复固定从未读列表首项依次处理，避免全部列表中较早会话被顶部区域遮住。",
+      "parents": [
+        {
+          "_comment": "限定在当前联系人抽屉内。",
+          "selectors": [
+            {
+              "_comment": "猎聘联系人抽屉。",
+              "type": "css",
+              "value": "#im-basic-contact"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "未读分段标签文字。",
+        "selectors": [
+          {
+            "_comment": "猎聘联系人未读标签。",
+            "type": "css",
+            "value": ".ant-im-segmented-item-label[title='未读']"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端联系人未读标签"
+    },
+    "message.unread_tab_selected": {
+      "_comment": "联系人抽屉已经切到未读标签的确认状态。",
+      "parents": [
+        {
+          "_comment": "限定在当前联系人抽屉内。",
+          "selectors": [
+            {
+              "_comment": "猎聘联系人抽屉。",
+              "type": "css",
+              "value": "#im-basic-contact"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "带选中状态的未读分段标签。",
+        "selectors": [
+          {
+            "_comment": "猎聘已选中的未读标签。",
+            "type": "css",
+            "value": ".ant-im-segmented-item.ant-im-segmented-item-selected .ant-im-segmented-item-label[title='未读']"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "猎聘企业端联系人未读标签已选中"
+    },
+    "message.all_tab": {
+      "_comment": "自动回复从全部联系人发现来信并按会话编号恢复当前候选人。",
+      "parents": [
+        {
+          "_comment": "限定在当前联系人抽屉内。",
+          "selectors": [
+            {
+              "_comment": "猎聘联系人抽屉。",
+              "type": "css",
+              "value": "#im-basic-contact"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "全部分段标签文字。",
+        "selectors": [
+          {
+            "_comment": "猎聘联系人全部标签。",
+            "type": "css",
+            "value": ".ant-im-segmented-item-label[title='全部']"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端联系人全部标签"
+    },
+    "message.all_tab_selected": {
+      "_comment": "联系人抽屉已经切到全部标签的确认状态。",
+      "parents": [
+        {
+          "_comment": "限定在当前联系人抽屉内。",
+          "selectors": [
+            {
+              "_comment": "猎聘联系人抽屉。",
+              "type": "css",
+              "value": "#im-basic-contact"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "带选中状态的全部分段标签。",
+        "selectors": [
+          {
+            "_comment": "猎聘已选中的全部标签。",
+            "type": "css",
+            "value": ".ant-im-segmented-item.ant-im-segmented-item-selected .ant-im-segmented-item-label[title='全部']"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "猎聘企业端联系人全部标签已选中"
+    },
+    "message.drawer": {
+      "_comment": "推荐页右侧联系人抽屉。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人抽屉根节点。",
+        "selectors": [
+          {
+            "_comment": "猎聘联系人抽屉。",
+            "type": "css",
+            "value": "#im-basic-contact"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端联系人抽屉"
+    },
+    "message.drawer_scroll": {
+      "_comment": "联系人列表真实滚轮落点，只选择当前可见容器，避开平台同时保留的隐藏副本。",
+      "parents": [
+        {
+          "_comment": "限定在联系人抽屉内。",
+          "selectors": [
+            {
+              "_comment": "猎聘联系人抽屉。",
+              "type": "css",
+              "value": "#im-basic-contact"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "当前显示的唯一联系人滚动容器。",
+        "selectors": [
+          {
+            "_comment": "猎聘当前可见的联系人滚动区域。",
+            "type": "css",
+            "value": ".im-ui-contacts-wrap:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端联系人滚动区域"
+    },
+    "message.contact_item": {
+      "_comment": "全部联系人项目；点击前会重新扫描并按 to_imid 找到最新序号。",
+      "parents": [
+        {
+          "_comment": "限定在联系人抽屉内。",
+          "selectors": [
+            {
+              "_comment": "猎聘联系人抽屉。",
+              "type": "css",
+              "value": "#im-basic-contact"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "猎聘联系人行。",
+        "selectors": [
+          {
+            "_comment": "猎聘联系人稳定项目类名。",
+            "type": "css",
+            "value": ".im-ui-contact-list-item.im-ui-contact-item"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端联系人项目"
+    },
+    "message.contact_click_target": {
+      "_comment": "联系人行内较小且远离右边缘的姓名点击目标。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人姓名文字。",
+        "selectors": [
+          {
+            "_comment": "猎聘联系人姓名。",
+            "type": "css",
+            "value": ".im-ui-contact-title-main"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端联系人姓名点击区域"
+    },
+    "message.unread_item": {
+      "_comment": "可能包含红色未读数字的联系人项目；扫描后还必须读取当前行可见的 unread_count 并确认大于0。",
+      "parents": [
+        {
+          "_comment": "限定在联系人抽屉内。",
+          "selectors": [
+            {
+              "_comment": "猎聘联系人抽屉。",
+              "type": "css",
+              "value": "#im-basic-contact"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "包含未读徽标的联系人行。",
+        "selectors": [
+          {
+            "_comment": "猎聘未读联系人项目。",
+            "type": "css",
+            "value": ".im-ui-contact-list-item.im-ui-contact-item:has(.ant-im-badge-count)"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端未读联系人"
+    },
+    "message.current_name": {
+      "_comment": "当前聊天框头部候选人姓名，用于防止串会话。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天框头部姓名。",
+        "selectors": [
+          {
+            "_comment": "猎聘聊天候选人姓名。",
+            "type": "css",
+            "value": ".im-ui-basic-chat-header-name"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端当前聊天候选人"
+    },
+    "message.current_position": {
+      "_comment": "当前聊天框头部显示的完整沟通岗位。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "沟通岗位文字。",
+        "selectors": [
+          {
+            "_comment": "猎聘聊天头部岗位名称。",
+            "type": "css",
+            "value": ".im-ui-basic-chat-header-job-title span"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端当前沟通岗位"
+    },
+    "message.gender_female": {
+      "_comment": "当前聊天框候选人的女性图标标记。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "女性 SVG 裁切标记。",
+        "selectors": [
+          {
+            "_comment": "猎聘女性图标。",
+            "type": "css",
+            "value": "clipPath[id^='woman_svg']"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 600,
+      "description": "猎聘企业端女性候选人标记"
+    },
+    "message.gender_male": {
+      "_comment": "当前聊天框候选人的男性图标标记。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "男性 SVG 裁切标记。",
+        "selectors": [
+          {
+            "_comment": "猎聘男性图标。",
+            "type": "css",
+            "value": "clipPath[id^='man_svg']"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 600,
+      "description": "猎聘企业端男性候选人标记"
+    },
+    "message.item": {
+      "_comment": "当前聊天框已经加载的系统、候选人和 HR 消息。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "猎聘消息行。",
+        "selectors": [
+          {
+            "_comment": "猎聘聊天消息稳定类名。",
+            "type": "css",
+            "value": ".im-ui-message-item.im-ui-message-item-wrapper"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端聊天消息"
+    },
+    "message.history_scroll": {
+      "_comment": "聊天历史向上加载的真实滚轮落点。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天消息滚动区域。",
+        "selectors": [
+          {
+            "_comment": "猎聘消息列表滚动容器。",
+            "type": "css",
+            "value": ".im-ui-message-list-wrapper.im-ui-chat-list"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端聊天历史滚动区域"
+    },
+    "message.input": {
+      "_comment": "自动回复消息输入框。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "猎聘聊天文本域。",
+        "selectors": [
+          {
+            "_comment": "猎聘消息输入框。",
+            "type": "css",
+            "value": "textarea.ant-im-input.im-ui-textarea[placeholder='请输入文字，按Enter键发送']"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端自动回复输入框"
+    },
+    "message.send": {
+      "_comment": "输入消息后使用的发送按钮。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "猎聘发送按钮。",
+        "selectors": [
+          {
+            "_comment": "猎聘聊天发送按钮。",
+            "type": "css",
+            "value": ".im-ui-basic-send-btn"
+          }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端发送自动回复"
+    },
+    "message.candidate_id_source": {
+      "_comment": "索要简历动作上的 data-tlg-scm 可提供候选人 cid。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "索要简历动作。",
+        "selectors": [
+          {
+            "_comment": "猎聘索要简历按钮。",
+            "type": "css",
+            "value": ".im-ui-action-button.action-resume"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "猎聘企业端候选人平台编号来源"
+    },
+    "message.resume_online_entry": {
+      "_comment": "候选人简历卡片中的在线简历入口。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        },
+        {
+          "_comment": "限定在最后一条候选人简历消息内，候选人重复发送简历时始终使用最新版。",
+          "selectors": [
+            {
+              "_comment": "没有更晚简历卡片的最后一条简历消息。",
+              "type": "css",
+              "value": ".im-ui-message-item.im-ui-message-item-wrapper:has(.im-ui-send-attachment-card):not(:has(~ .im-ui-message-item.im-ui-message-item-wrapper .im-ui-send-attachment-card))"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "简历卡片第一个入口为在线简历。",
+        "selectors": [
+          {
+            "_comment": "猎聘简历卡片入口。",
+            "type": "css",
+            "value": ".im-ui-send-attachment-card-info-item"
+          }
+        ],
+        "index": 0
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端在线简历入口"
+    },
+    "message.resume_attachment_entry": {
+      "_comment": "候选人简历卡片中的附件简历入口。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        },
+        {
+          "_comment": "限定在最后一条候选人简历消息内，候选人重复发送简历时始终使用最新版。",
+          "selectors": [
+            {
+              "_comment": "没有更晚简历卡片的最后一条简历消息。",
+              "type": "css",
+              "value": ".im-ui-message-item.im-ui-message-item-wrapper:has(.im-ui-send-attachment-card):not(:has(~ .im-ui-message-item.im-ui-message-item-wrapper .im-ui-send-attachment-card))"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "只点击附件简历文字，避免随机落到整块容器里的图标或空白区域。",
+        "selectors": [
+          {
+            "_comment": "猎聘简历卡片入口文字。",
+            "type": "css",
+            "value": ".im-ui-send-attachment-card-info-item-content"
+          }
+        ],
+        "text": "附件简历",
+        "exact_text": true
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端附件简历入口"
+    },
+    "message.online_resume_body": {
+      "_comment": "保留给兼容页面的在线简历正文选择器；当前企业端优先读取同页详情浮层。",
+      "parents": [],
+      "target": {
+        "_comment": "在线简历页面正文。",
+        "selectors": [
+          {
+            "_comment": "猎聘在线简历页面 body。",
+            "type": "css",
+            "value": "body"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 10000,
+      "description": "猎聘企业端在线简历正文"
+    },
+    "message.attachment_preview": {
+      "_comment": "附件简历预览弹框。",
+      "parents": [],
+      "target": {
+        "_comment": "附件预览弹框根节点。",
+        "selectors": [
+          {
+            "_comment": "猎聘附件预览弹框。",
+            "type": "css",
+            "value": ".im-ui-preview-resume-attachment-modal-box"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端附件简历预览"
+    },
+    "message.attachment_preview_close": {
+      "_comment": "附件预览标题栏最右侧关闭图标。",
+      "parents": [
+        {
+          "_comment": "限定在附件预览弹框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘附件预览弹框。",
+              "type": "css",
+              "value": ".im-ui-preview-resume-attachment-modal-box"
+            }
+          ]
+        },
+        {
+          "_comment": "限定在附件预览标题栏内。",
+          "selectors": [
+            {
+              "_comment": "猎聘附件预览标题栏。",
+              "type": "css",
+              "value": ".im-ui-preview-modal-title-box"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "标题栏第三个图标为关闭。",
+        "selectors": [
+          {
+            "_comment": "猎聘附件预览标题栏图标。",
+            "type": "css",
+            "value": ".ant-im-space-item"
+          }
+        ],
+        "index": 2
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端关闭附件预览"
+    },
+    "message.attachment_download": {
+      "_comment": "附件预览标题栏左侧下载图标。",
+      "parents": [
+        {
+          "_comment": "限定在附件预览弹框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘附件预览弹框。",
+              "type": "css",
+              "value": ".im-ui-preview-resume-attachment-modal-box"
+            }
+          ]
+        },
+        {
+          "_comment": "限定在附件预览标题栏内。",
+          "selectors": [
+            {
+              "_comment": "猎聘附件预览标题栏。",
+              "type": "css",
+              "value": ".im-ui-preview-modal-title-box"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "标题栏第一个图标内的链接才会真正触发浏览器下载。",
+        "selectors": [
+          {
+            "_comment": "猎聘附件预览标题栏下载链接。",
+            "type": "css",
+            "value": ".ant-im-space-item a"
+          }
+        ],
+        "index": 0
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端下载附件简历"
+    },
+    "message.attachment_body": {
+      "_comment": "附件预览 iframe 内可读取的 PDF 正文，不使用页面脚本。",
+      "frames": [
+        {
+          "_comment": "进入附件预览中的 PDF iframe。",
+          "selectors": [
+            {
+              "_comment": "猎聘附件 PDF iframe。",
+              "type": "css",
+              "value": ".im-ui-preview-resume-attachment-modal-box iframe"
+            }
+          ]
+        }
+      ],
+      "parents": [],
+      "target": {
+        "_comment": "PDF 查看器正文。",
+        "selectors": [
+          {
+            "_comment": "附件查看器 body。",
+            "type": "css",
+            "value": "body"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 10000,
+      "description": "猎聘企业端附件简历正文"
+    },
+    "message.current_avatar": {
+      "_comment": "当前聊天框候选人消息里的头像；由标准尾窗选最后一条，仅在聊天容器内完整可见时截图。",
+      "parents": [
+        {
+          "_comment": "限定在当前猎聘聊天框内。",
+          "selectors": [
+            {
+              "_comment": "猎聘 IM 聊天弹框。",
+              "type": "css",
+              "value": ".im-ui-basic-chat-modal"
+            }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "候选人消息头像，读取时取当前列表最后一项。",
+        "selectors": [
+          {
+            "_comment": "猎聘候选人消息头像图片。",
+            "type": "css",
+            "value": ".im-ui-message-item-receive .im-ui-avatar-img"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端当前候选人头像"
+    },
+    "message.online_profile_entry": {
+      "_comment": "已实测点击当前聊天头部姓名打开同页在线简历，无需先收到任何简历附件。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端当前候选人头部在线简历入口目标。",
+        "selectors": [
+          { "_comment": "已实测点击当前聊天头部姓名打开同页在线简历，无需先收到任何简历附件。", "type": "css", "value": ".im-ui-basic-chat-modal:visible .im-ui-basic-chat-header-name" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "猎聘企业端当前候选人头部在线简历入口"
+    },
+    "message.online_profile_panel": {
+      "_comment": "已真页验证唯一可见在线正文容器，不匹配其它弹框或整页body。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端当前在线简历面板目标。",
+        "selectors": [
+          { "_comment": "已真页验证唯一可见在线正文容器，不匹配其它弹框或整页body。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "猎聘企业端当前在线简历面板"
+    },
+    "message.online_profile_name": {
+      "_comment": "只读当前可见在线正文的个人信息姓名，真页已核实唯一且与当前聊天一致。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端在线简历候选人姓名目标。",
+        "selectors": [
+          { "_comment": "只读当前可见在线正文的个人信息姓名，真页已核实唯一且与当前聊天一致。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body [class^=\"individualInfo--\"] [class^=\"name--\"]" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "猎聘企业端在线简历候选人姓名"
+    },
+    "message.online_profile_body": {
+      "_comment": "只读取真实在线正文根节点，排除整页导航、聊天及其它候选人资料。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端当前在线简历正文目标。",
+        "selectors": [
+          { "_comment": "只读取真实在线正文根节点，排除整页导航、聊天及其它候选人资料。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body .xpath-resume-body" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "猎聘企业端当前在线简历正文"
+    },
+    "message.online_profile_close": {
+      "_comment": "优先Esc，仍可见时复用当前可见简历弹层已实证的关闭埋点。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端关闭当前在线简历备用按钮目标。",
+        "selectors": [
+          { "_comment": "优先Esc，仍可见时复用当前可见简历弹层已实证的关闭埋点。", "type": "css", "value": ".ant-lpt-modal:visible [data-tlg-elem-id=\"b_pc_pop_res_detail_close_btn\"]" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 2000,
+      "description": "猎聘企业端关闭当前在线简历备用按钮"
+    },
+    "message.online_profile_work_item": {
+      "_comment": "真实工作区内每个workCont为一条经历，不能把整个工作区当单条或按DOM首条判断最早。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端在线工作经历行目标。",
+        "selectors": [
+          { "_comment": "真实工作区内每个workCont为一条经历，不能把整个工作区当单条或按DOM首条判断最早。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body .xpath-work-experience [class^=\"workCont--\"]" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端在线工作经历行"
+    },
+    "message.online_profile_school_item": {
+      "_comment": "逐条读取当前在线资料可见教育行，按真实开始年月求最早。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端在线教育经历行目标。",
+        "selectors": [
+          { "_comment": "逐条读取当前在线资料可见教育行，按真实开始年月求最早。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body .xpath-education-experience-wrap li" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端在线教育经历行"
+    },
+    "message.online_profile_age": {
+      "_comment": "只读取头部带生日图标的明确岁数，不用生日或工龄推算。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端在线头部明确年龄目标。",
+        "selectors": [
+          { "_comment": "只读取头部带生日图标的明确岁数，不用生日或工龄推算。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body [class^=\"individualDetail--\"] [class^=\"infoItem--\"]:has([aria-label=\"birthday\"])" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端在线头部明确年龄"
+    },
+    "message.online_profile_education": {
+      "_comment": "头部教育行同时含学校和专业，公共层只提取唯一明确学历词，不把整行写成学历。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端在线头部学历目标。",
+        "selectors": [
+          { "_comment": "头部教育行同时含学校和专业，公共层只提取唯一明确学历词，不把整行写成学历。", "type": "css", "value": ".ant-lpt-modal:visible .resume-detail-content-body [class^=\"individualDetail--\"] [class^=\"infoItem--\"]:has([aria-label=\"education\"])" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端在线头部学历"
     }
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
@@ -628,9 +1549,325 @@
       "state": "attached",
       "timeout_ms": 1500,
       "description": "猎聘企业端候选人描述"
+    },
+    "online_profile_work_name": {
+      "_comment": "只读当前工作行header中的公司名称。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端工作行公司名称目标。",
+        "selectors": [
+          { "_comment": "只读当前工作行header中的公司名称。", "type": "css", "value": "header .xpath-work-cont-company" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端工作行公司名称"
+    },
+    "online_profile_work_period": {
+      "_comment": "公司与时间来自同一工作行header，保留原始年月，不猜缺失时间。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端工作行起止年月目标。",
+        "selectors": [
+          { "_comment": "公司与时间来自同一工作行header，保留原始年月，不猜缺失时间。", "type": "css", "value": "header [class^=\"time--\"]" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端工作行起止年月"
+    },
+    "online_profile_school_name": {
+      "_comment": "只读当前教育行学校名称。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端教育行学校名称目标。",
+        "selectors": [
+          { "_comment": "只读当前教育行学校名称。", "type": "css", "value": "[class^=\"schoolName--\"]" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端教育行学校名称"
+    },
+    "online_profile_school_period": {
+      "_comment": "只读当前教育行time元素的实际起止时间。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘企业端教育行起止年月目标。",
+        "selectors": [
+          { "_comment": "只读当前教育行time元素的实际起止时间。", "type": "css", "value": "time" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端教育行起止年月"
     }
   },
-  "conversation_fields": {},
+  "conversation_fields": {
+    "name": {
+      "_comment": "联系人列表候选人姓名。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人姓名。",
+        "selectors": [
+          {
+            "_comment": "猎聘联系人姓名。",
+            "type": "css",
+            "value": ".im-ui-contact-title-main"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "猎聘企业端联系人姓名"
+    },
+    "avatar_url": {
+      "_comment": "联系人列表候选人头像地址，用于简历库展示与招聘平台一致的头像。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人行内头像图片。",
+        "selectors": [
+          {
+            "_comment": "猎聘联系人头像容器内图片。",
+            "type": "css",
+            "value": ".im-ui-contact-avatar img"
+          },
+          {
+            "_comment": "兼容猎聘通用头像组件。",
+            "type": "css",
+            "value": ".ant-im-avatar img"
+          },
+          {
+            "_comment": "联系人行内唯一图片兜底。",
+            "type": "css",
+            "value": "img"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "read_attribute": "src",
+      "description": "猎聘企业端联系人头像地址"
+    },
+    "contact_time": {
+      "_comment": "全部联系人每行独立的可见沟通时间，不从候选人消息正文猜测。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人行内独立显示的最近沟通时间。",
+        "selectors": [
+          {
+            "_comment": "仅匹配联系信息区域内的时间节点。",
+            "type": "css",
+            "value": ".im-ui-contact-item-contact .contact-time"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1000,
+      "description": "猎聘全部联系人最近沟通时间"
+    },
+    "last_message": {
+      "_comment": "联系人列表最后一条消息摘要。",
+      "parents": [],
+      "target": {
+        "_comment": "最后消息摘要。",
+        "selectors": [
+          {
+            "_comment": "猎聘联系人最后消息。",
+            "type": "css",
+            "value": ".im-ui-last-message"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "猎聘企业端最后消息"
+    },
+    "unread_count": {
+      "_comment": "联系人行的红色未读数字。",
+      "parents": [],
+      "target": {
+        "_comment": "未读徽标。",
+        "selectors": [
+          {
+            "_comment": "猎聘联系人未读数字。",
+            "type": "css",
+            "value": ".ant-im-badge-count"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1000,
+      "description": "猎聘企业端联系人未读数字"
+    },
+    "thread_meta": {
+      "_comment": "联系人行 data-tlg-ext，仅用于读取稳定 to_imid；历史 unread 属性不能作为实时未读依据。",
+      "parents": [],
+      "target": {
+        "_comment": "当前列表项本身。",
+        "selectors": [
+          {
+            "_comment": "相对列表项自身。",
+            "type": "css",
+            "value": ":scope"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "read_attribute": "data-tlg-ext",
+      "description": "猎聘企业端会话属性"
+    },
+    "body_class": {
+      "_comment": "消息正文类名，receive 表示候选人，send 表示 HR。",
+      "parents": [],
+      "target": {
+        "_comment": "消息正文容器。",
+        "selectors": [
+          {
+            "_comment": "当前消息内的方向容器。",
+            "type": "css",
+            "value": ":scope .im-ui-message-item-body"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "read_attribute": "class",
+      "description": "猎聘企业端消息方向类名"
+    },
+    "message_text": {
+      "_comment": "普通消息、公共卡片或其他消息正文。",
+      "parents": [],
+      "target": {
+        "_comment": "按精确正文到整条消息降级读取。",
+        "selectors": [
+          {
+            "_comment": "猎聘普通文字消息。",
+            "type": "css",
+            "value": ".im-ui-txt-content .text"
+          },
+          {
+            "_comment": "猎聘公共消息卡片正文。",
+            "type": "css",
+            "value": ".im-ui-common-message-card-content"
+          },
+          {
+            "_comment": "猎聘消息正文兜底。",
+            "type": "css",
+            "value": ".im-ui-message-item-body"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "猎聘企业端消息正文"
+    },
+    "message_time": {
+      "_comment": "消息时间，支持当日、昨天和月日格式。",
+      "parents": [],
+      "target": {
+        "_comment": "消息时间文字。",
+        "selectors": [
+          {
+            "_comment": "猎聘消息时间。",
+            "type": "css",
+            "value": ".format-time"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "猎聘企业端消息时间"
+    },
+    "message_meta": {
+      "_comment": "可用消息节点的 data-tlg-ext，部分卡片包含 message_id。",
+      "parents": [],
+      "target": {
+        "_comment": "包含 message_id 的节点。",
+        "selectors": [
+          {
+            "_comment": "猎聘带消息编号的节点。",
+            "type": "css",
+            "value": "[data-tlg-ext*='message_id']"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "read_attribute": "data-tlg-ext",
+      "description": "猎聘企业端消息编号属性"
+    },
+    "resume_card": {
+      "_comment": "候选人发送的在线简历和附件简历卡片。",
+      "parents": [],
+      "target": {
+        "_comment": "附件简历卡片。",
+        "selectors": [
+          {
+            "_comment": "猎聘候选人简历卡片。",
+            "type": "css",
+            "value": ".im-ui-send-attachment-card"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "猎聘企业端候选人简历卡片"
+    },
+    "candidate_meta": {
+      "_comment": "简历卡片 data-tlg-scm，包含平台候选人 cid。",
+      "parents": [],
+      "target": {
+        "_comment": "候选人简历卡片。",
+        "selectors": [
+          {
+            "_comment": "猎聘候选人简历卡片。",
+            "type": "css",
+            "value": ".im-ui-send-attachment-card"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "read_attribute": "data-tlg-scm",
+      "description": "猎聘企业端候选人平台编号属性"
+    },
+    "common_card": {
+      "_comment": "索要简历同意、拒绝等公共消息卡片。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘公共消息卡片。",
+        "selectors": [
+          {
+            "_comment": "猎聘公共消息卡片。",
+            "type": "css",
+            "value": ".im-ui-common-message-card"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "猎聘企业端公共消息卡片"
+    },
+    "position_name": {
+      "_comment": "聊天历史系统消息中的完整沟通岗位。",
+      "parents": [],
+      "target": {
+        "_comment": "沟通岗位链接文字。",
+        "selectors": [
+          {
+            "_comment": "猎聘系统沟通岗位。",
+            "type": "css",
+            "value": ".im-ui-system-tip a[data-tlg-elem-id='h_pc_im_link_btn'] span"
+          }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "猎聘企业端消息沟通岗位"
+    }
+  },
   "_comment_conversation_fields": "自动回复字段暂未从旧版获得。",
   "pending_selectors": {
     "_comment": "真实回归前仍需补齐的能力。",

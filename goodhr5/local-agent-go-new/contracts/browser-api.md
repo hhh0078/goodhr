@@ -47,11 +47,12 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 | GET | `/api/v1/page/list` | 标签页列表 |
 | POST | `/api/v1/page/use` | 切换标签页 |
 | POST | `/api/v1/page/close` | 关闭当前标签页 |
+| POST | `/api/v1/page/save-current-document` | 使用当前浏览器会话保存当前文档页 |
 | GET | `/api/v1/page/url` | 当前页面地址 |
 | POST | `/api/v1/element/find` | 查找单个元素 |
 | POST | `/api/v1/element/find-all` | 查找列表并读取字段 |
 | POST | `/api/v1/element/read` | 读取文本、HTML 或属性 |
-| POST | `/api/v1/element/click` | 查找、滚动、移动、原子点击、验证 |
+| POST | `/api/v1/element/click` | 查找、滚动、移动、原子点击、验证；可选 `move_to_center_after_click` 在松开后立即移到页面中央，早于后续等待和验证，默认关闭 |
 | POST | `/api/v1/element/input` | 查找、滚动、移动、聚焦、清空、原子输入、验证 |
 | POST | `/api/v1/page/scroll` | 页面真实鼠标滚轮 |
 | POST | `/api/v1/element/scroll` | 元素区域真实鼠标滚轮 |
@@ -103,13 +104,19 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 ```
 
 - `frames` 和 `parents` 从外到内解析。
+- 原有单个 `SelectorSpec` 对象继续有效；配置和请求也可使用一到八个完整对象组成的数组。Go 将数组规范化为主对象及可选的 `alternatives` 对象数组，父级、框架、目标和读取方式分别保留，不交叉合并不同页面的路径。
+- 同一次查找按顺序检查完整备用路径，全部路径共用主对象的 `timeout_ms`；主路径成功后不再查询备用路径，遇到 `ELEMENT_AMBIGUOUS` 仍立即停止。
+- Go 增加候选人身份、列表序号、精确页码或父级作用域时，必须同时约束全部备用路径。数组生成的父子作用域最多使用六十四个完整组合，超出 Worker 的备用数量校验会拒绝请求，不执行页面动作。
 - 可选 `frame_fallbacks` 是备用框架路径数组；每条路径从页面根开始，连同父级、目标及状态一起检查，全部路径共用 `timeout_ms`。最多四条备用路径，每条最多六层；空路径代表主页面。
 - 定位诊断中的 `frame_path` 为 `0` 时代表主路径，其余序号代表对应备用路径。歧义错误不会通过切换路径隐藏。
 - 每层 `selectors` 都是按顺序降级的候选数组。
 - 所有 `index` 从 `0` 开始。
 - 写操作未提供 `index` 且匹配多个元素时返回 `ELEMENT_AMBIGUOUS`。
 - 页面跳转、刷新、关闭或超过有效期后，旧 `element_ref` 自动失效。
+- 引用有效期最长 30 秒，空闲时也会自动释放；最多保留最近 10000 个引用，超限时淘汰最早引用并按 `ELEMENT_REF_EXPIRED` 处理。引用只用于短流程，不得作为长期身份编号。
+- 查找和读取与点击、输入共用串行队列。请求取消或到期后，不再发送新的读取、字段补读和备用选择器查询；已发出的单次协议命令结束前保持隔离，不叠加下一次操作。只读请求排空后自动解除隔离，不自动重放历史请求；输入故障仍按原有明确恢复规则处理。
 - 列表字段可在 `SelectorSpec` 中使用 `read_property=text|html` 或 `read_attribute` 读取属性。
+- 列表字段按实际命中路径的读取设置处理；`element/read` 的可选 `use_selector_read=true` 也启用此规则。未提供该标记的旧请求继续使用请求本身的 `property` / `attribute`。
 - 单元素和列表查找都按 `timeout_ms` 轮询，超时错误保留最后一轮选择器尝试明细。
 - 列表查找支持可选的 `start_index`（默认 0）和 `max_items`，用于分批读取持续追加的列表。返回的 `index` 始终是原列表序号；起点超过已加载内容时返回空数组。
 
@@ -145,6 +152,16 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 - `downloads.configure` 必须等待浏览器确认目录已生效，已有文件路径保持原样。
 - `downloads.clear` 只清空 GoodHR 记录，不删除已经保存的文件，也不清除浏览器原生历史。
 - Go 每秒主动读取一次下载终态，用于本地持久化和完成提示；Worker 不回调 Go 业务接口。
+
+## 当前文档页保存
+
+`POST /api/v1/page/save-current-document` 只保存当前已经打开的 `http/https` 标签页，不接受调用方提供其他 URL。请求可提供 `max_bytes`、`allowed_content_types[]`、`suggested_filename` 和 `timeout_ms`，返回结构与普通下载的 `DownloadRecord` 完全一致。
+
+- 请求和最多 5 次跳转由当前 `BrowserContext.request` 使用会话登录状态处理，不向页面注入脚本。
+- 文档正文由 Playwright 读取后写入同目录临时 `.part` 文件；默认限制 25 MiB，并在读取前检查声明大小、读取后复核实际大小。
+- 请求、读取正文和落盘共同检查 `timeout_ms` 总时限；正文读取使用 Playwright 的缓冲能力，不提供流式下载保证。
+- 失败、超限和文件签名不正确时删除临时文件；PDF 必须以 `%PDF-` 开头。
+- 成功后使用安全且不覆盖旧文件的名称，并进入现有下载记录。
 
 ## 兼容规则
 

@@ -36,7 +36,7 @@ function batchHarness() {
   const resolved = Array.from({ length: 300 }, (_, index) => ({
     page, list_index: index, view: { visible: true },
     matched_selector: { type: "css", value: ".card" }, attempts: [],
-    locator: { index, innerText: () => textRead(index, "root") },
+    locator: { index, count: async () => 1, innerText: () => textRead(index, "root") },
   }));
   const action = new FindAction(
     { requirePage: async () => page, elements: { remember: (_page, locator) => `ref-${locator.index}` } },

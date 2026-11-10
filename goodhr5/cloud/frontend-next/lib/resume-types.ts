@@ -11,7 +11,7 @@ export type ResumeFolder = {
   created_by_email?: string; created_at?: string; updated_at?: string;
 };
 export type Resume = {
-  is_builtin?: boolean; readonly?: boolean; builtin_notice?: string;
+  is_builtin?: boolean; readonly?: boolean; can_delete?: boolean; builtin_notice?: string;
   id: string; candidate_name: string; phone?: string; email?: string; gender?: string; birth_ym?: string; avatar_data_url?: string;
   age?: number | null; current_region?: string; expected_region?: string; work_region?: string;
   work_years?: string; work_years_number?: number | null; education_level?: string; work_status?: string;
@@ -71,6 +71,11 @@ export const builtinResumeID = "00000000-0000-4000-8000-000000000001";
 /** isReadOnlyResume 同时核对预留身份和服务端标记，防止缺失只读标记时显示维护入口。 */
 export function isReadOnlyResume(resume?: Resume | ResumeDraft | string | null): boolean {
   return typeof resume === "string" ? resume === builtinResumeID : Boolean(resume && (resume.id === builtinResumeID || resume.is_builtin || resume.readonly));
+}
+/** canDeleteResume 按云端当前账号权限和可核对的版本开放单份删除，旧服务端或只读示例默认隐藏入口。 */
+export function canDeleteResume(resume: Resume): boolean {
+  return resume.can_delete === true && !isReadOnlyResume(resume) && Boolean(resume.id?.trim()) &&
+    resume.id !== "." && resume.id !== ".." && Number.isSafeInteger(resume.row_version) && (resume.row_version ?? 0) > 0;
 }
 /** avatarSource 仅展示云端规范化的内嵌PNG/JPEG头像，拒绝远程地址和超出合同大小的内容。 */
 export function avatarSource(value?: string) {
@@ -150,7 +155,7 @@ export function resumeAge(resume: Resume) {
 export function nonEmptyChanges(draft: ResumeDraft, previous?: Resume | null, clearFields: string[] = []) {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(draft)) {
-    if (["id", "is_builtin", "readonly", "builtin_notice", "row_version", "creator_name", "notes", "sources", "recommendations", "created_at", "updated_at", "user_email", "user_name", "ai", "events", "platform_id", "platform_candidate_id", "engagement_id", "engagement_status", "recommendation_count", "position_name", "folder_details"].includes(key)) continue;
+    if (["id", "is_builtin", "readonly", "can_delete", "builtin_notice", "row_version", "creator_name", "notes", "sources", "recommendations", "created_at", "updated_at", "user_email", "user_name", "ai", "events", "platform_id", "platform_candidate_id", "engagement_id", "engagement_status", "recommendation_count", "position_name", "folder_details"].includes(key)) continue;
     if (clearFields.includes(key)) continue;
     if (value == null || (typeof value === "string" && !value.trim()) || (Array.isArray(value) && value.length === 0)) continue;
     if (!previous || JSON.stringify(value) !== JSON.stringify(previous[key as keyof Resume])) result[key] = value;

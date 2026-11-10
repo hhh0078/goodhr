@@ -4,12 +4,14 @@ import type { Locator } from "playwright-core";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import type { FindResult, SelectorSpec } from "../../contracts/selector.js";
 import { normalizeWorkerError, WorkerError } from "../../errors/worker-error.js";
+import { beginRequestRead, markRequestProgress, observeRequestPage } from "../../logging/request-progress.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import {
   LocatorPrimitive,
   type ResolvedElement,
 } from "../primitives/locator.js";
 import { ReadPrimitive } from "../primitives/read.js";
+import { assertRequestActive } from "../primitives/request-lifecycle.js";
 import { BrowserSession } from "../session/browser-session.js";
 import { safeURL } from "../session/navigation.js";
 import { pageDiagnostic, selectorDiagnostic } from "./diagnostic-state.js";
@@ -23,6 +25,7 @@ export interface FoundElement {
 /** FindAllItem 表示列表查找中的一个元素和字段。 */
 export interface FindAllItem extends JsonObject {
   index: number;
+  total_matches?: number;
   element_ref: string;
   text: string;
   fields: JsonObject;
@@ -39,12 +42,13 @@ export class FindAction {
     private readonly logger: WorkerLogger,
   ) {}
 
-  /** one 查找一个元素并生成短生命周期引用。 */
+  /** one 查找元素并生成短生命周期引用；state 仅供只读动作使用，交互默认保留几何检查。 */
   async one(
     spec: SelectorSpec,
     actionContext: ActionContext,
     requireUnique = false,
     logFailure = true,
+    viewMode: "geometry" | "state" = "geometry",
   ): Promise<FoundElement> {
     const step = "find";
     this.logger.info(actionContext, step, "start", {
@@ -54,18 +58,23 @@ export class FindAction {
       frame_levels: spec.frames?.length ?? 0,
     });
     try {
+      assertRequestActive(actionContext);
       const page = await this.session.requirePage(actionContext, step);
+      observeRequestPage(actionContext, page);
       const resolved = await this.primitive.resolve(page, spec, {
         trace_id: actionContext.trace_id,
         action: actionContext.action,
         step,
         require_unique: requireUnique,
+        view_mode: viewMode,
       });
+      assertRequestActive(actionContext);
       const elementRef = this.session.elements.remember(
         page,
         resolved.locator,
       );
       const pages = await this.session.listPages();
+      assertRequestActive(actionContext);
       const current = pages.pages.find((item) => item.current);
       const result: FindResult = {
         element_ref: elementRef,
@@ -80,7 +89,9 @@ export class FindAction {
         target_description: spec.description,
         matched_selector: resolved.matched_selector.value,
         matches_checked: resolved.attempts.length,
-        in_viewport: resolved.view.in_viewport,
+        ...(viewMode === "geometry"
+          ? { in_viewport: resolved.view.in_viewport }
+          : { geometry_read: false, state_checked: spec.state ?? "visible" }),
       });
       return { resolved, result };
     } catch (error) {
@@ -110,6 +121,7 @@ export class FindAction {
     readConcurrency = 100,
     startIndex = 0,
     diagnostic = { diagnostic: false, attempt: 0, probe_only: false },
+    fromEnd = false,
   ): Promise<FindAllItem[]> {
     const step = "find_all";
     const diagnosticInput: JsonObject = diagnostic.diagnostic ? { selector: selectorDiagnostic(spec), attempt: diagnostic.attempt,
@@ -120,11 +132,16 @@ export class FindAction {
         target_description: spec.description,
         max_items: maxItems,
         start_index: startIndex,
+        from_end: fromEnd,
         field_count: Object.keys(fields).length,
       });
     }
     try {
+      assertRequestActive(actionContext);
+      markRequestProgress(actionContext, "require_page");
       const page = await this.session.requirePage(actionContext, step);
+      observeRequestPage(actionContext, page);
+      markRequestProgress(actionContext, "resolve_list");
       const resolvedItems = await this.primitive.resolveAll(
         page,
         spec,
@@ -135,17 +152,20 @@ export class FindAction {
           step,
         },
         startIndex,
+        fromEnd,
       );
+      assertRequestActive(actionContext);
       if (diagnostic.diagnostic) this.logger.info(actionContext, "selector_probe", "success", {
         diagnostic: true, input: diagnosticInput, output: { count: resolvedItems.length,
           selector_attempts: this.logger.fromUnknown(resolvedItems[0]?.attempts ?? []).value ?? [], page_state: pageDiagnostic(page) },
       });
+      markRequestProgress(actionContext, "list_resolved", undefined, undefined, resolvedItems.length);
       if (diagnostic.probe_only) return resolvedItems.map((resolved, index) => ({
-        index: resolved.list_index ?? index + startIndex, element_ref: "", text: "", fields: {},
+        index: resolved.list_index ?? index + startIndex, total_matches: resolved.list_total ?? resolvedItems.length, element_ref: "", text: "", fields: {},
       }));
       const diagnoseNames = report && Object.hasOwn(fields, "name");
       // 限制整批同时进行的页面读取，避免每张卡片的多个字段把浏览器命令队列挤满。
-      const readWithSlot = createReadLimiter(Math.min(readConcurrency, 4));
+      const readWithSlot = createReadLimiter(Math.min(readConcurrency, 4), actionContext);
       if (diagnoseNames) {
         this.logger.info(actionContext, "list_name_diagnostics", "resolved", {
           page_url: safeURL(page.url()),
@@ -163,9 +183,10 @@ export class FindAction {
       }
       /** readItem 读取单张卡片，并在读取前后核对正文，避免列表变化后串人。 */
       const readItem = async (resolved: ResolvedElement, index: number): Promise<FindAllItem | null> => {
-        const beforeText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, index, "before", diagnoseNames));
+        const listIndex = resolved.list_index ?? index + startIndex;
+        const beforeText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, listIndex, "before", diagnoseNames));
         if (beforeText === null) return null;
-        const fieldEntries = await Promise.all(
+        const fieldEntries = await waitForAllReads(
           Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
             fieldName,
             await readWithSlot(() => this.readRelativeField(
@@ -174,13 +195,13 @@ export class FindAction {
               fieldSpec,
               actionContext,
               fieldName,
-              index,
+              listIndex,
               diagnoseNames,
             )),
           ] as const),
         );
         const values: JsonObject = Object.fromEntries(fieldEntries);
-        const afterText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, index, "after", diagnoseNames));
+        const afterText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, listIndex, "after", diagnoseNames));
         if (afterText === null) return null;
         if (afterText !== beforeText) {
           this.logger.warn(actionContext, "read_list_item", "changed", {
@@ -190,6 +211,7 @@ export class FindAction {
         }
         return {
           index: resolved.list_index ?? index + startIndex,
+          total_matches: resolved.list_total ?? resolvedItems.length,
           element_ref: this.session.elements.remember(
             page,
             resolved.locator,
@@ -226,8 +248,12 @@ export class FindAction {
         });
       }
       if (report) {
+        const returned = items.filter((item): item is FindAllItem => item !== null);
         this.logger.info(actionContext, step, "success", {
-          count: items.filter((item) => item !== null).length,
+          count: returned.length,
+          first_index: returned[0]?.index ?? -1,
+          last_index: returned.at(-1)?.index ?? -1,
+          total_matches: returned[0]?.total_matches ?? 0,
         });
       }
       return items.filter((item): item is FindAllItem => item !== null);
@@ -259,15 +285,24 @@ export class FindAction {
   /** readListText 读取整张卡片文字；失败返回空结果供调用方逐项补读，不记录简历正文。 */
   private async readListText(root: Locator, context: ActionContext, index: number, phase: string, diagnose: boolean): Promise<string | null> {
     const started = Date.now();
+    const read = beginRequestRead(context, "read_card", index);
     try {
+      assertRequestActive(context);
       return await this.readPrimitive.text(root);
     } catch (error) {
+      assertRequestActive(context);
+      // 页面缩短后旧序号已经消失，整批作废并交回上层重扫，避免逐行超时或拼出新旧混杂的联系人。
+      if (await root.count() === 0) {
+        throw new WorkerError({ code: "ACTION_TIMEOUT", message: "页面列表已经变化，请重新读取", action: context.action,
+          step: "read_list_item", trace_id: context.trace_id, retryable: true,
+          details: { unreadable_indices: [index], reason: "list_item_disappeared" } });
+      }
       if (diagnose) this.logger.warn(context, "read_list_item", "read_failed", {
         index, phase, read_elapsed_ms: Date.now() - started, text_timeout_ms: 1500,
         ...readFailureDetails(error),
       });
       return null;
-    }
+    } finally { read?.done(); }
   }
 
   /** readRelativeField 在列表项内部读取一个字段，找不到时返回空字符串。 */
@@ -281,9 +316,11 @@ export class FindAction {
     diagnose: boolean,
   ): Promise<string> {
     const started = Date.now();
+    const read = beginRequestRead(actionContext, "locate_field", index, fieldName);
     let phase = "locate";
     let resolved: ResolvedElement | undefined;
     try {
+      assertRequestActive(actionContext);
       const fieldSpec: SelectorSpec = {
         ...spec,
         timeout_ms: 0,
@@ -299,14 +336,17 @@ export class FindAction {
           require_unique: false,
         },
       );
+      assertRequestActive(actionContext);
       phase = "read";
-      if (spec.read_attribute) {
+      read?.readValue();
+      const selectedSpec = resolved.resolved_spec ?? spec;
+      if (selectedSpec.read_attribute) {
         return await this.readPrimitive.attribute(
           resolved.locator,
-          spec.read_attribute,
+          selectedSpec.read_attribute,
         );
       }
-      if (spec.read_property === "html") {
+      if (selectedSpec.read_property === "html") {
         return await this.readPrimitive.html(resolved.locator);
       }
       const value = await this.readPrimitive.text(resolved.locator);
@@ -319,6 +359,7 @@ export class FindAction {
       });
       return value;
     } catch (error) {
+      assertRequestActive(actionContext);
       if (diagnose && (fieldName === "name" || fieldName === "card_text")) this.logger.warn(actionContext, `read_field:${fieldName}`, "failed", {
         index, phase, field_elapsed_ms: Date.now() - started,
         configured_timeout_ms: spec.timeout_ms ?? null, effective_locator_timeout_ms: 0, text_timeout_ms: 1500,
@@ -328,7 +369,7 @@ export class FindAction {
         ...readFailureDetails(error),
       });
       return "";
-    }
+    } finally { read?.done(); }
   }
 
   /** retryMissingFields 对关键字段逐项补读，并核对卡片正文，防止重读时串人。 */
@@ -349,10 +390,10 @@ export class FindAction {
         const fieldSpec = fields[fieldName];
         if (!fieldSpec || String(item.fields[fieldName] ?? "").trim()) continue;
         for (let attempt = 1; attempt <= 2 && !String(item.fields[fieldName] ?? "").trim(); attempt++) {
-          const beforeText = await readWithSlot(() => this.readListText(root, actionContext, index, `${fieldName}_retry_before`, diagnose));
+          const beforeText = await readWithSlot(() => this.readListText(root, actionContext, item.index, `${fieldName}_retry_before`, diagnose));
           if (beforeText === null || beforeText !== item.text) { items[index] = null; break; }
-          const value = await readWithSlot(() => this.readRelativeField(page, root, fieldSpec, actionContext, fieldName, index, diagnose));
-          const afterText = await readWithSlot(() => this.readListText(root, actionContext, index, `${fieldName}_retry_after`, diagnose));
+          const value = await readWithSlot(() => this.readRelativeField(page, root, fieldSpec, actionContext, fieldName, item.index, diagnose));
+          const afterText = await readWithSlot(() => this.readListText(root, actionContext, item.index, `${fieldName}_retry_after`, diagnose));
           if (afterText === null || afterText !== beforeText) { items[index] = null; break; }
           item.fields[fieldName] = value;
           if (diagnose) this.logger.info(actionContext, `read_field:${fieldName}`, value ? "retry_read" : "retry_empty", {
@@ -366,13 +407,19 @@ export class FindAction {
 }
 
 /** createReadLimiter 为一次列表请求分配有限的浏览器读取槽位，避免并发字段读取排队超时。 */
-function createReadLimiter(limit: number): <T>(operation: () => Promise<T>) => Promise<T> {
+function createReadLimiter(limit: number, context: ActionContext): <T>(operation: () => Promise<T>) => Promise<T> {
   let available = Math.max(1, limit);
   const waiting: Array<() => void> = [];
   return async <T>(operation: () => Promise<T>): Promise<T> => {
+    assertRequestActive(context);
     if (available > 0) available--;
     else await new Promise<void>(resolve => waiting.push(resolve));
-    try { return await operation(); }
+    try {
+      assertRequestActive(context);
+      const value = await operation();
+      assertRequestActive(context);
+      return value;
+    }
     finally {
       const next = waiting.shift();
       if (next) next();
@@ -399,7 +446,7 @@ async function mapWithConcurrency<T, R>(
       }
     },
   );
-  await Promise.all(workers);
+  await waitForAllReads(workers);
   return results;
 }
 
@@ -419,4 +466,15 @@ function readFailureDetails(error: unknown): JsonObject {
   }
   const name = error instanceof Error ? error.name : "UnknownError";
   return { error_type: ["TimeoutError", "Error", "TypeError"].includes(name) ? name : "UnknownError", error_code: name === "TimeoutError" ? "READ_TIMEOUT" : "READ_ERROR" };
+}
+
+/** waitForAllReads 失败时也等所有已发出的读取结束，避免请求返回后还留下旧的浏览器负载。 */
+async function waitForAllReads<T>(promises: Promise<T>[]): Promise<T[]> {
+  const settled = await Promise.allSettled(promises);
+  const failure = settled.find(item => item.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
+  return settled.map(item => {
+    if (item.status === "rejected") throw item.reason;
+    return item.value;
+  });
 }

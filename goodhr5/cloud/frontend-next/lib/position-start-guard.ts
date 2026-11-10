@@ -1,6 +1,16 @@
 /** 本文件负责浏览器端岗位运行启动前的 AI 余额和本地程序版本强制校验。 */
+import { positionDetailMode } from "./position-detail-mode.ts";
 
 export const MINIMUM_POSITION_BALANCE_YUAN = 0.1;
+export const POSITION_RECREATE_MESSAGE = "这个岗位还在使用旧版配置，暂时不能启动。请先复制岗位名称和要求，再删除该岗位并重新创建。";
+
+/** positionRequiresRecreate 根据云端原始配置标记判断是否必须重建，兼容旧接口的原始模式字段。 */
+export function positionRequiresRecreate(position: any): boolean {
+  const common = position?.common_config;
+  return position?.requires_recreate === true
+    || String(common?.mode_default || "").trim().toLowerCase() === "keyword"
+    || String(common?.detail_mode || "").trim().toLowerCase() === "ocr";
+}
 
 export type PositionStartGuardFailure = {
   code: string;
@@ -72,8 +82,10 @@ export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown,
 export function positionUsesAI(position: any) {
   const commonConfig = position?.common_config || {};
   const baseMode = String(commonConfig.mode_default || "").trim().toLowerCase();
-  const detailMode = String(commonConfig.detail_mode || "").trim().toLowerCase();
-  return baseMode === "ai" || detailMode === "ai";
+  const detailMode = positionDetailMode(position?.platform_id);
+  // 基础筛选固定AI，旧关键词配置也必须检查AI余额；原判断保留供恢复。
+  // return baseMode === "ai" || detailMode === "ai";
+  return true;
 }
 
 /** walletBalanceYuan 将钱包接口的不同余额字段统一转换为元。 */

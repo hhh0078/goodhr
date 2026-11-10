@@ -85,7 +85,7 @@ func (s *Server) handleExtensionsDirectoryOpen(w http.ResponseWriter, r *http.Re
 func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	runtimeStatus := diagnosticRuntime{
 		NodeReady: s.runtime.CheckNode() == nil, WorkerBuilt: s.runtime.CheckWorkerBuild() == nil,
-		WorkerReady: s.browser.Health(r.Context()) == nil, OCRReady: s.ocr.Ready() == nil,
+		WorkerReady: s.browser.Health(r.Context()) == nil, OCRReady: false, // OCR已停用，不再检查本机文件。
 	}
 	result := diagnosticResult{
 		CheckedAt: time.Now().UTC().Format(time.RFC3339Nano),

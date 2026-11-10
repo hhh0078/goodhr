@@ -12,9 +12,11 @@ import { LocatorPrimitive } from "../primitives/locator.js";
 import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
 import { ScrollAction } from "./scroll.js";
-import { waitForStablePosition } from "./stable-position.js";
+import { moveToStablePosition } from "./stable-position.js";
 import { NewPageWaiter } from "./new-page-waiter.js";
 import { clickActionability, pageDiagnostic, selectorDiagnostic } from "./diagnostic-state.js";
+import type { Page } from "playwright-core";
+import { assertInputAllowed } from "../primitives/input-lifecycle.js";
 
 /** ClickResult 表示封装点击的查找、移动和验证结果。 */
 export interface ClickResult extends JsonObject {
@@ -36,6 +38,7 @@ export class ClickAction {
     private readonly locator: LocatorPrimitive,
     private readonly mouse: MousePrimitive,
     private readonly logger: WorkerLogger,
+    private readonly activatePage: (page: Page, context: ActionContext) => Promise<void> = page => page.bringToFront(),
   ) {}
 
   /** execute 平铺执行查找、滚动、移动、按下、松开和验证。 */
@@ -45,6 +48,7 @@ export class ClickAction {
   ): Promise<ClickResult> {
     let newPageWaiter: NewPageWaiter | undefined;
     let clickStarted = false;
+    let movingAfterClick = false;
     const diagnosticInput: JsonObject = request.diagnostic ? { selector: selectorDiagnostic(request.selector), attempt: request.diagnostic_attempt ?? 0,
       verification_configured: Boolean(request.verify) } : {};
     this.logger.info(actionContext, "click", "start", {
@@ -57,9 +61,10 @@ export class ClickAction {
         actionContext,
         true,
       );
-      await this.scroll.ensureVisible(
+      const visibleArea = await this.scroll.ensureVisible(
         found,
         {
+          wheel_anchor: request.wheel_anchor,
           distance: 160,
           max_attempts: 24,
           viewport_margin: request.viewport_margin ?? 0,
@@ -68,7 +73,6 @@ export class ClickAction {
         },
         actionContext,
       );
-      await waitForStablePosition(found, this.locator);
       if (request.diagnostic) {
         const actionability = await clickActionability(found.resolved.locator);
         this.logger.info(actionContext, "click_target", "checked", {
@@ -78,7 +82,8 @@ export class ClickAction {
         });
       }
       // 点击收紧到可见区域中部，避免随机落在被悬浮入口覆盖的按钮边缘。
-      const landing = await this.move.toElement(found.resolved, actionContext, { centered: true });
+      const landing = await moveToStablePosition(found, this.locator, actionContext,
+        () => this.move.toElement(found.resolved, actionContext, { centered: true, visibleArea }));
       if (request.diagnostic) this.logger.info(actionContext, "click_landing", "ready", {
         diagnostic: true, input: diagnosticInput, output: { x: landing.x, y: landing.y, target_view: this.logger.fromUnknown(landing.view) },
       });
@@ -92,6 +97,7 @@ export class ClickAction {
       let totalHold = 0;
       for (let index = 0; index < clickCount; index += 1) {
         const holdMs = randomInteger(70, 190);
+        assertInputAllowed(actionContext);
         try {
           // 一旦尝试按下鼠标，点击结果就可能不确定，调用方不得盲目再次发送。
           clickStarted = true;
@@ -105,6 +111,11 @@ export class ClickAction {
           await delay(randomInteger(80, 160));
         }
       }
+      if (request.move_to_center_after_click) {
+        movingAfterClick = true;
+        await this.move.toViewportCenter(found.resolved.page, landing.view.viewport.width, landing.view.viewport.height, actionContext);
+        movingAfterClick = false;
+      }
       const newPage = newPageWaiter ? await newPageWaiter.wait() : null;
       if (newPage) {
         await newPage
@@ -112,7 +123,9 @@ export class ClickAction {
             timeout: request.new_page_timeout_ms ?? 10_000,
           })
           .catch(() => undefined);
-        await newPage.bringToFront();
+        assertInputAllowed(actionContext);
+        await this.activatePage(newPage, actionContext);
+        assertInputAllowed(actionContext);
       }
       const verified = await this.verify(
         request,
@@ -159,6 +172,7 @@ export class ClickAction {
         details: { target_description: request.selector.description },
       });
       normalized.details.click_started = clickStarted;
+      if (movingAfterClick) normalized.details.post_click_move_failed = true;
       this.logger.failure(actionContext, normalized);
       throw normalized;
     } finally {

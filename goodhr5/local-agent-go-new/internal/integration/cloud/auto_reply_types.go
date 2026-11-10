@@ -1,0 +1,512 @@
+// Package cloud 本文件定义本地自动回复流程与云端之间的强类型协议。
+package cloud
+
+import (
+	"encoding/json"
+	"goodhr5/local-agent-go-new/internal/platform/model"
+	"time"
+)
+
+const (
+	// AutoReplyMaxAttachmentBytes 是本地和云端共同接受的单个简历附件上限。
+	AutoReplyMaxAttachmentBytes int64 = 20 * 1024 * 1024
+	// AutoReplyMaxAvatarBytes 是本地和云端共同接受的候选人头像原图上限。
+	AutoReplyMaxAvatarBytes int64 = 1 * 1024 * 1024
+	// AutoReplyMaxHistoryMessages 是首次聊天同步允许的最大消息条数。
+	AutoReplyMaxHistoryMessages = 5000
+)
+
+// AgentCredentials 表示本地 Agent 调用敏感自动回复接口所需的凭证。
+type AgentCredentials struct {
+	Token     string
+	MachineID string
+}
+
+// AutoReplyPosition 表示自动回复快照中的最小岗位信息。
+type AutoReplyPosition struct {
+	ID                     string `json:"id"`
+	OutputStructuredResume bool   `json:"output_structured_resume"`
+	Name                   string `json:"name"`
+	PlatformID             string `json:"platform_id"`
+	Status                 string `json:"status"`
+}
+
+// AutoReplySubscription 表示自动回复快照中的会员权限。
+type AutoReplySubscription struct {
+	Active           bool      `json:"active"`
+	MemberType       string    `json:"member_type"`
+	MemberName       string    `json:"member_name"`
+	ExpiresAt        time.Time `json:"expires_at"`
+	RemainingDays    int       `json:"remaining_days"`
+	RemainingSeconds int64     `json:"remaining_seconds"`
+	AllowAI          bool      `json:"allow_ai"`
+	AllowAutoReply   bool      `json:"allow_auto_reply"`
+	Features         []string  `json:"features"`
+}
+
+// CompanyProfile 表示岗位选中的团队公司档案。
+type CompanyProfile struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Address   string    `json:"address"`
+	Contact   string    `json:"contact"`
+	Overview  string    `json:"overview"`
+	ExtraInfo string    `json:"extra_info"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// PositionReplyCondition 表示自动回复需要遵守或确认的一条岗位条件。
+type PositionReplyCondition struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Content   string `json:"content"`
+	DedupeKey string `json:"dedupe_key"`
+	SortOrder int    `json:"sort_order"`
+	Enabled   bool   `json:"enabled"`
+}
+
+// AutoReplyPhrase 表示云端按岗位继承、编辑和隐藏之后实际启用的一条话术。
+type AutoReplyPhrase struct {
+	Deleted  bool   `json:"deleted,omitempty"` // 已删除的话术保留禁发标记，不能回退到默认内容。
+	ID       string `json:"id"`
+	Category string `json:"category"`
+	Title    string `json:"title"`
+	Scene    string `json:"scene"`
+	Content  string `json:"content"`
+}
+
+// AutoReplyPrompts 表示此岗位快照采用的管理员提示词；旧服务缺字段时沿用各流程内置默认。
+type AutoReplyPrompts struct {
+	Dialogue       string `json:"auto_reply_dialogue_prompt"`
+	Review         string `json:"auto_reply_review_prompt"`
+	Resume         string `json:"auto_reply_resume_prompt"`
+	Recommendation string `json:"auto_reply_recommendation_prompt"`
+}
+
+// PositionAutoReplyConfig 表示岗位自动回复的完整配置。
+type PositionAutoReplyConfig struct {
+	PositionID              string                   `json:"position_id"`
+	CompanyProfileID        string                   `json:"company_profile_id"`
+	Enabled                 bool                     `json:"enabled"`
+	PositionDescription     string                   `json:"position_description"`
+	ResumeRequestMessage    string                   `json:"resume_request_message"`
+	Phrases                 []AutoReplyPhrase        `json:"phrases"`
+	PhrasesVersion          string                   `json:"phrases_version,omitempty"`
+	Prompts                 AutoReplyPrompts         `json:"auto_reply_prompts,omitzero"`
+	PollIntervalSeconds     int                      `json:"poll_interval_seconds"`
+	MaxThreadsPerCheckpoint int                      `json:"max_threads_per_checkpoint"`
+	Version                 int                      `json:"version"`
+	Conditions              []PositionReplyCondition `json:"conditions"`
+	UpdatedAt               time.Time                `json:"updated_at"`
+}
+
+// AutoReplyPositionSnapshot 表示一次本地自动回复检查使用的岗位冻结数据。
+type AutoReplyPositionSnapshot struct {
+	OK             bool                    `json:"ok"`
+	Position       AutoReplyPosition       `json:"position"`
+	Config         PositionAutoReplyConfig `json:"config"`
+	CompanyProfile CompanyProfile          `json:"company_profile"`
+	Subscription   AutoReplySubscription   `json:"subscription"`
+}
+
+// AutoReplyPositionSnapshots 表示当前招聘平台全部已开启自动回复的岗位快照。
+type AutoReplyPositionSnapshots struct {
+	OK        bool                        `json:"ok"`
+	Positions []AutoReplyPositionSnapshot `json:"positions"`
+}
+
+// AutoReplyPositionStatus 表示岗位自动回复的实时开关和权限状态。
+type AutoReplyPositionStatus struct {
+	OK                bool                  `json:"ok"`
+	Enabled           bool                  `json:"enabled"`
+	ConfiguredEnabled bool                  `json:"configured_enabled"`
+	Version           int                   `json:"version"`
+	Subscription      AutoReplySubscription `json:"subscription"`
+}
+
+// CandidatePlatformIdentity 表示候选人在一个招聘平台账号中的稳定身份。
+type CandidatePlatformIdentity struct {
+	ID                  string    `json:"id"`
+	CandidateID         string    `json:"candidate_id"`
+	PlatformID          string    `json:"platform_id"`
+	PlatformAccountID   string    `json:"platform_account_id"`
+	PlatformCandidateID string    `json:"platform_candidate_id"`
+	CandidateName       string    `json:"candidate_name"`
+	Gender              string    `json:"gender"`
+	NormalizedPhone     string    `json:"normalized_phone"`
+	FirstSeenAt         time.Time `json:"first_seen_at"`
+	LastSeenAt          time.Time `json:"last_seen_at"`
+}
+
+// AutoReplyConversation 表示可以先于正式简历存在的平台聊天会话。
+type AutoReplyConversation struct {
+	DeletionBoundary        *AutoReplyDeletionBoundary              `json:"deletion_boundary,omitempty"`   // 本次重新联系所依据的删除边界，仅在新代会话存在。
+	ReopenInboundHash       string                                  `json:"reopen_inbound_hash,omitempty"` // 新入站依据的稳定消息键摘要。
+	ReopenInboundAt         *time.Time                              `json:"reopen_inbound_at,omitempty"`   // 已核实新入站的平台时间。
+	ID                      string                                  `json:"id"`
+	CandidateID             string                                  `json:"candidate_id"`
+	PlatformIdentityID      string                                  `json:"platform_identity_id"`
+	EngagementID            string                                  `json:"engagement_id"`
+	PositionID              string                                  `json:"position_id"`
+	PlatformAccountID       string                                  `json:"platform_account_id"`
+	PlatformID              string                                  `json:"platform_id"`
+	PlatformThreadID        string                                  `json:"platform_thread_id"`
+	CandidateName           string                                  `json:"candidate_name"`
+	Gender                  string                                  `json:"gender"`
+	PagePositionText        string                                  `json:"page_position_text"`
+	Status                  string                                  `json:"status"`
+	HistoryComplete         bool                                    `json:"history_complete"`
+	MessageIdentityVersion  int                                     `json:"message_identity_version,omitempty"` // 仅完整历史同步成功后记录已使用的消息键版本。
+	LastSyncedMessageKey    string                                  `json:"last_synced_message_key"`
+	LastCandidateMessageKey string                                  `json:"last_candidate_message_key"`
+	UnresolvedReason        string                                  `json:"unresolved_reason"`
+	LastCheckedAt           *time.Time                              `json:"last_checked_at"`
+	CreatedAt               time.Time                               `json:"created_at"`
+	UpdatedAt               time.Time                               `json:"updated_at"`
+	CaptureIntent           *AutoReplyCaptureIntent                 `json:"capture_intent,omitempty"`
+	ResumeRetry             *AutoReplyResumeRetry                   `json:"resume_retry,omitempty"`
+	GoalFollowup            *AutoReplyGoalFollowup                  `json:"goal_followup,omitempty"` // 新证据完成后的一次追问，发送或失效后清除，不是定时催问。
+	InfoRequests            map[string]AutoReplyInfoRequestProgress `json:"info_requests,omitempty"` // 原生资料索要的服务器状态，键只允许resume、phone和wechat。
+}
+
+// AutoReplyInfoRequestProgress 保存单类资料的请求状态，明确暂缓只在下一条新沟通后重新评估。
+type AutoReplyInfoRequestProgress struct {
+	Status                string    `json:"status"`
+	LastAttemptMessageKey string    `json:"last_attempt_message_key,omitempty"`
+	UpdatedAt             time.Time `json:"updated_at"`
+}
+
+// AutoReplyResumeRetry 保存尚未完成的简历采集或补审；次数在操作前落盘，最多自动尝试三次。
+type AutoReplyResumeRetry struct {
+	LeaseUntil      *time.Time `json:"lease_until,omitempty"` // 当前领取的占用期限，运行中不可被人工重置。
+	Attempts        int        `json:"attempts"`              // 已领取的采集或补审次数。
+	LastError       string     `json:"last_error"`            // 最近一次失败的简短原因。
+	NextAttemptAt   time.Time  `json:"next_attempt_at"`       // 下次可领取时间，领取期间也作为租约截止时间。
+	SourceMessageID string     `json:"source_message_id"`     // 已核实简历来源消息；新来源可以单独重试。
+}
+
+// AutoReplyCaptureIntent 仅保存列表提供的恢复线索；岗位编号用于恢复调度，不代表已核实的会话岗位。
+type AutoReplyCaptureIntent struct {
+	ReplyAfter          time.Time `json:"reply_after,omitzero"`
+	WitnessDigest       string    `json:"witness_digest,omitempty"`
+	PositionID          string    `json:"position_id"`
+	PlatformThreadID    string    `json:"platform_thread_id"`
+	PlatformCandidateID string    `json:"platform_candidate_id"`
+	CandidateName       string    `json:"candidate_name"`
+	PagePositionText    string    `json:"page_position_text"`
+}
+
+// AutoReplyMessage 表示一条经过本地清洗的聊天消息。
+type AutoReplyMessage struct {
+	ID                string          `json:"id,omitempty"`
+	ConversationID    string          `json:"conversation_id,omitempty"`
+	PlatformMessageID string          `json:"platform_message_id"`
+	Fingerprint       string          `json:"fingerprint"`
+	Direction         string          `json:"direction"`
+	MessageType       string          `json:"message_type"`
+	TextContent       string          `json:"text_content"`
+	CardContent       json.RawMessage `json:"card_content"`
+	SenderName        string          `json:"sender_name"`
+	PlatformSentAt    *time.Time      `json:"platform_sent_at"`
+	IngestedAt        time.Time       `json:"ingested_at"`
+	CreatedAt         time.Time       `json:"created_at"`
+}
+
+// AutoReplyMessageSyncRequest 表示一次首次或差量聊天同步。
+type AutoReplyMessageSyncRequest struct {
+	ReplyAfter             time.Time          `json:"-"` // 仅供本机初次确定自动答复的起点。
+	WitnessDigest          string             `json:"-"`
+	ConversationID         string             `json:"conversation_id"`
+	HistoryComplete        bool               `json:"history_complete"`
+	Messages               []AutoReplyMessage `json:"messages"`
+	CaptureCompleted       bool               `json:"capture_completed,omitempty"`
+	MessageIdentityVersion int                `json:"message_identity_version,omitempty"` // 新版本必须完整到顶且对上旧锚点，事务失败不得升级。
+}
+
+// AutoReplyMessageSyncResult 表示云端幂等保存后的差量游标。
+type AutoReplyMessageSyncResult struct {
+	Inserted                int    `json:"inserted"`
+	LastSyncedMessageKey    string `json:"last_synced_message_key"`
+	LastCandidateMessageKey string `json:"last_candidate_message_key"`
+}
+
+// StoredResumeAttachment 表示已保存到云端持久化目录的简历附件元数据。
+type StoredResumeAttachment struct {
+	ID              string    `json:"id"`
+	CandidateID     string    `json:"candidate_id"`
+	ConversationID  string    `json:"conversation_id"`
+	SourceMessageID string    `json:"source_message_id"`
+	PlatformID      string    `json:"platform_id"`
+	OriginalName    string    `json:"original_name"`
+	SHA256          string    `json:"sha256"`
+	MIMEType        string    `json:"mime_type"`
+	SizeBytes       int64     `json:"size_bytes"`
+	ExtractedText   string    `json:"extracted_text"`
+	LocalPath       string    `json:"-"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// AutoReplyResumeStructureRequest 表示交给云端真实附件解析能力的强类型请求。
+type AutoReplyResumeStructureRequest struct {
+	ConversationID    string   `json:"conversation_id"`
+	PositionID        string   `json:"position_id"`
+	AttachmentIDs     []string `json:"attachment_ids"`
+	CandidateName     string   `json:"candidate_name"`
+	Gender            string   `json:"gender"`
+	OnlineResumeText  string   `json:"online_resume_text"`
+	BasedOnMessageKey string   `json:"based_on_message_key"`
+}
+
+// AutoReplyResumeStructureResult 表示云端从附件正文整理出的候选人资料。
+type AutoReplyResumeStructureResult struct {
+	Candidate        StructuredCandidate `json:"candidate"`
+	Gender           string              `json:"gender"`
+	BirthYMPrecision string              `json:"birth_ym_precision"`
+	Wechat           string              `json:"wechat"`
+	AttachmentText   string              `json:"attachment_text"`
+	AttachmentIDs    []string            `json:"attachment_ids"`
+	Attempts         int                 `json:"attempts"`
+	TokenUsage       int                 `json:"token_usage"`
+}
+
+// CandidateConfirmationItem 表示候选人与岗位之间的一条结构化确认项。
+type CandidateConfirmationItem struct {
+	ExpectedUpdatedAt   *time.Time `json:"-"` // AI 提议使用的原版本，只用于提交前比较，不写入业务实体。
+	RequireAbsent       bool       `json:"-"` // 新建提议不能覆盖同编号的已有目标。
+	AIProposal          bool       `json:"-"` // 提交时保持岗位条件的正文、归属和启用权不被 AI 放宽。
+	ID                  string     `json:"id"`
+	ReviewID            string     `json:"review_id"`
+	ConversationID      string     `json:"conversation_id"`
+	CandidateID         string     `json:"candidate_id"`
+	PositionID          string     `json:"position_id"`
+	PositionConditionID string     `json:"position_condition_id"`
+	ItemType            string     `json:"item_type"`
+	Content             string     `json:"content"`
+	DedupeKey           string     `json:"dedupe_key"`
+	Status              string     `json:"status"`
+	StatusReason        string     `json:"status_reason"`
+	SourceType          string     `json:"source_type"`
+	SourceRef           string     `json:"source_ref"`
+	EvidenceText        string     `json:"evidence_text"`
+	Summary             string     `json:"summary"`
+	CreatedByKind       string     `json:"created_by_kind"`
+	AskCount            int        `json:"ask_count"`
+	LastAskedContentKey string     `json:"last_asked_content_key,omitempty"`
+	LastAskedAt         *time.Time `json:"last_asked_at"`
+	LastAnsweredAt      *time.Time `json:"last_answered_at"`
+	LastReviewedAt      *time.Time `json:"last_reviewed_at"`
+	ArchivedAt          *time.Time `json:"archived_at"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
+// AutoReplyGoalFollowup 保存新简历事件拟定的一次追问，复用原会话与发送账本恢复，不产生独立目标库。
+type AutoReplyGoalFollowup struct {
+	PhraseID            string    `json:"phrase_id,omitempty"` // 恢复旧追问时仍核对原话术是否允许发送。
+	EventKind           string    `json:"event_kind,omitempty"`
+	ContextRevision     string    `json:"context_revision,omitempty"`
+	ExpectedContentKey  string    `json:"expected_content_key,omitempty"`
+	EventKey            string    `json:"event_key"`
+	ConfirmationItemID  string    `json:"confirmation_item_id"`
+	Content             string    `json:"content"`
+	BasedOnMessageKey   string    `json:"based_on_message_key"`
+	ExpectedGoalVersion string    `json:"expected_goal_version"`
+	ExpectedLatestKey   string    `json:"expected_latest_key"`
+	ResumeRevision      string    `json:"resume_revision"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+// AutoReplyGoalSend 把将发出的追问绑定到目标版本；同一次发送成功时原子登记询问记录。
+type AutoReplyGoalSend struct {
+	ConfirmationItemID string
+	ExpectedVersion    string
+	BasedOnMessageKey  string
+	ExpectedLatestKey  string
+	AllowNoPending     bool
+}
+
+// AutoReplyAIRun 表示一次自动回复 AI 总记录。
+type AutoReplyAIRun struct {
+	ID                string          `json:"id"`
+	ConversationID    string          `json:"conversation_id"`
+	CandidateID       string          `json:"candidate_id"`
+	PositionID        string          `json:"position_id"`
+	TraceID           string          `json:"trace_id"`
+	Model             string          `json:"model"`
+	Status            string          `json:"status"`
+	BasedOnMessageKey string          `json:"based_on_message_key"`
+	InputMessages     json.RawMessage `json:"input_messages"`
+	OutputMessage     json.RawMessage `json:"output_message"`
+	ErrorCode         string          `json:"error_code"`
+	ErrorMessage      string          `json:"error_message"`
+	TokenUsage        int             `json:"token_usage"`
+	StartedAt         time.Time       `json:"started_at"`
+	CompletedAt       *time.Time      `json:"completed_at"`
+	ExpiresAt         time.Time       `json:"expires_at"`
+	CreatedAt         time.Time       `json:"created_at"`
+}
+
+// AutoReplyToolCall 表示一次 AI 工具调用的参数、结果和状态。
+type AutoReplyToolCall struct {
+	ID            string          `json:"id"`
+	AIRunID       string          `json:"ai_run_id"`
+	ToolCallID    string          `json:"tool_call_id"`
+	SequenceNo    int             `json:"sequence_no"`
+	ToolName      string          `json:"tool_name"`
+	ArgumentsJSON json.RawMessage `json:"arguments_json"`
+	ResultJSON    json.RawMessage `json:"result_json"`
+	Status        string          `json:"status"`
+	ErrorCode     string          `json:"error_code"`
+	ErrorMessage  string          `json:"error_message"`
+	StartedAt     time.Time       `json:"started_at"`
+	CompletedAt   *time.Time      `json:"completed_at"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
+// AutoReplyConfigSuggestion 表示等待 HR 审核的岗位或公司资料建议。
+type AutoReplyConfigSuggestion struct {
+	ID               string          `json:"id"`
+	ConversationID   string          `json:"conversation_id"`
+	PositionID       string          `json:"position_id"`
+	CompanyProfileID string          `json:"company_profile_id"`
+	SuggestionType   string          `json:"suggestion_type"`
+	Operation        string          `json:"operation"`
+	TargetID         string          `json:"target_id"`
+	ProposedValue    json.RawMessage `json:"proposed_value"`
+	Reason           string          `json:"reason"`
+	Status           string          `json:"status"`
+	CreatedAt        time.Time       `json:"created_at"`
+}
+
+// AutoReplyNotification 表示一封需要 HR 人工接管的幂等通知。
+type AutoReplyNotification struct {
+	ID                string     `json:"id"`
+	ConversationID    string     `json:"conversation_id"`
+	PositionID        string     `json:"position_id"`
+	BasedOnMessageKey string     `json:"based_on_message_key"`
+	ReasonKey         string     `json:"reason_key"`
+	CandidateName     string     `json:"candidate_name"`
+	Gender            string     `json:"gender"`
+	PlatformID        string     `json:"platform_id"`
+	Reason            string     `json:"reason"`
+	LatestMessage     string     `json:"latest_message"`
+	Status            string     `json:"status"`
+	ErrorMessage      string     `json:"error_message"`
+	SentAt            *time.Time `json:"sent_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+}
+
+// AutoReplyNotificationResult 表示人工接管邮件的幂等发送结果。
+type AutoReplyNotificationResult struct {
+	Queued       bool                  `json:"queued"` // 已在本机可靠登记，发送失败由后台恢复。
+	Notification AutoReplyNotification `json:"notification"`
+	EmailSent    bool                  `json:"email_sent"`
+	Duplicate    bool                  `json:"duplicate"`
+	Warning      string                `json:"warning"`
+}
+
+// AutoReplyCandidateLookup 表示按平台身份优先、手机号后备的候选人查询条件。
+type AutoReplyCandidateLookup struct {
+	PlatformID          string
+	PlatformAccountID   string
+	PlatformCandidateID string
+	PlatformThreadID    string
+	Phone               string
+}
+
+// AutoReplyStoredCandidate 表示云端已有的正式简历。
+// 当前候选人存储模型仍使用 Go 字段名输出，因此这里显式兼容该现有协议。
+type AutoReplyStoredCandidate struct {
+	OnlineProfile         *AutoReplyOnlineProfileState `json:"online_profile,omitempty"`           // 已读取并经服务器匹配的当前在线资料，独立于附件解析成功状态。
+	ResumeSourceMessageID string                       `json:"resume_source_message_id,omitempty"` // 本地结构化资料对应的平台来源消息键。
+	ResumeStructured      bool                         `json:"resume_structured,omitempty"`        // 本地已成功解析简历，不依赖是否有手机号。
+	ID                    string                       `json:"ID"`
+	CandidateName         string                       `json:"CandidateName"`
+	AvatarURL             string                       `json:"AvatarURL"`
+	Gender                string                       `json:"Gender"`
+	BirthYM               string                       `json:"BirthYM"`
+	BirthYMPrecision      string                       `json:"BirthYMPrecision"`
+	Phone                 string                       `json:"Phone"`
+	Email                 string                       `json:"Email"`
+	Wechat                string                       `json:"Wechat"`
+	WorkRegion            string                       `json:"WorkRegion"`
+	WorkYears             string                       `json:"WorkYears"`
+	ExpectedSalaryMin     *float64                     `json:"ExpectedSalaryMin"`
+	ExpectedSalaryMax     *float64                     `json:"ExpectedSalaryMax"`
+	BasicInfo             string                       `json:"BasicInfo"`
+	EducationLevel        string                       `json:"EducationLevel"`
+	ExpectedPosition      string                       `json:"ExpectedPosition"`
+	OnlineStatus          string                       `json:"OnlineStatus"`
+	PersonalDescription   string                       `json:"PersonalDescription"`
+	WorkStatus            string                       `json:"WorkStatus"`
+	RawText               string                       `json:"RawText"`
+	WorkExperiences       []CandidateWorkExperience    `json:"WorkExperiences"`
+	Educations            []CandidateEducation         `json:"Educations"`
+	Certificates          []CandidateCertificate       `json:"Certificates"`
+	Honors                []CandidateHonor             `json:"Honors"`
+	ProjectExperiences    []CandidateProjectExperience `json:"ProjectExperiences"`
+	Communications        []CandidateCommunication     `json:"Communications"`
+}
+
+// AutoReplyOnlineProfileState 保存在线资料缓存与简历库关联，CandidateID是简历库编号，不替换本轮候选人实体ID。
+type AutoReplyOnlineProfileState struct {
+	SourceKey   string                       `json:"source_key"`
+	ProfileKey  string                       `json:"profile_key"`
+	CandidateID string                       `json:"candidate_id"`
+	MatchStatus string                       `json:"match_status"`
+	Profile     model.AutoReplyOnlineProfile `json:"profile"`
+	UpdatedAt   time.Time                    `json:"updated_at"`
+}
+
+// AutoReplyCandidateState 表示已有简历、身份、会话和附件状态。
+type AutoReplyCandidateState struct {
+	OK                  bool                       `json:"ok"`
+	Found               bool                       `json:"found"`
+	HasResumeAttachment bool                       `json:"has_resume_attachment"`
+	RecentMessageKeys   []string                   `json:"recent_message_keys"`
+	Candidate           *AutoReplyStoredCandidate  `json:"candidate,omitempty"`
+	Identity            *CandidatePlatformIdentity `json:"identity,omitempty"`
+	Conversation        *AutoReplyConversation     `json:"conversation,omitempty"`
+	Attachments         []StoredResumeAttachment   `json:"attachments"`
+}
+
+// AutoReplyCandidateInput 表示本地清洗并校验后准备正式入库的简历。
+type AutoReplyCandidateInput struct {
+	OnlineProfileCandidateID string                `json:"online_profile_candidate_id,omitempty"` // 已由服务器在线建档确认的当前代简历库编号，不能取代本轮候选人实体ID。
+	OnlineProfileKey         string                `json:"online_profile_key,omitempty"`          // 与上述编号配对的服务器来源摘要，旧任务缺此证明仍受删除封印限制。
+	ReopenProof              *AutoReplyReopenProof `json:"reopen_proof,omitempty"`                // 本机从已核实的新入站及附件生成的上传依据。
+	ResumeSourceMessageID    string                `json:"resume_source_message_id,omitempty"`    // 已核实的简历来源消息键。
+	LocalCandidateID         string                `json:"-"`                                     // 已有本机候选人标识，不上传云端。
+	StructuredCandidate
+	PositionID          string `json:"position_id"`
+	PlatformID          string `json:"platform_id"`
+	PlatformAccountID   string `json:"platform_account_id"`
+	PlatformCandidateID string `json:"platform_candidate_id"`
+	AvatarURL           string `json:"avatar_url"`
+	Gender              string `json:"gender"`
+	BirthYMPrecision    string `json:"birth_ym_precision"`
+	BasicInfo           string `json:"basic_info"`
+}
+
+// AutoReplyCandidateSaveResult 表示正式简历和平台身份保存结果。
+type AutoReplyCandidateSaveResult struct {
+	OK               bool                      `json:"ok"`
+	CandidateID      string                    `json:"candidate_id"`
+	PlatformIdentity CandidatePlatformIdentity `json:"platform_identity"`
+	Position         AutoReplyPosition         `json:"position"`
+}
+
+// AutoReplyAttachmentUpload 表示本地下载完成、准备上传云端的简历附件。
+type AutoReplyAttachmentUpload struct {
+	FilePath        string
+	CandidateID     string
+	ConversationID  string
+	SourceMessageID string
+	PlatformID      string
+	ExtractedText   string
+}
+
+// AutoReplyAvatarUploadResult 表示云端完成头像自托管后的稳定访问路径。
+type AutoReplyAvatarUploadResult struct {
+	AvatarURL string `json:"avatar_url"`
+}

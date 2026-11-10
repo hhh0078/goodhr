@@ -1,12 +1,12 @@
 /** 文件作用：提供新手教程 Agent 协议模拟与仅本机 Go 云端透传代理；补测试平台和版本元数据，不启动招聘浏览器、不下载更新、不发送招呼。 */
 import http from "node:http";
 
-const port = Number(process.env.ONBOARDING_AGENT_PORT || 43130);
+const port = Number(process.env.ONBOARDING_AGENT_PORT || 43131);
 // 容器预览只通过回环端口发布；普通本机测试继续仅监听回环地址。
 const host = process.env.ONBOARDING_AGENT_HOST || "127.0.0.1";
 const cloudBase = process.env.ONBOARDING_CLOUD_BASE || "http://127.0.0.1:8084";
 const machineID = `goodhr-device-v1-${"e".repeat(64)}`;
-if (new URL(cloudBase).hostname !== "127.0.0.1" || new URL(cloudBase).port !== "8084") throw new Error("教程模拟只允许使用本机 8084 后端");
+if (new URL(cloudBase).hostname !== "127.0.0.1" || !["8084", "8085"].includes(new URL(cloudBase).port)) throw new Error("教程模拟只允许使用本机8084或8085后端");
 let state = initialState();
 
 /** initialState 创建完全独立的模拟状态，默认组件已安装且平台登录成功。 */
@@ -37,7 +37,7 @@ async function cloudRequest(path, body, token = state.token, method = "POST") {
 
 /** runtimeStatus 返回组件安装、Windows 运行库和安装进度，不触碰实际运行组件。 */
 function runtimeStatus() {
-  return { version: state.version, platform: "win-x64", node_installed: state.runtimeReady, camoufox_installed: state.runtimeReady, ocr_installed: true, system_runtime: { required: true, ready: state.systemReady, name: "Microsoft Visual C++ x64 运行库", download_url: "https://example.invalid/test-only-runtime.exe" }, install_progress: state.installProgress };
+  return { version: state.version, platform: "win-x64", node_installed: state.runtimeReady, camoufox_installed: state.runtimeReady, ocr_installed: false, system_runtime: { required: true, ready: state.systemReady, name: "Microsoft Visual C++ x64 运行库", download_url: "https://example.invalid/test-only-runtime.exe" }, install_progress: state.installProgress };
 }
 
 /** applyControl 支持测试模拟连接与任务；发布列表默认补测试版本，null 透传真实配置，数组模拟后台发布修复。 */

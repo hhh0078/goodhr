@@ -27,6 +27,7 @@ type Monitor struct {
 	lastError string
 	connected bool
 	notifyMu  sync.Mutex
+	receipts  downloadReceipts
 }
 
 // Run 持续同步下载结果，直到上下文被取消。
@@ -65,8 +66,9 @@ func (m *Monitor) Sync(ctx context.Context) error {
 			go m.notifySaved(ctx, item.FilePath)
 		}
 	}
+	manual := m.receipts.deliver(result.Downloads)
 	if m.Observer != nil {
-		return m.Observer(ctx, result.Downloads)
+		return m.Observer(ctx, manual)
 	}
 	return nil
 }

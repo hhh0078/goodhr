@@ -9,14 +9,18 @@ export type BuiltinAIModel = {
   output_price_per_1m_cents?: number;
 };
 
-/** usesBuiltinAIModels 严格核对 HTTP(S) 地址的真实主机，拒绝路径伪装、相似域名和用户信息。 */
-export function usesBuiltinAIModels(baseURL: string, hostname: string) {
-  const domain = hostname.trim().toLowerCase();
-  if (!domain) return false;
+/** isOfficialAIURL 核对真实主机是否属于58it.cn，拒绝路径、查询字符串、相似域名与用户信息伪装。 */
+export function isOfficialAIURL(address: string): boolean {
   try {
-    const url = new URL(baseURL.trim());
-    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && url.hostname.toLowerCase() === domain;
+    const endpoint = new URL(address.trim());
+    const host = endpoint.hostname.toLowerCase();
+    return ["http:", "https:"].includes(endpoint.protocol) && !endpoint.username && !endpoint.password && (host === "58it.cn" || host.endsWith(".58it.cn"));
   } catch { return false; }
+}
+
+/** usesBuiltinAIModels 使用官方域名策略选择模型列表，保留旧主机参数供调用方兼容。 */
+export function usesBuiltinAIModels(baseURL: string, _hostname: string) {
+  return isOfficialAIURL(baseURL);
 }
 
 /** normalizeBuiltinAIModels 保留有效且不重复的模型，按系统配置原顺序排列。 */
@@ -41,7 +45,7 @@ export function normalizeBuiltinAIModels(source: unknown): BuiltinAIModel[] {
   return models;
 }
 
-/** resolvePersonalAIModel 同域接口的无效模型回到首项，外部接口和未读取的列表保留原值。 */
+/** resolvePersonalAIModel 官方接口的无效模型回到首项，外部旧配置留待用户主动确认切换。 */
 export function resolvePersonalAIModel(
   baseURL: string,
   model: string,

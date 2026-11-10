@@ -12,6 +12,7 @@ type AIResponseDiagnostic = {
   parse_field?: string;
   parse_offset?: number;
   response_complete: boolean;
+  response_completion_unknown: boolean;
   request_attempt?: number;
   final_request_error?: string;
 };
@@ -42,6 +43,7 @@ export function aiResponseDiagnosticFromOutput(
     parse_offset:
       typeof record.parse_offset === "number" ? record.parse_offset : undefined,
     response_complete: record.response_complete === true,
+    response_completion_unknown: record.response_completion_unknown === true,
     request_attempt:
       typeof record.request_attempt === "number"
         ? record.request_attempt
@@ -91,9 +93,11 @@ export default function AIResponseDiagnosticDetails({
             <Flex vertical gap={8} style={{ minWidth: 0 }}>
               <Typography.Text style={{ fontSize: 12 }}>
                 模型：{diagnostic.model || "未提供"} ·{" "}
-                {diagnostic.response_complete
-                  ? "回复已接收完"
-                  : "连接中断，以下是已收到的全部内容"}
+                {diagnostic.response_completion_unknown
+                  ? "未见流结束标记，回复是否完整未知"
+                  : diagnostic.response_complete
+                    ? "回复已接收完"
+                    : "连接中断，以下是已收到的全部内容"}
               </Typography.Text>
               {diagnostic.parse_error ? (
                 <Typography.Text

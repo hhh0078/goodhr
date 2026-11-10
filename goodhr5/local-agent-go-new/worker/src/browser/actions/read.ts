@@ -4,7 +4,8 @@ import type { ElementReadRequest } from "../../contracts/actions.js";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { normalizeWorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
-import { ReadPrimitive } from "../primitives/read.js";
+import { markRequestProgress } from "../../logging/request-progress.js";
+import { elementReadTimeoutMS, ReadPrimitive } from "../primitives/read.js";
 import { FindAction } from "./find.js";
 
 /** ReadResult 表示元素读取结果。 */
@@ -36,21 +37,33 @@ export class ReadAction {
         ? `attribute:${request.attribute}`
         : request.property ?? "text",
     });
+    let readingValue = false;
     try {
+      markRequestProgress(actionContext, "locate_read_target");
       const found = await this.find.one(
         request.selector,
         actionContext,
         false,
+        true,
+        "state",
       );
+      readingValue = true;
+      markRequestProgress(actionContext, "read_value");
       let value: string;
       let property: string;
-      if (request.attribute) {
+      const selectedSpec = found.resolved.resolved_spec ?? request.selector;
+      const readAttribute = request.use_selector_read ? selectedSpec.read_attribute : request.attribute;
+      const readProperty = request.use_selector_read ? selectedSpec.read_property : request.property;
+      if (readAttribute) {
         value = await this.primitive.attribute(
           found.resolved.locator,
-          request.attribute,
+          readAttribute,
         );
-        property = `attribute:${request.attribute}`;
-      } else if (request.property === "html") {
+        property = `attribute:${readAttribute}`;
+      } else if (readProperty === "value") {
+        value = await this.primitive.editableValue(found.resolved.locator);
+        property = "value";
+      } else if (readProperty === "html") {
         value = await this.primitive.html(found.resolved.locator);
         property = "html";
       } else {
@@ -73,6 +86,8 @@ export class ReadAction {
         step,
         trace_id: actionContext.trace_id,
         retryable: true,
+        details: readingValue && error instanceof Error && error.name === "TimeoutError"
+          ? { read_value_timeout_ms: elementReadTimeoutMS } : {},
         message: `${request.selector.description} 暂时没读到`,
       });
       this.logger.failure(actionContext, normalized);

@@ -14,6 +14,7 @@ import type {
   LongScreenshotRequest,
   PageOpenRequest,
   PageUseRequest,
+  SaveCurrentDocumentRequest,
   ScreenshotRequest,
   ScrollRequest,
 } from "../contracts/actions.js";
@@ -141,9 +142,74 @@ export function parsePageUseRequest(
   action: string,
 ): PageUseRequest {
   const record = asRecord(value, traceId, action);
-  return {
-    page_id: requiredString(record, "page_id", traceId, action),
-  };
+  const request: PageUseRequest = { page_id: requiredString(record, "page_id", traceId, action) };
+  if (record.dismiss_download !== undefined) {
+    const restore = asRecord(record.dismiss_download, traceId, action);
+    request.dismiss_download = {
+      original_url: requiredString(restore, "original_url", traceId, action),
+      viewer_url: optionalBoolean(restore, "await_viewer") ? optionalString(restore, "viewer_url") ?? "" : requiredString(restore, "viewer_url", traceId, action),
+      await_viewer: optionalBoolean(restore, "await_viewer") ?? false,
+      download_id: requiredString(restore, "download_id", traceId, action),
+      keep_viewer: optionalBoolean(restore, "keep_viewer") ?? false,
+    };
+  }
+  return request;
+}
+
+/** parseSaveCurrentDocumentRequest 校验使用当前浏览器会话保存文档页的请求。 */
+export function parseSaveCurrentDocumentRequest(
+  value: unknown,
+  traceId: string,
+  action: string,
+): SaveCurrentDocumentRequest {
+  const record = asRecord(value, traceId, action);
+  const request: SaveCurrentDocumentRequest = {};
+  if (record.max_bytes !== undefined) {
+    if (
+      typeof record.max_bytes !== "number" ||
+      !Number.isInteger(record.max_bytes) ||
+      record.max_bytes < 1 ||
+      record.max_bytes > 104_857_600
+    ) {
+      throw invalidRequest(traceId, action, "max_bytes 必须是 1 到 104857600 之间的整数");
+    }
+    request.max_bytes = record.max_bytes;
+  }
+  if (record.allowed_content_types !== undefined) {
+    if (!Array.isArray(record.allowed_content_types)) {
+      throw invalidRequest(traceId, action, "allowed_content_types 必须是非空字符串数组");
+    }
+    const allowedContentTypes = stringArray(record.allowed_content_types)
+      .map((item) => item.toLowerCase().split(";", 1)[0]?.trim() ?? "")
+      .filter(Boolean);
+    if (
+      allowedContentTypes.length === 0 ||
+      allowedContentTypes.length !== record.allowed_content_types.length ||
+      allowedContentTypes.some(
+        (item) => !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(item),
+      )
+    ) {
+      throw invalidRequest(traceId, action, "allowed_content_types 包含不正确的内容类型");
+    }
+    request.allowed_content_types = [...new Set(allowedContentTypes)];
+  }
+  assignString(
+    request,
+    "suggested_filename",
+    optionalString(record, "suggested_filename"),
+  );
+  if (record.timeout_ms !== undefined) {
+    if (
+      typeof record.timeout_ms !== "number" ||
+      !Number.isInteger(record.timeout_ms) ||
+      record.timeout_ms < 100 ||
+      record.timeout_ms > 120_000
+    ) {
+      throw invalidRequest(traceId, action, "timeout_ms 必须是 100 到 120000 之间的整数");
+    }
+    request.timeout_ms = record.timeout_ms;
+  }
+  return request;
 }
 
 /** parseElementFindRequest 校验单元素查找请求。 */
@@ -171,7 +237,7 @@ export function parseElementFindAllRequest(
   assignNumber(
     request,
     "max_items",
-    optionalNumber(record, "max_items", { min: 1, max: 500 }),
+    optionalNumber(record, "max_items", { min: 1, max: 5_000 }),
   );
   assignNumber(
     request,
@@ -183,6 +249,10 @@ export function parseElementFindAllRequest(
     throw invalidRequest(traceId, action, "start_index 必须是整数");
   }
   assignNumber(request, "start_index", startIndex);
+  assignBoolean(request, "from_end", optionalBoolean(record, "from_end"));
+  if (request.from_end && (startIndex || request.selector.target.index !== undefined)) {
+    throw invalidRequest(traceId, action, "from_end 不能与读取起点或固定序号同时设置");
+  }
   const fields = parseFieldSelectors(record.fields, traceId, action);
   if (Object.keys(fields).length > 0) {
     request.fields = fields;
@@ -208,10 +278,13 @@ export function parseElementReadRequest(
   const request: ElementReadRequest = {
     selector: parseSelectorSpec(record.selector, traceId, action),
   };
-  if (record.property === "html" || record.property === "text") {
+  if (record.property === "html" || record.property === "text" || record.property === "value") {
     request.property = record.property;
   }
   assignString(request, "attribute", optionalString(record, "attribute"));
+  if (record.use_selector_read === true) {
+    request.use_selector_read = true;
+  }
   return request;
 }
 
@@ -225,6 +298,13 @@ export function parseElementClickRequest(
   const request: ElementClickRequest = {
     selector: parseSelectorSpec(record.selector, traceId, action),
   };
+  if (record.wheel_anchor !== undefined) {
+    request.wheel_anchor = parseSelectorSpec(
+      record.wheel_anchor,
+      traceId,
+      action,
+    );
+  }
   if (
     record.button === "left" ||
     record.button === "right" ||
@@ -247,6 +327,7 @@ export function parseElementClickRequest(
     "wait_for_new_page",
     optionalBoolean(record, "wait_for_new_page"),
   );
+  assignBoolean(request, "move_to_center_after_click", optionalBoolean(record, "move_to_center_after_click"));
   assignNumber(
     request,
     "new_page_timeout_ms",
@@ -261,6 +342,7 @@ export function parseElementClickRequest(
   }
   assignBoolean(request, "diagnostic", optionalBoolean(record, "diagnostic"));
   assignNumber(request, "diagnostic_attempt", optionalNumber(record, "diagnostic_attempt", { min: 1, max: 100 }));
+  assignBoolean(request, "watch_download_viewer", optionalBoolean(record, "watch_download_viewer"));
   return request;
 }
 
@@ -281,6 +363,7 @@ export function parseElementInputRequest(
           })(),
   };
   assignBoolean(request, "clear", optionalBoolean(record, "clear"));
+  assignBoolean(request, "insert_text", optionalBoolean(record, "insert_text"));
   assignBoolean(request, "verify", optionalBoolean(record, "verify"));
   assignNumber(
     request,
@@ -305,6 +388,11 @@ export function parseKeyboardPressRequest(
   const request: KeyboardPressRequest = {
     key: requiredString(record, "key", traceId, action),
   };
+  if (record.target !== undefined) request.target = parseSelectorSpec(record.target, traceId, action);
+  assignString(request, "expected_page_url", optionalString(record, "expected_page_url"));
+  assignBoolean(request, "require_focus", optionalBoolean(record, "require_focus"));
+  if (typeof record.expected_value === "string") request.expected_value = record.expected_value;
+  if ((request.require_focus || request.expected_value !== undefined) && !request.target) throw invalidRequest(traceId, action, "焦点或草稿校验需要指定目标");
   assignBoolean(request, "diagnostic", optionalBoolean(record, "diagnostic"));
   assignString(request, "description", optionalString(record, "description"));
   assignNumber(
@@ -336,6 +424,10 @@ export function parseScrollRequest(
   if (record.progress_target !== undefined) {
     request.progress_target = parseSelectorSpec(record.progress_target, traceId, action);
     if (request.target) throw invalidRequest(traceId, action, "progress_target 与 target 不能同时设置");
+  }
+  assignBoolean(request, "stop_when_progress_visible", optionalBoolean(record, "stop_when_progress_visible"));
+  if (request.stop_when_progress_visible && !request.progress_target) {
+    throw invalidRequest(traceId, action, "stop_when_progress_visible 需要进度观察目标");
   }
   if (record.wheel_anchor !== undefined) {
     request.wheel_anchor = parseSelectorSpec(
@@ -380,6 +472,10 @@ export function parseScreenshotRequest(
   };
   if (record.target !== undefined) {
     request.target = parseSelectorSpec(record.target, traceId, action);
+  }
+  assignBoolean(request, "viewport_only", optionalBoolean(record, "viewport_only"));
+  if (record.clip_container !== undefined) {
+    request.clip_container = parseSelectorSpec(record.clip_container, traceId, action);
   }
   assignBoolean(
     request,

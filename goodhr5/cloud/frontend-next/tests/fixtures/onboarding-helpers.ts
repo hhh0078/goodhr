@@ -2,7 +2,8 @@
 import { expect, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
 
 export const CLOUD_URL = process.env.UI_TEST_CLOUD_URL || "http://127.0.0.1:8084";
-export const AGENT_URL = "http://127.0.0.1:43130";
+export const AGENT_URL = process.env.UI_TEST_AGENT_URL || "http://127.0.0.1:43131";
+if (!["127.0.0.1", "localhost"].includes(new URL(AGENT_URL).hostname) || !["43131", "43132"].includes(new URL(AGENT_URL).port)) throw new Error("教程模拟仅允许使用隔离端口43131或43132");
 export const PREVIEW_URL = process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5173";
 // Docker 教程预览使用独立端口 8085；拒绝将测试账号注册到非本机云端。
 if (!["http://127.0.0.1:8084", "http://127.0.0.1:8085"].includes(CLOUD_URL)) throw new Error("教程测试只允许使用本机 8084 或 8085 后端");
@@ -48,14 +49,14 @@ export async function protectNetwork(context: BrowserContext, forbidden: string[
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
     if (allowed.has(url.origin)) return route.continue();
-    if (url.port === "43129") forbidden.push(url.href);
+    if (["43129", "43130"].includes(url.port)) forbidden.push(url.href);
     return route.abort("blockedbyclient");
   });
 }
 
 /** openAdmin 打开带隔离端口的实际后台，并等待首屏渲染完成。 */
 export async function openAdmin(page: Page, path = "/admin") {
-  await page.goto(`${PREVIEW_URL}${path}?local_port=43130`);
+  await page.goto(`${PREVIEW_URL}${path}?local_port=${new URL(AGENT_URL).port}`);
   await expect(page.locator("[data-admin-root]")).toBeVisible();
 }
 

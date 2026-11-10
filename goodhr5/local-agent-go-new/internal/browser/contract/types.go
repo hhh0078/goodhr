@@ -20,6 +20,7 @@ type SelectorGroup struct {
 
 // SelectorSpec 表示 iframe、父级和目标组成的统一定位方案。
 type SelectorSpec struct {
+	Alternatives   []SelectorSpec    `json:"alternatives,omitempty"`
 	Frames         []SelectorGroup   `json:"frames,omitempty"`
 	FrameFallbacks [][]SelectorGroup `json:"frame_fallbacks,omitempty"`
 	Parents        []SelectorGroup   `json:"parents,omitempty"`
@@ -132,10 +133,13 @@ type PageOpenRequest struct {
 
 // PageInfo 表示一个浏览器标签页。
 type PageInfo struct {
-	PageID  string `json:"page_id"`
-	URL     string `json:"url"`
-	Title   string `json:"title"`
-	Current bool   `json:"current"`
+	PageID                  string `json:"page_id"`
+	URL                     string `json:"url"`
+	Title                   string `json:"title"`
+	Current                 bool   `json:"current"`
+	DownloadViewerClosed    bool   `json:"download_viewer_closed,omitempty"`
+	DownloadViewerAbsent    bool   `json:"download_viewer_absent,omitempty"`
+	DownloadViewerPreserved bool   `json:"download_viewer_preserved,omitempty"`
 }
 
 // PageListResult 表示当前全部浏览器标签页。
@@ -146,7 +150,25 @@ type PageListResult struct {
 
 // PageUseRequest 表示切换当前标签页请求。
 type PageUseRequest struct {
-	PageID string `json:"page_id"`
+	PageID          string                 `json:"page_id"`
+	DismissDownload *DownloadViewerRestore `json:"dismiss_download,omitempty"`
+}
+
+// DownloadViewerRestore 要求 Worker 复核原页面、原生下载编号和新本地标签后，仅收起该文件的查看页。
+type DownloadViewerRestore struct {
+	OriginalURL string `json:"original_url"`
+	ViewerURL   string `json:"viewer_url"`
+	DownloadID  string `json:"download_id"`
+	AwaitViewer bool   `json:"await_viewer,omitempty"`
+	KeepViewer  bool   `json:"keep_viewer,omitempty"`
+}
+
+// SaveCurrentDocumentRequest 表示用当前 Camoufox 会话保存当前文档页的请求。
+type SaveCurrentDocumentRequest struct {
+	MaxBytes            int64    `json:"max_bytes,omitempty"`
+	AllowedContentTypes []string `json:"allowed_content_types,omitempty"`
+	SuggestedFilename   string   `json:"suggested_filename,omitempty"`
+	TimeoutMS           int      `json:"timeout_ms,omitempty"`
 }
 
 // ElementFindRequest 表示查找一个元素请求。
@@ -159,6 +181,7 @@ type ElementFindAllRequest struct {
 	Selector          SelectorSpec            `json:"selector"`
 	MaxItems          int                     `json:"max_items,omitempty"`
 	StartIndex        int                     `json:"start_index,omitempty"`
+	FromEnd           bool                    `json:"from_end,omitempty"` // 从列表尾部取窗口，结果仍按原始顺序返回。
 	ReadConcurrency   int                     `json:"read_concurrency,omitempty"`
 	Fields            map[string]SelectorSpec `json:"fields,omitempty"`
 	ExpectedMissing   bool                    `json:"expected_missing,omitempty"`
@@ -169,17 +192,19 @@ type ElementFindAllRequest struct {
 
 // FindAllItem 表示列表查找中的一个元素。
 type FindAllItem struct {
-	Index      int               `json:"index"`
-	ElementRef string            `json:"element_ref"`
-	Text       string            `json:"text"`
-	Fields     map[string]string `json:"fields"`
+	TotalMatches int               `json:"total_matches,omitempty"` // 当前选择器的全部匹配数量。
+	Index        int               `json:"index"`
+	ElementRef   string            `json:"element_ref"`
+	Text         string            `json:"text"`
+	Fields       map[string]string `json:"fields"`
 }
 
 // ElementReadRequest 表示元素读取请求。
 type ElementReadRequest struct {
-	Selector  SelectorSpec `json:"selector"`
-	Property  string       `json:"property,omitempty"`
-	Attribute string       `json:"attribute,omitempty"`
+	Selector        SelectorSpec `json:"selector"`
+	Property        string       `json:"property,omitempty"`
+	Attribute       string       `json:"attribute,omitempty"`
+	UseSelectorRead bool         `json:"use_selector_read,omitempty"` // 仅备用路径读取时使用实际命中方案的属性或正文设置。
 }
 
 // ReadResult 表示元素读取结果。
@@ -199,15 +224,18 @@ type ClickVerification struct {
 
 // ElementClickRequest 表示完整封装点击请求。
 type ElementClickRequest struct {
-	Selector          SelectorSpec       `json:"selector"`
-	Diagnostic        bool               `json:"diagnostic,omitempty"`
-	DiagnosticAttempt int                `json:"diagnostic_attempt,omitempty"`
-	Button            string             `json:"button,omitempty"`
-	ClickCount        int                `json:"click_count,omitempty"`
-	ViewportMargin    int                `json:"viewport_margin,omitempty"`
-	WaitForNewPage    bool               `json:"wait_for_new_page,omitempty"`
-	NewPageTimeoutMS  int                `json:"new_page_timeout_ms,omitempty"`
-	Verify            *ClickVerification `json:"verify,omitempty"`
+	WatchDownloadViewer    bool               `json:"watch_download_viewer,omitempty"`
+	Selector               SelectorSpec       `json:"selector"`
+	WheelAnchor            *SelectorSpec      `json:"wheel_anchor,omitempty"`
+	Diagnostic             bool               `json:"diagnostic,omitempty"`
+	DiagnosticAttempt      int                `json:"diagnostic_attempt,omitempty"`
+	Button                 string             `json:"button,omitempty"`
+	ClickCount             int                `json:"click_count,omitempty"`
+	ViewportMargin         int                `json:"viewport_margin,omitempty"`
+	WaitForNewPage         bool               `json:"wait_for_new_page,omitempty"`
+	NewPageTimeoutMS       int                `json:"new_page_timeout_ms,omitempty"`
+	MoveToCenterAfterClick bool               `json:"move_to_center_after_click,omitempty"` // 松开鼠标后立即移到当前页面中央，再验证点击结果。
+	Verify                 *ClickVerification `json:"verify,omitempty"`
 }
 
 // ClickResult 表示完整封装点击结果。
@@ -222,6 +250,7 @@ type ClickResult struct {
 
 // ElementInputRequest 表示完整封装输入请求。
 type ElementInputRequest struct {
+	InsertText bool         `json:"insert_text,omitempty"` // 使用原生键盘一次录入已准备好的文字，不会触发发送键。
 	Selector   SelectorSpec `json:"selector"`
 	Text       string       `json:"text"`
 	Clear      *bool        `json:"clear,omitempty"`
@@ -240,10 +269,14 @@ type InputResult struct {
 
 // KeyboardPressRequest 表示通用按键请求。
 type KeyboardPressRequest struct {
-	Key         string `json:"key"`
-	DelayMS     int    `json:"delay_ms,omitempty"`
-	Diagnostic  bool   `json:"diagnostic,omitempty"`
-	Description string `json:"description,omitempty"`
+	ExpectedValue   *string       `json:"expected_value,omitempty"`    // 发送 Enter 前验证草稿没有被修改，不写入日志。
+	ExpectedPageURL string        `json:"expected_page_url,omitempty"` // 与原页完整地址一致时才按键。
+	Target          *SelectorSpec `json:"target,omitempty"`            // 按键前同页可见且唯一的目标。
+	RequireFocus    bool          `json:"require_focus,omitempty"`     // Enter 发送只允许目标输入框持有焦点。
+	Key             string        `json:"key"`
+	DelayMS         int           `json:"delay_ms,omitempty"`
+	Diagnostic      bool          `json:"diagnostic,omitempty"`
+	Description     string        `json:"description,omitempty"`
 }
 
 // KeyboardPressResult 表示通用按键结果。
@@ -254,31 +287,36 @@ type KeyboardPressResult struct {
 
 // ScrollRequest 表示真实鼠标滚轮请求。
 type ScrollRequest struct {
-	Target         *SelectorSpec `json:"target,omitempty"`
-	ProgressTarget *SelectorSpec `json:"progress_target,omitempty"`
-	WheelAnchor    *SelectorSpec `json:"wheel_anchor,omitempty"`
-	Distance       int           `json:"distance"`
-	MaxAttempts    int           `json:"max_attempts,omitempty"`
-	WaitMS         int           `json:"wait_ms,omitempty"`
-	RequireFull    *bool         `json:"require_full,omitempty"`
-	ViewportMargin int           `json:"viewport_margin,omitempty"`
+	Target                  *SelectorSpec `json:"target,omitempty"`
+	ProgressTarget          *SelectorSpec `json:"progress_target,omitempty"`
+	StopWhenProgressVisible bool          `json:"stop_when_progress_visible,omitempty"` // 目标方向边缘已可见时不再发送滚轮。
+	WheelAnchor             *SelectorSpec `json:"wheel_anchor,omitempty"`
+	Distance                int           `json:"distance"`
+	MaxAttempts             int           `json:"max_attempts,omitempty"`
+	WaitMS                  int           `json:"wait_ms,omitempty"`
+	RequireFull             *bool         `json:"require_full,omitempty"`
+	ViewportMargin          int           `json:"viewport_margin,omitempty"`
 }
 
 // ScrollResult 表示真实滚轮次数和前后状态。
 type ScrollResult struct {
-	Scrolled              bool  `json:"scrolled"`
-	Attempts              int   `json:"attempts"`
-	Distance              int   `json:"distance"`
-	ProgressTargetVisible *bool `json:"progress_target_visible,omitempty"`
-	ProgressTargetMoved   *bool `json:"progress_target_moved,omitempty"`
+	Scrolled              bool         `json:"scrolled"`
+	Attempts              int          `json:"attempts"`
+	Distance              int          `json:"distance"`
+	ProgressTargetVisible *bool        `json:"progress_target_visible,omitempty"`
+	ProgressTargetMoved   *bool        `json:"progress_target_moved,omitempty"`
+	Before                *ElementView `json:"before,omitempty"` // Worker 已返回的滚动前目标位置；无目标时允许为空。
+	After                 *ElementView `json:"after,omitempty"`  // Worker 已返回的滚动后目标位置；用于平台固定页头避让。
 }
 
 // ScreenshotRequest 表示页面或元素截图请求。
 type ScreenshotRequest struct {
-	Target    *SelectorSpec `json:"target,omitempty"`
-	Directory string        `json:"directory"`
-	Filename  string        `json:"filename"`
-	FullPage  *bool         `json:"full_page,omitempty"`
+	Target        *SelectorSpec `json:"target,omitempty"`
+	Directory     string        `json:"directory"`
+	Filename      string        `json:"filename"`
+	FullPage      *bool         `json:"full_page,omitempty"`
+	ViewportOnly  bool          `json:"viewport_only,omitempty"`  // 只截当前可见区域，不允许元素截图自动滚动。
+	ClipContainer *SelectorSpec `json:"clip_container,omitempty"` // 可选的真实裁剪容器，头像必须完整位于其可见交集内。
 }
 
 // ScreenshotResult 表示截图保存结果。
@@ -352,6 +390,12 @@ type DownloadRecord struct {
 	Status            string `json:"status"`
 	Error             string `json:"error"`
 	CreatedAt         string `json:"created_at"`
+}
+
+// DownloadReceipt 是本机监听返回的下载终态或归属错误，不经过浏览器协议。
+type DownloadReceipt struct {
+	Record DownloadRecord
+	Err    error
 }
 
 // DownloadListResult 表示浏览器下载记录列表。

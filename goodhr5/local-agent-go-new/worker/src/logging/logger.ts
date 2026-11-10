@@ -9,7 +9,7 @@ import {
 } from "../errors/worker-error.js";
 
 const sensitiveKeyPattern =
-  /cookie|authorization|token|password|proxy.*(user|pass)|secret|api[_-]?key|message[_-]?text|input[_-]?text|candidate[_-]?name|resume[_-]?text|phone|wechat|email|id[_-]?card|address/i;
+  /cookie|authorization|token|password|proxy.*(user|pass)|secret|api[_-]?key|message[_-]?text|input[_-]?text|candidate[_-]?name|resume[_-]?text|phone|wechat|email|id[_-]?card|address|^(?:text|value|content|inner_text|text_content)$/i;
 
 const secretTextPattern = /(?:Bearer\s+\S+|(?:token|password|secret|cookie|api[_-]?key)\s*[=:]\s*\S+)/gi;
 const urlQueryPattern = /(https?:\/\/[^\s?"<>]+)\?[^\s"<>]*/gi;

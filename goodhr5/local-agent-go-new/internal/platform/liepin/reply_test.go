@@ -1,0 +1,789 @@
+// Package liepin 文件作用：验证猎聘自动回复的会话防串、消息解析和简历联系方式清洗规则。
+package liepin
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/platform/model"
+)
+
+type liepinReplyBrowserStub struct {
+	items                  []contract.FindAllItem
+	drawerOpen             bool
+	detailOpen             bool
+	attachmentOpen         bool
+	attachmentVerify       bool
+	attachmentAnchor       string
+	attachmentFails        int
+	conversationOpen       bool
+	downloadPath           string
+	unreadCount            int
+	unreadSelected         bool
+	allSelected            bool
+	staleUnreadItems       bool
+	refreshStarted         bool
+	clicks                 []string
+	historyBatches         [][]contract.FindAllItem
+	historyBatch           int
+	historyScrolls         []contract.ScrollRequest
+	historyMissingProgress bool
+	historyBlocked         bool
+	historyAlwaysMoving    bool
+}
+
+// OpenPage 返回空页面，满足平台 Browser 测试契约。
+func (b *liepinReplyBrowserStub) OpenPage(context.Context, contract.PageOpenRequest) (contract.PageInfo, error) {
+	return contract.PageInfo{}, nil
+}
+
+// ListPages 返回唯一原招聘页，供附件完成后核对页面归属。
+func (b *liepinReplyBrowserStub) ListPages(context.Context) (contract.PageListResult, error) {
+	return contract.PageListResult{Pages: []contract.PageInfo{{PageID: "0", URL: "https://example.com/recruit", Current: true}}, Count: 1}, nil
+}
+
+// UsePage 返回空页面，满足平台 Browser 测试契约。
+func (b *liepinReplyBrowserStub) UsePage(context.Context, contract.PageUseRequest) (contract.PageInfo, error) {
+	return contract.PageInfo{}, nil
+}
+
+// FindAll 返回测试准备的最新联系人顺序。
+func (b *liepinReplyBrowserStub) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	switch request.Selector.Description {
+	case "测试聊天消息":
+		if len(b.historyBatches) > 0 {
+			index := min(b.historyBatch, len(b.historyBatches)-1)
+			items := b.historyBatches[index]
+			start := request.StartIndex
+			if request.FromEnd {
+				start = max(0, len(items)-request.MaxItems)
+			}
+			end := min(len(items), start+request.MaxItems)
+			result := make([]contract.FindAllItem, 0, max(0, end-start))
+			for i := start; i < end; i++ {
+				item := items[i]
+				item.Index = i
+				item.TotalMatches = len(items)
+				result = append(result, item)
+			}
+			return result, nil
+		}
+	case "测试联系人抽屉":
+		if b.drawerOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试未读数字":
+		if b.unreadCount > 0 {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试未读标签已选中":
+		if b.unreadSelected {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试全部标签已选中":
+		if b.allSelected {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试未读联系人":
+		if b.staleUnreadItems {
+			return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+		}
+	case "测试在线简历浮层":
+		if b.detailOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试附件预览":
+		if b.attachmentOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试当前候选人":
+		if b.conversationOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	}
+	return b.items, nil
+}
+
+// Read 返回空读取结果，满足平台 Browser 测试契约。
+func (b *liepinReplyBrowserStub) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
+	if request.Selector.Description == "测试候选人编号" {
+		return contract.ReadResult{Value: "cid=target-cid"}, nil
+	}
+	if request.Selector.Description == "测试未读数字" {
+		return contract.ReadResult{Value: fmt.Sprintf("%d", b.unreadCount)}, nil
+	}
+	if request.Selector.Description == "测试在线简历浮层" && b.detailOpen {
+		return contract.ReadResult{Value: "邓云川\n本科\n手机：17607080935"}, nil
+	}
+	if request.Selector.Description == "测试当前候选人" && b.conversationOpen {
+		return contract.ReadResult{Value: "邓云川"}, nil
+	}
+	if request.Selector.Description == "测试当前岗位" && b.conversationOpen {
+		return contract.ReadResult{Value: "测试岗位"}, nil
+	}
+	if request.Attribute == "href" && request.Selector.Description == "测试附件下载" {
+		return contract.ReadResult{Value: "https://example.com/test.pdf"}, nil
+	}
+	if request.Selector.Description == "测试附件正文" && b.attachmentOpen {
+		return contract.ReadResult{Value: "邮箱：test@example.com"}, nil
+	}
+	return contract.ReadResult{}, nil
+}
+
+// Click 返回成功点击结果，满足平台 Browser 测试契约。
+func (b *liepinReplyBrowserStub) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
+	b.clicks = append(b.clicks, request.Selector.Description)
+	if request.Selector.Description == "测试联系人入口" {
+		b.drawerOpen = true
+	}
+	if request.Selector.Description == "测试未读标签" {
+		b.unreadSelected = true
+		b.allSelected = false
+		if b.refreshStarted {
+			b.staleUnreadItems = false
+		}
+	}
+	if request.Selector.Description == "测试全部标签" {
+		b.allSelected = true
+		b.unreadSelected = false
+		b.refreshStarted = true
+	}
+	if request.Selector.Description == "message.contact_click_target" {
+		b.conversationOpen = true
+	}
+	if request.Selector.Description == "测试在线简历入口" {
+		b.detailOpen = true
+	}
+	if request.Selector.Description == "测试在线简历关闭" {
+		b.detailOpen = false
+		b.conversationOpen = false
+		b.drawerOpen = false
+	}
+	if request.Selector.Description == "测试附件入口" {
+		b.attachmentVerify = request.Verify != nil && request.Verify.TargetVisible != nil
+		if request.WheelAnchor != nil {
+			b.attachmentAnchor = request.WheelAnchor.Description
+		}
+		if !b.conversationOpen {
+			return contract.ClickResult{}, fmt.Errorf("聊天框已经关闭，附件入口不存在")
+		}
+		if b.attachmentFails > 0 {
+			b.attachmentFails--
+			return contract.ClickResult{}, fmt.Errorf("附件预览第一次没有打开")
+		}
+		b.attachmentOpen = true
+	}
+	if request.Selector.Description == "测试附件关闭" {
+		b.attachmentOpen = false
+	}
+	return contract.ClickResult{Clicked: true}, nil
+}
+
+// Input 返回成功输入结果，满足平台 Browser 测试契约。
+func (b *liepinReplyBrowserStub) Input(context.Context, contract.ElementInputRequest) (contract.InputResult, error) {
+	return contract.InputResult{Typed: true}, nil
+}
+
+// Scroll 返回成功滚动结果，满足平台 Browser 测试契约。
+func (b *liepinReplyBrowserStub) Scroll(_ context.Context, request contract.ScrollRequest) (contract.ScrollResult, error) {
+	b.historyScrolls = append(b.historyScrolls, request)
+	visible, moved := true, false
+	if len(b.historyBatches) > 0 && request.Distance < 0 {
+		moved = b.historyBatch < len(b.historyBatches)-1 || b.historyAlwaysMoving
+		visible = !moved && !b.historyBlocked
+		b.historyBatch++
+	}
+	result := contract.ScrollResult{Scrolled: moved}
+	if !b.historyMissingProgress {
+		result.ProgressTargetMoved = &moved
+		result.ProgressTargetVisible = &visible
+	}
+	return result, nil
+}
+
+// PressKey 返回成功按键结果，满足平台 Browser 测试契约。
+func (b *liepinReplyBrowserStub) PressKey(context.Context, contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
+	b.detailOpen = false
+	return contract.KeyboardPressResult{Pressed: true}, nil
+}
+
+// ClosePage 模拟成功关闭当前标签页。
+func (b *liepinReplyBrowserStub) ClosePage(context.Context) error {
+	return nil
+}
+
+// WatchDownload 模拟已有的本机下载监听，返回本次测试附件的终态。
+func (b *liepinReplyBrowserStub) WatchDownload(page, file string, ignoredQuery ...string) (<-chan contract.DownloadReceipt, func(), error) {
+	result := make(chan contract.DownloadReceipt, 1)
+	result <- contract.DownloadReceipt{Record: contract.DownloadRecord{Status: "saved", FilePath: b.downloadPath}}
+	return result, func() {}, nil
+}
+
+// TestLiepinFallbackConversationKeyIgnoresChangedSummary 验证猎聘缺少原生编号时不会用消息摘要生成新会话。
+func TestLiepinFallbackConversationKeyIgnoresChangedSummary(t *testing.T) {
+	first, err := liepinConversations([]contract.FindAllItem{{
+		Index: 0, Fields: map[string]string{"name": "张女士", "last_message": "第一条消息"},
+	}})
+	if err != nil {
+		t.Fatalf("整理第一条猎聘会话失败：%v", err)
+	}
+	second, err := liepinConversations([]contract.FindAllItem{{
+		Index: 0, Fields: map[string]string{"name": "张女士", "last_message": "摘要已经变化"},
+	}})
+	if err != nil {
+		t.Fatalf("整理第二条猎聘会话失败：%v", err)
+	}
+	if len(first) != 1 || len(second) != 1 || first[0].Key != second[0].Key || !strings.HasPrefix(first[0].Key, "local:") {
+		t.Fatalf("猎聘同一候选人的本地会话键不稳定：first=%+v second=%+v", first, second)
+	}
+	if first[0].PlatformThreadID != "" || second[0].PlatformThreadID != "" {
+		t.Fatalf("猎聘本地会话键冒充了页面会话编号：first=%+v second=%+v", first[0], second[0])
+	}
+	browser := &liepinReplyBrowserStub{items: []contract.FindAllItem{{
+		Index: 7, Fields: map[string]string{"name": "张女士", "last_message": "候选人刚发来的新消息"},
+	}}}
+	cfg := model.Config{Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.contact_item": testLiepinSelector("联系人项目"),
+	}}
+	index, err := locateLiepinConversation(context.Background(), browser, cfg, first[0])
+	if err != nil || index != 7 {
+		t.Fatalf("猎聘摘要变化后没有按唯一姓名恢复本地会话：index=%d err=%v", index, err)
+	}
+}
+
+// TestLocateLiepinConversationUsesFreshThreadID 验证旧序号变化后仍按 to_imid 找到目标会话。
+func TestLocateLiepinConversationUsesFreshThreadID(t *testing.T) {
+	browser := &liepinReplyBrowserStub{items: []contract.FindAllItem{
+		{Index: 0, Fields: map[string]string{
+			"name": "其他候选人", "last_message": "其他消息",
+			"thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-other"}`),
+		}},
+		{Index: 1, Fields: map[string]string{
+			"name": "李女士", "last_message": "薪资是多少",
+			"thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-target"}`),
+		}},
+	}}
+	cfg := model.Config{
+		ID: "liepin", Name: "猎聘企业端", MaxItems: 100,
+		Selectors: map[string]contract.SelectorSpec{
+			"message.contact_item": testLiepinSelector("联系人项目"),
+		},
+	}
+	index, err := locateLiepinConversation(context.Background(), browser, cfg, model.Conversation{
+		Index: 99, Name: "李女士", PlatformThreadID: "thread-target",
+	})
+	if err != nil || index != 1 {
+		t.Fatalf("没有按最新会话编号定位：index=%d err=%v", index, err)
+	}
+}
+
+// TestLiepinMessagesParsesDirectionsAndResumeCard 验证系统、候选人简历和 HR 消息能被稳定分类。
+func TestLiepinMessagesParsesDirectionsAndResumeCard(t *testing.T) {
+	items := []contract.FindAllItem{
+		{Index: 0, Text: "沟通职位：测试岗位", Fields: map[string]string{
+			"message_meta": url.QueryEscape(`{"message_id":"system-1"}`),
+			"message_time": "8月2日 00:54",
+		}},
+		{Index: 1, Fields: map[string]string{
+			"body_class":   "im-ui-message-item-body im-ui-message-item-receive",
+			"message_text": "这是我的简历", "resume_card": "在线简历 附件简历",
+			"candidate_meta": "cid=candidate-1&ctype=2", "message_time": "昨天 10:44",
+		}},
+		{Index: 2, Fields: map[string]string{
+			"body_class":   "im-ui-message-item-body im-ui-message-item-send",
+			"message_text": "收到", "message_time": "10:45",
+		}},
+	}
+	messages, err := liepinMessages(items)
+	if err != nil || len(messages) != 3 {
+		t.Fatalf("消息解析失败：messages=%+v err=%v", messages, err)
+	}
+	if messages[0].Direction != "system" || messages[0].PlatformMessageID != "system-1" {
+		t.Fatalf("系统消息解析不正确：%+v", messages[0])
+	}
+	if messages[1].Direction != "candidate" || messages[1].MessageType != "resume" {
+		t.Fatalf("候选人简历消息解析不正确：%+v", messages[1])
+	}
+	var card struct {
+		CandidateID string `json:"candidate_id"`
+	}
+	if err = json.Unmarshal(messages[1].CardContent, &card); err != nil || card.CandidateID != "candidate-1" {
+		t.Fatalf("简历卡片候选人编号不正确：card=%+v err=%v", card, err)
+	}
+	if available, source := liepinResumeCard(messages); !available || source == "" {
+		t.Fatalf("没有识别出候选人简历卡片：available=%t source=%q", available, source)
+	}
+	if messages[2].Direction != "self" || messages[2].Key == "" {
+		t.Fatalf("HR 消息解析不正确：%+v", messages[2])
+	}
+}
+
+// TestReadLiepinConversationHistoryRetriesUnchangedScroll 验证第一次滚轮没有加载新节点时仍会继续读取更早的简历卡片。
+func TestReadLiepinConversationHistoryRetriesUnchangedScroll(t *testing.T) {
+	recent := []contract.FindAllItem{{Index: 0, Fields: map[string]string{
+		"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "最新消息", "message_time": "17:15",
+	}}}
+	withResume := append([]contract.FindAllItem{{Index: 0, Fields: map[string]string{
+		"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "这是我的简历",
+		"message_time": "11:44", "resume_card": "在线简历 附件简历",
+	}}}, recent...)
+	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{recent, recent, withResume}}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.item":           testLiepinSelector("测试聊天消息"),
+		"message.history_scroll": testLiepinSelector("测试聊天滚动区域"),
+	}}
+	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, nil, 5000)
+	if err != nil || !complete {
+		t.Fatalf("聊天历史没有稳定读取完成：complete=%t err=%v", complete, err)
+	}
+	if available, _ := liepinResumeCard(messages); !available || browser.historyBatch < 2 {
+		t.Fatalf("第一次滚轮无变化后没有继续找到简历：available=%t scrolls=%d", available, browser.historyBatch)
+	}
+}
+
+// TestReadLiepinConversationHistoryStopsAtRecentTwoMessageBoundary 验证页面已包含云端最近两条消息时不滚动，只返回边界后的新消息。
+func TestReadLiepinConversationHistoryStopsAtRecentTwoMessageBoundary(t *testing.T) {
+	items := []contract.FindAllItem{
+		{Index: 0, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "旧消息一",
+			"message_meta": url.QueryEscape(`{"message_id":"old-1"}`), "message_time": "10:00",
+		}},
+		{Index: 1, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-send", "message_text": "旧回复",
+			"message_meta": url.QueryEscape(`{"message_id":"old-2"}`), "message_time": "10:01",
+		}},
+		{Index: 2, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "新消息",
+			"message_meta": url.QueryEscape(`{"message_id":"new-1"}`), "message_time": "10:02",
+		}},
+	}
+	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{items}}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.item":           testLiepinSelector("测试聊天消息"),
+		"message.history_scroll": testLiepinSelector("测试聊天滚动区域"),
+	}}
+	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, []string{"old-1", "old-2"}, 5000)
+	if err != nil || complete || len(messages) != 1 || messages[0].PlatformMessageID != "new-1" || browser.historyBatch != 0 {
+		t.Fatalf("messages=%+v complete=%t scrolls=%d err=%v", messages, complete, browser.historyBatch, err)
+	}
+	cfg.Behavior.AutoReplyAllContactInbox = true
+	messages, complete, err = readLiepinConversationHistory(context.Background(), browser, cfg, []string{"old-1", "old-2"}, 5000)
+	if err != nil || complete || len(messages) != 2 || messages[0].PlatformMessageID != "old-2" || messages[1].PlatformMessageID != "new-1" || browser.historyBatch != 0 {
+		t.Fatalf("全部模式应从同一可见窗口带回真实旧尾：messages=%+v complete=%t scrolls=%d err=%v", messages, complete, browser.historyBatch, err)
+	}
+
+}
+
+// TestReadLiepinConversationHistoryStopsAtNewestKnownBoundary 验证两条已同步消息中间夹有同分钟消息时仍按最靠后的边界停止。
+func TestReadLiepinConversationHistoryStopsAtNewestKnownBoundary(t *testing.T) {
+	items := []contract.FindAllItem{
+		{Index: 0, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "已同步候选人消息",
+			"message_meta": url.QueryEscape(`{"message_id":"known-1"}`), "message_time": "10:00",
+		}},
+		{Index: 1, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "同一分钟的中间消息",
+			"message_meta": url.QueryEscape(`{"message_id":"middle-1"}`), "message_time": "10:00",
+		}},
+		{Index: 2, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-send", "message_text": "已同步回复",
+			"message_meta": url.QueryEscape(`{"message_id":"known-2"}`), "message_time": "10:00",
+		}},
+		{Index: 3, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "真正的新消息",
+			"message_meta": url.QueryEscape(`{"message_id":"new-1"}`), "message_time": "10:01",
+		}},
+	}
+	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{items}}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.item":           testLiepinSelector("测试聊天消息"),
+		"message.history_scroll": testLiepinSelector("测试聊天滚动区域"),
+	}}
+	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, []string{"known-1", "known-2"}, 5000)
+	if err != nil || complete || len(messages) != 1 || messages[0].PlatformMessageID != "new-1" || browser.historyBatch != 0 {
+		t.Fatalf("messages=%+v complete=%t scrolls=%d err=%v", messages, complete, browser.historyBatch, err)
+	}
+}
+
+// TestLiepinHistoryKeepsResumeCardBeforeKnownBoundary 验证旧简历卡片位于云端游标前时仍保留卡片状态。
+func TestLiepinHistoryKeepsResumeCardBeforeKnownBoundary(t *testing.T) {
+	items := []contract.FindAllItem{
+		{Index: 0, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "这是我的简历",
+			"resume_card": "在线简历 附件简历", "message_time": "09:58",
+		}},
+		{Index: 1, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-send", "message_text": "收到",
+			"message_meta": url.QueryEscape(`{"message_id":"known-1"}`), "message_time": "10:00",
+		}},
+		{Index: 2, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "工作地点在哪里？",
+			"message_meta": url.QueryEscape(`{"message_id":"new-1"}`), "message_time": "10:01",
+		}},
+	}
+	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{items}}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.item":           testLiepinSelector("测试聊天消息"),
+		"message.history_scroll": testLiepinSelector("测试聊天滚动区域"),
+	}}
+	history, err := readLiepinConversationHistoryDetail(context.Background(), browser, cfg, []string{"known-1"}, 5000)
+	if err != nil {
+		t.Fatalf("读取猎聘差量消息失败：%v", err)
+	}
+	if len(history.Messages) != 1 || history.Messages[0].PlatformMessageID != "new-1" {
+		t.Fatalf("猎聘差量边界不正确：%+v", history.Messages)
+	}
+	if !history.ResumeCardAvailable || history.ResumeSourceMessageID == "" {
+		t.Fatalf("猎聘游标前的旧简历卡片状态丢失：%+v", history)
+	}
+}
+
+// TestReadOpenAutoReplyLatestMessageDoesNotReopenClosedChat 验证空闲轮询只探测聊天框，不通过联系人列表重新打开旧候选人。
+func TestReadOpenAutoReplyLatestMessageDoesNotReopenClosedChat(t *testing.T) {
+	browser := &liepinReplyBrowserStub{}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.current_name": testLiepinSelector("测试当前候选人"),
+	}}
+	message, opened, err := (&Runtime{}).ReadOpenAutoReplyLatestMessage(
+		context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{CandidateName: "邓云川"},
+	)
+	if err != nil || opened || message.Key != "" || len(browser.clicks) != 0 {
+		t.Fatalf("message=%+v opened=%t clicks=%v err=%v", message, opened, browser.clicks, err)
+	}
+}
+
+// TestLiepinOpenConversationRequiresMatchingNameAndPosition 验证猎聘企业端同名不同岗位不会被当成当前待回复会话。
+func TestLiepinOpenConversationRequiresMatchingNameAndPosition(t *testing.T) {
+	browser := &liepinReplyBrowserStub{conversationOpen: true}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.current_name":     testLiepinSelector("测试当前候选人"),
+		"message.current_position": testLiepinSelector("测试当前岗位"),
+	}}
+	matched, err := liepinAutoReplyConversationMatches(context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
+		CandidateName: "邓云川", CommunicationPosition: "测试岗位",
+	})
+	if err != nil || !matched {
+		t.Fatalf("同一候选人和岗位没有匹配：matched=%t err=%v", matched, err)
+	}
+	matched, err = liepinAutoReplyConversationMatches(context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
+		CandidateName: "邓云川", CommunicationPosition: "另一个岗位",
+	})
+	if err != nil || matched {
+		t.Fatalf("同名不同岗位被误判为同一会话：matched=%t err=%v", matched, err)
+	}
+	message, opened, err := (&Runtime{}).ReadOpenAutoReplyLatestMessage(
+		context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
+			CandidateName: "邓云川", CommunicationPosition: "另一个岗位",
+		},
+	)
+	if err != nil || opened || message.Key != "" {
+		t.Fatalf("轮询读取了同名不同岗位的消息：message=%+v opened=%t err=%v", message, opened, err)
+	}
+	_, err = liepinAutoReplyConversationMatches(context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
+		CandidateName: "邓云川",
+	})
+	if err == nil || !strings.Contains(err.Error(), "缺少沟通岗位") {
+		t.Fatalf("打开聊天框时缺少目标岗位应该拒绝复用：%v", err)
+	}
+}
+
+// TestLiepinMessageFallbackKeyUsesAbsoluteTime 验证相对时间和次日月日时间会生成同一条消息指纹。
+func TestLiepinMessageFallbackKeyUsesAbsoluteTime(t *testing.T) {
+	yesterday := []contract.FindAllItem{{Index: 0, Fields: map[string]string{
+		"body_class":   "im-ui-message-item-body im-ui-message-item-receive",
+		"message_text": "薪资是多少", "message_time": "昨天 10:44",
+	}}}
+	monthDay := []contract.FindAllItem{{Index: 0, Fields: map[string]string{
+		"body_class":   "im-ui-message-item-body im-ui-message-item-receive",
+		"message_text": "薪资是多少", "message_time": "8月3日 10:44",
+	}}}
+	first, err := liepinMessagesAt(yesterday, time.Date(2026, 8, 4, 12, 0, 0, 0, time.FixedZone("CST", 8*60*60)))
+	if err != nil {
+		t.Fatalf("解析相对时间消息失败：%v", err)
+	}
+	second, err := liepinMessagesAt(monthDay, time.Date(2026, 8, 5, 12, 0, 0, 0, time.FixedZone("CST", 8*60*60)))
+	if err != nil {
+		t.Fatalf("解析月日时间消息失败：%v", err)
+	}
+	if first[0].Key == "" || first[0].Key != second[0].Key {
+		t.Fatalf("同一条消息隔天指纹发生变化：first=%q second=%q", first[0].Key, second[0].Key)
+	}
+}
+
+// TestLiepinMessageKeysSurvivePrependedHistory 验证猎聘向顶部加载旧消息后不会改变原有无编号消息指纹。
+func TestLiepinMessageKeysSurvivePrependedHistory(t *testing.T) {
+	now := time.Date(2026, 8, 12, 10, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	recentItems := []contract.FindAllItem{
+		{Index: 0, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "你好", "message_time": "10:00",
+		}},
+		{Index: 1, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-send", "message_text": "你好，请问有什么想了解的？", "message_time": "10:01",
+		}},
+	}
+	recent, err := liepinMessagesAt(recentItems, now)
+	if err != nil {
+		t.Fatalf("解析猎聘当前消息失败：%v", err)
+	}
+	withHistoryItems := append([]contract.FindAllItem{{Index: 0, Fields: map[string]string{
+		"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "你好", "message_time": "09:59",
+	}}}, recentItems...)
+	withHistory, err := liepinMessagesAt(withHistoryItems, now)
+	if err != nil {
+		t.Fatalf("解析猎聘补齐历史后的消息失败：%v", err)
+	}
+	if recent[0].Key == "" || recent[0].Key != withHistory[1].Key || recent[1].Key != withHistory[2].Key {
+		t.Fatalf("猎聘加载顶部历史后原消息指纹变化：recent=%+v history=%+v", recent, withHistory)
+	}
+	withNewItems := append(append([]contract.FindAllItem(nil), recentItems...), contract.FindAllItem{
+		Index: 2, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "还有一个问题", "message_time": "10:02",
+		},
+	})
+	withNew, err := liepinMessagesAt(withNewItems, now)
+	if err != nil {
+		t.Fatalf("解析猎聘新增消息后的记录失败：%v", err)
+	}
+	if recent[0].Key != withNew[0].Key || recent[1].Key != withNew[1].Key {
+		t.Fatalf("猎聘收到更新消息后旧消息指纹变化：recent=%+v new=%+v", recent, withNew)
+	}
+}
+
+// TestParseLiepinMessageTimeUsesPreviousYear 验证一月看到十二月消息时不会误记成未来时间。
+func TestParseLiepinMessageTimeUsesPreviousYear(t *testing.T) {
+	parsed := parseLiepinMessageTime(
+		"12月31日 23:50",
+		time.Date(2026, 1, 1, 8, 0, 0, 0, time.FixedZone("CST", 8*60*60)),
+	)
+	if parsed == nil || parsed.In(time.FixedZone("CST", 8*60*60)).Year() != 2025 {
+		t.Fatalf("跨年消息时间不正确：%v", parsed)
+	}
+}
+
+// TestParseLiepinResumeFields 验证国际手机号、邮箱、微信和年龄估算年份的清洗结果。
+func TestParseLiepinResumeFields(t *testing.T) {
+	resume := "男 | 40岁\nMobile: +86 136 3281 3031\nEmail: Jinbin.Liang@gmail.com\n微信：jinbin_liang"
+	phone, email, wechat := parseLiepinContacts(resume)
+	if phone != "+8613632813031" || email != "jinbin.liang@gmail.com" || wechat != "jinbin_liang" {
+		t.Fatalf("联系方式解析不正确：phone=%q email=%q wechat=%q", phone, email, wechat)
+	}
+	birthYM, precision := parseLiepinBirthYM(resume, time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC))
+	if birthYM != "1986" || precision != "year_estimated" {
+		t.Fatalf("年龄估算出生年份不正确：birth_ym=%q precision=%q", birthYM, precision)
+	}
+}
+
+// TestCollectLiepinOnlineResumeUsesSamePagePanel 验证在线简历按同页浮层读取并在完成后关闭。
+func TestCollectLiepinOnlineResumeUsesSamePagePanel(t *testing.T) {
+	browser := &liepinReplyBrowserStub{}
+	cfg := model.Config{
+		ID: "liepin", Name: "猎聘企业端",
+		Selectors: map[string]contract.SelectorSpec{
+			"message.resume_online_entry": testLiepinSelector("测试在线简历入口"),
+			"candidate.detail":            testLiepinSelector("测试在线简历浮层"),
+			"candidate.detail_close":      testLiepinSelector("测试在线简历关闭"),
+		},
+	}
+	text, err := collectLiepinOnlineResume(context.Background(), browser, cfg)
+	if err != nil || text != "邓云川\n本科\n手机：17607080935" {
+		t.Fatalf("同页在线简历读取失败：text=%q err=%v", text, err)
+	}
+	if browser.detailOpen {
+		t.Fatal("在线简历读取完成后仍然遮挡页面")
+	}
+	if len(browser.clicks) != 2 || browser.clicks[0] != "测试在线简历入口" || browser.clicks[1] != "测试在线简历关闭" {
+		t.Fatalf("在线简历打开和关闭顺序不正确：%v", browser.clicks)
+	}
+}
+
+// TestCollectAutoReplyResumeKeepsDownloadedAttachmentWithoutOnlinePanel 验证真实附件完成后不再依赖在线简历入口。
+func TestCollectAutoReplyResumeKeepsDownloadedAttachmentWithoutOnlinePanel(t *testing.T) {
+	downloadPath := t.TempDir() + "/resume.pdf"
+	if err := os.WriteFile(downloadPath, []byte("test resume"), 0o600); err != nil {
+		t.Fatalf("准备测试附件失败：%v", err)
+	}
+	browser := &liepinReplyBrowserStub{
+		conversationOpen: true, downloadPath: downloadPath, attachmentFails: 1,
+		items: []contract.FindAllItem{{Index: 0, Fields: map[string]string{
+			"name": "邓云川", "thread_meta": url.QueryEscape(`{"to_imid":"thread-target"}`),
+		}}},
+	}
+	cfg := model.Config{
+		ID: "liepin", Name: "猎聘企业端",
+		Selectors: map[string]contract.SelectorSpec{
+			"message.current_name":             testLiepinSelector("测试当前候选人"),
+			"message.candidate_id_source":      testLiepinSelector("测试候选人编号"),
+			"message.current_position":         testLiepinSelector("测试当前岗位"),
+			"message.drawer":                   testLiepinSelector("测试联系人抽屉"),
+			"message.entry":                    testLiepinSelector("测试联系人入口"),
+			"message.all_tab":                  testLiepinSelector("测试全部标签"),
+			"message.all_tab_selected":         testLiepinSelector("测试全部标签已选中"),
+			"message.contact_item":             testLiepinSelector("测试联系人项目"),
+			"message.contact_click_target":     testLiepinSelector("测试联系人点击"),
+			"message.drawer_scroll":            testLiepinSelector("测试联系人滚动区域"),
+			"message.resume_attachment_entry":  testLiepinSelector("测试附件入口"),
+			"message.attachment_preview":       testLiepinSelector("测试附件预览"),
+			"message.attachment_body":          testLiepinSelector("测试附件正文"),
+			"message.attachment_download":      testLiepinSelector("测试附件下载"),
+			"message.attachment_preview_close": testLiepinSelector("测试附件关闭"),
+			"message.history_scroll":           testLiepinSelector("测试聊天滚动区域"),
+			"message.resume_online_entry":      testLiepinSelector("测试在线简历入口"),
+			"candidate.detail":                 testLiepinSelector("测试在线简历浮层"),
+			"candidate.detail_close":           testLiepinSelector("测试在线简历关闭"),
+		},
+	}
+	bundle, err := (&Runtime{}).CollectAutoReplyResume(context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
+		Conversation:  model.Conversation{Name: "邓云川", PlatformThreadID: "thread-target"},
+		CandidateName: "邓云川", PlatformCandidateID: "target-cid", PlatformThreadID: "thread-target", CommunicationPosition: "测试岗位",
+		ResumeCardAvailable: true,
+	})
+	if err != nil {
+		t.Fatalf("收集猎聘简历失败：%v", err)
+	}
+	if len(bundle.AttachmentPaths) != 1 || bundle.AttachmentPaths[0] != downloadPath {
+		t.Fatalf("附件没有完成落盘：%v", bundle.AttachmentPaths)
+	}
+	attachmentClicks := 0
+	for _, click := range browser.clicks {
+		if click == "测试附件入口" {
+			attachmentClicks++
+		}
+		if click == "测试在线简历入口" {
+			t.Fatalf("真实附件已下载，仍打开在线简历：clicks=%v", browser.clicks)
+		}
+	}
+	if attachmentClicks != 2 || !browser.attachmentVerify || browser.attachmentAnchor != "测试聊天滚动区域" {
+		t.Fatalf("附件入口没有在滚动区内重试并验证弹框：clicks=%v verified=%t anchor=%q", browser.clicks, browser.attachmentVerify, browser.attachmentAnchor)
+	}
+	if len(browser.historyScrolls) != 1 || browser.historyScrolls[0].RequireFull == nil || !*browser.historyScrolls[0].RequireFull {
+		t.Fatalf("小型附件入口没有先完整滚入聊天可见区：scrolls=%+v", browser.historyScrolls)
+	}
+	if !browser.conversationOpen || browser.attachmentOpen || browser.detailOpen {
+		t.Fatalf("附件采集完成后未保留可用聊天框：conversation_open=%t attachment_open=%t detail_open=%t", browser.conversationOpen, browser.attachmentOpen, browser.detailOpen)
+	}
+	if bundle.Email != "test@example.com" || bundle.Phone != "" || !strings.Contains(bundle.OnlineResumeText, "附件简历") {
+		t.Fatalf("没有保留附件正文，或误混入在线简历资料：%+v", bundle)
+	}
+}
+
+// TestLiepinAttachmentDownloadTargetsClickableAnchor 验证附件下载选择器直接点击真实链接，不误点只有样式的外层容器。
+func TestLiepinAttachmentDownloadTargetsClickableAnchor(t *testing.T) {
+	raw, err := os.ReadFile("config.json")
+	if err != nil {
+		t.Fatalf("读取猎聘配置失败：%v", err)
+	}
+	var cfg model.Config
+	if err = json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("解析猎聘配置失败：%v", err)
+	}
+	selector, ok := cfg.Selectors["message.attachment_download"]
+	if !ok || len(selector.Target.Selectors) != 1 {
+		t.Fatalf("附件下载选择器没有准备完整：%+v", selector)
+	}
+	if value := selector.Target.Selectors[0].Value; value != ".ant-im-space-item a" {
+		t.Fatalf("附件下载没有指向可点击链接：%q", value)
+	}
+}
+
+// TestLiepinAttachmentEntryTargetsText 验证附件入口只点文字，不再随机落到整块卡片的图标或空白区域。
+func TestLiepinAttachmentEntryTargetsText(t *testing.T) {
+	raw, err := os.ReadFile("config.json")
+	if err != nil {
+		t.Fatalf("读取猎聘配置失败：%v", err)
+	}
+	var cfg model.Config
+	if err = json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("解析猎聘配置失败：%v", err)
+	}
+	selector, ok := cfg.Selectors["message.resume_attachment_entry"]
+	if !ok || len(selector.Target.Selectors) != 1 {
+		t.Fatalf("附件入口选择器没有准备完整：%+v", selector)
+	}
+	if value := selector.Target.Selectors[0].Value; value != ".im-ui-send-attachment-card-info-item-content" {
+		t.Fatalf("附件入口没有缩小到文字：%q", value)
+	}
+	if selector.Target.Text != "附件简历" || selector.Target.ExactText == nil || !*selector.Target.ExactText {
+		t.Fatalf("附件入口文字约束不正确：%+v", selector.Target)
+	}
+	if len(selector.Parents) != 2 || !strings.Contains(selector.Parents[1].Selectors[0].Value, ":not(:has(~") {
+		t.Fatalf("附件入口没有限定最后一条简历消息：%+v", selector.Parents)
+	}
+}
+
+// TestLiepinRequestResumeSelectorExcludesViewResume 验证索要简历不会误点已经变成“看简历”的同类按钮。
+func TestLiepinRequestResumeSelectorExcludesViewResume(t *testing.T) {
+	raw, err := os.ReadFile("config.json")
+	if err != nil {
+		t.Fatalf("读取猎聘配置失败：%v", err)
+	}
+	var cfg model.Config
+	if err = json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("解析猎聘配置失败：%v", err)
+	}
+	selector := cfg.Selectors["candidate.request_resume"]
+	if selector.Target.Text != "索要简历" || selector.Target.ExactText == nil || !*selector.Target.ExactText {
+		t.Fatalf("索要简历没有排除看简历按钮：%+v", selector.Target)
+	}
+}
+
+// TestLiepinPositionMatchesFullAndTruncated 验证只有明确带省略号的岗位才允许按非空前缀匹配。
+func TestLiepinPositionMatchesFullAndTruncated(t *testing.T) {
+	if !liepinPositionMatches("高中数学老师", "高中数学老师") {
+		t.Fatal("完整岗位应该精确匹配")
+	}
+	if !liepinPositionMatches("AI应用开发工程师初级可以实习", "AI应用开发工程师初...") {
+		t.Fatal("三个点截断岗位应该匹配完整岗位")
+	}
+	if !liepinPositionMatches("AI应用开发工程师初级可以实习", "AI应用开发工程师初…") {
+		t.Fatal("中文省略号截断岗位应该匹配完整岗位")
+	}
+	if liepinPositionMatches("高中数学老师", "AI应用开发工程师初...") {
+		t.Fatal("不同岗位不能误匹配")
+	}
+	if liepinPositionMatches("高中数学老师助教", "高中数学老师") {
+		t.Fatal("没有省略号的岗位不能按前缀误匹配")
+	}
+	if liepinPositionMatches("高中数学老师", "...") || liepinPositionMatches("高中数学老师", "…") {
+		t.Fatal("省略号前缀为空时不能匹配任何岗位")
+	}
+}
+
+// testLiepinSelector 创建只用于单元测试的最小有效选择器。
+func testLiepinSelector(description string) contract.SelectorSpec {
+	return contract.SelectorSpec{
+		Target:      contract.SelectorGroup{Selectors: []contract.SelectorCandidate{{Type: "css", Value: ".test"}}},
+		Description: description,
+	}
+}
+
+// TestLiepinStandaloneResumeKeepsCandidateCaption 验证猎聘真实固定卡片说明可签收，附带自己提问的卡片继续按正常聊天处理。
+func TestLiepinStandaloneResumeKeepsCandidateCaption(t *testing.T) {
+	const boilerplate = "这是我的简历，合适的话可以随时联系我～"
+	for _, tc := range []struct {
+		text  string
+		plain bool
+	}{{boilerplate, true}, {boilerplate + " 请问工作地点在哪？", false}, {"成都岗位在哪个区", false}} {
+		item := contract.FindAllItem{Fields: map[string]string{"body_class": "im-ui-message-item-receive", "message_text": tc.text, "resume_card": "邓云川的简历\n\n在线简历\n\n附件简历"}}
+		msg, _, err := liepinMessage(item, time.Now())
+		var card struct {
+			Plain bool `json:"standalone_resume"`
+		}
+		if err != nil || json.Unmarshal(msg.CardContent, &card) != nil || card.Plain != tc.plain || msg.TextContent != tc.text {
+			t.Fatalf("卡片留言被错误归类：%+v %v", msg, err)
+		}
+	}
+}

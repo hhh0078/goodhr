@@ -14,6 +14,7 @@ import type {
   LongScreenshotRequest,
   PageOpenRequest,
   PageUseRequest,
+  SaveCurrentDocumentRequest,
   ScreenshotRequest,
   ScrollRequest,
 } from "../../contracts/actions.js";
@@ -64,6 +65,7 @@ export class ActionService {
     this.locator,
     this.mouse,
     this.logger,
+    (page, context) => this.session.activatePage(page, context),
   );
   private readonly inputAction = new InputAction(
     this.findAction,
@@ -133,12 +135,17 @@ export class ActionService {
 
   /** usePage 切换当前标签页。 */
   usePage(request: PageUseRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.session.usePage(request.page_id, context), context);
+    return this.interactionQueue.run(() => this.session.usePage(request.page_id, context, request.dismiss_download), context);
   }
 
   /** closePage 关闭当前标签页。 */
   closePage(context: ActionContext) {
     return this.interactionQueue.run(() => this.session.closeCurrentPage(context), context);
+  }
+
+  /** saveCurrentDocument 串行保存当前 Firefox 文档页。 */
+  saveCurrentDocument(request: SaveCurrentDocumentRequest, context: ActionContext) {
+    return this.interactionQueue.run(() => this.session.saveCurrentDocument(request, context), context);
   }
 
   /** currentURL 返回当前页面地址。 */
@@ -149,12 +156,12 @@ export class ActionService {
 
   /** findElement 查找一个元素并返回短生命周期引用。 */
   async findElement(request: ElementFindRequest, context: ActionContext) {
-    return (await this.findAction.one(request.selector, context)).result;
+    return this.interactionQueue.runRead(async () => (await this.findAction.one(request.selector, context)).result, context);
   }
 
   /** findElements 查找元素列表并读取配置字段。 */
   findElements(request: ElementFindAllRequest, context: ActionContext) {
-    return this.findAction.all(
+    return this.interactionQueue.runRead(() => this.findAction.all(
       request.selector,
       request.max_items ?? 100,
       request.fields ?? {},
@@ -163,17 +170,21 @@ export class ActionService {
       request.read_concurrency ?? 100,
       request.start_index ?? 0,
       { diagnostic: request.diagnostic ?? false, attempt: request.diagnostic_attempt ?? 0, probe_only: request.probe_only ?? false },
-    );
+      request.from_end ?? false,
+    ), context);
   }
 
   /** readElement 查找并读取元素内容。 */
   readElement(request: ElementReadRequest, context: ActionContext) {
-    return this.readAction.execute(request, context);
+    return this.interactionQueue.runRead(() => this.readAction.execute(request, context), context);
   }
 
   /** clickElement 执行完整封装点击。 */
   clickElement(request: ElementClickRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.clickAction.execute(request, context), context);
+    return this.interactionQueue.run(async () => {
+      if (request.watch_download_viewer) await this.session.watchDownloadViewer(context);
+      return this.clickAction.execute(request, context);
+    }, context);
   }
 
   /** inputElement 执行完整封装输入。 */
@@ -183,7 +194,7 @@ export class ActionService {
 
   /** scroll 执行页面或元素真实滚轮滚动。 */
   scroll(request: ScrollRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.scrollAction.execute(request, context), context);
+    return this.interactionQueue.runScroll(() => this.scrollAction.execute(request, context), context);
   }
 
   /** pressKey 在当前页面执行通用按键。 */

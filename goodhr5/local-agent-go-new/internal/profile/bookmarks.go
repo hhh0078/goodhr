@@ -28,6 +28,7 @@ var defaultBookmarks = []bookmarkNode{
 	{Title: "猎聘猎头端", URL: "https://h.liepin.com/"},
 	{Title: "猎聘", URL: "https://www.liepin.com/"},
 	{Title: "智联招聘", URL: "https://rd6.zhaopin.com/app/recommend"},
+	{Title: "前程无忧", URL: "https://mall.51job.com/"},
 }
 
 // bookmarkNode 描述默认或待迁移的书签与文件夹。

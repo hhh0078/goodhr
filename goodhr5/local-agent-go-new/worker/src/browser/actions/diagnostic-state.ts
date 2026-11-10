@@ -8,7 +8,8 @@ export { pageDiagnostic } from "../session/page-diagnostics.js";
 export function selectorDiagnostic(spec: SelectorSpec): JsonObject {
   return { description: spec.description, state: spec.state ?? "visible", timeout_ms: spec.timeout_ms ?? 6000,
     frames: (spec.frames ?? []).map(groupDiagnostic), frame_fallbacks: (spec.frame_fallbacks ?? []).map(path => path.map(groupDiagnostic)),
-    parents: (spec.parents ?? []).map(groupDiagnostic), target: groupDiagnostic(spec.target) };
+    parents: (spec.parents ?? []).map(groupDiagnostic), target: groupDiagnostic(spec.target),
+    ...(spec.alternatives?.length ? { alternatives: spec.alternatives.map(selectorDiagnostic) } : {}) };
 }
 
 /** clickActionability 只读取可见和可用状态，原生浏览器的 trial 点击可能发送真实输入，诊断阶段禁止调用。 */

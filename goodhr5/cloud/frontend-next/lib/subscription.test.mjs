@@ -43,7 +43,7 @@ test("Plus 剩余十五天升级 Max 时抵扣二十元", () => {
   assert.equal(quote.amountCents, 32000);
 });
 
-test("自动回复只接受后端返回的明确权限", () => {
+test("会员暂停限制后，自动回复另由灰度控制", () => {
   assert.equal(
     canUseAutoReply(
       normalizeSubscription({
@@ -52,7 +52,7 @@ test("自动回复只接受后端返回的明确权限", () => {
         allow_auto_reply: false,
       }),
     ),
-    false,
+    true,
   );
   assert.equal(
     canUseAutoReply(

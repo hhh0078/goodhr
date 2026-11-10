@@ -10,12 +10,12 @@ import { MoveAction } from "../dist/browser/actions/move.js";
 
 test("点击已完成但验证失败时返回独立错误码并禁止盲目重试", async () => {
   const box = { x: 20, y: 20, width: 100, height: 40 };
-  const found = { result: { element_ref: "button" }, resolved: { page: {}, locator: {}, view: { box } } };
+  const found = { result: { element_ref: "button" }, resolved: { page: {}, locator: { locator: () => ({ count: async () => 1 }) }, view: { box } } };
   let clicks = 0;
   const mouse = { async down() { clicks++; }, async up() {} };
   const action = new ClickAction(
     { async one() { return found; }, async all() { return [{}]; } }, { async ensureVisible() {} },
-    { async toElement() {} }, { async box() { return box; } }, mouse,
+    { async toElement(target) { return { view: target.view }; } }, { async box() { return box; } }, mouse,
     { info() {}, failure() {} },
   );
   await assert.rejects(
@@ -29,7 +29,7 @@ test("点击已完成但验证失败时返回独立错误码并禁止盲目重�
 test("按钮右缘与悬浮入口重叠时，点击落在中部而不误开入口", async () => {
   const box = { x: 1124.2, y: 766.35, width: 87.8, height: 32 };
   const found = { result: { element_ref: "button" }, resolved: {
-    page: {}, locator: {}, view: { box, viewport: { width: 1248.8, height: 908.58 } },
+    page: {}, locator: { locator: () => ({ count: async () => 1 }) }, view: { box, viewport: { width: 1248.8, height: 908.58 } },
   } };
   const points = [];
   const logger = { info() {}, failure() {} };
@@ -92,11 +92,12 @@ function inputHarness({ focused, downFails = false }) {
     { async one() { return { result: { element_ref: "input" }, resolved: {
       view: { box: { x: 0, y: 0, width: 100, height: 40 } },
       page: {}, locator: { async boundingBox() { return { x: 0, y: 0, width: 100, height: 40 }; }, locator(css) {
+        if (css === ":scope:nth-child(n):hover") return { count: async () => 1 };
         assert.equal(css, ":scope:focus");
         return { async count() { return focused ? 1 : 0; } };
       } },
     } }; } },
-    { async ensureVisible() {} }, { async toElement() { events.push("move"); } },
+    { async ensureVisible() {} }, { async toElement(target) { events.push("move"); return { view: target.view }; } },
     { async down() { events.push("down"); if (downFails) throw new Error("按下失败"); }, async up() { events.push("up"); } },
     { async press() { events.push("key"); }, async insertText() { events.push("type"); } },
     { info() {}, failure() {} },
@@ -112,6 +113,48 @@ test("弹框短暂停住后继续移动时，必须等最终位置连续稳定",
   assert.equal(reads, 6);
   assert.equal(found.resolved.view.box.x, 80);
 });
+
+for (const scenario of ["stable", "hover_moves", "covered", "cancelled"]) {
+  test(`移动期间仍核验坐标、遮挡及取消，仅安全的落点允许按下：${scenario}`, async () => {
+    const stop = new AbortController();
+    let box = { x: 0, y: 0, width: 100, height: 40 };
+    let moves = 0, samples = 0, clicks = 0;
+    let motionActive = false, observedDuringMotion = false;
+    const found = { result: { element_ref: "target" }, resolved: {
+      page: {}, view: { box }, locator: { locator: css => {
+        assert.equal(css, ":scope:nth-child(n):hover");
+        return { count: async () => scenario === "covered" ? 0 : 1 };
+      } },
+    } };
+    const action = new ClickAction({ one: async () => found }, { ensureVisible: async () => undefined },
+      { async toElement() {
+        const landing = { view: { box: { ...box } }, x: box.x + 15, y: 10 };
+        moves++;
+        if (moves === 1) {
+          assert.equal(samples, 1);
+          if (scenario === "hover_moves") box = { ...box, x: 180 };
+          if (scenario === "cancelled") stop.abort();
+          motionActive = true;
+          await new Promise(resolve => setTimeout(resolve, 210));
+          motionActive = false;
+        }
+        return landing;
+      } },
+      { box: async () => { samples++; if (motionActive) observedDuringMotion = true; return { ...box }; } },
+      { async down() { assert.equal(motionActive, false); assert.ok(samples >= 4); clicks++; }, async up() {} },
+      { info() {}, failure() {} });
+    const run = action.execute({ selector: { description: "按钮" } }, { action: "element.click", trace_id: scenario, signal: stop.signal });
+    if (scenario === "covered" || scenario === "cancelled") {
+      await assert.rejects(run, err => err.details.click_started === false);
+    } else {
+      await run;
+    }
+    assert.equal(moves, scenario === "hover_moves" || scenario === "covered" ? 2 : 1);
+    assert.equal(clicks, scenario === "stable" || scenario === "hover_moves" ? 1 : 0);
+    assert.equal(motionActive, false);
+    assert.equal(observedDuringMotion, scenario !== "cancelled");
+  });
+}
 
 for (const downFails of [false, true]) {
   test(`焦点未获得或按下失败时必须释放鼠标且不能全选页面：${downFails}`, async () => {

@@ -1,6 +1,6 @@
 /** 文件作用说明：通过本地程序上传和批量解析简历，恢复导入任务并让用户逐项补号、查重与确认入库。 */
 "use client";
-import { Alert, Button, Flex, Input, Progress, Space, Table, Tag, Typography, Upload, type UploadFile } from "antd";
+import { Alert, Button, Flex, Input, Modal, Progress, Space, Table, Tag, Typography, Upload, type UploadFile } from "antd";
 import { ArrowLeftOutlined, InboxOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import AdminDialog from "../AdminDialog";
@@ -13,7 +13,7 @@ import styles from "./resumes.module.css";
 
 type ImportItem = { id: string; file_name: string; status: string; candidate?: ResumeDraft; error?: string; candidate_id?: string };
 type ImportTask = { id: string; status: string; items: ImportItem[]; total: number; processed: number };
-const importStatus: Record<string, string> = { queued: "排队中", parsing: "解析中", ready: "待确认", needs_phone: "待补手机号", failed: "失败", saved: "已入库", partial_success: "简历已保存，备注 / 岗位待补齐" };
+const importStatus: Record<string, string> = { queued: "排队中", parsing: "解析中", ready: "待确认", needs_phone: "待补手机号", failed: "失败", discarding: "待完成移除", saved: "已入库", partial_success: "简历已保存，备注 / 岗位待补齐" };
 type Props = {
   open: boolean; initialTaskID?: string; positions: PositionOption[]; onClose: () => void; onChanged: () => void;
   /** 添加标签内直接展示导入内容，保留独立导入入口的原有弹框。 */
@@ -31,6 +31,7 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
   const [busy, setBusy] = useState(false);
   const [editorBusy, setEditorBusy] = useState(false);
   const [error, setError] = useState("");
+  const [discard, setDiscard] = useState<{ taskID: string; item: ImportItem; revision: string } | null>(null);
   const [editingItem, setEditingItem] = useState<ImportItem | null>(null);
   const [duplicateHints, setDuplicateHints] = useState<Record<string, string>>({});
   const generation = useRef(0);
@@ -40,8 +41,8 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
     onBusyChange?.(busy || editorBusy);
     return () => onBusyChange?.(false);
   }, [busy, editorBusy, onBusyChange]);
-  /** requestTask 访问本地任务 API，并传送当前 GoodHR 会话用于账号隔离。 */
-  async function requestTask(path: string, method = "GET", body?: unknown, upload?: FormData): Promise<ImportTask> {
+  /** requestImport 访问本地导入接口，仅传送当前网页登录会话。 */
+  async function requestImport(path: string, method = "GET", body?: unknown, upload?: FormData) {
     if (!agentBase) throw new Error("本地程序还没连接，打开后点重新连接就好。手动添加仍可用。");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000);
@@ -56,19 +57,25 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
       let data: any;
       try { data = JSON.parse(payload); }
       catch {
+        if (response.status === 404 && path.endsWith("/discard")) throw new Error("当前本地程序还不支持移除草稿，请先更新本地程序，再回来确认。");
         if (response.status === 404) throw new Error("当前本地程序还不支持简历批量导入，请更新到 6.2.10.3 或更新版本。手动添加和浏览器插件仍可用。");
         throw new Error(response.ok ? "本地程序返回的导入结果没读完整，请重新读取任务。" : `本地导入暂时没响应（${response.status}），请重新连接后重试。`);
       }
       if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("本地程序返回的导入结果没读完整，请重新读取任务。");
       if (!response.ok || data.ok === false) throw new Error(data.error?.message || data.message || (typeof data.error === "string" ? data.error : "导入请求没成功，请重试。"));
-      const result = data.data?.task || data.task || (Array.isArray(data.data?.tasks) ? data.data.tasks.find((item: ImportTask) => Array.isArray(item?.items) && item.items.some((row) => row.status !== "saved")) : undefined);
-      if (!result && path === "" && method === "GET" && Array.isArray(data.data?.tasks)) return { id: "", status: "completed", total: 0, processed: 0, items: [] };
-      if (!result?.id || !Array.isArray(result.items)) throw new Error("本地程序还不支持新版简历导入，请先更新本地程序。");
-      return result;
+      return data;
     } catch (cause) {
       if (cause instanceof Error && cause.name === "AbortError") throw new Error("本地程序响应有点慢，请重试读取任务，已完成的结果会保留。");
       throw cause instanceof Error ? cause : new Error("本地程序没连接上，请重新连接后重试。");
     } finally { clearTimeout(timeout); }
+  }
+  /** requestTask 读取单批任务，也支持从历史批次恢复下一份待处理草稿。 */
+  async function requestTask(path: string, method = "GET", body?: unknown, upload?: FormData): Promise<ImportTask> {
+    const data = await requestImport(path, method, body, upload);
+    const result = data.data?.task || data.task || (Array.isArray(data.data?.tasks) ? data.data.tasks.find((item: ImportTask) => Array.isArray(item?.items) && item.items.some((row) => row.status !== "saved")) : undefined);
+    if (!result && path === "" && method === "GET" && Array.isArray(data.data?.tasks)) return { id: "", status: "completed", total: 0, processed: 0, items: [] };
+    if (!result?.id || !Array.isArray(result.items)) throw new Error("本地程序还不支持新版简历导入，请先更新本地程序。");
+    return result;
   }
   /** rememberTask 只缓存任务编号，本地文件和候选人草稿仍留在本地程序。 */
   function rememberTask(next: ImportTask) {
@@ -93,7 +100,7 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
     void readTask(cached || "", current);
     return () => { generation.current += 1; if (timer.current) clearTimeout(timer.current); };
   }, [open, agentBase, taskCache, initialTaskID]);
-  useEffect(() => { setTask(null); setEditingItem(null); setFiles([]); setText(""); setDuplicateHints({}); setError(""); }, [taskCache]);
+  useEffect(() => { setTask(null); setDiscard(null); setEditingItem(null); setFiles([]); setText(""); setDuplicateHints({}); setError(""); }, [taskCache]);
   /** startImport 校验文件范围后创建本地持久化解析任务。 */
   async function startImport() {
     if (!files.length && !text.trim()) { setError("先选几份简历，或粘贴一份文本，我再开始。 "); return; }
@@ -193,6 +200,37 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
     }
     finally { setBusy(false); }
   }
+  /** previewDiscard 在打开确认框前读取所选文件当前的版本。 */
+  async function previewDiscard(item: ImportItem) {
+    if (!task) return;
+    const current = ++generation.current;
+    setBusy(true); setError("");
+    try {
+      const response = await requestImport(`/${encodeURIComponent(task.id)}/items/${encodeURIComponent(item.id)}/discard`);
+      if (current !== generation.current) return;
+      const revision = response.data?.revision;
+      if (!revision) throw new Error("请先更新本地程序，再移除这份草稿。");
+      setDiscard({ taskID: task.id, item, revision });
+    } catch (cause) { if (current === generation.current) setError(cause instanceof Error ? cause.message : "这份草稿暂时没读出来，请重试。"); }
+    finally { setBusy(false); }
+  }
+
+  /** discardSelected 仅移除刚才预览的版本；空批次自动接回其他历史草稿。 */
+  async function discardSelected() {
+    if (!discard || discard.taskID !== task?.id) return;
+    const current = ++generation.current;
+    setBusy(true); setError("");
+    try {
+      const next = await requestTask(`/${encodeURIComponent(discard.taskID)}/items/${encodeURIComponent(discard.item.id)}/discard`, "POST", { revision: discard.revision });
+      if (current !== generation.current) return;
+      setDiscard(null);
+      if (next.items.length) rememberTask(next);
+      else { setTask(null); localStorage.removeItem(taskCache); await readTask("", current); }
+      notify("这份本机草稿已移除。", "success");
+    } catch (cause) { if (current === generation.current) { setDiscard(null); setError(cause instanceof Error ? cause.message : "移除没完成，请再点这份草稿重试。"); } }
+    finally { setBusy(false); }
+  }
+
   /** newBatch 清除任务界面指针，已完成的本地任务记录仍保留。 */
   function newBatch() { generation.current += 1; if (timer.current) clearTimeout(timer.current); setTask(null); setFiles([]); setText(""); setDuplicateHints({}); localStorage.removeItem(taskCache); setError(""); }
   const itemEditor = <ResumeEditor open={open && Boolean(editingItem)} embedded={embedded} active={active} draft={editingItem?.candidate} persistedID={task?.items.find((item) => item.id === editingItem?.id)?.candidate_id} positions={positions} onBusyChange={setEditorBusy} onFoldersChanged={onChanged} onClose={() => setEditingItem(null)} onConfirmDraft={confirmOne} onSaved={() => { setEditingItem(null); onChanged(); }} />;
@@ -222,7 +260,8 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
             { title: "简历文件", dataIndex: "file_name", width: 180 },
             { title: "识别结果", render: (_, item) => <Space direction="vertical" size={0}><Typography.Text>{item.candidate?.candidate_name || "待识别"}</Typography.Text><Typography.Text type="secondary">{item.candidate?.phone || "手机号待补充"}</Typography.Text></Space> },
             { title: "状态", width: 180, render: (_, item) => <><Tag>{duplicateHints[item.id] || importStatus[item.status] || item.status}</Tag>{item.error ? <div className={styles.meta}>{item.error}</div> : null}</> },
-            { title: "操作", width: 116, render: (_, item) => item.status === "saved" ? <Typography.Text type="secondary">已入库</Typography.Text> : item.status === "partial_success" ? <Button size="small" loading={busy} onClick={() => void finishPartial(item)}>继续完成记录</Button> : <Button size="small" disabled={!item.candidate || ["queued", "parsing"].includes(item.status) || busy} onClick={() => setEditingItem(item)}>预览 / 补充</Button> },
+            { title: "操作", width: 188, render: (_, item) => item.status === "saved" ? <Typography.Text type="secondary">已入库</Typography.Text> : item.status === "partial_success" ? <Button size="small" loading={busy} onClick={() => void finishPartial(item)}>继续完成记录</Button> : <Space wrap size={4}>{item.status !== "discarding" && <Button size="small" disabled={!item.candidate || ["queued", "parsing"].includes(item.status) || busy} onClick={() => setEditingItem(item)}>预览 / 补充</Button>}
+              {!item.candidate_id && task.status !== "running" && <Button danger size="small" disabled={busy} onClick={() => void previewDiscard(item)}>{item.status === "discarding" ? "继续移除" : "移除草稿"}</Button>}</Space> },
           ]} />
           <Flex justify="flex-end" gap={8} wrap>
             {task.status === "running" ? <Button disabled={busy} onClick={() => void taskAction("cancel")}>暂停解析</Button> : <Button disabled={busy} onClick={newBatch}>新的一批</Button>}
@@ -233,6 +272,9 @@ export default function ResumeImportDialog({ open, initialTaskID = "", positions
       </Flex>
       </div>
     </ResumeImportFrame>
+    <Modal open={Boolean(discard)} title="移除这份本机草稿？" okText="确认移除" cancelText="保留草稿" okButtonProps={{ danger: true }} confirmLoading={busy} closable={!busy} maskClosable={!busy} onCancel={() => { if (!busy) setDiscard(null); }} onOk={() => void discardSelected()}>
+      <p><strong>{discard?.item.file_name}</strong></p><p>草稿和 GoodHR 程序内的专用副本会永久移除。你的下载文件夹和云端简历都会保留。</p>
+    </Modal>
     {!embedded ? itemEditor : null}
   </>;
 }

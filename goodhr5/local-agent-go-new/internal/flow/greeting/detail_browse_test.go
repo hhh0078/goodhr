@@ -118,7 +118,7 @@ func TestScreenshotModesSkipDOMBrowse(t *testing.T) {
 			defer store.Close()
 			prepared := shared.PreparedTask{
 				Position: cloud.PositionSnapshot{RequiresOCR: mode == "ocr", RequiresAI: mode == "ai", CommonConfig: cloud.PositionCommonConfig{ModeDefault: "ai", DetailMode: mode}},
-				Platform: model.Config{Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}}},
+				Platform: model.Config{ID: "boss", Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}}},
 			}
 			logger := &detailBrowseLogger{}
 			flow := Flow{Browser: client.New(server.URL), Store: store, Logger: logger, ScreenshotsDir: t.TempDir()}

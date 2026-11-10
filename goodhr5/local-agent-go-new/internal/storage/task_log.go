@@ -11,6 +11,7 @@ import (
 )
 
 const maxPositionTaskLogs = 1000
+const maxGlobalTaskLogPage = 5000
 
 // TaskLogRetainedAfterAppend 判断再增加一条日志后原文是否仍在千条保留范围内，避免引用即将淘汰的记录。
 func (s *Store) TaskLogRetainedAfterAppend(ctx context.Context, logID int64) (bool, error) {
@@ -21,7 +22,8 @@ func (s *Store) TaskLogRetainedAfterAppend(ctx context.Context, logID int64) (bo
 	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
 		SELECT 1 FROM task_logs AS original WHERE original.id = ? AND (
 			original.position_id = '' OR (
-				SELECT COUNT(*) FROM task_logs AS newer WHERE newer.position_id = original.position_id AND newer.id > original.id
+				SELECT COUNT(*) FROM task_logs AS newer WHERE newer.position_id = original.position_id
+				AND (julianday(newer.created_at),newer.id) > (julianday(original.created_at),original.id)
 			) < ?
 		)
 	)`, logID, maxPositionTaskLogs-1).Scan(&exists)
@@ -49,6 +51,20 @@ type TaskLog struct {
 
 // SaveTaskLog 保存一条流程日志，并在任务已落库时自动补充岗位编号。
 func (s *Store) SaveTaskLog(ctx context.Context, item TaskLog) (TaskLog, error) {
+	return s.saveTaskLog(ctx, item, "", 0)
+}
+
+// SaveServerFailureLog 将故障日志与本设备运行的接收游标放在同一事务，避免重试或清空后的重新投递。
+func (s *Store) SaveServerFailureLog(ctx context.Context, item TaskLog, cursor string, sequence int64) error {
+	if cursor == "" || sequence <= 0 || item.PositionID == "" {
+		return fmt.Errorf("岗位故障编号不完整")
+	}
+	_, err := s.saveTaskLog(ctx, item, cursor, sequence)
+	return err
+}
+
+// saveTaskLog 在可选的去重检查之后写入日志并按岗位裁剪；普通日志不需要额外游标。
+func (s *Store) saveTaskLog(ctx context.Context, item TaskLog, cursor string, sequence int64) (TaskLog, error) {
 	item.TaskID = strings.TrimSpace(item.TaskID)
 	item.PositionID = strings.TrimSpace(item.PositionID)
 	item.Flow = strings.TrimSpace(item.Flow)
@@ -85,8 +101,24 @@ func (s *Store) SaveTaskLog(ctx context.Context, item TaskLog) (TaskLog, error) 
 		return TaskLog{}, fmt.Errorf("开始保存任务日志失败：%w", err)
 	}
 	defer transaction.Rollback()
+	if cursor != "" {
+		res, e := transaction.ExecContext(ctx, `INSERT INTO local_settings(key,value,updated_at) VALUES (?,?,?)
+   ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE CAST(local_settings.value AS INTEGER)<CAST(excluded.value AS INTEGER)`, cursor, sequence, time.Now().UTC().Format(time.RFC3339Nano))
+		if e != nil {
+			return TaskLog{}, e
+		}
+		n, e := res.RowsAffected()
+		if e != nil || n == 0 {
+			return TaskLog{}, e
+		}
+		// 已被千次更新运行取代的游标不再参与本机任务补领；清空岗位日志不会删除仍然有效的游标。
+		if _, e = transaction.ExecContext(ctx, `DELETE FROM local_settings WHERE key IN (
+   SELECT key FROM local_settings WHERE key GLOB 'cloud_reply_log_cursor:*' ORDER BY updated_at DESC, key DESC LIMIT -1 OFFSET 1000)`); e != nil {
+			return TaskLog{}, e
+		}
+	}
 	result, err := transaction.ExecContext(ctx, `
-		INSERT INTO task_logs (
+  INSERT INTO task_logs (
 			task_id, position_id, flow, step, status, level, message, duration_ms, created_at,
 			category, is_error, error_message, input_json, output_json
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -140,10 +172,10 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 			       category, is_error, error_message, input_json, output_json
 			FROM task_logs
 			WHERE position_id = ?
-			ORDER BY id DESC
+			ORDER BY julianday(created_at) DESC, id DESC
 			LIMIT ?
 		)
-		ORDER BY id ASC`,
+		ORDER BY julianday(created_at) ASC, id ASC`,
 		positionID,
 		maxPositionTaskLogs,
 	)
@@ -151,11 +183,39 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 		return nil, fmt.Errorf("读取岗位日志失败：%w", err)
 	}
 	defer rows.Close()
+	return scanTaskLogs(rows, "岗位日志", limit)
+}
+
+// ListTaskLogs 读取最近的全局任务日志，并保持岗位日志原有保存规则。
+func (s *Store) ListTaskLogs(ctx context.Context, limit int) ([]TaskLog, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > maxGlobalTaskLogPage {
+		limit = maxGlobalTaskLogPage
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, task_id, position_id, flow, step, status, level, message, duration_ms, created_at,
+		       category, is_error, error_message, input_json, output_json
+		FROM (
+			SELECT id, task_id, position_id, flow, step, status, level, message, duration_ms, created_at,
+			       category, is_error, error_message, input_json, output_json
+			FROM task_logs ORDER BY id DESC LIMIT ?
+		) ORDER BY id ASC`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("读取全局任务日志失败：%w", err)
+	}
+	defer rows.Close()
+	return scanTaskLogs(rows, "全局任务日志", limit)
+}
+
+// scanTaskLogs 把岗位或全局日志查询结果转换为统一日志结构。
+func scanTaskLogs(rows *sql.Rows, label string, limit int) ([]TaskLog, error) {
 	logs := make([]TaskLog, 0)
 	for rows.Next() {
 		var item TaskLog
 		var inputJSON, outputJSON string
-		if err = rows.Scan(
+		if err := rows.Scan(
 			&item.ID,
 			&item.TaskID,
 			&item.PositionID,
@@ -172,7 +232,7 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 			&inputJSON,
 			&outputJSON,
 		); err != nil {
-			return nil, fmt.Errorf("解析岗位日志失败：%w", err)
+			return nil, fmt.Errorf("解析%s失败：%w", label, err)
 		}
 		item.Input = json.RawMessage(inputJSON)
 		item.Output = json.RawMessage(outputJSON)
@@ -180,8 +240,8 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 			logs = append(logs, item)
 		}
 	}
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("遍历岗位日志失败：%w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历%s失败：%w", label, err)
 	}
 	if len(logs) > limit {
 		logs = logs[len(logs)-limit:]
@@ -333,6 +393,25 @@ func (s *Store) ClearPositionLogs(ctx context.Context, positionID string) error 
 	return nil
 }
 
+// ClearTaskLogs 清空全局本地任务日志及历史错误提示。
+func (s *Store) ClearTaskLogs(ctx context.Context) error {
+	transaction, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("开始清空全局日志失败：%w", err)
+	}
+	defer transaction.Rollback()
+	if _, err = transaction.ExecContext(ctx, `DELETE FROM task_logs`); err != nil {
+		return fmt.Errorf("清空全局日志失败：%w", err)
+	}
+	if _, err = transaction.ExecContext(ctx, `UPDATE task_runs SET error_code = '', error_message = ''`); err != nil {
+		return fmt.Errorf("清空历史错误失败：%w", err)
+	}
+	if err = transaction.Commit(); err != nil {
+		return fmt.Errorf("提交全局日志清理失败：%w", err)
+	}
+	return nil
+}
+
 // attachTaskLogs 把任务启动前产生的日志补充到对应岗位。
 func (s *Store) attachTaskLogs(ctx context.Context, taskID string, positionID string) error {
 	transaction, err := s.db.BeginTx(ctx, nil)
@@ -361,7 +440,7 @@ func trimPositionTaskLogs(ctx context.Context, transaction *sql.Tx, positionID s
 		WHERE position_id = ? AND id NOT IN (
 			SELECT id FROM task_logs
 			WHERE position_id = ?
-			ORDER BY id DESC
+			ORDER BY julianday(created_at) DESC, id DESC
 			LIMIT ?
 		)`,
 		positionID,

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // TestReadyDarwinVisionWithoutModel 验证 macOS 内置 Vision 不需要 RapidOCR 模型但需要可执行文件。
@@ -30,7 +32,11 @@ func TestReadyDarwinVisionWithoutModel(t *testing.T) {
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Ready(); !IsUnavailable(err) {
+	err := client.Ready()
+	if d := failurediag.Details(err); len(d) != 1 || d[0].Source != "本地文字识别" || d[0].Phase == "" {
+		t.Fatalf("检查组件权限时的阶段丢失 %+v", d)
+	}
+	if !IsUnavailable(err) {
 		t.Fatalf("不可执行的 Vision 组件应报 OCR_UNAVAILABLE：%v", err)
 	}
 }
@@ -77,7 +83,7 @@ func TestErrorClassification(t *testing.T) {
 
 // TestRecognizeRestartsExitedProcess 验证首次识别崩溃可恢复，连续崩溃最多重试一次，正常请求复用进程。
 func TestRecognizeRestartsExitedProcess(t *testing.T) {
-	for _, mode := range []string{"once", "always"} {
+	for _, mode := range []string{"once", "always", "wait"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			self, err := os.Executable()
@@ -106,10 +112,24 @@ func TestRecognizeRestartsExitedProcess(t *testing.T) {
 			events := make(chan []byte, 8)
 			client := New(executable, func(line []byte) { events <- line })
 			defer client.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			limit := 15 * time.Second
+			if mode == "wait" {
+				limit = time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), limit)
 			defer cancel()
 			result, err := client.Recognize(ctx, filepath.Join(root, "image.png"))
+			if mode == "wait" {
+				d := failurediag.Details(err)
+				if !errors.Is(err, context.DeadlineExceeded) || IsUnavailable(err) || len(d) != 1 || d[0].Phase != "等待识别进程返回结果" || d[0].Attempt != 1 || d[0].LimitMS <= 0 {
+					t.Fatalf("识别等待超时诊断不符 %v %+v", err, d)
+				}
+				return
+			}
 			if mode == "always" {
+				if d := failurediag.Details(err); len(d) != 1 || d[0].Phase != "等待识别进程返回结果" || d[0].Attempt != 2 {
+					t.Fatalf("识别进程实际失败阶段丢失 %+v", d)
+				}
 				if !IsUnavailable(err) {
 					t.Fatalf("连续崩溃应报错：%v", err)
 				}
@@ -154,6 +174,9 @@ func TestOCRHelperProcess(t *testing.T) {
 	}
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
+		if mode == "wait" {
+			time.Sleep(10 * time.Second)
+		}
 		if mode == "always" || len(previous) == 0 {
 			_, _ = os.Stderr.WriteString("native OCR fault: missing model runtime\n")
 			os.Exit(7)

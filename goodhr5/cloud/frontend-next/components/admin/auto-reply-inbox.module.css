@@ -1,0 +1,35 @@
+/* 文件作用说明：统一自动回复面板、待确认标题原话与手机回复卡片，沿用后台主题和紧凑尺寸。 */
+.runBar { display: flex; gap: 8px 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 12px; margin-bottom: 16px; background: var(--goodhr-bg); border: 1px solid var(--goodhr-border); border-radius: 8px; }
+.runInfo { min-width: 0; display: grid; gap: 4px; }
+.runInfo p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--goodhr-text-secondary); overflow-wrap: anywhere; }
+.runActions { display: flex; gap: 8px; flex-wrap: wrap; }
+.heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+.heading h3 { margin: 0; font-size: 14px; font-weight: 650; color: var(--goodhr-text); }
+.count { font-size: 12px; color: var(--goodhr-text-secondary); font-variant-numeric: tabular-nums; }
+.filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.positionSelect { min-width: 240px; max-width: 100%; flex: 1; }
+.questionTitle:global(.ant-collapse) { min-width: 0; }
+.questionTitle:global(.ant-collapse) :global(.ant-collapse-header) { padding: 4px 0; align-items: flex-start; }
+.questionTitle :global(.ant-collapse-title) { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; font-weight: 500; }
+.questionTitle:global(.ant-collapse) :global(.ant-collapse-body) { padding: 8px 0 0; }
+.source { border-inline-start: 2px solid var(--goodhr-border); padding-inline-start: 8px; margin-bottom: 8px; }
+.sourceName { font-size: 12px; color: var(--goodhr-text-secondary); margin-bottom: 2px; }
+.sourceText { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.answer { display: grid; gap: 8px; min-width: 0; }
+.answerInput { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.answerInput > :global(.ant-input) { flex: 1; min-width: 0; }
+.answerInput > :global(.ant-btn) { flex-shrink: 0; }
+.answerMeta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.desktopTable { min-width: 0; }
+.mobileList { display: none; }
+.pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 12px; }
+@media (max-width: 599px) {
+  .runBar { align-items: flex-start; padding: 12px; }
+  .runActions { width: 100%; justify-content: flex-end; }
+  .filters { align-items: stretch; }
+  .positionSelect { flex-basis: 100%; min-width: 0; width: 100%; }
+  .desktopTable { display: none; }
+  .mobileList { display: grid; gap: 12px; }
+  .mobileRow { min-width: 0; padding-bottom: 12px; border-bottom: 1px solid var(--goodhr-border); }
+  .mobileRow > .answer { margin-top: 8px; }
+}

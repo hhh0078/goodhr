@@ -23,6 +23,30 @@ export function parseSelectorSpec(
   traceId: string,
   action: string,
 ): SelectorSpec {
+  return parseSelectorVariants(value, traceId, action, 0);
+}
+
+/** parseSelectorVariants 兼容完整对象数组，并限制备用路径数量和嵌套深度。 */
+function parseSelectorVariants(
+  value: unknown,
+  traceId: string,
+  action: string,
+  depth: number,
+): SelectorSpec {
+  if (depth > 4) {
+    throw invalidRequest(traceId, action, "selector 备用路径嵌套不能超过四层");
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0 || value.length > 8) {
+      throw invalidRequest(traceId, action, "selector 数组必须包含一到八个完整对象");
+    }
+    const variants = value.map(item => {
+      asRecord(item, traceId, action, "selector 数组项");
+      return parseSelectorVariants(item, traceId, action, depth + 1);
+    });
+    const [primary, ...alternatives] = variants;
+    return { ...primary!, alternatives: [...(primary!.alternatives ?? []), ...alternatives] };
+  }
   const record = asRecord(value, traceId, action, "selector");
   const description =
     typeof record.description === "string" &&
@@ -88,6 +112,15 @@ export function parseSelectorSpec(
     record.read_attribute.trim() !== ""
   ) {
     result.read_attribute = record.read_attribute.trim();
+  }
+  if (record.alternatives !== undefined) {
+    if (!Array.isArray(record.alternatives) || record.alternatives.length > 63) {
+      throw invalidRequest(traceId, action, "selector.alternatives 必须是最多六十三条备用路径的数组");
+    }
+    result.alternatives = record.alternatives.map(item => {
+      asRecord(item, traceId, action, "selector.alternatives 数组项");
+      return parseSelectorVariants(item, traceId, action, depth + 1);
+    });
   }
   return result;
 }

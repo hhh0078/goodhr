@@ -26,7 +26,8 @@ func (c *Client) SummarizeResume(ctx context.Context, cfg cloud.AIConfig, candid
 	if err != nil {
 		return "", err
 	}
-	content, err := c.doChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, payload, chatOptions{})
+	var completion streamCompletion
+	content, err := c.doChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, payload, chatOptions{Completion: &completion, Operation: "AI 简历摘要"})
 	if err != nil {
 		return "", err
 	}
@@ -34,11 +35,11 @@ func (c *Client) SummarizeResume(ctx context.Context, cfg cloud.AIConfig, candid
 		Summary string `json:"ai_summary"`
 	}
 	if json.Unmarshal([]byte(extractJSONObject(content)), &result) != nil {
-		return "", fmt.Errorf("AI没有返回有效摘要，请核对后重试")
+		return "", completion.parseError(fmt.Errorf("AI没有返回有效摘要，请核对后重试"))
 	}
 	result.Summary = strings.TrimSpace(result.Summary)
 	if result.Summary == "" || len([]rune(result.Summary)) > 2000 {
-		return "", fmt.Errorf("AI摘要为空或太长，请核对后重试")
+		return "", completion.parseError(fmt.Errorf("AI摘要为空或太长，请核对后重试"))
 	}
 	return result.Summary, nil
 }

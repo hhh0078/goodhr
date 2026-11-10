@@ -142,7 +142,7 @@ func (c *Checker) steps() []checkStep {
 		{name: "check_cloud_session", label: "登录状态", run: c.checkCloudSession},
 		{name: "check_device_binding", label: "设备绑定", run: c.checkDeviceBinding},
 		{name: "load_position_snapshot", label: "岗位配置", run: c.loadPosition},
-		{name: "check_subscription", label: "会员状态", run: c.checkSubscription},
+		// 会员限制暂停，原启动步骤保留：{name: "check_subscription", label: "会员状态", run: c.checkSubscription},
 		{name: "load_user_preferences", label: "个人设置", run: c.loadPreferences},
 		{name: "load_local_platform_config", label: "平台配置", run: c.loadPlatform},
 		{name: "check_profile", label: "浏览器账号", run: c.checkProfile},
@@ -153,13 +153,19 @@ func (c *Checker) steps() []checkStep {
 		{name: "check_camoufox", label: "隐身浏览器", run: c.checkCamoufox},
 		{name: "check_local_storage", label: "本地数据", run: c.checkStorage},
 		{name: "check_required_ai", label: "AI 配置", run: c.checkAI},
-		{name: "check_required_ocr", label: "文字识别组件", run: c.checkOCR},
+		// OCR旧检查方法保留，岗位固定AI/DOM策略后不再检查或安装该组件。
+		// {name: "check_required_ocr", label: "文字识别组件", run: c.checkOCR},
 		{name: "check_power_guard", label: "防休眠能力", optional: true, run: c.checkPower},
 	}
 }
 
 // validateRequest 校验任务统一入口参数。
 func validateRequest(_ context.Context, prepared *shared.PreparedTask) error {
+	target, err := shared.ResolveAutoReplyTarget(prepared.Request.TaskType, prepared.Request.AutoReplyTarget)
+	if err != nil {
+		return err
+	}
+	prepared.Request.AutoReplyTarget = target
 	request := prepared.Request
 	if strings.TrimSpace(request.TaskID) == "" {
 		return fmt.Errorf("任务编号不能为空")
@@ -169,6 +175,9 @@ func validateRequest(_ context.Context, prepared *shared.PreparedTask) error {
 	}
 	if request.TaskType != "greeting" && request.TaskType != "auto_reply" {
 		return fmt.Errorf("任务类型只支持打招呼或自动回复")
+	}
+	if request.TaskType == "auto_reply" && (strings.TrimSpace(request.PlatformAccountID) == "" || len([]rune(request.PlatformAccountID)) > 200) {
+		return fmt.Errorf("开始前请确认并填写当前招聘账号，切换账号前请先停止自动回复")
 	}
 	if request.EnableGreet != nil && !*request.EnableGreet && request.TaskType == "auto_reply" {
 		return fmt.Errorf("只检查候选人不能用于自动回复，请选择打招呼任务")
@@ -199,15 +208,21 @@ func (c *Checker) checkCloudSession(ctx context.Context, prepared *shared.Prepar
 
 // checkDeviceBinding 在每次任务开始前复查当前电脑仍然属于登录账号。
 func (c *Checker) checkDeviceBinding(ctx context.Context, prepared *shared.PreparedTask) error {
+	prepared.MachineID = ""
 	if strings.TrimSpace(c.AgentBind.MachineID) == "" {
 		return fmt.Errorf("这台电脑的设备编号暂时没读出来，请重启本地程序后再试")
 	}
 	_, err := c.Cloud.BindAgent(ctx, prepared.Request.Token, c.AgentBind)
+	if err == nil {
+		// 后续自动回复只读取检查快照，必须带上这次真实绑定成功的本机编号。
+		prepared.MachineID = strings.TrimSpace(c.AgentBind.MachineID)
+	}
 	return err
 }
 
 // checkSubscription 检查会员状态。
 func (c *Checker) checkSubscription(ctx context.Context, prepared *shared.PreparedTask) error {
+	/* 2026-11-10：会员限制暂停，原检查保留供以后恢复，云端仍检查登录及0.10元启动余额。
 	if !prepared.Position.RequiresAI && prepared.Request.TaskType != "auto_reply" {
 		return nil
 	}
@@ -222,6 +237,7 @@ func (c *Checker) checkSubscription(ctx context.Context, prepared *shared.Prepar
 	if prepared.Request.TaskType == "auto_reply" && !subscription.AllowAutoReply {
 		return fmt.Errorf("自动回复属于 Max 全能版，当前套餐暂时不能使用")
 	}
+	*/
 	return nil
 }
 
@@ -231,7 +247,13 @@ func (c *Checker) loadPosition(ctx context.Context, prepared *shared.PreparedTas
 	if err != nil {
 		return err
 	}
+	if position.RequiresRecreate {
+		return &cloud.APIError{StatusCode: 409, Code: "POSITION_RECREATE_REQUIRED", Message: "这个岗位还在使用旧版配置，暂时不能启动。请先复制岗位名称和要求，再删除该岗位并重新创建。"}
+	}
 	prepared.Position = position
+	if prepared.Request.TaskType == "auto_reply" {
+		prepared.Request.PlatformAccountID = shared.AutoReplyAccountKey(position.PlatformID, prepared.Request.PlatformAccountID)
+	}
 	if prepared.Request.ProfileID == "" {
 		prepared.Request.ProfileID = position.ProfileID
 	}
@@ -326,6 +348,9 @@ func (c *Checker) checkAI(ctx context.Context, prepared *shared.PreparedTask) er
 	if !prepared.Position.RequiresAI && prepared.Request.TaskType != "auto_reply" {
 		return nil
 	}
+	if c.AI == nil {
+		return fmt.Errorf("AI 组件还没准备好，请重启本地程序后再试")
+	}
 	config, err := c.Cloud.EffectiveAI(ctx, prepared.Request.Token)
 	if err != nil {
 		return err
@@ -343,12 +368,10 @@ func (c *Checker) checkAI(ctx context.Context, prepared *shared.PreparedTask) er
 	return c.AI.Ready(prepared.Position.AI)
 }
 
-// checkOCR 仅在岗位明确需要 OCR 时检查组件。
+// checkOCR 保留旧调用合同，当前固定AI/DOM策略不再检查OCR文件或进程。
 func (c *Checker) checkOCR(_ context.Context, prepared *shared.PreparedTask) error {
-	if !prepared.Position.RequiresOCR {
-		return nil
-	}
-	return c.OCR.Ready()
+	prepared.Position.RequiresOCR = false
+	return nil
 }
 
 // checkPower 检查系统防睡眠能力，失败时允许任务降级继续。

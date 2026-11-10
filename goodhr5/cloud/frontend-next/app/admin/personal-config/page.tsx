@@ -28,9 +28,11 @@ import { useEffect, useId, useRef, useState } from "react";
 import { cloudRequest } from "@/lib/admin-api";
 import { SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import AdminDialog from "@/components/admin/AdminDialog";
+import BuiltinAIModelSelect from "@/components/admin/BuiltinAIModelSelect";
 import NotificationProfileDialog from "@/components/admin/NotificationProfileDialog";
 import {
-  formatBuiltinAIPrice,
+  isOfficialAIURL,
   normalizeAIBaseURL,
   normalizeBuiltinAIModels,
   resolvePersonalAIModel,
@@ -70,6 +72,8 @@ const mouseSpeedOptions = [
 export default function PersonalConfigPage() {
   const { notify } = useAdmin();
   const [form, setForm] = useState({ ...defaults });
+  const [switchRequired, setSwitchRequired] = useState(false);
+  const switchInFlight = useRef(false);
   const [keySet, setKeySet] = useState(false);
   const [loading, setLoading] = useState(true);
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -97,13 +101,6 @@ export default function PersonalConfigPage() {
     hostname,
     builtinModels,
   );
-  const selectedBuiltinModel = builtinModels?.find((item) => item.id === model);
-  const modelOptions = (builtinModels || []).map((item) => ({
-    value: item.id,
-    label: `${item.name} (${item.id})`,
-    searchText: `${item.name} ${item.id} ${item.description}`,
-    model: item,
-  }));
   /** loadBuiltinModels 独立读取内置模型列表，失败时保留现有模型且不使用猜测值。 */
   async function loadBuiltinModels() {
     const requestID = ++modelsRequestID.current;
@@ -141,6 +138,7 @@ export default function PersonalConfigPage() {
       }
       const ai = aiData.config || {};
       const preference = preferenceData.config || {};
+      setSwitchRequired(!isOfficialAIURL(String(ai.base_url || "")));
       setKeySet(Boolean(ai.api_key_set));
       setForm({
         ...defaults,
@@ -276,12 +274,15 @@ export default function PersonalConfigPage() {
   }
   /** useBuiltinAI 切换为系统内置 AI，并把分配好的配置填入表单。 */
   async function useBuiltinAI() {
+    if (switchInFlight.current) return;
+    switchInFlight.current = true;
     setLoading(true);
     try {
       const data = await cloudRequest("/api/ai-wallet/use-builtin", {
         method: "POST",
       });
       const config = data.config || {};
+      if (!isOfficialAIURL(String(config.base_url || "")) || !config.model || !(config.api_key_set || config.api_key)) throw new Error("内置 AI 配置还没确认，请再试一次。");
       if (Array.isArray(data.models)) {
         modelsRequestID.current += 1;
         setBuiltinModels(normalizeBuiltinAIModels(data.models));
@@ -295,6 +296,7 @@ export default function PersonalConfigPage() {
         api_key: config.api_key || current.api_key,
       }));
       setKeySet(Boolean(config.api_key_set || config.api_key));
+      setSwitchRequired(false);
       notify("已切到内置 AI，余额够的话我就能开工。", "success");
     } catch (error) {
       notify(
@@ -304,6 +306,7 @@ export default function PersonalConfigPage() {
         "error",
       );
     } finally {
+      switchInFlight.current = false;
       setLoading(false);
     }
   }
@@ -347,6 +350,14 @@ export default function PersonalConfigPage() {
   return (
     <>
       <NotificationProfileDialog openSignal={profileOpenSignal} />
+      <AdminDialog open={switchRequired && configLoaded} title="作者来小声求个支持" hideClose showCancel={false}
+        onClose={() => undefined} onConfirm={() => void useBuiltinAI()} confirmText="好吧，那就使用内置 AI 吧" loading={loading} loadingText="正在切换" maxWidth="sm">
+        <Typography.Paragraph>GoodHR 目前的收入还撑不起日常开发和维护，作者正在“继续写代码”和“进厂拧螺丝”之间努力挣扎。</Typography.Paragraph>
+        <Typography.Paragraph>为了让软件继续运营，自定义接口暂时关闭，改用内置 AI。我们也接入了价格更友好的多种模型，名称和价格都在列表里，按需选择就好。等收入能撑住维护，我会再次开放自定义接口。</Typography.Paragraph>
+        {builtinModels?.length ? <Typography.Paragraph type="secondary">当前可选：{builtinModels.slice(0, 3).map(item => item.name).join("、")}等，实际价格以模型列表为准。</Typography.Paragraph> : null}
+        <Typography.Paragraph><Typography.Text strong>会员限制也一起取消了：只要 AI 余额充足，就能使用全部已开放功能，不需要额外购买会员。</Typography.Text>启动任务至少需要 0.10 元；自动回复仍在灰度测试，暂不开放。</Typography.Paragraph>
+        <Typography.Paragraph style={{ marginBottom: 0 }}>拜托支持一下，让作者还有机会坐在电脑前修 Bug。谢谢理解，也谢谢你愿意继续用 GoodHR。</Typography.Paragraph>
+      </AdminDialog>
       <Flex className="goodhr-toolbar-actions" justify="flex-end" gap={8} style={{ marginBottom: 12 }}>
             <Button
               onClick={() => setProfileOpenSignal((value) => value + 1)}
@@ -394,8 +405,8 @@ export default function PersonalConfigPage() {
             <div className={pageStyles.aiHeader}>
               <SectionTitle
                 icon={<ApiOutlined aria-hidden="true" />}
-                title="自定义 AI"
-                description="填写自己的接口，或直接使用内置 AI。建议先测试，再保存。"
+                title="内置 AI"
+                description="选择适合岗位的模型，按实际用量扣余额，无需额外购买会员。"
               />
               <Button
                 disabled={loading || !configLoaded}
@@ -413,8 +424,7 @@ export default function PersonalConfigPage() {
               description={
                 <>
                   {" "}
-                  可接入兼容 OpenAI 格式的模型；详情 AI 识别需要模型支持图片输入。
-                  内置 AI 会消耗账户中的 AI 余额，接口主机与本站一致时请从列表选择模型。
+                  暂不支持自定义接口，请使用内置 AI。详情分析需要选择支持图片输入的模型，模型说明和价格以列表为准。
                 </>
               }
               className={styles.s216}
@@ -424,8 +434,8 @@ export default function PersonalConfigPage() {
                 type="warning"
                 showIcon
                 description={modelsError
-                  ? "内置模型列表暂时没读到，可以重新读取；自己的外部接口仍可自由填写模型。"
-                  : "内置 AI 暂时没有可选模型，可以稍后重新读取，或填写自己的外部接口。"}
+                  ? "内置模型列表暂时没读到，请重新读取后再选择。"
+                  : "内置 AI 暂时没有可选模型，请稍后重新读取。"}
                 action={<Button disabled={modelsLoading} onClick={() => void loadBuiltinModels()}>重新读取模型</Button>}
                 className={styles.s210}
               />
@@ -436,12 +446,13 @@ export default function PersonalConfigPage() {
                 htmlFor="personal-config-field-1"
                 label={"API 地址"}
                 extra={
-                  <>接口主机与本站一致时选择内置模型；其他地址可自由填写模型。</>
+                  <>当前仅支持内置 AI，接口地址由系统提供。</>
                 }
                 style={{ marginBottom: 0 }}
               >
                 <Input
                   value={form.base_url}
+                  readOnly
                   disabled={loading || !configLoaded}
                   onChange={(event) =>
                     changeAIBaseURL(event.target.value)
@@ -450,67 +461,20 @@ export default function PersonalConfigPage() {
                   className={styles.s219}
                 />
               </Form.Item>
-              <Form.Item
-                layout="vertical"
-                htmlFor="personal-config-field-2"
-                label={"模型名称"}
-                extra={builtinModelSelection ? (
-                  selectedBuiltinModel ? (
-                    <div className={pageStyles.selectedModelDetail}>
-                      {selectedBuiltinModel.description ? <span>{selectedBuiltinModel.description}</span> : null}
-                      <span>输入 {formatBuiltinAIPrice(selectedBuiltinModel.input_price_per_1m_cents)} / 输出 {formatBuiltinAIPrice(selectedBuiltinModel.output_price_per_1m_cents)} · 每百万 Token</span>
-                    </div>
-                  ) : (modelsLoading ? "我正在读取内置模型列表……" : "请重新读取内置模型列表后再选择。")
-                ) : "填写接口服务商提供的模型名称，不限制模型。"}
-                style={{ marginBottom: 0 }}
-              >
-                {builtinModelSelection ? (
-                  <Select
-                    value={modelUnavailable ? undefined : model}
-                    onChange={(value) => setForm((current) => ({ ...current, model: value }))}
-                    options={modelOptions}
-                    showSearch
-                    optionFilterProp="searchText"
-                    classNames={{ popup: { root: pageStyles.modelDropdown } }}
-                    optionRender={(option) => (
-                      <div className={pageStyles.modelOption}>
-                        <span className={pageStyles.modelName}>{option.data.model.name}</span>
-                        <span className={pageStyles.modelDetail}>{option.data.model.id}</span>
-                        {option.data.model.description ? <span className={pageStyles.modelDetail}>{option.data.model.description}</span> : null}
-                        <span className={pageStyles.modelDetail}>输入 {formatBuiltinAIPrice(option.data.model.input_price_per_1m_cents)} / 输出 {formatBuiltinAIPrice(option.data.model.output_price_per_1m_cents)} · 每百万 Token</span>
-                      </div>
-                    )}
-                    virtual={false}
-                    loading={modelsLoading}
-                    disabled={loading || !configLoaded || modelUnavailable}
-                    placeholder={modelsLoading ? "正在读取模型" : "暂无可选模型"}
-                    id="personal-config-field-2"
-                    className={styles.s221}
-                  />
-                ) : (
-                  <Input
-                    value={form.model}
-                    disabled={loading || !configLoaded}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, model: event.target.value }))
-                    }
-                    id="personal-config-field-2"
-                    className={styles.s221}
-                  />
-                )}
-              </Form.Item>
+              <BuiltinAIModelSelect models={builtinModels} value={model} onChange={value => setForm(current => ({ ...current, model: value }))} loading={modelsLoading} disabled={loading || !configLoaded || modelUnavailable || !builtinModelSelection} />
               <Form.Item
                 layout="vertical"
                 htmlFor="personal-config-field-3"
                 label={"API Key"}
                 extra={
-                  <> {"这里会明文显示当前保存的 Key，方便复制和修改。"} </>
+                  <> {"系统提供的内置 AI Key，可复制，不需要手动修改。"} </>
                 }
                 className={styles.s222}
                 style={{ marginBottom: 0 }}
               >
                 <Input
                   value={form.api_key}
+                  readOnly
                   disabled={loading || !configLoaded}
                   onChange={(event) =>
                     setForm({ ...form, api_key: event.target.value })

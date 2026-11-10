@@ -58,8 +58,8 @@ export function visibleArea(target: ElementView, containerView: ElementView | un
   const margin = Math.max(1, rawMargin);
   const viewport = target.viewport;
   const container = containerView?.box;
-  const limitsWidth = Boolean(container && container.width > 0 && container.width < viewport.width);
-  const limitsHeight = Boolean(container && container.height > 0 && container.height < viewport.height);
+  const limitsWidth = Boolean(container && container.width > 0);
+  const limitsHeight = Boolean(container && container.height > 0);
   const physicalLeft = Math.max(0, limitsWidth && container ? container.x : 0);
   const physicalRight = Math.min(viewport.width, limitsWidth && container ? container.x + container.width : viewport.width);
   // 宽卡片允许缩小横向留白，但仍必须完整处于窗口和列表交集内，不能把留白不足误报为窗口太小。

@@ -21,6 +21,21 @@ func (s *PostgresCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScop
 		return PositionCandidate{}, err
 	}
 	defer tx.Rollback()
+	if isDeferredCandidateImport(key) || candidateString(fields, "platform_candidate_id") != "" {
+		if err = lockCandidateDeletion(ctx, tx, scope.TenantID, false); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
+	if isDeferredCandidateImport(key) {
+		if err = rejectPurgedKey(ctx, tx, scope.TenantID, "source", purgeSourceHash(candidateString(fields, "platform_id"), candidateString(fields, "platform_candidate_id"))); err != nil {
+			return PositionCandidate{}, err
+		}
+		if phone := normalizeCandidatePhone(candidateString(fields, "phone")); id == "" && phone != "" {
+			if err = rejectPurgedKey(ctx, tx, scope.TenantID, "phone", purgeDigest(scope.TenantID, phone)); err != nil {
+				return PositionCandidate{}, err
+			}
+		}
+	}
 	operation := "candidate:" + id
 	fingerprint := candidateFingerprint(fields)
 	locks := []string{"request:" + scope.UserEmail + ":" + operation + ":" + key}
@@ -120,6 +135,11 @@ func (s *PostgresCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScop
 	item, err := candidateReadTx(ctx, tx, scope, id, false)
 	if err != nil {
 		return PositionCandidate{}, err
+	}
+	if source := purgeSourceHash(platform, sourceID); source != "" && !isDeferredCandidateImport(key) {
+		if _, err = tx.ExecContext(ctx, "UPDATE candidate_deletion_keys SET replacement_candidate_id=$3 WHERE tenant_id=$1 AND kind='source' AND identity_hash=$2", scope.TenantID, source, id); err != nil {
+			return PositionCandidate{}, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return PositionCandidate{}, err
@@ -442,6 +462,7 @@ func (s *PostgresCandidateStore) SaveCandidateRecommendation(scope CandidateLibr
 
 // saveAutomaticCandidate 保留旧岗位同步入口，增加来源映射和人工字段保护。
 func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileInput) (PositionCandidate, error) {
+	usesOnlineProfile := input.OnlineProfileCandidateID != "" || input.OnlineProfileKey != ""
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	userID, err := ensureUserID(ctx, s.db, input.UserEmail)
@@ -452,12 +473,30 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	if err != nil {
 		return PositionCandidate{}, err
 	}
+	if (input.ReopenProof != nil || usesOnlineProfile) && input.TenantID != tenantID {
+		return PositionCandidate{}, errCandidateDeleted
+	}
 	scope := CandidateLibraryScope{TenantID: tenantID, UserEmail: input.UserEmail, IsAdmin: true}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return PositionCandidate{}, err
 	}
 	defer tx.Rollback()
+	if err = lockCandidateDeletion(ctx, tx, tenantID, false); err != nil {
+		return PositionCandidate{}, err
+	}
+	sourceHash := purgeSourceHash(input.PlatformID, candidateIdentityKey(input))
+	if input.ReopenProof == nil && !usesOnlineProfile {
+		if err = rejectPurgedKey(ctx, tx, tenantID, "source", sourceHash); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
+	// 自动回复先锁手机号，再锁来源，与现有人工入口保持一致的加锁顺序。
+	if structuredCandidateInput(input) && normalizeCandidatePhone(input.Phone) != "" {
+		if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, tenantID+":phone:"+normalizeCandidatePhone(input.Phone)); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
 	sourceID := candidateIdentityKey(input)
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, tenantID+":source:"+input.PlatformID+":"+sourceID); err != nil {
 		return PositionCandidate{}, err
@@ -466,6 +505,44 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	err = tx.QueryRowContext(ctx, `SELECT cp.id::text FROM candidate_profiles cp WHERE cp.tenant_id=$1 AND ((cp.source_platform_id=$2 AND cp.source_platform_candidate_id=$3) OR EXISTS(SELECT 1 FROM candidate_profile_sources cs WHERE cs.candidate_id=cp.id AND cs.platform_id=$2 AND cs.platform_candidate_id=$3)) LIMIT 1`, tenantID, input.PlatformID, sourceID).Scan(&id)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return PositionCandidate{}, err
+	}
+	var receipt candidateReopenReceipt
+	var replay bool
+	if usesOnlineProfile {
+		if err = verifyOnlineCandidateContinuation(ctx, tx, scope, userID, id, input); err != nil {
+			return PositionCandidate{}, err
+		}
+	} else if input.ReopenProof != nil {
+		receipt, replay, err = verifyReopenTx(ctx, tx, tenantID, sourceHash, id, input)
+		if err != nil {
+			return PositionCandidate{}, err
+		}
+		if replay {
+			// 重复回包仍校验岗位归属，资料不再重复合并或递增版本。
+			old, readErr := candidateReadTx(ctx, tx, scope, id, false)
+			if readErr != nil {
+				return PositionCandidate{}, readErr
+			}
+			if err = linkAutoReplyCandidatePosition(ctx, tx, tenantID, id, input.AutoReplyPositionID, input.PlatformID); err != nil {
+				return PositionCandidate{}, err
+			}
+			return old, tx.Commit()
+		}
+	} else if phone := normalizeCandidatePhone(input.Phone); id == "" && phone != "" {
+		// 必须在手机号合并前挡住旧上传，否则新资料出现后，迟到的未知来源可能按同号改写新档。
+		if err = rejectPurgedKey(ctx, tx, tenantID, "phone", purgeDigest(tenantID, phone)); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
+	if structuredCandidateInput(input) {
+		byPhone, phoneErr := automaticCandidatePhoneID(ctx, tx, tenantID, id, input.Phone)
+		if phoneErr != nil {
+			return PositionCandidate{}, phoneErr
+		}
+		if (input.ReopenProof != nil || usesOnlineProfile) && byPhone != id {
+			return PositionCandidate{}, ErrCandidateDuplicate
+		}
+		id = byPhone
 	}
 	var old PositionCandidate
 	if id != "" {
@@ -479,6 +556,9 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 		}
 	}
 	fields := candidateProfileFields(PositionCandidate{CandidateName: input.CandidateName, BirthYM: input.BirthYM, Phone: input.Phone, Email: input.Email, WorkRegion: input.WorkRegion, WorkYears: input.WorkYears, ExpectedSalaryMin: input.ExpectedSalaryMin, ExpectedSalaryMax: input.ExpectedSalaryMax, BasicInfo: input.BasicInfo, EducationLevel: input.EducationLevel, ExpectedPosition: input.ExpectedPosition, OnlineStatus: input.OnlineStatus, PersonalDescription: input.PersonalDescription, WorkStatus: input.WorkStatus, RawText: input.RawText, WorkExperiences: input.WorkExperiences, Educations: input.Educations, Certificates: input.Certificates, Honors: input.Honors, ProjectExperiences: input.ProjectExperiences, Communications: input.Communications})
+	for key, value := range automaticCandidateExtraFields(input) {
+		fields[key] = value
+	}
 	if input.Tags != nil {
 		fields["tags"] = append([]string{}, input.Tags...)
 	}
@@ -497,11 +577,18 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	if old.ID == "" {
 		fields["source_type"] = "automatic"
 	}
-	if err = candidateWriteTx(ctx, tx, scope, userID, id, old, fields, false); err != nil {
-		return PositionCandidate{}, err
+	if usesOnlineProfile {
+		fields = onlyEmptyOnlineCandidateFields(old, fields)
 	}
-	if err = candidateSaveSourceTx(ctx, tx, tenantID, id, fields); err != nil {
-		return PositionCandidate{}, err
+	if !usesOnlineProfile || hasOnlineCandidateFill(fields) {
+		if err = candidateWriteTx(ctx, tx, scope, userID, id, old, fields, false); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
+	if !usesOnlineProfile {
+		if err = candidateSaveSourceTx(ctx, tx, tenantID, id, fields); err != nil {
+			return PositionCandidate{}, err
+		}
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE candidate_profiles SET ai_detail_reason=COALESCE(NULLIF($2,''),ai_detail_reason),ai_detail_score=COALESCE($3,ai_detail_score),ai_greet_reason=COALESCE(NULLIF($4,''),ai_greet_reason),ai_greet_score=COALESCE($5,ai_greet_score),first_seen_at=COALESCE(first_seen_at,$6) WHERE id=$1`, id, input.AIDetailReason, input.AIDetailScore, input.AIGreetReason, input.AIGreetScore, input.FirstSeenAt)
 	if err != nil {
@@ -510,6 +597,21 @@ func (s *PostgresCandidateStore) saveAutomaticCandidate(input CandidateProfileIn
 	item, err := candidateReadTx(ctx, tx, scope, id, false)
 	if err != nil {
 		return PositionCandidate{}, err
+	}
+	if structuredCandidateInput(input) {
+		if err = registerAutomaticCandidatePhone(ctx, tx, tenantID, item.ID, item.Phone); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
+	if input.AutoReplyPositionID != "" {
+		if err = linkAutoReplyCandidatePosition(ctx, tx, tenantID, id, input.AutoReplyPositionID, input.PlatformID); err != nil {
+			return PositionCandidate{}, err
+		}
+	}
+	if input.ReopenProof != nil && !usesOnlineProfile {
+		if err = saveReopenReceiptTx(ctx, tx, tenantID, sourceHash, id, receipt.sequence, receipt); err != nil {
+			return PositionCandidate{}, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return PositionCandidate{}, err

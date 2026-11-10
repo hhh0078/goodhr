@@ -23,7 +23,7 @@ function storageFixture() {
 
 /** draftFixture 创建包含部分未填字段的核心草稿，恢复不替用户伪造输入。 */
 function draftFixture(overrides = {}) {
-  return { name: "Java 开发", platform_id: "boss", mode_default: "keyword", detail_mode: "ocr", position_requirement: "", keywords: "Java, Spring", ...overrides };
+  return { name: "Java 开发", platform_id: "boss", mode_default: "ai", detail_mode: "ai", position_requirement: "", keywords: "Java, Spring", ...overrides };
 }
 
 test("只持久化六项核心字段，完整岗位设置和账号数据被排除", () => {
@@ -128,4 +128,12 @@ test("复核缓存必须同时匹配键与岗位元数据，错ID或新建缓存
   assert.deepEqual(restored, draftFixture({ position_id: "A" }));
   assert.deepEqual(Object.keys(restored).sort(), ["position_id", "name", "platform_id", "mode_default", "detail_mode", "position_requirement", "keywords"].sort());
   assert.equal(storage.getItem(onboardingPositionDraftKey("user-1", "A")).includes("must-not-cache"), false);
+});
+
+// 旧关键词草稿恢复为AI，但真实岗位要求和关键词原文不被替换或丢弃。
+test("旧关键词草稿归一为AI并保留原文", () => {
+  const storage = storageFixture();
+  const draft = draftFixture({ mode_default: "keyword", position_requirement: "原要求", keywords: "原关键词" });
+  saveOnboardingPositionDraft("legacy", draft, storage);
+  assert.deepEqual(readOnboardingPositionDraft("legacy", storage), { ...draft, mode_default: "ai" });
 });

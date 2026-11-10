@@ -10,6 +10,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 const (
@@ -112,6 +113,7 @@ func ExtractCandidateDetail(ctx context.Context, browser model.Browser, cfg mode
 	if err != nil {
 		return model.CandidateDetail{}, err
 	}
+	started := time.Now()
 	for attempt := 1; attempt <= detailReadAttempts; attempt++ {
 		result, readErr := browser.Read(ctx, contract.ElementReadRequest{Selector: selector, Property: "text"})
 		if readErr != nil {
@@ -127,7 +129,7 @@ func ExtractCandidateDetail(ctx context.Context, browser model.Browser, cfg mode
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return model.CandidateDetail{}, ctx.Err()
+			return model.CandidateDetail{}, failurediag.Wrap(ctx.Err(), failurediag.Detail{Source: "招聘平台", Operation: "读取候选人详情", Phase: "等待下一次正文检查", Reason: "正文为空，等待再次读取时上层任务已结束", Attempt: int64(attempt), ElapsedMS: time.Since(started).Milliseconds()})
 		case <-timer.C:
 		}
 	}

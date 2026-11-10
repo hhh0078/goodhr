@@ -217,8 +217,8 @@ test("后台所有菜单的普通刷新均移除，常规控件和输入按钮�
   for (const route of menus) {
     await openUniform(page, route, state);
     if (route === "personal-config") {
-      await expect(page.getByLabel("API 地址", { exact: true })).toHaveValue(`${uniformOrigin}/api/builtin-ai/v1/chat/completions`);
-      await expect(page.locator(".ant-select:has(#personal-config-field-2)")).toHaveText(/合成测试模型.*synthetic-model/);
+      await expect(page.getByLabel("API 地址", { exact: true })).toHaveValue("https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions");
+      await expect(page.getByLabel("模型名称", { exact: true }).locator("xpath=ancestor::div[contains(@class, 'ant-select')][1]")).toHaveText(/合成测试模型.*synthetic-model/);
       await expect(page.getByLabel("模型名称", { exact: true })).toBeEnabled();
       await expect(page.getByRole("main").getByText(/个人配置暂时没读完整|内置模型列表暂时没读到/)).toHaveCount(0);
     }

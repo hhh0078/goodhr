@@ -78,7 +78,7 @@ test("远近目标与滚动锚点都只发送一次目标坐标，由浏览器�
 for (const hiddenCode of ["ELEMENT_NOT_FOUND", "ELEMENT_NOT_VISIBLE"]) {
 test(`点击后弹框状态 ${hiddenCode} 应通过隐藏验证而不是误报发送失败`, async () => {
   const page = {};
-  const locator = {};
+  const locator = { locator: () => ({ count: async () => 1 }) };
   const found = visibleElement(page, locator);
   let verifyTimeout;
   const action = new ClickAction(
@@ -102,7 +102,7 @@ test(`点击后弹框状态 ${hiddenCode} 应通过隐藏验证而不是误报�
       },
     },
     { async ensureVisible() {} },
-    { async toElement() {} },
+    { async toElement(target) { return { view: target.view }; } },
     {
       async box() {
         return found.resolved.view.box;
@@ -151,7 +151,7 @@ test("九字招呼语放慢逐字输入后仍保持合理总时长", async () =>
   const action = new InputAction(
     { async one() { return found; } },
     { async ensureVisible() {} },
-    { async toElement() {} },
+    { async toElement(target) { return { view: target.view }; } },
     {
       async down() {},
       async up() {},
@@ -190,3 +190,37 @@ test("九字招呼语放慢逐字输入后仍保持合理总时长", async () =>
   assert.ok(Date.now() - startedAt >= 9 * 100);
   assert.ok(Date.now() - startedAt < 3_500);
 });
+
+for (const rich of [false, true]) {
+test(`完整草稿只用一次原生文字输入，${rich ? '富文本' : '输入框'}保留换行和表情，不触发发送`, async () => {
+  const page = {};
+  const calls = [];
+  let value = "";
+  const locator = {
+    async boundingBox() { return { x: 100, y: 100, width: 100, height: 40 }; },
+    locator() { return { async count() { return 1; } }; },
+    async inputValue() {
+      if (rich) throw new Error("Node is not an <input>, <textarea> or <select> element");
+      return value;
+    },
+    async textContent() { return value; },
+    async innerText() { return value.replaceAll("\n", ""); },
+  };
+  const found = visibleElement(page, locator);
+  const action = new InputAction(
+    { async one() { return found; } },
+    { async ensureVisible() {} },
+    { async toElement(target) { return { view: target.view }; } },
+    { async down() {}, async up() {} },
+    { async insertText(_page, text) { calls.push(text); value = text; } },
+    silentLogger(),
+  );
+  const text = "您好🙂\n工作地点是成都。";
+  const result = await action.execute({
+    selector: { target: { selectors: [{ type: "css", value: ".input" }] }, description: "聊天输入框" },
+    text, clear: false, insert_text: true,
+  }, context);
+  assert.deepEqual(calls, [text]);
+  assert.equal(result.verified, true);
+});
+}

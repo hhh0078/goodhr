@@ -151,6 +151,11 @@ func (c *Client) ClosePage(ctx context.Context) error {
 	return call(ctx, c, http.MethodPost, "/api/v1/page/close", struct{}{}, &result)
 }
 
+// SaveCurrentDocument 使用当前浏览器会话的登录状态保存当前文档页。
+func (c *Client) SaveCurrentDocument(ctx context.Context, request contract.SaveCurrentDocumentRequest) (contract.DownloadRecord, error) {
+	return callValue[contract.DownloadRecord](ctx, c, "/api/v1/page/save-current-document", request)
+}
+
 // Find 查找一个页面元素。
 func (c *Client) Find(ctx context.Context, request contract.ElementFindRequest) (contract.FindResult, error) {
 	return callValue[contract.FindResult](ctx, c, "/api/v1/element/find", request)
@@ -196,12 +201,16 @@ func (c *Client) Screenshot(ctx context.Context, request contract.ScreenshotRequ
 	if request.Target != nil {
 		path = "/api/v1/element/screenshot"
 	}
-	return callValue[contract.ScreenshotResult](ctx, c, path, request)
+	began := time.Now()
+	result, err := callValue[contract.ScreenshotResult](ctx, c, path, request)
+	return result, screenshotFailure(err, "截图", began)
 }
 
 // LongScreenshot 使用真实鼠标滚轮保存长元素分段截图。
 func (c *Client) LongScreenshot(ctx context.Context, request contract.LongScreenshotRequest) (contract.LongScreenshotResult, error) {
-	return callValue[contract.LongScreenshotResult](ctx, c, "/api/v1/element/screenshot-long", request)
+	began := time.Now()
+	result, err := callValue[contract.LongScreenshotResult](ctx, c, "/api/v1/element/screenshot-long", request)
+	return result, screenshotFailure(err, "长截图", began)
 }
 
 // Cookies 读取浏览器 Cookie。
@@ -274,10 +283,17 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 			log.Print(string(encoded))
 		}
 	}()
-	if err := ctx.Err(); err != nil {
+	parent := ctx
+	limit := requestTimeout(payload)
+	if err := parent.Err(); err != nil {
+		if method == http.MethodPost && listDiagnosticPath(path) {
+			observation := newRequestObservation(parent, path, started, limit)
+			reason, original := transportReason(parent, err)
+			return observation.transportFailure(nil, err, "WORKER_REQUEST_NOT_SENT", "before_request", reason, original, started, 0)
+		}
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout(payload))
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	var body io.Reader
 	if payload != nil {
@@ -302,13 +318,23 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 	if traceID := traceIDFromContext(ctx); traceID != "" {
 		request.Header.Set("X-Trace-ID", traceID)
 	}
+	var observation *requestObservation
+	if method == http.MethodPost {
+		request, observation = observeRequest(request, parent, started, limit, budget)
+	}
 	response, err := client.http.Do(request)
 	if err != nil {
 		if path != "/health" && path != "/api/v1/downloads" {
 			log.Printf("event=worker_request_failed path=%s trace_id=%s duration_ms=%d error=%v", path, traceIDFromContext(ctx), time.Since(started).Milliseconds(), err)
 		}
-		if method == http.MethodPost && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
-			return &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE", Message: "浏览器操作超时或中断，岗位先停一下；窗口保留着，请检查页面后重新开始", Action: path, Step: "http_request", TraceID: traceIDFromContext(ctx)}}
+		if observation != nil && (listDiagnosticPath(path) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+			reason, original := transportReason(parent, err)
+			if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+				return observation.transportFailure(client, fmt.Errorf("连接 Browser Worker 失败：%w", err), "WORKER_CONNECTION_FAILED", "wait_response_headers", reason, original, started, 0)
+			}
+			failure := &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE", Message: "浏览器操作超时或中断，岗位先停一下；窗口保留着，请检查页面后重新开始", Action: path, Step: "http_request", TraceID: traceIDFromContext(ctx)}}
+			observation.recordError(client, &failure.Body, "wait_response_headers", reason, original, started, 0)
+			return failure
 		}
 		return fmt.Errorf("连接 Browser Worker 失败：%w", err)
 	}
@@ -317,6 +343,13 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 	limited := io.LimitReader(response.Body, 4<<20)
 	var wrapped envelope
 	if err := json.NewDecoder(limited).Decode(&wrapped); err != nil {
+		if observation != nil && (listDiagnosticPath(path) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+			reason, original := transportReason(parent, err)
+			if reason == "transport_error" {
+				reason, original = "invalid_response", "invalid_json"
+			}
+			return observation.transportFailure(client, fmt.Errorf("解析 Worker 响应失败：%w", err), "WORKER_RESPONSE_FAILED", "read_response_body", reason, original, started, responseStatus)
+		}
 		return fmt.Errorf("解析 Worker 响应失败：%w", err)
 	}
 	responseBytes = len(wrapped.Data)
@@ -332,6 +365,9 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 			return nil
 		}
 		log.Printf("event=worker_action_failed path=%s trace_id=%s duration_ms=%d code=%s step=%s", path, traceIDFromContext(ctx), time.Since(started).Milliseconds(), wrapped.Error.Code, wrapped.Error.Step)
+		if observation != nil {
+			observation.recordError(nil, &wrapped.Error, "worker_response", "worker_error", "", started, responseStatus)
+		}
 		return &contract.WorkerError{Status: response.StatusCode, Body: wrapped.Error}
 	}
 	if result == nil || len(wrapped.Data) == 0 {

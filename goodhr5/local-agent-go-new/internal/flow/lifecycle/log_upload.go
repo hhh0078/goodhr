@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/system/diagnostics"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // UploadPositionLogs 读取岗位最近日志并批量上传，成功后清除补传标记。
@@ -29,6 +31,8 @@ func (r *Runner) UploadPositionLogs(ctx context.Context, token, positionID strin
 		return r.store.ClearPositionLogUploadPending(ctx, positionID)
 	}
 	logs := make([]cloud.PositionDiagnosticLog, 0, len(items))
+	localAutoTasks := map[string]bool{}
+	checkedTasks := map[string]bool{}
 	for _, item := range items {
 		category := item.Category
 		if category == "" {
@@ -41,6 +45,31 @@ func (r *Runner) UploadPositionLogs(ctx context.Context, token, positionID strin
 		errorMessage := uploadLogText(item.ErrorMessage)
 		input := uploadLogObject(item.Input)
 		output := uploadLogObject(item.Output)
+		localReplyDetail := item.Flow == "auto_reply" || strings.Contains(item.Step, "auto_reply")
+		if !checkedTasks[item.TaskID] {
+			checkedTasks[item.TaskID] = true
+			if task, taskErr := r.store.Task(ctx, item.TaskID); taskErr == nil {
+				localAutoTasks[item.TaskID] = task.TaskType == "auto_reply"
+			}
+		}
+		localReplyDetail = localReplyDetail || localAutoTasks[item.TaskID]
+		if item.Flow == "browser_worker" && (strings.Contains(item.Step, "input") || strings.Contains(item.Step, "read") || strings.Contains(string(item.Input), `"action":"element.input"`) || strings.Contains(string(item.Input), `"action":"element.read"`)) {
+			localReplyDetail = true
+		}
+
+		if localReplyDetail {
+			message = "浏览器步骤已记录，正文已隐藏"
+			input = uploadPrivateDiagnostic(input)
+			output = uploadPrivateDiagnostic(output)
+		}
+		if item.Flow == "ai" && item.Step == "ai_billing" {
+			var billing ai.Billing
+			if json.Unmarshal(item.Output, &billing) == nil {
+				// 费用可展示，自动回复的候选人姓名和正文仍留在本机。
+				message = "AI 调用，" + aiBillingCostMessage(billing)
+				output, _ = json.Marshal(billing)
+			}
+		}
 		logs = append(logs, cloud.PositionDiagnosticLog{
 			Timestamp: item.CreatedAt, Category: uploadLogText(category), IsError: item.IsError,
 			ErrorMessage: errorMessage, Input: input, Output: output,
@@ -87,7 +116,11 @@ func uploadLogObject(value json.RawMessage) json.RawMessage {
 	delete(fields, "ai_response_diagnostic")
 	ordinary, _ := json.Marshal(fields)
 	if len(ordinary) > 12<<10 {
+		failures := uploadFailureDetails(fields["failure_diagnostics"])
 		fields = map[string]json.RawMessage{"summary": json.RawMessage(`"内容过长或格式不适合分享"`)}
+		if len(failures) > 0 {
+			fields["failure_diagnostics"] = failures
+		}
 	}
 	if len(aiResponse) > 0 && aiResponse[0] == '{' {
 		fields["ai_response_diagnostic"] = aiResponse
@@ -110,4 +143,48 @@ func (r *Runner) retryPendingLogUploads(token string) {
 			continue
 		}
 	}
+}
+
+// uploadFailureDetails 提取可分享的固定字段，限制层数与大小，防止其他超长出参挤掉故障证据。
+func uploadFailureDetails(raw json.RawMessage) json.RawMessage {
+	var entries []failurediag.Detail
+	if json.Unmarshal(raw, &entries) != nil {
+		return nil
+	}
+	var valid []failurediag.Detail
+	for _, d := range entries {
+		if d.Source != "" && d.Reason != "" {
+			valid = append(valid, d)
+			if len(valid) == 8 {
+				break
+			}
+		}
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+	encoded, _ := json.Marshal(valid)
+	if len(encoded) > 12<<10 {
+		return nil
+	}
+	return encoded
+}
+
+// uploadPrivateDiagnostic 隐藏自动回复正文，同时保留失败步骤、错误码、超时与原生诊断。
+func uploadPrivateDiagnostic(value json.RawMessage) json.RawMessage {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(value, &fields) != nil {
+		return json.RawMessage(`{}`)
+	}
+	allowed := map[string]any{}
+	if failures := uploadFailureDetails(fields["failure_diagnostics"]); len(failures) > 0 {
+		allowed["failure_diagnostics"] = failures
+	}
+	for _, key := range []string{"action", "step", "status", "error_code", "error_message", "original_error", "timeout_ms", "duration_ms", "request_id", "trace_id", "reason", "input_wait", "page_state", "diagnostics", "queue", "native_mouse", "stack"} {
+		if v, ok := fields[key]; ok {
+			allowed[key] = v
+		}
+	}
+	safe, _ := json.Marshal(diagnostics.UploadSafeDiagnostic(allowed))
+	return safe
 }

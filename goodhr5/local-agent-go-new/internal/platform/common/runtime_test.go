@@ -80,6 +80,11 @@ type detailVerifiedCloseBrowser struct {
 	verified bool
 }
 
+type optionalReadBrowser struct {
+	model.Browser
+	request contract.ElementReadRequest
+}
+
 // Click 模拟岗位入口元素找不到。
 func (clickFailureBrowser) Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error) {
 	return contract.ClickResult{}, errors.New("ELEMENT_NOT_FOUND")
@@ -127,6 +132,12 @@ func (b *detailReadBrowser) Read(context.Context, contract.ElementReadRequest) (
 		return contract.ReadResult{}, nil
 	}
 	return contract.ReadResult{Value: "候选人详情已经加载"}, nil
+}
+
+// Read 记录公共可选读取实际传给 Worker 的属性配置。
+func (b *optionalReadBrowser) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
+	b.request = request
+	return contract.ReadResult{Value: "cid=123"}, nil
 }
 
 // Click 模拟候选人详情入口第一次点击被页面吞掉。
@@ -212,6 +223,11 @@ func (b *candidateChatBrowser) Input(_ context.Context, request contract.Element
 func (b *candidateChatBrowser) Scroll(_ context.Context, _ contract.ScrollRequest) (contract.ScrollResult, error) {
 	b.scrollCount++
 	return contract.ScrollResult{}, nil
+}
+
+// Click 模拟滚动测试完成后成功点击目标联系人。
+func (b *candidateScrollBrowser) Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error) {
+	return contract.ClickResult{Clicked: true}, nil
 }
 
 // Read 模拟读取当前聊天框头部的候选人姓名。
@@ -382,6 +398,25 @@ func TestScrollToCandidateRequiresCompleteCard(t *testing.T) {
 	}
 	if browser.request.ViewportMargin != 48 {
 		t.Fatalf("候选人滚动应保留 48 像素安全边距：%+v", browser.request)
+	}
+}
+
+// TestOpenConfiguredConversationItemUsesContainerMargin 验证联系人滚动只在列表容器内保留小边距，不会卡住首项。
+func TestOpenConfiguredConversationItemUsesContainerMargin(t *testing.T) {
+	browser := &candidateScrollBrowser{}
+	cfg := model.Config{
+		ID: "test",
+		Selectors: map[string]contract.SelectorSpec{
+			"message.contact_item":         selector("联系人项目"),
+			"message.contact_click_target": selector("联系人姓名"),
+			"message.drawer_scroll":        selector("联系人滚动区域"),
+		},
+	}
+	if err := OpenConfiguredConversationItem(context.Background(), browser, cfg, 0); err != nil {
+		t.Fatalf("打开联系人首项失败：%v", err)
+	}
+	if browser.request.ViewportMargin != 12 {
+		t.Fatalf("联系人滚动应只保留 12 像素容器边距：%+v", browser.request)
 	}
 }
 
@@ -855,6 +890,25 @@ func TestSendCandidateMessageUsesOpenedVerifiedChat(t *testing.T) {
 	}
 	if len(browser.inputs) != 1 || browser.inputs[0] != "你好 能发个简历吗" || browser.pressCount != 1 {
 		t.Fatalf("首次招呼语发送参数不正确：inputs=%v press=%d", browser.inputs, browser.pressCount)
+	}
+}
+
+// TestReadOptionalUsesConfiguredAttribute 验证候选人编号等属性读取不会退化成按钮文字。
+func TestReadOptionalUsesConfiguredAttribute(t *testing.T) {
+	browser := &optionalReadBrowser{}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"message.candidate_id_source": {
+			Target:        contract.SelectorGroup{Selectors: []contract.SelectorCandidate{{Type: "css", Value: ".resume"}}},
+			ReadAttribute: "data-tlg-scm",
+			Description:   "候选人编号来源",
+		},
+	}}
+	value, found, err := ReadOptional(context.Background(), browser, cfg, "message.candidate_id_source")
+	if err != nil || !found || value != "cid=123" {
+		t.Fatalf("读取候选人属性失败：value=%q found=%v err=%v", value, found, err)
+	}
+	if browser.request.Attribute != "data-tlg-scm" || browser.request.Property != "" {
+		t.Fatalf("可选读取没有使用配置属性：%+v", browser.request)
 	}
 }
 

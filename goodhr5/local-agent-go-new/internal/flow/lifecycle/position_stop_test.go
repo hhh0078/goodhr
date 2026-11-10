@@ -17,6 +17,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/preflight"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/storage"
@@ -388,9 +389,11 @@ func TestStopPositionDuringSlowPreflightRejectsOldStart(t *testing.T) {
 				case "/api/agents/bind":
 					_, _ = w.Write([]byte(`{"agent":{"machine_id":"machine-stop","bind_status":"active"}}`))
 				case "/api/positions/position-stop":
-					_, _ = w.Write([]byte(`{"position":{"id":"position-stop","platform_id":"boss","profile_id":"profile-stop","common_config":{"mode_default":"keyword","detail_mode":"text"}}}`))
+					_, _ = w.Write([]byte(`{"position":{"id":"position-stop","platform_id":"zhaopin","profile_id":"profile-stop","common_config":{"mode_default":"ai","detail_mode":"dom"}}}`))
 				case "/api/config/user-preferences":
 					_, _ = w.Write([]byte(`{"config":{}}`))
+				case "/api/config/effective-ai":
+					_, _ = w.Write([]byte(`{"config":{"base_url":"https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions","api_key":"ghai_synthetic","model":"synthetic-model"}}`))
 				case "/api/positions/position-stop/stop":
 					if test.cloudError {
 						w.WriteHeader(http.StatusServiceUnavailable)
@@ -417,6 +420,7 @@ func TestStopPositionDuringSlowPreflightRejectsOldStart(t *testing.T) {
 			runner.profiles = profile.New(filepath.Join(t.TempDir(), "profiles"))
 			runner.checker = &preflight.Checker{
 				Cloud: runner.cloud, Storage: store, Profiles: runner.profiles,
+				AI:      ai.New(),
 				Runtime: checks, Browser: checks, Power: checks,
 				AgentBind: cloud.AgentBindRequest{MachineID: "machine-stop"},
 			}

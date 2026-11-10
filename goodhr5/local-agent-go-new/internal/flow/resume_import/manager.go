@@ -30,7 +30,7 @@ type Manager struct {
 	root      string
 	tasks     map[string]*storedTask
 	active    map[string]context.CancelFunc
-	saving    map[string]bool
+	saving    map[string]string // 在途写入目标的云端编号；新建尚无编号，用映射项是否存在区分空闲。
 	slots     chan struct{}
 	wg        sync.WaitGroup
 	closed    bool
@@ -46,7 +46,7 @@ func New(store SettingsStore, cloudClient CloudAPI, parser ResumeParser, extract
 		return nil, err
 	}
 	m := &Manager{store: store, cloud: cloudClient, parser: parser, extractor: extractor, root: root,
-		tasks: map[string]*storedTask{}, active: map[string]context.CancelFunc{}, saving: map[string]bool{}, slots: make(chan struct{}, 2)}
+		tasks: map[string]*storedTask{}, active: map[string]context.CancelFunc{}, saving: map[string]string{}, slots: make(chan struct{}, 2)}
 	m.checks = map[string]func(context.Context) error{}
 	raw, err := store.GetSetting(context.Background(), taskIndexKey)
 	if err != nil {
@@ -245,7 +245,7 @@ func (m *Manager) List(owner, token string) []Task {
 	defer m.mu.Unlock()
 	result := []Task{}
 	for _, stored := range m.tasks {
-		if stored.OwnerID == owner {
+		if stored.OwnerID == owner && len(stored.Task.Items) > 0 {
 			m.startLocked(stored, token)
 			result = append(result, cloneTask(stored.Task))
 		}
@@ -303,7 +303,7 @@ func (m *Manager) Retry(owner, token, id string, itemIDs []string) (Task, error)
 		if item == nil {
 			return Task{}, ErrInvalid
 		}
-		if m.saving[itemID] || item.Status == "parsing" {
+		if _, busy := m.saving[itemID]; busy || item.Status == "parsing" {
 			return Task{}, ErrBusy
 		}
 		if item.Status != "failed" && item.Status != "queued" {

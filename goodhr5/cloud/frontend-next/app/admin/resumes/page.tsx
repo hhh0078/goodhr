@@ -10,6 +10,7 @@ import { useAdmin } from "@/components/admin/AdminApp";
 import AdminDialog from "@/components/admin/AdminDialog";
 import ExtensionPairApproval from "@/components/admin/ExtensionPairApproval";
 import ResumeFolderManager from "@/components/admin/resumes/ResumeFolderManager";
+import ResumeDeleteDialog from "@/components/admin/resumes/ResumeDeleteDialog";
 import ResumeWorkspace from "@/components/admin/resumes/ResumeWorkspace";
 import ResumeAddDialog from "@/components/admin/resumes/ResumeAddDialog";
 import ResumeLibrarySettingsDialog from "@/components/admin/resumes/ResumeLibrarySettingsDialog";
@@ -17,7 +18,7 @@ import { cloudRequest } from "@/lib/admin-api";
 import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import { loadResumePositions, loadResumeFolders } from "@/lib/resume-api";
 import { orderResumeFolders, parseResumeFolderOrder, rememberResumeFolder, resumeFolderPreferenceKey } from "@/lib/resume-folder-preferences";
-import { experienceLabel, genderLabel, isReadOnlyResume, recordTime, resumeAge, resumeAvatarSource, salaryLabel, sourceLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume, type ResumeFolder } from "@/lib/resume-types";
+import { canDeleteResume, experienceLabel, genderLabel, isReadOnlyResume, recordTime, resumeAge, resumeAvatarSource, salaryLabel, sourceLabel, sourceOptions, stageLabel, workYearsLabel, type PositionOption, type Resume, type ResumeFolder } from "@/lib/resume-types";
 import styles from "./page.module.css";
 
 const filterKeys = ["q", "phone", "position_id", "source_type", "region", "education_level", "work_years", "work_status", "tag", "folder_id", "creator", "created_from", "created_to"] as const;
@@ -44,6 +45,7 @@ export default function ResumesPage() {
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detail, setDetail] = useState<{ id: string; name: string; engagementID?: string; tab: string } | null>(null);
+  const [deleting, setDeleting] = useState<Resume | null>(null);
   const generation = useRef(0);
   const folderGeneration = useRef(0);
   /** reloadFolders 刷新当前账号可见收藏夹及人数，删除当前筛选收藏夹后恢复全部简历。 */
@@ -61,6 +63,15 @@ export default function ResumesPage() {
   }
   /** refreshLibrary 简历或收藏夹变动后同时更新列表和收藏夹人数。 */
   function refreshLibrary() { void load(); void reloadFolders(); }
+  /** finishDeletion 立即移除已核实删除的简历，关闭对应详情并重读当前筛选和收藏夹人数。 */
+  function finishDeletion(id: string) {
+    setDeleting(null);
+    setDetail((open) => open?.id === id ? null : open);
+    setItems((rows) => rows.filter((item) => item.id !== id));
+    setTotal((value) => Math.max(0, value - 1));
+    setRealTotal((value) => Math.max(0, value - 1));
+    refreshLibrary();
+  }
   /** load 读取当前 URL 对应的分页，并忽略晚返回的旧搜索结果。 */
   async function load(search = queryText) {
     const current = ++generation.current;
@@ -74,6 +85,12 @@ export default function ResumesPage() {
     try {
       const data = await cloudRequest(`/api/candidates?${request}`);
       if (current !== generation.current) return;
+      const lastPage = Math.max(1, Math.ceil((Number(data.total) || 0) / nextSize));
+      if (nextPage > lastPage && !data.candidates?.length) {
+        query.set("page", String(lastPage));
+        router.replace(`/admin/resumes?${query}`, { scroll: false });
+        return;
+      }
       setItems(data.candidates || []); setTotal(Number(data.total) || 0); setPage(nextPage); setPageSize(nextSize);
       setBuiltinTotal(Number(data.builtin_total) || 0); setRealTotal(data.real_total == null ? Number(data.total) || 0 : Number(data.real_total) || 0);
     } catch (cause) { if (current === generation.current) setLoadError(cause instanceof Error ? cause.message : "简历没读出来，请再试一次。"); }
@@ -171,7 +188,7 @@ export default function ResumesPage() {
         { title: "岗位 / 推荐", key: "recommendation", width: 160, render: (_, item) => <Flex vertical gap={3}>{item.recommendations?.[0] ? <><Button type="link" className={styles.inlineButton} onClick={() => openDetails(item, "recommendations")}>{item.recommendations[0].position_name || "历史岗位"}</Button><Typography.Text type="secondary" className={styles.meta}>{stageLabel(item.recommendations[0].stage)}</Typography.Text></> : item.position_name ? <Typography.Text type="secondary" className={styles.meta}>自动任务 · {item.position_name}</Typography.Text> : <Typography.Text type="secondary" className={styles.meta}>还未推荐</Typography.Text>}</Flex> },
         { title: "最新备注", key: "note", width: 240, render: (_, item) => { const note = item.latest_note || item.notes?.[0]; return <Button type="text" className={styles.noteButton} onClick={() => openDetails(item, "notes")}><Flex vertical gap={3}><Typography.Paragraph ellipsis={{ rows: 2, tooltip: note?.content }} className={styles.cellText}>{note?.content || "还没备注，点这里记一条"}</Typography.Paragraph>{note ? <Typography.Text type="secondary" className={styles.meta} title={note.created_at ? `保存于 ${recordTime(note.created_at)}` : undefined}>{note.author_name || note.author_email || "未记录操作人"} · {(note.occurred_at || note.created_at) ? recordTime(note.occurred_at || note.created_at) : ""}</Typography.Text> : null}</Flex></Button>; } },
         { title: "创建时间", key: "created_at", width: 190, render: (_, item) => <Flex vertical gap={3}><Typography.Text className={styles.meta}>{recordTime(item.created_at)}</Typography.Text><Space wrap size={[2, 2]}><Tag>{sourceLabel(item.source_type, item.platform_id)}</Tag>{item.platform_id ? <Tag>{sourceLabel(item.platform_id)}</Tag> : null}{(item.sources?.length || 0) > 1 ? <Typography.Text className={styles.meta}>{item.sources!.length} 个来源</Typography.Text> : null}</Space><Typography.Text type="secondary" ellipsis={{ tooltip: item.creator_name || item.user_email }} className={styles.meta}>{item.creator_name || item.user_email || "创建人待补充"}</Typography.Text></Flex> },
-        { title: "操作", key: "actions", width: 80, fixed: "right", render: (_, item) => isReadOnlyResume(item) ? <Typography.Text type="secondary" className={styles.meta}>只读示例</Typography.Text> : <Flex vertical gap={0} className={styles.rowActions}><Button type="link" size="small" onClick={() => openDetails(item, "notes")}>备注</Button><Button type="link" size="small" onClick={() => openDetails(item, "recommendations")}>推荐</Button><Button type="link" size="small" onClick={() => openDetails(item, "recruitment")}>面试</Button></Flex> },
+        { title: "操作", key: "actions", width: 80, fixed: "right", render: (_, item) => isReadOnlyResume(item) ? <Typography.Text type="secondary" className={styles.meta}>只读示例</Typography.Text> : <Flex vertical gap={0} className={styles.rowActions}><Button type="link" size="small" onClick={() => openDetails(item, "notes")}>备注</Button><Button type="link" size="small" onClick={() => openDetails(item, "recommendations")}>推荐</Button><Button type="link" size="small" onClick={() => openDetails(item, "recruitment")}>面试</Button>{canDeleteResume(item) ? <Button type="link" size="small" danger onClick={() => setDeleting(item)}>永久删除</Button> : null}</Flex> },
       ]} />
       <Flex wrap gap={12} justify="space-between" align="center" className={`goodhr-table-pagination ${styles.pagination}`}><Typography.Text type="secondary">共 {realTotal} 份简历{builtinTotal ? ` · 另有 ${builtinTotal} 份内置示例` : ""}</Typography.Text><Pagination current={page} total={total} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => navigateQuery(appliedFilters, size !== pageSize ? 1 : next, size)} /></Flex>
     </SectionPanel>
@@ -179,7 +196,9 @@ export default function ResumesPage() {
     <ResumeFolderManager open={folderManagerOpen} onClose={() => setFolderManagerOpen(false)} onChanged={refreshLibrary} />
     <ResumeLibrarySettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     <AdminDialog variant="detail" open={Boolean(detail)} onClose={() => setDetail(null)} title={detail?.name || "简历详情"} showCancel={false}>
-      {detail ? <><Link className={styles.standaloneLink} href={`/admin/resumes/detail?candidate_id=${encodeURIComponent(detail.id)}${detail.engagementID ? `&engagement_id=${encodeURIComponent(detail.engagementID)}` : ""}&return_to=${encodeURIComponent(`/admin/resumes?${queryText}`)}`}>单独打开</Link><ResumeWorkspace candidateID={detail.id} engagementID={detail.engagementID} initialTab={detail.tab} positions={positions} onChanged={refreshLibrary} /></> : null}
+      {detail ? <><Link className={styles.standaloneLink} href={`/admin/resumes/detail?candidate_id=${encodeURIComponent(detail.id)}${detail.engagementID ? `&engagement_id=${encodeURIComponent(detail.engagementID)}` : ""}&return_to=${encodeURIComponent(`/admin/resumes?${queryText}`)}`}>单独打开</Link><ResumeWorkspace candidateID={detail.id} engagementID={detail.engagementID} initialTab={detail.tab} positions={positions} onChanged={refreshLibrary} onRequestDelete={setDeleting} /></> : null}
     </AdminDialog>
+    {deleting ? <ResumeDeleteDialog candidate={deleting} onClose={() => setDeleting(null)} onDeleted={finishDeletion}
+      onRecheck={() => { setDeleting(null); setDetail(null); refreshLibrary(); }} /> : null}
   </>;
 }

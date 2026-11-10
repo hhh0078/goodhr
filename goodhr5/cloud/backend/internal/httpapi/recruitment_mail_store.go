@@ -75,6 +75,7 @@ type RecruitmentMailStore interface {
 
 // MemoryRecruitmentMailStore 为本地开发和测试提供受锁保护的团队隔离存储。
 type MemoryRecruitmentMailStore struct {
+	purgedApps map[string]bool
 	mu         sync.Mutex
 	companies  map[string]RecruitmentCompany
 	templates  map[string]map[string]RecruitmentMailTemplate
@@ -84,7 +85,7 @@ type MemoryRecruitmentMailStore struct {
 
 // NewMemoryRecruitmentMailStore 创建空招聘邮件存储，不发送邮件。
 func NewMemoryRecruitmentMailStore() *MemoryRecruitmentMailStore {
-	return &MemoryRecruitmentMailStore{companies: map[string]RecruitmentCompany{}, templates: map[string]map[string]RecruitmentMailTemplate{}, deliveries: map[string]RecruitmentMailDelivery{}, receipts: map[string]string{}}
+	return &MemoryRecruitmentMailStore{purgedApps: map[string]bool{}, companies: map[string]RecruitmentCompany{}, templates: map[string]map[string]RecruitmentMailTemplate{}, deliveries: map[string]RecruitmentMailDelivery{}, receipts: map[string]string{}}
 }
 
 // ensureLocked 为首次访问的团队一次性创建预置模板，已删除模板不会重新出现。
@@ -214,6 +215,9 @@ func (s *MemoryRecruitmentMailStore) recoverInterruptedLocked(tenantID string) {
 func (s *MemoryRecruitmentMailStore) ClaimDelivery(item RecruitmentMailDelivery) (RecruitmentMailDelivery, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.purgedApps[item.TenantID+"|"+item.ApplicationID] {
+		return RecruitmentMailDelivery{}, false, ErrNotFound
+	}
 	key := recruitmentMailReceiptKey(item.TenantID, item.ActorEmail, item.IdempotencyKey)
 	if id, ok := s.receipts[key]; ok {
 		old := s.deliveries[id]

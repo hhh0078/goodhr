@@ -7,6 +7,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/platform/boss"
 	"goodhr5/local-agent-go-new/internal/platform/hliepin"
+	"goodhr5/local-agent-go-new/internal/platform/job51"
 	"goodhr5/local-agent-go-new/internal/platform/liepin"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/platform/zhaopin"
@@ -19,6 +20,8 @@ func RuntimeFor(platformID string) (model.Runtime, error) {
 		return boss.NewRuntime(), nil
 	case "zhaopin":
 		return zhaopin.NewRuntime(), nil
+	case "51job":
+		return job51.NewRuntime(), nil
 	case "liepin":
 		return liepin.NewRuntime(), nil
 	case "hliepin":

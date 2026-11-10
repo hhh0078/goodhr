@@ -9,6 +9,7 @@ import type {
   ElementView,
   SelectorAttempt,
   SelectorCandidate,
+  SelectorSpec,
 } from "../../contracts/selector.js";
 
 /** LocatorScope 表示 Page、Locator 和 FrameLocator 共有的定位入口。 */
@@ -33,6 +34,8 @@ export interface ResolvedElement {
   attempts: SelectorAttempt[];
   view: ElementView;
   list_index?: number;
+  list_total?: number;
+  resolved_spec?: SelectorSpec;
 }
 
 /** FrameScope 保留 FrameLocator 类型约束，避免作用域被宽化为未知对象。 */

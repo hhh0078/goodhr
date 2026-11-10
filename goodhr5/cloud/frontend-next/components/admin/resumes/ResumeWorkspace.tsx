@@ -6,23 +6,25 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useAdmin } from "../AdminApp";
 import { addRecommendation, addResumeNote, loadRecommendations, loadResume, loadResumeNotes } from "@/lib/resume-api";
 import { formatDate } from "@/lib/admin-api";
-import { isReadOnlyResume, latestRecommendationEvent, recommendationStages, recordTime, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeNote } from "@/lib/resume-types";
+import { canDeleteResume, isReadOnlyResume, latestRecommendationEvent, recommendationStages, recordTime, sourceLabel, stageLabel, type PositionOption, type Recommendation, type Resume, type ResumeNote } from "@/lib/resume-types";
 import ResumeEditor from "./ResumeEditor";
 import ResumeSummaryDialog from "./ResumeSummaryDialog";
 import ResumeRecruitmentPanel from "../recruitment/ResumeRecruitmentPanel";
 import ResumeProfile, { ResumeCandidateHeader } from "./ResumeProfile";
 import ResumeShareDialog from "./ResumeShareDialog";
+import ResumeReplyHistory from "./ResumeReplyHistory";
+import ResumeAutoReplyReports from "./ResumeAutoReplyReports";
 import styles from "./resumes.module.css";
 import detailStyles from "./resume-detail.module.css";
 
 /** entryTab 把历史入口映射到详情标签，备注入口始终保留右侧备注区。 */
 function entryTab(value: string) {
-  return ["recommendations", "automation", "recruitment"].includes(value) ? value : "resume";
+  return ["recommendations", "automation", "recruitment", "auto_reply"].includes(value) ? value : "resume";
 }
 
 /** ResumeWorkspace 在详情地址与抽屉间复用同一候选人记录和维护入口。 */
-export default function ResumeWorkspace({ candidateID, engagementID = "", positions, initialTab = "resume", initialPositionID = "", onChanged }: {
-  candidateID: string; engagementID?: string; positions: PositionOption[]; initialTab?: string; initialPositionID?: string; onChanged?: () => void;
+export default function ResumeWorkspace({ candidateID, engagementID = "", positions, initialTab = "resume", initialPositionID = "", onChanged, onRequestDelete }: {
+  candidateID: string; engagementID?: string; positions: PositionOption[]; initialTab?: string; initialPositionID?: string; onChanged?: () => void; onRequestDelete?: (candidate: Resume) => void;
 }) {
   const { notify, user } = useAdmin();
   const accountIdentity = String(user?.id || user?.email || "").trim();
@@ -199,6 +201,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
             </> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="推荐记录已收起，随时可以展开。"><Button onClick={toggleRecommendations}>展开推荐记录</Button></Empty>}
           </section> },
           { key: "recruitment", label: "面试 / 招聘", disabled: readOnly, children: !readOnly ? <ResumeRecruitmentPanel key={candidate.id} candidate={candidate} positions={positions} positionID={positionID || historyRecommendation?.position_id || ""} initiallyExpanded /> : null },
+          { key: "auto_reply", label: "自动回复", disabled: readOnly, children: !readOnly ? <div key={candidate.id}><ResumeReplyHistory candidateID={candidate.id} /><ResumeAutoReplyReports candidateID={candidate.id} /></div> : null },
           { key: "automation", label: "任务记录", children: <section className={styles.recordSection} data-testid="resume-auto-tasks-section" aria-label="自动任务">
             <Typography.Title level={5}>自动任务</Typography.Title><Flex vertical gap={12}>
               {candidate.engagement_id ? <><Typography.Text>岗位：{candidate.position_name || "未记录岗位"}</Typography.Text><Typography.Text type="secondary">任务状态：{candidate.engagement_status || "未记录"}</Typography.Text></> : null}
@@ -216,6 +219,7 @@ export default function ResumeWorkspace({ candidateID, engagementID = "", positi
           </div> : <Typography.Title level={5} className={detailStyles.cardTitle}>操作</Typography.Title>}
           <Button type="primary" block disabled={readOnly} onClick={() => { if (readOnly) return; setRecommendationEntryScope(recommendationEntryKey); setActiveTab("recommendations"); }}>推荐到岗位</Button>
           <div className={detailStyles.actionGrid}><Button icon={<ShareAltOutlined aria-hidden="true" />} disabled={readOnly} onClick={() => { if (!readOnly) setShareOpen(true); }}>分享简历</Button><Button disabled={readOnly} onClick={() => { if (!readOnly) setSummaryOpen(true); }}>AI 摘要</Button></div>
+          {onRequestDelete && canDeleteResume(candidate) ? <Button type="text" danger onClick={() => onRequestDelete(candidate)}>永久删除简历</Button> : null}
         </section>
         <section className={detailStyles.sideCard} data-testid="resume-recommendations-section" aria-label="推荐">
           <Flex gap={8} align="center" justify="space-between" className={styles.recommendationHeading}><Typography.Title level={5} className={detailStyles.cardTitle}>推荐跟进</Typography.Title><Button type="text" onClick={toggleRecommendations} aria-expanded={recommendationsVisible} aria-controls={recommendationContentID}>{recommendationsVisible ? "隐藏推荐" : "显示推荐"}</Button></Flex>

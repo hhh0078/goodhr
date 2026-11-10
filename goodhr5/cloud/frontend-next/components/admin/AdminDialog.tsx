@@ -14,6 +14,8 @@ type AdminDialogProps = {
   loading?: boolean;
   loadingText?: string;
   confirmDisabled?: boolean;
+  /** 不可撤回的操作使用危险色确认按钮。 */
+  confirmDanger?: boolean;
   /** 仅让确认按钮等待请求，允许非阻塞提醒在生成期间继续取消。 */
   confirmLoading?: boolean;
   hideClose?: boolean;
@@ -40,6 +42,7 @@ export default function AdminDialog({
   loading = false,
   loadingText,
   confirmDisabled = false,
+  confirmDanger = false,
   confirmLoading = false,
   hideClose = false,
   showCancel = true,
@@ -92,6 +95,7 @@ export default function AdminDialog({
           ) : null}
           {onConfirm ? (
             <Button
+              danger={confirmDanger}
               data-onboarding={confirmDataOnboarding}
               type="primary"
               onClick={onConfirm}

@@ -72,6 +72,14 @@ type PositionCandidate struct {
 
 // CandidateProfileInput 表示候选人主体保存参数。
 type CandidateProfileInput struct {
+	OnlineProfileCandidateID string                // 仅服务器在线资料流程可引用已确认的当前代简历库编号。
+	OnlineProfileKey         string                // 与上述编号配对的服务端在线资料指纹，不能由姓名推测。
+	OnlineProfileMachineID   string                // 已验证请求头中的实际设备，不从HTTP正文接收。
+	ReopenProof              *candidateReopenProof // 仅经认证的自动回复写入入口可设置新消息和附件摘要。
+	ReopenPlatformAccount    string                // 本次真实招聘账号绑定标记，用于限制代次收据重放。
+	ReopenIsAdmin            bool                  // 经服务端验证的团队管理权限，供删除事件授权校验。
+	ReopenServerWitness      bool                  // 仅持服务凭证的云编排可引用已入库的平台命令收据核对旧删除代次。
+	AutoReplyPositionID      string                // 云端核实过的自动回复岗位，用于建立本次沟通与结构化简历的关联。
 	// Tags 仅保存平台或AI提供的原始简历技能标签，不参与收藏夹创建和关联。
 	Tags                []string
 	TenantID            string
@@ -196,6 +204,10 @@ type PositionCandidateListResult struct {
 
 // MemoryCandidateStore 提供开发期候选人内存存储。
 type MemoryCandidateStore struct {
+	reopenReceipts  map[string]candidateReopenReceipt
+	deletions       []memoryCandidateDeletion
+	purgeLinks      memoryCandidatePurgeLinks
+	purgeKeys       map[string]bool
 	mu              sync.Mutex
 	profiles        map[string]PositionCandidate
 	engagements     map[string]CandidateEngagement
@@ -213,7 +225,7 @@ type MemoryCandidateStore struct {
 func NewMemoryCandidateStore() *MemoryCandidateStore {
 	seq := 0
 	return &MemoryCandidateStore{
-		profiles:        map[string]PositionCandidate{},
+		reopenReceipts: map[string]candidateReopenReceipt{}, purgeKeys: map[string]bool{}, profiles: map[string]PositionCandidate{},
 		folders:         map[string]CandidateFolder{},
 		folderLinks:     map[string]map[string]bool{},
 		engagements:     map[string]CandidateEngagement{},
@@ -232,9 +244,54 @@ func NewMemoryCandidateStore() *MemoryCandidateStore {
 // SaveCandidateProfile 新增或更新候选人主体。
 // item 为候选人简历字段，返回保存后的简历库记录。
 func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) (PositionCandidate, error) {
+	if item.OnlineProfileCandidateID != "" || item.OnlineProfileKey != "" {
+		return PositionCandidate{}, ErrAutoReplyForbidden // 在线续写只使用带真实命令证据的PostgreSQL权威存储。
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	sourceHash := purgeSourceHash(item.PlatformID, candidateIdentityKey(item))
+	var receipt candidateReopenReceipt
+	if item.ReopenProof != nil {
+		verified, replay, err := s.verifyMemoryReopenLocked(item, sourceHash)
+		if err != nil {
+			return PositionCandidate{}, err
+		}
+		receipt = verified
+		if replay {
+			s.linkMemoryAutoReplyPositionLocked(receipt.candidateID, item)
+			return s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: item.TenantID, UserEmail: item.UserEmail, IsAdmin: true}, s.profiles[receipt.candidateID]), nil
+		}
+	} else {
+		if s.purgeKeys[item.TenantID+"|source|"+purgeSourceHash(item.PlatformID, candidateIdentityKey(item))] {
+			return PositionCandidate{}, errCandidateDeleted
+		}
+		if phone := normalizeCandidatePhone(item.Phone); phone != "" && s.purgeKeys[item.TenantID+"|phone|"+purgeDigest(item.TenantID, phone)] {
+			return PositionCandidate{}, errCandidateDeleted
+		}
+	}
+	if structuredCandidateInput(item) {
+		matches := map[string]bool{}
+		phone := normalizeCandidatePhone(item.Phone)
+		for id, existing := range s.profiles {
+			if existing.TenantID != item.TenantID {
+				continue
+			}
+			samePhone := phone != "" && normalizeCandidatePhone(existing.Phone) == phone
+			sameSource := existing.PlatformID == item.PlatformID && existing.PlatformCandidateID == item.PlatformCandidateID
+			for _, source := range existing.Sources {
+				if source.PlatformID == item.PlatformID && source.PlatformCandidateID == item.PlatformCandidateID && item.PlatformCandidateID != "" {
+					sameSource = true
+				}
+			}
+			if samePhone || sameSource {
+				matches[id] = true
+			}
+		}
+		if len(matches) > 1 {
+			return PositionCandidate{}, ErrCandidateDuplicate
+		}
+	}
 	now := s.now()
 	id := s.nextID("candidate")
 	profile := PositionCandidate{
@@ -279,10 +336,37 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
+	for key, value := range automaticCandidateExtraFields(item) {
+		profile.LibraryFields[key] = value
+	}
 	if item.Tags != nil {
 		profile.LibraryFields["tags"] = append([]string{}, item.Tags...)
 	}
-	return s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: item.TenantID, UserEmail: item.UserEmail, IsAdmin: true}, s.saveAutomaticProfileLocked(profile)), nil
+	saved := s.saveAutomaticProfileLocked(profile)
+	s.linkMemoryAutoReplyPositionLocked(saved.ID, item)
+	if item.ReopenProof != nil {
+		receipt.candidateID = saved.ID
+		s.reopenReceipts[item.TenantID+"|"+sourceHash] = receipt
+		s.purgeKeys[item.TenantID+"|reusedSource|"+sourceHash] = true
+	}
+	return s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: item.TenantID, UserEmail: item.UserEmail, IsAdmin: true}, saved), nil
+}
+
+// linkMemoryAutoReplyPositionLocked 在首次入库及同代重试时幂等建立本次已授权的岗位关联。
+func (s *MemoryCandidateStore) linkMemoryAutoReplyPositionLocked(candidateID string, item CandidateProfileInput) {
+	if item.AutoReplyPositionID != "" {
+		found := false
+		for _, existing := range s.engagements {
+			if existing.CandidateID == candidateID && existing.PositionID == item.AutoReplyPositionID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			id := s.nextID("engagement")
+			s.engagements[id] = CandidateEngagement{ID: id, CandidateID: candidateID, PositionID: item.AutoReplyPositionID, UserEmail: item.UserEmail, PlatformID: item.PlatformID, Status: "auto_reply", CreatedAt: s.now(), UpdatedAt: s.now()}
+		}
+	}
 }
 
 // UpsertCandidateEngagement 新增或更新触达上下文。
@@ -387,6 +471,14 @@ func (s *MemoryCandidateStore) ListPositionCandidates(tenantID string, query Pos
 			continue
 		}
 		item = s.decorateCandidateFoldersLocked(CandidateLibraryScope{TenantID: tenantID, UserEmail: firstNonEmpty(query.ActorEmail, query.UserEmail), IsAdmin: query.UserEmail == ""}, s.decorateLibraryCandidateLocked(item))
+		if query.PositionID != "" {
+			for _, relation := range s.engagements {
+				if relation.CandidateID == item.ID && relation.PositionID == query.PositionID {
+					item.PositionID, item.EngagementID, item.EngagementStatus = relation.PositionID, relation.ID, relation.Status
+					break
+				}
+			}
+		}
 		if !candidateMatchesFilters(item, query) {
 			continue
 		}

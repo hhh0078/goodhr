@@ -36,7 +36,7 @@ export function buildRuntimeInstallPayload(config: any) {
 	const aliases: Record<string, string[]> = {
 		node_runtime: ["node_runtime", "nodeRuntime", "node"],
 		camoufox: ["camoufox", "camofox", "camou_fox", "camouFox"],
-		ocr: ["ocr", "rapidocr", "rapidOCR"],
+		// OCR历史配置保留在服务器，当前安装请求不再携带该组件。
 	};
 	const manifest: Record<string, any> = {};
 	for (const [component, componentAliases] of Object.entries(aliases)) {

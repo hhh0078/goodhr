@@ -239,7 +239,10 @@ func activateCandidateFromContactList(ctx context.Context, browser model.Browser
 	if matchIndex < 0 {
 		return false, nil
 	}
-	selector.Target.Index = &matchIndex
+	selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+		variant.Target.Index = &matchIndex
+		return variant
+	})
 	drawer, err := RequiredSelector(cfg, "candidate.contact_drawer")
 	if err != nil {
 		return false, err

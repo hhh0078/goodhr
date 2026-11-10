@@ -1,10 +1,11 @@
-// Package runtime 文件作用：验证 Mac 首次浏览器更新门闩、真实下载校验、失败保留和并发重试，不启动浏览器。
+// Package runtime 文件作用：验证 Windows x64 与 Mac 首次浏览器更新门闩、真实下载校验、失败保留和并发重试，不启动浏览器。
 package runtime
 
 import (
 	"bytes"
 	"context"
 	"debug/macho"
+	"debug/pe"
 	"encoding/binary"
 	"errors"
 	"net/http"
@@ -36,17 +37,32 @@ func startupTestCPU() (macho.Cpu, macho.Cpu) {
 	return macho.CpuArm64, macho.CpuAmd64
 }
 
-// startupTestManager 创建隔离目录与旧安装记录，仅 Mac 执行下载集成测试。
+// startupTestExecutable 为当前平台构造正确或错误架构的浏览器文件，Windows 使用 PE，Mac 使用 Mach-O。
+func startupTestExecutable(wrongArchitecture bool) []byte {
+	if goruntime.GOOS == "windows" {
+		machine := uint16(pe.IMAGE_FILE_MACHINE_AMD64)
+		if wrongArchitecture {
+			machine = pe.IMAGE_FILE_MACHINE_I386
+		}
+		return startupTestPE(machine)
+	}
+	cpu, wrongCPU := startupTestCPU()
+	if wrongArchitecture {
+		cpu = wrongCPU
+	}
+	return startupTestMachO(cpu)
+}
+
+// startupTestManager 创建隔离目录与旧安装记录，在 Windows x64 和 Mac 双架构执行真实下载集成测试。
 func startupTestManager(t *testing.T, previous Asset) (*Manager, string, []byte) {
 	t.Helper()
-	if goruntime.GOOS != "darwin" {
-		t.Skip("首次自动同步仅用于 Mac，其他系统仍运行选包和文件头单元测试")
+	if !startupCamoufoxPlatformSupported(platformKey()) {
+		t.Skip("当前系统不发布本地程序，仍运行选包和文件头单元测试")
 	}
 	t.Setenv("CAMOUFOX_BINARY_PATH", "")
-	cpu, _ := startupTestCPU()
-	manager := &Manager{runtimeDir: t.TempDir()}
+	manager := &Manager{runtimeDir: filepath.Join(t.TempDir(), "runtime")}
 	root := filepath.Join(manager.runtimeDir, "camoufox")
-	writeComponentTestFiles(t, root, componentTestFiles("camoufox", string(startupTestMachO(cpu))))
+	writeComponentTestFiles(t, root, componentTestFiles("camoufox", string(startupTestExecutable(false))))
 	path := manager.CamoufoxPath()
 	relative, err := filepath.Rel(manager.runtimeDir, path)
 	if err != nil {
@@ -62,9 +78,18 @@ func startupTestManager(t *testing.T, previous Asset) (*Manager, string, []byte)
 	return manager, path, before
 }
 
-// TestStartupCamoufoxAssetSelection 验证精确架构优先、Apple 别名兼容和 Intel 禁止借用 Apple 包。
+// TestStartupCamoufoxAssetSelection 验证 Windows 与 Apple 别名、精确架构优先及跨系统错包拒绝。
 func TestStartupCamoufoxAssetSelection(t *testing.T) {
 	asset := Asset{Version: "152-fixed", URL: "https://example.invalid/browser.zip", SHA256: strings.Repeat("a", 64)}
+	for _, alias := range []string{"win-x64", "windows-x64", "win", "windows"} {
+		manifest := Manifest{Camoufox: map[string]Asset{alias: asset, "mac": {Version: "wrong"}}}
+		if got, err := startupCamoufoxAsset(manifest, "win-x64"); err != nil || got != asset {
+			t.Fatalf("Windows 别名 %s 未选中：%+v %v", alias, got, err)
+		}
+	}
+	if _, err := startupCamoufoxAsset(Manifest{Camoufox: map[string]Asset{"mac": asset}}, "win-x64"); err == nil {
+		t.Fatal("Windows 不能借用 Mac 包")
+	}
 	for _, alias := range []string{"darwin-arm64", "mac-arm64", "macos-arm64", "mac", "macos", "darwin"} {
 		manifest := Manifest{Camoufox: map[string]Asset{alias: asset}}
 		if got, err := startupCamoufoxAsset(manifest, "darwin-arm64"); err != nil || got != asset {
@@ -78,9 +103,19 @@ func TestStartupCamoufoxAssetSelection(t *testing.T) {
 	if got, err := startupCamoufoxAsset(manifest, "darwin-x64"); err != nil || got != asset {
 		t.Fatalf("Intel 专属包未选中：%+v %v", got, err)
 	}
-	for _, invalid := range []Asset{{}, {Version: "fixed", URL: "http://example.invalid/browser.zip", SHA256: asset.SHA256}, {Version: "fixed", URL: asset.URL, SHA256: ""}} {
-		if _, err := startupCamoufoxAsset(Manifest{Camoufox: map[string]Asset{"darwin-arm64": invalid, "mac": asset}}, "darwin-arm64"); err == nil {
-			t.Fatal("无效的精确架构记录不能通过或偷偷借用别名")
+	for _, platform := range []string{"win-x64", "darwin-arm64"} {
+		for _, invalid := range []Asset{{}, {Version: "fixed", URL: "http://example.invalid/browser.zip", SHA256: asset.SHA256}, {Version: "fixed", URL: asset.URL, SHA256: ""}} {
+			if _, err := startupCamoufoxAsset(Manifest{Camoufox: map[string]Asset{platform: invalid, "win": asset, "mac": asset}}, platform); err == nil {
+				t.Fatal("无效的精确架构记录不能通过或偷偷借用别名")
+			}
+		}
+	}
+	for _, platform := range []string{"linux-amd64", "windows-arm64", "windows-386", "darwin-386", ""} {
+		if startupCamoufoxPlatformSupported(platform) {
+			t.Fatalf("未发布的平台 %s 不能启用启动同步", platform)
+		}
+		if _, err := startupCamoufoxAsset(Manifest{Camoufox: map[string]Asset{platform: asset}}, platform); err == nil {
+			t.Fatalf("未发布的平台 %s 不能选包", platform)
 		}
 	}
 }
@@ -110,10 +145,9 @@ func TestStartupCamoufoxArchitecture(t *testing.T) {
 
 // TestStartupCamoufoxSyncUpgrade 验证同版本换摘要、缺摘要和失效启动文件都会下载，同包不重下也不关浏览器。
 func TestStartupCamoufoxSyncUpgrade(t *testing.T) {
-	for _, scenario := range []string{"changed sha", "missing sha", "same asset", "broken executable", "wrong installed architecture"} {
+	for _, scenario := range []string{"changed sha", "missing sha", "same asset", "fresh install", "broken executable", "wrong installed architecture"} {
 		t.Run(scenario, func(t *testing.T) {
-			cpu, _ := startupTestCPU()
-			asset, downloads := serveNodeTestArchive(t, makeComponentTestArchive(t, componentTestFiles("camoufox", string(startupTestMachO(cpu)))))
+			asset, downloads := serveNodeTestArchive(t, makeComponentTestArchive(t, componentTestFiles("camoufox", string(startupTestExecutable(false)))))
 			asset.Version = "152-fixed"
 			previous := asset
 			if scenario == "changed sha" {
@@ -122,13 +156,18 @@ func TestStartupCamoufoxSyncUpgrade(t *testing.T) {
 				previous.SHA256 = ""
 			}
 			manager, oldPath, _ := startupTestManager(t, previous)
-			if scenario == "broken executable" {
+			profile := filepath.Join(filepath.Dir(manager.runtimeDir), "profiles", "login.cookie")
+			writeComponentTestFiles(t, filepath.Dir(profile), map[string][]byte{filepath.Base(profile): []byte("keep-login")})
+			if scenario == "fresh install" {
+				if err := os.RemoveAll(manager.runtimeDir); err != nil {
+					t.Fatal(err)
+				}
+			} else if scenario == "broken executable" {
 				if err := os.WriteFile(oldPath, []byte("corrupt"), 0o755); err != nil {
 					t.Fatal(err)
 				}
 			} else if scenario == "wrong installed architecture" {
-				_, wrongCPU := startupTestCPU()
-				if err := os.WriteFile(oldPath, startupTestMachO(wrongCPU), 0o755); err != nil {
+				if err := os.WriteFile(oldPath, startupTestExecutable(true), 0o755); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -151,6 +190,12 @@ func TestStartupCamoufoxSyncUpgrade(t *testing.T) {
 			if want > 0 && manager.CamoufoxPath() == oldPath {
 				t.Fatal("没有切换到新安装目录")
 			}
+			if content, err := os.ReadFile(profile); err != nil || string(content) != "keep-login" {
+				t.Fatalf("浏览器更新修改了登录资料：%v", err)
+			}
+			if scenario != "fresh install" && !fileExists(oldPath) {
+				t.Fatal("浏览器更新不应删除旧组件")
+			}
 			manager.EnableStartupCamoufoxSync()
 			if err := manager.SyncStartupCamoufox(context.Background(), Manifest{}, nil); err != nil || manager.StartupCamoufoxSyncPending() || downloads.Load() != want {
 				t.Fatal("同一进程重复绑定或启用不应重新安装")
@@ -170,12 +215,12 @@ func TestStartupCamoufoxProgressAndDefault(t *testing.T) {
 	plain.BeginStartupCamoufoxSyncCheck()
 	plain.FailStartupCamoufoxSync(errors.New("unused"))
 	if plain.StartupCamoufoxSyncPending() || plain.InstallProgress().Stage != "" || plain.SyncStartupCamoufox(nil, Manifest{}, nil) != nil {
-		t.Fatal("默认管理器或 Windows 不应隐式启用首次更新")
+		t.Fatal("默认管理器不应隐式启用首次更新")
 	}
-	if goruntime.GOOS != "darwin" {
+	if !startupCamoufoxPlatformSupported(platformKey()) {
 		plain.EnableStartupCamoufoxSync()
 		if plain.StartupCamoufoxSyncPending() {
-			t.Fatal("非 Mac 系统不能启用 Mac 更新")
+			t.Fatal("未发布的平台不能启用首次更新")
 		}
 		return
 	}
@@ -190,15 +235,21 @@ func TestStartupCamoufoxProgressAndDefault(t *testing.T) {
 	}
 }
 
-// TestStartupCamoufoxFailurePreservesPrevious 验证回调失败、取消、坏摘要和错架构都保留旧目录与完整记录。
+// TestStartupCamoufoxFailurePreservesPrevious 验证回调失败、取消、坏摘要、错架构及坏启动文件均保留旧组件、登录资料与完整记录。
 func TestStartupCamoufoxFailurePreservesPrevious(t *testing.T) {
-	for _, scenario := range []string{"stop failed", "cancelled", "bad sha", "wrong architecture", "missing executable"} {
+	scenarios := []string{"stop failed", "cancelled", "bad sha", "wrong architecture", "missing executable", "invalid executable"}
+	if goruntime.GOOS == "windows" {
+		scenarios = append(scenarios, "dll")
+	}
+	for _, scenario := range scenarios {
 		t.Run(scenario, func(t *testing.T) {
-			cpu, wrongCPU := startupTestCPU()
-			if scenario == "wrong architecture" {
-				cpu = wrongCPU
+			executable := startupTestExecutable(scenario == "wrong architecture")
+			if scenario == "invalid executable" {
+				executable = []byte("broken browser executable")
+			} else if scenario == "dll" {
+				binary.LittleEndian.PutUint16(executable[0x96:], pe.IMAGE_FILE_EXECUTABLE_IMAGE|pe.IMAGE_FILE_DLL)
 			}
-			files := componentTestFiles("camoufox", string(startupTestMachO(cpu)))
+			files := componentTestFiles("camoufox", string(executable))
 			if scenario == "missing executable" {
 				files = map[string][]byte{"readme.txt": []byte("no executable")}
 			}
@@ -208,6 +259,8 @@ func TestStartupCamoufoxFailurePreservesPrevious(t *testing.T) {
 			}
 			manager, oldPath, before := startupTestManager(t, Asset{Version: "previous"})
 			oldContent, _ := os.ReadFile(oldPath)
+			profile := filepath.Join(filepath.Dir(manager.runtimeDir), "profiles", "login.cookie")
+			writeComponentTestFiles(t, filepath.Dir(profile), map[string][]byte{filepath.Base(profile): []byte("keep-login")})
 			manager.EnableStartupCamoufoxSync()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -225,14 +278,16 @@ func TestStartupCamoufoxFailurePreservesPrevious(t *testing.T) {
 			if err == nil || !bytes.Equal(before, after) || !bytes.Equal(oldContent, content) || !manager.StartupCamoufoxSyncPending() || manager.InstallProgress().Stage != "failed" {
 				t.Fatalf("失败未保留旧组件或门闩：err=%v progress=%+v", err, manager.InstallProgress())
 			}
+			if content, err := os.ReadFile(profile); err != nil || string(content) != "keep-login" {
+				t.Fatalf("更新失败修改了登录资料：%v", err)
+			}
 		})
 	}
 }
 
 // TestStartupCamoufoxConcurrentAndManualRetry 验证重复绑定不并发下载、外部错误不覆盖安装进度、手动重试不能安装旧目标。
 func TestStartupCamoufoxConcurrentAndManualRetry(t *testing.T) {
-	cpu, _ := startupTestCPU()
-	asset, downloads := serveNodeTestArchive(t, makeComponentTestArchive(t, componentTestFiles("camoufox", string(startupTestMachO(cpu)))))
+	asset, downloads := serveNodeTestArchive(t, makeComponentTestArchive(t, componentTestFiles("camoufox", string(startupTestExecutable(false)))))
 	manager, _, _ := startupTestManager(t, Asset{Version: "previous"})
 	manager.nodePath, _ = exec.LookPath("node")
 	manager.EnableStartupCamoufoxSync()

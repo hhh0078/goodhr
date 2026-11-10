@@ -44,9 +44,16 @@ type flowStep struct {
 	run      func(context.Context) error
 }
 
+// CandidateCheckpoint 表示外层调度器在处理下一位候选人前同步执行的通用检查点。
+type CandidateCheckpoint func(context.Context) error
+
 // Run 按平铺步骤启动浏览器、准备平台、处理候选人并同步摘要。
-func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime) (stats shared.Stats, runErr error) {
+func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, checkpoints ...CandidateCheckpoint) (stats shared.Stats, runErr error) {
 	defer func() { f.finalizeScreeningTask(ctx, prepared, stats, runErr) }()
+	var checkpoint CandidateCheckpoint
+	if len(checkpoints) > 0 {
+		checkpoint = checkpoints[0]
+	}
 	position := model.Position{
 		ID: prepared.Position.ID, Name: prepared.Position.Name, Keyword: prepared.Position.Keyword,
 		RequestPhone: prepared.Position.RequestPhone, RequestWechat: prepared.Position.RequestWechat,
@@ -71,7 +78,7 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 			return runtime.ApplyBasicFilters(ctx, f.Browser, prepared.Platform, position)
 		}},
 		{name: "scan_decide_and_greet", label: "处理候选人并打招呼", run: func(ctx context.Context) error {
-			return f.processBatches(ctx, prepared, runtime, &stats)
+			return f.processBatches(ctx, prepared, runtime, checkpoint, &stats)
 		}},
 	}
 	for _, step := range steps {
@@ -119,7 +126,7 @@ func (f *Flow) extensionPaths() []string {
 }
 
 // processBatches 按配置批次扫描、判断和处理候选人。
-func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, stats *shared.Stats) error {
+func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, checkpoint CandidateCheckpoint, stats *shared.Stats) error {
 	maxBatches := prepared.Position.MaxBatches
 	errorPolicy := &shared.ConsecutiveErrorPolicy{}
 	seen := make(map[string]struct{})
@@ -216,6 +223,16 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 				cancelPreviews()
 				return err
 			}
+			if checkpoint != nil {
+				if err := checkpoint(ctx); err != nil {
+					cancelPreviews()
+					return fmt.Errorf("候选人前自动回复检查失败：%w", err)
+				}
+				if shared.GracefulStopRequested(ctx) {
+					cancelPreviews()
+					return nil
+				}
+			}
 			candidateName := strings.TrimSpace(candidate.Name)
 			if candidateName == "" {
 				candidateName = fmt.Sprintf("第 %d 位候选人", candidate.Index+1)
@@ -236,7 +253,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			}
 			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "正在查看候选人列表", "running", nil)
 			candidateStartedAt := time.Now()
-			candidateCtx, cancelCandidate := context.WithTimeoutCause(ctx, candidateTimeout, errCandidateProcessingTimeout)
+			candidateCtx, cancelCandidate := context.WithTimeoutCause(ctx, candidateTimeout, ErrCandidateProcessingTimeout)
 			candidateErr := item.Err
 			if candidateErr == nil && item.Decision != nil && !item.Decision.Accepted {
 				stats.Processed++
@@ -254,7 +271,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 					),
 				)
 				f.saveCandidate(
-					candidateCtx,
+					context.WithValue(candidateCtx, screeningContextKey{}, item.AttemptID),
 					prepared,
 					candidate,
 					"detail_precheck",
@@ -390,8 +407,13 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), reason, "skipped", nil)
 		return nil
 	}
-	detailMode := strings.ToLower(strings.TrimSpace(prepared.Position.CommonConfig.DetailMode))
-	needsDetail := needsCandidateDetail(prepared)
+	detailMode := model.DetailRecognitionMode(prepared.Platform.ID)
+	needsDetail := needsCandidateDetail(prepared) // 读取旧配置前先保留原有是否查看详情的判断。
+	prepared.Position.CommonConfig.DetailMode = detailMode
+	prepared.Position.RequiresOCR = false // OCR实现保留，岗位固定策略不再进入本机OCR分支。
+	if detailMode == "ai" {
+		prepared.Position.RequiresAI = true
+	}
 	deferKeywordDecision := isKeywordMode(prepared.Position) && needsDetail
 	if !deferKeywordDecision {
 		keywordStarted := time.Now()
@@ -580,10 +602,10 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 			"AI 正在读取详情并判断匹配度",
 		)
 		f.log(prepared.Request.TaskID, "ai_decision", "start", decisionStartedAt, nil)
-		evaluationCtx, cancelEvaluation := context.WithTimeout(context.WithoutCancel(ctx), candidateTimeout)
+		evaluationCtx, cancelEvaluation, stopEvaluationOnCandidateEnd := ai.ScoringContext(ctx, candidateTimeout)
+		evaluationCtx = shared.WithAIBilling(evaluationCtx, f.Logger, prepared.Request.TaskID, prepared.Position.ID, candidateDisplayName(candidate), "AI 详情分析")
 		evaluationCancel = cancelEvaluation
 		// 等待评分时遵守候选人总时限；评分已返回后撤销关联，保留后台完整输出。
-		stopEvaluationOnCandidateEnd := context.AfterFunc(ctx, cancelEvaluation)
 		if detailMode == "ai" {
 			images := detailImages
 			var imageErr error
@@ -820,15 +842,15 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 
 // saveCandidate 保存不含候选人详情的动作摘要。
 func (f *Flow) saveCandidate(ctx context.Context, prepared shared.PreparedTask, candidate model.Candidate, action string, result string, reason string) {
-	if result == "skipped" || result == "failed" {
-		if id, ok := ctx.Value(screeningContextKey{}).(string); ok {
-			if err := f.completeScreeningAttempt(ctx, id, reason); err != nil {
-				f.log(prepared.Request.TaskID, "save_screening_result", "warning", time.Now(), err)
-			}
+	attemptID, _ := ctx.Value(screeningContextKey{}).(string)
+	if attemptID != "" && (result == "skipped" || result == "failed") {
+		if err := f.completeScreeningAttempt(ctx, attemptID, reason); err != nil {
+			f.log(prepared.Request.TaskID, "save_screening_result", "warning", time.Now(), err)
 		}
 	}
 	if err := f.Store.SaveCandidate(context.WithoutCancel(ctx), storage.CandidateRecord{
-		TaskID: prepared.Request.TaskID, Fingerprint: candidate.Fingerprint,
+		ScreeningAttemptID: attemptID,
+		TaskID:             prepared.Request.TaskID, Fingerprint: candidate.Fingerprint,
 		PlatformID: prepared.Position.PlatformID, DisplayName: candidate.Name,
 		Action: action, Result: result, Reason: reason,
 	}); err != nil {

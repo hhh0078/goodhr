@@ -1,12 +1,13 @@
 /** 本文件负责 系统配置编辑 的 Ant Design 页面。 */
 "use client";
-import { Alert, Button, Flex, Menu, Tabs, Tag, Typography } from "antd";
+import { Alert, Button, Flex, Menu, Select, Tabs, Tag, Typography } from "antd";
 import { SaveOutlined, UndoOutlined } from "@ant-design/icons";
 import styles from "./page.module.css";
 import { useEffect, useMemo, useState } from "react";
 import JsonEditor from "@/components/admin/JsonEditor";
 import AIRechargePromotionForm from "@/components/admin/AIRechargePromotionForm";
-import BossAttachmentPromptField, { validateBossAttachmentPrompt } from "@/components/admin/BossAttachmentPromptField";
+import DefaultPromptsForm, { validateDefaultPromptsForm } from "@/components/admin/DefaultPromptsForm";
+import AutoReplyLibraryForm, { AUTO_REPLY_LIBRARY_KEY, validateAutoReplyLibrary } from "@/components/admin/AutoReplyLibraryForm";
 import { AI_RECHARGE_CONFIG_KEY, validateAIRechargePromotions } from "@/lib/ai-recharge";
 import OnboardingRewardField, {
   validateOnboardingReward,
@@ -41,7 +42,7 @@ export default function SystemConfigPage() {
   const [draft, setDraft] = useState("{}");
   const [original, setOriginal] = useState("{}");
   const [loading, setLoading] = useState(false);
-  const [bossAttachmentDefaultPrompt, setBossAttachmentDefaultPrompt] = useState("");
+  const [defaultPrompts, setDefaultPrompts] = useState<Record<string, string>>({});
   /** load 读取全部系统配置并保持当前选中项。 */
   async function load() {
     setLoading(true);
@@ -51,7 +52,7 @@ export default function SystemConfigPage() {
         // 默认值读取失败不阻断已有系统配置，专用字段仍可直接编辑和保存。
         cloudRequest("/api/system/default-prompts").catch(() => ({ prompts: {} })),
       ]);
-      setBossAttachmentDefaultPrompt(String(promptData.prompts?.boss_attachment_basic_prompt || ""));
+      setDefaultPrompts(promptData.prompts || {});
       const nextConfigs = [...(Array.isArray(data.configs) ? data.configs : [])];
       const appConfig = nextConfigs.find((item: any) => configKey(item) === "system.app_config");
       if (appConfig) nextConfigs.push({
@@ -93,7 +94,8 @@ export default function SystemConfigPage() {
     validateJSON(draft) ||
     (isWechatConfig ? validateOfficialConfig(draft) : "") ||
     (isOnboardingConfig ? validateOnboardingReward(draft) : "") ||
-    (activeKey === "ai.default_prompts" ? validateBossAttachmentPrompt(draft) : "") ||
+    (activeKey === "ai.default_prompts" ? validateDefaultPromptsForm(draft) : "") ||
+    (activeKey === AUTO_REPLY_LIBRARY_KEY ? validateAutoReplyLibrary(draft) : "") ||
     (isRechargeConfig || activeKey === "system.app_config" ? validateAIRechargePromotions(draft) : "");
   /** selectDirect 不经确认直接切换当前配置。 */
   function selectDirect(item: any) {
@@ -115,6 +117,11 @@ export default function SystemConfigPage() {
       return;
     selectDirect(item);
   }
+  /** chooseKey 让桌面菜单和手机选择框共用同一套切换与草稿确认逻辑。 */
+  function chooseKey(key: string) {
+    const item = filtered.find(entry => configKey(entry) === key);
+    if (item) void selectConfig(item);
+  }
   /** save 校验并保存当前系统配置。 */
   async function save() {
     if (!active || jsonError)
@@ -126,7 +133,7 @@ export default function SystemConfigPage() {
         : prettyJSON(draft);
       await cloudRequest(
         `/api/admin/system/configs/${encodeURIComponent(isRechargeConfig ? "system.app_config" : activeKey)}`,
-        { method: "PUT", body: { config_value: formatted } },
+        { method: "PUT", body: { config_value: formatted, ...(["ai.default_prompts", AUTO_REPLY_LIBRARY_KEY].includes(activeKey) ? { expected_config_value: active.config_value ?? active.value } : {}) } },
       );
       setDraft(formatted);
       setOriginal(formatted);
@@ -154,7 +161,7 @@ export default function SystemConfigPage() {
     <>
       <PageHeader
         title="系统配置"
-        description="配置按业务用途分组。保存前会校验 JSON，错误内容不会提交。"
+        description="按用途查看和修改，保存后生效。"
         actions={
           <>
 
@@ -183,14 +190,22 @@ export default function SystemConfigPage() {
       />
       {configs.length ? (
         <div className={styles.layout14} style={{ display: "grid", gap: 16 }}>
+          <Select
+            className={styles.compactConfigPicker}
+            aria-label="选择配置"
+            showSearch={{ optionFilterProp: "label" }}
+            placeholder={filtered.length ? "选择配置项" : "这个分类还没有配置"}
+            disabled={!filtered.length}
+            value={filtered.some(item => configKey(item) === activeKey) ? activeKey : undefined}
+            onChange={chooseKey}
+            options={filtered.map(item => ({ value: configKey(item), label: configTitle(configKey(item)) }))}
+          />
           <Menu
+            className={styles.configMenu}
             mode="inline"
             selectedKeys={[activeKey]}
             style={{ borderInlineEnd: 0 }}
-            onClick={({ key }) => {
-              const item = filtered.find((entry) => configKey(entry) === key);
-              if (item) void selectConfig(item);
-            }}
+            onClick={({ key }) => chooseKey(key)}
             items={filtered.map((item) => ({
               key: configKey(item),
               style: { height: "auto", lineHeight: "normal" },
@@ -290,7 +305,7 @@ export default function SystemConfigPage() {
                     showIcon={true}
                     title={
                       <>
-                        这里管理首次筛选、打开详情、最终复核和 BOSS 附件基础识别提示词。岗位模板留空时读取前三项，插件首次识别读取专用附件项。
+                        筛选、简历识别和自动回复的提示词按用途编辑。自动回复在下一轮读取最新设置。
                       </>
                     }
                     style={{ marginBottom: 16 }}
@@ -346,7 +361,11 @@ export default function SystemConfigPage() {
                     style={{ marginBottom: 16 }}
                   />
                 ) : null}
-                {isWechatConfig ? (
+                {activeKey === "ai.default_prompts" ? (
+                  <DefaultPromptsForm value={draft} defaults={defaultPrompts} onChange={setDraft} disabled={loading} />
+                ) : activeKey === AUTO_REPLY_LIBRARY_KEY ? (
+                  <AutoReplyLibraryForm value={draft} onChange={setDraft} disabled={loading} />
+                ) : isWechatConfig ? (
                   <WechatOfficialConfigForm
                     value={draft}
                     onChange={setDraft}
@@ -356,9 +375,6 @@ export default function SystemConfigPage() {
                   <AIRechargePromotionForm value={draft} onChange={setDraft} disabled={loading} />
                 ) : (
                   <>
-                    {activeKey === "ai.default_prompts" ? (
-                      <BossAttachmentPromptField value={draft} defaultValue={bossAttachmentDefaultPrompt} onChange={setDraft} disabled={loading} />
-                    ) : null}
                     {isOnboardingConfig ? (
                       <OnboardingRewardField
                         value={draft}
@@ -389,6 +405,7 @@ function configKey(item: any) {
 /** configCategory 根据配置键返回业务分类。 */
 function configCategory(key: string): (typeof categories)[number] {
   if (key === AI_RECHARGE_CONFIG_KEY) return "其他配置";
+  if (key === AUTO_REPLY_LIBRARY_KEY) return "AI 配置";
   if (key === "system.wechat_official_account") return "其他配置";
   if (key.startsWith("ai.") || key.includes("prompt")) return "AI 配置";
   if (key.includes("subscription") || key.includes("payment"))
@@ -410,6 +427,7 @@ function configTitle(key: string) {
     (
       {
         "ai.default_prompts": "AI 默认提示词",
+        [AUTO_REPLY_LIBRARY_KEY]: "自动回复话术",
         "system.app_config": "公共系统配置",
         [AI_RECHARGE_CONFIG_KEY]: "充值活动配置",
         "system.subscription_plans": "订阅套餐",

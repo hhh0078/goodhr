@@ -17,6 +17,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // candidateTimeoutLogger 保存总超时日志的状态、原始开始时间和错误。
@@ -37,17 +38,20 @@ func (l *candidateTimeoutLogger) Step(_ string, _ string, step string, status st
 
 // TestCandidateTimeoutKeepsOriginalFailure 验证达到总时限时写入错误和完整耗时，同时保留浏览器故障类型。
 func TestCandidateTimeoutKeepsOriginalFailure(t *testing.T) {
-	ctx, cancel := context.WithDeadlineCause(context.Background(), time.Now().Add(-time.Second), errCandidateProcessingTimeout)
+	ctx, cancel := context.WithDeadlineCause(context.Background(), time.Now().Add(-time.Second), ErrCandidateProcessingTimeout)
 	defer cancel()
 	startedAt := time.Now().Add(-candidateTimeout)
 	original := &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE", Message: "单步操作中断"}}
 	logger := &candidateTimeoutLogger{}
 	flow := Flow{Logger: logger}
 	err := flow.finishCandidateProcessing(ctx, "timeout-task", startedAt, original)
-	if !errors.Is(err, errCandidateProcessingTimeout) || !errors.Is(err, original) ||
+	if !errors.Is(err, ErrCandidateProcessingTimeout) || !errors.Is(err, original) ||
 		logger.count != 1 || logger.status != "failed" || !logger.startedAt.Equal(startedAt) ||
-		!errors.Is(logger.err, errCandidateProcessingTimeout) || !strings.Contains(err.Error(), "候选人处理超时") {
+		!errors.Is(logger.err, ErrCandidateProcessingTimeout) || !strings.Contains(err.Error(), "候选人处理超时") {
 		t.Fatalf("总超时原因或耗时日志丢失：err=%v logger=%+v", err, logger)
+	}
+	if details := failurediag.Details(logger.err); len(details) != 1 || details[0].LimitMS != 300000 || details[0].ElapsedMS < 300000 {
+		t.Fatalf("候选人预算未进入可展示证据 %+v", details)
 	}
 	if !shared.ShouldStopTaskImmediately(err) {
 		t.Fatal("包装总超时后不应丢失浏览器故障的停止策略")
@@ -71,7 +75,7 @@ func TestCandidateTimeoutDoesNotMislabelOtherStops(t *testing.T) {
 		{name: "success", parent: context.Background()},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeoutCause(test.parent, candidateTimeout, errCandidateProcessingTimeout)
+			ctx, cancel := context.WithTimeoutCause(test.parent, candidateTimeout, ErrCandidateProcessingTimeout)
 			defer cancel()
 			logger := &candidateTimeoutLogger{}
 			flow := Flow{Logger: logger}
@@ -114,12 +118,12 @@ func TestSlowAIStopsAtCandidateDeadline(t *testing.T) {
 	runtime := &greetingSettingRuntime{}
 	stats := shared.Stats{}
 	// 缩短测试时限模拟仅剩少量预算，避免实际等待五分钟。
-	ctx, cancel := context.WithTimeoutCause(context.Background(), 500*time.Millisecond, errCandidateProcessingTimeout)
+	ctx, cancel := context.WithTimeoutCause(context.Background(), 500*time.Millisecond, ErrCandidateProcessingTimeout)
 	defer cancel()
 	startedAt := time.Now()
 	err = flow.processCandidate(ctx, prepared, runtime, model.Candidate{Name: "合成候选人"}, &stats)
 	err = flow.finishCandidateProcessing(ctx, prepared.Request.TaskID, startedAt, err)
-	if !errors.Is(err, errCandidateProcessingTimeout) || logger.count != 1 ||
+	if !errors.Is(err, ErrCandidateProcessingTimeout) || logger.count != 1 ||
 		runtime.greetings != 0 || runtime.closes != 1 || stats.Failed != 1 || time.Since(startedAt) > 1500*time.Millisecond {
 		t.Fatalf("慢 AI 没有及时停止或记录总超时：err=%v logger=%+v runtime=%+v stats=%+v", err, logger, runtime, stats)
 	}

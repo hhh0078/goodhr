@@ -27,6 +27,8 @@ type CandidateLibraryScope struct {
 	TenantID, UserEmail, AuthorName string
 	IsAdmin                         bool
 	IsExtension                     bool
+	retentionCutoff                 *time.Time // 仅维护任务可设置，删除事务内重新核对手机号及最近活动，HTTP表单不能传入。
+	retentionJobID                  string     // 完整删除和任务计数在同一事务提交，重启不能漏记已删除数量。
 }
 
 // CandidateSource 表示一条明确确认的候选人平台来源。
@@ -93,7 +95,7 @@ type candidateRequestReceipt struct{ Fingerprint, ResultID string }
 
 var candidateTextColumns = []string{"candidate_name", "birth_ym", "phone", "email", "work_region", "work_years", "basic_info", "education_level", "expected_position", "online_status", "personal_description", "work_status", "raw_text"}
 var candidateArrayColumns = []string{"work_experiences", "educations", "certificates", "honors", "project_experiences", "colleague_communications"}
-var candidateExtraFields = []string{"gender", "age", "current_region", "expected_region", "current_position", "expected_salary_text", "current_salary_text", "tags", "library_status", "ai_summary", "source_type", "avatar_data_url"}
+var candidateExtraFields = []string{"gender", "age", "current_region", "expected_region", "current_position", "expected_salary_text", "current_salary_text", "tags", "library_status", "ai_summary", "source_type", "avatar_data_url", "wechat", "birth_ym_precision"}
 
 // normalizeCandidatePhone 整理号码，拒绝掩码、虚构长度和无法确认的号码。
 func normalizeCandidatePhone(value string) string {

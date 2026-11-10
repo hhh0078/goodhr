@@ -33,3 +33,20 @@ test("Worker 日志包含固定字段、操作摘要并隐藏凭据", () => {
   assert.doesNotMatch(JSON.stringify(failure), /private-password/);
   assert.doesNotMatch(JSON.stringify(failure), /13800138000|candidate@example.com/);
 });
+
+/** 验证自动回复穿插运行时，普通读写字段也不能把聊天正文带进诊断日志。 */
+test("Worker 日志递归隐藏页面读写正文并保留原生诊断", () => {
+  const lines = [];
+  const logger = new WorkerLogger((line) => lines.push(line));
+  logger.info({ trace_id: "reply-private", action: "element.input", started_at: Date.now() }, "verify", "success", {
+    input: { text: "候选人私密问题", selector: { text: "私密候选人" } },
+    output: { value: "候选人的回答", records: [{ content: "聊天原文", inner_text: "简历原文", text_content: "简历全文" }], native_mouse: { x: 12, y: 34 }, verified: true },
+  });
+  const entry = JSON.parse(lines[0]);
+  assert.doesNotMatch(lines[0], /候选人私密问题|私密候选人|候选人的回答|聊天原文|简历原文|简历全文/);
+  assert.equal(entry.input.text, "[已隐藏]");
+  assert.equal(entry.input.selector.text, "[已隐藏]");
+  assert.equal(entry.output.records[0].content, "[已隐藏]");
+  assert.deepEqual(entry.output.native_mouse, { x: 12, y: 34 });
+  assert.equal(entry.output.verified, true);
+});

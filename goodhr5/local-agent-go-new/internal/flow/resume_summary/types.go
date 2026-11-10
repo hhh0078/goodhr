@@ -40,6 +40,7 @@ type storedTask struct {
 	Owner       string                 `json:"owner"`
 	Scope       string                 `json:"scope"`
 	Fingerprint string                 `json:"fingerprint"`
+	CandidateID string                 `json:"candidate_id,omitempty"` // 仅供清理归属，模型输入不含编号。
 	Candidate   cloud.LibraryCandidate `json:"candidate"`
 	Started     bool                   `json:"started"`
 }

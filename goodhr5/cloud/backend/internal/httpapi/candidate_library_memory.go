@@ -13,6 +13,13 @@ import (
 func (s *MemoryCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScope, id string, fields map[string]any, version int64, key string) (PositionCandidate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if isDeferredCandidateImport(key) {
+		source := purgeSourceHash(candidateString(fields, "platform_id"), candidateString(fields, "platform_candidate_id"))
+		phone := normalizeCandidatePhone(candidateString(fields, "phone"))
+		if s.purgeKeys[scope.TenantID+"|source|"+source] || (id == "" && phone != "" && s.purgeKeys[scope.TenantID+"|phone|"+purgeDigest(scope.TenantID, phone)]) {
+			return PositionCandidate{}, errCandidateDeleted
+		}
+	}
 	operation := "candidate:" + id
 	fingerprint := candidateFingerprint(fields)
 	requestID := candidateRequestKey(scope, operation, key)
@@ -74,6 +81,9 @@ func (s *MemoryCandidateStore) SaveLibraryCandidate(scope CandidateLibraryScope,
 		item.ManualFields = append(item.ManualFields, field)
 	}
 	sort.Strings(item.ManualFields)
+	if hash := purgeSourceHash(platform, platformID); hash != "" && !isDeferredCandidateImport(key) && s.purgeKeys[scope.TenantID+"|source|"+hash] {
+		s.purgeKeys[scope.TenantID+"|reusedSource|"+hash] = true
+	}
 	source := CandidateSource{PlatformID: platform, PlatformCandidateID: platformID, SourceType: candidateString(fields, "source_type"), SourceURL: candidateString(fields, "source_url")}
 	if source.PlatformID != "" || source.SourceType != "" {
 		found := false
@@ -200,6 +210,9 @@ func (s *MemoryCandidateStore) saveAutomaticProfileLocked(incoming PositionCandi
 				same = true
 			}
 		}
+		if _, structured := incoming.Ext["structured_fields"]; structured && normalizeCandidatePhone(incoming.Phone) != "" && normalizeCandidatePhone(incoming.Phone) == normalizeCandidatePhone(old.Phone) {
+			same = true
+		}
 		if !same {
 			continue
 		}
@@ -220,6 +233,18 @@ func (s *MemoryCandidateStore) saveAutomaticProfileLocked(incoming PositionCandi
 		old.AIGreetScore = incoming.AIGreetScore
 		old.UpdatedAt = s.now()
 		old.RowVersion++
+		if incoming.PlatformID != "" && incoming.PlatformCandidateID != "" {
+			found := false
+			for _, source := range old.Sources {
+				if source.PlatformID == incoming.PlatformID && source.PlatformCandidateID == incoming.PlatformCandidateID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				old.Sources = append(old.Sources, CandidateSource{PlatformID: incoming.PlatformID, PlatformCandidateID: incoming.PlatformCandidateID, SourceType: "automatic"})
+			}
+		}
 		s.profiles[id] = old
 		return old
 	}

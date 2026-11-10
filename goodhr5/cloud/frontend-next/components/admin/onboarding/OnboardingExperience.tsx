@@ -274,8 +274,11 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
 function FilterModeExplanation() {
   return (
     <div className={styles.modeComparison} data-testid="onboarding-filter-mode-costs">
+      {/* 关键词模式暂停，原比较说明保留供以后恢复。
       <div><Tag color="success">基础筛选免费</Tag><Typography.Text strong>关键词筛选</Typography.Text><p>适合单一、简单的条件，按技能词、排除词匹配。</p></div>
       <div><Tag color="gold">付费模式</Tag><Typography.Text strong>AI 筛选</Typography.Text><p>适合多项、复杂要求，结合经历和岗位要求判断。</p><p className={styles.modeFee}>需有效会员；内置 AI 按用量扣余额，自定义接口按服务商规则计费。</p></div>
+      */}
+      <div><Tag color="success">统一 AI 筛选</Tag><Typography.Text strong>按岗位要求判断</Typography.Text><p>无需选择筛选模式或详情识别方式，也不需要安装 OCR 组件。</p><p className={styles.modeFee}>使用内置 AI，按实际用量扣余额；启动至少需要 0.10 元，不用额外买会员。</p></div>
     </div>
   );
 }

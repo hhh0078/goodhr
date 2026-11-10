@@ -3,6 +3,8 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,48 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/screening"
 )
+
+// TestPurgedScreeningRejectsLateAction 验证先到的动作会随筛选删除，迟到的动作不会重建姓名，其他尝试及旧入口仍可记录。
+func TestPurgedScreeningRejectsLateAction(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "records.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	deleted, kept := screeningFixture(t, "owner"), screeningFixture(t, "owner")
+	deleted.Snapshot.PlatformCandidateID = "source"
+	kept.Snapshot.CandidateKey = "other"
+	for _, item := range []ScreeningRecord{deleted, kept} {
+		if err := store.CreateScreeningRecord(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	action := CandidateRecord{TaskID: "task", Fingerprint: deleted.Snapshot.CandidateKey, DisplayName: "合成人选", Action: "before", PlatformID: "boss", ScreeningAttemptID: deleted.Snapshot.AttemptID}
+	if err := store.SaveCandidate(ctx, action); err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256([]byte("boss\x00source"))
+	if err := store.PurgeCandidateScreenings(ctx, "owner", []string{hex.EncodeToString(hash[:])}); err != nil {
+		t.Fatal(err)
+	}
+	action.Action = "late"
+	if err := store.SaveCandidate(ctx, action); err != nil {
+		t.Fatal(err)
+	}
+	action.Fingerprint, action.ScreeningAttemptID, action.Action = kept.Snapshot.CandidateKey, kept.Snapshot.AttemptID, "current"
+	if err := store.SaveCandidate(ctx, action); err != nil {
+		t.Fatal(err)
+	}
+	action.Fingerprint, action.ScreeningAttemptID, action.Action = "legacy", "", "legacy"
+	if err := store.SaveCandidate(ctx, action); err != nil {
+		t.Fatal(err)
+	}
+	var total, remaining int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*),COUNT(CASE WHEN action IN ('current','legacy') THEN 1 END) FROM candidate_records`).Scan(&total, &remaining); err != nil || total != 2 || remaining != 2 {
+		t.Fatalf("动作清理结果 total=%d remaining=%d err=%v", total, remaining, err)
+	}
+}
 
 // screeningFixture 为每次测试创建独立编号和空轮次，不使用平台指纹合并重复筛选。
 func screeningFixture(t *testing.T, owner string) ScreeningRecord {

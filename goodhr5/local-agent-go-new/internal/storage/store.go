@@ -18,7 +18,8 @@ const localDataRetention = 90 * 24 * time.Hour
 
 // Store 管理新本地程序 SQLite 连接。
 type Store struct {
-	db *sql.DB
+	scratch *serverScratch
+	db      *sql.DB
 }
 
 // TaskRun 表示一条不含敏感详情的任务状态记录。
@@ -42,13 +43,14 @@ type TaskRun struct {
 
 // CandidateRecord 表示候选人动作摘要，不保存详情正文。
 type CandidateRecord struct {
-	TaskID      string
-	Fingerprint string
-	PlatformID  string
-	DisplayName string
-	Action      string
-	Result      string
-	Reason      string
+	ScreeningAttemptID string // 已登记的筛选尝试编号，旧入口无筛选记录时为空。
+	TaskID             string
+	Fingerprint        string
+	PlatformID         string
+	DisplayName        string
+	Action             string
+	Result             string
+	Reason             string
 }
 
 // ConversationRecord 表示自动回复去重摘要。
@@ -239,10 +241,64 @@ func (s *Store) LatestTaskForPosition(ctx context.Context, positionID string) (T
 	return task, nil
 }
 
+// LatestTask 返回本地最近一次任务状态。
+func (s *Store) LatestTask(ctx context.Context) (TaskRun, error) {
+	return s.latestTaskByWhere(ctx, "", nil)
+}
+
+// LatestTaskForType 返回指定任务类型最近一次本地任务状态。
+func (s *Store) LatestTaskForType(ctx context.Context, taskType string) (TaskRun, error) {
+	taskType = strings.TrimSpace(taskType)
+	if taskType == "" {
+		return TaskRun{}, fmt.Errorf("任务类型不能为空")
+	}
+	return s.latestTaskByWhere(ctx, "WHERE task_type = ?", []any{taskType})
+}
+
+// latestTaskByWhere 根据可选过滤条件读取最近一次任务状态。
+func (s *Store) latestTaskByWhere(ctx context.Context, whereClause string, args []any) (TaskRun, error) {
+	var task TaskRun
+	var startedAt, updatedAt, finishedAt string
+	query := `
+		SELECT task_id, position_id, platform_id, task_type, status, current_step,
+			summary, error_code, error_message, started_at, updated_at, finished_at
+		FROM task_runs
+		` + whereClause + `
+		ORDER BY started_at DESC
+		LIMIT 1`
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(
+		&task.TaskID,
+		&task.PositionID,
+		&task.PlatformID,
+		&task.TaskType,
+		&task.Status,
+		&task.CurrentStep,
+		&task.Summary,
+		&task.ErrorCode,
+		&task.ErrorMessage,
+		&startedAt,
+		&updatedAt,
+		&finishedAt,
+	)
+	if err != nil {
+		return TaskRun{}, err
+	}
+	task.StartedAt, _ = time.Parse(time.RFC3339Nano, startedAt)
+	task.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+	task.FinishedAt, _ = time.Parse(time.RFC3339Nano, finishedAt)
+	if err = s.fillTaskCandidateCounts(ctx, &task); err != nil {
+		return TaskRun{}, err
+	}
+	return task, nil
+}
+
 // fillTaskCandidateCounts 从已有候选人摘要计算本次任务的扫描、打招呼和跳过数量。
 func (s *Store) fillTaskCandidateCounts(ctx context.Context, task *TaskRun) error {
 	if task == nil || strings.TrimSpace(task.TaskID) == "" {
 		return nil
+	}
+	if task.TaskType == "auto_reply" {
+		return s.fillTaskConversationCounts(ctx, task)
 	}
 	err := s.db.QueryRowContext(ctx, `
 		SELECT
@@ -255,6 +311,23 @@ func (s *Store) fillTaskCandidateCounts(ctx context.Context, task *TaskRun) erro
 	).Scan(&task.ScannedCount, &task.GreetedCount, &task.SkippedCount)
 	if err != nil {
 		return fmt.Errorf("统计本次任务候选人数量失败：%w", err)
+	}
+	return nil
+}
+
+// fillTaskConversationCounts 从自动回复摘要计算本次处理会话、成功回复和转人工或跳过数量。
+func (s *Store) fillTaskConversationCounts(ctx context.Context, task *TaskRun) error {
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN result = 'success' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN result != 'success' THEN 1 ELSE 0 END), 0)
+		FROM conversation_records
+		WHERE task_id = ?`,
+		task.TaskID,
+	).Scan(&task.ScannedCount, &task.GreetedCount, &task.SkippedCount)
+	if err != nil {
+		return fmt.Errorf("统计本次自动回复会话数量失败：%w", err)
 	}
 	return nil
 }
@@ -341,7 +414,7 @@ func (s *Store) CleanupExpired(ctx context.Context, cutoff time.Time) (int64, er
 		`DELETE FROM screening_records WHERE completed=1 AND acked_revision>=revision AND updated_at < ?`,
 		`DELETE FROM candidate_records WHERE created_at < ?`,
 		`DELETE FROM conversation_records WHERE created_at < ?`,
-		`DELETE FROM download_records WHERE created_at < ?`,
+		`DELETE FROM download_records WHERE created_at < ? AND status<>'purged'`,
 		`DELETE FROM task_logs WHERE created_at < ?`,
 		`DELETE FROM task_runs WHERE status != 'running' AND updated_at < ?`,
 	}
@@ -363,7 +436,7 @@ func (s *Store) CleanupExpired(ctx context.Context, cutoff time.Time) (int64, er
 	return deleted, nil
 }
 
-// SaveCandidate 保存候选人动作摘要并自动去重。
+// SaveCandidate 原子核对已登记的筛选尝试并保存动作；删除先完成时丢弃迟到结果，旧入口继续独立记账。
 func (s *Store) SaveCandidate(ctx context.Context, record CandidateRecord) error {
 	record.Fingerprint = strings.TrimSpace(record.Fingerprint)
 	if record.Fingerprint == "" {
@@ -372,7 +445,8 @@ func (s *Store) SaveCandidate(ctx context.Context, record CandidateRecord) error
 	_, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO candidate_records (
 			task_id, fingerprint, platform_id, display_name, action, result, reason, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE ?='' OR EXISTS
+			(SELECT 1 FROM screening_records WHERE attempt_id=? AND task_id=?)`,
 		record.TaskID,
 		record.Fingerprint,
 		record.PlatformID,
@@ -381,6 +455,7 @@ func (s *Store) SaveCandidate(ctx context.Context, record CandidateRecord) error
 		record.Result,
 		record.Reason,
 		time.Now().UTC().Format(time.RFC3339Nano),
+		record.ScreeningAttemptID, record.ScreeningAttemptID, record.TaskID,
 	)
 	return err
 }

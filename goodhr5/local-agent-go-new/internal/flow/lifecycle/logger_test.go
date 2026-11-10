@@ -15,6 +15,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // TestTaskLogMessageUsesChinese 验证流程错误日志使用中文步骤名称。
@@ -198,5 +199,90 @@ func TestTaskLoggerHoldsTerminalResult(t *testing.T) {
 	status = logger.AnalysisStatus("task-analysis")
 	if status == nil || status.CandidateName != "李四" {
 		t.Fatalf("保留时间结束后没有展示最新状态：%+v", status)
+	}
+}
+
+// TestAutoReplyLogUploadOmitsPrivateContents 验证本地自动回复正文和穿插输入诊断不会被岗位日志旁路上传。
+func TestAutoReplyLogUploadOmitsPrivateContents(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(filepath.Join(t.TempDir(), "privacy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, item := range []storage.TaskLog{
+		{PositionID: "position", Flow: "analysis", Step: "analysis.auto_reply.reply", Message: "候选人聊天秘密", Input: json.RawMessage(`{"candidate":"候选人聊天秘密"}`), Output: json.RawMessage(`{"ai_response_diagnostic":{"content":"候选人聊天秘密"}}`)},
+		{PositionID: "position", Flow: "browser_worker", Step: "input", Message: "候选人聊天秘密", Input: json.RawMessage(`{"text":"候选人聊天秘密"}`)},
+	} {
+		if _, err = store.SaveTaskLog(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var uploaded []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		uploaded = request
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	runner := &Runner{store: store, cloud: cloud.New(server.URL)}
+	if err = runner.UploadPositionLogs(ctx, "token", "position"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(uploaded), "候选人聊天秘密") || strings.Contains(string(uploaded), "ai_response_diagnostic") {
+		t.Fatalf("岗位日志泄露本地正文：%s", uploaded)
+	}
+	local, err := store.ListPositionLogs(ctx, "position", 100)
+	if err != nil || len(local) != 2 || !strings.Contains(local[0].Message, "候选人聊天秘密") {
+		t.Fatalf("本地排错详情被错误删除：%+v %v", local, err)
+	}
+}
+
+// TestAutoReplyLogsUseActualPosition 验证全局回复的同步日志与后台显式日志各自归属实际岗位。
+func TestAutoReplyLogsUseActualPosition(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "logs.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	if err = store.SaveTask(ctx, storage.TaskRun{TaskID: "task", PositionID: "first-position", PlatformID: "boss", TaskType: "auto_reply", Status: "running", StartedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	logger := NewTaskLogger(store, nil)
+	logger.SetTaskPosition("task", "second-position")
+	logger.ReportAnalysis("task", shared.AnalysisStatus{Kind: "auto_reply", Stage: "sent", Phase: "result", Terminal: true, CandidateName: "候选人乙", Reason: "已回复"})
+	logger.ReportAnalysis("task", shared.AnalysisStatus{PositionID: "third-position", Kind: "auto_reply", Stage: "recommendation", Phase: "result", CandidateName: "候选人丙", Reason: "报告已保存"})
+	for _, positionID := range []string{"second-position", "third-position"} {
+		logs, err := store.ListPositionLogs(ctx, positionID, 100)
+		if err != nil || len(logs) != 1 {
+			t.Fatalf("实际岗位日志归属不正确：position=%s logs=%d err=%v", positionID, len(logs), err)
+		}
+	}
+	logger.ReportAnalysis("task", shared.AnalysisStatus{PositionID: "third-position", Kind: "auto_reply", Stage: "ai", Phase: "error", Reason: "模型响应中断",
+		FailureDiagnostics: []failurediag.Detail{{Source: "AI", Reason: "部分内容后连接中断"}}})
+	failed, err := store.ListPositionLogs(ctx, "third-position", 100)
+	if err != nil || len(failed) != 2 || failed[1].Step != "analysis.auto_reply.ai" || !strings.Contains(string(failed[1].Output), "部分内容后连接中断") {
+		t.Fatalf("实际岗位缺少 AI 故障记录：%+v %v", failed, err)
+	}
+	logs, err := store.ListPositionLogs(ctx, "first-position", 100)
+	if err != nil || len(logs) != 0 {
+		t.Fatalf("不应落到全局任务首岗：logs=%d err=%v", len(logs), err)
+	}
+}
+
+// TestPrivateReadErrorsRetainDiagnosticEvidence 验证正文脱敏不会清空读取错误的超时、调用栈和原生诊断。
+func TestPrivateReadErrorsRetainDiagnosticEvidence(t *testing.T) {
+	safe := uploadPrivateDiagnostic(json.RawMessage(`{"text":"private-body","error_code":"READ_TIMEOUT","timeout_ms":45000,"stack":"at Read.text","queue":{"pending":2},"input_wait":{"stage":"playwright_input"}}`))
+	for _, required := range []string{"READ_TIMEOUT", "45000", "Read.text", "pending", "playwright_input"} {
+		if !strings.Contains(string(safe), required) {
+			t.Fatalf("诊断字段丢失 %s: %s", required, safe)
+		}
+	}
+	if strings.Contains(string(safe), "private-body") {
+		t.Fatalf("正文没有隐藏：%s", safe)
 	}
 }

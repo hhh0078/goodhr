@@ -25,6 +25,7 @@ import (
 type pageOpenRequest struct {
 	Token             string          `json:"token"`
 	URL               string          `json:"url"`
+	ReuseURLs         []string        `json:"reuse_urls,omitempty"` // 显式提供时复用数组内已打开页面，旧请求继续按 URL 打开。
 	UserDataDir       string          `json:"user_data_dir"`
 	ProfileID         string          `json:"profile_id"`
 	PlatformID        string          `json:"platform_id"`
@@ -80,10 +81,10 @@ type screenshotCompatibilityRequest struct {
 
 // handlePageOpen 启动或复用指定 Profile，并通过 Camoufox 打开平台页面。
 func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
-	if s.runner.HasActive() {
-		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务正在使用浏览器，现在不能切换页面"))
+	if !s.beginIdleBrowserOperation(w) {
 		return
 	}
+	defer s.browserOperationMu.Unlock()
 	var request pageOpenRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
@@ -128,7 +129,7 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
 		return
 	}
-	result, err := s.browser.StartBrowser(r.Context(), contract.BrowserStartRequest{
+	result, err := s.browser.StartBrowserWithSupportedPage(r.Context(), contract.BrowserStartRequest{
 		UserDataDir: profilePath, DownloadsPath: downloadsPath,
 		Headless: &request.Headless, Humanize: &humanize,
 		MouseSpeed: mouseSpeed,
@@ -136,7 +137,7 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 		Locale: locale, Timezone: timezone,
 		UserAgent: request.UserAgent, Proxy: proxy, Args: request.Args,
 		ExtensionPaths: profile.WithBookmarkExtension(profilePath, s.cfg.ExtensionPaths()),
-	})
+	}, request.ReuseURLs)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "PAGE_OPEN_FAILED", err)
 		return
@@ -192,9 +193,17 @@ func (s *Server) handleLocalPositionRun(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", fmt.Errorf("这个接口只支持 POST"))
 		return
 	}
+	if !s.beginIdleBrowserOperation(w) {
+		return
+	}
+	defer s.browserOperationMu.Unlock()
 	var request localPositionRunRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(request.TaskType), "auto_reply") {
+		writeError(w, http.StatusConflict, "CLOUD_AUTO_REPLY_REQUIRED", fmt.Errorf("请使用岗位页的服务器自动回复入口"))
 		return
 	}
 	taskID := positionID + "-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
@@ -331,10 +340,10 @@ func (s *Server) handleWorkerStart(w http.ResponseWriter, r *http.Request) {
 
 // handleWorkerStop 停止本地程序管理的 TypeScript Browser Worker。
 func (s *Server) handleWorkerStop(w http.ResponseWriter, _ *http.Request) {
-	if s.runner.HasActive() {
-		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务还在运行，请先安全停止任务"))
+	if !s.beginIdleBrowserOperation(w) {
 		return
 	}
+	defer s.browserOperationMu.Unlock()
 	if err := s.runtime.StopWorker(); err != nil {
 		writeError(w, http.StatusInternalServerError, "WORKER_STOP_FAILED", err)
 		return
@@ -354,41 +363,41 @@ func (s *Server) handleWorkerStatus(w http.ResponseWriter, r *http.Request) {
 	}{Installed: buildErr == nil, Running: healthErr == nil})
 }
 
-// handleOCRStatus 返回本机 OCR 组件是否完整可用。
+// handleOCRStatus 保留旧接口合同，但不再检查或启动本机OCR组件。
 func (s *Server) handleOCRStatus(w http.ResponseWriter, _ *http.Request) {
-	err := s.ocr.Ready()
-	message := ""
-	if err != nil {
-		message = err.Error()
-	}
 	writeSuccess(w, http.StatusOK, struct {
 		Installed bool   `json:"installed"`
+		Enabled   bool   `json:"enabled"`
 		Message   string `json:"message"`
-	}{Installed: err == nil, Message: message})
+	}{Installed: false, Enabled: false, Message: "本地OCR已停用，岗位会按平台读取详情。"})
 }
 
 // handleOCRRecognize 校验本地图片路径后调用常驻 OCR 组件。
 func (s *Server) handleOCRRecognize(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		FilePath       string `json:"file_path"`
-		Path           string `json:"path"`
-		ScreenshotPath string `json:"screenshot_path"`
-	}
-	if err := decodeJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
-		return
-	}
-	imagePath := firstNonEmpty(request.FilePath, request.Path, request.ScreenshotPath)
-	if !pathWithin(imagePath, s.cfg.DataDir) && !pathWithin(imagePath, s.cfg.ScreenshotsDir) {
-		writeError(w, http.StatusBadRequest, "INVALID_IMAGE_PATH", fmt.Errorf("只能识别 GoodHR 本地数据目录内的图片"))
-		return
-	}
-	result, err := s.ocr.Recognize(r.Context(), imagePath)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "OCR_FAILED", err)
-		return
-	}
-	writeSuccess(w, http.StatusOK, result)
+	writeError(w, http.StatusGone, "OCR_DISABLED", fmt.Errorf("本地OCR已停用，BOSS使用AI，其它平台读取页面文字"))
+	// 历史OCR识别实现保留，当前入口不再调用本机识别进程。
+	/*
+		var request struct {
+			FilePath       string `json:"file_path"`
+			Path           string `json:"path"`
+			ScreenshotPath string `json:"screenshot_path"`
+		}
+		if err := decodeJSON(w, r, &request); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+			return
+		}
+		imagePath := firstNonEmpty(request.FilePath, request.Path, request.ScreenshotPath)
+		if !pathWithin(imagePath, s.cfg.DataDir) && !pathWithin(imagePath, s.cfg.ScreenshotsDir) {
+			writeError(w, http.StatusBadRequest, "INVALID_IMAGE_PATH", fmt.Errorf("只能识别 GoodHR 本地数据目录内的图片"))
+			return
+		}
+		result, err := s.ocr.Recognize(r.Context(), imagePath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "OCR_FAILED", err)
+			return
+		}
+		writeSuccess(w, http.StatusOK, result)
+	*/
 }
 
 // handleRulesStatus 返回平台规则随本地程序发布的兼容状态。

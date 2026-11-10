@@ -25,7 +25,7 @@ func normalizeIncident(line []byte) []byte {
 		return data
 	}
 	compact := map[string]any{"input": map[string]any{}, "output": map[string]any{}, "diagnostic_truncated": true}
-	for _, key := range []string{"timestamp", "category", "action", "step", "status", "is_error", "error_message", "error", "original_error", "exit_reason", "message", "exit_code", "signal", "pid", "trace_id", "request_id", "expected_stop"} {
+	for _, key := range []string{"timestamp", "category", "action", "source_action", "step", "status", "is_error", "error_message", "error", "original_error", "exit_reason", "message", "exit_code", "signal", "pid", "trace_id", "request_id", "expected_stop"} {
 		if value, ok := item[key]; ok {
 			if text, ok := value.(string); ok {
 				value = diagnosticText(text, 700)

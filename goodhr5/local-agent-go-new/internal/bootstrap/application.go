@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
-	goruntime "runtime"
 	"sync"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/client"
 	browserprocess "goodhr5/local-agent-go-new/internal/browser/process"
 	"goodhr5/local-agent-go-new/internal/config"
-	"goodhr5/local-agent-go-new/internal/flow/auto_reply"
 	downloadflow "goodhr5/local-agent-go-new/internal/flow/download"
 	"goodhr5/local-agent-go-new/internal/flow/greeting"
 	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
@@ -35,6 +33,12 @@ import (
 	"goodhr5/local-agent-go-new/internal/updater"
 	"goodhr5/local-agent-go-new/internal/version"
 )
+
+// replyBrowser 为自动回复提供现有浏览器操作和本地下载监听。
+type replyBrowser struct {
+	*client.Client
+	*downloadflow.Monitor
+}
 
 // Application 保存程序运行期间需要清理的顶层组件。
 type Application struct {
@@ -75,11 +79,10 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 	runtimeManager := runtimemanager.New(
 		cfg.NodePath, cfg.WorkerEntryPath, cfg.RuntimeDir, cfg.OCRExecutable, workerProcess,
 	)
-	// Mac 更新后必须先核对线上浏览器摘要，Windows 保留现有启动规则。
-	if goruntime.GOOS == "darwin" {
-		runtimeManager.EnableStartupCamoufoxSync()
-	}
+	// Windows x64 与 Mac 双架构先核对线上浏览器摘要；其他平台由管理器保持关闭。
+	runtimeManager.EnableStartupCamoufoxSync()
 	cloudClient := cloud.New(cfg.CloudURL)
+	// 自动回复的流程、AI和业务数据由服务器管理；本机仅执行浏览器命令。
 	machineID, deviceErr := device.Current()
 	if deviceErr != nil {
 		log.Printf("稳定设备编号暂时不可用：%v", deviceErr)
@@ -93,9 +96,9 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 	notifier := &notification.Notifier{}
 	logger := lifecycle.NewTaskLogger(store, shared.StandardLogger{})
 	incidents := diagnostics.NewBrowserIncidentRecorder(store, cloudClient)
+	runLog.SetUploadSink(incidents.WorkerLine, incidents.Flush)
 	runtimeLog := diagnostics.WorkerLine(runLog, func(line []byte) {
 		logger.WorkerLine(line)
-		incidents.WorkerLine(line)
 	})
 	ocrClient := ocr.NewWithExecutableResolver(runtimeManager.OCRPath, runtimeLog)
 	incidents.RecordLifecycle("agent.start", "本地程序已启动，版本 "+version.Value, false)
@@ -115,12 +118,8 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 		Cloud: cloudClient, Notifier: notifier, Logger: logger, ScreenshotsDir: cfg.ScreenshotsDir,
 		DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
 	}
-	replyFlow := &auto_reply.Flow{
-		Browser: browserClient, AI: aiClient, Store: store, Cloud: cloudClient,
-		Logger: logger, DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
-	}
-	runner := lifecycle.New(checker, greetingFlow, replyFlow, store, profiles, powerGuard, cloudClient, notifier, logger)
 	downloads := &downloadflow.Monitor{Browser: browserClient, Store: store, Notifier: notifier}
+	runner := lifecycle.New(checker, greetingFlow, nil, store, profiles, powerGuard, cloudClient, notifier, logger)
 	application := &Application{
 		cfg: cfg, runner: runner, runtime: runtimeManager,
 		browser: browserClient, store: store, downloads: downloads, ocr: ocrClient,
@@ -184,6 +183,10 @@ func (a *Application) Run(ctx context.Context) error {
 	screeningDone := make(chan struct{})
 	go func() { defer close(screeningDone); a.runner.RunScreeningSync(screeningCtx) }()
 	defer stopScreening()
+	replyCtx, stopReply := context.WithCancel(runCtx)
+	replyDone := make(chan struct{})
+	go func() { defer close(replyDone); a.runner.RunAutoReplyBackground(replyCtx) }()
+	defer stopReply()
 	go func() {
 		select {
 		case <-a.shutdown:
@@ -280,6 +283,8 @@ func (a *Application) Run(ctx context.Context) error {
 	cancelIncidents()
 	stopScreening()
 	<-screeningDone
+	stopReply()
+	<-replyDone
 	if err := a.store.Close(); err != nil && runErr == nil {
 		runErr = fmt.Errorf("关闭 SQLite 失败：%w", err)
 	}

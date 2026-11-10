@@ -7,14 +7,17 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
 type updateAdminSystemConfigRequest struct {
-	ConfigValue string `json:"config_value"`
+	ConfigValue         string  `json:"config_value"`
+	ExpectedConfigValue *string `json:"expected_config_value,omitempty"`
 }
 
 type Server struct {
+	autoReply             *AutoReplyService
 	auth                  *AuthService
 	agent                 *AgentService
 	userFlow              *UserFlowService
@@ -24,6 +27,7 @@ type Server struct {
 	attachmentImports     *AttachmentImportService
 	aiWallet              *AIWalletService
 	aiUsageRetention      *AIUsageRetentionService
+	candidateRetention    *CandidateRetentionService
 	assistant             *AssistantService
 	resumeVectors         *ResumeVectorService
 	headhunter            *HeadhunterService
@@ -129,15 +133,32 @@ func NewServer() (*Server, error) {
 		NewWechatRewardNoticeService(NewPostgresWechatRewardNoticeStore(db), mailer, systemConfigStore).Start(context.Background())
 	}
 	candidates := NewCandidateService(auth, candidateStore, tenantStore, positionStore)
+	autoReplyStore := config.AutoReplyStore(db)
+	if db != nil {
+		startReplyFilePurge(context.Background(), db, os.Getenv("GOODHR_AUTO_REPLY_FILES_DIR"))
+	}
+	autoReplyService := NewAutoReplyService(auth, autoReplyStore, tenantStore, positionStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, agentStore, mailer)
+	candidates.autoReply = autoReplyStore
 	recruitment := NewRecruitmentService(auth, recruitmentStore, tenantStore, candidateStore, positionStore)
 	recruitmentMail := NewRecruitmentMailService(auth, recruitmentMailStore, tenantStore, mailer, recruitment)
 	messages := NewMessageService(auth, config.MessageStore(db))
 	messages.StartCleanup(context.Background())
 	aiService := NewAIConfigService(auth, aiConfigStore, systemConfigStore)
+	autoReplyService.ai = aiService
 	attachmentService := NewAttachmentParseService(auth, aiService)
 	// 正式数据库环境必须有 Redis 付费回执；缺少持久幂等能力时只关闭附件解析，不冒险重复调用模型。
 	if db != nil && config.RedisAddr == "" {
 		attachmentService.store = nil
+	}
+	if guard, ok := candidateStore.(attachmentRevocationReader); ok && attachmentService.store != nil {
+		raw := attachmentService.store
+		if cache, ok := raw.(*redisAttachmentParseStore); ok && db != nil {
+			startAttachmentPurge(context.Background(), db, cache)
+		}
+		if memory, ok := candidateStore.(*MemoryCandidateStore); ok {
+			memory.purgeLinks.attachments, _ = raw.(*memoryAttachmentParseStore)
+		}
+		attachmentService.store = &guardedAttachmentStore{inner: raw, guard: guard}
 	}
 	attachmentImports := NewAttachmentImportService(attachmentService, candidates, messages)
 	attachmentImports.StartRecovery(context.Background())
@@ -157,7 +178,16 @@ func NewServer() (*Server, error) {
 	if db != nil && config.RedisAddr == "" {
 		assistant.store = nil
 	}
+	shareStore := NewCandidateShareStore(db)
+	if memory, ok := candidateStore.(*MemoryCandidateStore); ok {
+		memory.purgeLinks.recruitment, _ = recruitmentStore.(*MemoryRecruitmentStore)
+		memory.purgeLinks.mail, _ = recruitmentMailStore.(*MemoryRecruitmentMailStore)
+		memory.purgeLinks.shares, _ = shareStore.(*MemoryCandidateShareStore)
+		memory.purgeLinks.screening, _ = screeningStore.(*MemoryScreeningRecordStore)
+		memory.purgeLinks.vectors, _ = vectorStore.(*memoryResumeVectorStore)
+	}
 	return &Server{
+		autoReply:             autoReplyService,
 		auth:                  auth,
 		agent:                 NewAgentService(auth, agentStore, systemConfigStore),
 		userFlow:              NewUserFlowService(auth, userFlowStore, positionStore),
@@ -167,6 +197,7 @@ func NewServer() (*Server, error) {
 		attachmentImports:     attachmentImports,
 		aiWallet:              aiWalletService,
 		aiUsageRetention:      NewAIUsageRetentionService(aiWalletStore),
+		candidateRetention:    NewCandidateRetentionService(candidateStore),
 		assistant:             assistant,
 		resumeVectors:         resumeVectors,
 		headhunter:            headhunterService,
@@ -174,14 +205,14 @@ func NewServer() (*Server, error) {
 		notificationProfile:   NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:      NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:             NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:     NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
+		positionExecution:     NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, aiConfigStore),
 		positionLogs:          positionLogs,
 		screeningRecords:      NewScreeningRecordService(auth, positionStore, tenantStore, screeningStore),
 		browserEvents:         NewBrowserEventService(auth, db),
 		candidates:            candidates,
 		recruitment:           recruitment,
 		recruitmentMail:       recruitmentMail,
-		candidateShares:       NewCandidateShareService(candidates, NewCandidateShareStore(db)),
+		candidateShares:       NewCandidateShareService(candidates, shareStore),
 		messages:              messages,
 		resumeLibrarySettings: NewResumeLibrarySettingsService(auth, config.ResumeLibrarySettingsStore(db)),
 		subscriptions:         NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
@@ -206,6 +237,17 @@ func NewServer() (*Server, error) {
 // Routes 注册云端 HTTP 路由，并包装基础 CORS 中间件。
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auto-reply/company-profiles", s.autoReply.CompanyProfiles)
+	mux.HandleFunc("/api/auto-reply/company-profiles/", s.autoReply.CompanyProfile)
+	mux.HandleFunc("/api/auto-reply/positions/", s.autoReply.Position)
+	mux.HandleFunc("/api/auto-reply/questions/summary", s.autoReply.QuestionSummary)
+	mux.HandleFunc("/api/auto-reply/questions", s.autoReply.QuestionsInbox)
+	mux.HandleFunc("/api/auto-reply/runtime/", s.autoReply.runtimeProxy)
+	mux.HandleFunc("/internal/auto-reply/state/", s.autoReply.internalState)
+	mux.HandleFunc("/api/auto-reply/agent/", s.autoReply.Agent)
+	mux.HandleFunc("/api/auto-reply/recommendations/", s.autoReply.Recommendation)
+	mux.HandleFunc("/api/public/recommendations/", s.autoReply.PublicRecommendation)
+
 	// 注册健康检查接口，用于部署和本地开发确认服务在线。
 	mux.HandleFunc("/health", s.health)
 	// 注册认证接口，用于邮箱验证码登录和登录态校验。
@@ -261,6 +303,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/ai-compatible/v1/embeddings", s.aiWallet.Embeddings)
 	if s.aiUsageRetention != nil {
 		mux.HandleFunc("/api/internal/ai-usage/cleanup", s.aiUsageRetention.Cleanup)
+	}
+	if s.candidateRetention != nil {
+		mux.HandleFunc("/api/internal/temporary-resumes/cleanup", s.candidateRetention.Cleanup)
 	}
 	if s.assistant != nil {
 		mux.HandleFunc("/api/assistant/", s.assistant.Route)
@@ -394,6 +439,10 @@ func (s *Server) recruitmentRoute(w http.ResponseWriter, r *http.Request) {
 
 // positionRoute 根据路径分发岗位详情、日志和本地程序同步请求。
 func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/auto-reply/condition-suggestions") {
+		s.suggestAutoReplyConditions(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/screening-records") {
 		s.screeningRecords.Collection(w, r)
 		return
@@ -724,6 +773,21 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "config_value must be valid json")
 		return
 	}
+	if configKey == autoReplyLibraryKey {
+		if _, err := parseAutoReplyLibrary(raw); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if req.ExpectedConfigValue == nil {
+			writeError(w, http.StatusConflict, "请重新打开默认话术后再保存")
+			return
+		}
+		raw, err = preserveDeletedDefaultPhrases(existing.ConfigValue, raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if configKey == defaultPromptsConfigKey {
 		if err := validateDefaultPromptsConfig(raw); err != nil {
 			writeError(w, http.StatusBadRequest, "AI 默认提示词没保存："+err.Error())
@@ -765,7 +829,21 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 	}
 
 	existing.ConfigValue = raw
-	if err := s.systemConfigs.Save(existing); err != nil {
+	if (configKey == autoReplyLibraryKey || configKey == defaultPromptsConfigKey) && req.ExpectedConfigValue != nil {
+		if !json.Valid([]byte(*req.ExpectedConfigValue)) {
+			writeError(w, http.StatusBadRequest, "原始配置格式不正确，请重新打开")
+			return
+		}
+		var saved bool
+		saved, err = s.systemConfigs.SaveIfUnchanged(existing, *req.ExpectedConfigValue)
+		if err == nil && !saved {
+			writeError(w, http.StatusConflict, errAutoReplyLibraryConflict.Error())
+			return
+		}
+	} else {
+		err = s.systemConfigs.Save(existing)
+	}
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save system config")
 		return
 	}
@@ -779,6 +857,19 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 
 // candidateRoute 优先分派经过权限验证的简历分享，其他操作继续复用简历库路由。
 func (s *Server) candidateRoute(w http.ResponseWriter, r *http.Request) {
+	if candidate, attachment, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, "/api/candidates/"), "/auto-reply/attachments/"); ok {
+		if candidate == "" || attachment == "" || strings.ContainsAny(candidate+attachment, "/\\") {
+			http.NotFound(w, r)
+			return
+		}
+		s.candidates.autoReplyAttachment(w, r, candidate, attachment)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/auto-reply") {
+		s.candidates.AutoReplyDetail(w, r)
+		return
+	}
+
 	if strings.HasSuffix(r.URL.Path, "/share") && s.candidateShares != nil {
 		s.candidateShares.PrivateShare(w, r)
 		return

@@ -87,6 +87,7 @@ async function storeSession(result, expectedGeneration = authGeneration, pairing
     await queueCancelledSession(result.token, pairingGrant);
     throw new Error("这次登录已经被退出取消，不会自动恢复");
   }
+  void reconcileDrafts().catch(() => {});
 }
 
 /** revocationSummary 返回不含任何凭证的撤销进度与明确未完成提示。 */
@@ -354,6 +355,86 @@ function scheduleCaptureCheck(tabID, resume) {
   }, 450));
 }
 
+const candidateIDPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const draftChecks = new Map();
+
+/** draftDeletionRef 优先选择当前云端编号，历史只有一个明确编号时复用；无编号才使用稳定平台身份摘要。 */
+async function draftDeletionRef(identity, draft) {
+  const attachment = draft?.attachment;
+  let id = draft?.candidate_id;
+  if (!id && attachment) {
+    const current = [...new Set([attachment.save_task?.candidate_id, attachment.save_request?.candidate_id].filter(Boolean))];
+    if (current.length > 1) return null;
+    id = current[0];
+    if (!id && attachment.save_request) return null; // 新建请求尚未取得编号，不能拿旧回执认人。
+    if (!id) {
+      const history = [...new Set((Array.isArray(attachment.save_history) ? attachment.save_history : []).map(item => item?.candidate_id).filter(Boolean))];
+      if (history.length > 1) return null;
+      id = history[0];
+    }
+  }
+  if (id) return candidateIDPattern.test(id) ? { field: "candidate_ids", value: id.toLowerCase() } : null;
+  if (/^[0-9a-f]{64}$/.test(draft?.source_hash || "")) return { field: "source_hashes", value: draft.source_hash };
+  // 旧草稿的前三项依次为平台、平台候选编号、来源地址；附件哈希、姓名和联系方式均不能替代平台身份。
+  let parts;
+  try { parts = JSON.parse(identity); } catch { return null; }
+  if (!Array.isArray(parts) || !parts[0] || !shared.platformForURL(parts[2]) || parts[0] !== shared.platformForURL(parts[2]) || typeof parts[1] !== "string" || !parts[1].trim()) return null;
+  return { field: "source_hashes", value: await shared.hashText(parts[0] + "\0" + parts[1].trim()) };
+}
+
+/** queueDraft 串行执行对插件草稿对象的修改，避免后台核对覆盖刚保存的窗口。 */
+function queueDraft(work) {
+  const result = draftQueue.then(work);
+  draftQueue = result.catch(() => {});
+  return result;
+}
+
+/** checkStoredDrafts 向云端批量核实当前账号已有关联，网络失败不动草稿，返回后复核本机快照。 */
+async function checkStoredDrafts(settings, generation) {
+  const account = accountKey(settings), stored = await extension.storage.local.get(["ui_drafts"]), entries = [];
+  for (const [key, item] of Object.entries(stored.ui_drafts || {})) {
+    let parts;
+    try { parts = JSON.parse(key); } catch { continue; }
+    if (!Array.isArray(parts) || parts[0] !== account || typeof parts[1] !== "string") continue;
+    const ref = await draftDeletionRef(parts[1], item?.data);
+    if (ref) entries.push({ key, ref, snapshot: JSON.stringify(item) });
+  }
+  // 正常草稿上限为30条；兼容旧存储超量时仍按50条拆分，不发送姓名、网址或职业资料。
+  for (let i = 0; i < entries.length; i += 50) {
+    const batch = entries.slice(i, i + 50), refs = { candidate_ids: new Set(), source_hashes: new Set() };
+    for (const { ref } of batch) refs[ref.field].add(ref.value);
+    const session = await readSettings();
+    if (generation !== authGeneration || session.session?.token !== settings.session.token || account !== accountKey(session)) return;
+    const data = await cloudRequest("/api/candidates/deletions/check", { candidate_ids: [...refs.candidate_ids], source_hashes: [...refs.source_hashes] }, "POST", false, generation);
+    if (data?.ok !== true || !Array.isArray(data.candidate_ids) || !Array.isArray(data.source_hashes)) return;
+    const removed = batch.filter(({ ref }) => data[ref.field].includes(ref.value));
+    if (!removed.length) continue;
+    await queueDraft(async () => {
+      const latest = await extension.storage.local.get(["ui_drafts", "session"]);
+      if (generation !== authGeneration || latest.session?.token !== settings.session.token || account !== accountKey(latest)) return;
+      const drafts = latest.ui_drafts || {};
+      let changed = false;
+      for (const item of removed) {
+        if (JSON.stringify(drafts[item.key]) !== item.snapshot) continue;
+        delete drafts[item.key]; changed = true;
+      }
+      if (changed) await extension.storage.local.set({ ui_drafts: drafts });
+    });
+  }
+}
+
+/** reconcileDrafts 合并同账号同时发起的核对，旧云端、离线和未授权时原样保留草稿。 */
+async function reconcileDrafts() {
+  const generation = authGeneration, settings = await readSettings();
+  if (!settings.session?.token || !settings.data_use_accepted || generation !== authGeneration) return;
+  const key = JSON.stringify([generation, accountKey(settings)]);
+  if (!draftChecks.has(key)) {
+    const work = checkStoredDrafts(settings, generation).catch(() => {}).finally(() => draftChecks.delete(key));
+    draftChecks.set(key, work);
+  }
+  await draftChecks.get(key);
+}
+
 /** performDraftOperation 读取24小时内的私有草稿，切账号后拒绝旧界面写入。 */
 async function performDraftOperation(payload, saving) {
   const generation = authGeneration, settings = await readSettings(), account = accountKey(settings), identity = shared.cleanText(payload.identity, 1500);
@@ -361,13 +442,23 @@ async function performDraftOperation(payload, saving) {
   const stored = await extension.storage.local.get(["ui_drafts"]), drafts = Object.fromEntries(Object.entries(stored.ui_drafts || {}).filter(([, item]) => Date.now() - item.updated_at < 86400000));
   if (generation !== authGeneration) throw Object.assign(new Error("账号已经变化，旧草稿已停止读取"), { code: "DRAFT_SCOPE_CHANGED" });
   const key = JSON.stringify([account, identity]);
-  if (!saving) { if (Object.keys(drafts).length !== Object.keys(stored.ui_drafts || {}).length) await extension.storage.local.set({ ui_drafts: drafts }); return { draft: drafts[key]?.data || null }; }
+  const instance = drafts[key]?.instance;
+  if (payload.draft_instance && payload.draft_instance !== instance) throw new Error("这份简历的旧草稿已清理，请重新打开候选人再填写。");
+  if (!saving) {
+    if (drafts[key] && !instance) drafts[key].instance = shared.newKey();
+    if ((drafts[key] && !instance) || Object.keys(drafts).length !== Object.keys(stored.ui_drafts || {}).length) await extension.storage.local.set({ ui_drafts: drafts });
+    return { draft: drafts[key]?.data || null, draft_instance: drafts[key]?.instance || "" };
+  }
   if (generation !== authGeneration) throw Object.assign(new Error("账号已经变化，旧草稿已停止保存"), { code: "DRAFT_SCOPE_CHANGED" });
   const data = payload.draft || {}, fields = {};
   const frozenSource = data.summary_source ? shared.stripSummaryContacts(data.summary_source) : null;
   if (frozenSource && new TextEncoder().encode(JSON.stringify(frozenSource)).byteLength > 1024 * 1024) throw new Error("这份总结职业资料超过1MiB，本地草稿没保存，请先整理履历后再生成");
   for (const name of ["name", "phone", "candidate-email", "city", "position", "expected-position", "gender", "first-company", "first-work-start", "first-work-end", "first-school", "first-school-start", "first-school-end", "duplicate-keyword", "job-filter", "job", "folder-filter", "stage", "note", "note-time", "recommendation-note", "recommendation-time"]) fields[name] = shared.cleanText(data.fields?.[name], name.includes("note") ? 12000 : 500);
-  drafts[key] = { updated_at: Date.now(), data: { fields, folder_ids: shared.sanitizeFolderIDs(data.folder_ids), folders_edited: data.folders_edited === true, edited: Array.isArray(data.edited) ? data.edited.filter((item) => Object.hasOwn(fields, item)) : [], keys: Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((item) => [item, shared.cleanText(data.keys?.[item], 100)])), ai_summary: shared.cleanText(data.ai_summary, 12000), summary_task: data.summary_task?.id ? { id: shared.cleanText(data.summary_task.id, 100), status: shared.cleanText(data.summary_task.status, 40), possibly_charged: data.summary_task.possibly_charged === true } : null, summary_unknown: data.summary_unknown === true, summary_source: frozenSource } };
+  drafts[key] = { updated_at: Date.now(), instance: instance || shared.newKey(), data: { fields, folder_ids: shared.sanitizeFolderIDs(data.folder_ids), folders_edited: data.folders_edited === true, edited: Array.isArray(data.edited) ? data.edited.filter((item) => Object.hasOwn(fields, item)) : [], keys: Object.fromEntries(["save", "note", "recommendation", "avatar", "summary"].map((item) => [item, shared.cleanText(data.keys?.[item], 100)])), ai_summary: shared.cleanText(data.ai_summary, 12000), summary_task: data.summary_task?.id ? { id: shared.cleanText(data.summary_task.id, 100), status: shared.cleanText(data.summary_task.status, 40), possibly_charged: data.summary_task.possibly_charged === true } : null, summary_unknown: data.summary_unknown === true, summary_source: frozenSource } };
+  if (data.candidate_id) drafts[key].data.candidate_id = shared.cleanText(data.candidate_id, 100);
+  if (["boss", "liepin", "hliepin", "zhaopin", "51job"].includes(data.source_platform) && typeof data.source_candidate === "string" && data.source_candidate.trim()) {
+    drafts[key].data.source_hash = await shared.hashText(data.source_platform + "\0" + data.source_candidate.trim());
+  }
   // 只保存任务回执和已识别结构化字段，不在磁盘草稿复制附件全文。
   drafts[key].data.attachment = data.attachment ? { capture_id: shared.cleanText(data.attachment.capture_id, 160), basic_key: shared.cleanText(data.attachment.basic_key, 128), full_key: shared.cleanText(data.attachment.full_key, 128), basic_task: attachmentTaskReceipt(data.attachment.basic_task), full_task: attachmentTaskReceipt(data.attachment.full_task), basic_unknown: data.attachment.basic_unknown === true, basic_error: shared.cleanText(data.attachment.basic_error, 500), save_request: shared.sanitizeAttachmentImport(data.attachment.save_request), save_task: shared.attachmentImportReceipt(data.attachment.save_task), save_unknown: data.attachment.save_unknown === true, save_not_found: data.attachment.save_not_found === true, save_applied: shared.cleanText(data.attachment.save_applied, 100) } : null;
   if (drafts[key].data.attachment?.full_task) delete drafts[key].data.attachment.full_task.resume;
@@ -376,11 +467,18 @@ async function performDraftOperation(payload, saving) {
   if (drafts[key].data.attachment) drafts[key].data.attachment.full_unknown = data.attachment.full_unknown === true;
   const entries = Object.entries(drafts).sort(([left, a], [right, b]) => left === key ? -1 : right === key ? 1 : b.updated_at - a.updated_at).slice(0, 30);
   while (entries.length > 1 && new TextEncoder().encode(JSON.stringify(Object.fromEntries(entries))).byteLength > 3 * 1024 * 1024) entries.pop();
-  await extension.storage.local.set({ ui_drafts: Object.fromEntries(entries) }); return { ok: true };
+  if (generation !== authGeneration) throw new Error("账号已变化，本次草稿未保存。");
+  await extension.storage.local.set({ ui_drafts: Object.fromEntries(entries) }); return { ok: true, draft_instance: drafts[key].instance };
 }
 
 /** draftOperation 串行化不同弹窗的本地草稿读写，避免丢失另一个候选人的输入。 */
-function draftOperation(payload, saving) { const operation = draftQueue.then(() => performDraftOperation(payload, saving)); draftQueue = operation.catch(() => {}); return operation; }
+async function draftOperation(payload, saving) {
+  if (!saving) {
+    const { ui_drafts } = await extension.storage.local.get(["ui_drafts"]);
+    if (ui_drafts?.[JSON.stringify([payload.account_key, payload.identity])]) await reconcileDrafts();
+  }
+  return queueDraft(() => performDraftOperation(payload, saving));
+}
 
 /** attachmentTaskReceipt 只向隔离 UI 和私有草稿提供任务结果白名单，不回显输入正文。 */
 function attachmentTaskReceipt(task) {
@@ -578,7 +676,7 @@ async function handleUIMessage(message, sourceTab = null) {
   switch (message.type) {
     case "STATE": return publicState(sourceTab);
     case "PREVIEW": return { resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version };
-    case "CONSENT": if (!payload.accepted) { authGeneration++; duplicateCache.clear(); } await extension.storage.local.set({ data_use_accepted: payload.accepted === true }); if (payload.accepted) { const snapshot = await currentSnapshot(sourceTab), tab = sourceTab || await activeTab(); if (tab?.id && snapshot) scheduleCaptureCheck(tab.id, snapshot); } return { ok: true };
+    case "CONSENT": if (!payload.accepted) { authGeneration++; duplicateCache.clear(); } await extension.storage.local.set({ data_use_accepted: payload.accepted === true }); if (payload.accepted) { void reconcileDrafts().catch(() => {}); const snapshot = await currentSnapshot(sourceTab), tab = sourceTab || await activeTab(); if (tab?.id && snapshot) scheduleCaptureCheck(tab.id, snapshot); } return { ok: true };
     case "SET_AUTO_CLOSE": await extension.storage.local.set({ auto_close_after_save: payload.enabled !== false }); return { enabled: payload.enabled !== false };
     case "SEND_CODE": return requestJSON(shared.CLOUD_BASE + "/api/auth/extension-send-code", { method: "POST", body: JSON.stringify({ email: shared.cleanText(payload.email, 120) }) });
     case "LOGIN": {
@@ -703,6 +801,8 @@ function onMessage(message, sender, sendResponse) {
   return false;
 }
 
+extension.runtime.onStartup?.addListener(() => { void reconcileDrafts().catch(() => {}); });
+extension.runtime.onInstalled?.addListener(() => { void reconcileDrafts().catch(() => {}); });
 extension.runtime.onMessage.addListener(onMessage);
 extension.runtime.onConnect?.addListener(bindCostConfirmation);
 extension.tabs.onRemoved.addListener((tabID) => { snapshotSequences.set(tabID, (snapshotSequences.get(tabID) || 0) + 1); snapshots.delete(tabID); clearTimeout(captureTimers.get(tabID)); captureTimers.delete(tabID); });

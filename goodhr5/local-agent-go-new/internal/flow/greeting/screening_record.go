@@ -108,7 +108,7 @@ func (f *Flow) finishScreeningRound(ctx context.Context, prepared shared.Prepare
 			return fmt.Errorf("保存本轮筛选结果失败：%w", err)
 		}
 	}
-	f.logScreeningRound(prepared.Request.TaskID, candidate, number, round, started)
+	f.logScreeningRound(prepared.Request.TaskID, candidate, number, round, started, decisionErr)
 	return nil
 }
 
@@ -150,11 +150,11 @@ func (f *Flow) finalizeScreeningTask(ctx context.Context, prepared shared.Prepar
 }
 
 // logScreeningRound 将每轮完整原因写入普通日志；状态与耗时独立于后续招呼和结构化响应。
-func (f *Flow) logScreeningRound(taskID string, candidate model.Candidate, number int, round screening.Round, started time.Time) {
+func (f *Flow) logScreeningRound(taskID string, candidate model.Candidate, number int, round screening.Round, started time.Time, cause error) {
 	if logger, ok := f.Logger.(interface {
-		ScreeningRound(string, string, int, screening.Round)
+		ScreeningRound(string, string, int, screening.Round, error)
 	}); ok {
-		logger.ScreeningRound(taskID, candidateDisplayName(candidate), number, round)
+		logger.ScreeningRound(taskID, candidateDisplayName(candidate), number, round, cause)
 		return
 	}
 	step := "screening_first"
@@ -169,6 +169,10 @@ func (f *Flow) logScreeningRound(taskID string, candidate model.Candidate, numbe
 		label = "不通过"
 	case "cancelled":
 		label = "已取消"
+	}
+	if cause != nil {
+		f.log(taskID, step, round.Status, started, fmt.Errorf("候选人“%s”%s，原因：%w", candidateDisplayName(candidate), label, cause))
+		return
 	}
 	f.log(taskID, step, round.Status, started, fmt.Errorf("候选人“%s”%s，原因：%s", candidateDisplayName(candidate), label, round.Reason))
 }

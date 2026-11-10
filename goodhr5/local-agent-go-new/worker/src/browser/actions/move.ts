@@ -34,20 +34,22 @@ export class MoveAction {
   async toElement(
     found: ResolvedElement,
     actionContext: ActionContext,
-    options: { allowAckRetry?: boolean; allowWindowRetry?: boolean; centered?: boolean; visibleArea?: VisibleArea } = {},
+    options: { allowAckRetry?: boolean; allowWindowRetry?: boolean; centered?: boolean; visibleArea?: VisibleArea | (() => Promise<VisibleArea>) } = {},
   ): Promise<MoveResult> {
     const step = "move";
     this.logger.info(actionContext, step, "start");
     try {
+      // 点击和输入传入动态区域，窗口恢复重试也重新读取，避免使用滚动前的容器边界。
+      const area = typeof options.visibleArea === "function" ? await options.visibleArea() : options.visibleArea;
       const { box } = found.view;
       if (box.width <= 0 || box.height <= 0) {
         throw new Error("元素没有有效位置");
       }
       const viewport = found.view.viewport;
-      const visibleLeft = Math.max(1, box.x, options.visibleArea?.left ?? 0);
-      const visibleTop = Math.max(1, box.y, options.visibleArea?.top ?? 0);
-      const visibleRight = Math.min(viewport.width - 1, box.x + box.width, options.visibleArea?.right ?? viewport.width);
-      const visibleBottom = Math.min(viewport.height - 1, box.y + box.height, options.visibleArea?.bottom ?? viewport.height);
+      const visibleLeft = Math.max(1, box.x, area?.left ?? 0);
+      const visibleTop = Math.max(1, box.y, area?.top ?? 0);
+      const visibleRight = Math.min(viewport.width - 1, box.x + box.width, area?.right ?? viewport.width);
+      const visibleBottom = Math.min(viewport.height - 1, box.y + box.height, area?.bottom ?? viewport.height);
       if (
         viewport.width <= 2 ||
         viewport.height <= 2 ||
@@ -86,7 +88,8 @@ export class MoveAction {
       const x = randomBetween(minX, maxX);
       const y = randomBetween(minY, maxY);
       await this.mouse.move(found.page, x, y);
-      const result = { x, y, view: found.view };
+      // 后续稳定采样会更新当前目标坐标，回执保留实际用于落点的那一份，含窗口恢复后重新选定的位置。
+      const result = { x, y, view: { ...found.view, box: { ...box } } };
       this.logger.info(actionContext, step, "success", {
         x: Math.round(x),
         y: Math.round(y),

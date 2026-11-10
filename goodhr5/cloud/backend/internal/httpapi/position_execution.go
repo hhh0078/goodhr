@@ -7,7 +7,7 @@ import (
 	stdlog "log"
 	"net/http"
 	"strings"
-	"time"
+	// "time" // 恢复会员检查时同时恢复此导入。
 )
 
 const minimumPositionAIBalanceUnits int64 = 1000
@@ -29,6 +29,7 @@ type PositionExecutionService struct {
 	subscriptions  SubscriptionStore
 	systemConfigs  SystemConfigStore
 	aiWallet       AIWalletStore
+	aiConfigs      AIConfigStore
 	mailer         Mailer
 	dailyStats     SystemDailyStatsStore
 	userFlow       UserFlowStore
@@ -37,12 +38,13 @@ type PositionExecutionService struct {
 
 // NewPositionExecutionService 创建岗位运行服务。
 // 所有运行状态直接归属于岗位，不再创建独立岗位运行记录。
-func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore) *PositionExecutionService {
+func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore, aiConfigs AIConfigStore) *PositionExecutionService {
 	return &PositionExecutionService{
 		auth: auth, store: store, positionLogs: positionLogs, tenantStore: tenantStore,
 		accounts: accounts, candidateStore: candidateStore, subscriptions: subscriptions,
 		systemConfigs: systemConfigs,
 		aiWallet:      aiWallet, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow, agents: agents,
+		aiConfigs: aiConfigs,
 	}
 }
 
@@ -258,8 +260,17 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 		return &positionStartError{status: http.StatusConflict, code: "POSITION_CLOSED", message: "这个岗位已经关闭，先开启岗位再开始任务"}
 	}
 	autoReply := strings.EqualFold(strings.TrimSpace(taskType), "auto_reply")
+	if autoReply && !autoReplyPublicRolloutOpen {
+		return &positionStartError{status: http.StatusForbidden, code: autoReplyRolloutCode, message: autoReplyRolloutMessage}
+	}
+	if positionRequiresRecreate(position) {
+		return &positionStartError{status: http.StatusConflict, code: "POSITION_RECREATE_REQUIRED", message: positionRecreateRequiredMessage}
+	}
+	position.CommonConfig = cloneMap(position.CommonConfig)
+	applyPositionPlatformRules(&position)
 	usesAI := positionUsesAI(position) || autoReply
 	if usesAI {
+		/* 2026-11-10：会员限制暂停，原检查保留，恢复时解除此注释。
 		subscription, err := s.subscriptions.UserSubscription(email)
 		if err != nil {
 			return &positionStartError{status: http.StatusServiceUnavailable, code: "SUBSCRIPTION_CHECK_FAILED", message: "会员状态暂时没查清楚，这次我先不乱启动，请稍后再试"}
@@ -273,6 +284,17 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 		}
 		if autoReply && !access.AllowAutoReply {
 			return &positionStartError{status: http.StatusForbidden, code: "AUTO_REPLY_MAX_REQUIRED", message: "自动回复属于 Max 全能版，当前套餐暂时不能使用"}
+		}
+		*/
+		if s.aiConfigs == nil {
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_CONFIG_UNAVAILABLE", message: "AI 配置暂时没读到，请稍后再试。"}
+		}
+		config, err := s.aiConfigs.UserConfig(email)
+		if err != nil {
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_CONFIG_UNAVAILABLE", message: "AI 配置暂时没读到，请稍后再试。"}
+		}
+		if !isOfficialAIURL(config.BaseURL) {
+			return &positionStartError{status: http.StatusForbidden, code: "BUILTIN_AI_REQUIRED", message: builtinAIRequiredMessage}
 		}
 		if s.aiWallet == nil {
 			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
@@ -303,7 +325,7 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 // positionUsesAI 判断岗位的基础筛选或详情筛选是否明确使用 AI。
 func positionUsesAI(position Position) bool {
 	mode := strings.ToLower(strings.TrimSpace(positionConfigString(position.CommonConfig, "mode_default")))
-	detailMode := strings.ToLower(strings.TrimSpace(positionConfigString(position.CommonConfig, "detail_mode")))
+	detailMode := positionDetailMode(position.PlatformID)
 	return mode != "keyword" || detailMode == "ai"
 }
 

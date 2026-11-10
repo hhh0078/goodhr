@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 const (
@@ -100,7 +102,21 @@ func NewWithExecutableResolver(resolver func() string, logSinks ...func([]byte))
 }
 
 // Ready 检查 OCR 可执行文件；Windows 额外检查 RapidOCR 模型，macOS 使用系统 Vision。
-func (c *Client) Ready() error {
+func (c *Client) Ready() (runErr error) {
+	started := time.Now()
+	defer func() {
+		if runErr != nil {
+			reason := "组件检查未通过"
+			var component *Error
+			if errors.As(runErr, &component) {
+				switch component.Message {
+				case "OCR 组件还没安装", "OCR 组件暂不可用", "OCR 组件没有执行权限", "OCR 模型文件不完整":
+					reason = component.Message
+				}
+			}
+			runErr = failurediag.Wrap(runErr, failurediag.Detail{Source: "本地文字识别", Operation: "准备识别进程", Phase: "检查识别组件", Reason: reason, ElapsedMS: time.Since(started).Milliseconds()})
+		}
+	}()
 	path, err := c.resolveExecutable()
 	if err != nil {
 		return err
@@ -123,7 +139,35 @@ func (c *Client) Ready() error {
 }
 
 // Recognize 通过常驻 OCR 进程识别一张绝对路径图片。
-func (c *Client) Recognize(ctx context.Context, imagePath string) (Result, error) {
+func (c *Client) Recognize(ctx context.Context, imagePath string) (result Result, runErr error) {
+	started := time.Now()
+	evidence := failurediag.Detail{Source: "本地文字识别", Operation: "识别截图", Phase: "检查本地图片"}
+	defer func() {
+		if runErr != nil {
+			evidence.ElapsedMS = time.Since(started).Milliseconds()
+			if deadline, ok := ctx.Deadline(); ok {
+				evidence.LimitMS = max(int64(0), deadline.Sub(started).Milliseconds())
+			}
+			evidence.Reason = "本步骤未完成"
+			var known *Error
+			if errors.As(runErr, &known) {
+				switch known.Message {
+				case "OCR 组件还没安装", "OCR 组件重启后仍未返回结果", "启动 OCR 失败", "创建 OCR 输入失败", "创建 OCR 输出失败", "OCR 组件没有返回结果":
+					evidence.Reason = known.Message
+				}
+				if known.Code == ErrorNoText {
+					evidence.Reason = "没有识别到文字"
+				}
+			}
+			if errors.Is(runErr, context.DeadlineExceeded) {
+				evidence.Reason = "上层等待时限已到"
+			} else if errors.Is(runErr, context.Canceled) {
+				evidence.Reason = "上层请求已取消"
+			}
+			runErr = failurediag.Wrap(runErr, evidence)
+		}
+	}()
+
 	imagePath = strings.TrimSpace(imagePath)
 	if !filepath.IsAbs(imagePath) {
 		return Result{}, fmt.Errorf("OCR 图片路径必须是绝对路径")
@@ -131,24 +175,30 @@ func (c *Client) Recognize(ctx context.Context, imagePath string) (Result, error
 	if _, err := os.Stat(imagePath); err != nil {
 		return Result{}, fmt.Errorf("OCR 图片不存在：%w", err)
 	}
+	evidence.Phase = "等待读取槽位"
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for attempt := 1; attempt <= 2; attempt++ {
+		evidence.Attempt = int64(attempt)
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
+		evidence.Phase = "准备识别进程"
 		if err := c.ensureProcessLocked(); err != nil {
 			return Result{}, err
 		}
 		pid := c.command.Process.Pid
+		evidence.Phase = "向识别进程提交图片"
 		err := json.NewEncoder(c.stdin).Encode(struct {
 			ImagePath string `json:"image_path"`
 		}{ImagePath: imagePath})
 		var line []byte
 		if err == nil {
+			evidence.Phase = "等待识别进程返回结果"
 			line, err = c.readJSONLineLocked(ctx)
 		}
 		if err == nil {
+			evidence.Phase = "解析识别结果"
 			text, parseErr := parseOCRText(line)
 			return Result{Text: text}, parseErr
 		}

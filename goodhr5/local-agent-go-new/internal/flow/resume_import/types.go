@@ -116,4 +116,5 @@ type storedTask struct {
 	Confirmations map[string]*confirmation  `json:"confirmations"`
 	AIStarted     map[string]bool           `json:"ai_started"`
 	Sources       map[string]DownloadSource `json:"sources,omitempty"`
+	Discards      map[string]discardIntent  `json:"discards,omitempty"`
 }

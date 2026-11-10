@@ -11,7 +11,7 @@ const screenshotDirectory = resolve(process.env.UI_TEST_SCREENSHOT_DIR || "../..
 const syntheticAvatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGNwLAj5TwlmGDVg1IBRA4aLAQBSaQQfj40p1QAAAABJRU5ErkJggg==";
 type Call = { origin: string; path: string; method: string; body: any; query: URLSearchParams };
 type PairApprovalReply = { gate?: Promise<void>; status?: number; error?: string };
-type State = { calls: Call[]; notes: any[]; recommendations: any[]; folders?: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string; is_open?: boolean; [key: string]: any }>; user: { id: string; email: string }; candidates: any[]; appConfig?: any; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; taskPlain404?: boolean; taskListEmpty?: boolean; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void>; pairApprovals?: Record<string, PairApprovalReply>; pairApprovalReplies?: string[] };
+type State = { calls: Call[]; notes: any[]; recommendations: any[]; folders?: any[]; recommendationSaveGate?: Promise<void>; positions: Array<{ id: string; name: string; is_open?: boolean; [key: string]: any }>; user: { id: string; email: string }; candidates: any[]; deletedDraftIDs?: string[]; draftCheckGate?: Promise<void>; deleteReceiptID?: string; deleteStatus?: number; dropDeleteResponse?: boolean; deleteGate?: Promise<void>; appConfig?: any; agentOffline?: boolean; failFirstNote: boolean; failConfirmAt?: number; task: any; taskPlain404?: boolean; taskListEmpty?: boolean; summaryTask?: any; summaryRequests?: Record<string, any>; failSummaryResponseOnce?: boolean; rejectSummaryOnce?: boolean; errors: string[]; messages?: any[]; messageVersion?: number; autoImportDownloads?: boolean; holdMessageSummary?: Promise<void>; pairApprovals?: Record<string, PairApprovalReply>; pairApprovalReplies?: string[] };
 const existing = { id: "resume-existing", candidate_name: "原有候选人", phone: "13800138000", row_version: 3, source_type: "automatic", education_level: "本科", expected_salary_min: null, expected_salary_max: null, work_experiences: [{ company_name: "原有公司", position_name: "产品经理", start_ym: "2021-01", content: "已有工作经历保留" }], user_email: "test@example.invalid", created_at: "2026-10-10T10:00:00+08:00", ai: { detail: { score: null, reason: "" } } };
 test.use({ storageState: { cookies: [], origins: [{ origin: previewOrigin, localStorage: [{ name: "goodhr5_access_token", value: "resume-test-only" }] }] } });
 
@@ -59,6 +59,12 @@ async function mockResumeSession(page: Page): Promise<State> {
       else if (url.pathname.startsWith("/api/v1/resume-import/tasks")) {
         if (state.taskPlain404) return route.fulfill({ status: 404, headers, contentType: "text/plain", body: "404 page not found" });
         if (state.taskListEmpty && method === "GET" && url.pathname === "/api/v1/resume-import/tasks") return route.fulfill({ status: 200, headers, json: { ok: true, data: { tasks: [] } } });
+        if (url.pathname.endsWith("/discard")) {
+          if (method === "GET") return route.fulfill({ status: 200, headers, json: { ok: true, data: { revision: "current-draft-revision" } } });
+          if (body?.revision !== "current-draft-revision") return route.fulfill({ status: 409, headers, json: { ok: false, error: { message: "草稿或文件已变化" } } });
+          state.task.items = state.task.items.filter((item: any) => item.id !== url.pathname.split("/").at(-2));
+          state.task.total = state.task.processed = state.task.items.length;
+        }
         if (url.pathname.endsWith("/confirm")) {
           if (state.calls.filter((call) => call.path.endsWith("/confirm")).length === state.failConfirmAt) return route.fulfill({ status: 503, headers, json: { error: { message: "模拟本地确认暂时没完成" } } });
           for (const item of body.items) {
@@ -128,12 +134,18 @@ async function mockResumeSession(page: Page): Promise<State> {
     else if (url.pathname.startsWith("/api/candidate-recommendations/") && method === "DELETE") {
       state.recommendations = state.recommendations.filter((item) => item.id !== url.pathname.split("/").at(-1));
     }
+    else if (url.pathname === "/api/candidates/deletions/check" && method === "POST") {
+      await state.draftCheckGate;
+      data = { ok: true, candidate_ids: (state.deletedDraftIDs || []).filter((id) => body.candidate_ids.includes(id)), source_hashes: [] };
+    }
     else if (url.pathname === "/api/candidates/duplicates") data = { ok: true, hidden_match: false, matches: body?.phone === existing.phone && body?.exclude_id !== existing.id ? [{ candidate: existing, match_type: "exact", reasons: ["手机号相同"] }] : [] };
     else if (url.pathname === "/api/candidates") {
       if (method === "POST") { const candidate = { ...body, id: "resume-new", row_version: 1 }; state.candidates.push(candidate); data = { ok: true, candidate }; }
       else {
         const candidates = state.candidates.filter((candidate) => (!url.searchParams.get("folder_id") || candidate.folder_ids?.includes(url.searchParams.get("folder_id"))) && (!url.searchParams.get("tag") || candidate.tags?.some((tag: string) => tag.includes(url.searchParams.get("tag")!))));
-        data = { candidates: candidates.map((candidate) => ({ ...candidate, folder_details: (state.folders || []).filter((folder) => candidate.folder_ids?.includes(folder.id)), notes: state.notes, recommendations: state.recommendations, recommendation_count: state.recommendations.length })), total: candidates.length, real_total: candidates.filter((candidate) => !candidate.is_builtin && candidate.id !== "00000000-0000-4000-8000-000000000001").length, builtin_total: candidates.filter((candidate) => candidate.is_builtin || candidate.id === "00000000-0000-4000-8000-000000000001").length, page: Number(url.searchParams.get("page")) || 1 };
+        const size = Number(url.searchParams.get("page_size")) || 20;
+        const pageNumber = Number(url.searchParams.get("page")) || 1;
+        data = { candidates: candidates.slice((pageNumber - 1) * size, pageNumber * size).map((candidate) => ({ ...candidate, folder_details: (state.folders || []).filter((folder) => candidate.folder_ids?.includes(folder.id)), notes: state.notes, recommendations: state.recommendations, recommendation_count: state.recommendations.length })), total: candidates.length, real_total: candidates.filter((candidate) => !candidate.is_builtin && candidate.id !== "00000000-0000-4000-8000-000000000001").length, builtin_total: candidates.filter((candidate) => candidate.is_builtin || candidate.id === "00000000-0000-4000-8000-000000000001").length, page: Number(url.searchParams.get("page")) || 1 };
       }
     } else if (url.pathname.endsWith("/notes")) {
       if (method === "POST") {
@@ -151,6 +163,15 @@ async function mockResumeSession(page: Page): Promise<State> {
       } else data = { recommendations: state.recommendations };
     } else if (url.pathname.startsWith("/api/candidates/")) {
       const id = url.pathname.split("/").pop(); const candidate = state.candidates.find((item) => item.id === id);
+      if (method === "DELETE") {
+        await state.deleteGate;
+        if (!candidate?.can_delete || candidate.readonly || candidate.is_builtin) return route.fulfill({ status: 404, headers, json: { ok: false, error: "没有找到简历" } });
+        if (Number(url.searchParams.get("row_version")) !== candidate.row_version) return route.fulfill({ status: 409, headers, json: { ok: false, error: "简历已更新" } });
+        if (state.deleteStatus) return route.fulfill({ status: state.deleteStatus, headers, json: { ok: false, error: "本次请求失败" } });
+        if (state.dropDeleteResponse) return route.abort("connectionreset");
+        if (!state.deleteReceiptID) state.candidates = state.candidates.filter((item) => item.id !== id);
+        return route.fulfill({ status: 200, headers, json: { ok: true, deleted: true, candidate_id: state.deleteReceiptID || id } });
+      }
       if (method === "PATCH") Object.assign(candidate, body, { row_version: candidate.row_version + 1 });
       data = { candidate: candidate ? { ...candidate, folder_details: (state.folders || []).filter((folder) => candidate.folder_ids?.includes(folder.id)) } : candidate };
     }
@@ -183,6 +204,198 @@ async function waitForResumeDetailAnimation(page: Page) {
 async function closeResumeDetail(page: Page) {
   await page.locator(".goodhr-detail-dialog:visible").last().locator("button.ant-modal-close").click();
 }
+
+/** openOfflineResumePage 用断开的模拟本地程序打开页面，并像用户一样关闭可跳过的安装提示。 */
+async function openOfflineResumePage(page: Page, state: State, url: string) {
+  state.agentOffline = true;
+  await page.goto(url);
+  const installNotice = page.getByRole("dialog", { name: "请先安装本地程序", exact: true });
+  await installNotice.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(installNotice).not.toBeVisible();
+}
+
+// 单份删除使用合成简历与拦截的接口，确认前、只读记录及错误回执均不能移除列表项。
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`简历永久删除需点名确认、离线可提交、列表详情与收藏夹同步 ${viewport.width}`, async ({ page }) => {
+    const state = await mockResumeSession(page);
+    Object.assign(state.candidates[0], { can_delete: true, folder_ids: ["keep-folder"] });
+    state.candidates.push({ ...existing, id: "keep", candidate_name: "保留候选人", can_delete: false, user_email: "colleague@example.invalid" });
+    state.folders = [{ id: "keep-folder", name: "面试收藏", scope: "team", can_edit: true }];
+    await page.setViewportSize(viewport);
+    await openOfflineResumePage(page, state, "/admin/resumes?q=测试");
+    const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: existing.candidate_name, exact: true }) });
+    const confirm = page.getByRole("dialog", { name: "永久删除简历", exact: true });
+    const deletions = () => state.calls.filter((call) => call.method === "DELETE");
+    await row.getByRole("button", { name: "永久删除", exact: true }).click();
+    await expect(confirm.getByText("原有候选人", { exact: true })).toBeVisible();
+    await expect(confirm.getByText(/离线电脑上的 GoodHR/)).toBeVisible();
+    mkdirSync(screenshotDirectory, { recursive: true });
+    await expect(confirm.getByRole("button", { name: "确认永久删除" })).toBeInViewport();
+    await page.screenshot({ animations: "disabled", path: resolve(screenshotDirectory, `permanent-delete-confirm-${viewport.width}.png`) });
+    await confirm.getByRole("button", { name: /取\s*消/ }).click();
+    expect(deletions()).toHaveLength(0);
+    await row.getByRole("button", { name: existing.candidate_name, exact: true }).click();
+    const detail = page.locator(".goodhr-detail-dialog:visible");
+    await detail.getByRole("button", { name: "永久删除简历", exact: true }).click();
+    const cacheKey = "goodhr5_resume_summary:resume-user:resume-existing";
+    await page.evaluate((key) => {
+      localStorage.setItem(key, JSON.stringify({ editedSummary: "合成摘要草稿" }));
+      localStorage.setItem("goodhr5_resume_summary:resume-user:keep", "保留另一人的草稿");
+    }, cacheKey);
+    let release!: () => void;
+    state.deleteGate = new Promise<void>((done) => { release = done; });
+    await confirm.getByRole("button", { name: "确认永久删除", exact: true }).click();
+    await expect(confirm.getByRole("button", { name: "正在删除" })).toBeDisabled();
+    await expect(confirm.getByRole("button", { name: /取\s*消/ })).toBeDisabled();
+    release();
+    await expect(confirm).not.toBeVisible();
+    await expect(detail).not.toBeVisible();
+    await expect(page.getByRole("button", { name: existing.candidate_name, exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "保留候选人", exact: true })).toBeVisible();
+    await expect(page.getByText("共 1 份简历", { exact: true })).toBeVisible();
+    await expect(page.getByTitle("面试收藏 · 团队可见")).toHaveText("面试收藏0");
+    await expect(page.getByRole("button", { name: "永久删除", exact: true })).toHaveCount(0);
+    expect(deletions().map((call) => [call.path, call.query.get("row_version")])).toEqual([["/api/candidates/resume-existing", "3"]]);
+    expect(await page.evaluate((key) => [localStorage.getItem(key), localStorage.getItem("goodhr5_resume_summary:resume-user:keep")], cacheKey)).toEqual([null, "保留另一人的草稿"]);
+    await page.screenshot({ animations: "disabled", path: resolve(screenshotDirectory, `permanent-delete-result-${viewport.width}.png`) });
+    expect(state.errors).toEqual([]);
+  });
+}
+
+test("网页登录及恢复只清本账号已删除的摘要，分批去重且晚到回包不覆盖新草稿", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  const ids = Array.from({ length: 52 }, (_, index) => "20000000-1111-4000-8000-" + String(index).padStart(12, "0"));
+  const prefix = "goodhr5_resume_summary:resume-user:", legacy = "goodhr5_resume_summary:test@example.invalid:", other = "goodhr5_resume_summary:other:";
+  const deleted = ids[0], updated = ids[1], kept = ids[2];
+  // 首次打开就设置另一台浏览器遗留的合成草稿，不访问任何招聘网站。
+  await page.addInitScript(({ ids, prefix, legacy, other }) => {
+    if (sessionStorage.getItem("purge-test-seeded")) return;
+    sessionStorage.setItem("purge-test-seeded", "yes");
+    for (const id of ids) localStorage.setItem(prefix + id, "私有旧草稿");
+    localStorage.setItem(legacy + ids[0], "旧邮箱键下的草稿");
+    localStorage.setItem(other + ids[0], "其他账号草稿");
+  }, { ids, prefix, legacy, other });
+  let release!: () => void;
+  state.draftCheckGate = new Promise<void>((resolve) => { release = resolve; });
+  state.deletedDraftIDs = [deleted, updated];
+  await page.goto("/admin/resumes");
+  const checks = () => state.calls.filter((call) => call.path === "/api/candidates/deletions/check");
+  await expect.poll(() => checks().length).toBe(1);
+  const first = checks()[0].body.candidate_ids as string[];
+  // 快照先后由真实浏览器的存储顺序决定，只修改在途批次里的一个编号。
+  const changed = first.find((id) => id !== deleted && id !== kept)!;
+  state.deletedDraftIDs = [deleted, changed];
+  await page.evaluate(({ prefix, changed }) => localStorage.setItem(prefix + changed, "刚刚修改"), { prefix, changed });
+  release();
+  await expect.poll(() => checks().length).toBe(2);
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), prefix + deleted)).toBeNull();
+  expect(await page.evaluate(({ prefix, legacy, other, deleted, changed, kept }) => [localStorage.getItem(legacy + deleted), localStorage.getItem(other + deleted), localStorage.getItem(prefix + changed), localStorage.getItem(prefix + kept)], { prefix, legacy, other, deleted, changed, kept })).toEqual([null, "其他账号草稿", "刚刚修改", "私有旧草稿"]);
+  expect(checks().flatMap((call) => call.body.candidate_ids).sort()).toEqual([...ids].sort());
+  expect(checks().every((call) => call.body.candidate_ids.length <= 50 && call.body.source_hashes.length === 0 && Object.keys(call.body).length === 2)).toBe(true);
+  state.deletedDraftIDs = [kept];
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), prefix + kept)).toBeNull();
+});
+
+test("网页核对过程中换号会丢弃迟到响应，不清旧草稿也不再用旧账号遍历", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  const id = "22222222-1111-4000-8000-000000000001", key = "goodhr5_resume_summary:resume-user:" + id;
+  await page.addInitScript((key) => localStorage.setItem(key, "切换前的摘要"), key);
+  state.deletedDraftIDs = [id];
+  let release!: () => void;
+  state.draftCheckGate = new Promise<void>((resolve) => { release = resolve; });
+  await page.goto("/admin/resumes");
+  await expect.poll(() => state.calls.filter((call) => call.path === "/api/candidates/deletions/check").length).toBe(1);
+  await page.evaluate(() => localStorage.setItem("goodhr5_access_token", "new-test-account-token"));
+  const reply = page.waitForResponse((response) => response.url().endsWith("/api/candidates/deletions/check") && response.request().method() === "POST");
+  release(); await (await reply).finished();
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe("切换前的摘要");
+  expect(state.calls.filter((call) => call.path === "/api/candidates/deletions/check")).toHaveLength(1);
+});
+
+test("简历永久删除遇到版本冲突和异常回执均须重新核对，独立详情返回原筛选", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.candidates[0].can_delete = true;
+  const returnTo = "/admin/resumes?q=合成";
+  const detailURL = `/admin/resumes/detail?candidate_id=${existing.id}&return_to=${encodeURIComponent(returnTo)}`;
+  const confirm = page.getByRole("dialog", { name: "永久删除简历", exact: true });
+  await openOfflineResumePage(page, state, detailURL);
+  await page.getByRole("button", { name: "永久删除简历", exact: true }).click();
+  state.candidates[0].row_version = 4;
+  await confirm.getByRole("button", { name: "确认永久删除" }).click();
+  await expect(confirm.getByText(/这份简历刚被更新/)).toBeVisible();
+  await expect(confirm.getByRole("button", { name: "确认永久删除" })).toHaveCount(0);
+  await confirm.getByRole("button", { name: "返回简历库核对" }).click();
+  await expect(page.getByLabel("简历关键词")).toHaveValue("合成");
+  await page.getByRole("button", { name: "永久删除", exact: true }).click();
+  state.deleteReceiptID = "other-candidate";
+  await confirm.getByRole("button", { name: "确认永久删除" }).click();
+  await expect(confirm.getByText(/删除回执没能核对上/)).toBeVisible();
+  await confirm.getByRole("button", { name: "返回简历库核对" }).click();
+  await expect(page.getByRole("button", { name: existing.candidate_name })).toBeVisible();
+  state.deleteReceiptID = undefined;
+  state.dropDeleteResponse = true;
+  await page.getByRole("button", { name: "永久删除", exact: true }).click();
+  await confirm.getByRole("button", { name: "确认永久删除" }).click();
+  await expect(confirm.getByText(/无法连接云端服务/)).toBeVisible();
+  await expect(confirm.getByRole("button", { name: "确认永久删除" })).toHaveCount(0);
+  await confirm.getByRole("button", { name: "返回简历库核对" }).click();
+  state.dropDeleteResponse = false;
+  await openOfflineResumePage(page, state, detailURL);
+  await page.getByRole("button", { name: "永久删除简历", exact: true }).click();
+  await confirm.getByRole("button", { name: "确认永久删除" }).click();
+  await expect(page.getByLabel("简历关键词")).toHaveValue("合成");
+  await expect(page.getByText("共 0 份简历", { exact: true })).toBeVisible();
+  expect(state.calls.filter((call) => call.method === "DELETE").map((call) => call.query.get("row_version"))).toEqual(["3", "4", "4", "4"]);
+});
+
+test("简历永久删除被拒绝或云端出错时保留记录并显示下一步", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.candidates[0].can_delete = true;
+  await openOfflineResumePage(page, state, "/admin/resumes");
+  const confirm = page.getByRole("dialog", { name: "永久删除简历", exact: true });
+  for (const [status, text] of [[403, "没有删除这份简历的权限"], [404, "已不存在"], [500, "云端没有确认删除结果"]] as const) {
+    state.deleteStatus = status;
+    await page.getByRole("button", { name: "永久删除", exact: true }).click();
+    await confirm.getByRole("button", { name: "确认永久删除" }).click();
+    await expect(confirm.getByRole("alert")).toContainText(text);
+    await expect(confirm.getByRole("button", { name: "确认永久删除" })).toHaveCount(0);
+    await confirm.getByRole("button", { name: "返回简历库核对" }).click();
+    await expect(page.getByRole("button", { name: existing.candidate_name, exact: true })).toBeVisible();
+  }
+});
+
+test("简历永久删除保护内置、只读、无版本和无明确权限的旧响应", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.candidates = [
+    { ...existing, id: "00000000-0000-4000-8000-000000000001", candidate_name: "预留示例", can_delete: true },
+    { ...existing, id: "readonly", candidate_name: "只读记录", readonly: true, can_delete: true },
+    { ...existing, id: "old", candidate_name: "旧版响应" },
+    { ...existing, id: "unversioned", candidate_name: "版本缺失", can_delete: true, row_version: undefined },
+  ];
+  await openOfflineResumePage(page, state, "/admin/resumes");
+  for (const item of state.candidates) {
+    await page.getByRole("button", { name: item.candidate_name, exact: true }).click();
+    const detail = page.locator(".goodhr-detail-dialog:visible");
+    await expect(detail.getByRole("heading", { name: item.candidate_name, exact: true })).toBeVisible();
+    await expect(detail.getByRole("button", { name: "永久删除简历" })).toHaveCount(0);
+    await closeResumeDetail(page);
+  }
+  await expect(page.getByRole("button", { name: "永久删除", exact: true })).toHaveCount(0);
+  expect(state.calls.filter((call) => call.method === "DELETE")).toHaveLength(0);
+});
+
+test("简历永久删除末页最后一份后回到前一页并保留筛选", async ({ page }) => {
+  const state = await mockResumeSession(page);
+  state.candidates = Array.from({ length: 11 }, (_, index) => ({ ...existing, id: `resume-${index}`, candidate_name: `合成候选${index}`, can_delete: true }));
+  await openOfflineResumePage(page, state, "/admin/resumes?page=2&page_size=10&q=合成");
+  await page.getByRole("button", { name: "永久删除", exact: true }).click();
+  await page.getByRole("dialog", { name: "永久删除简历" }).getByRole("button", { name: "确认永久删除" }).click();
+  await expect(page.getByRole("button", { name: "合成候选0", exact: true })).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("page")).toBe("1");
+  await expect(page.getByLabel("简历关键词")).toHaveValue("合成");
+});
 
 const pairApprovePath = "/api/v1/extensions/pair/approve";
 const pairDialogTitle = "连接 GoodHR 浏览器插件";
@@ -1171,6 +1384,7 @@ test("失败摘要已过期时直接生成当前简历新任务，不重试旧�
   await expect(dialog.getByLabel("摘要草稿")).toHaveValue("五年产品经验，熟悉需求整理与交付。");
   const local = state.calls.find((call) => call.path === "/api/v1/resume-summary/tasks" && call.method === "POST");
   expect(local?.body.request_key).not.toBe("old-source-request");
+  expect(local?.body.candidate.id).toBe(existing.id);
   expect(local?.body.candidate.work_experiences).toEqual(state.candidates[0].work_experiences);
   expect(state.calls.filter((call) => call.path.endsWith("/retry") && call.path.includes("resume-summary"))).toHaveLength(0);
   await dialog.getByRole("button", { name: /保存摘要$/ }).click();
@@ -1195,6 +1409,7 @@ test("本地AI摘要先预览再保存，只更新摘要和版本且不发送头
   await dialog.getByRole("button", { name: "开始生成摘要", exact: true }).click();
   await expect(dialog.getByLabel("摘要草稿")).toHaveValue("五年产品经验，熟悉需求整理与交付。");
   const local = state.calls.find((call) => call.path === "/api/v1/resume-summary/tasks" && call.method === "POST");
+  expect(local?.body.candidate.id).toBe(existing.id);
   expect(local?.body.candidate.work_experiences).toEqual(existing.work_experiences);
   for (const field of ["avatar_data_url", "phone", "email", "candidate_name", "ai_summary", "notes", "recommendations"]) expect(local?.body.candidate).not.toHaveProperty(field);
   expect(state.calls.filter((call) => call.path === `/api/candidates/${existing.id}` && call.method === "PATCH")).toHaveLength(0);
@@ -1703,6 +1918,32 @@ test("AI草稿比较更新只提交预览中的有效改动，空邮箱和空经
   expect(state.folders || []).toEqual([]);
   expect(state.errors).toEqual([]);
 });
+
+for (const width of [1280, 390]) {
+  test(`移除草稿仅在确认后清理当前条目 - ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 860 });
+    const state = await mockResumeSession(page);
+    state.task.items = [{ id: "discard-one", file_name: "待清理.pdf", status: "ready", candidate: { candidate_name: "示例甲" } }, { id: "keep-one", file_name: "保留.pdf", status: "ready", candidate: { candidate_name: "示例乙" } }];
+    await page.goto("/admin/resumes?resume_import_id=import-test");
+    const row = page.getByRole("row").filter({ hasText: "待清理.pdf" });
+    await row.getByRole("button", { name: "移除草稿" }).click();
+    const confirm = page.getByRole("dialog", { name: "移除这份本机草稿？" });
+    await expect(confirm.getByText("待清理.pdf")).toBeVisible();
+    await expect(confirm.getByText(/你的下载文件夹和云端简历都会保留/)).toBeVisible();
+    if (process.env.UI_TEST_SCREENSHOT_DIR) {
+      mkdirSync(screenshotDirectory, { recursive: true });
+      await page.screenshot({ animations: "disabled", path: resolve(screenshotDirectory, `discard-draft-${width}.png`) });
+    }
+    await confirm.getByRole("button", { name: "保留草稿" }).click();
+    expect(state.calls.filter((call) => call.path.endsWith("/discard") && call.method === "POST")).toHaveLength(0);
+    await row.getByRole("button", { name: "移除草稿" }).click();
+    await confirm.getByRole("button", { name: "确认移除" }).click();
+    await expect(row).toHaveCount(0);
+    await expect(page.getByRole("row").filter({ hasText: "保留.pdf" })).toBeVisible();
+    const writes = state.calls.filter((call) => call.path.endsWith("/discard") && call.method === "POST");
+    expect(writes.map(({path,body}) => [path,body])).toEqual([["/api/v1/resume-import/tasks/import-test/items/discard-one/discard",{revision:"current-draft-revision"}]]);
+  });
+}
 
 test("大正文批次逐份确认，途中失败后只继续未完成草稿", async ({ page }) => {
   const state = await mockResumeSession(page);

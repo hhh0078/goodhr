@@ -51,6 +51,12 @@ type entry struct {
 	Notified  bool   `json:"notified"`
 }
 
+// downloadNotification 标记串行下载队列正在推送的通知，清理仅取消同账号、同批次的请求。
+type downloadNotification struct {
+	owner, taskID string
+	cancel        context.CancelFunc
+}
+
 // Manager 每秒推进本地队列，30秒刷新账号开关；切号时立即取消旧会话操作。
 type Manager struct {
 	mu                           sync.Mutex
@@ -66,6 +72,8 @@ type Manager struct {
 	session                      context.Context
 	cancelSession                context.CancelFunc
 	cancelRun                    context.CancelFunc
+	notification                 *downloadNotification
+	files                        *purgeFiles
 	done                         chan struct{}
 }
 
@@ -321,6 +329,65 @@ func (m *Manager) update(ctx context.Context, item entry) error {
 	}
 	m.entries[item.ID] = item
 	return m.persistLocked(ctx)
+}
+
+// PurgeImportTask 清理已确认批次和同账号的重复下载记录，只留随机编号防止 Worker 重播旧下载。
+func (m *Manager) PurgeImportTask(ctx context.Context, owner, taskID string, hideHistory func(context.Context, string) error) error {
+	if m == nil || owner == "" || taskID == "" || hideHistory == nil {
+		return fmt.Errorf("下载清理尚未准备好")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// 即使上轮已擦除条目，也须等已发起的本批请求退出后才确认清理完成。
+	var draining error
+	if active := m.notification; active != nil && active.owner == owner && active.taskID == taskID {
+		active.cancel()
+		draining = resumeimport.ErrBusy
+	}
+	hashes := map[string]bool{}
+	removed := map[string]entry{}
+	for id, item := range m.entries {
+		if item.Owner == owner && item.TaskID == taskID {
+			removed[id] = item
+			if item.Hash != "" {
+				hashes[item.Hash] = true
+			}
+		}
+	}
+	if len(removed) == 0 {
+		return draining
+	}
+	// 若相同内容明确关联另一批次，无法把无批次编号的重复下载唯一归给此人。
+	for _, item := range m.entries {
+		if item.Owner == owner && item.TaskID != "" && item.TaskID != taskID {
+			delete(hashes, item.Hash)
+		}
+	}
+	for id, item := range m.entries {
+		if item.Owner == owner && item.TaskID == "" && item.Status == "duplicate_file" && hashes[item.Hash] {
+			removed[id] = item
+		}
+	}
+	if m.files != nil {
+		if err := m.removeVerifiedFiles(ctx, removed); err != nil {
+			return err
+		}
+	}
+	for id := range removed {
+		if err := hideHistory(ctx, id); err != nil {
+			return err
+		}
+	}
+	for id := range removed {
+		m.entries[id] = entry{ID: id, Status: "disabled"}
+	}
+	if err := m.persistLocked(ctx); err != nil {
+		for id, item := range removed {
+			m.entries[id] = item
+		}
+		return err
+	}
+	return draining
 }
 
 // persistLocked 原子替换SQLite队列JSON，登录凭证和网页正文不进入此索引。

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform"
 	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 	"goodhr5/local-agent-go-new/internal/system/notification"
 	"goodhr5/local-agent-go-new/internal/system/power"
 )
@@ -44,42 +46,51 @@ type TaskSnapshot struct {
 }
 
 type activeTask struct {
-	prepared  shared.PreparedTask
-	state     storage.TaskRun
-	cancel    context.CancelFunc
-	done      chan struct{}
-	stop      chan struct{}
-	stopOnce  sync.Once
-	stopped   bool
-	interrupt error
+	prepared   shared.PreparedTask
+	state      storage.TaskRun
+	cancel     context.CancelFunc
+	done       chan struct{}
+	stop       chan struct{}
+	stopOnce   sync.Once
+	stopped    bool
+	stopOrigin string
+	interrupt  error
 }
 
 // Runner 管理当前本地任务和两个独立主流程。
 type Runner struct {
-	mu                sync.Mutex
-	active            map[string]*activeTask
-	stoppingPositions map[string]int
-	stopVersions      map[string]uint64 // 记录岗位停止代数，阻止停止前发起的慢启动继续运行。
-	checker           *preflight.Checker
-	greeting          *greeting.Flow
-	reply             *auto_reply.Flow
-	store             *storage.Store
-	profiles          *profile.Manager
-	power             *power.Guard
-	cloud             *cloud.Client
-	notifier          *notification.Notifier
-	logger            shared.Logger
-	screenings        *screeningsync.Uploader
+	mu                  sync.Mutex
+	active              map[string]*activeTask
+	stoppingPositions   map[string]int
+	stopVersions        map[string]uint64 // 记录岗位停止代数，阻止停止前发起的慢启动继续运行。
+	checker             *preflight.Checker
+	greeting            *greeting.Flow
+	reply               *auto_reply.Flow
+	store               *storage.Store
+	profiles            *profile.Manager
+	power               *power.Guard
+	cloud               *cloud.Client
+	notifier            *notification.Notifier
+	logger              shared.Logger
+	screenings          *screeningsync.Uploader
+	autoReplyBackground *auto_reply.Background
 }
 
 // New 创建任务生命周期管理器。
 func New(checker *preflight.Checker, greetingFlow *greeting.Flow, replyFlow *auto_reply.Flow, store *storage.Store, profiles *profile.Manager, powerGuard *power.Guard, cloudClient *cloud.Client, notifier *notification.Notifier, logger shared.Logger) *Runner {
+	var background *auto_reply.Background
+	if checker != nil && replyFlow != nil {
+		if responder, ok := replyFlow.Responder.(*auto_reply.AIResponder); ok {
+			background = auto_reply.NewBackground(cloudClient, responder, checker.AgentBind.MachineID)
+		}
+	}
 	return &Runner{
 		active: make(map[string]*activeTask), checker: checker,
 		greeting: greetingFlow, reply: replyFlow, store: store,
 		profiles: profiles, power: powerGuard, cloud: cloudClient,
 		notifier: notifier, logger: logger,
-		screenings: screeningsync.New(store, cloudClient),
+		screenings:          screeningsync.New(store, cloudClient),
+		autoReplyBackground: background,
 	}
 }
 
@@ -245,6 +256,15 @@ func positionStoppingError() error {
 	return &cloud.APIError{StatusCode: 409, Code: "POSITION_STOPPING", Message: "这个岗位还在收尾，等它停好后再开始吧"}
 }
 
+// StopTaskType 停止指定类型当前正在运行的任务。
+func (r *Runner) StopTaskType(ctx context.Context, taskType string) (storage.TaskRun, error) {
+	taskID := r.ActiveTaskIDForType(taskType)
+	if taskID == "" {
+		return r.store.LatestTaskForType(ctx, strings.TrimSpace(taskType))
+	}
+	return r.StopTask(ctx, taskID)
+}
+
 // ActiveTaskIDForPosition 返回指定岗位当前运行中的任务编号。
 func (r *Runner) ActiveTaskIDForPosition(positionID string) string {
 	positionID = strings.TrimSpace(positionID)
@@ -252,6 +272,19 @@ func (r *Runner) ActiveTaskIDForPosition(positionID string) string {
 	defer r.mu.Unlock()
 	for taskID, active := range r.active {
 		if active != nil && active.state.PositionID == positionID {
+			return taskID
+		}
+	}
+	return ""
+}
+
+// ActiveTaskIDForType 返回指定任务类型当前运行中的任务编号。
+func (r *Runner) ActiveTaskIDForType(taskType string) string {
+	taskType = strings.TrimSpace(taskType)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for taskID, active := range r.active {
+		if active != nil && strings.EqualFold(active.state.TaskType, taskType) {
 			return taskID
 		}
 	}
@@ -267,6 +300,9 @@ func (r *Runner) StopTask(ctx context.Context, taskID string) (storage.TaskRun, 
 		return r.store.Task(ctx, taskID)
 	}
 	active.stopped = true
+	if active.stopOrigin == "" {
+		active.stopOrigin = "岗位停止请求"
+	}
 	active.stopOnce.Do(func() {
 		close(active.stop)
 	})
@@ -299,6 +335,19 @@ func (r *Runner) PositionStatus(ctx context.Context, positionID string) (TaskSna
 	return r.TaskSnapshot(task), nil
 }
 
+// TaskTypeStatus 返回指定任务类型的当前运行任务或最近一次任务。
+func (r *Runner) TaskTypeStatus(ctx context.Context, taskType string) (TaskSnapshot, error) {
+	taskID := r.ActiveTaskIDForType(taskType)
+	if taskID != "" {
+		return r.TaskStatus(ctx, taskID)
+	}
+	task, err := r.store.LatestTaskForType(ctx, strings.TrimSpace(taskType))
+	if err != nil {
+		return TaskSnapshot{}, err
+	}
+	return r.TaskSnapshot(task), nil
+}
+
 // TaskSnapshot 把任务持久化状态补充为悬浮窗可直接使用的快照。
 func (r *Runner) TaskSnapshot(task storage.TaskRun) TaskSnapshot {
 	return TaskSnapshot{
@@ -320,6 +369,9 @@ func (r *Runner) StopAll(ctx context.Context, reason string) {
 	tasks := make([]*activeTask, 0, len(r.active))
 	for _, active := range r.active {
 		active.stopped = true
+		if active.stopOrigin == "" {
+			active.stopOrigin = "本地程序退出"
+		}
 		tasks = append(tasks, active)
 	}
 	r.mu.Unlock()
@@ -368,6 +420,8 @@ func (r *Runner) run(ctx context.Context, active *activeTask) {
 	runtime = newLoggedRuntime(runtime, prepared.Request.TaskID, r.logger)
 	switch prepared.Request.TaskType {
 	case "greeting":
+		// 暂停打招呼时穿插自动回复，避免未上线的检查影响正常招聘任务。
+		// stats, err = r.runGreetingWithAutoReply(ctx, prepared, runtime)
 		stats, err = r.greeting.Run(ctx, prepared, runtime)
 	case "auto_reply":
 		stats, err = r.reply.Run(ctx, prepared, runtime)
@@ -390,9 +444,39 @@ func (r *Runner) finish(active *activeTask, stats shared.Stats, runErr error) {
 	if active.interrupt != nil {
 		runErr = active.interrupt
 	}
+	terminalDiagnostic := runErr
 	if active.stopped || (errors.Is(runErr, context.Canceled) && active.interrupt == nil) || cloud.IsAuthExpired(runErr) {
 		state.Status = "stopped"
-		state.Summary = "任务已按你的要求停下来了"
+		d := failurediag.Detail{Source: "岗位流程", Operation: "停止岗位任务", Phase: "任务收尾", Impact: "岗位已停止"}
+		switch {
+		case active.stopOrigin == "岗位停止请求":
+			d.Reason = "已收到主动停止请求"
+			state.Summary = "任务已按你的要求停下来了"
+		case active.stopOrigin == "本地程序退出":
+			d.Reason = "本地程序退出时停止任务"
+			state.Summary = "本地程序退出，岗位已停止"
+		case errors.Is(runErr, greeting.ErrCandidateProcessingTimeout):
+			d.Reason = "候选人总时限已到"
+			state.Summary = "候选人总时限已到，岗位已停止"
+		case cloud.IsAuthExpired(runErr):
+			d.Reason = "云端拒绝登录凭证"
+			state.Summary = "登录凭证未通过，岗位已停止"
+			var authErr *cloud.APIError
+			if errors.As(runErr, &authErr) {
+				d.HTTPStatus = authErr.StatusCode
+				if authErr.StatusCode == http.StatusForbidden {
+					d.Reason = "云端拒绝当前访问权限"
+					state.Summary = "云端拒绝访问，岗位已停止"
+				}
+			}
+		default:
+			d.Reason = "收到停止信号，未确认发起来源"
+			state.Summary = "岗位已停止"
+		}
+		if terminalDiagnostic == nil {
+			terminalDiagnostic = errors.New(d.Reason)
+		}
+		terminalDiagnostic = failurediag.Wrap(terminalDiagnostic, d)
 	} else if runErr != nil {
 		state.Status = "failed"
 		state.ErrorCode = "TASK_FLOW_FAILED"
@@ -420,7 +504,7 @@ func (r *Runner) finish(active *activeTask, stats shared.Stats, runErr error) {
 	}
 	r.notifyFinished(active.prepared, state, stats, runErr)
 	if r.logger != nil {
-		r.logger.Step(state.TaskID, "lifecycle", "finished", state.Status, state.StartedAt, runErr)
+		r.logger.Step(state.TaskID, "lifecycle", "finished", state.Status, state.StartedAt, terminalDiagnostic)
 	}
 	if err := r.store.MarkPositionLogUploadPending(context.Background(), state.PositionID); err != nil {
 		r.logNotification(state.TaskID, "mark_log_upload", err)

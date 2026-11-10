@@ -300,45 +300,88 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.UpstreamAPIKey))
+	obs, req := observeAIProxy(w, r, req, s.httpClient.Timeout)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		obs.report(w, "", aiProxyReason(err, "transport_error"), 0, false)
 		writeError(w, http.StatusBadGateway, "AI 服务暂时没接上，我再试也得先缓缓。")
 		return
 	}
 	defer resp.Body.Close()
-	if streamRequest && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	// 上游不能代替本代理声明 GoodHR 诊断协议或覆盖故障分类。
+	resp.Header.Del(aiDiagnosticHeader)
+	resp.Header.Del(aiUpstreamFailureHeader)
+	var upstream io.Reader = resp.Body
+	if obs != nil {
+		upstream = io.TeeReader(resp.Body, obs)
+	}
+	wantsBilling := r.Header.Get("X-GoodHR-Billing") == "1"
+	if streamRequest && !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json") && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		copyHeader(w.Header(), resp.Header)
+		if wantsBilling {
+			w.Header().Set("X-GoodHR-Billing", "1")
+		}
 		w.Header().Del("Content-Length")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(resp.StatusCode)
-		promptTokens, completionTokens, err := proxyAIStreamAndUsage(w, resp.Body)
+		promptTokens, completionTokens, upstreamIncomplete, err := proxyAIStreamAndUsage(w, upstream, wantsBilling, obs != nil)
+		if upstreamIncomplete {
+			reason := "completion_unknown"
+			if err != nil {
+				reason = aiProxyReason(err, "stream_interrupted")
+			}
+			obs.report(w, "read_stream", reason, resp.StatusCode, true)
+		}
 		if err != nil {
 			log.Printf("[内置AI] 流式响应转发失败 user=%s model=%s err=%v", email, model.ID, err)
+			if wantsBilling {
+				writeAIBillingStream(w, aiBillingReceipt{Status: "unavailable", Model: model.ID})
+			}
 			return
 		}
 		if promptTokens+completionTokens == 0 {
 			log.Printf("[内置AI] 流式响应未返回 usage，无法扣费 user=%s model=%s", email, model.ID)
+			if wantsBilling {
+				writeAIBillingStream(w, aiBillingReceipt{Status: "unavailable", Model: model.ID})
+			}
 			return
 		}
-		if err := s.chargeAIUsage(email, model, promptTokens, completionTokens); err != nil {
+		receipt, err := s.settleAIUsage(email, model, promptTokens, completionTokens)
+		if err != nil {
+			obs.report(w, "billing", "billing_failed", resp.StatusCode, true)
 			log.Printf("[内置AI] 流式扣费记录写入失败 user=%s model=%s prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, promptTokens, completionTokens, err)
+		}
+		if wantsBilling {
+			writeAIBillingStream(w, receipt)
 		}
 		return
 	}
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxAICompatibleBodyBytes))
+	respBody, err := io.ReadAll(io.LimitReader(upstream, maxAICompatibleBodyBytes))
 	if err != nil {
+		obs.report(w, "read_body", aiProxyReason(err, "transport_error"), resp.StatusCode, false)
 		writeError(w, http.StatusBadGateway, "failed read ai response")
 		return
 	}
+	var receipt aiBillingReceipt
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		promptTokens, completionTokens := aiUsageFromResponse(respBody)
-		if err := s.chargeAIUsage(email, model, promptTokens, completionTokens); err != nil {
+		receipt, err = s.settleAIUsage(email, model, promptTokens, completionTokens)
+		if err != nil {
+			obs.report(w, "billing", "billing_failed", resp.StatusCode, false)
 			log.Printf("[内置AI] 扣费记录写入失败 user=%s model=%s prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, promptTokens, completionTokens, err)
 			writeError(w, http.StatusInternalServerError, "AI 已返回，但扣费记录没写成功。我先拦一下，免得账本乱掉。")
 			return
 		}
 	}
+	if resp.StatusCode >= 400 {
+		obs.report(w, "upstream_status", "http_status", resp.StatusCode, false)
+	}
 	copyHeader(w.Header(), resp.Header)
+	if wantsBilling && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		w.Header().Set("X-GoodHR-Billing", "1")
+		respBody = withAIBillingJSON(respBody, receipt)
+		w.Header().Del("Content-Length")
+	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
 }
@@ -853,17 +896,55 @@ func mapFromAny(value any) map[string]any {
 }
 
 // proxyAIStreamAndUsage 转发上游 SSE 流，并从分片中提取 token 用量。
-// w 为客户端响应，reader 为上游响应体，返回最终读取到的 token 用量。
-func proxyAIStreamAndUsage(w http.ResponseWriter, reader io.Reader) (int, int, error) {
+// w 为客户端响应，reader 为上游响应体；holdDone 为真时延后结束标记，待扣费确认后由调用方发送。
+func proxyAIStreamAndUsage(w http.ResponseWriter, reader io.Reader, holdDone, diagnose bool) (int, int, bool, error) {
 	flusher, _ := w.(http.Flusher)
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxAICompatibleBodyBytes)
 	promptTokens := 0
 	completionTokens := 0
+	terminal := false
 	for scanner.Scan() {
 		line := scanner.Text()
+		if payload, ok := strings.CutPrefix(strings.TrimSpace(line), "data:"); ok {
+			if strings.TrimSpace(payload) == "[DONE]" {
+				terminal = true
+				if holdDone {
+					continue
+				}
+			} else if diagnose {
+				// 先按 JSON 语义解析顶层键，防止上游通过转义或大小写伪造代理私有诊断。
+				var frame map[string]json.RawMessage
+				if json.Unmarshal([]byte(payload), &frame) == nil {
+					changed := false
+					for key := range frame {
+						if strings.EqualFold(key, "goodhr_upstream_failure") {
+							delete(frame, key)
+							changed = true
+						}
+					}
+					if changed {
+						safe, _ := json.Marshal(frame)
+						line = "data: " + string(safe)
+					}
+					if !terminal && frame["choices"] != nil {
+						var choices []struct {
+							FinishReason string `json:"finish_reason"`
+						}
+						if json.Unmarshal(frame["choices"], &choices) == nil {
+							for _, choice := range choices {
+								if choice.FinishReason != "" {
+									terminal = true
+									break
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 		if _, err := io.WriteString(w, line+"\n"); err != nil {
-			return promptTokens, completionTokens, err
+			return promptTokens, completionTokens, false, err
 		}
 		if flusher != nil {
 			flusher.Flush()
@@ -874,9 +955,9 @@ func proxyAIStreamAndUsage(w http.ResponseWriter, reader io.Reader) (int, int, e
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return promptTokens, completionTokens, err
+		return promptTokens, completionTokens, true, err
 	}
-	return promptTokens, completionTokens, nil
+	return promptTokens, completionTokens, diagnose && !terminal, nil
 }
 
 // aiUsageFromStreamLine 从单行 SSE data 中读取 token 用量。

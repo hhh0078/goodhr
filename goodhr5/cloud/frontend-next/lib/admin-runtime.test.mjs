@@ -8,7 +8,7 @@ const macArmAsset = { version: "arm", url: "https://example.test/mac-arm.zip", s
 const macIntelAsset = { version: "intel", url: "https://example.test/mac-intel.zip", sha256: "b".repeat(64), note: "Intel 芯片" };
 const macOCRAsset = { version: "ocr", url: "https://example.test/mac-universal.zip", sha256: "c".repeat(64), note: "Mac 通用" };
 
-test("Intel Mac 清单保留独立的 Node、Camoufox 和 OCR 资源", () => {
+test("Intel Mac保留独立Node和Camoufox，旧OCR资源不再进入安装请求", () => {
 	const config = {
 		runtime_components: {
 			node_runtime: { mac: macArmAsset, "darwin-x64": macIntelAsset },
@@ -21,7 +21,7 @@ test("Intel Mac 清单保留独立的 Node、Camoufox 和 OCR 资源", () => {
 	assert.deepEqual(missingRequiredRuntimeURLs(config, "darwin-x64"), []);
 	assert.deepEqual(manifest.node_runtime["darwin-x64"], macIntelAsset);
 	assert.deepEqual(manifest.camoufox["darwin-x64"], macIntelAsset);
-	assert.deepEqual(manifest.ocr["darwin-x64"], macOCRAsset);
+	assert.equal(manifest.ocr, undefined);
 	assert.deepEqual(manifest.node_runtime["darwin-arm64"], macArmAsset);
 });
 

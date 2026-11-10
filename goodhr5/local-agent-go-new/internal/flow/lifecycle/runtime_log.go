@@ -23,9 +23,72 @@ type loggedDetailRuntime struct {
 	detailBrowser model.DetailBrowser
 }
 
+// loggedAutoReplyRuntime 保留底层平台已有的自动回复能力。
+type loggedAutoReplyRuntime struct {
+	*loggedRuntime
+	model.AutoReplyRuntime
+}
+
+// loggedDetailAutoReplyRuntime 同时保留自动回复与可选详情浏览能力。
+type loggedDetailAutoReplyRuntime struct {
+	*loggedAutoReplyRuntime
+	detailBrowser model.DetailBrowser
+}
+
+// loggedVerifiedAutoReplyRuntime 只为确实支持实时身份核验的平台保留该能力，不扩大其他平台的限制任务支持范围。
+type loggedVerifiedAutoReplyRuntime struct {
+	*loggedAutoReplyRuntime
+	model.AutoReplyIdentityVerifier
+}
+
+// loggedVerifiedDetailAutoReplyRuntime 同时保留平台的详情、自动回复和实时身份核验能力。
+type loggedVerifiedDetailAutoReplyRuntime struct {
+	*loggedDetailAutoReplyRuntime
+	model.AutoReplyIdentityVerifier
+}
+
+// BrowseCandidateDetail 转发底层详情操作，不丢失自动回复接口。
+func (l *loggedDetailAutoReplyRuntime) BrowseCandidateDetail(ctx context.Context, browser model.Browser, config model.Config, candidate model.Candidate) (err error) {
+	defer l.record("browse_candidate_detail", time.Now(), &err)
+	return l.detailBrowser.BrowseCandidateDetail(ctx, browser, config, candidate)
+}
+
 // newLoggedRuntime 创建日志封装，并保留底层平台已有的可选详情浏览能力。
 func newLoggedRuntime(runtime model.Runtime, taskID string, logger shared.Logger) model.Runtime {
 	logged := &loggedRuntime{Runtime: runtime, taskID: taskID, logger: logger}
+	if replyRuntime, ok := runtime.(model.AutoReplyRuntime); ok {
+		if requester, supportsInfo := runtime.(model.AutoReplyInfoRequester); supportsInfo {
+			return newLoggedNativeInfoRuntime(logged, runtime, replyRuntime, requester)
+		}
+		reply := &loggedAutoReplyRuntime{loggedRuntime: logged, AutoReplyRuntime: replyRuntime}
+		identity, canVerify := runtime.(model.AutoReplyIdentityVerifier)
+		if detailBrowser, ok := runtime.(model.DetailBrowser); ok {
+			detail := &loggedDetailAutoReplyRuntime{loggedAutoReplyRuntime: reply, detailBrowser: detailBrowser}
+			if canVerify {
+				verified := &loggedVerifiedDetailAutoReplyRuntime{loggedDetailAutoReplyRuntime: detail, AutoReplyIdentityVerifier: identity}
+				if inspector, ok := runtime.(model.AutoReplyContactInspector); ok {
+					return struct {
+						*loggedVerifiedDetailAutoReplyRuntime
+						model.AutoReplyContactInspector
+					}{verified, inspector}
+				}
+				return verified
+			}
+			return detail
+		}
+		if canVerify {
+			verified := &loggedVerifiedAutoReplyRuntime{loggedAutoReplyRuntime: reply, AutoReplyIdentityVerifier: identity}
+			if inspector, ok := runtime.(model.AutoReplyContactInspector); ok {
+				return struct {
+					*loggedVerifiedAutoReplyRuntime
+					model.AutoReplyContactInspector
+				}{verified, inspector}
+			}
+			return verified
+		}
+		return reply
+	}
+
 	if detailBrowser, ok := runtime.(model.DetailBrowser); ok {
 		return &loggedDetailRuntime{loggedRuntime: logged, detailBrowser: detailBrowser}
 	}

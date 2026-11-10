@@ -1,4 +1,5 @@
 /** 本文件仅在当前浏览器按账号及可选岗位ID保存新手表单的六项核心草稿，不上传云端或保存账号数据。 */
+import { positionDetailMode } from "./position-detail-mode.ts";
 
 const DRAFT_VERSION = 1;
 const DRAFT_FIELDS = ["name", "platform_id", "mode_default", "detail_mode", "position_requirement", "keywords"] as const;
@@ -89,8 +90,8 @@ function coreOnboardingPositionDraft(draft: OnboardingPositionDraft): Onboarding
     ...(draft.position_id?.trim() ? { position_id: draft.position_id.trim() } : {}),
     name: draft.name,
     platform_id: draft.platform_id,
-    mode_default: draft.mode_default,
-    detail_mode: draft.detail_mode,
+    mode_default: "ai",
+    detail_mode: positionDetailMode(draft.platform_id),
     position_requirement: draft.position_requirement,
     keywords: draft.keywords,
   };

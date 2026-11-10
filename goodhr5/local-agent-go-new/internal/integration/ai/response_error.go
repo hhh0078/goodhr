@@ -12,16 +12,17 @@ var responseDiagnosticSequence atomic.Uint64
 
 // ResponseDiagnostic 保存失败响应的原始内容，不包含请求密钥，也不截断实际返回。
 type ResponseDiagnostic struct {
-	Model             string `json:"model"`
-	Response          string `json:"response"`
-	ResponseKind      string `json:"response_kind"`
-	ResponseBody      string `json:"response_body,omitempty"`
-	RequestAttempt    int    `json:"request_attempt,omitempty"`
-	FinalRequestError string `json:"final_request_error,omitempty"`
-	ParseError        string `json:"parse_error"`
-	ParseField        string `json:"parse_field,omitempty"`
-	ParseOffset       int64  `json:"parse_offset,omitempty"`
-	ResponseComplete  bool   `json:"response_complete"`
+	Model                     string `json:"model"`
+	Response                  string `json:"response"`
+	ResponseKind              string `json:"response_kind"`
+	ResponseBody              string `json:"response_body,omitempty"`
+	RequestAttempt            int    `json:"request_attempt,omitempty"`
+	FinalRequestError         string `json:"final_request_error,omitempty"`
+	ParseError                string `json:"parse_error"`
+	ParseField                string `json:"parse_field,omitempty"`
+	ParseOffset               int64  `json:"parse_offset,omitempty"`
+	ResponseCompletionUnknown bool   `json:"response_completion_unknown,omitempty"`
+	ResponseComplete          bool   `json:"response_complete"`
 }
 
 // ResponseError 在保留原错误分类与短文案的同时，附带完整 AI 失败回复。

@@ -1,5 +1,6 @@
 /** 本文件负责岗位模板完整的新增、编辑、会员校验、模式联动和提示词管理。 */
 "use client";
+import { positionDetailMode } from "@/lib/position-detail-mode";
 import {
   Alert,
   Button,
@@ -38,6 +39,7 @@ import styles from "../heavy-ui.module.css";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
+import { AutoReplyGlobalControl, PositionAutoReplyControl } from "@/components/admin/AutoReplyControls";
 import PositionScreeningRecordsDialog from "@/components/admin/PositionScreeningRecordsDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import { ONBOARDING_FILTER_MODE_OPTIONS } from "@/lib/onboarding-view";
@@ -46,6 +48,8 @@ import { isOnboardingTaskEnded } from "@/lib/onboarding-task-feedback";
 import AIResponseDiagnosticDetails, {
   aiResponseDiagnosticFromOutput,
 } from "@/components/admin/AIResponseDiagnosticDetails";
+import TaskFailureDetails, { taskFailureText } from "@/components/admin/TaskFailureDetails";
+import BrowserDiagnosticDetails, { browserDiagnosticText } from "@/components/admin/BrowserDiagnosticDetails";
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
   EmptyState,
@@ -90,6 +94,8 @@ import {
 } from "@/lib/platform-login";
 import {
   evaluatePositionStartGuard,
+  positionRequiresRecreate,
+  POSITION_RECREATE_MESSAGE,
   latestLocalAgentRelease,
   positionUsesAI,
   type PositionStartGuardFailure,
@@ -193,6 +199,7 @@ export default function PositionsPage() {
   const [allLogPosition, setAllLogPosition] = useState<any | null>(null);
   const [screeningPosition, setScreeningPosition] = useState<{ id: string; name: string; account: string } | null>(null);
   const [allLogLoading, setAllLogLoading] = useState(false);
+  const [legacyPositionWarning, setLegacyPositionWarning] = useState(false);
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
   const [startLoading, setStartLoading] = useState(false);
   const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
@@ -355,7 +362,7 @@ export default function PositionsPage() {
       ...createEmptyForm(),
       ...(draft || {}),
       platform_id: platformID,
-      mode_default: draft?.mode_default || defaultCreateMode(aiMembership),
+      mode_default: "ai",
       detail_mode: normalizeDetailMode(platformID, draft?.detail_mode || defaultCreateDetailMode(platformID, aiMembership)),
     };
     draftOwnerIdentity.current = draftIdentity;
@@ -480,7 +487,7 @@ export default function PositionsPage() {
     const draft = context.active ? readOnboardingPositionDraft(draftIdentity) : null;
     const next = { ...createEmptyForm(), ...(draft || {}) };
     next.platform_id = context.active ? draft?.platform_id || "" : openPlatformID;
-    next.mode_default = draft?.mode_default || defaultCreateMode(aiMembership);
+    next.mode_default = "ai";
     next.detail_mode = normalizeDetailMode(next.platform_id, draft?.detail_mode || defaultCreateDetailMode(next.platform_id, aiMembership));
     draftOwnerIdentity.current = draftIdentity;
     positionFormEpoch.current += 1;
@@ -562,7 +569,7 @@ export default function PositionsPage() {
     ) return;
     const analysis = normalizeFloatingAnalysis(task?.analysis);
     if (
-      !analysis || analysis.phase !== "result" || !analysis.terminal ||
+      !analysis || analysis.kind === "auto_reply" || analysis.phase !== "result" || !analysis.terminal ||
       typeof analysis.accepted !== "boolean"
     ) return;
     const signature = JSON.stringify([
@@ -595,7 +602,7 @@ export default function PositionsPage() {
       ...actual,
       platform_id: draft.platform_id,
       name: draft.name,
-      mode_default: draft.mode_default,
+      mode_default: "ai",
       detail_mode: normalizeDetailMode(draft.platform_id, draft.detail_mode),
       position_requirement: draft.position_requirement,
       keywords: draft.keywords,
@@ -691,7 +698,7 @@ export default function PositionsPage() {
           greet_message: form.greet_message.trim(),
           is_and_mode: form.is_and_mode,
           common_config: {
-            mode_default: form.mode_default,
+            mode_default: "ai",
             detail_mode: detailMode,
             output_structured_resume: form.output_structured_resume,
             hliepin_shortcut_search_name:
@@ -765,6 +772,10 @@ export default function PositionsPage() {
   /** openStartPosition 展开岗位日志并打开启动确认弹框。 */
   function openStartPosition(item: any) {
     if (startOperationInFlight.current) return;
+    if (positionRequiresRecreate(item)) {
+      setLegacyPositionWarning(true);
+      return;
+    }
     if (!agentBase) return notify("请先启动本地程序", "warning");
     if (getOnboardingGuideContext().active && !isPlatformOpen(platformConfigs, item.platform_id)) {
       publishOnboardingEvent({ type: "platform-unavailable", platformId: String(item.platform_id || ""), message: "这个岗位的平台暂未开放，请重新选择可用平台。岗位会保留，我不会替你换平台开跑。" });
@@ -1034,6 +1045,7 @@ export default function PositionsPage() {
         }).catch(() => undefined);
         return;
       }
+      /* 2026-11-10：会员限制及免费额度提示暂停，原逻辑保留。
       const usesAI = positionUsesAI(item);
       if (usesAI && !canUseAI(currentSubscription)) {
         const message = "这个岗位用了会员 AI 功能，订阅后我才能继续开工。";
@@ -1054,6 +1066,7 @@ export default function PositionsPage() {
           "当前是免费版，今天的打招呼数量会按免费额度来，我会省着点用。",
           "info",
         );
+      */
       setStartStatus("登录确认好了，正在启动岗位...");
       if (!canContinueStart()) return;
       await localRequest(
@@ -1530,6 +1543,7 @@ export default function PositionsPage() {
         <Radio.Group aria-label="岗位状态筛选" optionType="button" buttonStyle="solid" value={positionScope}
           onChange={(event) => setPositionScope(event.target.value)} options={[{ value: "true", label: "开启" }, { value: "false", label: "关闭" }]} />
         <Flex gap={8} className="goodhr-toolbar-actions">
+          <AutoReplyGlobalControl />
           <Button
             data-onboarding="position-create"
             disabled={loading}
@@ -1573,17 +1587,20 @@ export default function PositionsPage() {
                       className={`${styles.text} ${styles.s7}`}
                     >
                       {platformLabel(item.platform_id)}·{" "}
+                      AI 筛选 · 详情：{detailModeLabel(positionDetailMode(item.platform_id))}
+                      {/* 关键词模式暂停，原卡片内容保留供恢复。
                       {item.common_config?.mode_default === "ai"
                         ? "AI 筛选"
                         : "关键词筛选"}{" "}
                       · 详情：
-                      {detailModeLabel(item.common_config?.detail_mode)}·
+                      {detailModeLabel(positionDetailMode(item.platform_id))}·
                       关键词：
                       <span title={(item.keywords || []).join(" / ") || "无"}>
                         {truncatePositionCardText(
                           (item.keywords || []).join(" / ") || "无",
                         )}
                       </span>
+                      */}
                     </Typography.Paragraph>
                   </div>
                   {isCurrentUserPosition(item, user?.email) ? (
@@ -1692,6 +1709,7 @@ export default function PositionsPage() {
                     </>
                   ) : null}
                 </Typography.Paragraph>
+                {isCurrentUserPosition(item, user?.email) ? <PositionAutoReplyControl position={{ id: String(item.id), name: String(item.name || "当前岗位"), requirement: String(item.ai_config?.position_requirement || "") }} /> : null}
                 <Typography.Paragraph
                   className={`${styles.text} ${styles.s12}`}
                 >
@@ -1735,6 +1753,16 @@ export default function PositionsPage() {
           <EmptyState text={loading ? "岗位读取中" : positionScope === "false" ? "暂时没有关闭的岗位" : "暂时没有开启的岗位，可以先新建一个。"} />
         </SectionPanel>
       )}
+      <AdminDialog
+        open={legacyPositionWarning}
+        title="这个岗位需要重新创建"
+        confirmText="我知道了"
+        showCancel={false}
+        onClose={() => setLegacyPositionWarning(false)}
+        onConfirm={() => setLegacyPositionWarning(false)}
+      >
+        <Alert type="warning" showIcon description={POSITION_RECREATE_MESSAGE} />
+      </AdminDialog>
       <AdminDialog
         open={Boolean(startPositionItem)}
         title={<span data-onboarding="position-start-feedback">{startError ? "岗位还没启动成功" : "开始招聘岗位"}</span>}
@@ -1882,7 +1910,7 @@ export default function PositionsPage() {
       <AdminDialog
         open={dialogOpen}
         title={form.id ? "编辑岗位模板" : "新建岗位模板"}
-        description={simpleOnboardingForm ? (form.id ? "核对这份岗位，保存后我陪你接着走，不会再新建一份。" : "先把第一个岗位建好，我陪你继续跑下一步。") : "按运行顺序填写。只有当前选择模式需要的字段会显示。"}
+        description={simpleOnboardingForm ? (form.id ? "核对这份岗位，保存后我陪你接着走，不会再新建一份。" : "先把第一个岗位建好，我陪你继续跑下一步。") : "按运行顺序填写，统一使用 AI 筛选，入库设置保持你的选择。"}
         maxWidth="md"
         confirmText={form.id ? "保存修改" : "创建岗位"}
         confirmDataOnboarding="position-save"
@@ -1922,7 +1950,8 @@ export default function PositionsPage() {
                 placeholder="粘贴平台“岗位管理”里的完整岗位名称"
               />
             </Form.Item>
-            <div data-onboarding="position-filter-mode" onClick={(event) => reportOnboardingModeClick(event, "filter-mode")}>
+            {/* 基础筛选固定为AI，原模式选择保留供以后恢复。
+<div data-onboarding="position-filter-mode" onClick={(event) => reportOnboardingModeClick(event, "filter-mode")}>
               <ChoiceCards
                 label="基础信息筛选方式"
                 value={form.mode_default}
@@ -1931,7 +1960,9 @@ export default function PositionsPage() {
                 options={ONBOARDING_FILTER_MODE_OPTIONS}
               />
             </div>
-            <div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
+*/}
+            {/* 旧详情识别方式选择框保留：当前按平台固定AI/DOM，不再展示或允许选择OCR。
+<div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
               <ChoiceCards
                 label="详情识别方式"
                 value={form.detail_mode}
@@ -1946,6 +1977,7 @@ export default function PositionsPage() {
                 ]}
               />
             </div>
+            */}
             {form.mode_default === "ai" || form.detail_mode === "ai" ? (
               <>
                 <Form.Item layout="vertical" label="岗位要求" extra="粘贴岗位要求，写清必须具备的经验和技能，福利可以先不贴。" style={{ marginBottom: 0 }}>
@@ -1960,7 +1992,7 @@ export default function PositionsPage() {
                   />
                 </Form.Item>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  AI 需有效会员；内置 AI 按用量扣余额，自定义接口按服务商规则计费。开始前会检查会员与余额。
+                  AI 按实际用量扣余额，无需额外购买会员。启动至少需要 0.10 元，并使用内置 AI。
                 </Typography.Text>
               </>
             ) : null}
@@ -2083,7 +2115,7 @@ export default function PositionsPage() {
                 disabled:
                   !isPlatformOpen(platformConfigs, "boss"),
                 description: isPlatformOpen(platformConfigs, "boss")
-                  ? "支持 OCR 和 AI 详情识别。"
+                  ? "详情固定使用 AI 识别，需要内置 AI 配置和充足余额。"
                   : "暂未开放",
                 iconSrc: platformIconSrc("boss"),
               },
@@ -2180,6 +2212,7 @@ export default function PositionsPage() {
               ) : null}
             </div>
           </Card>
+{/* 基础筛选固定为AI，原模式选择保留供以后恢复。
           <div data-onboarding="position-filter-mode" onClick={(event) => reportOnboardingModeClick(event, "filter-mode")}>
           <ChoiceCards
             label="基础信息筛选模式   (决定是否打开查看详情)"
@@ -2188,7 +2221,9 @@ export default function PositionsPage() {
             options={ONBOARDING_FILTER_MODE_OPTIONS}
           />
           </div>
-          <div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
+*/}
+          {/* 旧详情识别方式选择框保留：当前按平台固定AI/DOM，不再展示或允许选择OCR。
+<div data-onboarding="position-detail-mode" onClick={(event) => reportOnboardingModeClick(event, "detail-mode")}>
             <>
               <Typography.Paragraph className={`${styles.text} ${styles.s34}`}>
                 选择哪种详情方式就只使用哪一种：DOM 最快，OCR
@@ -2224,6 +2259,7 @@ export default function PositionsPage() {
               />
             </>
           </div>
+          */}
           {form.mode_default === "keyword" ? (
             <>
               <Divider />
@@ -2765,7 +2801,7 @@ export default function PositionsPage() {
               description={
                 <>
                   {" "}
-                  当前会员已到期，AI 选项无法保存。可以改为关键词筛选和 OCR
+                  当前会员已到期，BOSS 详情固定用 AI。可以续费，或选择其它平台使用关键词筛选和 DOM
                   识别。
                 </>
               }
@@ -2995,8 +3031,8 @@ function createEmptyForm() {
     name: "",
     is_open: true,
     platform_id: "boss",
-    mode_default: "keyword",
-    detail_mode: "ocr",
+    mode_default: "ai",
+    detail_mode: "ai",
     keywords: "",
     exclude_keywords: "",
     is_and_mode: false,
@@ -3042,10 +3078,10 @@ function formFromItem(
       name: item.name || "",
       is_open: item.is_open !== false,
       platform_id: item.platform_id || "boss",
-      mode_default: common.mode_default || "keyword",
+      mode_default: "ai",
       detail_mode: normalizeDetailMode(
         item.platform_id,
-        common.detail_mode || "ocr",
+        common.detail_mode || positionDetailMode(item.platform_id),
       ),
       output_structured_resume: Boolean(common.output_structured_resume),
       request_phone: Boolean(common.request_phone),
@@ -3136,19 +3172,17 @@ function normalizePrompt(value: unknown) {
   return String(value || "").replace(/\\n/g, "\n");
 }
 /** normalizeDetailMode 修正平台不支持的详情模式。 */
-function normalizeDetailMode(platformID: string, mode: string) {
-  if (isDOMOnlyPlatform(platformID)) return "dom";
-  if (platformID === "boss" && mode === "dom") return "ocr";
-  return ["dom", "ocr", "ai"].includes(mode) ? mode : "ocr";
+function normalizeDetailMode(platformID: string, _mode: string) {
+  return positionDetailMode(platformID);
 }
 /** defaultCreateDetailMode 返回新增岗位时自动使用的详情识别模式。 */
-function defaultCreateDetailMode(platformID: string, memberActive: boolean) {
-  if (platformID === "boss") return memberActive ? "ai" : "ocr";
-  return "dom";
+function defaultCreateDetailMode(platformID: string, _memberActive: boolean) {
+  return positionDetailMode(platformID);
 }
 /** defaultCreateMode 返回新增岗位时自动使用的基础筛选模式。 */
 function defaultCreateMode(memberActive: boolean) {
-  return memberActive ? "ai" : "keyword";
+  // 原会员分流保留：return memberActive ? "ai" : "keyword";
+  return "ai";
 }
 /** isDOMOnlyPlatform 判断平台是否只支持 DOM 详情识别。 */
 function isDOMOnlyPlatform(platformID: string) {
@@ -3169,7 +3203,7 @@ function splitKeywords(value: string) {
 }
 /** detailModeLabel 返回详情模式中文名称。 */
 function detailModeLabel(value: string) {
-  return value === "dom" ? "DOM识别" : value === "ai" ? "AI识别" : "OCR识别";
+  return value === "ai" ? "AI识别" : "DOM识别";
 }
 /** normalizePositionTaskStats 把本地最近任务统计转换成安全的非负整数。 */
 function normalizePositionTaskStats(task: any): PositionTaskStats {
@@ -3390,6 +3424,7 @@ function PositionLogList(props: { logs: any[]; maxHeight: number | string }) {
 function PositionLogLine(props: { item: any; previous: any | null }) {
   const { item, previous } = props;
   const appearance = positionLogAppearance(item.level, item.is_error);
+  const output = positionLogEvent(item)?.output;
   return (
     <div
       className={styles.s113}
@@ -3435,7 +3470,9 @@ function PositionLogLine(props: { item: any; previous: any | null }) {
         >
           {positionLogMessage(item)}
         </Typography.Paragraph>
-        <AIResponseDiagnosticDetails output={positionLogEvent(item)?.output} />
+        <TaskFailureDetails output={output} />
+        <BrowserDiagnosticDetails output={output} />
+        <AIResponseDiagnosticDetails output={output} />
       </Flex>
     </div>
   );
@@ -3512,12 +3549,10 @@ function buildPositionLogText(logs: any[]) {
       const previous =
         index < orderedLogs.length - 1 ? orderedLogs[index + 1] : null;
       const summary = `${formatPositionLogTime(item.created_at || item.time)} ${positionLogDelta(item, previous)} ${positionLogAppearance(item.level, item.is_error).label} ${positionLogMessage(item)}`;
-      const aiResponse = aiResponseDiagnosticFromOutput(
-        positionLogEvent(item)?.output,
-      );
-      return aiResponse
-        ? `${summary}\nAI 完整诊断：\n${JSON.stringify(aiResponse, null, 2)}`
-        : summary;
+      const output = positionLogEvent(item)?.output;
+      const aiResponse = aiResponseDiagnosticFromOutput(output);
+      const browser = browserDiagnosticText(output);
+      return [summary, taskFailureText(output), browser && `浏览器排障详情：\n${browser}`, aiResponse && `AI 完整诊断：\n${JSON.stringify(aiResponse, null, 2)}`].filter(Boolean).join("\n");
     })
     .join("\n");
 }

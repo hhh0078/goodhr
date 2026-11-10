@@ -119,6 +119,12 @@ func (u *Uploader) Flush(parent context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
+			if cloud.IsCandidateDeleted(err) {
+				if u.store.PurgeRejectedScreening(ctx, owner, item.Snapshot.AttemptID) != nil {
+					return
+				}
+				continue
+			}
 			_ = u.store.DeferScreeningRecord(ctx, owner, item.Snapshot.AttemptID, item.Snapshot.Revision)
 			// 错误正文可能含业务数据或凭证，普通日志只记录编号和待补传状态。
 			log.Printf("flow=screening_sync attempt_id=%s revision=%d status=pending message=筛选记录暂未同步，稍后自动补传", item.Snapshot.AttemptID, item.Snapshot.Revision)

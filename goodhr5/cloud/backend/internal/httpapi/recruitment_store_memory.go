@@ -9,15 +9,16 @@ import (
 
 // MemoryRecruitmentStore 在进程内隔离各团队流程及邀请令牌哈希。
 type MemoryRecruitmentStore struct {
-	mu           sync.Mutex
-	workflows    map[string]RecruitmentWorkflow
-	applications map[string]RecruitmentApplication
-	invitations  map[string]RecruitmentInvitation
+	purgedCandidates map[string]bool
+	mu               sync.Mutex
+	workflows        map[string]RecruitmentWorkflow
+	applications     map[string]RecruitmentApplication
+	invitations      map[string]RecruitmentInvitation
 }
 
 // NewMemoryRecruitmentStore 创建空的招聘存储，不会自动启动历史候选人。
 func NewMemoryRecruitmentStore() *MemoryRecruitmentStore {
-	return &MemoryRecruitmentStore{workflows: map[string]RecruitmentWorkflow{}, applications: map[string]RecruitmentApplication{}, invitations: map[string]RecruitmentInvitation{}}
+	return &MemoryRecruitmentStore{purgedCandidates: map[string]bool{}, workflows: map[string]RecruitmentWorkflow{}, applications: map[string]RecruitmentApplication{}, invitations: map[string]RecruitmentInvitation{}}
 }
 
 // EnsureDefault 在团队尚无模板时幂等初始化简单流程。
@@ -128,6 +129,9 @@ func (s *MemoryRecruitmentStore) ListApplications(tenantID string) ([]Recruitmen
 func (s *MemoryRecruitmentStore) CreateApplication(item RecruitmentApplication) (RecruitmentApplication, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.purgedCandidates[item.TenantID+"|"+item.CandidateID] {
+		return RecruitmentApplication{}, ErrNotFound
+	}
 	for _, old := range s.applications {
 		if old.TenantID == item.TenantID && old.CandidateID == item.CandidateID && old.PositionID == item.PositionID && old.Status == "active" {
 			return RecruitmentApplication{}, ErrRecruitmentDuplicate

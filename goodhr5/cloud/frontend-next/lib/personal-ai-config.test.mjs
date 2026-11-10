@@ -25,19 +25,19 @@ const models = normalizeBuiltinAIModels([
   { id: "vision-plus", name: "", description: null },
 ]);
 
-test("接口真实主机等于当前域名时才限制模型，忽略大小写", () => {
+test("接口真实主机属于58it.cn官方域名时使用模型列表，忽略大小写", () => {
   assert.equal(usesBuiltinAIModels(builtinURL, hostname), true);
   assert.equal(usesBuiltinAIModels("https://goodhr.58it.cn:8443/api/v1", hostname), true);
   assert.equal(usesBuiltinAIModels("http://GOODHR.58IT.CN/api/v1", hostname), true);
   assert.equal(usesBuiltinAIModels("https://third-party.invalid/v1", hostname), false);
-  assert.equal(usesBuiltinAIModels(builtinURL, ""), false);
+  assert.equal(usesBuiltinAIModels(builtinURL, ""), true);
 });
 
 test("拒绝把当前域名放进路径查询用户信息或相似子域名的伪装地址", () => {
   for (const value of [
     "https://external.invalid/goodhr.58it.cn", "https://external.invalid/?next=goodhr.58it.cn",
     "https://external.invalid/#goodhr.58it.cn", "https://goodhr.58it.cn.external.invalid/v1",
-    "https://sub.goodhr.58it.cn/v1", "https://notgoodhr.58it.cn/v1",
+    "https://not58it.cn/v1", "https://58it.cn.external.invalid/v1",
     "https://goodhr.58it.cn@external.invalid/v1", "https://user:secret@goodhr.58it.cn/v1",
     "ftp://goodhr.58it.cn/v1", "javascript://goodhr.58it.cn", "/api/goodhr.58it.cn", "not a url",
   ]) assert.equal(usesBuiltinAIModels(value, hostname), false, value);
@@ -49,7 +49,7 @@ test("同域的旧模型和空模型回到首个有效项，有效模型继续�
   assert.equal(resolvePersonalAIModel(builtinURL, " vision-plus ", hostname, models), "vision-plus");
 });
 
-test("外部模型自由填写，列表读取失败或空列表不会覆盖已有模型", () => {
+test("外部旧配置留待主动确认，模型列表失败或空列表不会覆盖已有值", () => {
   assert.equal(resolvePersonalAIModel("https://third-party.invalid/v1", "my/private-model", hostname, models), "my/private-model");
   assert.equal(resolvePersonalAIModel(builtinURL, "keep-existing", hostname, null), "keep-existing");
   assert.equal(resolvePersonalAIModel(builtinURL, "keep-existing", hostname, []), "keep-existing");

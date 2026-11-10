@@ -20,6 +20,7 @@ import type {
   ResolvedElement,
 } from "./locator-types.js";
 import { ViewportPrimitive } from "./viewport.js";
+import { assertRequestActive } from "./request-lifecycle.js";
 
 export type { ResolvedElement } from "./locator-types.js";
 
@@ -30,7 +31,7 @@ const SELECTOR_RETRY_DELAY_MS = 300;
 export class LocatorPrimitive {
   private readonly viewport = new ViewportPrimitive();
 
-  /** resolve 按 iframe、父级和目标顺序解析一个元素。 */
+  /** resolve 按 iframe、父级和目标顺序解析元素；只读模式复用状态检查，不采集交互所需几何。 */
   async resolve(
     page: Page,
     spec: SelectorSpec,
@@ -39,6 +40,7 @@ export class LocatorPrimitive {
       action: string;
       step: string;
       require_unique: boolean;
+      view_mode?: "geometry" | "state";
     },
   ): Promise<ResolvedElement> {
     return this.resolveWithPolling(
@@ -67,6 +69,7 @@ export class LocatorPrimitive {
       step: string;
     },
     startIndex = 0,
+    fromEnd = false,
   ): Promise<ResolvedElement[]> {
     return this.resolveWithPolling(
       page,
@@ -80,6 +83,7 @@ export class LocatorPrimitive {
           attempts,
           { ...context, frame_path: framePath },
           startIndex,
+          fromEnd,
         ),
     );
   }
@@ -97,12 +101,20 @@ export class LocatorPrimitive {
       frame_path?: number;
     },
     startIndex: number,
+    fromEnd: boolean,
   ): Promise<ResolvedElement[]> {
     const scope = await this.resolveScope(page, spec, attempts, context);
     for (const candidate of spec.target.selectors) {
-      const locator = this.candidateLocator(scope, candidate, spec.target);
+      assertRequestActive();
+      let locator = this.candidateLocator(scope, candidate, spec.target);
+      if (spec.target.index === undefined && Object.keys(spec.target.attributes ?? {}).length > 0) {
+        // 无显式序号时先按属性收紧候选集，再计数和分页；否则小窗口会漏掉原列表靠后的目标。
+        // 显式序号仍针对原始列表选中后核验属性，保持与单元素定位一致的旧语义。
+        locator = locator.and(scope.locator(attributeFilter(spec.target.attributes!)));
+      }
       let queryError: string | undefined;
       const count = await locator.count().catch(error => { queryError = queryErrorType(error); return 0; });
+      assertRequestActive();
       const attempt: SelectorAttempt = {
         ...(context.frame_path !== undefined ? { frame_path: context.frame_path } : {}),
         level: "target",
@@ -117,7 +129,7 @@ export class LocatorPrimitive {
       if (count === 0) {
         continue;
       }
-      const start = spec.target.index ?? Math.max(0, startIndex);
+      const start = spec.target.index ?? (fromEnd ? Math.max(0, count - Math.max(1, maxItems)) : Math.max(0, startIndex));
       const end =
         spec.target.index !== undefined
           ? Math.min(count, start + 1)
@@ -125,6 +137,7 @@ export class LocatorPrimitive {
       if (spec.target.index === undefined && start >= count) return [];
       const results: ResolvedElement[] = [];
       for (let index = start; index < end; index += 1) {
+        assertRequestActive();
         const item = locator.nth(index);
         if (!(await this.matchesAttributes(item, spec.target))) {
           continue;
@@ -143,6 +156,8 @@ export class LocatorPrimitive {
           attempts: [...attempts],
           view,
           list_index: index,
+          list_total: count,
+          resolved_spec: spec,
         });
       }
       if (results.length > 0) {
@@ -234,6 +249,7 @@ export class LocatorPrimitive {
       matched_selector: selected.candidate,
       attempts,
       view,
+      resolved_spec: spec,
     };
   }
 
@@ -249,15 +265,22 @@ export class LocatorPrimitive {
     let lastAttempts: SelectorAttempt[] = [];
     let lastError: unknown;
     let pollAttempts = 0;
-    const variants = [spec, ...(spec.frame_fallbacks ?? []).map(frames => ({ ...spec, frames }))];
+    const variants = selectorVariants(spec).flatMap(variant =>
+      [variant, ...(variant.frame_fallbacks ?? []).map(frames => ({ ...variant, frames }))],
+    );
     while (true) {
+      assertRequestActive();
       pollAttempts += 1;
       const attempts: SelectorAttempt[] = [];
       // 每次轮询完整检查主路径与备用路径，所有路径共用一个等待期限。
       for (const [framePath, variant] of variants.entries()) {
         try {
-          return await resolveOnce(attempts, variant, framePath);
+          assertRequestActive();
+          const result = await resolveOnce(attempts, variant, framePath);
+          assertRequestActive();
+          return result;
         } catch (error) {
+          assertRequestActive();
           lastError = error;
           lastAttempts = attempts;
           if (error instanceof WorkerError && error.code === "ELEMENT_AMBIGUOUS") {
@@ -303,7 +326,9 @@ export class LocatorPrimitive {
 
   /** view 读取元素位置和可见状态。 */
   async view(page: Page, locator: Locator): Promise<ElementView> {
+    assertRequestActive();
     const visible = await locator.isVisible().catch(() => false);
+    assertRequestActive();
     if (!visible) {
       return {
         box: { x: 0, y: 0, width: 0, height: 0 },
@@ -319,6 +344,7 @@ export class LocatorPrimitive {
       this.viewport.size(page).catch(() => ({ width: 0, height: 0 })),
       locator.isEnabled().catch(() => false),
     ]);
+    assertRequestActive();
     const normalizedBox: ElementBox = box
       ? {
           x: box.x,
@@ -353,7 +379,9 @@ export class LocatorPrimitive {
 
   /** box 只读取元素最新边界，供点击前的轻量稳定检查使用。 */
   async box(locator: Locator): Promise<ElementBox | null> {
+    assertRequestActive();
     const box = await locator.boundingBox().catch(() => null);
+    assertRequestActive();
     if (!box) {
       return null;
     }
@@ -370,6 +398,7 @@ export class LocatorPrimitive {
     locator: Locator,
     spec: SelectorSpec,
   ): Promise<ElementView & { visibility_error_type?: string }> {
+    assertRequestActive();
     const state = spec.state ?? "visible";
     let visibilityErrorType: string | undefined;
     const visible =
@@ -379,10 +408,12 @@ export class LocatorPrimitive {
             visibilityErrorType = error instanceof Error && error.name === "TimeoutError" ? "TimeoutError" : "Error";
             return false;
           });
+    assertRequestActive();
     const enabled =
       state === "enabled"
         ? await locator.isEnabled().catch(() => false)
         : visible;
+    assertRequestActive();
     return {
       box: { x: 0, y: 0, width: 0, height: 0 },
       viewport: { width: 0, height: 0 },
@@ -400,7 +431,7 @@ export class LocatorPrimitive {
     spec: SelectorSpec,
     attempts: SelectorAttempt[],
     requireUnique: boolean,
-    context: { trace_id: string; action: string; step: string; frame_path?: number },
+    context: { trace_id: string; action: string; step: string; frame_path?: number; view_mode?: "geometry" | "state" },
   ): Promise<ResolvedElement> {
     const scope = await this.resolveScope(page, spec, attempts, context);
     const selected = await this.selectFromGroup(
@@ -411,7 +442,9 @@ export class LocatorPrimitive {
       requireUnique,
       context,
     );
-    const view = await this.view(page, selected.locator);
+    const view = context.view_mode === "state"
+      ? await this.readView(selected.locator, spec)
+      : await this.view(page, selected.locator);
     if (!(await this.matchesState(selected.locator, spec, view))) {
       throw new WorkerError({
         code:
@@ -438,6 +471,7 @@ export class LocatorPrimitive {
       matched_selector: selected.candidate,
       attempts: [...attempts],
       view,
+      resolved_spec: spec,
     };
   }
 
@@ -484,9 +518,15 @@ export class LocatorPrimitive {
     context: { trace_id: string; action: string; step: string; frame_path?: number },
   ): Promise<{ locator: Locator; candidate: SelectorCandidate }> {
     for (const candidate of group.selectors) {
-      const locator = this.candidateLocator(scope, candidate, group);
+      assertRequestActive();
+      let locator = this.candidateLocator(scope, candidate, group);
+      if (group.index === undefined && Object.keys(group.attributes ?? {}).length > 0) {
+        // 无序号时属性用于收紧候选集；显式序号继续针对原列表定位，再按原有规则核验属性。
+        locator = locator.and(scope.locator(attributeFilter(group.attributes!)));
+      }
       let queryError: string | undefined;
       const count = await locator.count().catch(error => { queryError = queryErrorType(error); return 0; });
+      assertRequestActive();
       const selectedIndex = group.index ?? 0;
       attempts.push({
         ...(context.frame_path !== undefined ? { frame_path: context.frame_path } : {}),
@@ -583,7 +623,9 @@ export class LocatorPrimitive {
     group: SelectorGroup,
   ): Promise<boolean> {
     for (const [name, expected] of Object.entries(group.attributes ?? {})) {
+      assertRequestActive();
       const actual = await locator.getAttribute(name).catch(() => null);
+      assertRequestActive();
       if (actual !== expected) {
         return false;
       }
@@ -597,9 +639,13 @@ export class LocatorPrimitive {
     spec: SelectorSpec,
     view: ElementView,
   ): Promise<boolean> {
+    assertRequestActive();
     switch (spec.state ?? "visible") {
-      case "attached":
-        return (await locator.count().catch(() => 0)) > 0;
+      case "attached": {
+        const count = await locator.count().catch(() => 0);
+        assertRequestActive();
+        return count > 0;
+      }
       case "enabled":
         return view.visible && view.enabled;
       case "visible":
@@ -637,10 +683,24 @@ export class LocatorPrimitive {
   }
 }
 
+/** selectorVariants 按顺序展开完整备用定位方案，旧对象仍只有原来的一条方案。 */
+function selectorVariants(spec: SelectorSpec): SelectorSpec[] {
+  return [spec, ...(spec.alternatives ?? []).flatMap(selectorVariants)];
+}
+
 /** exactTextPattern 创建允许首尾空白、但不允许额外正文的精确文本表达式。 */
 function exactTextPattern(value: string): RegExp {
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`^\\s*${escaped}\\s*$`, "u");
+}
+
+/** attributeFilter 把属性等值条件编码为标准 CSS，转义名称、引号、反斜线和控制字符，防止正文扩展选择范围。 */
+function attributeFilter(attributes: Record<string, string>): string {
+  return Object.entries(attributes).map(([name, value]) => {
+    const safeName = Array.from(name, char => `\\${char.codePointAt(0)!.toString(16)} `).join("");
+    const safeValue = value.replace(/[\0-\x1f\x7f"\\]/g, char => `\\${char.codePointAt(0)!.toString(16)} `);
+    return `[${safeName}="${safeValue}"]`;
+  }).join("");
 }
 
 /** safeAttempts 把内部选择器尝试记录转换成可安全返回的 JSON 字段。 */

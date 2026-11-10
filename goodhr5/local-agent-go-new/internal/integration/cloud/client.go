@@ -8,13 +8,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // UploadBrowserEvents 把已脱敏的浏览器异常退出日志批量上传云端。
@@ -24,15 +30,21 @@ func (c *Client) UploadBrowserEvents(ctx context.Context, token string, events [
 
 // Client 是 GoodHR 云端强类型客户端。
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL             string
+	http                *http.Client
+	localAutoStore      *storage.Store
+	localAutoDir        string
+	localAutoConfigured bool
+	localAutoMu         sync.Mutex
+	localAutoOwners     sync.Map
+	localAutoMigrated   sync.Map
 }
 
 // New 创建 GoodHR 云端客户端。
 func New(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		http:    &http.Client{Timeout: 20 * time.Second},
+		http:    &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
@@ -63,6 +75,9 @@ func (c *Client) ValidateSession(ctx context.Context, token string) (UserSession
 		session.SessionKind = response.Data.Session.Kind
 	}
 	session.LoggedIn = session.UserID != ""
+	if session.LoggedIn {
+		c.localAutoOwners.Store(autoReplyDigest(token), session.UserID)
+	}
 	if !session.LoggedIn {
 		return UserSession{}, &APIError{
 			StatusCode: http.StatusUnauthorized,
@@ -140,6 +155,8 @@ func (c *Client) Position(ctx context.Context, token string, positionID string) 
 	if result.ID == "" || result.PlatformID == "" {
 		return PositionSnapshot{}, fmt.Errorf("云端岗位配置不完整")
 	}
+	// 保留转换前的旧配置标记，启动预检负责拦截；普通读取与停止任务仍可用。
+	result.RequiresRecreate = result.RequiresRecreate || strings.EqualFold(strings.TrimSpace(result.CommonConfig.ModeDefault), "keyword") || strings.EqualFold(strings.TrimSpace(result.CommonConfig.DetailMode), "ocr")
 	result = normalizePosition(result)
 	return result, nil
 }
@@ -488,10 +505,12 @@ func normalizePosition(position PositionSnapshot) PositionSnapshot {
 	if position.MaxBatches <= 0 {
 		position.MaxBatches = position.CommonConfig.ScanRounds
 	}
-	mode := strings.ToLower(strings.TrimSpace(position.CommonConfig.ModeDefault))
-	detailMode := strings.ToLower(strings.TrimSpace(position.CommonConfig.DetailMode))
-	position.RequiresOCR = position.RequiresOCR || detailMode == "ocr"
-	position.RequiresAI = position.RequiresAI || mode != "keyword" || detailMode == "ai"
+	// 关键词筛选暂不开放，公共任务统一使用AI；不删除旧岗位关键词与入库设置。
+	position.CommonConfig.ModeDefault = "ai"
+	detailMode := model.DetailRecognitionMode(position.PlatformID)
+	position.CommonConfig.DetailMode = detailMode
+	position.RequiresOCR = false // 历史requires_ocr与detail_mode=ocr保留兼容，当前流程不再启动OCR。
+	position.RequiresAI = true
 	position.RequestPhone = position.RequestPhone || position.CommonConfig.RequestPhone
 	position.RequestWechat = position.RequestWechat || position.CommonConfig.RequestWechat
 	position.RequestResume = position.RequestResume || position.CommonConfig.RequestResume
@@ -500,6 +519,14 @@ func normalizePosition(position PositionSnapshot) PositionSnapshot {
 
 // do 发送云端请求并解析强类型响应。
 func (c *Client) do(ctx context.Context, method string, path string, token string, payload any, result any) error {
+	return c.doWithMachineID(ctx, method, path, token, "", payload, result)
+}
+
+// doWithMachineID 发送可选携带稳定设备编号的云端 JSON 请求。
+func (c *Client) doWithMachineID(ctx context.Context, method string, path string, token string, machineID string, payload any, result any) error {
+	if handled, err := c.handleLocalAutoReply(ctx, method, path, AgentCredentials{Token: token, MachineID: machineID}, payload, result); handled {
+		return err
+	}
 	if c.baseURL == "" {
 		return fmt.Errorf("云端地址不能为空")
 	}
@@ -511,42 +538,90 @@ func (c *Client) do(ctx context.Context, method string, path string, token strin
 		}
 		body = bytes.NewReader(encoded)
 	}
+	return c.doBody(ctx, method, path, token, machineID, "application/json", body, result)
+}
+
+// doBody 发送已经编码好的请求体，并统一解析云端成功和错误响应。
+func (c *Client) doBody(ctx context.Context, method string, path string, token string, machineID string, contentType string, body io.Reader, result any) error {
+	if c.baseURL == "" {
+		return fmt.Errorf("云端地址不能为空")
+	}
 	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return fmt.Errorf("创建云端请求失败：%w", err)
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(contentType) != "" {
+		request.Header.Set("Content-Type", contentType)
+	}
 	if strings.TrimSpace(token) != "" {
 		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
 	}
+	if strings.TrimSpace(machineID) != "" {
+		request.Header.Set("X-GoodHR-Machine-ID", strings.TrimSpace(machineID))
+	}
+	if strings.HasPrefix(path, autoReplyAgentBasePath+"/questions/") || (path == autoReplyAgentBasePath+"/candidates" || path == autoReplyAgentBasePath+"/online-profile") && c.localAutoStore.UsesAutoReplyAuthority() {
+		request.Header.Set("X-GoodHR-Runtime-Service", os.Getenv("GOODHR_AUTO_REPLY_SERVICE_TOKEN"))
+	}
+	started := time.Now()
+	// capture 只记录请求阶段、有效预算和已收字节；端点、凭证与业务响应保持在原边界内。
+	capture := func(original error, phase string, status int, size int64) error {
+		detail := failurediag.Detail{Source: "云端接口", Operation: "请求云端服务", Phase: phase, Reason: "当前阶段未完成", HTTPStatus: status, ElapsedMS: time.Since(started).Milliseconds(), ReceivedBytes: size, LimitMS: c.http.Timeout.Milliseconds()}
+		if end, ok := ctx.Deadline(); ok && (c.http.Timeout <= 0 || end.Sub(started) < c.http.Timeout) {
+			detail.LimitMS = max(int64(0), end.Sub(started).Milliseconds())
+		}
+		ended := ctx.Err()
+		var networkError net.Error
+		switch {
+		case ended != nil && (errors.Is(original, context.Cause(ctx)) || errors.Is(original, ended)):
+			if ended == context.DeadlineExceeded {
+				detail.Reason = "上层请求时限已到"
+			} else {
+				detail.Reason = "上层请求已取消"
+			}
+		case errors.Is(original, context.DeadlineExceeded), errors.As(original, &networkError) && networkError.Timeout():
+			detail.Reason = "云端网络请求超时"
+		case errors.Is(original, syscall.ECONNRESET):
+			detail.Reason = "云端连接被重置"
+		case errors.Is(original, io.ErrUnexpectedEOF):
+			detail.Reason = "云端回复未收完，连接已关闭"
+		}
+		return failurediag.Wrap(original, detail)
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("连接云端失败：%w", err)
+		return capture(fmt.Errorf("连接云端失败：%w", err), "尚未收到响应头", 0, 0)
 	}
 	defer response.Body.Close()
 	limited := io.LimitReader(response.Body, 4<<20)
 	content, err := io.ReadAll(limited)
 	if err != nil {
-		return fmt.Errorf("读取云端响应失败：%w", err)
+		return capture(fmt.Errorf("读取云端响应失败：%w", err), "读取回复正文", response.StatusCode, int64(len(content)))
 	}
 	if response.StatusCode >= 400 {
 		var failure struct {
+			Code    string          `json:"code"`
 			Message string          `json:"message"`
 			Error   json.RawMessage `json:"error"`
 			Msg     string          `json:"msg"`
+			ErrorID string          `json:"error_id"`
 		}
 		_ = json.Unmarshal(content, &failure)
 		message := strings.TrimSpace(failure.Message)
-		code := ""
+		code := strings.TrimSpace(failure.Code)
+		errorID := strings.TrimSpace(failure.ErrorID)
 		if message == "" {
 			var errorBody struct {
 				Code    string `json:"code"`
 				Message string `json:"message"`
+				ErrorID string `json:"error_id"`
 			}
 			if err := json.Unmarshal(failure.Error, &errorBody); err == nil {
-				code = strings.TrimSpace(errorBody.Code)
+				if code == "" {
+					code = strings.TrimSpace(errorBody.Code)
+				}
 				message = strings.TrimSpace(errorBody.Message)
+				errorID = strings.TrimSpace(errorBody.ErrorID)
 			}
 		}
 		if message == "" && len(failure.Error) > 0 {
@@ -564,7 +639,11 @@ func (c *Client) do(ctx context.Context, method string, path string, token strin
 		if message == "session is invalid or expired" || message == "session invalid or expired" {
 			message = "登录状态已经失效，请重新登录"
 		}
-		return &APIError{StatusCode: response.StatusCode, Code: code, Message: message}
+		apiErr := &APIError{StatusCode: response.StatusCode, Code: code, Message: message, ErrorID: errorID}
+		if response.StatusCode == http.StatusGatewayTimeout || response.StatusCode == http.StatusRequestTimeout {
+			return failurediag.Wrap(apiErr, failurediag.Detail{Source: "云端接口", Operation: "请求云端服务", Phase: "已收到云端回复", Reason: "云端返回超时状态", HTTPStatus: response.StatusCode, ElapsedMS: time.Since(started).Milliseconds(), ReceivedBytes: int64(len(content))})
+		}
+		return apiErr
 	}
 	if result != nil && len(content) > 0 {
 		if err := json.Unmarshal(content, result); err != nil {

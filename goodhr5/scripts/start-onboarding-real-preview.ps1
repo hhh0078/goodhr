@@ -41,7 +41,7 @@ function Get-PreviewRuntimeEvidence([string]$ExpectedDataDir, [int]$ExpectedProc
     if ([IO.Path]::GetFullPath([string]$health.data_dir) -ne $ExpectedDataDir) { throw '隔离 Agent 返回的数据目录不正确。' }
     if ((Get-ListeningProcess 43131) -ne $ExpectedProcessId) { throw '隔离 Agent 监听进程发生变化。' }
     if ((Get-ListeningProcess 43129) -ne $ProductionProcessId) { throw '生产 Agent 监听进程发生变化，请检查环境。' }
-    foreach ($key in @('node_installed', 'node_worker_installed', 'camoufox_installed', 'ocr_installed')) {
+    foreach ($key in @('node_installed', 'node_worker_installed', 'camoufox_installed')) {
         if (-not $runtime.$key) { throw "隔离运行组件还没就绪：$key" }
     }
     if ($runtime.system_runtime.required -and -not $runtime.system_runtime.ready) { throw 'Windows 运行库还没就绪。' }
@@ -95,15 +95,18 @@ $sourceAgent = Join-Path $installedPath 'goodhr-local-agent.exe'
 Copy-Item -LiteralPath $sourceAgent -Destination $agentPath
 Copy-PreviewComponent (Join-Path $installedPath 'worker') (Join-Path $previewPath 'worker') $copyLog
 Copy-PreviewComponent (Join-Path $installedPath 'data\runtime\camoufox') (Join-Path $dataPath 'runtime\camoufox') $copyLog
+# OCR历史文件保留在原安装目录；当前预览不复制、校验或启动OCR。
+<#
 $ocrSource = Join-Path $installedPath 'data\runtime\ocr'
 if (-not (Test-Path -LiteralPath (Join-Path $ocrSource 'RapidOCR-json.exe'))) {
     $ocrSource = Join-Path $installedPath 'data\runtime\ocr.pre611-test'
 }
 Copy-PreviewComponent $ocrSource (Join-Path $dataPath 'runtime\ocr') $copyLog
+#>
 Assert-PreviewFile $sourceAgent $agentPath
 Assert-PreviewFile (Join-Path $installedPath 'worker\dist\main.js') (Join-Path $previewPath 'worker\dist\main.js')
 Assert-PreviewFile (Join-Path $installedPath 'data\runtime\camoufox\camoufox.exe') (Join-Path $dataPath 'runtime\camoufox\camoufox.exe')
-Assert-PreviewFile (Join-Path $ocrSource 'RapidOCR-json.exe') (Join-Path $dataPath 'runtime\ocr\RapidOCR-json.exe')
+# 旧OCR文件无需随预览复制或校验。
 
 $previewEnvironment = @{
     GOODHR_CLOUD_API_BASE = 'http://127.0.0.1:8085'
@@ -113,7 +116,7 @@ $previewEnvironment = @{
     GOODHR_NODE_PATH = $NodePath
     GOODHR_WORKER_ENTRY = (Join-Path $previewPath 'worker\dist\main.js')
     GOODHR_DATA_DIR = $dataPath
-    GOODHR_OCR_EXECUTABLE = (Join-Path $dataPath 'runtime\ocr\RapidOCR-json.exe')
+    # GOODHR_OCR_EXECUTABLE 已停用，保留旧环境字段说明而不注入进程。
     CAMOUFOX_BINARY_PATH = (Join-Path $dataPath 'runtime\camoufox\camoufox.exe')
     TEMP = (Join-Path $dataPath 'temp')
     TMP = (Join-Path $dataPath 'temp')

@@ -7,22 +7,26 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // StartRequest 表示本地任务统一启动参数。
 type StartRequest struct {
-	TaskID      string `json:"task_id"`
-	PositionID  string `json:"position_id"`
-	TaskType    string `json:"task_type"`
-	Token       string `json:"token"`
-	ProfileID   string `json:"profile_id,omitempty"`
-	Headless    bool   `json:"headless"`
-	EnableGreet *bool  `json:"enable_greet,omitempty"` // 未指定或为 true 时照常发送，false 只检查候选人。
+	TaskID            string           `json:"task_id"`
+	PositionID        string           `json:"position_id"`
+	TaskType          string           `json:"task_type"`
+	Token             string           `json:"token"`
+	ProfileID         string           `json:"profile_id,omitempty"`
+	PlatformAccountID string           `json:"platform_account_id,omitempty"`
+	AutoReplyTarget   *AutoReplyTarget `json:"auto_reply_target,omitempty"`
+	Headless          bool             `json:"headless"`
+	EnableGreet       *bool            `json:"enable_greet,omitempty"` // 未指定或为 true 时照常发送，false 只检查候选人。
 }
 
 // PreparedTask 表示启动前检查生成且后续流程直接复用的快照。
 type PreparedTask struct {
 	Request      StartRequest
+	MachineID    string
 	Session      cloud.UserSession
 	Subscription cloud.Subscription
 	Position     cloud.PositionSnapshot
@@ -40,22 +44,37 @@ type Stats struct {
 	ScreeningResultSync *ScreeningResultSyncState `json:"-"` // 仅保存本任务教程事实同步状态，不参与招聘统计。
 }
 
+// AnalysisEvent 表示悬浮窗中一条不会被下一步立即覆盖的 AI 处理记录。
+type AnalysisEvent struct {
+	Phase     string `json:"phase"`
+	Stage     string `json:"stage"`
+	Message   string `json:"message"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 // AnalysisStatus 表示悬浮窗展示的 AI 或关键词判断状态。
 type AnalysisStatus struct {
-	Kind            string   `json:"kind"`
-	Phase           string   `json:"phase"`
-	Stage           string   `json:"stage,omitempty"`
-	Terminal        bool     `json:"terminal"`
-	CandidateName   string   `json:"candidate_name"`
-	Score           *float64 `json:"score,omitempty"`
-	Threshold       *float64 `json:"threshold,omitempty"`
-	Accepted        *bool    `json:"accepted,omitempty"`
-	Reason          string   `json:"reason"`
-	Keywords        []string `json:"keywords,omitempty"`
-	MatchedKeywords []string `json:"matched_keywords,omitempty"`
-	ExcludeKeywords []string `json:"exclude_keywords,omitempty"`
-	MatchedExcludes []string `json:"matched_excludes,omitempty"`
-	UpdatedAt       string   `json:"updated_at"`
+	FailureDiagnostics []failurediag.Detail `json:"failure_diagnostics,omitempty"` // 仅有确认的安全错误分类时填写。
+	DurationMS         *int64               `json:"duration_ms,omitempty"`         // 当前步骤实测耗时，无计时依据时留空。
+	PositionID         string               `json:"position_id,omitempty"`
+	Kind               string               `json:"kind"`
+	Phase              string               `json:"phase"`
+	Stage              string               `json:"stage,omitempty"`
+	Terminal           bool                 `json:"terminal"`
+	CandidateName      string               `json:"candidate_name"`
+	Score              *float64             `json:"score,omitempty"`
+	Threshold          *float64             `json:"threshold,omitempty"`
+	Accepted           *bool                `json:"accepted,omitempty"`
+	Reason             string               `json:"reason"`
+	Keywords           []string             `json:"keywords,omitempty"`
+	MatchedKeywords    []string             `json:"matched_keywords,omitempty"`
+	ExcludeKeywords    []string             `json:"exclude_keywords,omitempty"`
+	MatchedExcludes    []string             `json:"matched_excludes,omitempty"`
+	Timeline           []AnalysisEvent      `json:"timeline,omitempty"`
+	ProcessedCount     int                  `json:"processed_count"`
+	SucceededCount     int                  `json:"succeeded_count"`
+	SkippedCount       int                  `json:"skipped_count"`
+	UpdatedAt          string               `json:"updated_at"`
 }
 
 // Logger 定义流程步骤的统一结构化日志能力。
@@ -134,4 +153,9 @@ func (StandardLogger) Step(taskID string, flow string, step string, status strin
 		errorText = err.Error()
 	}
 	log.Printf("task_id=%s flow=%s step=%s status=%s duration_ms=%d error=%q", taskID, flow, step, status, time.Since(startedAt).Milliseconds(), errorText)
+}
+
+// AutoReplyAccountKey 把用户本次明确选择的平台账号标记转换为本地隔离键，不代表平台身份已自动核验。
+func AutoReplyAccountKey(platformID, label string) string {
+	return cloud.AutoReplyAccountKey(platformID, label)
 }

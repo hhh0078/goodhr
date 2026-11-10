@@ -48,6 +48,7 @@ HTTP Router
 
 ```ts
 interface SelectorSpec {
+  alternatives?: SelectorSpec[];
   frames?: SelectorGroup[];
   parents?: SelectorGroup[];
   target: SelectorGroup;
@@ -85,6 +86,10 @@ interface SelectorCandidate {
 
 单元素和列表查找都必须在 `timeout_ms` 内轮询。列表最终超时时只返回最后一轮完整尝试记录，避免诊断被重复轮询日志淹没。
 
+选择器仍兼容原单对象。多页面元素结构不同时，可以配置完整对象数组；Go 和 Worker 在边界将其转换成主对象与 `alternatives`。每条完整路径独立检查，原有主路径优先，歧义仍停止。候选人身份、列表序号和卡片内操作作用域会应用到全部路径，不能只修改主对象。
+
+本次扩展不包含系统调用差异，Windows 与 macOS 使用同一份 JSON 和 Worker 逻辑。已通过 Go 的选择器协议、公共平台和猎头平台回归测试，以及 Worker 编译、备用路径、原框架路径、相对定位和零脚本注入测试；实际招聘页面与双系统编译由平台适配验收另行记录。
+
 ### 序号规则
 
 - 所有 `index` 从 0 开始。
@@ -102,6 +107,10 @@ interface SelectorCandidate {
 - 元素边界。
 - 可见、启用和视口状态。
 - 当前页面编号和 URL 摘要。
+
+`ReadAction` 的文本、HTML 和属性读取使用内部 `state` 定位模式，复用列表读取的状态检查，不采集边界和视口截图。框架、父级、文本、属性、序号、状态筛选、取消检查及短期引用均保留；只读结果不返回几何信息，日志标记 `geometry_read: false`，不报告未测量的视口状态。普通查找、点击、输入和滚动仍默认使用完整几何模式。此优化不增加协议字段或系统分支，Windows x64、macOS arm64 与 amd64 共用相同 Worker 实现；合成回归见 `worker/test/read-without-geometry.test.mjs`，实际页面速度与各系统安装运行仍须分别验收。
+
+点击的 `ensureVisible` 将可见区域读取方法交给 `MoveAction`，目标连续稳定后以及原生移动恢复重试时，标准 Locator 重新读取已有 `wheel_anchor` 容器边界。落点必须同时处于目标、窗口和容器交集内；容器隐藏或交集为空时不按鼠标。普通行和超大目标仍可使用安全的部分可见区域，不要求全部露出。输入复用相同动态视口边界，但其现有协议没有容器选择器，本次不新增；实现无平台名、系统分支或页面脚本，回归见 `worker/test/click-container-intersection.test.mjs`。
 
 `element_ref` 规则：
 
@@ -238,6 +247,9 @@ timeout_ms=5000
 - `page.list`
 - `page.use`
 - `page.close`
+- `page.save_current_document`
+
+页面归属由明确动作决定：新标签页事件只登记页面和诊断，不自动改变当前操作页。`page.open`、`page.use` 和设置了 `wait_for_new_page` 的点击，须在页面激活成功、仍属于当前会话且请求未取消后才提交操作页。因此下载完成后延迟打开的 PDF 不会抢走已恢复的聊天页；需要读取新标签页的详情或附件流程必须声明等待新页。显式关闭后的剩余页选择、当前页已关闭时的既有回退行为保持不变。此规则共用于 Windows x64、macOS arm64 和 macOS amd64，不增加平台名、系统分支或页面脚本；回归通过合成标准页面事件验证晚到新页、点击等待后的读取、取消、关闭和窗口临时页恢复，真实平台打开详情仍需现场验收。
 
 元素：
 
