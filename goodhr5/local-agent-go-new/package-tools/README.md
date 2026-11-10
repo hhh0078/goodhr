@@ -78,6 +78,48 @@ zsh ./package-macos.command 6.2.12.5 dev
 
 Mac 的 PKG 和 ZIP **都不放安装说明图片**。同一包包含 Apple 芯片和 Intel 的 Go 主程序及对应的 Worker 原生依赖，脚本会验证主程序双架构。测试版 PKG、ZIP 文件名会多 `-test`；未签名安装包可能需要在“系统设置 → 隐私与安全性”中允许打开。
 
+## 查看打包文件的 SHA256
+
+SHA256 是文件的校验值，用来核对文件是否一致。**准备上传哪个文件，就计算哪个文件的 SHA256**；ZIP、里面的 EXE、Mac 的 PKG 各有自己的校验值，不能混用。重新打包后需要重新计算。
+
+下面的命令都在本文件夹 `package-tools` 中执行，把 `6.2.12.5` 换成实际版本号；测试包记得加 `-test`。
+
+### Windows
+
+在本文件夹打开 PowerShell，执行下面的命令，只会输出要复制的 SHA256：
+
+```powershell
+# 查看发给用户的 ZIP
+(Get-FileHash -LiteralPath "..\release\goodhr-local-agent-v6.2.12.5-windows-x64.zip" -Algorithm SHA256).Hash
+
+# 查看单独安装程序 EXE
+(Get-FileHash -LiteralPath "..\release\GoodHR-Local-Agent-Setup-v6.2.12.5-windows-x64.exe" -Algorithm SHA256).Hash
+```
+
+如果打开的是 CMD，也可以使用系统自带命令：
+
+```bat
+certutil -hashfile "..\release\goodhr-local-agent-v6.2.12.5-windows-x64.zip" SHA256
+```
+
+CMD 输出中只复制中间那一行 64 位校验值，不要复制前后的说明文字。
+
+### Mac
+
+在终端进入本文件夹后执行：
+
+```bash
+# 查看 PKG 安装包
+shasum -a 256 "../release/GoodHR-Local-Agent-Setup-v6.2.12.5-mac-universal.pkg"
+
+# 查看 ZIP 压缩包
+shasum -a 256 "../release/goodhr-local-agent-v6.2.12.5-darwin-universal.zip"
+```
+
+每行输出前面是 64 位 SHA256，后面是文件路径，**只复制前面的校验值**。也可以输入 `shasum -a 256 `（末尾留一个空格），把要检查的文件拖进终端，再按回车。
+
+上传后下载一份，再用相同方法计算并与上传前的值比较；完全相同就表示两份文件一致。SHA256 的字母大小写不影响比较。
+
 ## 常见情况
 
 - **提示要填写 dev 或 build**：最后一个参数必填，`build` 是正式版，`dev` 是测试版。
