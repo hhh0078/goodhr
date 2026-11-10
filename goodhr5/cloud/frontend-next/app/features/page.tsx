@@ -41,8 +41,8 @@ const features = [
   },
   {
     icon: TuneRoundedIcon,
-    title: "关键词规则筛选",
-    text: "支持关键词、排除词和多种匹配关系，规则明确的岗位可以永久免费使用。",
+    title: "岗位要求匹配",
+    text: "结合岗位要求和候选人经历完成 AI 筛选，支持免费试用，使用满意后再按实际用量充值。",
   },
   {
     icon: AutoAwesomeRoundedIcon,

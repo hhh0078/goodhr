@@ -23,13 +23,13 @@ import {
 } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
-  title: "GoodHR 招聘自动化工具 - 多平台AI筛选、自动打招呼与简历管理",
+  title: "GoodHR招聘自动化工具 - AI筛选与自动打招呼，免费试用",
   description:
-    "GoodHR 帮 HR 和猎头在多个招聘平台筛选候选人、自动打招呼并管理简历与招聘进度。前程无忧51job推荐与搜索页已接入新版客户端，本次 Mac 安装包已更新，Windows 安装包随后更新。",
+    "GoodHR帮HR和猎头自动筛选候选人、打招呼并管理简历与招聘进度。注册即送体验金额，先免费试用，满意再充值，最低1元起充。",
   path: "/",
   keywords: [
-    "免费招聘软件",
-    "免费自动打招呼",
+    "招聘软件免费试用",
+    "自动打招呼免费试用",
     "猎头AI工具",
     "HR自动化招聘",
     "多招聘平台自动化",
@@ -70,7 +70,7 @@ const automationScenes = [
     title: "自动筛选与 AI 筛选",
     href: "/recruitment-automation",
     description:
-      "按关键词、排除词和岗位要求处理候选人，也可以通过 AI 完成简历评分、详情分析和筛选理由说明。",
+      "按岗位要求处理候选人，通过 AI 结合经历完成简历评分、详情分析和筛选理由说明。",
   },
   {
     icon: SpeedRoundedIcon,
@@ -102,9 +102,9 @@ const faqs = [
       "GoodHR 是面向 HR、招聘团队和猎头顾问的多平台招聘工具，用于候选人筛选、AI 分析、自动打招呼、简历管理和招聘流程跟进。招聘消息自动回复仍在开发验证。",
   },
   {
-    question: "GoodHR 可以免费使用吗？",
+    question: "GoodHR 可以免费试用吗？",
     answer:
-      "可以。关键词筛选、排除词筛选、基础招聘岗位运行和自动打招呼等基础流程可以免费使用，AI 筛选和 AI 详情分析按会员方案使用。",
+      "可以。注册即送体验金额，先免费试用，满意再充值，无需购买会员。最低1元起充，不同模型价格不同；部分模型1元可筛选上千份简历，实际消耗以所选模型和简历内容为准。",
   },
   {
     question: "GoodHR 面向哪些招聘平台？",
@@ -153,9 +153,10 @@ export default function HomePage() {
               "面向 HR 和猎头的招聘系统，支持招聘平台自动化、结构化简历库、猎头推荐流程和企业 HR 招聘流程。",
             offers: {
               "@type": "Offer",
+              name: "注册免费试用",
               price: "0",
               priceCurrency: "CNY",
-              description: "关键词筛选与基础招聘流程可免费使用",
+              description: "注册赠送体验金额，先免费试用；满意再充值，最低1元起充",
             },
             featureList: [...automationScenes, ...productFlows].map(
               (item) => item.title,
@@ -182,7 +183,7 @@ export default function HomePage() {
                   className="public-home-9"
                   aria-hidden="true"
                 />
-                <p className="public-text public-home-10">关键词筛选永久免费</p>
+                <p className="public-text public-home-10">注册即送体验金额 · 免费试用</p>
               </div>
               <h1 className="public-text public-home-11">
                 多平台招聘自动化，
@@ -194,7 +195,7 @@ export default function HomePage() {
 
               <p className="public-text public-home-14">
                 HR
-                和猎头的免费自动招聘助手。不是摸鱼神器，而是提效工具
+                和猎头的自动招聘助手。先免费试用，满意再充值，最低1元起充
               </p>
               <div className="public-home-15">
                 <Button
@@ -204,7 +205,7 @@ export default function HomePage() {
                   icon={<DownloadRoundedIcon aria-hidden="true" />}
                   className="public-home-16"
                 >
-                  免费下载
+                  下载试用
                 </Button>
                 <Button
                   href="/login"
@@ -344,7 +345,7 @@ export default function HomePage() {
                   从今天开始，少做一点重复工作
                 </h2>
                 <p className="public-text public-home-61">
-                  关键词筛选和基础岗位运行可以长期免费使用。
+                  注册即送体验金额，先免费试用，使用满意了再充值。
                 </p>
               </div>
               <Button

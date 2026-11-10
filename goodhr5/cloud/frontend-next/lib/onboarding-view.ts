@@ -22,6 +22,7 @@ export type OnboardingActions = {
   viewResultLogs: () => void;
   stopResult: () => void;
   finishClose: () => void;
+  completeExit: (confirmation: string) => Promise<void>;
   dismissCelebration: () => void;
   refreshPlatforms: () => void;
 };
@@ -46,7 +47,7 @@ export type OnboardingExperienceProps = {
   helpOpen: boolean;
   restartOpen: boolean;
   restartBlockedReason: string;
-  /** 兼容旧暂停进度的数据合同，当前教程不提供暂停或跳过入口。 */
+  /** 兼容旧暂停进度的数据合同，主动结束教程使用单独的确认记录。 */
   resumeAboveDialog: boolean;
   formSaving: boolean;
   blocked: boolean;

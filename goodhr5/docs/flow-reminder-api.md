@@ -374,3 +374,8 @@ dry_run=false
 ```
 
 如果希望更温和，可以将 `stalled_hours` 调整为 `48` 或 `72`。这样只有在同一个流程停留两到三天的用户才会收到提醒。
+# 教程主动结束补充（2026-11-11）
+
+登录用户可向既有 `POST /api/user-flow` 上报 `step=tutorial_acknowledged`、`status=completed`，并在 `metadata.confirmation` 完整填写“我已经清楚goodhr的基础操作”。错误、缺失或大小写不同的确认文字会被拒绝。
+
+该事件只保存本人 `tutorial_completed=true` 和独立审计事件，真实招聘流程的stage、state和steps保持由实际操作推导；教程已结束且招聘流程仍pending是有效状态，不代表已筛选简历或打招呼。使用既有JSON字段及事件表，无新增数据库迁移。欢迎页和教程中都可退出，云端保存成功后才关闭；失败保留输入并允许重试，刷新及换设备均读取云端标记，原有重学入口保留。

@@ -1,12 +1,12 @@
 /** 本文件负责新手邀请、真实操作遮罩、阶段进度、针对性帮助和轻量完成鼓励。 */
 "use client";
 
-import { Alert, Button, Flex, Image, Modal, Progress, Spin, Tag, Tour, Typography } from "antd";
+import { Alert, Button, Flex, Image, Input, Modal, Progress, Spin, Tag, Tour, Typography } from "antd";
 import { CheckCircleFilled, ClockCircleOutlined, ExclamationCircleOutlined, QuestionCircleOutlined, TrophyOutlined } from "@ant-design/icons";
 import confetti from "canvas-confetti";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { OnboardingExperienceProps } from "@/lib/onboarding-view";
-import { ONBOARDING_STAGES, onboardingStage } from "@/lib/onboarding-state";
+import { ONBOARDING_EXIT_PHRASE, ONBOARDING_STAGES, onboardingStage } from "@/lib/onboarding-state";
 import { AUTHOR_CONTACT } from "@/lib/author-contact";
 import ClickableImagePreview from "../ClickableImagePreview";
 import styles from "./OnboardingExperience.module.css";
@@ -20,6 +20,21 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
   const [mobileMenuPlacement, setMobileMenuPlacement] = useState<"top" | "bottom" | null>(null);
   const [modePopupLayout, setModePopupLayout] = useState<{ placement: "top" | "bottom"; maxHeight: number } | null>(null);
   const [connectionHelpDismissed, setConnectionHelpDismissed] = useState(false);
+  const [exitOpen, setExitOpen] = useState(false);
+  const [exitText, setExitText] = useState("");
+  const [exitSaving, setExitSaving] = useState(false);
+  const [exitError, setExitError] = useState("");
+  const exitRequest = useRef(false);
+  /** requestExit 每次退出都清空确认文字，要求用户主动输入完整原句。 */
+  function requestExit() { setExitText(""); setExitError(""); setExitOpen(true); }
+  /** confirmExit 保存失败保留输入并提供重试；确认成功才结束界面引导。 */
+  async function confirmExit() {
+    if (exitRequest.current || exitText.trim() !== ONBOARDING_EXIT_PHRASE || formSaving) return;
+    exitRequest.current = true; setExitSaving(true); setExitError("");
+    try { await actions.completeExit(exitText); setExitOpen(false); }
+    catch (reason) { setExitError(reason instanceof Error ? reason.message : "完成记录没保存成功，请再试一次。"); }
+    finally { exitRequest.current = false; setExitSaving(false); }
+  }
   const actionsRef = useRef(actions);
   const progressBarRef = useRef<HTMLElement | null>(null);
   actionsRef.current = actions;
@@ -158,6 +173,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
               <Typography.Text type="secondary" className={styles.remaining}><ClockCircleOutlined aria-hidden="true" /> 预计还需 {remaining}</Typography.Text>
               <Button type="text" disabled={blocked} onClick={actions.requestRestart}>从头开始</Button>
               <Button type="text" icon={<QuestionCircleOutlined />} disabled={blocked} onClick={actions.openHelp}>遇到问题</Button>
+              <Button type="text" disabled={formSaving} onClick={requestExit}>退出教程</Button>
             </Flex>
           </Flex>
           <Progress percent={Math.max(0, Math.min(100, doneCount * 20))} showInfo={false} size="small" strokeColor="var(--goodhr-primary)" className={styles.progressLine} />
@@ -186,7 +202,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
       <Tour
         key={`${step}:${targetGeometry}`}
         rootClassName={styles.tourPopup}
-        open={active && Boolean(target) && !showHelp && !restartOpen && !blocked && !props.resultLogsOpen}
+        open={active && Boolean(target) && !showHelp && !restartOpen && !blocked && !props.resultLogsOpen && !exitOpen}
         current={0}
         steps={[{
           target,
@@ -214,7 +230,7 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
         closable={false}
         keyboard={false}
         mask={{ closable: false }}
-        footer={<Flex justify="flex-end"><Button type="primary" onClick={actions.accept}>好，带我跑一遍</Button></Flex>}
+        footer={<Flex justify="space-between" gap={8} wrap><Button onClick={requestExit}>退出教程</Button><Button type="primary" onClick={actions.accept}>好，带我跑一遍</Button></Flex>}
       >
         {simulationNotice}
         <Typography.Paragraph className={styles.welcomeCopy}>强烈建议跟我跑一遍：先建岗位，再从“开始”弹框打开平台、登录并设好筛选条件，直到筛完第一位候选人。有我带路，少一点“接下来点哪儿”。</Typography.Paragraph>
@@ -259,6 +275,13 @@ export default function OnboardingExperience(props: OnboardingExperienceProps) {
 
       {celebration && phase !== "completed" ? <div className={styles.celebrationToast} role="status" aria-live="polite"><CheckCircleFilled aria-hidden="true" /><div><strong>{celebration.title}</strong><span>{celebration.description}</span></div></div> : null}
 
+      <Modal open={exitOpen} zIndex={2300} width={520} title="确认结束新手引导" closable={!exitSaving} keyboard={!exitSaving} mask={{ closable: false }} onCancel={() => setExitOpen(false)} footer={<Flex justify="flex-end" gap={8} wrap><Button disabled={exitSaving} onClick={() => setExitOpen(false)}>继续学习</Button><Button type="primary" loading={exitSaving} disabled={exitText.trim() !== ONBOARDING_EXIT_PHRASE || formSaving} onClick={() => void confirmExit()}>确认结束引导</Button></Flex>}>
+        <Typography.Paragraph>已经了解基础操作了？输入下面这句话，我就把本次引导标记为完成。以后也可以从新手教程入口重新学习。</Typography.Paragraph>
+        <Typography.Paragraph strong>{ONBOARDING_EXIT_PHRASE}</Typography.Paragraph>
+        <Input aria-label="退出教程确认文字" value={exitText} disabled={exitSaving} autoComplete="off" maxLength={60} placeholder="请完整输入上方文字" onChange={(event) => setExitText(event.target.value)} onPressEnter={() => void confirmExit()} />
+        {state.positionStarted ? <Typography.Paragraph type="secondary">结束引导后，正在运行的岗位会继续。</Typography.Paragraph> : null}
+        {exitError ? <Alert className={styles.helpAlert} type="error" showIcon title="完成记录暂时没保存好" description={exitError} /> : null}
+      </Modal>
       <Modal open={phase === "completed" && !blocked} width={500} title={<Flex gap={10} align="center"><TrophyOutlined className={styles.trophy} />首轮跑通，今天你赢了</Flex>} onCancel={actions.finishClose} footer={<Button type="primary" onClick={actions.finishClose}>开始正式使用</Button>}>
         <Typography.Paragraph>第一条真实筛选结果已经出来了。从准备本地程序、创建岗位，到打开招聘浏览器登录和开始筛选，关键流程你已经走过一遍。</Typography.Paragraph>
         {statusText ? <Alert type="success" showIcon title={statusText} className={styles.helpAlert} /> : null}

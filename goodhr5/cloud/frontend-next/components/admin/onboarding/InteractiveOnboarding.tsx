@@ -6,5 +6,5 @@ import { useInteractiveOnboarding, type InteractiveOnboardingOptions } from "./u
 /** InteractiveOnboarding 展示当前账号的邀请、操作引导和真实完成反馈。 */
 export default function InteractiveOnboarding(options: InteractiveOnboardingOptions) {
   const view = useInteractiveOnboarding(options);
-  return <OnboardingExperience {...view} />;
+  return <OnboardingExperience key={options.identity} {...view} />;
 }

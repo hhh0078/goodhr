@@ -47,7 +47,7 @@ export default function RecruitmentGuidePage({ guide }: { guide: RecruitmentGuid
         </nav>
         <nav className="recruitment-guide-actions" aria-label="开始使用与查看费用">
           <Link className="recruitment-guide-button" href="/download">下载 GoodHR</Link>
-          <Link className="recruitment-guide-link" href="/pricing">先看会员与费用 <span aria-hidden="true">→</span></Link>
+          <Link className="recruitment-guide-link" href="/pricing">先看试用与费用 <span aria-hidden="true">→</span></Link>
         </nav>
         {guide.path === "/recruitment-auto-reply" ? <p className="recruitment-guide-release-note">{AUTO_REPLY_RELEASE_NOTICE}</p> : null}
 

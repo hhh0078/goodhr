@@ -9,7 +9,7 @@ import { pickPlatformAuthConfig, waitForPlatformLoggedIn } from "@/lib/platform-
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { loadUserFlow } from "@/lib/user-flow";
 import { publishOnboardingEvent, setOnboardingGuideContext, subscribeOnboardingEvents, type OnboardingEvent, type OnboardingScreeningResult } from "@/lib/onboarding-events";
-import { createOnboardingState, restartOnboardingState, nextOnboardingFormStep, normalizeOnboardingPosition, onboardingDoneCount, onboardingRemainingTime, readOnboardingState, saveOnboardingState, type OnboardingState, type OnboardingStep } from "@/lib/onboarding-state";
+import { ONBOARDING_EXIT_PHRASE, createOnboardingState, restartOnboardingState, nextOnboardingFormStep, normalizeOnboardingPosition, onboardingDoneCount, onboardingRemainingTime, readOnboardingState, saveOnboardingState, type OnboardingState, type OnboardingStep } from "@/lib/onboarding-state";
 import { clearOnboardingPositionDraft } from "@/lib/onboarding-position-draft";
 import { getOnboardingTaskFeedback, isOnboardingTaskEnded } from "@/lib/onboarding-task-feedback";
 import { onboardingStepCopy, type OnboardingCelebration, type OnboardingExperienceProps, type OnboardingPhase } from "@/lib/onboarding-view";
@@ -28,6 +28,8 @@ export type InteractiveOnboardingOptions = {
 /** useInteractiveOnboarding 根据真实成功事件和页面状态推进教程，按钮说明不冒充业务完成。 */
 export function useInteractiveOnboarding(options: InteractiveOnboardingOptions): OnboardingExperienceProps {
   const { identity, agentBase, agentDetected, refreshAgent, blocked, onActivityChange } = options;
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
   const pathname = usePathname();
   const router = useRouter();
   const [state, setState] = useState<OnboardingState>(createOnboardingState);
@@ -699,6 +701,18 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
       }
     }
   }
+  /** completeExit 必须由云端确认主动结束记录已保存，再关闭教程；不上传虚假的筛选完成事件。 */
+  async function completeExit(confirmation: string) {
+    if (confirmation.trim() !== ONBOARDING_EXIT_PHRASE || formSaving) throw new Error("请先完整输入确认文字，等当前保存完成后再确认。");
+    const exitingIdentity = identityRef.current;
+    const data = await cloudRequest("/api/user-flow", { method: "POST", body: { step: "tutorial_acknowledged", status: "completed", source: "interactive_tutorial", metadata: { confirmation: confirmation.trim() } } });
+    if (!aliveRef.current || exitingIdentity !== identityRef.current) throw new Error("账号状态已更新，请重新确认。");
+    if (data.flow?.tutorial_completed !== true) throw new Error("完成记录还没保存好，请再试一次。");
+    setCloudConfirmed(true); setHelpOpen(false); setRestartOpen(false); setResultLogsOpen(false); setCelebration(null);
+    loginRequestRef.current?.abort();
+    update((value) => ({ ...value, status: "completed", step: "complete", completionKind: undefined, replaying: false }));
+    changePhase("silent");
+  }
   const stepError = step.startsWith("agent-") && agentCheckFailed ? "这次还没连上。确认 GoodHR 已启动、浏览器允许访问后，再检查一次。" : error;
   return { phase, state, step, agentConnectionMissing: environmentChecked && !connectionAlive && !agentBase, target, targetGeometry, ...copy, remaining: onboardingRemainingTime(state), doneCount: onboardingDoneCount(state), statusText, error: stepError, busy, resultState, resultLogsOpen, helpOpen, restartOpen, restartBlockedReason, resumeAboveDialog: !blocked && (formOpen || startOpen), formSaving, blocked, storageUnavailable, availablePlatforms: ["boss", "zhaopin", "liepin", "hliepin", "51job"].filter((platformId) => isPlatformOpen(platformConfigs, platformId)), platformsLoading, celebration, actions: {
     recoverResult: () => recoverResultTarget("start"), reviewResultPosition: () => recoverResultTarget("edit"), viewResultLogs, checkResult: () => void checkResult(), stopResult,
@@ -706,7 +720,7 @@ export function useInteractiveOnboarding(options: InteractiveOnboardingOptions):
     accept, back, choosePlatform, openPlatform: () => void openPlatform(), openAgentComponents, checkAgent: () => void checkAgent(),
     openHelp: () => setHelpOpen(true), closeHelp: () => setHelpOpen(false),
     downloadAgent,
-    finishClose: () => changePhase("silent"), dismissCelebration: () => setCelebration(null),
+    finishClose: () => changePhase("silent"), completeExit, dismissCelebration: () => setCelebration(null),
     refreshPlatforms: () => void readPlatformAvailability(),
   } };
 }

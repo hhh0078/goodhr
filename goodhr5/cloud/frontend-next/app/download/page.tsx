@@ -22,7 +22,7 @@ export const metadata: Metadata = createPageMetadata({
     `下载 GoodHR Windows 或 macOS 本地程序，以及支持${BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT}的 Chrome、Firefox 简历插件；用于多平台候选人筛选、自动打招呼和简历导入。前程无忧推荐与搜索已接入新版客户端，本次 Mac 安装包已更新，Windows 安装包随后更新。`,
   path: "/download",
   keywords: [
-    "招聘软件免费下载",
+    "招聘软件免费试用下载",
     "BOSS自动打招呼软件下载",
     "猎聘自动化工具下载",
     "HR招聘助手下载",

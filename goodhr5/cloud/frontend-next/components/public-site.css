@@ -1017,6 +1017,12 @@
   line-height: 1.8;
 }
 /* app/pricing/page.tsx */
+/* 按量充值采用纯文本说明，沿用官网颜色和容器，不展示旧会员卡片。 */
+.public-pricing-copy { max-width: 800px; display: grid; gap: 20px; }
+.public-pricing-copy h2 { font-size: clamp(22px, 3vw, 28px); line-height: 1.4; }
+.public-pricing-copy p { font-size: 16px; line-height: 1.8; color: var(--goodhr-text-secondary, #637069); }
+.public-pricing-copy strong { color: var(--goodhr-text, #17251e); }
+.public-pricing-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
 .public-pricing-3 {
   padding-bottom: 64px;
 }

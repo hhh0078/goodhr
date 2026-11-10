@@ -226,6 +226,12 @@ func applyUserFlowUpdate(state UserFlowState, update UserFlowUpdate) (UserFlowSt
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	// 主动结束只记录用户已了解教程，不补齐任何招聘漏斗节点或真实筛选事实。
+	if update.Step == "tutorial_acknowledged" {
+		state.TutorialCompleted = true
+		state.LastActivityAt = timePointer(now)
+		return deriveUserFlowState(state), nil
+	}
 	index := userFlowStepIndex(update.Step)
 	if update.Status == "completed" {
 		for position := 0; position < index; position++ {
@@ -294,7 +300,7 @@ func deriveUserFlowState(state UserFlowState) UserFlowState {
 
 // validateUserFlowUpdate 校验流程节点上报参数。
 func validateUserFlowUpdate(update UserFlowUpdate) error {
-	if userFlowStepIndex(update.Step) < 0 && update.Step != userFlowFirstScreeningResult {
+	if userFlowStepIndex(update.Step) < 0 && update.Step != userFlowFirstScreeningResult && update.Step != "tutorial_acknowledged" {
 		return errors.New("unsupported user flow step")
 	}
 	status := strings.TrimSpace(update.Status)
@@ -303,6 +309,12 @@ func validateUserFlowUpdate(update UserFlowUpdate) error {
 	}
 	if status != "completed" && status != "blocked" && status != "pending" {
 		return errors.New("unsupported user flow status")
+	}
+	if update.Step == "tutorial_acknowledged" {
+		confirmation, _ := update.Metadata["confirmation"].(string)
+		if status != "completed" || strings.TrimSpace(confirmation) != "我已经清楚goodhr的基础操作" {
+			return errors.New("请输入完整确认文字：我已经清楚goodhr的基础操作")
+		}
 	}
 	if update.Step == userFlowFirstScreeningResult {
 		kind, _ := update.Metadata["kind"].(string)

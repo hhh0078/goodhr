@@ -2,6 +2,7 @@
 import { positionDetailMode } from "./position-detail-mode.ts";
 export const ONBOARDING_VERSION = 2;
 export const ONBOARDING_SKIP_PHRASE = "让开，我不需要教程";
+export const ONBOARDING_EXIT_PHRASE = "我已经清楚goodhr的基础操作";
 export const ONBOARDING_STEPS = [
   "agent-menu", "agent-download", "agent-connect", "runtime-install", "runtime-system", "platform-select", "platform-open", "platform-login",
   "position-menu", "position-create", "position-edit", "position-platform", "position-name", "position-filter-mode", "position-detail-mode", "position-requirement", "position-keywords", "position-save",

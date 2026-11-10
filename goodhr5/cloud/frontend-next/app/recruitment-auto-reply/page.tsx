@@ -6,7 +6,7 @@ import { createPageMetadata } from "@/lib/seo";
 
 export const metadata = createPageMetadata(RECRUITMENT_AUTO_REPLY_GUIDE);
 
-/** RecruitmentAutoReplyPage 展示招聘沟通目标、会员费用和自动回复开放范围。 */
+/** RecruitmentAutoReplyPage 展示招聘沟通目标、使用费用和自动回复开放范围。 */
 export default function RecruitmentAutoReplyPage() {
   return <RecruitmentGuidePage guide={RECRUITMENT_AUTO_REPLY_GUIDE} />;
 }
