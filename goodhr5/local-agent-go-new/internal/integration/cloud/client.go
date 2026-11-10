@@ -155,6 +155,8 @@ func (c *Client) Position(ctx context.Context, token string, positionID string) 
 	if result.ID == "" || result.PlatformID == "" {
 		return PositionSnapshot{}, fmt.Errorf("云端岗位配置不完整")
 	}
+	// 保留转换前的旧配置标记，启动预检负责拦截；普通读取与停止任务仍可用。
+	result.RequiresRecreate = result.RequiresRecreate || strings.EqualFold(strings.TrimSpace(result.CommonConfig.ModeDefault), "keyword") || strings.EqualFold(strings.TrimSpace(result.CommonConfig.DetailMode), "ocr")
 	result = normalizePosition(result)
 	return result, nil
 }

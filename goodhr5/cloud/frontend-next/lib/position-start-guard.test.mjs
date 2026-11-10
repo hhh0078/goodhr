@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluatePositionStartGuard, isMandatoryLocalAgentUpdate, isVersionLower, latestLocalAgentRelease, positionUsesAI } from "./position-start-guard.ts";
+import { positionRequiresRecreate, evaluatePositionStartGuard, isMandatoryLocalAgentUpdate, isVersionLower, latestLocalAgentRelease, positionUsesAI } from "./position-start-guard.ts";
 
 /** withUserAgent 临时模拟操作系统，只影响纯函数测试，结束后恢复原始运行环境。 */
 function withUserAgent(userAgent, callback) {
@@ -115,4 +115,18 @@ test("对应系统首条发布版本为空时跳过，使用后续有版本和�
       assert.equal(evaluatePositionStartGuard(null, "6.2.11.0", release.version, false), null);
     });
   }
+});
+
+
+test("旧模式或云端重建标记任一命中即拦截，展示转换与缺省字段不能掩盖旧配置", () => {
+  for (const position of [
+    { requires_recreate: true, common_config: { mode_default: "ai", detail_mode: "ai" } },
+    { common_config: { mode_default: " KEYWORD ", detail_mode: "dom" } },
+    { requires_recreate: false, common_config: { mode_default: "ai", detail_mode: " OCR " } },
+    { common_config: { mode_default: "keyword", detail_mode: "ocr" } },
+  ]) assert.equal(positionRequiresRecreate(position), true);
+  for (const position of [null, undefined, {}, { common_config: null },
+    { common_config: { mode_default: "ai", detail_mode: "ai" } },
+    { common_config: { mode_default: "ai", detail_mode: "dom" } },
+  ]) assert.equal(positionRequiresRecreate(position), false);
 });

@@ -441,3 +441,30 @@ func TestNormalizePositionFixedDetailMode(t *testing.T) {
 		}
 	}
 }
+
+// TestPositionKeepsLegacyMarkerBeforeNormalization 验证新服务端标记和旧服务端原始配置在转换后仍可供启动预检判断，普通读取保持可用。
+func TestPositionKeepsLegacyMarkerBeforeNormalization(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		marker       bool
+		mode, detail string
+		blocked      bool
+	}{
+		{"normalized-marker", true, "ai", "ai", true}, {"keyword", false, " KEYWORD ", "dom", true},
+		{"ocr", false, "ai", " OCR ", true}, {"new-ai", false, "ai", "ai", false}, {"defaults", false, "", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/positions/synthetic" || r.Method != http.MethodGet {
+					t.Errorf("发生额外请求：%s %s", r.Method, r.URL.Path)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"position": PositionSnapshot{ID: "synthetic", PlatformID: "boss", RequiresRecreate: tc.marker, CommonConfig: PositionCommonConfig{ModeDefault: tc.mode, DetailMode: tc.detail}}})
+			}))
+			defer server.Close()
+			position, err := New(server.URL).Position(context.Background(), "synthetic", "synthetic")
+			if err != nil || position.RequiresRecreate != tc.blocked || position.CommonConfig.ModeDefault != "ai" {
+				t.Fatalf("读取失败或丢失旧配置标记：%+v %v", position, err)
+			}
+		})
+	}
+}

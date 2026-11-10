@@ -256,7 +256,6 @@ func (s *PositionExecutionService) verifyActiveDevice(email string, machineID st
 // claimPositionStart 完成所有云端启动条件检查，并原子占用当前账号的运行岗位名额。
 // email 为当前账号，position 为岗位快照，taskType 为本地主流程类型。
 func (s *PositionExecutionService) claimPositionStart(email string, position Position, taskType string) *positionStartError {
-	applyPositionPlatformRules(&position)
 	if !position.IsOpen {
 		return &positionStartError{status: http.StatusConflict, code: "POSITION_CLOSED", message: "这个岗位已经关闭，先开启岗位再开始任务"}
 	}
@@ -264,6 +263,11 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 	if autoReply && !autoReplyPublicRolloutOpen {
 		return &positionStartError{status: http.StatusForbidden, code: autoReplyRolloutCode, message: autoReplyRolloutMessage}
 	}
+	if positionRequiresRecreate(position) {
+		return &positionStartError{status: http.StatusConflict, code: "POSITION_RECREATE_REQUIRED", message: positionRecreateRequiredMessage}
+	}
+	position.CommonConfig = cloneMap(position.CommonConfig)
+	applyPositionPlatformRules(&position)
 	usesAI := positionUsesAI(position) || autoReply
 	if usesAI {
 		/* 2026-11-10：会员限制暂停，原检查保留，恢复时解除此注释。

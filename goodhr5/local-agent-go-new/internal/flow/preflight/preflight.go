@@ -247,6 +247,9 @@ func (c *Checker) loadPosition(ctx context.Context, prepared *shared.PreparedTas
 	if err != nil {
 		return err
 	}
+	if position.RequiresRecreate {
+		return &cloud.APIError{StatusCode: 409, Code: "POSITION_RECREATE_REQUIRED", Message: "这个岗位还在使用旧版配置，暂时不能启动。请先复制岗位名称和要求，再删除该岗位并重新创建。"}
+	}
 	prepared.Position = position
 	if prepared.Request.TaskType == "auto_reply" {
 		prepared.Request.PlatformAccountID = shared.AutoReplyAccountKey(position.PlatformID, prepared.Request.PlatformAccountID)

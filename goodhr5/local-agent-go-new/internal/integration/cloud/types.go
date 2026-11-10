@@ -154,6 +154,8 @@ type PositionSnapshot struct {
 	CommonConfig    PositionCommonConfig `json:"common_config"`
 	AIOptions       PositionAIOptions    `json:"ai_config"`
 	AI              AIConfig             `json:"ai"`
+
+	RequiresRecreate bool `json:"requires_recreate"`
 }
 
 // CandidateWorkExperience 表示 AI 识别出的候选人工作经历。

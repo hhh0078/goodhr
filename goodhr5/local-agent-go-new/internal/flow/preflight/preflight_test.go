@@ -4,6 +4,7 @@ package preflight
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -256,5 +257,20 @@ func TestAutoReplyRequiresExplicitAccount(t *testing.T) {
 	}
 	if shared.AutoReplyAccountKey("boss", "账号甲") == shared.AutoReplyAccountKey("boss", "账号乙") || shared.AutoReplyAccountKey("boss", "账号甲") == shared.AutoReplyAccountKey("liepin", "账号甲") {
 		t.Fatal("账号隔离键未包含平台或账号")
+	}
+}
+
+// TestLoadLegacyPositionRejectsBeforePreparingTask 验证启动预检拒绝转换后的旧配置标记，尚未冻结岗位或准备浏览器。
+func TestLoadLegacyPositionRejectsBeforePreparingTask(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"position": cloud.PositionSnapshot{ID: "legacy", PlatformID: "boss", RequiresRecreate: true, CommonConfig: cloud.PositionCommonConfig{ModeDefault: "ai", DetailMode: "ai"}}})
+	}))
+	defer server.Close()
+	prepared := &shared.PreparedTask{Request: shared.StartRequest{PositionID: "legacy", Token: "synthetic", TaskType: "greeting"}}
+	checker := &Checker{Cloud: cloud.New(server.URL)}
+	err := checker.loadPosition(context.Background(), prepared)
+	var failure *cloud.APIError
+	if !errors.As(err, &failure) || failure.Code != "POSITION_RECREATE_REQUIRED" || failure.StatusCode != 409 || prepared.Position.ID != "" {
+		t.Fatalf("未在准备任务前拒绝旧岗位：%+v %v", prepared.Position, err)
 	}
 }

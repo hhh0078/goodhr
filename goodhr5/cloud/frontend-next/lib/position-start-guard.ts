@@ -2,6 +2,15 @@
 import { positionDetailMode } from "./position-detail-mode.ts";
 
 export const MINIMUM_POSITION_BALANCE_YUAN = 0.1;
+export const POSITION_RECREATE_MESSAGE = "这个岗位还在使用旧版配置，暂时不能启动。请先复制岗位名称和要求，再删除该岗位并重新创建。";
+
+/** positionRequiresRecreate 根据云端原始配置标记判断是否必须重建，兼容旧接口的原始模式字段。 */
+export function positionRequiresRecreate(position: any): boolean {
+  const common = position?.common_config;
+  return position?.requires_recreate === true
+    || String(common?.mode_default || "").trim().toLowerCase() === "keyword"
+    || String(common?.detail_mode || "").trim().toLowerCase() === "ocr";
+}
 
 export type PositionStartGuardFailure = {
   code: string;

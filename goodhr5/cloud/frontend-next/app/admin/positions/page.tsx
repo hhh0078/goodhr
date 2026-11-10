@@ -94,6 +94,8 @@ import {
 } from "@/lib/platform-login";
 import {
   evaluatePositionStartGuard,
+  positionRequiresRecreate,
+  POSITION_RECREATE_MESSAGE,
   latestLocalAgentRelease,
   positionUsesAI,
   type PositionStartGuardFailure,
@@ -197,6 +199,7 @@ export default function PositionsPage() {
   const [allLogPosition, setAllLogPosition] = useState<any | null>(null);
   const [screeningPosition, setScreeningPosition] = useState<{ id: string; name: string; account: string } | null>(null);
   const [allLogLoading, setAllLogLoading] = useState(false);
+  const [legacyPositionWarning, setLegacyPositionWarning] = useState(false);
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
   const [startLoading, setStartLoading] = useState(false);
   const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
@@ -769,6 +772,10 @@ export default function PositionsPage() {
   /** openStartPosition 展开岗位日志并打开启动确认弹框。 */
   function openStartPosition(item: any) {
     if (startOperationInFlight.current) return;
+    if (positionRequiresRecreate(item)) {
+      setLegacyPositionWarning(true);
+      return;
+    }
     if (!agentBase) return notify("请先启动本地程序", "warning");
     if (getOnboardingGuideContext().active && !isPlatformOpen(platformConfigs, item.platform_id)) {
       publishOnboardingEvent({ type: "platform-unavailable", platformId: String(item.platform_id || ""), message: "这个岗位的平台暂未开放，请重新选择可用平台。岗位会保留，我不会替你换平台开跑。" });
@@ -1746,6 +1753,16 @@ export default function PositionsPage() {
           <EmptyState text={loading ? "岗位读取中" : positionScope === "false" ? "暂时没有关闭的岗位" : "暂时没有开启的岗位，可以先新建一个。"} />
         </SectionPanel>
       )}
+      <AdminDialog
+        open={legacyPositionWarning}
+        title="这个岗位需要重新创建"
+        confirmText="我知道了"
+        showCancel={false}
+        onClose={() => setLegacyPositionWarning(false)}
+        onConfirm={() => setLegacyPositionWarning(false)}
+      >
+        <Alert type="warning" showIcon description={POSITION_RECREATE_MESSAGE} />
+      </AdminDialog>
       <AdminDialog
         open={Boolean(startPositionItem)}
         title={<span data-onboarding="position-start-feedback">{startError ? "岗位还没启动成功" : "开始招聘岗位"}</span>}

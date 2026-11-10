@@ -504,9 +504,11 @@ func publicPositionsForUser(items []Position, currentEmail string) []map[string]
 
 // publicPosition 将岗位配置转换为前端响应结构。
 func publicPosition(item Position) map[string]any {
+	requiresRecreate := positionRequiresRecreate(item)
 	item.CommonConfig = cloneMap(item.CommonConfig)
 	applyPositionPlatformRules(&item)
 	return map[string]any{
+		"requires_recreate":   requiresRecreate,
 		"is_open":             item.IsOpen,
 		"id":                  item.ID,
 		"creator_email":       item.UserEmail,
