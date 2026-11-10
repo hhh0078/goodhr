@@ -5,8 +5,8 @@ import { resolve } from "node:path";
 import { expectUniformNetwork, mockUniformAdmin, uniformLongPosition, uniformOrigin, type UniformState } from "./admin-uniform-fixture";
 
 const output = resolve("../../../output/admin-uniform-20261015");
-const keyPages = ["positions", "recommendations", "users", "logs", "system-config", "recruitment", "resumes"];
-const menus = ["", "positions", "resumes", "recommendations", "recruitment", "accounts", "team", "team-stats", "subscription", "personal-config", "invitations", "local-data", "agent-download", "help", "users", "activation-codes", "payment-records", "ai-records", "logs", "mail", "system-config", "recruitment/settings"];
+const keyPages = ["positions", "recommendations", "users", "logs", "system-config", "recruitment", "resumes", "statistics"];
+const menus = ["", "positions", "resumes", "recommendations", "recruitment", "accounts", "team", "team-stats", "subscription", "personal-config", "invitations", "local-data", "agent-download", "help", "statistics", "users", "activation-codes", "payment-records", "ai-records", "logs", "mail", "system-config", "recruitment/settings"];
 const minimumPadding = /^(?:1[2-9]|[2-9]\d|\d{3,})(?:\.\d+)?px$/;
 type Measurement = { route: string; viewport: number; state: string; controls: Array<{ tag: string; width: number; height: number }>; pagination?: { width: number; height: number } };
 

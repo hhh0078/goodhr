@@ -39,7 +39,7 @@ func (s *MemorySystemDailyStatsStore) IncrementProcessedResumes(count int) error
 	if count <= 0 {
 		return nil
 	}
-	today := s.now().In(time.Local).Format(time.DateOnly)
+	today := aiUsageDay(s.now()).Format(time.DateOnly)
 	item := s.items[today]
 	item.StatDate = today
 	item.ProcessedResumeCount += count
@@ -49,7 +49,7 @@ func (s *MemorySystemDailyStatsStore) IncrementProcessedResumes(count int) error
 
 // TodayStats 返回当天系统统计。
 func (s *MemorySystemDailyStatsStore) TodayStats() (SystemDailyStats, error) {
-	today := s.now().In(time.Local).Format(time.DateOnly)
+	today := aiUsageDay(s.now()).Format(time.DateOnly)
 	item := s.items[today]
 	item.StatDate = today
 	return item, nil
@@ -75,7 +75,7 @@ func (s *PostgresSystemDailyStatsStore) IncrementProcessedResumes(count int) err
 	defer cancel()
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO system_daily_stats (stat_date, processed_resume_count, created_at, updated_at)
-		VALUES (CURRENT_DATE, $1, now(), now())
+		VALUES ((now() AT TIME ZONE 'Asia/Shanghai')::date, $1, now(), now())
 		ON CONFLICT (stat_date)
 		DO UPDATE SET
 			processed_resume_count = system_daily_stats.processed_resume_count + EXCLUDED.processed_resume_count,
@@ -90,12 +90,12 @@ func (s *PostgresSystemDailyStatsStore) TodayStats() (SystemDailyStats, error) {
 	defer cancel()
 	var item SystemDailyStats
 	err := s.db.QueryRowContext(ctx, `
-		SELECT CURRENT_DATE::text, COALESCE(processed_resume_count, 0)::int
+		SELECT (now() AT TIME ZONE 'Asia/Shanghai')::date::text, COALESCE(processed_resume_count, 0)::int
 		FROM system_daily_stats
-		WHERE stat_date = CURRENT_DATE
+		WHERE stat_date = (now() AT TIME ZONE 'Asia/Shanghai')::date
 	`).Scan(&item.StatDate, &item.ProcessedResumeCount)
 	if err == sql.ErrNoRows {
-		item.StatDate = time.Now().In(time.Local).Format(time.DateOnly)
+		item.StatDate = aiUsageDay(time.Now()).Format(time.DateOnly)
 		return item, nil
 	}
 	return item, err
