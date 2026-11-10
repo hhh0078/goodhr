@@ -352,6 +352,27 @@ class HygieneTests(unittest.TestCase):
         self.assertEqual(backup.read_bytes(), b"PGDMP original")
         self.assertEqual(report.read_text(), '{"success":false}')
 
+    def test_postgres18_layout_and_ambiguous_or_linked_versions(self):
+        """PG18官方子目录可以识别；双布局、版本不符和链接标识必须停止。"""
+        pg = self.release / "pgdata"
+        data = pg / "18/docker"
+        data.mkdir(parents=True)
+        version = data / "PG_VERSION"
+        version.write_text("18\n")
+        self.assertEqual(hygiene.postgres_version_file(pg), version)
+        legacy = pg / "PG_VERSION"
+        legacy.write_text("18")
+        with self.assertRaises(hygiene.HygieneError):
+            hygiene.postgres_version_file(pg)
+        legacy.unlink()
+        version.write_text("17")
+        with self.assertRaises(hygiene.HygieneError):
+            hygiene.postgres_version_file(pg)
+        version.unlink()
+        version.symlink_to(self.release / "outside-version")
+        with self.assertRaises(hygiene.HygieneError):
+            hygiene.postgres_version_file(pg)
+
 
 if __name__ == "__main__":
     unittest.main()

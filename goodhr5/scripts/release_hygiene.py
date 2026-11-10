@@ -264,6 +264,18 @@ def candidate_specs(release, manifest, reader, allow_failed_restore=False):
     return rows
 
 
+def postgres_version_file(target):
+    """postgres_version_file 核验传统布局或当前官方PG18布局，拒绝歧义、版本不符及链接越界。"""
+    candidates = [target / "PG_VERSION", target / "18/docker/PG_VERSION"]
+    present = [path for path in candidates if path.exists() or path.is_symlink()]
+    require(len(present) == 1, "隔离PG目录缺少明确版本标识或同时存在多种布局")
+    path = real_path(present[0])
+    version = path.read_text().strip()
+    require(re.fullmatch(r"[1-9][0-9]*", version)
+            and (path == candidates[0] or version == "18"), "隔离PG版本与目录布局不匹配")
+    return path
+
+
 def create_plan(release_dir, reader=None, allow_failed_restore=False):
     """create_plan 仅进行只读侦察和指纹计算，不修改服务器目录、容器或镜像。"""
     release = release_path(release_dir)
@@ -278,7 +290,7 @@ def create_plan(release_dir, reader=None, allow_failed_restore=False):
         if target.exists():
             real_path(target, directory=True)
             if spec["kind"] == "isolated_postgres":
-                real_path(target / "PG_VERSION")
+                postgres_version_file(target)
             rows.append(dict(spec, path=str(target)))
     check_references(release, [Path(row["path"]) for row in rows], reader)
     for row in rows:
