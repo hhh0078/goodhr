@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
@@ -21,6 +22,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	server.StartDailyMaintenance(context.Background())
 
 	log.Printf("GoodHR 5 cloud backend log file: %s", logPath)
 	log.Printf("GoodHR 5 cloud backend listening on %s", addr)

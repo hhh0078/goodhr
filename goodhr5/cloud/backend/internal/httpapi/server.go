@@ -37,6 +37,7 @@ type Server struct {
 	positions             *PositionService
 	positionExecution     *PositionExecutionService
 	positionLogs          *PositionLogService
+	positionLogRetention  *PositionLogRetentionService
 	screeningRecords      *ScreeningRecordService
 	browserEvents         *BrowserEventService
 	candidates            *CandidateService
@@ -126,7 +127,8 @@ func NewServer() (*Server, error) {
 	paymentStore := config.PaymentStore(db)
 	adminUserStore := config.AdminUserStore(db, subscriptionStore, aiWalletStore, paymentStore, candidateStore)
 	adminUserService := NewAdminUserService(auth, adminUserStore, subscriptionStore, systemConfigStore, mailer, agentStore, aiWalletStore)
-	positionLogs := NewPositionLogService(auth, positionStore, config.PositionLogStore(db), tenantStore)
+	positionLogStore := config.PositionLogStore(db)
+	positionLogs := NewPositionLogService(auth, positionStore, positionLogStore, tenantStore)
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(systemConfigStore))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	adminEmails.StartRecoveryScheduler()
@@ -209,6 +211,7 @@ func NewServer() (*Server, error) {
 		positions:             NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
 		positionExecution:     NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, aiConfigStore),
 		positionLogs:          positionLogs,
+		positionLogRetention:  newPositionLogRetentionService(positionLogStore),
 		screeningRecords:      NewScreeningRecordService(auth, positionStore, tenantStore, screeningStore),
 		browserEvents:         NewBrowserEventService(auth, db),
 		candidates:            candidates,
