@@ -20,6 +20,7 @@ export default function ChoiceCards({
   columns = 2,
   autoWidth = false,
   compact = false,
+  className = "",
   readOnly = false,
   onChange,
 }: {
@@ -29,6 +30,7 @@ export default function ChoiceCards({
   columns?: number;
   autoWidth?: boolean;
   compact?: boolean;
+  className?: string;
   readOnly?: boolean;
   onChange: (value: string | boolean) => void;
 }) {
@@ -45,7 +47,7 @@ export default function ChoiceCards({
         value={value}
         disabled={readOnly}
         onChange={(event) => onChange(event.target.value)}
-        className={`goodhr-choice-grid${autoWidth ? " goodhr-choice-auto" : ""}${compact ? " goodhr-choice-compact" : ""}`}
+        className={`goodhr-choice-grid${autoWidth ? " goodhr-choice-auto" : ""}${compact ? " goodhr-choice-compact" : ""} ${className}`}
         style={{ "--choice-columns": Math.max(1, columns) } as CSSProperties}
       >
         {options.map((option) => (
@@ -54,8 +56,10 @@ export default function ChoiceCards({
             value={option.value}
             disabled={option.disabled}
             className={`goodhr-choice${option.memberOnly ? " goodhr-choice-member" : ""}${value === option.value ? " goodhr-choice-selected" : ""}${option.iconOnly ? " goodhr-choice-icon" : ""}`}
+            title={`${option.label}${option.description ? `：${option.description}` : ""}`}
           >
             <Flex
+              className="goodhr-choice-heading"
               gap={8}
               align="center"
               justify={option.iconOnly ? "center" : undefined}
@@ -65,13 +69,13 @@ export default function ChoiceCards({
                   preview={false}
                   src={option.iconSrc}
                   alt={option.iconOnly ? option.label : ""}
-                  width={option.iconOnly ? undefined : 30}
-                  height={option.iconOnly ? 42 : 30}
+                  width={option.iconOnly ? undefined : compact ? 20 : 30}
+                  height={option.iconOnly ? 42 : compact ? 20 : 30}
                   style={{ objectFit: "contain", maxWidth: "100%" }}
                 />
               ) : null}
               {!option.iconOnly || !option.iconSrc ? (
-                <Typography.Text strong style={compact ? { fontSize: 13 } : undefined}>{option.label}</Typography.Text>
+                <Typography.Text className="goodhr-choice-label" strong title={option.label} style={compact ? { fontSize: 13 } : undefined}>{option.label}</Typography.Text>
               ) : null}
               {value === option.value && !compact ? (
                 <CheckCircleFilled
@@ -82,6 +86,8 @@ export default function ChoiceCards({
             </Flex>
             {!option.iconOnly ? (
               <Typography.Paragraph
+                className="goodhr-choice-description"
+                title={option.description}
                 type="secondary"
                 style={{ margin: compact ? "2px 0 0" : "6px 0 0", fontSize: compact ? 12 : 12.5 }}
               >

@@ -1927,6 +1927,7 @@ export default function PositionsPage() {
             <div data-onboarding="position-platform" onClick={reportOnboardingPlatformClick}>
               <ChoiceCards
                 label="招聘平台"
+                className="goodhr-choice-platforms"
                 value={form.platform_id}
                 compact
                 columns={2}
@@ -2104,9 +2105,10 @@ export default function PositionsPage() {
           <div data-onboarding="position-platform">
           <ChoiceCards
             label="招聘平台"
+            className="goodhr-choice-platforms"
             value={form.platform_id}
             columns={3}
-            autoWidth
+            compact
             onChange={(value) => selectPlatform(String(value))}
             options={[
               {
