@@ -20,6 +20,9 @@ func fixedReplyPhrase(config cloud.PositionAutoReplyConfig, id string) string {
 	}
 	for _, phrase := range config.Phrases {
 		if phrase.ID == id {
+			if phrase.Deleted {
+				return ""
+			}
 			body := strings.TrimSpace(phrase.Content)
 			if strings.ContainsAny(body, "{}｛｝") || len([]rune(body)) > maxAutoReplyMessageRunes {
 				return ""

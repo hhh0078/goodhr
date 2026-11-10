@@ -120,9 +120,6 @@ func (f *Flow) requestResumeAfterAnswer(ctx context.Context, prepared shared.Pre
 		// 已送达正文已经索要，只记等待状态，不再点卡片或发送第二份索要话术。
 		return f.saveResumeConversationStatus(ctx, prepared, conversation, "waiting_resume")
 	}
-	if message == "" {
-		return nil
-	}
 	if err := f.verifyCurrentReplyConfiguration(ctx, prepared, position); err != nil {
 		return err
 	}
@@ -131,6 +128,7 @@ func (f *Flow) requestResumeAfterAnswer(ctx context.Context, prepared shared.Pre
 		return err
 	}
 	// 先落等待状态，按钮结果不明也不在下轮重复索要；已有候选人问题仍会继续回答。
+	previousStatus := conversation.Status
 	if err = f.saveResumeConversationStatus(ctx, prepared, conversation, "waiting_resume"); err != nil {
 		return err
 	}
@@ -142,7 +140,14 @@ func (f *Flow) requestResumeAfterAnswer(ctx context.Context, prepared shared.Pre
 		if !errors.Is(err, model.ErrAutoReplyResumeRequestUnavailable) {
 			return fmt.Errorf("索要简历结果暂时不确定，请在招聘页面确认：%w", err)
 		}
+		if message == "" {
+			// 原生入口明确未执行且文字静默，恢复原状态，不能把没有发出的索要记成等待成功。
+			return f.saveResumeConversationStatus(ctx, prepared, conversation, previousStatus)
+		}
 		f.log(prepared.Request.TaskID, "resume_request_text_fallback", "warning", time.Now(), nil)
+	}
+	if message == "" {
+		return nil // 空内容只停文字；旧平台原生简历按钮仍按原资格和防重复流程执行。
 	}
 	ready, lastKey, err := f.latestMessageAllowsFollowup(ctx, runtime, prepared, snapshot, previousContent)
 	if err != nil || !ready {
@@ -153,7 +158,7 @@ func (f *Flow) requestResumeAfterAnswer(ctx context.Context, prepared shared.Pre
 	}
 	snapshot.ExpectedSendMessageKey = lastKey
 
-	_, err = f.sendVerifiedMessage(ctx, prepared, runtime, *conversation, snapshot, messageKey, message, false, 2)
+	_, err = f.sendVerifiedMessage(cloud.WithAutoReplyTextPolicy(ctx, position, "request_resume"), prepared, runtime, *conversation, snapshot, messageKey, message, false, 2)
 	return err
 }
 

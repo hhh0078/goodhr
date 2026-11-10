@@ -107,7 +107,7 @@ func (f *Flow) deliverAnswer(ctx context.Context, p shared.PreparedTask, rt mode
 		return err
 	}
 	page.ExpectedSendMessageKey = anchor
-	_, err = f.sendVerifiedMessage(ctx, p, rt, conv, page, key, answer, false, 1)
+	_, err = f.sendVerifiedMessage(cloud.WithAutoReplyTextPolicy(ctx, pos, ""), p, rt, conv, page, key, answer, false, 1)
 	if errors.Is(err, model.ErrAutoReplySupersededBeforeSend) {
 		return nil
 	}

@@ -107,6 +107,7 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 		return fmt.Errorf("命令与当前运行不匹配")
 	}
 	rejected := false
+	rejectionReason := cloud.ErrAutoReplyGoalChanged
 	err := r.client.ServerAutoReplyTransaction(ctx, r.cred, func(tx *storage.AutoReplyTx) error {
 		raw, err := tx.ServerLedger("runtime_runs", r.leaseKey, nil)
 		if err != nil {
@@ -180,7 +181,7 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 				if bound.Status != "pending" || !bound.Deadline.After(now) {
 					return fmt.Errorf("命令已领取或过期")
 				}
-				if (c.Action == "send" || c.Action == "request_info") && bound.SendIntentID != "" {
+				if c.Action == "send" || c.Action == "request_info" && bound.SendIntentID != "" {
 					var req replybridge.Request
 					if err = json.Unmarshal(c.Payload, &req); err != nil {
 						return err
@@ -189,15 +190,32 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 					if err == nil {
 						err = validateResumeOfferCommand(tx, c.Action, req, bound.ConversationID, bound.SendIntentID)
 					}
+					if err == nil && c.Action == "send" {
+						if bound.SendIntentID == "" {
+							err = cloud.ErrAutoReplyTextPolicyChanged
+						} else {
+							// 配置路径不进入业务实体事务适配器；在现有领取事务内读取一次真实快照，避免额外的状态往返。
+							var current cloud.AutoReplyPositionSnapshot
+							current, err = r.client.AutoReplySnapshot(ctx, r.cred, bound.PositionID)
+							if err == nil {
+								err = cloud.ValidateAutoReplyQueuedText(tx, bound.SendIntentID, bound.ConversationID, req.Message, current)
+							}
+						}
+					}
 					if err != nil {
-						if !errors.Is(err, cloud.ErrAutoReplyGoalChanged) {
+						if !errors.Is(err, cloud.ErrAutoReplyGoalChanged) && !errors.Is(err, cloud.ErrAutoReplyTextPolicyChanged) {
 							return err
 						}
+						rejectionReason = err
 						bound.Status, bound.ResultCode, bound.UpdatedAt = "cancelled", "REPLY_SUPERSEDED", now
 						_, err = tx.ServerLedger("runtime_commands", c.ID, bound)
 						rejected = err == nil
 						return err
 					}
+				}
+				now = time.Now().UTC()
+				if !lease.Expires.After(now) || !bound.Deadline.After(now) {
+					return fmt.Errorf("配置核对期间租约或命令已过期，暂不派发")
 				}
 				bound.StartedAt = now
 			case "completed":
@@ -247,7 +265,7 @@ func (r *activeRun) persistCommand(ctx context.Context, c replybridge.Command, s
 		return err
 	})
 	if err == nil && rejected {
-		return &replybridge.CommandRejectedError{Message: cloud.ErrAutoReplyGoalChanged.Error()}
+		return &replybridge.CommandRejectedError{Message: rejectionReason.Error()}
 	}
 	return err
 }

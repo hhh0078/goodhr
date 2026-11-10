@@ -22,7 +22,7 @@ export default function PositionReplyPhrases({ config, onChange, onLegacyChange 
   const overrides = config.phrase_overrides;
   const phrases = effectiveReplyPhrases(config.default_phrases, overrides);
   const categories = Array.from(new Set(phrases.map(row => row.category)));
-  const hidden = config.default_phrases.filter(row => overrides.some(item => item.id === row.id && "deleted" in item));
+  const hidden = config.default_phrases.filter(row => overrides.some(item => item.id === row.id && item.deleted === true));
   /** reset 移除岗位覆盖，重新继承当前的后台默认话术。 */
   function reset(id: string) {
     onChange(replacePhraseOverride(overrides, id));
@@ -38,6 +38,7 @@ export default function PositionReplyPhrases({ config, onChange, onLegacyChange 
     <details className={styles.library}>
       <summary><span className={styles.sectionTitle}>沟通话术</span><span className={styles.count}>{config.phrases_version ? phrases.length : 1} 条</span><DownOutlined className={styles.chevron} aria-hidden /></summary>
       {config.phrases_version ? <>
+        <p className={styles.muted}>内容留空时，该场景不发文字；原生资料请求仍按现有规则处理。</p>
         <div className={styles.tools}><Button icon={<PlusOutlined />} disabled={phrases.length >= 64}
           onClick={() => setEditing({ id: "job_" + crypto.randomUUID(), title: "", category: "", scene: "", content: "" })}>新增话术</Button></div>
         {categories.map(category => <section className={styles.category} key={category}>
@@ -45,12 +46,12 @@ export default function PositionReplyPhrases({ config, onChange, onLegacyChange 
           {phrases.filter(row => row.category === category).map(row => {
             const changed = overrides.some(item => item.id === row.id);
             return <div key={row.id} className={styles.phraseRow}>
-              <div className={styles.phraseBody}><strong>{row.title}</strong><p>{row.content}</p></div>
+              <div className={styles.phraseBody}><strong>{row.title}</strong><p>{row.content.trim() ? row.content : "留空，不发文字"}</p></div>
               <Flex align="center" gap={4}>
                 <Button type="text" icon={<EditOutlined />} title="编辑" aria-label={'编辑话术：' + row.title} onClick={() => setEditing(row)} />
                 {changed && defaults.has(row.id) && <Button type="text" icon={<UndoOutlined />} title="恢复默认" aria-label={'恢复默认：' + row.title} onClick={() => reset(row.id)} />}
                 <Button type="text" icon={<DeleteOutlined />} title="从本岗位移除" aria-label={'移除话术：' + row.title}
-                  onClick={() => onChange(replacePhraseOverride(overrides, row.id, defaults.has(row.id) ? { id: row.id, deleted: true } : undefined))} />
+                  onClick={() => onChange(replacePhraseOverride(overrides, row.id, { ...row, content: "", deleted: true }))} />
               </Flex>
             </div>;
           })}

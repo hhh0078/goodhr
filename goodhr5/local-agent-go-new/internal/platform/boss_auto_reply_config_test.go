@@ -47,12 +47,15 @@ func TestBossAutoReplyConfigUsesVisibleIdentityAndAllContacts(t *testing.T) {
 	}
 	// message_meta只读取实测原生卡图标的公开类名，不能当成消息编号或读取平台隐藏状态。
 	meta := cfg.ConversationFields["message_meta"]
-	if meta.ReadAttribute != "class" || len(meta.Target.Selectors) != 2 {
-		t.Fatal("原生资料元数据只能读取两类已核实卡片的图标class")
+	if meta.ReadAttribute != "class" || len(meta.Target.Selectors) != 3 {
+		t.Fatal("原生资料元数据只能读取三类已核实卡片的图标class")
 	}
-	contactIcon, offerIcon := meta.Target.Selectors[0].Value, meta.Target.Selectors[1].Value
+	contactIcon, wechatIcon, offerIcon := meta.Target.Selectors[0].Value, meta.Target.Selectors[1].Value, meta.Target.Selectors[2].Value
 	if !strings.Contains(contactIcon, ".item-system .contact-copy") || !strings.Contains(contactIcon, ".message-dialog-icon-contact") || !strings.Contains(offerIcon, ".item-friend .message-card-wrap") || !strings.Contains(offerIcon, "对方想发送附件简历给您，您是否同意") || !strings.Contains(offerIcon, "61031") || !strings.Contains(offerIcon, ".message-dialog-icon-resume") {
 		t.Fatal("原生图标必须限定系统联系方式卡或当前候选人的真实附件邀约")
+	}
+	if !strings.Contains(wechatIcon, ".item-system .contact-copy") || !strings.Contains(wechatIcon, ".message-dialog-icon-weixin") || !strings.Contains(wechatIcon, "复制微信号") {
+		t.Fatal("微信原生图标必须限定实测系统容器和精确复制按钮")
 	}
 	if !strings.Contains(bossActionCSS(cfg.ConversationFields["message_text"]), ".item-system .text > span") {
 		t.Fatal("原生请求系统回执必须有可读取的正文")

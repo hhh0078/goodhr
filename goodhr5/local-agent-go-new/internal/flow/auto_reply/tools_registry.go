@@ -90,6 +90,8 @@ type toolExecutionState struct {
 	confirmationUpdates []cloud.CandidateConfirmationItem
 	suggestions         []cloud.AutoReplyConfigSuggestion
 	reviewFinished      bool
+	messagesPrepared    bool
+	textSuppressed      bool
 	infoRequests        model.CandidateInfoRequest
 }
 
@@ -110,9 +112,9 @@ func autoReplyToolsForContext(input ReplyContext) []ai.ToolDefinition {
 func autoReplyToolDefinitions() []ai.ToolDefinition {
 	return []ai.ToolDefinition{
 		newToolDefinition(toolUpsertConfirmations, "维护沟通目标：已有目标按id更新；新增目标id留空、item_type=confirm、status=pending，并用source_ref及evidence_text引用岗位position、在线资料online_profile、简历resume或真实来信的建档依据。AI自建目标可改写，HR岗位条件只能更新有证据的判断，不能改正文、类型或放宽。先查已有目标避免同义重复。每批最多50项。matched/unmatched必须有候选人或简历的真实证据。", `{"type":"object","properties":{"items":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string","maxLength":128},"position_condition_id":{"type":"string","maxLength":128},"item_type":{"type":"string","enum":["required","confirm","bonus"]},"content":{"type":"string","minLength":1,"maxLength":1000},"status":{"type":"string","enum":["pending","matched","unmatched"]},"status_reason":{"type":"string","minLength":1,"maxLength":500},"source_ref":{"type":"string","maxLength":256},"evidence_text":{"type":"string","maxLength":2000}},"required":["id","item_type","content","status","status_reason","source_ref","evidence_text"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false}`),
-		newToolDefinition(toolSendMessages, "准备最多两条候选人消息：先回答再询问一个目标。native_info_requests=true时普通答复不能混入索要资料；确需电话或微信时可附info_requests单独提议，系统在答案送达及平台条件满足后操作原生按钮。其他平台可按需提议附件，正文原已索要时保持requests_resume原约定。信息不足时改用 notify_hr。", `{"type":"object","properties":{"info_requests":{"type":"object","properties":{"request_phone":{"type":"boolean"},"request_wechat":{"type":"boolean"},"request_resume":{"type":"boolean"}},"additionalProperties":false},"messages":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","properties":{"type":{"type":"string","enum":["answer","confirmation"]},"content":{"type":"string","minLength":1,"maxLength":200},"confirmation_item_id":{"type":"string","maxLength":128},"requests_resume":{"type":"boolean"}},"required":["type","content","requests_resume"],"additionalProperties":false}}},"required":["messages"],"additionalProperties":false}`),
+		newToolDefinition(toolSendMessages, "准备最多两条候选人消息：先回答再询问一个目标。适用配置话术时必须绑定phrase_id；空或已删除场景传该id和空content，正常静默完成，不得换词补发。native_info_requests=true时普通答复不能混入索要资料；确需电话或微信时可附info_requests单独提议，系统在答案送达及平台条件满足后操作原生按钮。其他平台可按需提议附件，正文原已索要时保持requests_resume原约定。信息不足时改用 notify_hr。", `{"type":"object","properties":{"info_requests":{"type":"object","properties":{"request_phone":{"type":"boolean"},"request_wechat":{"type":"boolean"},"request_resume":{"type":"boolean"}},"additionalProperties":false},"messages":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","properties":{"type":{"type":"string","enum":["answer","confirmation"]},"content":{"type":"string","maxLength":200},"phrase_id":{"type":"string","maxLength":80},"confirmation_item_id":{"type":"string","maxLength":128},"requests_resume":{"type":"boolean"}},"required":["type","content","requests_resume"],"additionalProperties":false}}},"required":["messages"],"additionalProperties":false}`),
 		newToolDefinition(toolSuggestConfig, "提交岗位或公司资料的新增、修改或删除建议，等待 HR 审核。", `{"type":"object","properties":{"suggestion_type":{"type":"string","enum":["position","company"]},"operation":{"type":"string","enum":["create","update","delete"]},"target_id":{"type":"string","maxLength":128},"proposed_value":{"type":"object"},"reason":{"type":"string","minLength":1,"maxLength":1000}},"required":["suggestion_type","operation","proposed_value","reason"],"additionalProperties":false}`),
-		newToolDefinition(toolNotifyHR, "没有可靠答案或问题与招聘无关时，通知当前招聘团队人工接管；missing_recruitment_info 表示需要核实的招聘问题，可附上混合问题中有依据的 known_answer。系统登记人工待办后才可以按配置发回执，技术问题或无关问题只作内部通知。登记缺失招聘信息时，如另有尚未问过的候选人目标，可附followup（content与confirmation_item_id），系统会先发已登记的回执再最多追问一次。", `{"type":"object","properties":{"followup":{"type":"object","properties":{"content":{"type":"string","minLength":1,"maxLength":200},"confirmation_item_id":{"type":"string","minLength":1,"maxLength":128}},"required":["content","confirmation_item_id"],"additionalProperties":false},"reason":{"type":"string","minLength":1,"maxLength":500},"reason_key":{"type":"string","minLength":1,"maxLength":100},"known_answer":{"type":"string","maxLength":200},"question":{"type":"string","maxLength":300},"existing_question_id":{"type":"string","maxLength":128},"questions":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"question":{"type":"string","maxLength":300},"existing_question_id":{"type":"string","maxLength":128}},"required":["question"],"additionalProperties":false}}},"required":["reason","reason_key"],"additionalProperties":false}`),
+		newToolDefinition(toolNotifyHR, "没有可靠答案或问题与招聘无关时，通知当前招聘团队人工接管；missing_recruitment_info 表示需要核实的招聘问题，可附上混合问题中有依据的 known_answer。系统登记人工待办后才可以按配置发回执，技术问题或无关问题只作内部通知。登记缺失招聘信息时，如另有尚未问过的候选人目标，可附followup（content与confirmation_item_id），系统会先发已登记的回执再最多追问一次。", `{"type":"object","properties":{"followup":{"type":"object","properties":{"content":{"type":"string","maxLength":200},"phrase_id":{"type":"string","maxLength":80},"confirmation_item_id":{"type":"string","minLength":1,"maxLength":128}},"required":["content","confirmation_item_id"],"additionalProperties":false},"reason":{"type":"string","minLength":1,"maxLength":500},"reason_key":{"type":"string","minLength":1,"maxLength":100},"known_answer":{"type":"string","maxLength":200},"question":{"type":"string","maxLength":300},"existing_question_id":{"type":"string","maxLength":128},"questions":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"question":{"type":"string","maxLength":300},"existing_question_id":{"type":"string","maxLength":128}},"required":["question"],"additionalProperties":false}}},"required":["reason","reason_key"],"additionalProperties":false}`),
 		newToolDefinition(toolArchiveConfirmations, "删除已不再需要或被其他任务替代的AI自建沟通目标，保留审计；不能删除HR岗位必要条件。请列出已有id及原因，不要删除后用同义问题重新催问。", `{"type":"object","properties":{"ids":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"string","minLength":1,"maxLength":128}},"reason":{"type":"string","minLength":1,"maxLength":500}},"required":["ids","reason"],"additionalProperties":false}`),
 	}
 }
@@ -271,7 +273,7 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 	if s.input.ConditionsOnly && (!s.input.AllowGoalFollowup || len(args.Messages) != 1 || args.Messages[0].Type != "confirmation") {
 		return nil, argumentError("简历新证据轮只可追问一个尚未问过的目标，不能补答历史消息")
 	}
-	if s.manualReason != "" || len(s.pendingMessages) > 0 {
+	if s.manualReason != "" || s.messagesPrepared || len(s.pendingMessages) > 0 {
 		return nil, argumentError("已经选择转人工，不能同时发送消息")
 	}
 	confirmationCount := 0
@@ -280,7 +282,16 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 		item.Type = strings.TrimSpace(item.Type)
 		item.Content = strings.TrimSpace(item.Content)
 		item.ConfirmationItemID = strings.TrimSpace(item.ConfirmationItemID)
-		if !oneOf(item.Type, "answer", "confirmation") || item.Content == "" || len([]rune(item.Content)) > maxAutoReplyMessageRunes {
+		if !oneOf(item.Type, "answer", "confirmation") {
+			return nil, argumentError(fmt.Sprintf("第%d条消息类型不支持", index+1))
+		}
+		var allowed bool
+		item, allowed = applyReplyScenePolicy(s.input, item)
+		if !allowed {
+			s.textSuppressed = true
+			continue
+		}
+		if item.Content == "" || len([]rune(item.Content)) > maxAutoReplyMessageRunes {
 			return nil, argumentError(fmt.Sprintf("第%d条消息类型不支持、内容为空或超过200字", index+1))
 		}
 		if strings.ContainsAny(item.Content, "{}｛｝") {
@@ -320,10 +331,12 @@ func (s *toolExecutionState) prepareMessages(call ai.ToolCall) (json.RawMessage,
 		prepared = append(prepared, item)
 	}
 	s.pendingMessages = prepared
+	s.messagesPrepared = true
 	s.infoRequests = args.InfoRequests
 	return marshalToolResult(struct {
-		Prepared int `json:"prepared"`
-	}{len(prepared)})
+		Prepared   int  `json:"prepared"`
+		Suppressed bool `json:"text_suppressed,omitempty"`
+	}{len(prepared), s.textSuppressed})
 }
 
 // explicitWorkplace 匹配岗位原文中独立标明的简短工作地点；多个可能地点或复杂安排留给正常问答。
@@ -497,13 +510,15 @@ func (s *toolExecutionState) prepareManualHandoff(call ai.ToolCall) (json.RawMes
 		if key != "missing_recruitment_info" {
 			return nil, argumentError("只有登记招聘待确认问题时可以附带一个独立沟通目标追问")
 		}
-		question := ReplyMessage{Type: "confirmation", Content: strings.TrimSpace(args.Followup.Content), ConfirmationItemID: strings.TrimSpace(args.Followup.ConfirmationItemID)}
-		if err = s.validateGoalQuestion(question); err != nil {
-			return nil, err
+		question := ReplyMessage{Type: "confirmation", Content: strings.TrimSpace(args.Followup.Content), PhraseID: args.Followup.PhraseID, ConfirmationItemID: strings.TrimSpace(args.Followup.ConfirmationItemID)}
+		if question, allowed := applyReplyScenePolicy(s.input, question); allowed {
+			if err = s.validateGoalQuestion(question); err != nil {
+				return nil, err
+			}
+			goal, _ := s.confirmationByID(question.ConfirmationItemID)
+			question.GoalContentKey = cloud.AutoReplyGoalContentKey(goal)
+			s.manualFollowup = &question
 		}
-		goal, _ := s.confirmationByID(question.ConfirmationItemID)
-		question.GoalContentKey = cloud.AutoReplyGoalContentKey(goal)
-		s.manualFollowup = &question
 	}
 	s.handoffQuestions = qs
 	s.knownAnswer = answer

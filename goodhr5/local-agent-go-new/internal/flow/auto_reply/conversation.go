@@ -394,7 +394,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		fixedID := fixedReceiptID(replyInput)
 		if fixedID != "" {
 			if body := fixedReplyPhrase(position.Config, fixedID); body != "" && (fixedID != "receive_phone" || !previouslyReceivedPhone(replyInput)) {
-				decision.Messages = []ReplyMessage{{Type: "answer", Content: body}}
+				decision.Messages = []ReplyMessage{{Type: "answer", Content: body, PhraseID: fixedID}}
 			}
 			if fixedID == "receive_phone" {
 				// 手机号是新证据；固定签收之外仍让 AI 推进目标，避免收完联系方式就停住。
@@ -508,8 +508,11 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		}
 		if hardMismatch {
 			decision.InfoRequests = model.CandidateInfoRequest{}
+			// 必要条件不符不能沿用模型自己的拒绝草稿；本场景空话术表示不发拒绝文字。
+			decision.Messages = nil
+			decision.TextSuppressed = true
 			if body := fixedReplyPhrase(position.Config, "required_mismatch"); body != "" && decision.ManualReason == "" {
-				decision.Messages = []ReplyMessage{{Type: "answer", Content: body}}
+				decision.Messages = []ReplyMessage{{Type: "answer", Content: body, PhraseID: "required_mismatch"}}
 			}
 		}
 		if fixedID == "receive_phone" && state.Candidate != nil {
@@ -522,8 +525,9 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			}
 			state.Candidate.Phone = phone
 		}
-		if fixedID != "" && len(decision.Messages) == 0 {
-			return f.completeReplyBatch(ctx, prepared, replyInput, "completed")
+		applyReplyDecisionScenes(replyInput, &decision)
+		if decision.ManualReason == "" && len(decision.Messages) == 0 && (fixedID != "" || decision.TextSuppressed) {
+			return f.completeSilentReply(ctx, prepared, replyInput, decision.InfoRequests, !hardMismatch)
 		}
 		outcome := "sent"
 		if strings.TrimSpace(decision.ManualReason) != "" {
@@ -556,6 +560,10 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 				stats.Skipped++
 				return f.completeReplyBatch(ctx, prepared, replyInput, "manual")
 			}
+		}
+		applyReplyDecisionScenes(replyInput, &decision)
+		if len(decision.Messages) == 0 && decision.TextSuppressed {
+			return f.completeSilentReply(ctx, prepared, replyInput, decision.InfoRequests, !hardMismatch)
 		}
 		if len(decision.Messages) == 0 || len(decision.Messages) > 2 {
 			stats.Failed++
@@ -602,7 +610,8 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 					break
 				}
 			}
-			sent, sendErr := f.sendVerifiedMessageWithGoal(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, content, index == 0, goalBinding, index+1)
+			sendCtx := cloud.WithAutoReplyTextPolicy(ctx, position, reply.PhraseID)
+			sent, sendErr := f.sendVerifiedMessageWithGoal(sendCtx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, content, index == 0, goalBinding, index+1)
 			if errors.Is(sendErr, model.ErrAutoReplySupersededBeforeSend) {
 				f.reportChangedMessage(prepared.Request.TaskID, pageSnapshot.CandidateName)
 				break

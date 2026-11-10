@@ -198,17 +198,17 @@ function normalizePositionAutoReplyConfig(
     enabled: Boolean(source.enabled),
     position_description: stringValue(source.position_description),
     confirmed_facts: arrayValue(source.confirmed_facts).map(stringValue).filter(Boolean),
-    resume_request_message:
-      stringValue(source.resume_request_message) ||
-      DEFAULT_RESUME_REQUEST_MESSAGE,
+    resume_request_message: typeof source.resume_request_message === "string"
+      ? source.resume_request_message
+      : DEFAULT_RESUME_REQUEST_MESSAGE,
     poll_interval_seconds: finiteNumber(source.poll_interval_seconds) || 5,
     max_threads_per_checkpoint:
       finiteNumber(source.max_threads_per_checkpoint) || 3,
     version: finiteNumber(source.version),
-    default_phrases: arrayValue(source.default_phrases).map(normalizeReplyPhrase),
+    default_phrases: arrayValue(source.default_phrases).filter(value => recordValue(value).deleted !== true).map(normalizeReplyPhrase),
     phrase_overrides: arrayValue(source.phrase_overrides).map((value): ReplyPhraseOverride => {
       const row = recordValue(value);
-      return row.deleted === true ? { id: stringValue(row.id), deleted: true } : normalizeReplyPhrase(row);
+      return row.deleted === true ? { ...normalizeReplyPhrase(row), content: "", deleted: true } : normalizeReplyPhrase(row);
     }),
     condition_options: arrayValue(source.condition_options).map(stringValue).filter(Boolean),
     phrases_version: stringValue(source.phrases_version),

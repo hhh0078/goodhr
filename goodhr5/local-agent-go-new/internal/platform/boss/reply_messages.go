@@ -73,6 +73,7 @@ type bossInfoCard struct {
 }
 
 var bossNativePhoneCardPattern = regexp.MustCompile(`^(.+?)的手机号：[[:space:]]*(1[3-9][0-9]{9})[[:space:]]*复制手机号$`)
+var bossNativeWechatCardPattern = regexp.MustCompile(`^(.+?)的微信号：[[:space:]]*([A-Za-z0-9_-]{6,20})[[:space:]]*复制微信号$`)
 
 // annotateBossInfoCard 将实测的系统索要回执与附件卡片标为资料事件，泛联系方式回执保留旧消息类型及指纹。
 func annotateBossInfoCard(message *model.ConversationMessage, item contract.FindAllItem) error {
@@ -102,6 +103,13 @@ func annotateBossInfoCard(message *model.ConversationMessage, item contract.Find
 				card.OwnerName, card.Phone = strings.TrimSpace(match[1]), match[2]
 			}
 		}
+		// 实测微信卡同样是系统contact-copy，只有微信图标、完整值和复制文案同时成立才等待归属绑定。
+		if nativeSystem && bossInfoClassToken(item.Fields["message_meta"], "message-dialog-icon-weixin") {
+			if match := bossNativeWechatCardPattern.FindStringSubmatch(strings.TrimSpace(item.Fields["common_card"])); len(match) == 3 {
+				card.InfoType, card.InfoStatus = "contact", model.AutoReplyInfoReceived
+				card.OwnerName, card.Wechat = strings.TrimSpace(match[1]), match[2]
+			}
+		}
 	}
 	if card.InfoType != "" || message.MessageType != "text" {
 		raw, err := json.Marshal(card)
@@ -129,12 +137,16 @@ func bindBossNativeInfoCards(messages []model.ConversationMessage, candidateName
 	for index := range messages {
 		message := &messages[index]
 		var card bossInfoCard
-		if json.Unmarshal(message.CardContent, &card) != nil || card.InfoType != "contact" && card.InfoType != "phone" || card.InfoStatus != model.AutoReplyInfoReceived {
+		if json.Unmarshal(message.CardContent, &card) != nil || card.InfoType != "contact" && card.InfoType != "phone" && card.InfoType != "wechat" || card.InfoStatus != model.AutoReplyInfoReceived {
 			continue
 		}
-		if message.Direction == "system" && candidateName != "" && card.OwnerName == candidateName && card.Phone != "" {
+		ownerMatches := message.Direction == "system" && candidateName != "" && card.OwnerName == candidateName
+		switch {
+		case ownerMatches && card.InfoType != "wechat" && card.Phone != "" && card.Wechat == "":
 			card.InfoType = "phone"
-		} else {
+		case ownerMatches && card.InfoType != "phone" && card.Wechat != "" && card.Phone == "":
+			card.InfoType = "wechat"
+		default:
 			card.InfoType, card.InfoStatus, card.Phone, card.Wechat = "", "", "", ""
 		}
 		raw, err := json.Marshal(card)

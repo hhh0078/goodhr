@@ -12,6 +12,8 @@ import (
 
 // localAutoReplySend 固定同一轮消息的发送正文，重启后不因模型重写而重复发送。
 type localAutoReplySend struct {
+	ContextRevision    string    `json:"context_revision,omitempty"`
+	PhraseID           string    `json:"phrase_id,omitempty"`
 	ConfirmationItemID string    `json:"confirmation_item_id,omitempty"`
 	GoalVersion        string    `json:"goal_version,omitempty"`
 	GoalContentKey     string    `json:"goal_content_key,omitempty"`
@@ -177,6 +179,12 @@ func (c *Client) ClaimAutoReplySend(ctx context.Context, credentials AgentCreden
 			return fmt.Errorf("发送会话没有找到")
 		}
 		intent := localAutoReplySend{ConversationID: conversationID, MessageKey: messageKey, Content: content, Sequence: sequence}
+		if policy, ok := ctx.Value(autoReplyTextPolicyContextKey{}).(autoReplyTextPolicy); ok {
+			if policy.PositionID == "" || policy.PositionID != conversation.PositionID || policy.ContextRevision == "" {
+				return ErrAutoReplyTextPolicyChanged
+			}
+			intent.ContextRevision, intent.PhraseID = policy.ContextRevision, policy.PhraseID
+		}
 		if len(goal) > 0 && goal[0] != nil {
 			binding := goal[0]
 			intent.ConfirmationItemID, intent.GoalVersion = binding.ConfirmationItemID, binding.ExpectedVersion

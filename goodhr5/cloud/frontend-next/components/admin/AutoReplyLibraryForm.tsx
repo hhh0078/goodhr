@@ -3,11 +3,12 @@
 import { Button, Card, Flex, Input, Tabs, Typography } from "antd";
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { useState } from "react";
-import type { ReplyPhrase } from "@/lib/auto-reply";
+import type { ReplyPhrase, ReplyPhraseOverride } from "@/lib/auto-reply";
+import { effectiveReplyPhrases } from "@/lib/auto-reply-phrases";
 import ReplyPhraseEditor from "./ReplyPhraseEditor";
 
 export const AUTO_REPLY_LIBRARY_KEY = "system.auto_reply_library";
-type Library = { phrases: ReplyPhrase[]; condition_options: string[]; [key: string]: unknown };
+type Library = { phrases: ReplyPhraseOverride[]; condition_options: string[]; [key: string]: unknown };
 
 /** validateAutoReplyLibrary 校验可视化输入，避免空白、重复和超长条件提交到后台。 */
 export function validateAutoReplyLibrary(value: string) {
@@ -18,9 +19,11 @@ export function validateAutoReplyLibrary(value: string) {
     for (const item of data.phrases) {
       if (!/^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(item.id) || item.id.startsWith("job_") || ids.has(item.id)) return "话术编号需要保持唯一，请重新添加这条话术";
       ids.add(item.id);
-      if (!item.category?.trim() || !item.title?.trim() || !item.scene?.trim() || !item.content?.trim()) return "请补全话术的分类、标题、适用场景和内容";
+      if (!item.category?.trim() || !item.title?.trim() || !item.scene?.trim()) return "请补全话术的分类、标题和适用场景";
+      if (typeof item.content !== "string") return "回复内容需要是文字，留空也可以";
+      if (item.deleted === true && item.content !== "") return "已移除话术只保留场景，不保留回复正文";
     }
-    if (data.phrases.length > 64 || data.condition_options.length > 80) return "话术最多64条，常用条件最多80条";
+    if (effectiveReplyPhrases([], data.phrases).length > 64 || data.phrases.length > 128 || data.condition_options.length > 80) return "可用话术最多64条，含已移除场景最多128条；常用条件最多80条";
     if (data.condition_options.some(x => typeof x !== "string" || !x.trim() || Array.from(x).length > 1000)) return "常用条件需要填写具体内容，每条最多一千字";
     if (new Set(data.condition_options.map(x => x.trim())).size !== data.condition_options.length) return "有两条常用条件相同，保留一条就好";
     return "";
@@ -33,6 +36,7 @@ export default function AutoReplyLibraryForm({value,onChange,disabled}:{value:st
   let data: Library;
   try { data=JSON.parse(value); } catch { return null; }
   if (!data || !Array.isArray(data.phrases) || !Array.isArray(data.condition_options)) return null;
+  const activePhrases = effectiveReplyPhrases([], data.phrases);
   /** updateLibrary 将本次可视化改动合并到完整系统草稿。 */
   function updateLibrary(patch:Partial<Library>) { onChange(JSON.stringify({...data,...patch},null,2)); }
   /** savePhrase 保存当前条目并保留原有稳定编号。 */
@@ -42,14 +46,15 @@ export default function AutoReplyLibraryForm({value,onChange,disabled}:{value:st
   }
   return <>
     <Tabs items={[
-      {key:"phrases",label:`默认话术 · ${data.phrases.length}`,children:<Flex vertical gap={8}>
+      {key:"phrases",label:`默认话术 · ${activePhrases.length}`,children:<Flex vertical gap={8}>
+        <Typography.Text type="secondary">内容留空时，该场景不发文字；原生资料请求仍按现有规则处理。</Typography.Text>
         <Flex justify="flex-end"><Button disabled={disabled} icon={<PlusOutlined/>} onClick={()=>setEditing({id:`default_${crypto.randomUUID()}`,category:"岗位沟通",title:"",scene:"",content:""})}>添加话术</Button></Flex>
-        {data.phrases.map(item=><Card key={item.id} size="small" styles={{body:{padding:12}}}>
+        {activePhrases.map(item=><Card key={item.id} size="small" styles={{body:{padding:12}}}>
           <Flex align="flex-start" justify="space-between" gap={8}>
             <div style={{minWidth:0}}><Typography.Text strong>{item.title}</Typography.Text><Typography.Text type="secondary" style={{marginLeft:8,fontSize:12}}>{item.category}</Typography.Text>
               <Typography.Paragraph type="secondary" style={{fontSize:12,margin:"4px 0"}}>{item.scene}</Typography.Paragraph>
-              <Typography.Paragraph style={{marginBottom:0,whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{item.content}</Typography.Paragraph></div>
-            <Flex gap={4}><Button aria-label={`编辑${item.title}`} icon={<EditOutlined/>} disabled={disabled} onClick={()=>setEditing(item)}/><Button danger aria-label={`删除${item.title}`} icon={<DeleteOutlined/>} disabled={disabled} onClick={()=>updateLibrary({phrases:data.phrases.filter(x=>x.id!==item.id)})}/></Flex>
+              <Typography.Paragraph type={item.content.trim() ? undefined : "secondary"} style={{marginBottom:0,whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{item.content.trim() ? item.content : "留空，不发文字"}</Typography.Paragraph></div>
+            <Flex gap={4}><Button aria-label={`编辑${item.title}`} icon={<EditOutlined/>} disabled={disabled} onClick={()=>setEditing(item)}/><Button danger aria-label={`删除${item.title}`} icon={<DeleteOutlined/>} disabled={disabled} onClick={()=>updateLibrary({phrases:data.phrases.map(x=>x.id===item.id?{...item,content:"",deleted:true}:x)})}/></Flex>
           </Flex>
         </Card>)}
       </Flex>},
@@ -59,6 +64,6 @@ export default function AutoReplyLibraryForm({value,onChange,disabled}:{value:st
         <Button style={{alignSelf:"flex-start"}} icon={<PlusOutlined/>} disabled={disabled} onClick={()=>updateLibrary({condition_options:[...data.condition_options,""]})}>添加常用条件</Button>
       </Flex>},
     ]}/>
-    {editing?<ReplyPhraseEditor phrase={editing} categories={Array.from(new Set(data.phrases.map(x=>x.category)))} onSave={savePhrase} onClose={()=>setEditing(null)}/>:null}
+    {editing?<ReplyPhraseEditor phrase={editing} categories={Array.from(new Set(activePhrases.map(x=>x.category)))} onSave={savePhrase} onClose={()=>setEditing(null)}/>:null}
   </>;
 }

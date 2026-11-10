@@ -28,8 +28,8 @@ export default function ReplyPhraseEditor({ phrase, categories, onSave, onClose 
   /** apply 检查所有文本字段并移除首尾空白。 */
   function apply() {
     const result = { id: phrase.id, category: draft.category.trim(), title: draft.title.trim(), scene: draft.scene.trim(), content: draft.content.trim() };
-    if (!result.title || !result.category || !result.scene || !result.content) {
-      setError("请补齐标题、分类、使用场景和回复内容。");
+    if (!result.title || !result.category || !result.scene) {
+      setError("请补齐标题、分类和使用场景。");
       return;
     }
     if (Array.from(result.category).length > 24 || Array.from(result.title).length > 60 || Array.from(result.scene).length > 200 || Array.from(result.content).length > contentLimit) {
@@ -46,8 +46,8 @@ export default function ReplyPhraseEditor({ phrase, categories, onSave, onClose 
         placeholder="选择或输入分类" options={categories.map(value => ({ value }))} onChange={value => updateField("category", value)} /></Form.Item>
       <Form.Item label="使用场景" htmlFor={prefix + "scene"}><Input.TextArea id={prefix + "scene"} value={draft.scene} maxLength={200} autoSize={{ minRows: 1, maxRows: 4 }}
         placeholder="例如：候选人刚刚提供了手机号" onChange={event => updateField("scene", event.target.value)} /></Form.Item>
-      <Form.Item label="回复内容" htmlFor={prefix + "content"}><Input.TextArea id={prefix + "content"} value={draft.content} maxLength={contentLimit} autoSize={{ minRows: 3, maxRows: 8 }}
-        placeholder="例如：号码收到了，谢谢。" onChange={event => updateField("content", event.target.value)} /></Form.Item>
+      <Form.Item label="回复内容" htmlFor={prefix + "content"} extra="留空不发文字；原生资料请求仍按现有规则处理。"><Input.TextArea id={prefix + "content"} value={draft.content} maxLength={contentLimit} autoSize={{ minRows: 3, maxRows: 8 }}
+        placeholder="留空时，这个场景不发文字" onChange={event => updateField("content", event.target.value)} /></Form.Item>
       {error && <Alert type="warning" showIcon title={error} />}
     </Form>
   </AdminDialog>;

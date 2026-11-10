@@ -21,7 +21,7 @@ type ReplyPhrase struct {
 	Category string `json:"category,omitempty"`
 	Title    string `json:"title,omitempty"`
 	Scene    string `json:"scene,omitempty"`
-	Content  string `json:"content,omitempty"`
+	Content  string `json:"content"`
 	Deleted  bool   `json:"deleted,omitempty"`
 }
 
@@ -41,8 +41,14 @@ func parseAutoReplyLibrary(raw string) (autoReplyLibrary, error) {
 	if err := json.Unmarshal([]byte(raw), &lib); err != nil || lib.Phrases == nil || lib.ConditionOptions == nil {
 		return lib, newAutoReplyValidationError("请提供话术和常用条件两个列表")
 	}
-	if len(lib.Phrases) > 64 || len(lib.ConditionOptions) > 80 {
-		return lib, newAutoReplyValidationError("默认话术最多64条，常用条件最多80条")
+	active := 0
+	for _, p := range lib.Phrases {
+		if !p.Deleted {
+			active++
+		}
+	}
+	if active > 64 || len(lib.Phrases) > 128 || len(lib.ConditionOptions) > 80 {
+		return lib, newAutoReplyValidationError("可用话术最多64条，含已移除场景最多128条；常用条件最多80条")
 	}
 	if err := validateReplyPhrases(lib.Phrases, true, ""); err != nil {
 		return lib, err
@@ -70,10 +76,13 @@ func validateReplyPhrases(items []ReplyPhrase, defaults bool, legacyResume strin
 		}
 		seen[p.ID] = true
 		if p.Deleted {
-			if defaults || strings.HasPrefix(p.ID, "job_") {
-				return newAutoReplyValidationError("删除自建话术请直接移除对应条目")
+			if p.Content != "" {
+				return newAutoReplyValidationError("已移除话术只保留场景，不保留回复正文")
 			}
-			continue
+			// 兼容旧岗位仅有编号的默认删除标记，保存边界会从已知配置补回场景。
+			if !defaults && !strings.HasPrefix(p.ID, "job_") && p.Title == "" && p.Scene == "" && p.Category == "" {
+				continue
+			}
 		}
 		contentLimit := 200
 		if !defaults && p.ID == "request_resume" && legacyResume != "" && p.Content == legacyResume {
@@ -82,10 +91,13 @@ func validateReplyPhrases(items []ReplyPhrase, defaults bool, legacyResume strin
 		for _, field := range []struct {
 			label, value string
 			limit        int
-		}{{"分类", p.Category, 24}, {"标题", p.Title, 60}, {"适用场景", p.Scene, 200}, {"内容", p.Content, contentLimit}} {
+		}{{"分类", p.Category, 24}, {"标题", p.Title, 60}, {"适用场景", p.Scene, 200}} {
 			if strings.TrimSpace(field.value) == "" || utf8.RuneCountInString(field.value) > field.limit {
 				return newAutoReplyValidationErrorf("话术%s不能为空，最多%d字", field.label, field.limit)
 			}
+		}
+		if utf8.RuneCountInString(p.Content) > contentLimit {
+			return newAutoReplyValidationErrorf("话术内容最多%d字；留空表示该场景不发文字", contentLimit)
 		}
 	}
 	return nil
@@ -101,7 +113,9 @@ func applyReplyLibrary(config *PositionAutoReplyConfig, lib autoReplyLibrary) {
 	for _, base := range lib.Phrases {
 		p, changed := changes[base.ID]
 		if !changed {
-			config.Phrases = append(config.Phrases, base)
+			if !base.Deleted {
+				config.Phrases = append(config.Phrases, base)
+			}
 			continue
 		}
 		delete(changes, base.ID)
@@ -142,8 +156,31 @@ func readAutoReplyLibrary(store SystemConfigStore) (autoReplyLibrary, error) {
 	return parseAutoReplyLibrary(record.ConfigValue)
 }
 
-// forAgent 仅下发当前岗位有效话术，排除管理员备选条件和岗位已隐藏的默认文本。
+// forAgent 下发有效话术与已移除场景的空正文标记，保留禁发线索，不向编辑器重新显示删除项。
 func (config PositionAutoReplyConfig) forAgent() PositionAutoReplyConfig {
+	config.Phrases = append([]ReplyPhrase{}, config.Phrases...)
+	seen := make(map[string]bool, len(config.Phrases))
+	for _, p := range config.Phrases {
+		seen[p.ID] = true
+	}
+	known := make(map[string]ReplyPhrase, len(config.DefaultPhrases))
+	for _, p := range config.DefaultPhrases {
+		known[p.ID] = p
+	}
+	for _, p := range config.PhraseOverrides {
+		if p.Deleted {
+			known[p.ID] = deletedReplyPhrase(p, known[p.ID])
+		} else {
+			known[p.ID] = p
+		}
+	}
+	for _, p := range append(slices.Clone(config.DefaultPhrases), config.PhraseOverrides...) {
+		current := known[p.ID]
+		if current.Deleted && !seen[p.ID] {
+			config.Phrases = append(config.Phrases, deletedReplyPhrase(current, p))
+			seen[p.ID] = true
+		}
+	}
 	config.DefaultPhrases = nil
 	config.PhraseOverrides = nil
 	config.ConditionOptions = nil
@@ -159,7 +196,11 @@ func prepareReplyOverrides(item *PositionAutoReplyConfig, previous []ReplyPhrase
 		known[p.ID] = p
 	}
 	for _, p := range previous {
-		known[p.ID] = p
+		if p.Deleted {
+			known[p.ID] = deletedReplyPhrase(p, known[p.ID])
+		} else {
+			known[p.ID] = p
+		}
 	}
 	legacyAllowed := old.ResumeRequestMessage
 	if item.PhraseOverrides == nil {
@@ -187,7 +228,30 @@ func prepareReplyOverrides(item *PositionAutoReplyConfig, previous []ReplyPhrase
 			return newAutoReplyValidationError("默认话术已变化，请重新打开后再保存")
 		}
 		if p.Deleted {
-			item.PhraseOverrides[i] = ReplyPhrase{ID: p.ID, Deleted: true}
+			base, exists := known[p.ID]
+			if !exists {
+				// 同一份草稿中新建后移除的自建话术尚无旧记录，仍须通过完整场景校验。
+				if !strings.HasPrefix(p.ID, "job_") {
+					return newAutoReplyValidationError("已移除话术缺少原场景，请重新打开后再保存")
+				}
+				base = p
+			}
+			item.PhraseOverrides[i] = deletedReplyPhrase(base, p)
+		}
+	}
+	// 新旧客户端直接移除自建条目时，在服务器保留原场景；去掉默认覆盖仍代表恢复继承。
+	present := make(map[string]bool, len(item.PhraseOverrides))
+	activeDefaults := make(map[string]bool, len(lib.Phrases))
+	for _, p := range item.PhraseOverrides {
+		present[p.ID] = true
+	}
+	for _, p := range lib.Phrases {
+		activeDefaults[p.ID] = !p.Deleted
+	}
+	for _, p := range previous {
+		if !present[p.ID] && !activeDefaults[p.ID] {
+			item.PhraseOverrides = append(item.PhraseOverrides, deletedReplyPhrase(known[p.ID], p))
+			present[p.ID] = true
 		}
 	}
 	if err := validateReplyPhrases(item.PhraseOverrides, false, legacyAllowed); err != nil {
@@ -195,4 +259,60 @@ func prepareReplyOverrides(item *PositionAutoReplyConfig, previous []ReplyPhrase
 	}
 	applyReplyLibrary(item, lib)
 	return nil
+}
+
+// deletedReplyPhrase 保留已知编号与场景元数据，只清回复正文，不从旧配置复活已移除的文字。
+func deletedReplyPhrase(phrase, fallback ReplyPhrase) ReplyPhrase {
+	if phrase.Category == "" {
+		phrase.Category = fallback.Category
+	}
+	if phrase.Title == "" {
+		phrase.Title = fallback.Title
+	}
+	if phrase.Scene == "" {
+		phrase.Scene = fallback.Scene
+	}
+	phrase.Content, phrase.Deleted = "", true
+	return phrase
+}
+
+// preserveDeletedDefaultPhrases 兼容管理员直接移除旧条目，保存空正文场景供服务器判断，界面仍只显示有效条目。
+func preserveDeletedDefaultPhrases(previous, incoming string) (string, error) {
+	old, err := parseAutoReplyLibrary(previous)
+	if err != nil {
+		return "", err
+	}
+	next, err := parseAutoReplyLibrary(incoming)
+	if err != nil {
+		return "", err
+	}
+	present := make(map[string]bool, len(next.Phrases))
+	for _, p := range next.Phrases {
+		present[p.ID] = true
+	}
+	changed := false
+	for _, p := range old.Phrases {
+		if !present[p.ID] {
+			next.Phrases = append(next.Phrases, deletedReplyPhrase(p, ReplyPhrase{}))
+			changed = true
+		}
+	}
+	if !changed {
+		return incoming, nil
+	}
+	if err = validateReplyPhrases(next.Phrases, true, ""); err != nil {
+		return "", err
+	}
+	// 系统配置允许扩展字段；只替换已验证的话术列表，不能因保留删除场景而抹掉其它设置。
+	var document map[string]json.RawMessage
+	if err = json.Unmarshal([]byte(incoming), &document); err != nil {
+		return "", err
+	}
+	phrases, err := json.Marshal(next.Phrases)
+	if err != nil {
+		return "", err
+	}
+	document["phrases"] = phrases
+	raw, err := json.Marshal(document)
+	return string(raw), err
 }

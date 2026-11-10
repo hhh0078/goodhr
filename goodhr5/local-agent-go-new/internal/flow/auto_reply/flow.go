@@ -86,7 +86,8 @@ type StructuredResume struct {
 
 // ReplyMessage 表示 AI 准备的一条回答或条件确认消息。
 type ReplyMessage struct {
-	GoalContentKey     string `json:"-"` // 服务器提议绑定的目标正文，删改后旧问题不能套用到新版本。
+	GoalContentKey     string `json:"-"`                   // 服务器提议绑定的目标正文，删改后旧问题不能套用到新版本。
+	PhraseID           string `json:"phrase_id,omitempty"` // 当前场景的话术编号；空正文或已删除场景不得换词补发。
 	Type               string `json:"type"`
 	Content            string `json:"content"`
 	ConfirmationItemID string `json:"confirmation_item_id,omitempty"`
@@ -95,6 +96,7 @@ type ReplyMessage struct {
 
 // ReplyDecision 表示 AI 工具循环最终决定发送最多两条消息或转人工。
 type ReplyDecision struct {
+	TextSuppressed      bool                              `json:"text_suppressed,omitempty"` // 场景明确静默是正常完成，不触发模型补答或重新处理同一来信。
 	HandoffFollowup     *ReplyMessage                     `json:"handoff_followup,omitempty"`
 	HandoffQuestions    []handoffQuestion                 `json:"handoff_questions,omitempty"`
 	Messages            []ReplyMessage                    `json:"messages"`

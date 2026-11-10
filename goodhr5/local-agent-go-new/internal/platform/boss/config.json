@@ -1459,12 +1459,13 @@
       "description": "Boss消息正文"
     },
     "message_meta": {
-      "_comment": "仅核实系统交换卡的原生联系方式图标；读取现有message_meta字段，不把普通文字当交换结果。",
+      "_comment": "只读取实测系统手机号、微信卡和候选附件邀约的原生图标，不把普通文字当回执。",
       "parents": [],
       "target": {
         "_comment": "实测的系统联系方式卡片内图标。",
         "selectors": [
           { "_comment": "系统contact-copy容器、原生卡片和复制按钮同时存在时才读图标。", "type": "css", "value": ".item-system .contact-copy > .message-card-wrap:has(.message-card-buttons > .card-btn) .message-dialog-icon-contact" },
+          {"_comment": "实测系统微信交换卡必须有contact-copy、原生微信图标及精确复制按钮。", "type": "css", "value": ".item-system .contact-copy > .message-card-wrap:has(.message-card-buttons > .card-btn:text-is(\"复制微信号\")) .message-dialog-icon-weixin"},
           { "_comment": "候选原生附件邀约必须同时有精确标题及同意按钮，不冒充已收到PDF。", "type": "css", "value": ".item-friend .message-card-wrap:has(.message-card-top-title:text-is(\"对方想发送附件简历给您，您是否同意\")):has(.message-card-buttons > .card-btn[d-c=\"61031\"]:text-is(\"同意\")) .message-dialog-icon-resume" }
         ]
       },

@@ -54,6 +54,106 @@ async function fixture(page: Page, agentOnline = true) {
   return { state, base, reports };
 }
 
+test("管理员显式deleted false可显示编辑保存往返，true仍隐藏", async ({ page }) => {
+  const { base } = await fixture(page);
+  const library = { phrases: [
+    { id: "active_false", category: "沟通", title: "显式未删除", scene: "正常沟通时", content: "保留的正常话术", deleted: false },
+    { id: "untouched_false", category: "沟通", title: "未修改条目", scene: "另一个场景", content: "未修改正文", deleted: false },
+    { id: "removed_true", category: "沟通", title: "已删除条目", scene: "已停用场景", content: "", deleted: true },
+  ], condition_options: [] as string[] };
+  let saves = 0;
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await page.route("**/api/system/default-prompts", route => route.fulfill({ json: { prompts: {} }, headers: { "access-control-allow-origin": "*" } }));
+  await page.route("**/api/admin/system/configs/**", async route => {
+    const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    if (route.request().method() === "PUT") { Object.assign(library, JSON.parse(route.request().postDataJSON().config_value)); saves++; }
+    const config = { config_key: "system.auto_reply_library", config_value: JSON.stringify(library), enabled: true };
+    return route.fulfill({ headers, json: route.request().method() === "PUT" ? { config } : { configs: [config] } });
+  });
+  await page.goto("/admin/system-config");
+  await expect(page.getByText("保留的正常话术", { exact: true })).toBeVisible();
+  await expect(page.getByText("未修改正文", { exact: true })).toBeVisible();
+  await expect(page.getByText("已删除条目", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "编辑显式未删除", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "编辑话术", exact: true });
+  await editor.getByLabel("回复内容", { exact: true }).fill("编辑后的正常话术");
+  await editor.getByRole("button", { name: "确定", exact: true }).click();
+  await expect(page.getByRole("button", { name: "保存当前配置", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "保存当前配置", exact: true }).click();
+  await expect.poll(() => saves).toBe(1);
+  expect(library.phrases).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: "active_false", content: "编辑后的正常话术" }),
+    expect.objectContaining({ id: "untouched_false", content: "未修改正文", deleted: false }),
+    expect.objectContaining({ id: "removed_true", content: "", deleted: true }),
+  ]));
+  await page.reload();
+  await expect(page.getByText("编辑后的正常话术", { exact: true })).toBeVisible();
+  await expect(page.getByText("未修改正文", { exact: true })).toBeVisible();
+  await expect(page.getByText("已删除条目", { exact: true })).toHaveCount(0);
+  expect(base.errors).toEqual([]);
+});
+
+for (const width of [1366, 390]) test(`空话术在岗位和管理员表单保存并保留删除场景 ${width}px`, async ({ page }, testInfo) => {
+  const { state, base } = await fixture(page);
+  state.config.resume_request_message = "";
+  state.config.default_phrases[1].content = "";
+  await page.setViewportSize({ width, height: 960 });
+  await page.goto("/admin/positions");
+  await page.locator('.ant-card[data-position-id="uniform-position-1"]').getByRole("button", { name: /自动回复设置$/ }).click();
+  const dialog = page.getByRole("dialog", { name: /^自动回复 · / });
+  await dialog.locator("summary").filter({ hasText: "沟通话术" }).click();
+  await expect(dialog.getByText("留空，不发文字", { exact: true })).toHaveCount(1);
+  await dialog.getByRole("button", { name: "编辑话术：收到简历", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "编辑话术", exact: true });
+  await editor.getByLabel("回复内容", { exact: true }).fill("  \n ");
+  await editor.getByLabel("标题", { exact: true }).fill("");
+  await editor.getByRole("button", { name: "确定", exact: true }).click();
+  await expect(editor.getByText("请补齐标题、分类和使用场景。", { exact: true })).toBeVisible();
+  await editor.getByLabel("标题", { exact: true }).fill("收到简历");
+  await expect(editor.getByText("留空不发文字；原生资料请求仍按现有规则处理。", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath(`empty-phrase-editor-${width}.png`), animations: "disabled" });
+  await editor.getByRole("button", { name: "确定", exact: true }).click();
+  await expect(dialog.getByText("留空，不发文字", { exact: true })).toHaveCount(2);
+  await dialog.getByRole("button", { name: "新增话术" }).click();
+  const custom = page.getByRole("dialog", { name: "新增话术", exact: true });
+  await custom.getByLabel("标题", { exact: true }).fill("作品确认");
+  await custom.getByLabel("分类", { exact: true }).fill("作品");
+  await custom.getByLabel("使用场景", { exact: true }).fill("候选人发来作品时");
+  await custom.getByRole("button", { name: "确定", exact: true }).click();
+  await dialog.getByRole("button", { name: "移除话术：作品确认", exact: true }).click();
+  await expect(dialog.getByText("作品确认", { exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(state.config.resume_request_message).toBe("");
+  expect(state.config.phrase_overrides).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: "receive_resume", content: "" }),
+    expect.objectContaining({ id: expect.stringMatching(/^job_/), title: "作品确认", scene: "候选人发来作品时", content: "", deleted: true }),
+  ]));
+  const library = { phrases: structuredClone(state.config.default_phrases), condition_options: [] as string[] };
+  let saves = 0;
+  await page.route("**/api/system/default-prompts", route => route.fulfill({ json: { prompts: {} }, headers: { "access-control-allow-origin": "*" } }));
+  await page.route("**/api/admin/system/configs/**", async route => {
+    const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    if (route.request().method() === "PUT") { Object.assign(library, JSON.parse(route.request().postDataJSON().config_value)); saves++; }
+    const config = { config_key: "system.auto_reply_library", config_value: JSON.stringify(library), enabled: true };
+    return route.fulfill({ headers, json: route.request().method() === "PUT" ? { config } : { configs: [config] } });
+  });
+  await page.goto("/admin/system-config");
+  await page.getByRole("button", { name: "编辑收到简历", exact: true }).click();
+  await page.getByRole("dialog", { name: "编辑话术", exact: true }).getByLabel("回复内容", { exact: true }).fill("");
+  await page.getByRole("dialog", { name: "编辑话术", exact: true }).getByRole("button", { name: "确定", exact: true }).click();
+  await expect(page.getByText("留空，不发文字", { exact: true })).toHaveCount(2);
+  await page.getByRole("button", { name: "删除收到手机号", exact: true }).click();
+  await expect(page.getByRole("button", { name: "编辑收到手机号", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "保存当前配置", exact: true }).click();
+  await expect.poll(() => saves).toBe(1);
+  expect(library.phrases).toEqual(expect.arrayContaining([expect.objectContaining({ id: "receive_resume", content: "" }), expect.objectContaining({ id: "receive_phone", title: "收到手机号", content: "", deleted: true })]));
+  await page.screenshot({ path: testInfo.outputPath(`empty-phrase-library-${width}.png`), animations: "disabled", fullPage: true });
+  expect(base.errors).toEqual([]);
+});
+
 /** openReplyWorkspace 只打开统一面板，不能因为查看待办而顺带启动浏览器任务。 */
 async function openReplyWorkspace(page: Page) {
   await page.getByTestId("auto-reply-global").click();

@@ -67,6 +67,7 @@ type PositionReplyCondition struct {
 
 // AutoReplyPhrase 表示云端按岗位继承、编辑和隐藏之后实际启用的一条话术。
 type AutoReplyPhrase struct {
+	Deleted  bool   `json:"deleted,omitempty"` // 已删除的话术保留禁发标记，不能回退到默认内容。
 	ID       string `json:"id"`
 	Category string `json:"category"`
 	Title    string `json:"title"`
@@ -301,6 +302,7 @@ type CandidateConfirmationItem struct {
 
 // AutoReplyGoalFollowup 保存新简历事件拟定的一次追问，复用原会话与发送账本恢复，不产生独立目标库。
 type AutoReplyGoalFollowup struct {
+	PhraseID            string    `json:"phrase_id,omitempty"` // 恢复旧追问时仍核对原话术是否允许发送。
 	EventKind           string    `json:"event_kind,omitempty"`
 	ContextRevision     string    `json:"context_revision,omitempty"`
 	ExpectedContentKey  string    `json:"expected_content_key,omitempty"`

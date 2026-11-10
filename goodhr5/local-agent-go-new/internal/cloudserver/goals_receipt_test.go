@@ -70,6 +70,11 @@ func serverGoalFixture(t *testing.T) (*activeRun, *stateEndpointFixture, cloud.A
 		t.Fatal(err)
 	}
 	bind := &cloud.AutoReplyGoalSend{ConfirmationItemID: goal.ID, ExpectedVersion: cloud.AutoReplyConfirmationRevision(goal), BasedOnMessageKey: "m1", ExpectedLatestKey: "m1"}
+	position, err := c.AutoReplySnapshot(ctx, cred, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx = cloud.WithAutoReplyTextPolicy(ctx, position, "")
 	if _, claimed, err := c.ClaimAutoReplySend(ctx, cred, conv.ID, "m1", "方便什么时间通话？", 2, bind); err != nil || !claimed {
 		t.Fatal(claimed, err)
 	}

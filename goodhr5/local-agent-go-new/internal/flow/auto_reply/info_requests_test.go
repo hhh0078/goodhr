@@ -36,9 +36,12 @@ func (r *nativeRequestRuntime) RequestAutoReplyCandidateInfo(_ context.Context, 
 }
 
 // nativeRequestFixture 创建已实际答复一次的独立会话与三个动态场景话术，不调用AI或招聘浏览器。
-func nativeRequestFixture(t *testing.T) (*Flow, shared.PreparedTask, cloud.AutoReplyPositionSnapshot, cloud.AutoReplyConversation, model.AutoReplyConversationSnapshot, cloud.AutoReplyCandidateState, *nativeRequestRuntime) {
+func nativeRequestFixture(t *testing.T, phrases ...[]cloud.AutoReplyPhrase) (*Flow, shared.PreparedTask, cloud.AutoReplyPositionSnapshot, cloud.AutoReplyConversation, model.AutoReplyConversationSnapshot, cloud.AutoReplyCandidateState, *nativeRequestRuntime) {
 	t.Helper()
 	position := cloud.AutoReplyPositionSnapshot{OK: true, Position: cloud.AutoReplyPosition{ID: "position"}, Config: cloud.PositionAutoReplyConfig{PositionID: "position", Enabled: true, Version: 1, PhrasesVersion: "native", Phrases: []cloud.AutoReplyPhrase{{ID: "request_resume", Content: "方便发一份简历吗？"}, {ID: "request_phone", Content: "方便留个手机号吗？"}, {ID: "request_wechat", Content: "方便交换微信吗？"}}}, CompanyProfile: cloud.CompanyProfile{ID: "company"}, Subscription: cloud.AutoReplySubscription{Active: true, AllowAutoReply: true}}
+	if len(phrases) > 0 {
+		position.Config.Phrases = phrases[0]
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(position)

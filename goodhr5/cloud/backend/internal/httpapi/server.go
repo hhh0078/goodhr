@@ -782,6 +782,11 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusConflict, "请重新打开默认话术后再保存")
 			return
 		}
+		raw, err = preserveDeletedDefaultPhrases(existing.ConfigValue, raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	if configKey == defaultPromptsConfigKey {
 		if err := validateDefaultPromptsConfig(raw); err != nil {

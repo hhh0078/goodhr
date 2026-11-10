@@ -30,7 +30,7 @@ func (f *Flow) deliverGoalFollowup(ctx context.Context, prepared shared.Prepared
 	if !valid {
 		return finish()
 	}
-	if intent.ContextRevision == "" || intent.ContextRevision != cloud.AutoReplyGoalContextRevision(position) {
+	if intent.ContextRevision == "" || intent.ContextRevision != cloud.AutoReplyGoalContextRevision(position) || silentReplyScene(position.Config, intent.PhraseID) {
 		// 升级前无事实版本的草稿同样失效，避免重启把 HR 已编辑或删除的事实重新说出去。
 		return finish()
 	}
@@ -74,7 +74,7 @@ func (f *Flow) deliverGoalFollowup(ctx context.Context, prepared shared.Prepared
 	}
 	page.ExpectedSendMessageKey = key
 	binding := &cloud.AutoReplyGoalSend{ConfirmationItemID: goal.ID, ExpectedVersion: intent.ExpectedGoalVersion, BasedOnMessageKey: intent.BasedOnMessageKey, ExpectedLatestKey: intent.ExpectedLatestKey, AllowNoPending: true}
-	sent, err := f.sendVerifiedMessageWithGoal(ctx, prepared, runtime, current, page, messageKey, intent.Content, false, binding, 1)
+	sent, err := f.sendVerifiedMessageWithGoal(cloud.WithAutoReplyTextPolicy(ctx, position, intent.PhraseID), prepared, runtime, current, page, messageKey, intent.Content, false, binding, 1)
 	if errors.Is(err, model.ErrAutoReplySupersededBeforeSend) || errors.Is(err, cloud.ErrAutoReplyGoalChanged) {
 		return finish()
 	}
@@ -149,7 +149,7 @@ func (f *Flow) reviewGoalsAfterAnswer(ctx context.Context, prepared shared.Prepa
 	var followup []cloud.AutoReplyGoalFollowup
 	if len(decision.Messages) == 1 {
 		message := decision.Messages[0]
-		followup = append(followup, cloud.AutoReplyGoalFollowup{EventKind: "message", ContextRevision: cloud.AutoReplyGoalContextRevision(input.Position), ConfirmationItemID: message.ConfirmationItemID, Content: common.NormalizeAutoReplyOutgoingText(prepared.Platform, message.Content), ExpectedContentKey: message.GoalContentKey})
+		followup = append(followup, cloud.AutoReplyGoalFollowup{EventKind: "message", ContextRevision: cloud.AutoReplyGoalContextRevision(input.Position), PhraseID: message.PhraseID, ConfirmationItemID: message.ConfirmationItemID, Content: common.NormalizeAutoReplyOutgoingText(prepared.Platform, message.Content), ExpectedContentKey: message.GoalContentKey})
 	}
 	if err = f.Cloud.CommitAutoReplyMessageGoalReview(ctx, input.Credentials, input.Conversation.ID, input.BasedOnMessageKey, anchor, decision.ConfirmationUpdates, followup...); err != nil {
 		return false, false, err

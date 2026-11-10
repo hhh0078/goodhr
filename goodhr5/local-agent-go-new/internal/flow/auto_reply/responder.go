@@ -286,10 +286,10 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 			})
 		}
 		if state.reviewFinished {
-			return r.completeRun(input, run, assistantMessages, totalTokens, ReplyDecision{ConfirmationUpdates: state.confirmationUpdates, Messages: state.pendingMessages, InfoRequests: state.infoRequests})
+			return r.completeRun(input, run, assistantMessages, totalTokens, ReplyDecision{ConfirmationUpdates: state.confirmationUpdates, Messages: state.pendingMessages, InfoRequests: state.infoRequests, TextSuppressed: state.textSuppressed})
 		}
-		if len(state.pendingMessages) > 0 {
-			decision := ReplyDecision{Messages: append([]ReplyMessage(nil), state.pendingMessages...), ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions, InfoRequests: state.infoRequests}
+		if state.messagesPrepared && state.manualReason == "" || len(state.pendingMessages) > 0 {
+			decision := ReplyDecision{Messages: append([]ReplyMessage(nil), state.pendingMessages...), ConfirmationUpdates: state.confirmationUpdates, Suggestions: state.suggestions, InfoRequests: state.infoRequests, TextSuppressed: state.textSuppressed}
 			return r.completeRun(input, run, assistantMessages, totalTokens, decision)
 		}
 		if state.manualReason != "" {
@@ -351,7 +351,7 @@ func (r *AIResponder) executeAuditedTool(ctx context.Context, input ReplyContext
 	return result, executeErr
 }
 
-// completeRun 完成 AI 总记录并向运行小窗展示回复或转人工原因。
+// completeRun 完成 AI 总记录并展示回复、静默完成或真实转人工原因，不把空话术误报成人工接管。
 func (r *AIResponder) completeRun(input ReplyContext, run cloud.AutoReplyAIRun, assistantMessages []ai.ToolMessage, totalTokens int, decision ReplyDecision) (ReplyDecision, error) {
 	output, err := json.Marshal(aiReplyAuditOutput{Decision: decision, AssistantMessages: assistantMessages})
 	if err != nil {
@@ -371,6 +371,8 @@ func (r *AIResponder) completeRun(input ReplyContext, run cloud.AutoReplyAIRun, 
 			parts = append(parts, item.Content)
 		}
 		r.report(input, "result", "reply", "AI 准备回复："+truncateRunText(strings.Join(parts, " / "), 160), true)
+	} else if decision.TextSuppressed && strings.TrimSpace(decision.ManualReason) == "" {
+		r.report(input, "result", "silent", "本场景按配置不发文字，已完成处理", true)
 	} else {
 		r.report(input, "result", "manual", "转人工："+truncateRunText(decision.ManualReason, 120), true)
 	}

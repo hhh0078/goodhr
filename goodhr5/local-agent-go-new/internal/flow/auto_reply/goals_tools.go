@@ -17,6 +17,7 @@ type archiveGoalToolArgs struct {
 }
 
 type goalFollowupToolItem struct {
+	PhraseID           string `json:"phrase_id,omitempty"`
 	Content            string `json:"content"`
 	ConfirmationItemID string `json:"confirmation_item_id"`
 }
@@ -112,6 +113,19 @@ func (s *toolExecutionState) proposeGoalUpdates(call ai.ToolCall) (json.RawMessa
 			}
 			if err := s.validateGoalMotivation(item); err != nil {
 				return nil, err
+			}
+			if !oneOf(item.SourceRef, "position", "resume", "online_profile") {
+				// 历史证据可更新已有目标结论，但不能在无新来信事项时重新制造pending来重复追问。
+				current := false
+				for _, message := range s.input.PendingMessages {
+					if message.Direction == "candidate" && (message.ConversationID == "" || message.ConversationID == s.input.Conversation.ID) && firstNonEmpty(message.PlatformMessageID, message.Fingerprint, message.ID) == item.SourceRef {
+						current = true
+						break
+					}
+				}
+				if !current {
+					return nil, argumentError("新建或改写pending目标引用候选消息时，只能引用本轮pending_messages；历史陈述仅可更新已有目标结论，不得重新制造待确认或重复追问，请先回答本轮实际问题")
+				}
 			}
 		}
 		if !found {

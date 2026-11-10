@@ -1,12 +1,12 @@
 /** 文件作用说明：合并岗位话术草稿与系统默认，保留继承、覆盖、删除和恢复的区别。 */
-export type ReplyPhrase = { id: string; category: string; title: string; scene: string; content: string };
-export type ReplyPhraseOverride = ReplyPhrase | { id: string; deleted: true };
+export type ReplyPhrase = { id: string; category: string; title: string; scene: string; content: string; deleted?: false };
+export type ReplyPhraseOverride = ReplyPhrase | { id: string; deleted: true; category?: string; title?: string; scene?: string; content?: string };
 
 /** effectiveReplyPhrases 按系统顺序显示继承或已修改的话术，随后列出岗位独有的条目。 */
 export function effectiveReplyPhrases(defaults: ReplyPhrase[], overrides: ReplyPhraseOverride[]): ReplyPhrase[] {
   const rows = new Map(defaults.map(row => [row.id, row]));
   for (const row of overrides) {
-    if ("deleted" in row) rows.delete(row.id);
+    if (row.deleted === true) rows.delete(row.id);
     else rows.set(row.id, row);
   }
   return [...rows.values()];

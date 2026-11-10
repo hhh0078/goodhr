@@ -142,8 +142,8 @@ func validateNativeInfoProposal(input ReplyContext, request model.CandidateInfoR
 			continue
 		}
 		state := contacts[kind]
-		if fixedReplyPhrase(input.Position.Config, "request_"+kind) == "" || state.Received || state.Asked || state.Declined {
-			return argumentError("该资料已获得、已申请、被拒绝或话术已停用，请只回答本轮问题")
+		if state.Received || state.Asked || state.Declined {
+			return argumentError("该资料已获得、已申请或被拒绝，请只回答本轮问题")
 		}
 	}
 	return nil
@@ -204,7 +204,7 @@ func (f *Flow) requestNativeInfoAfterAnswer(ctx context.Context, prepared shared
 	contacts := inspectInfoContacts(input)
 	// 在线资料优先；仅执行AI已说明确有必要的附件提议或先前明确暂缓的同一待办。
 	// 简历已整理但缺电话时，正式入库门槛有明确依据；不在解析附件前猜测还缺手机号。
-	if state.Candidate != nil && state.Candidate.ResumeStructured && !contacts["phone"].Received && !contacts["phone"].Asked && !contacts["phone"].Declined && fixedReplyPhrase(position.Config, "request_phone") != "" {
+	if state.Candidate != nil && state.Candidate.ResumeStructured && !contacts["phone"].Received && !contacts["phone"].Asked && !contacts["phone"].Declined {
 		proposed.RequestPhone = true
 	}
 	if proposed.RequestResume || proposed.RequestPhone || proposed.RequestWechat {
@@ -238,7 +238,7 @@ func (f *Flow) requestNativeInfoAfterAnswer(ctx context.Context, prepared shared
 			}
 			continue
 		}
-		if progress.Status != "planned" && progress.Status != model.AutoReplyInfoDeferred && progress.Status != model.AutoReplyInfoUnavailable || progress.LastAttemptMessageKey == basedOn || fixedReplyPhrase(position.Config, "request_"+kind) == "" {
+		if progress.Status != "planned" && progress.Status != model.AutoReplyInfoDeferred && progress.Status != model.AutoReplyInfoUnavailable || progress.LastAttemptMessageKey == basedOn {
 			continue
 		}
 		handled = true
