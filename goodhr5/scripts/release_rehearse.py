@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import secrets
 import shlex
+import signal
 import socket
 import stat
 import subprocess
@@ -230,14 +231,16 @@ class Rehearsal:
         """psql 仅在本轮恢复库执行SQL，通过标准输入传递，查询正文和密码不进入日志。"""
         return command(["docker", "exec", "-i", self.pg, "psql", "-XqAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", self.args.database], sql.encode())
 
-    def database_snapshot(self):
-        """database_snapshot 对所有非系统表流式计算排序完整行SHA和行数，仅保留不可逆摘要。"""
-        tables = self.psql("SELECT n.nspname||E'\\t'||c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p') AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema' ORDER BY 1;").decode().splitlines()
+    def database_snapshot(self, columns=None, preserve_default_library=False):
+        """database_snapshot 流式核对完整表，或固定升级前字段的投影；默认话术例外另行逐字段审计。"""
+        tables = sorted(columns) if columns is not None else self.psql("SELECT n.nspname||E'\\t'||c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p') AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema' ORDER BY 1;").decode().splitlines()
         result = {}
         for table in tables:
             schema, name = table.split("\t")
             target = quote_identifier(schema) + "." + quote_identifier(name)
-            sql = "SET statement_timeout='90s'; COPY (SELECT row_to_json(t)::text FROM " + target + " t ORDER BY row_to_json(t)::text COLLATE \"C\") TO STDOUT;"
+            selected = ",".join(quote_identifier(key) for key in columns[table]) if columns is not None else "*"
+            condition = " WHERE config_key<>'system.auto_reply_library'" if preserve_default_library and table == "public\tsystem_configs" else ""
+            sql = "SET statement_timeout='90s'; COPY (SELECT row_to_json(t)::text FROM (SELECT " + selected + " FROM " + target + condition + ") t ORDER BY row_to_json(t)::text COLLATE \"C\") TO STDOUT;"
             digest, rows = hashlib.sha256(), 0
             with tempfile.TemporaryFile() as errors:
                 process = subprocess.Popen(["docker", "exec", "-i", self.pg, "psql", "-XqAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", self.args.database], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors)
@@ -508,6 +511,15 @@ def main(rehearsal_type=Rehearsal, configure_parser=None):
     if configure_parser is not None:
         configure_parser(parser)
     arguments = parser.parse_args()
+
+    def interrupted(signum, frame):
+        """interrupted 收到退出时先结束本轮隔离应用并登记清理计划，不让临时容器继续运行。"""
+        for value in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(value, signal.SIG_IGN)
+        raise CutoverError("隔离验收收到取消信号")
+
+    for value in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(value, interrupted)
     require(all(HEX.fullmatch(getattr(arguments, role + "_container_id")) and IMAGE.fullmatch(getattr(arguments, role + "_image")) for role in ROLES), "应用容器ID或候选镜像ID不完整")
     require(HEX.fullmatch(arguments.postgres_container_id) and IMAGE.fullmatch(arguments.redis_image), "PostgreSQL或Redis身份不完整")
     print(json.dumps(rehearsal_type(arguments, DockerEngine()).run(), ensure_ascii=False))

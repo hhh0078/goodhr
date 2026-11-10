@@ -1,0 +1,24 @@
+{
+  "_description": "文件作用：冻结本次主分支到正式环境的19份已审阅迁移；未登记的新迁移停止自动切换，须随功能提交专属验收。",
+  "bootstrap_migrations": {
+    "0104_auto_reply_configuration.sql": "f7301f2ef9b34f93f9ef261c6acbc9c08576713396fe7c076438ee2b6e5531bf",
+    "0105_auto_reply_result_summaries.sql": "b1a793e5b9bb87bb73c41247074c11f47f87ac621d8a704a73e56d22281949fe",
+    "0107_auto_reply_candidate_engagements.sql": "f0330c4e9c50704ebd637249e7a1cbfc764000db0f03178cd780de6298378e73",
+    "0108_candidate_deletions.sql": "790893f81ffc2c6d32a14a6cab242a8a08bfea4110a2225156ebdac5392047ab",
+    "0109_candidate_reopen.sql": "2985a5183f94b572324f0fb4e345c2ab12cb77229b239c9a700e45a2a95c7554",
+    "0110_auto_reply_phrase_library.sql": "e89ab9a89d2d14dcfa344e14302cbe1055624bcc799e6dc52dc8f586af084294",
+    "0112_auto_reply_cloud_state.sql": "9d72430e63a3db86f98577de20c0780fd93893f36270c18d240eea37fddd3b5f",
+    "0113_auto_reply_import_receipts.sql": "ed3cea3120c63d02455f7a5039f66b62d159b03a418e5ff47ebb127e10b4d3e1",
+    "0114_auto_reply_answer_receipts.sql": "3a6bb7ec6835c8848eca32665617ddc6bc1631bc1a439fada151d3a231852ec2",
+    "0115_auto_reply_attachment_cleanup.sql": "49e02891b1913aabaa15b888ccd21270adcbfdcbddeca15d91c5009ca8e43343",
+    "0116_auto_reply_question_privacy.sql": "a54be00d67fef9cd5ce4d8f2f555f59433e294df40f77434e86851c2fae1dbde",
+    "0117_auto_reply_authoritative_boundaries.sql": "f6bfa9b25cc2e234b3aaf6ba0c359056aee3768c6fb3fdeffc3202950a590b79",
+    "0118_auto_reply_sealed_audits.sql": "dc3169f82ca3cfb80cbdd539c05e0324257faeb2e883a0531b51a38a345cb59f",
+    "0119_auto_reply_editable_facts.sql": "f7411c86fc29a9ca6f2debc5d758e65a5699388efb3c40207d797f47db63f4e0",
+    "0120_online_profiles_and_temporary_retention.sql": "81d19fe67f152580d59c70a14c910eab15c384e38d08cacf32c0ea748ae6704e",
+    "0121_auto_reply_wechat_defaults.sql": "de7d36b6b55edf1fbcc94f217994c20e386d01b18040ef35b58b9d9ae4648393",
+    "0122_online_profile_reopen_receipts.sql": "dae8fa75de88b1dee2dd4b9e597b4ec2adb48e59a516c8250f3cebb3d60cb847",
+    "0123_repair_auto_reply_file_gc_trigger.sql": "3cf5deb96b9cdb8a13c75217232eab70c98252f564cf638cb69025b3fcb78c00",
+    "0124_system_statistics.sql": "604ca5b6a11db6e9ffa4b16dffb301bfa18b1a116a8cec328bcba5961a9e4d16"
+  }
+}

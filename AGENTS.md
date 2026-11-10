@@ -92,7 +92,7 @@
 
 ## 生产发布与空间收尾规范
 
-- 正式云端发布统一走 `goodhr5/scripts/deploy-build.sh`；先 `--build-only` 准备候选，经隔离数据库和回退组合验收后，再用同一不可变标签 `--activate-only` 激活。`auto_deploy.sh` 只准备候选，不直接切换线上，也不得重新启用旧的源码挂载重启路线。
+- 正式云端发布统一走 `goodhr5/scripts/deploy-build.sh`；先 `--build-only` 准备候选，经隔离数据库和回退组合验收后，再用同一不可变标签 `--activate-only` 激活。用户于2026-11-11明确要求宝塔定时任务自动更新正式前后端：`auto_deploy.sh` 可通过 `scripts/auto_release.py` 自动编排这三个阶段，只有本轮完整验收通过才能激活；不得重新启用旧的源码挂载重启路线。
 - 禁止以任意历史 GoodHR 成品镜像作为 `FROM`，包括“复用线上镜像后删除 /app 再复制新文件”。必须先运行 `scripts/release_guard.py dockerfiles`，构建后对实际镜像运行 `image` 检查；只允许正式 Dockerfile 的干净官方基础或 `release-policy.json` 中按角色核验过的固定运行镜像。一次性重新封装现有编译产物也必须经过同样检查。
 - 构建元数据采用 `goodhr.release.id` 和 `goodhr.dockerfile_sha256`，不要新增 `goodhr.release` 标签，避免经典构建器把同一次构建的标签中间镜像误认为旧成品。构建缓存必须使用约定的 `goodhr.project`、`goodhr.build.stage` 及完成标记；每种阶段最多保留一条已完成缓存分支。
 - 生产切换必须有与候选 image ID、源码提交、目标主机一致的隔离验收证据，包含旧数据保持和完整前后端回退组合验证。不能用“以前健康”或“日期较近”代替当前数据库兼容性验证；不得拼接未经验证的前后端组合。

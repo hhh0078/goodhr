@@ -118,6 +118,8 @@ def assert_schema_upgrade(before, after, expected):
 class ScreeningRehearsal(Rehearsal):
     """复用既有完整备份、内网隔离、只读应用和收尾流程，新增受五份镜像SQL摘要约束的升级步骤。"""
 
+    migrations = MIGRATIONS
+
     def migration_archive(self, image, label):
         """migration_archive 创建本次不启动的镜像检查容器，读取嵌入SQL，不访问生产配置或目录。"""
         container = self.own(self.prefix + "-migration-" + label,
@@ -254,7 +256,7 @@ class ScreeningRehearsal(Rehearsal):
             self.candidate, self.rollback, self.fingerprint, self.reports)
         require(all(report.get("schema_verified") is True and report.get("approved_sha256") == self.approved
                     for report in self.reports.values()), "组合缺少固定迁移和结构核对")
-        evidence.update({"before_migration_fingerprint": self.before_fingerprint, "expected_new_migrations": len(MIGRATIONS),
+        evidence.update({"before_migration_fingerprint": self.before_fingerprint, "expected_new_migrations": len(self.migrations),
                          "approved_sha256": self.approved, "schema_verified": True,
                          "contract_scope": "fixed_image_sql_upgrade_and_read_only_startup"})
         records = []

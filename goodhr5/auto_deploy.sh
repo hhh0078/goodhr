@@ -1,21 +1,17 @@
 #!/bin/sh
-# 文件作用：跟踪授权分支并经唯一正式入口准备候选；隔离验证后再显式激活，禁止源码挂载重启和全局Docker清理。
+# 文件作用：供宝塔每分钟同步main，按正式入口自动完成候选、隔离验收和激活，失败保留旧版。
 set -eu
 
 PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 LOG_FILE="$PROJECT_DIR/deploy.log"
-LOCK_DIR="$PROJECT_DIR/.deploy.lock"
 BRANCH="${DEPLOY_BRANCH:-main}"
 REMOTE="${DEPLOY_REMOTE:-origin}"
+STATE_DIR=/opt/goodhr-release/auto-deploy
+umask 077
 
-# log 记录候选准备结果，不输出环境文件和数据库凭据。
+# log 记录自动发布进度，不输出环境文件和数据库凭据。
 log() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"
-}
-
-# cleanup_lock 释放当前任务独占的检查锁。
-cleanup_lock() {
-  rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 
 if [ "${DEPLOY_PRUNE:-0}" != 0 ]; then
@@ -26,11 +22,13 @@ if [ -n "${DEPLOY_COMPOSE_FILE:-}" ] && [ "$DEPLOY_COMPOSE_FILE" != docker-compo
   log "正式发布统一使用docker-compose.build.yml，不再走旧源码挂载部署"
   exit 1
 fi
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  log "已有检查在进行，本次跳过"
+mkdir -p "$STATE_DIR"
+# 文件锁由内核随进程退出释放，不再把历史遗留目录误判成仍在部署。
+exec 5>>"$STATE_DIR/job.lock"
+if ! flock -n 5; then
+  log "自动发布仍在进行，本次不重复启动"
   exit 0
 fi
-trap cleanup_lock EXIT INT TERM
 cd "$PROJECT_DIR"
 # 与正式构建共用源码锁，禁止在另一轮构建或激活中快进同一工作区。
 SOURCE_LOCK="$PROJECT_DIR/.release-source.lock"
@@ -46,23 +44,18 @@ git checkout "$BRANCH" >> "$LOG_FILE" 2>&1
 git fetch "$REMOTE" "$BRANCH" >> "$LOG_FILE" 2>&1
 LOCAL_COMMIT="$(git rev-parse HEAD)"
 REMOTE_COMMIT="$(git rev-parse "$REMOTE/$BRANCH")"
-if [ "$LOCAL_COMMIT" = "$REMOTE_COMMIT" ]; then
-  log "代码无更新，本次跳过"
-  exit 0
-fi
 git merge-base --is-ancestor "$LOCAL_COMMIT" "$REMOTE_COMMIT" ||
   { log "分支不能快进，已停止"; exit 1; }
-CHANGED_FILES="$(git diff --name-only "$LOCAL_COMMIT" "$REMOTE_COMMIT" -- \
-  cloud/backend cloud/frontend-next scripts docker-compose.build.yml environments/production.env)"
 git merge --ff-only "$REMOTE/$BRANCH" >> "$LOG_FILE" 2>&1
-if [ -z "$CHANGED_FILES" ]; then
-  log "本次没有云端或发布文件改动，跳过构建"
-  exit 0
-fi
 export GOODHR_SOURCE_COMMIT="$REMOTE_COMMIT"
-log "经正式入口准备候选 source=$REMOTE_COMMIT"
-# 子入口自行重新持有同一把锁，并重新核对提交；避免父子进程重复持锁。
+# 即使Git已更新，也比较实际线上版本；上轮失败不会因为HEAD相同而永远跳过。
+log "核对线上版本 branch=$BRANCH source=$REMOTE_COMMIT"
 flock -u 6
 exec 6>&-
-bash "$PROJECT_DIR/scripts/deploy-build.sh" --build-only >> "$LOG_FILE" 2>&1
-log "候选已准备，线上未切换；完成隔离及回退验证后，用同一标签执行deploy-build.sh --activate-only"
+if python3 "$PROJECT_DIR/scripts/auto_release.py" --source-root "$PROJECT_DIR" >> "$LOG_FILE" 2>&1; then
+  printf 'GoodHR检查已完成，实际发布状态见 %s/status.json\n' "$STATE_DIR"
+else
+  result=$?
+  printf 'GoodHR本轮有未完成项（退出码%s），详情见 %s\n' "$result" "$LOG_FILE" >&2
+  exit "$result"
+fi

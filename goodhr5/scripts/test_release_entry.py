@@ -39,6 +39,7 @@ from pathlib import Path
 tool,args=sys.argv[1],sys.argv[2:]
 with open(os.environ['FIXTURE_LOG'],'a',encoding='utf-8') as stream:stream.write(json.dumps([tool]+args)+'\n')
 if tool=='python3':
+ if args and args[0].endswith('auto_release.py'):sys.exit(0)
  if args and args[0].endswith('release_guard.py'):sys.exit(21 if os.environ.get('FIXTURE_GUARD_FAIL')=='1' else 0)
  if args and args[0].endswith('release_activate.py'):sys.exit(35 if os.environ.get('FIXTURE_ACTIVATION_FAIL')=='1' else 0)
  if args and args[0].endswith(('release_hygiene.py','release_retention.py')):
@@ -143,6 +144,8 @@ class EntryTests(unittest.TestCase):
             (self.home / name).mkdir(parents=True, exist_ok=True)
         for name in SOURCE_FILES:
             text = (PROJECT / name).read_text(encoding="utf-8")
+            if name == "auto_deploy.sh":
+                text = text.replace("STATE_DIR=/opt/goodhr-release/auto-deploy", "STATE_DIR=" + shlex.quote(str(self.home / "state")))
             write_fixture(self.home / name, text + PREPARE_FIXTURE if name.endswith("production-release.sh") else text)
         write_fixture(self.home / "mock.py", MOCK_CLI)
         for tool in ("docker", "python3", "git", "curl", "flock"):
@@ -295,10 +298,12 @@ class EntryTests(unittest.TestCase):
         self.assertTrue((self.home / "release/database.dump").is_file())
         self.assertFalse(any(call[0] == "python3" and call[1].endswith(("release_hygiene.py", "release_retention.py")) and ("plan" in call or "apply" in call) for call in self.calls))
 
-    def test_auto_deploy_only_prepares_candidate(self):
-        """自动入口只构建候选，未提供验收记录也不会激活。"""
+    def test_auto_deploy_delegates_to_verified_release_pipeline(self):
+        """自动入口只交给受验收门禁约束的编排器，不直接运行旧Compose构建或切换。"""
         self.assertEqual(self.run_entry(evidence=False, auto=True).returncode, 0)
-        self.assertEqual(len(self.builds), 1)
+        self.assertEqual(len([call for call in self.calls if call[0] == "python3" and call[1].endswith("auto_release.py")]), 1)
+        self.assertEqual(self.builds, [])
+        self.assertEqual(self.activations, [])
         self.assertEqual(self.ups, [])
 
     def test_auto_deploy_rejects_global_prune(self):
