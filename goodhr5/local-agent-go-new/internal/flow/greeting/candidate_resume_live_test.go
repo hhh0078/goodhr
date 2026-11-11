@@ -1,4 +1,4 @@
-// Package greeting 文件作用：在已登录前程无忧验证小批读取、真实滚轮、失败者补处理、250人断点与SQLite重开，禁止发送和写入用户进度。
+// Package greeting 文件作用：在已登录BOSS或前程无忧验证小批读取、真实滚轮、失败者补处理、250人断点与SQLite重开，禁止发送和写入用户进度。
 package greeting
 
 import (
@@ -337,4 +337,88 @@ func TestJob51ResumeSQLiteExistingWorkerLive(t *testing.T) {
 		t.Fatal("没有覆盖20人读取和真实滚轮")
 	}
 	t.Logf("验收通过：初始已加载%d，核对唯一人选%d，字段读取%d次，最大单次%d人，最长单次读取%s；未发送、未改筛选、未写用户数据库", initialTotal, len(seen), browser.fullReads, browser.maxItems, browser.maxReadTime)
+}
+
+// TestBossResumeSQLiteExistingWorkerLive 在当前已停止任务的BOSS推荐页只读验证SQLite重开、默认开启改显式开启及下一人续读，不发送消息或修改用户进度。
+func TestBossResumeSQLiteExistingWorkerLive(t *testing.T) {
+	base := os.Getenv("GOODHR_BOSS_RESUME_LIVE_WORKER_URL")
+	if base == "" {
+		t.Skip("需明确指定已登录且任务已停止的本机BOSS Worker")
+	}
+	parsed, err := url.Parse(base)
+	if err != nil || parsed.Scheme != "http" || parsed.Hostname() != "127.0.0.1" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		t.Fatal("仅允许本机Worker")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	browser := &candidateResumeLiveBrowser{Client: client.New(base)}
+	cfg, err := platform.LoadConfig("boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("GOODHR_BOSS_RESUME_LIVE_OPEN_PAGE") == "1" {
+		newTab := true
+		if _, err := browser.OpenPage(ctx, contract.PageOpenRequest{URL: cfg.EntryURL, NewTab: &newTab, WaitUntil: "domcontentloaded", TimeoutMS: 20000}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pages, err := browser.ListPages(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := common.UniqueCurrentPageURLFromList(pages)
+	if err != nil || !common.PageURLMatches(current, cfg.EntryURL) {
+		t.Fatal("当前不在唯一BOSS推荐页，不操作")
+	}
+	cfg.CandidateBatchSize = 3
+	prepared := shared.PreparedTask{Session: cloud.UserSession{UserID: "boss-live-fixture"}, ProfilePath: "boss-live-fixture", Position: cloud.PositionSnapshot{ID: "boss-live-fixture"}, Platform: cfg}
+	path := filepath.Join(t.TempDir(), "resume.db")
+	store, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	runtime, _ := platform.RuntimeFor("boss")
+	cursor := &model.CandidateListCursor{}
+	session, err := (&Flow{Store: store}).prepareCandidateResume(ctx, browser, prepared, runtime, cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := runtime.FindCandidates(ctx, browser, cfg, model.CandidateListOptions{ReadConcurrency: 5, Cursor: cursor})
+	if err != nil || len(rows) != 3 {
+		t.Fatalf("未读到三张卡片：数量%d，错误%v", len(rows), err)
+	}
+	if err := session.complete(ctx, rows[1], nil); err != nil {
+		t.Fatal(err)
+	}
+	want := session.record.Point
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := true
+	prepared.Request.EnableGreet = &enabled
+	prepared.Request.TaskID = "restarted-fixture"
+	fresh, _ := platform.RuntimeFor("boss")
+	nextCursor := &model.CandidateListCursor{}
+	resumed, err := (&Flow{Store: store}).prepareCandidateResume(ctx, browser, prepared, fresh, nextCursor)
+	if err != nil || resumed.record.Point != want || nextCursor.StartIndex != rows[1].Index {
+		t.Fatalf("真实页面重开未续上：%v", err)
+	}
+	next, err := fresh.FindCandidates(ctx, browser, cfg, model.CandidateListOptions{ReadConcurrency: 5, Cursor: nextCursor})
+	if err != nil || len(next) < 2 || !resumed.completedAnchor(next[0]) || resumed.completedAnchor(next[1]) || next[1].Fingerprint != rows[2].Fingerprint {
+		t.Fatalf("真实页面未接着下一人：%v", err)
+	}
+	if err := fresh.ScrollToCandidate(ctx, browser, cfg, next[1]); err != nil {
+		t.Fatal("续读后无法定位下一人", err)
+	}
+	if dir := os.Getenv("GOODHR_BOSS_RESUME_LIVE_SCREENSHOTS"); dir != "" {
+		if _, err := browser.Screenshot(ctx, contract.ScreenshotRequest{Directory: dir, Filename: "boss-resumed.png"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Logf("BOSS真实推荐页只读通过：测试SQLite关闭重开、重建正式运行时、等价启动值切换，跳过完成锚点并继续下一人；整批读取%d次，滚轮%d次；未发送、未写用户进度", browser.fullReads, browser.scrolls)
 }

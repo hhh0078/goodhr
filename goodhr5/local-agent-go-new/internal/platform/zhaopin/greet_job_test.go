@@ -4,13 +4,60 @@ package zhaopin_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/platform"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/platform/zhaopin"
 )
+
+// selectedTitleBrowser 模拟画面只显示省略文字、但title保留完整名称的已选岗位。
+type selectedTitleBrowser struct {
+	greetingPageBrowser
+	readErr error
+}
+
+// Read 校验生产选择器仍启用完整title及旧文本备选，禁止把可见省略文字当成岗位全名。
+func (b *selectedTitleBrowser) Read(_ context.Context, req contract.ElementReadRequest) (contract.ReadResult, error) {
+	if req.Selector.Description != "candidate.greet_job_selected" || req.Attribute != "title" || !req.UseSelectorRead {
+		return contract.ReadResult{}, fmt.Errorf("必须使用生产配置读取完整岗位名称")
+	}
+	return contract.ReadResult{Value: b.selected}, b.readErr
+}
+
+// TestSearchGreetingSelectedTitle 验证显示省略时用完整title直达确认，读取失败则停止且不盲目提交。
+func TestSearchGreetingSelectedTitle(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		cfg := loadGreetingFixture(t)
+		production, err := platform.LoadConfig("zhaopin")
+		if err != nil {
+			t.Fatal(err)
+		}
+		selected := production.Selectors["candidate.greet_job_selected"]
+		selected.Description = "candidate.greet_job_selected"
+		cfg.Selectors["candidate.greet_job_selected"] = selected
+		browser := &selectedTitleBrowser{greetingPageBrowser: greetingPageBrowser{pageURL: cfg.ManualSearchURL, selected: greetingJobName, opensJobDialog: true, canConfirmGreeting: true}}
+		if failed {
+			browser.readErr = fmt.Errorf("合成读取失败")
+		}
+		runtime := zhaopin.NewRuntime()
+		if err := runtime.SelectPosition(context.Background(), browser, cfg, model.Position{Name: greetingJobName}); err != nil {
+			t.Fatal(err)
+		}
+		err = runtime.GreetCandidate(context.Background(), browser, cfg, model.Candidate{IdentityTexts: []string{"合成候选人"}}, model.GreetRequest{})
+		want := []string{"candidate.greet", "candidate.greet_job_confirm"}
+		if failed {
+			want = want[:1]
+		}
+		if (err != nil) != failed || !slices.Equal(browser.operations, want) {
+			t.Fatalf("已选完整岗位的处理不正确：%v %v", err, browser.operations)
+		}
+	}
+}
 
 // delayedGreetingJobBrowser 在旧结果出现后再显示加载，模拟日志中的偶发刷新，不发送真实消息。
 type delayedGreetingJobBrowser struct {

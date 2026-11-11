@@ -3,24 +3,23 @@ package greeting
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
-	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
 // candidateResumeRecord 是 local_settings 中的版本化断点，不保存页面地址、姓名和正文。
 type candidateResumeRecord struct {
-	Version   int                          `json:"version"`
-	ScopeHash string                       `json:"scope_hash"`
-	Point     model.CandidateResumePoint   `json:"point"`
-	Pending   []model.CandidateResumePoint `json:"pending,omitempty"`
+	Version     int                          `json:"version"`
+	ScopeHash   string                       `json:"scope_hash"`
+	ScopeFields map[string]string            `json:"scope_fields,omitempty"`
+	Point       model.CandidateResumePoint   `json:"point"`
+	Pending     []model.CandidateResumePoint `json:"pending,omitempty"`
 }
 
 // candidateResumeSession 保留未完成者并独立推进最新成功位置，重启先补处理，再回到最新位置；不保存人名或正文。
@@ -61,7 +60,7 @@ func (f *Flow) prepareCandidateResume(ctx context.Context, browser model.Browser
 	if currentCount != 1 || pageURL == "" {
 		return nil, fmt.Errorf("没确认当前人才页面，暂不恢复进度，请切到目标页面后再试")
 	}
-	key, scope, err := candidateResumeScope(prepared, pageURL)
+	key, scope, fields, err := candidateResumeScopeHashes(prepared, pageURL, true)
 	if err != nil {
 		return nil, err
 	}
@@ -71,12 +70,35 @@ func (f *Flow) prepareCandidateResume(ctx context.Context, browser model.Browser
 	}
 	var record candidateResumeRecord
 	validRecord := json.Unmarshal([]byte(raw), &record) == nil && (record.Version == 1 || record.Version == 2)
+	if validRecord && record.ScopeHash != scope && len(record.ScopeFields) == 0 {
+		// 旧摘要只允许已知等价的开启值与地址归一结果，不能无条件继承旧进度。
+		enabled := true
+		variants := []*bool{prepared.Request.EnableGreet}
+		if prepared.Request.EnableGreet == nil || *prepared.Request.EnableGreet {
+			variants = []*bool{nil, &enabled}
+		}
+		for _, legacyURL := range []string{pageURL, candidateResumePageURL(prepared, pageURL)} {
+			for _, setting := range variants {
+				legacy := prepared
+				legacy.Request.EnableGreet = setting
+				_, hash, _, legacyErr := candidateResumeScopeHashes(legacy, legacyURL, false)
+				if legacyErr != nil {
+					return nil, legacyErr
+				}
+				if hash == record.ScopeHash {
+					record.ScopeHash = scope
+				}
+			}
+		}
+	}
 	if validRecord && record.ScopeHash != scope {
+		shared.ReportProgress(f.Logger, prepared.Request.TaskID, candidateResumeChangeReason(record.ScopeFields, fields))
 		f.log(prepared.Request.TaskID, "resume_conditions_changed", "start", time.Now(), nil)
 	}
 	if !validRecord || record.ScopeHash != scope {
 		record = candidateResumeRecord{Version: 2, ScopeHash: scope}
 	}
+	record.ScopeFields = fields
 	record.Version = 2 // 旧客户端不认识第二版时会从头检查，不能忽略未完成者直接跳到新位置。
 	found, err := resumer.RestoreCandidateList(ctx, browser, prepared.Platform, record.Point, cursor)
 	if err != nil {
@@ -86,7 +108,7 @@ func (f *Flow) prepareCandidateResume(ctx context.Context, browser model.Browser
 		shared.ReportProgress(f.Logger, prepared.Request.TaskID, "找到上次处理的位置了，我接着往下看")
 		f.log(prepared.Request.TaskID, "resume_candidate_progress", "start", time.Now(), nil)
 	} else if record.Point.CandidateID != "" {
-		record = candidateResumeRecord{Version: 2, ScopeHash: scope}
+		record = candidateResumeRecord{Version: 2, ScopeHash: scope, ScopeFields: fields}
 		if raw != "" {
 			shared.ReportProgress(f.Logger, prepared.Request.TaskID, "上次的位置没对上，这次从头分批检查")
 			f.log(prepared.Request.TaskID, "resume_anchor_missing", "start", time.Now(), nil)
@@ -106,37 +128,6 @@ func (s *candidateResumeSession) samePoint(first, second model.CandidateResumePo
 		return first.CandidateID != "" && first.CandidateID == second.CandidateID
 	}
 	return first == second
-}
-
-// candidateResumeScope 把绑定信息和影响判断的岗位配置分别取摘要，不将Token、URL或个人信息写进设置键。
-func candidateResumeScope(prepared shared.PreparedTask, pageURL string) (string, string, error) {
-	identity, err := json.Marshal([]string{prepared.Session.UserID, prepared.Platform.ID, prepared.Position.ID,
-		prepared.ProfilePath, prepared.Request.ProfileID, prepared.Request.PlatformAccountID})
-	if err != nil {
-		return "", "", err
-	}
-	position := prepared.Position
-	scope, err := json.Marshal(struct {
-		PageURL         string                     `json:"page_url"`
-		Name            string                     `json:"name"`
-		Keyword         string                     `json:"keyword"`
-		Keywords        []string                   `json:"keywords"`
-		ExcludeKeywords []string                   `json:"exclude_keywords"`
-		IsAndMode       bool                       `json:"is_and_mode"`
-		Description     string                     `json:"description"`
-		CommonConfig    cloud.PositionCommonConfig `json:"common_config"`
-		AIOptions       cloud.PositionAIOptions    `json:"ai_options"`
-		EnableGreet     *bool                      `json:"enable_greet"`
-		RequestPhone    bool                       `json:"request_phone"`
-		RequestWechat   bool                       `json:"request_wechat"`
-		RequestResume   bool                       `json:"request_resume"`
-	}{pageURL, position.Name, position.Keyword, position.Keywords, position.ExcludeKeywords, position.IsAndMode,
-		position.Description, position.CommonConfig, position.AIOptions, prepared.Request.EnableGreet,
-		position.RequestPhone, position.RequestWechat, position.RequestResume})
-	if err != nil {
-		return "", "", err
-	}
-	return fmt.Sprintf("greeting_resume:%x", sha256.Sum256(identity)), fmt.Sprintf("%x", sha256.Sum256(scope)), nil
 }
 
 // completedAnchor 仅跳过前缀和联合身份都吻合的重叠锚点，不把同名同龄但经历不同的人一起跳过。
