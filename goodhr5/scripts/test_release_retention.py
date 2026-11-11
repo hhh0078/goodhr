@@ -183,6 +183,22 @@ class RetentionTests(unittest.TestCase):
         with self.assertRaises(retention.GuardError):
             retention.ancestor_closure({iid(7)}, {iid(7): dict(self.snapshot["images"][iid(7)], Parent=iid(7))})
 
+    def test_unreferenced_old_application_owns_only_its_unshared_parent_chain(self):
+        """旧容器先删除后仍可清理专属父链；外部孩子及无关孤立镜像始终保留。"""
+        self.snapshot["containers"] = [row for row in self.snapshot["containers"] if row["Running"]]
+        self.snapshot["images"][iid(90)] = image(90, role="unknown", parent=1, tags=[])
+        self.snapshot["images"][iid(7)]["Parent"] = iid(90)
+        self.snapshot["images"][iid(92)] = image(92, role="unknown", tags=[])
+        plan = self.plan()
+        ids = [row["id"] for row in plan["images_to_remove"]]
+        self.assertEqual(set(ids), {iid(7), iid(8), iid(90)})
+        self.assertLess(ids.index(iid(7)), ids.index(iid(90)))
+        reader = FakeDocker(self.snapshot)
+        retention.execute_plan(plan, self.registry, self.policy, reader, self.root / "parent-audit.json")
+        self.assertIn(iid(92), reader.state["images"])
+        self.snapshot["images"][iid(91)] = image(91, role="other-project", parent=90, tags=["foreign/project:stable"])
+        self.assertEqual({row["id"] for row in self.plan()["images_to_remove"]}, {iid(7), iid(8)})
+
     def test_container_name_and_label_whitelist_does_not_expand_to_database(self):
         """goodhr数据库或任意相似前缀不能因名称相近被清理。"""
         for name in ("goodhr-hr-db-old", "goodhr-other-backend-candidate-old", "goodhr-production-backend-1evil-backup-old", "postgres"):

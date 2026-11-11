@@ -309,7 +309,8 @@ def make_plan(snapshot, registry, policy, known_names=(), evidence_hash=digest_f
     keep_containers = [row for row in containers if row["Id"] not in removed_ids]
     possible = ancestor_closure({row["Image"] for row in remove_containers}, images)
     if not cache_only:
-        possible.update(key for key, image in images.items() if business_image(image))
+        # 旧容器已先删除时，仍登记旧业务镜像的完整父链；共享、在用及其他项目祖先继续由保护闭包兜底。
+        possible.update(ancestor_closure({key for key, image in images.items() if business_image(image)}, images))
     builders = {key for key, image in images.items() if build_image(image)}
     possible.update(ancestor_closure(builders, images))
     retained_builds = set() if drop_build_cache else retained_build_leaves(images)
