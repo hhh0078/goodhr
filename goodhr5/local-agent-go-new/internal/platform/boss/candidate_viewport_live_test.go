@@ -123,6 +123,9 @@ func TestCurrentViewportExistingWorkerLive(t *testing.T) {
 	var first model.Candidate
 	for round := 0; round < 2; round++ {
 		cursor := &model.CandidateListCursor{}
+		if err := common.StartCandidateViewport(ctx, b, cfg, cursor); err != nil {
+			t.Fatal(err)
+		}
 		rows, err := NewRuntime().FindCandidates(ctx, b, cfg, model.CandidateListOptions{Cursor: cursor, ReadConcurrency: 5})
 		if err != nil || len(rows) == 0 || rows[0].Index != cursor.StartIndex {
 			t.Fatal("没有从当前视口启动", err)

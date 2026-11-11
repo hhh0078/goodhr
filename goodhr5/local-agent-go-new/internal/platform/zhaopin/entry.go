@@ -31,7 +31,6 @@ func (r *Runtime) InitializeGreetingPage(ctx context.Context, browser model.Brow
 		return err
 	}
 	r.manualSearch = manualSearch
-	r.startFromViewport = cfg.Behavior.CandidateStartFromViewport && cfg.Behavior.CandidateListMode == "infinite_scroll" && !manualSearch
 	if manualSearch {
 		ready, err := common.SelectorExists(ctx, browser, cfg, "candidate.item")
 		if err != nil {

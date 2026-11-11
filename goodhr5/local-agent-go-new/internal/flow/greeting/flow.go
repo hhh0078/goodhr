@@ -163,6 +163,9 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			shared.ReportProgress(f.Logger, prepared.Request.TaskID, "当前页面已经没有候选人，这轮任务完成了")
 			return nil
 		}
+		if batch == 0 {
+			shared.ReportProgress(f.Logger, prepared.Request.TaskID, fmt.Sprintf("本次先看“%s”（列表第%d位）", candidates[0].Name, candidates[0].Index+1))
+		}
 		newCandidates := make([]model.Candidate, 0, len(candidates))
 		for _, candidate := range candidates {
 			if resume.completedAnchor(candidate) {

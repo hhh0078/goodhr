@@ -81,7 +81,8 @@ type ConfiguredAction struct {
 type Behavior struct {
 	CandidateViewportTopInset    int    `json:"candidate_viewport_top_inset"`    // 推荐页完整卡片起点的固定顶部遮挡，不与后续操作避让混用。
 	CandidateViewportBottomInset int    `json:"candidate_viewport_bottom_inset"` // 推荐页完整卡片起点的固定底部遮挡，默认不额外扣减。
-	CandidateStartFromViewport   bool   `json:"candidate_start_from_viewport"`   // 无限滚动推荐页从当前首张完整卡片起跑；翻页搜索页仍保留断点。
+	CandidateSearchFromViewport  bool   `json:"candidate_search_from_viewport"`  // 显式启用的搜索页也从当前完整卡片开始，后续翻页仍正常进行。
+	CandidateStartFromViewport   bool   `json:"candidate_start_from_viewport"`   // 推荐页从当前首张完整卡片起跑，搜索页由独立配置决定。
 	CandidateResumeByIdentity    bool   `json:"candidate_resume_by_identity"`    // 推荐列表按唯一身份寻找断点，允许真实滚轮分批加载；零值保留严格前缀核对。
 	SkipGreetingPhoneRequest     bool   `json:"skip_greeting_phone_request"`     // 主动打招呼忽略电话索要勾选；零值保留其他平台行为。
 	SkipGreetingInfoRequests     bool   `json:"skip_greeting_info_requests"`     // 仅主动打招呼跳过电话、微信和简历索要；零值保留原行为，不影响自动回复。

@@ -7,8 +7,7 @@ import (
 
 // Runtime 是 Boss 直聘平台运行时。
 type Runtime struct {
-	viewportStarted bool                            // 每次任务只按当前可见位置初始化一次；后续批次沿原游标继续。
-	contactRows     map[string]contract.FindAllItem // 仅缓存本轮已核实的页面行，聊天与处理水位仍由服务器保存。
+	contactRows map[string]contract.FindAllItem // 仅缓存本轮已核实的页面行，聊天与处理水位仍由服务器保存。
 }
 
 // NewRuntime 创建 Boss 直聘平台运行时。

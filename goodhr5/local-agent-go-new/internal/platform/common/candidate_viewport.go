@@ -58,7 +58,7 @@ func StartCandidateViewport(ctx context.Context, browser model.Browser, cfg mode
 		first++
 	}
 	if first == count {
-		return fmt.Errorf("当前没有完整显示的候选人卡片，请稍微调整列表位置后再开始")
+		return fmt.Errorf("当前没有完整显示的候选人卡片，请拉宽或拉高窗口、调整列表位置后再开始")
 	}
 	// 只读前方最小身份字段，不处理、不滚回旧人选；原定位规则需要保留同名同龄者的真实出现序号。
 	occurrences := make(map[string]int)
@@ -122,8 +122,13 @@ func CandidateFullyVisible(view contract.ElementView, cfg model.Config) bool {
 		view.Box.Y >= float64(cfg.Behavior.CandidateViewportTopInset) && view.Box.Y+view.Box.Height <= view.Viewport.Height-float64(cfg.Behavior.CandidateViewportBottomInset)
 }
 
-// CandidatePageUsesViewport 仅对明确启用的无限滚动推荐入口使用当前视口；分页搜索页和未启用的平台保留既有断点。
+// CandidatePageUsesViewport 按平台配置选择推荐或搜索起点，仅在任务启动一次，后续批次与翻页不重新定位。
 func CandidatePageUsesViewport(cfg model.Config, pageURL string) bool {
-	return cfg.Behavior.CandidateStartFromViewport && cfg.Behavior.CandidateListMode == "infinite_scroll" &&
-		(cfg.ManualSearchURL == "" || !PageURLMatches(pageURL, cfg.ManualSearchURL)) && PageURLMatches(pageURL, cfg.EntryURL)
+	if !cfg.Behavior.CandidateStartFromViewport {
+		return false
+	}
+	if cfg.ManualSearchURL != "" && PageURLMatches(pageURL, cfg.ManualSearchURL) {
+		return cfg.Behavior.CandidateSearchFromViewport
+	}
+	return cfg.Behavior.CandidateListMode == "infinite_scroll" && PageURLMatches(pageURL, cfg.EntryURL)
 }

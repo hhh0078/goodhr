@@ -31,14 +31,15 @@ type candidateResumeSession struct {
 	byIdentity bool
 }
 
-// prepareCandidateResume 读取上次进度并让平台只读核对编号；没有可靠断点能力的平台保持原流程。
+// prepareCandidateResume 在选岗筛选完成后统一确定起点；当前屏幕模式不读断点，其余页面按既有能力恢复。
 func (f *Flow) prepareCandidateResume(ctx context.Context, browser model.Browser, prepared shared.PreparedTask, runtime model.Runtime, cursor *model.CandidateListCursor) (*candidateResumeSession, error) {
 	resumer, supported := runtime.(model.CandidateListResumer)
 	if provider, ok := runtime.(model.CandidateListResumeProvider); ok {
 		resumer = provider.CandidateListResumer()
 		supported = resumer != nil
 	}
-	if !supported || f.Store == nil || prepared.Session.UserID == "" || prepared.Position.ID == "" || prepared.ProfilePath == "" {
+	canResume := supported && f.Store != nil && prepared.Session.UserID != "" && prepared.Position.ID != "" && prepared.ProfilePath != ""
+	if !prepared.Platform.Behavior.CandidateStartFromViewport && !canResume {
 		return nil, nil
 	}
 	pages, err := browser.ListPages(ctx)
@@ -56,6 +57,13 @@ func (f *Flow) prepareCandidateResume(ctx context.Context, browser model.Browser
 		return nil, fmt.Errorf("没确认当前人才页面，暂不恢复进度，请切到目标页面后再试")
 	}
 	if common.CandidatePageUsesViewport(prepared.Platform, pageURL) {
+		if err := common.StartCandidateViewport(ctx, browser, prepared.Platform, cursor); err != nil {
+			return nil, err
+		}
+		shared.ReportProgress(f.Logger, prepared.Request.TaskID, fmt.Sprintf("从当前屏幕第一张完整候选人卡片开始（列表第%d位）", cursor.StartIndex+1))
+		return nil, nil
+	}
+	if !canResume {
 		return nil, nil
 	}
 	key, scope, fields, err := candidateResumeScopeHashes(prepared, pageURL, true)

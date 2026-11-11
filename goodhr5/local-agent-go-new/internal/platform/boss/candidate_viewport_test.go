@@ -70,6 +70,9 @@ func TestStartsAtCurrentViewport(t *testing.T) {
 	b := &viewportBrowser{count: 120, start: 45, inset: cfg.Behavior.CandidateViewportTopInset}
 	rt := NewRuntime()
 	cursor := &model.CandidateListCursor{}
+	if err := common.StartCandidateViewport(context.Background(), b, cfg, cursor); err != nil {
+		t.Fatal(err)
+	}
 	rows, err := rt.FindCandidates(context.Background(), b, cfg, model.CandidateListOptions{Cursor: cursor})
 	if err != nil || len(rows) != 3 || rows[0].Index != 46 || rows[0].IdentityOccurrence != 1 || b.scrolls != 0 {
 		t.Fatalf("未从屏幕当前首位开始：%v %+v", err, rows)
@@ -87,6 +90,9 @@ func TestStartsAtCurrentViewport(t *testing.T) {
 	b.prefixRead = false
 	fresh := NewRuntime()
 	cursor = &model.CandidateListCursor{}
+	if err := common.StartCandidateViewport(context.Background(), b, cfg, cursor); err != nil {
+		t.Fatal(err)
+	}
 	rows, err = fresh.FindCandidates(context.Background(), b, cfg, model.CandidateListOptions{Cursor: cursor})
 	if err != nil || rows[0].Index != 71 || b.scrolls != 0 {
 		t.Fatal("新任务仍追旧位置", err)
@@ -119,7 +125,7 @@ func TestViewportReadFailuresDoNotFallBackToHead(t *testing.T) {
 				b.refreshed = true
 			}
 			cursor := &model.CandidateListCursor{StartIndex: 999}
-			_, err := NewRuntime().FindCandidates(context.Background(), b, cfg, model.CandidateListOptions{Cursor: cursor})
+			err := common.StartCandidateViewport(context.Background(), b, cfg, cursor)
 			if err == nil || cursor.StartIndex != 999 || b.scrolls != 0 || len(b.fullStarts) != 0 {
 				t.Fatal("未确认位置却从头或滚动", err)
 			}

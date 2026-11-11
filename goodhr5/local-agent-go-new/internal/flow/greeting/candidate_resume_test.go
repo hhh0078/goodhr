@@ -1,4 +1,4 @@
-// Package greeting 文件作用：验证本地断点跨进程重开后仍有效，最新位置与未完成者分别保留，账号和岗位配置互相隔离。
+// Package greeting 文件作用：验证本地断点跨进程重开后仍有效，最新已尝试位置向前推进、失败不回补，账号和岗位配置互相隔离。
 package greeting
 
 import (
@@ -55,11 +55,16 @@ func (b *resumeFlowBrowser) ListPages(context.Context) (contract.PageListResult,
 	return contract.PageListResult{Pages: []contract.PageInfo{{URL: b.url, Current: true}}}, nil
 }
 
+// Find 返回合成卡片几何，首卡被页头遮挡，第二卡完整显示。
+func (b *resumeFlowBrowser) Find(_ context.Context, req contract.ElementFindRequest) (contract.FindResult, error) {
+	return contract.FindResult{View: contract.ElementView{Visible: true, Box: contract.ElementBox{X: 10, Y: float64(*req.Selector.Target.Index * 250), Width: 800, Height: 220}, Viewport: contract.ViewportSize{Width: 1200, Height: 1000}}}, nil
+}
+
 // FindAll 在重启恢复时返回合成人选，保留全局序号。
 func (b *resumeFlowBrowser) FindAll(_ context.Context, req contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	rows := []contract.FindAllItem{}
 	for i := req.StartIndex; i < min(len(b.rows), req.StartIndex+req.MaxItems); i++ {
-		rows = append(rows, contract.FindAllItem{Index: i, Text: b.rows[i].Fields["name"] + " " + b.rows[i].Fields["basic_info"], Fields: b.rows[i].Fields})
+		rows = append(rows, contract.FindAllItem{Index: i, TotalMatches: len(b.rows), Text: b.rows[i].Fields["name"] + " " + b.rows[i].Fields["basic_info"], Fields: b.rows[i].Fields})
 	}
 	return rows, nil
 }
@@ -256,9 +261,9 @@ func TestCandidateResumeMigrationAndFailedWrites(t *testing.T) {
 	}
 }
 
-// TestRecommendationViewportSkipsHistoricalStorage 验证推荐页不会读取故障或旧断点库，而同平台分页搜索页仍走正常断点读取。
+// TestRecommendationViewportSkipsHistoricalStorage 验证推荐及无忧搜索不会读取故障或旧断点库，智联搜索仍走原断点；无存储及无恢复接口也执行视口起点。
 func TestRecommendationViewportSkipsHistoricalStorage(t *testing.T) {
-	for _, id := range []string{"zhaopin", "51job"} {
+	for _, id := range []string{"boss", "zhaopin", "51job"} {
 		t.Run(id, func(t *testing.T) {
 			cfg, err := platform.LoadConfig(id)
 			if err != nil {
@@ -276,9 +281,17 @@ func TestRecommendationViewportSkipsHistoricalStorage(t *testing.T) {
 			if err != nil || session != nil {
 				t.Fatal("推荐页仍尝试读取历史断点", err)
 			}
-			b.url = cfg.ManualSearchURL
-			if _, err := (&Flow{Store: store}).prepareCandidateResume(context.Background(), b, p, &resumeFlowRuntime{}, &model.CandidateListCursor{}); err == nil {
-				t.Fatal("分页搜索页被误改为跳过断点")
+			if cfg.ManualSearchURL != "" {
+				b.url = cfg.ManualSearchURL
+				_, err := (&Flow{Store: store}).prepareCandidateResume(context.Background(), b, p, &resumeFlowRuntime{}, &model.CandidateListCursor{})
+				if (err == nil) != (id == "51job") {
+					t.Fatal("搜索页起点不符合配置", err)
+				}
+			}
+			b.url = cfg.EntryURL
+			cursor := &model.CandidateListCursor{}
+			if _, err := (&Flow{}).prepareCandidateResume(context.Background(), b, p, &resumeProviderRuntime{}, cursor); err != nil || cursor.StartIndex != 1 {
+				t.Fatal("无断点接口或存储时仍应选当前完整卡片", err)
 			}
 		})
 	}

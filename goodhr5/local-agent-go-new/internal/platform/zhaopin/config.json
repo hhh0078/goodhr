@@ -86,6 +86,13 @@
   "_comment_filter_actions": "旧版智联没有自动基础筛选动作。",
   "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
   "selectors": {
+    "position.current": {
+      "_comment": "仅读取当前激活岗位的完整标题，CSS省略不影响文本。",
+      "target": {"_comment": "当前岗位标题节点。", "selectors": [{"_comment": "当前激活岗位的完整文字，不混入隐藏标签。", "type": "css", "value": ".job-pane__item--active .job-pane__item-job-title:visible"}]},
+      "state": "visible",
+      "timeout_ms": 800,
+      "description": "智联当前岗位完整名称"
+    },
     "position.open": [
       {
         "_comment": "智联更多职位入口。",
