@@ -153,6 +153,7 @@ export class FindAction {
         },
         startIndex,
         fromEnd,
+        !diagnostic.probe_only && Object.keys(fields).length > 0,
       );
       assertRequestActive(actionContext);
       if (diagnostic.diagnostic) this.logger.info(actionContext, "selector_probe", "success", {
@@ -184,14 +185,15 @@ export class FindAction {
       /** readItem 读取单张卡片，并在读取前后核对正文，避免列表变化后串人。 */
       const readItem = async (resolved: ResolvedElement, index: number): Promise<FindAllItem | null> => {
         const listIndex = resolved.list_index ?? index + startIndex;
-        const beforeText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, listIndex, "before", diagnoseNames));
+        const readLocator = resolved.list_read_locator ?? resolved.locator;
+        const beforeText = await readWithSlot(() => this.readListText(readLocator, actionContext, listIndex, "before", diagnoseNames));
         if (beforeText === null) return null;
         const fieldEntries = await waitForAllReads(
           Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
             fieldName,
             await readWithSlot(() => this.readRelativeField(
               page,
-              resolved.locator,
+              readLocator,
               fieldSpec,
               actionContext,
               fieldName,
@@ -201,7 +203,7 @@ export class FindAction {
           ] as const),
         );
         const values: JsonObject = Object.fromEntries(fieldEntries);
-        const afterText = await readWithSlot(() => this.readListText(resolved.locator, actionContext, listIndex, "after", diagnoseNames));
+        const afterText = await readWithSlot(() => this.readListText(readLocator, actionContext, listIndex, "after", diagnoseNames));
         if (afterText === null) return null;
         if (afterText !== beforeText) {
           this.logger.warn(actionContext, "read_list_item", "changed", {

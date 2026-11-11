@@ -1,4 +1,4 @@
-// Package greeting 文件作用：验证本地断点跨进程重开后仍有效，未完成者不被后续成功越过，账号和岗位配置互相隔离。
+// Package greeting 文件作用：验证本地断点跨进程重开后仍有效，最新位置与未完成者分别保留，账号和岗位配置互相隔离。
 package greeting
 
 import (
@@ -23,6 +23,15 @@ type resumeFlowRuntime struct {
 	common.CandidateResumeTracker
 }
 
+// FindCandidates 让补处理测试复用真实公共名单与断点实现，不模拟发送或平台脚本。
+func (r *resumeFlowRuntime) FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, options model.CandidateListOptions) ([]model.Candidate, error) {
+	rows, err := common.FindCandidates(ctx, browser, cfg, cfg.ID, options)
+	if err == nil {
+		r.RememberCandidateResume(cfg, rows)
+	}
+	return rows, err
+}
+
 // resumeFlowBrowser 仅提供活动页和合成名单，不执行鼠标键盘或发送。
 type resumeFlowBrowser struct {
 	model.Browser
@@ -39,7 +48,7 @@ func (b *resumeFlowBrowser) ListPages(context.Context) (contract.PageListResult,
 func (b *resumeFlowBrowser) FindAll(_ context.Context, req contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	rows := []contract.FindAllItem{}
 	for i := req.StartIndex; i < min(len(b.rows), req.StartIndex+req.MaxItems); i++ {
-		rows = append(rows, contract.FindAllItem{Index: i, Fields: b.rows[i].Fields})
+		rows = append(rows, contract.FindAllItem{Index: i, Text: b.rows[i].Fields["name"] + " " + b.rows[i].Fields["basic_info"], Fields: b.rows[i].Fields})
 	}
 	return rows, nil
 }
@@ -51,8 +60,8 @@ func resumeFlowFixture() (shared.PreparedTask, *resumeFlowBrowser) {
 	return prepared, &resumeFlowBrowser{rows: rows, url: "https://example.invalid/search?q=不可落盘的查询"}
 }
 
-// TestCandidateResumePersistsAndNeverSkipsFailure 验证只读名单不推进；中途失败后后续成功不覆盖最后连续完成者；重开数据库仍能定位。
-func TestCandidateResumePersistsAndNeverSkipsFailure(t *testing.T) {
+// TestCandidateResumePersistsFailuresAndLatestSuccess 验证最新进度独立推进，失败者单独持久化，重开库先补处理且不倒退最新成功位置。
+func TestCandidateResumePersistsFailuresAndLatestSuccess(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "resume.db")
 	store, err := storage.Open(path)
@@ -83,15 +92,21 @@ func TestCandidateResumePersistsAndNeverSkipsFailure(t *testing.T) {
 		t.Fatal("已完成锚点与其他人混淆")
 	}
 
-	_ = resume.complete(ctx, browser.rows[1], errors.New("未处理完成"))
-	_ = resume.complete(ctx, browser.rows[2], nil)
+	if err := resume.complete(ctx, browser.rows[1], errors.New("未处理完成")); err != nil {
+		t.Fatal(err)
+	}
+	if err := resume.complete(ctx, browser.rows[2], nil); err != nil {
+		t.Fatal(err)
+	}
 	raw, _ = store.GetSetting(ctx, resume.key)
 	var saved candidateResumeRecord
 	if err := json.Unmarshal([]byte(raw), &saved); err != nil {
 		t.Fatal(err)
 	}
 	firstPoint, _ := runtime.CandidateResumePoint(browser.rows[0])
-	if strings.Contains(raw, "不可落盘") || strings.Contains(raw, "example.invalid") || saved.Point != firstPoint {
+	latestPoint, _ := runtime.CandidateResumePoint(browser.rows[2])
+	failedPoint, _ := runtime.CandidateResumePoint(browser.rows[1])
+	if strings.Contains(raw, "不可落盘") || strings.Contains(raw, "example.invalid") || saved.Point != latestPoint || len(saved.Pending) != 1 || saved.Pending[0] != failedPoint || saved.Version != 2 {
 		t.Fatalf("断点含正文或跳过失败者：%s", raw)
 	}
 	if err := store.Close(); err != nil {
@@ -103,20 +118,21 @@ func TestCandidateResumePersistsAndNeverSkipsFailure(t *testing.T) {
 	}
 	defer reopened.Close()
 	cursor := &model.CandidateListCursor{}
-	restored, err := (&Flow{Store: reopened}).prepareCandidateResume(ctx, browser, prepared, &resumeFlowRuntime{}, cursor)
-	if err != nil || restored.record.Point != firstPoint || cursor.StartIndex != 0 {
+	runtime = &resumeFlowRuntime{}
+	restored, err := (&Flow{Store: reopened}).prepareCandidateResume(ctx, browser, prepared, runtime, cursor)
+	if err != nil || restored.record.Point != latestPoint || cursor.StartIndex != 2 {
 		t.Fatalf("重启后恢复错误：%+v %v %+v", restored, err, cursor)
 	}
-	// 正常完成第二人后，下一任务只需跳过这一锚点，不能把尚未完成的第三人当成已完成。
-	runtime = &resumeFlowRuntime{}
-	restored, _ = (&Flow{Store: reopened}).prepareCandidateResume(ctx, browser, prepared, runtime, cursor)
-	runtime.RememberCandidateResume(prepared.Platform, browser.rows)
-	if err := restored.complete(ctx, browser.rows[1], nil); err != nil {
+	rows, retrying, err := restored.retryCandidates(ctx, browser, prepared.Platform, runtime, model.CandidateListOptions{Cursor: cursor})
+	if err != nil || !retrying || len(rows) != 1 || rows[0].Index != 1 || restored.completedAnchor(rows[0]) {
+		t.Fatalf("重启没有先补中间失败者：%v %v %+v", retrying, err, rows)
+	}
+	if err := restored.complete(ctx, rows[0], nil); err != nil {
 		t.Fatal(err)
 	}
-	again, err := (&Flow{Store: reopened}).prepareCandidateResume(ctx, browser, prepared, &resumeFlowRuntime{}, cursor)
-	if err != nil || again.record.Point == firstPoint || cursor.StartIndex != 1 {
-		t.Fatalf("完成后未推进：%+v %v %+v", again, err, cursor)
+	_, retrying, err = restored.retryCandidates(ctx, browser, prepared.Platform, runtime, model.CandidateListOptions{Cursor: cursor})
+	if err != nil || retrying || restored.record.Point != latestPoint || len(restored.record.Pending) != 0 || cursor.StartIndex != 2 || latestPoint == firstPoint {
+		t.Fatalf("补处理后没有回到最新进度：%v %v %+v", retrying, err, cursor)
 	}
 }
 
@@ -160,5 +176,120 @@ func TestCandidateResumeScopeIsolation(t *testing.T) {
 				t.Fatalf("作用域不正确：%s", kind)
 			}
 		})
+	}
+}
+
+// TestCandidateResumeRetryBoundaries 验证首人、末人或全部失败都能补处理，再失败不在本次运行循环，最新位置不倒退。
+func TestCandidateResumeRetryBoundaries(t *testing.T) {
+	for _, kind := range []string{"首人失败", "末人失败", "全部失败", "补处理仍失败"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx := context.Background()
+			store, err := storage.Open(filepath.Join(t.TempDir(), "resume.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			prepared, browser := resumeFlowFixture()
+			runtime := &resumeFlowRuntime{}
+			session, err := (&Flow{Store: store}).prepareCandidateResume(ctx, browser, prepared, runtime, &model.CandidateListCursor{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime.RememberCandidateResume(prepared.Platform, browser.rows)
+			latest, _ := runtime.CandidateResumePoint(browser.rows[2])
+			wantRetries := 0
+			for _, row := range browser.rows {
+				var failure error
+				if kind == "全部失败" || (kind == "末人失败" && row.Index == 2) || ((kind == "首人失败" || kind == "补处理仍失败") && row.Index == 0) {
+					failure = errors.New("合成失败")
+					wantRetries++
+				}
+				if err := session.complete(ctx, row, failure); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cursor := &model.CandidateListCursor{}
+			fresh := &resumeFlowRuntime{}
+			restored, err := (&Flow{Store: store}).prepareCandidateResume(ctx, browser, prepared, fresh, cursor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < wantRetries; i++ {
+				rows, retrying, err := restored.retryCandidates(ctx, browser, prepared.Platform, fresh, model.CandidateListOptions{Cursor: cursor})
+				if err != nil || !retrying || len(rows) != 1 {
+					t.Fatalf("没有逐个补处理：%v %v %+v", retrying, err, rows)
+				}
+				var failure error
+				if kind == "补处理仍失败" {
+					failure = errors.New("再次失败")
+				}
+				if err := restored.complete(ctx, rows[0], failure); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, retrying, err := restored.retryCandidates(ctx, browser, prepared.Platform, fresh, model.CandidateListOptions{Cursor: cursor})
+			wantPending := 0
+			if kind == "补处理仍失败" {
+				wantPending = 1
+			}
+			if err != nil || retrying || restored.record.Point != latest || cursor.StartIndex != 2 || len(restored.record.Pending) != wantPending {
+				t.Fatalf("补处理倒退、遗漏或循环：%v %v %+v %+v", retrying, err, cursor, restored.record)
+			}
+		})
+	}
+}
+
+// resumeReadErrorBrowser 为恢复读取注入确定错误，验证不得冒充断点丢失而清空记录。
+type resumeReadErrorBrowser struct{ model.Browser }
+
+// FindAll 模拟浏览器断线，其他接口沿用嵌入的真实测试接口。
+func (resumeReadErrorBrowser) FindAll(context.Context, contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	return nil, errors.New("合成浏览器断线")
+}
+
+// TestCandidateResumeMigrationAndFailedWrites 验证旧记录可迁移、读取错误和取消写入保留已保存断点、名单变化才从头。
+func TestCandidateResumeMigrationAndFailedWrites(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(filepath.Join(t.TempDir(), "resume.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	prepared, browser := resumeFlowFixture()
+	key, scope, _ := candidateResumeScope(prepared, browser.url)
+	runtime := &resumeFlowRuntime{}
+	if _, err := runtime.RestoreCandidateList(ctx, browser, prepared.Platform, model.CandidateResumePoint{}, &model.CandidateListCursor{}); err != nil {
+		t.Fatal(err)
+	}
+	runtime.RememberCandidateResume(prepared.Platform, browser.rows)
+	point, _ := runtime.CandidateResumePoint(browser.rows[1])
+	old, _ := json.Marshal(candidateResumeRecord{Version: 1, ScopeHash: scope, Point: point})
+	if err := store.SetSetting(ctx, key, string(old)); err != nil {
+		t.Fatal(err)
+	}
+	cursor := &model.CandidateListCursor{}
+	fresh := &resumeFlowRuntime{}
+	restored, err := (&Flow{Store: store}).prepareCandidateResume(ctx, browser, prepared, fresh, cursor)
+	if err != nil || restored.record.Version != 2 || restored.record.Point != point || cursor.StartIndex != 1 {
+		t.Fatalf("旧记录无法迁移：%v %+v", err, restored)
+	}
+	restored.retries = []model.CandidateResumePoint{point}
+	_, _, err = restored.retryCandidates(ctx, resumeReadErrorBrowser{Browser: browser}, prepared.Platform, fresh, model.CandidateListOptions{Cursor: cursor})
+	if err == nil || restored.record.Point != point {
+		t.Fatal("读取错误被当成找不到")
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := restored.save(canceled, candidateResumeRecord{Version: 2, ScopeHash: scope}); err == nil || restored.record.Point != point {
+		t.Fatal("取消写入仍修改了内存断点")
+	}
+	raw, _ := store.GetSetting(ctx, key)
+	if raw != string(old) {
+		t.Fatal("写入取消或读取失败改变了已存进度")
+	}
+	browser.rows = browser.rows[:1]
+	restored, err = (&Flow{Store: store}).prepareCandidateResume(ctx, browser, prepared, &resumeFlowRuntime{}, cursor)
+	if err != nil || restored.record.Point.CandidateID != "" || cursor.StartIndex != 0 {
+		t.Fatalf("锚点消失没有从头：%v %+v", err, cursor)
 	}
 }
