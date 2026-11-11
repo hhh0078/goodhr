@@ -179,7 +179,7 @@ func TestLoadConfigUsesSafeZhaopinCandidateActions(t *testing.T) {
 	}
 }
 
-// TestLoadConfigUsesSafeBossDetailTarget 验证 Boss 只点击基础信息摘要打开详情，避免随机命中候选人头像。
+// TestLoadConfigUsesSafeBossDetailTarget 验证 Boss 点击接收鼠标事件的基础信息行，避免摘要禁用鼠标导致悬停失败或误点头像。
 func TestLoadConfigUsesSafeBossDetailTarget(t *testing.T) {
 	cfg, err := LoadConfig("boss")
 	if err != nil {
@@ -187,7 +187,7 @@ func TestLoadConfigUsesSafeBossDetailTarget(t *testing.T) {
 	}
 	selector := cfg.Selectors["candidate.open_target"]
 	if len(selector.Target.Selectors) != 1 ||
-		selector.Target.Selectors[0].Value != ".base-info.join-text-wrap" {
+		selector.Target.Selectors[0].Value != ".row:has(> .base-info.join-text-wrap)" {
 		t.Fatalf("Boss 详情入口必须保持为不包含头像的安全小区域：%+v", selector.Target.Selectors)
 	}
 }

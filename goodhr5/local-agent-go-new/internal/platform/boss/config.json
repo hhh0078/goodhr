@@ -274,12 +274,12 @@
       "description": "Boss候选人卡片"
     },
     "candidate.open_target": {
-      "_comment": "卡片内打开详情的安全小区域；只点击年龄、经验和学历摘要，避开头像、按钮和其它会弹出浮层的区域。",
+      "_comment": "只点击年龄、经验和学历所在行；内部摘要为 pointer-events:none，必须定位接收鼠标事件的外层行，避开头像和按钮。",
       "parents": [],
       "target": {
-        "_comment": "每张候选人卡片固定存在的基础信息摘要。",
+        "_comment": "当前候选人卡片中直接包含基础信息摘要的唯一行。",
         "selectors": [
-          { "_comment": "Boss 年龄、经验和学历摘要；实测点击会打开简历详情，且不会命中头像。", "type": "css", "value": ".base-info.join-text-wrap" }
+          { "_comment": "基础信息外层行接收真实鼠标事件，可通过悬停校验；不扩大到整张卡片。", "type": "css", "value": ".row:has(> .base-info.join-text-wrap)" }
         ]
       },
       "state": "visible",

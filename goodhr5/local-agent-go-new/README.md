@@ -54,6 +54,14 @@ StartTask
 
 会员权限由云端统一返回：免费版可以运行关键词或 OCR 的基础打招呼任务；Plus 基础版和 Max 全能版都可以运行 AI 筛选与 AI 打招呼；只有 Max 全能版可以启动自动回复。本地程序必须同时校验 `active`、`allow_ai` 和 `allow_auto_reply`，不能只看会员名称或到期时间。
 
+## BOSS 详情入口悬停适配（2026-11-11）
+
+BOSS 当前基础信息 `.base-info.join-text-wrap` 的计算样式为 `pointer-events: none`，鼠标事件落在外层卡片；直接定位摘要会被 Worker 的真实悬停检查拦住，出现反复移动却没有按下鼠标。`internal/platform/boss/config.json` 的 `candidate.open_target` 改为 `.row:has(> .base-info.join-text-wrap)`，仅定位同一基础信息行，仍由当前候选人的身份约束限定卡片，保留共用的稳定位置、悬停和详情打开检查。
+
+Windows x64、macOS arm64 和 macOS amd64 共用这一份配置，无系统专属实现。配置通过 `internal/platform/config.go` 的 `go:embed` 随 Go 程序发布，后台修改平台配置不会覆盖客户端；需重新编译并发布客户端才能生效。
+
+验证：macOS arm64 的已登录 BOSS 页面确认了生效样式，并实际点击基础信息打开详情；隔离 Camoufox 的 `TestHotSearchWholeCardBrowser` 模拟相同的鼠标穿透结构，旧配置复现失败，新配置打开两张普通卡片详情，相邻姓名/招呼按钮及热搜入口点击均为零。平台单元测试、Worker 编译和上述三个目标的 Go 编译通过。Windows、Intel Mac 真机操作和新版安装包尚未验证，本次未发布安装包。
+
 ## 连接超时与闪退日志
 
 运行日志不再写入用户目录中的 `goodhr.jsonl` 或 `crash.log`。Go、Browser Worker 和 OCR 的诊断统一自动上传到云端“全部日志”，包含错误原因、动作、步骤、耗时、调用栈及原生输入诊断；读取和输入错误不再被替换成“详细内容保存在本机”。登录前的启动记录仅在内存短暂等待，登录成功后上传。普通日志每秒批量上传，错误立即唤醒上传，正常退出前再限时提交最后记录。
