@@ -1,5 +1,5 @@
 #!/bin/sh
-# 文件作用说明：macOS 升级覆盖应用前，仅让当前登录用户的旧版 GoodHR Agent 正常退出。
+# 文件作用说明：升级前正常退出当前用户的已安装 GoodHR，以及占用默认端口的同身份旧应用，不影响其他程序。
 
 set -eu
 
@@ -16,9 +16,13 @@ case "$console_user" in
 esac
 console_uid=$(/usr/bin/id -u "$console_user")
 
-# find_agent_pids 只列出当前登录用户、从正式安装路径启动的 Agent 候选进程。
+# find_agent_pids 列出正式路径与默认端口的候选进程，随后仍逐个核验用户和应用身份。
 find_agent_pids() {
   /usr/bin/pgrep -U "$console_uid" -f "$agent_pattern" || {
+    result=$?
+    [ "$result" -eq 1 ] || return "$result"
+  }
+  /usr/sbin/lsof -nP -t -iTCP:"$health_port" -sTCP:LISTEN 2>/dev/null || {
     result=$?
     [ "$result" -eq 1 ] || return "$result"
   }
@@ -33,14 +37,26 @@ is_exact_agent_pid() {
   actual_uid=$(/bin/ps -p "$pid" -o uid= 2>/dev/null | /usr/bin/tr -d '[:space:]')
   [ "$actual_uid" = "$console_uid" ] || return 1
   command_line=$(/bin/ps -ww -p "$pid" -o command= 2>/dev/null) || return 1
+  actual_executable=$agent_executable
   case "$command_line" in
     "$agent_executable"|"$agent_executable "*) ;;
-    *) return 1 ;;
+    *)
+      # 项目 release 里的旧应用也可能占住默认端口；只认固定应用名、实际执行文件及相同 bundle ID。
+      actual_executable=$(/usr/sbin/lsof -nP -a -p "$pid" -d txt -Fn 2>/dev/null | /usr/bin/sed -n '/^n.*\/GoodHR Local Agent[.]app\/Contents\/MacOS\/goodhr-local-agent$/ {s/^n//;p;q;}')
+      [ -n "$actual_executable" ] || return 1
+      case "$command_line" in
+        "$actual_executable"|"$actual_executable "*) ;;
+        *) return 1 ;;
+      esac
+      app_bundle=${actual_executable%/Contents/MacOS/goodhr-local-agent}
+      bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_bundle/Contents/Info.plist" 2>/dev/null) || return 1
+      [ "$bundle_id" = cn.58it.goodhr.localagent ] || return 1
+      ;;
   esac
-  /usr/sbin/lsof -nP -a -p "$pid" -d txt -Fn 2>/dev/null | /usr/bin/grep -Fqx "n$agent_executable"
+  /usr/sbin/lsof -nP -a -p "$pid" -d txt -Fn 2>/dev/null | /usr/bin/grep -Fqx "n$actual_executable"
 }
 
-old_pids=$(find_agent_pids)
+old_pids=$(find_agent_pids | /usr/bin/sort -un)
 old_agent_found=0
 for pid in $old_pids; do
   if is_exact_agent_pid "$pid"; then
@@ -52,7 +68,7 @@ done
 
 waited=0
 while :; do
-  remaining_pids=$(find_agent_pids)
+  remaining_pids=$(find_agent_pids | /usr/bin/sort -un)
   agent_running=0
   for pid in $remaining_pids; do
     if is_exact_agent_pid "$pid"; then

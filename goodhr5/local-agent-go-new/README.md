@@ -56,11 +56,21 @@ StartTask
 
 ## BOSS 详情入口悬停适配（2026-11-11）
 
-BOSS 当前基础信息 `.base-info.join-text-wrap` 的计算样式为 `pointer-events: none`，鼠标事件落在外层卡片；直接定位摘要会被 Worker 的真实悬停检查拦住，出现反复移动却没有按下鼠标。`internal/platform/boss/config.json` 的 `candidate.open_target` 改为 `.row:has(> .base-info.join-text-wrap)`，仅定位同一基础信息行，仍由当前候选人的身份约束限定卡片，保留共用的稳定位置、悬停和详情打开检查。
+BOSS 部分页面的基础信息 `.base-info.join-text-wrap` 使用 `pointer-events: none`，直接定位摘要会被真实悬停检查拦住，出现移动却没有按下鼠标。`internal/platform/boss/config.json` 的 `candidate.open_target` 使用完整对象数组：先尝试接收事件的 `.row:has(> .base-info.join-text-wrap)`，再尝试旧页面的 `.base-info.join-text-wrap`。
 
-Windows x64、macOS arm64 和 macOS amd64 共用这一份配置，无系统专属实现。配置通过 `internal/platform/config.go` 的 `go:embed` 随 Go 程序发布，后台修改平台配置不会覆盖客户端；需重新编译并发布客户端才能生效。
+共用 Go 详情流程展开数组，保留每条入口的候选人身份、父级和框架约束，相同完整定位去重。每条入口只发起一次点击请求，详情打开后停止；结果不确定时先检查详情，弹窗已出现时只等正文，不继续点击背后卡片。旧的单对象配置和独立备用入口仍兼容。Worker 的元素等待轮询保留，不额外重发点击请求。
 
-验证：macOS arm64 的已登录 BOSS 页面确认了生效样式，并实际点击基础信息打开详情；隔离 Camoufox 的 `TestHotSearchWholeCardBrowser` 模拟相同的鼠标穿透结构，旧配置复现失败，新配置打开两张普通卡片详情，相邻姓名/招呼按钮及热搜入口点击均为零。平台单元测试、Worker 编译和上述三个目标的 Go 编译通过。Windows、Intel Mac 真机操作和新版安装包尚未验证，本次未发布安装包。
+Windows x64、macOS arm64 和 macOS amd64 共用这一份配置和流程。配置通过 `internal/platform/config.go` 的 `go:embed` 随 Go 程序发布，后台修改不会覆盖已安装客户端；Windows 必须从包含本次改动的源码重新打包。
+
+验证：macOS arm64 已登录 BOSS 页面确认样式并实际打开详情；隔离 Camoufox 的 `TestHotSearchWholeCardBrowser` 同时覆盖摘要穿透的新卡片和没有外层 row 的旧卡片，两种详情均打开，相邻姓名、招呼按钮及热搜入口点击均为零。单元测试覆盖逐条一次、成功停止、重复配置、旧单对象、取消及断线停止；三个目标的 Go 编译通过。Windows 与 Intel Mac 的真实运行尚未验证。
+
+## macOS 重复打开与正常退出（6.3.2）
+
+Mac 的 `.app` 入口改为 `packaging/macos/launcher.m` 原生 AppKit 启动器，响应 Finder 重复打开事件，并在菜单栏显示 HR。菜单可打开控制台或退出本地程序；退出先通知 Go 正常收尾，等待任务、浏览器和数据处理结束，不强杀进程。Go 更新流程正常退出后，启动器也随之退出。
+
+安装器升级前核对当前用户、命令行和实际可执行文件，正常退出 `/Applications` 下的旧程序；默认端口被项目 release 中同 bundle ID 的 GoodHR 占用时也会处理，避免安装新版本后网页仍连接旧版本。身份不符的进程不停止。登录资料保留；安装过程等待旧版退出后再替换文件。
+
+Windows 保持原有启动和安装方式，不编译 AppKit 文件。Mac 打包脚本分别验证 Go 与原生启动器的 arm64、x86_64 两个架构，并打入两套 Worker 原生依赖。`GOODHR_MAC_LAUNCHER_TEST=1 go test ./cmd/goodhr-local-agent -run '^TestMac'` 在 Mac arm64 桌面通过独立应用验证重复打开回执、等待业务收尾和安装器身份核对，不连接用户的浏览器或登录资料；Intel 真机安装、Windows 真机运行仍需对应设备验收。
 
 ## 连接超时与闪退日志
 

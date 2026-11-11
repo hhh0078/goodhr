@@ -5,7 +5,7 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
     <key>CFBundleDisplayName</key><string>GoodHR Local Agent</string>
-    <key>CFBundleExecutable</key><string>goodhr-local-agent</string>
+    <key>CFBundleExecutable</key><string>goodhr-launcher</string>
     <key>CFBundleIconFile</key><string>GoodHR.icns</string>
     <key>CFBundleIdentifier</key><string>cn.58it.goodhr.localagent</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
@@ -13,8 +13,8 @@
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0</string>
     <key>CFBundleVersion</key><string>0</string>
-    <!-- Agent 通过浏览器控制台交互，没有原生窗口；后台模式避免 Dock 持续等待窗口出现。 -->
-    <key>LSBackgroundOnly</key><true/>
+    <!-- 原生菜单栏启动器响应重复打开与退出事件，不在 Dock 中显示无窗口的后台程序。 -->
+    <key>LSUIElement</key><true/>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
 </dict>
 </plist>

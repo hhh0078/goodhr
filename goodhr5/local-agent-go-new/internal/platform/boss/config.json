@@ -273,7 +273,7 @@
       "timeout_ms": 5000,
       "description": "Boss候选人卡片"
     },
-    "candidate.open_target": {
+    "candidate.open_target": [{
       "_comment": "只点击年龄、经验和学历所在行；内部摘要为 pointer-events:none，必须定位接收鼠标事件的外层行，避开头像和按钮。",
       "parents": [],
       "target": {
@@ -285,7 +285,19 @@
       "state": "visible",
       "timeout_ms": 5000,
       "description": "Boss候选人基础信息详情入口"
-    },
+    }, {
+      "_comment": "保留旧版和灰度页面的基础信息摘要；新路径未成功时只尝试本路径一次。",
+      "parents": [],
+      "target": {
+        "_comment": "旧版直接接收鼠标事件的年龄、经验和学历摘要。",
+        "selectors": [
+          { "_comment": "保留之前验证过的安全小区域，不降级到整张卡片或头像。", "type": "css", "value": ".base-info.join-text-wrap" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "Boss候选人旧版基础信息详情入口"
+    }],
     "candidate.favorite": {
       "_comment": "只操作当前可见详情右侧的未收藏按钮，不在候选人卡片里查找，不按序号猜测。",
       "frames": [{ "_comment": "推荐列表框架，收藏按钮位于外层详情右侧。", "selectors": [{ "_comment": "通过唯一框架名称定位推荐区域。", "type": "css", "value": "iframe[name='recommendFrame']" }] }],

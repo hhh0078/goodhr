@@ -26,7 +26,7 @@ npm_registry=${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}
 go_proxy=${GOPROXY:-https://goproxy.cn,direct}
 
 [[ "$(uname -s)" == "Darwin" ]] || { print -u2 "macOS 安装包必须在 Mac 上构建"; exit 1; }
-for command_name in node npm go lipo pkgbuild ditto iconutil sips; do
+for command_name in node npm go lipo pkgbuild ditto iconutil sips xcrun; do
   command -v "${command_name}" >/dev/null || { print -u2 "缺少打包命令：${command_name}"; exit 1; }
 done
 
@@ -67,6 +67,11 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 GOPROXY="${go_proxy}" go build -trimpath 
 lipo -create -output "${macos_dir}/goodhr-local-agent" "${stage_dir}/agent-arm64" "${stage_dir}/agent-x64"
 lipo "${macos_dir}/goodhr-local-agent" -verify_arch arm64 x86_64
 chmod 755 "${macos_dir}/goodhr-local-agent"
+# 原生入口承接 Finder 与菜单栏事件；Go 保持 CGO=0，两种芯片都使用原来的业务收尾流程。
+xcrun clang -arch arm64 -arch x86_64 -mmacosx-version-min=13.0 -fobjc-arc -framework Cocoa \
+  packaging/macos/launcher.m -o "${macos_dir}/goodhr-launcher"
+lipo "${macos_dir}/goodhr-launcher" -verify_arch arm64 x86_64
+chmod 755 "${macos_dir}/goodhr-launcher"
 
 cp packaging/macos/Info.plist "${app_path}/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${version}" "${app_path}/Contents/Info.plist"
