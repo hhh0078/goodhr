@@ -356,6 +356,12 @@ func TestBossResumeSQLiteExistingWorkerLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if os.Getenv("GOODHR_BOSS_RESUME_LIVE_OPEN_PAGE") == "1" {
+		newTab := true
+		if _, err := browser.OpenPage(ctx, contract.PageOpenRequest{URL: cfg.EntryURL, NewTab: &newTab, WaitUntil: "domcontentloaded", TimeoutMS: 20000}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	pages, err := browser.ListPages(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -405,6 +411,14 @@ func TestBossResumeSQLiteExistingWorkerLive(t *testing.T) {
 	next, err := fresh.FindCandidates(ctx, browser, cfg, model.CandidateListOptions{ReadConcurrency: 5, Cursor: nextCursor})
 	if err != nil || len(next) < 2 || !resumed.completedAnchor(next[0]) || resumed.completedAnchor(next[1]) || next[1].Fingerprint != rows[2].Fingerprint {
 		t.Fatalf("真实页面未接着下一人：%v", err)
+	}
+	if err := fresh.ScrollToCandidate(ctx, browser, cfg, next[1]); err != nil {
+		t.Fatal("续读后无法定位下一人", err)
+	}
+	if dir := os.Getenv("GOODHR_BOSS_RESUME_LIVE_SCREENSHOTS"); dir != "" {
+		if _, err := browser.Screenshot(ctx, contract.ScreenshotRequest{Directory: dir, Filename: "boss-resumed.png"}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Logf("BOSS真实推荐页只读通过：测试SQLite关闭重开、重建正式运行时、等价启动值切换，跳过完成锚点并继续下一人；整批读取%d次，滚轮%d次；未发送、未写用户进度", browser.fullReads, browser.scrolls)
 }
