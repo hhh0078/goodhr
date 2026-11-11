@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,4 +84,25 @@ func TestCandidateResumeExistingPageLive(t *testing.T) {
 		}
 	}
 	t.Logf("%s真实页面只读通过：断点序列化后重建运行时，恢复行号%d；下一人一致；未点击、未发消息、未写用户数据库", id, nextCursor.StartIndex)
+	missing := restored
+	missing.CandidateID = strings.Repeat("9", 80)
+	fallback, err := platform.RuntimeFor(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallbackCursor := &model.CandidateListCursor{StartIndex: 999}
+	found, err = fallback.(model.CandidateListResumer).RestoreCandidateList(ctx, browser, cfg, missing, fallbackCursor)
+	if err != nil || found || fallbackCursor.StartIndex != 0 {
+		t.Fatalf("缺失断点未回到第0行：found=%v cursor=%+v err=%v", found, fallbackCursor, err)
+	}
+	head, err := fallback.FindCandidates(ctx, browser, cfg, model.CandidateListOptions{ReadConcurrency: 5, Cursor: fallbackCursor})
+	if err != nil || len(head) != len(rows) {
+		t.Fatalf("缺失断点回退后读取失败：数量%d 错误%v", len(head), err)
+	}
+	for i := range rows {
+		if head[i].Fingerprint != rows[i].Fingerprint {
+			t.Fatal("缺失断点回退后的首批名单不一致")
+		}
+	}
+	t.Logf("%s真实页面缺失断点回退通过：从第0行读回原首批%d人", id, len(head))
 }
