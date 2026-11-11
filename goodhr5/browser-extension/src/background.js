@@ -777,7 +777,8 @@ async function storeCandidateSnapshot(message, sender) {
   extension.action.setBadgeText({ tabId: tabID, text: resume?.candidate_name || attachment ? "+" : "" });
   extension.action.setBadgeBackgroundColor({ tabId: tabID, color: "#0B8968" });
   extension.action.setTitle({ tabId: tabID, title: resume?.candidate_name ? "当前有简历，可添加到 GoodHR" : "GoodHR 简历助手" });
-  return { ok: true };
+  const settings = await readSettings();
+  return { ok: generation === authGeneration && snapshotSequences.get(tabID) === sequence, logged_in: Boolean(settings.session?.token) };
 }
 
 /** onMessage 严格区分招聘内容脚本与插件 UI，页面脚本只能上报资料不能请求授权或 API。 */
@@ -786,7 +787,7 @@ function onMessage(message, sender, sendResponse) {
   if (isTrustedUI(sender)) {
     const floating = new URL(sender.url).pathname === "/src/floating.html";
     if (floating && ["LOGIN", "SEND_CODE", "CONSENT", "SET_AUTO_CLOSE", "PAIR_START", "PAIR_CHECK", "RESTORE", "LOGOUT", "REVOKE_RETRY", "OPEN_SIDEBAR"].includes(message.type)) return false;
-    if (!floating && sender.tab) return false;
+    if (!floating && sender.tab && !["STATE", "CHECK_UPDATE", "LOGIN", "SEND_CODE", "CONSENT", "SET_AUTO_CLOSE", "PAIR_START", "PAIR_CHECK", "RESTORE", "LOGOUT", "REVOKE_RETRY"].includes(message.type)) return false;
     // 嵌入UI的sender.tab由浏览器提供；任何payload里的tab编号都不能改变资料来源。
     if (sender.tab && (!shared.platformForURL(sender.tab.url) || !Number.isInteger(sender.frameId) || sender.frameId < 1)) return false;
     const sourceTab = sender.tab ? { id: sender.tab.id, url: sender.tab.url } : null;
@@ -794,6 +795,9 @@ function onMessage(message, sender, sendResponse) {
     return true;
   }
   if (sender.tab) {
+    if (message.type === "FLOATING_STATUS" && sender.frameId === 0 && shared.platformForURL(sender.tab.url)) {
+      readSettings().then((settings) => sendResponse({ ok: true, logged_in: Boolean(settings.session?.token) }), () => sendResponse({ ok: false })); return true;
+    }
     if (message.type === "FLOATING_CLOSED" && sender.frameId === 0 && shared.platformForURL(sender.tab.url)) { cancelFloatingCostConfirmation(sender.tab.id); sendResponse({ ok: true }); return false; }
     if (message.type !== "CANDIDATE_SNAPSHOT" || sender.frameId !== 0 || !shared.platformForURL(sender.tab.url)) return false;
     storeCandidateSnapshot(message, sender).then(sendResponse, () => sendResponse({ ok: false })); return true;

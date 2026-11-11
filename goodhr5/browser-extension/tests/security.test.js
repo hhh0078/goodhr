@@ -301,7 +301,8 @@ test("招聘页面只读脚本不写 DOM、不发请求、不读网站缓存、�
 test("悬浮入口只使用固定扩展iframe，既不接网页消息，也不访问网站缓存或主世界", () => {
   const code = fs.readFileSync(path.join(src, "floating.js"), "utf8");
   assert.match(code, /attachShadow\(\{ mode: "closed" \}\)/);
-  assert.match(code, /getURL\("src\/floating\.html"\)/);
+  assert.match(code, /const source = loggedIn \? "src\/floating\.html" : "src\/ui\.html"/);
+  assert.match(code, /getURL\(source\)/);
   for (const forbidden of [/addEventListener\(["']message/, /postMessage\s*\(/, /(?:fetch|XMLHttpRequest|WebSocket)\s*\(/, /localStorage|sessionStorage|document\.cookie/, /storage\.(?:local|sync)/, /\.focus\s*\(/, /\.scroll(?:To|By|IntoView)\s*\(/, /dispatchEvent\s*\(/, /innerHTML\s*=/]) assert.equal(forbidden.test(code), false, String(forbidden));
 });
 
@@ -384,7 +385,7 @@ async function floatingContentFixture() {
   const nodes = [], messages = []; let listener;
   /** node 为插件自身 Shadow DOM 提供显隐测试所需的最小节点。 */
   function node(tag) {
-    const value = { tag, hidden: false, isConnected: true, children: [], style: { setProperty: () => {} }, addEventListener: () => {}, setAttribute: () => {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 248, height: 460 }), append(...items) { this.children.push(...items); }, appendChild(item) { this.children.push(item); }, attachShadow() { return node("shadow"); } };
+    const value = { tag, hidden: false, isConnected: true, children: [], classList: { toggle: () => {} }, attributes: {}, getAttribute(name) { return this.attributes[name]; }, remove() {}, style: { setProperty: () => {} }, addEventListener: () => {}, setAttribute(name, value) { this.attributes[name] = value; }, getBoundingClientRect: () => ({ left: 0, top: 0, width: 248, height: 460 }), append(...items) { this.children.push(...items); }, appendChild(item) { this.children.push(item); }, attachShadow() { return node("shadow"); } };
     nodes.push(value); return value;
   }
   const document = { createElement: node, documentElement: node("html") };
@@ -395,19 +396,19 @@ async function floatingContentFixture() {
 }
 
 test("顶层卡片仅显隐同一identity，迟到失败不能展开新人且网页没有新增动作桥", async () => {
-  const value = await floatingContentFixture(), first = { platform_id: "boss", source_url: "https://www.zhipin.com/web/chat/index", attachment: { text_hash: "a".repeat(64) } };
-  value.context.GoodHRFloating.update(first);
-  const firstIdentity = value.context.GoodHRShared.resumeIdentity(first), host = value.nodes.find((item) => item.tag === "aside");
-  assert.equal((await value.message({ type: "CLOSE_FLOATING", identity: firstIdentity })).closed, true); assert.equal(host.hidden, true);
-  assert.equal((await value.message({ type: "OPEN_FLOATING", identity: "wrong-candidate" })).opened, false); assert.equal(host.hidden, true);
-  assert.equal((await value.message({ type: "OPEN_FLOATING", identity: firstIdentity })).opened, true); assert.equal(host.hidden, false);
-  const second = { ...first, attachment: { text_hash: "b".repeat(64) } }; value.context.GoodHRFloating.update(second);
+  const value = await floatingContentFixture(), first = { platform_id: "boss", source_url: "https://www.zhipin.com/web/chat/index", phone: "13800000151", attachment: { text_hash: "a".repeat(64) } };
+  value.context.GoodHRFloating.update(first, true);
+  const firstIdentity = value.context.GoodHRShared.resumeIdentity(first), panel = value.nodes.find((item) => item.className === "panel");
+  assert.equal((await value.message({ type: "CLOSE_FLOATING", identity: firstIdentity })).closed, true); assert.equal(panel.hidden, true);
+  assert.equal((await value.message({ type: "OPEN_FLOATING", identity: "wrong-candidate" })).opened, false); assert.equal(panel.hidden, true);
+  assert.equal((await value.message({ type: "OPEN_FLOATING", identity: firstIdentity })).opened, true); assert.equal(panel.hidden, false);
+  const second = { ...first, attachment: { text_hash: "b".repeat(64) } }; value.context.GoodHRFloating.update(second, true);
   const secondIdentity = value.context.GoodHRShared.resumeIdentity(second);
-  assert.equal((await value.message({ type: "CLOSE_FLOATING", identity: firstIdentity })).closed, false); assert.equal(host.hidden, false);
+  assert.equal((await value.message({ type: "CLOSE_FLOATING", identity: firstIdentity })).closed, false); assert.equal(panel.hidden, false);
   assert.equal((await value.message({ type: "CLOSE_FLOATING", identity: secondIdentity })).closed, true);
-  assert.equal((await value.message({ type: "OPEN_FLOATING", identity: firstIdentity })).opened, false); assert.equal(host.hidden, true);
-  assert.equal(await value.message({ type: "OPEN_FLOATING", identity: secondIdentity }, { id: "webpage" }), undefined); assert.equal(host.hidden, true);
-  assert.equal((await value.message({ type: "OPEN_FLOATING" })).opened, false); assert.equal(host.hidden, true);
+  assert.equal((await value.message({ type: "OPEN_FLOATING", identity: firstIdentity })).opened, false); assert.equal(panel.hidden, true);
+  assert.equal(await value.message({ type: "OPEN_FLOATING", identity: secondIdentity }, { id: "webpage" }), undefined); assert.equal(panel.hidden, true);
+  assert.equal((await value.message({ type: "OPEN_FLOATING" })).opened, false); assert.equal(panel.hidden, true);
   assert.equal((await value.message({ type: "OPEN_FLOATING", identity: secondIdentity })).opened, true);
   assert.equal(value.messages.some((item) => !["CANDIDATE_SNAPSHOT", "FLOATING_CLOSED"].includes(item.type)), false);
 });
@@ -772,4 +773,22 @@ test("真实 Chrome 插件在打开旧草稿时按云端回执清理私有存储
     assert.equal(result.absent, true); assert.equal(result.otherIntact, true);
     assert.deepEqual(result.calls, [{ path: "/api/candidates/deletions/check", body: { candidate_ids: ["11111111-2222-4000-8000-000000000001"], source_hashes: [] } }]);
   } finally { await context?.close(); fs.rmSync(work, { recursive: true, force: true }); }
+});
+
+
+test("悬浮登录状态只返回布尔值，可信账号iframe可登录但不能保存，站外和网页脚本无权限", async () => {
+  const value = backgroundFixture(), tab = { id: 91, url: "https://h.liepin.com/resume/show" };
+  const content = { id: "test-extension", frameId: 0, tab };
+  const status = await value.message({ type: "FLOATING_STATUS" }, content);
+  assert.deepEqual(Object.keys(status).sort(), ["logged_in", "ok"]); assert.equal(status.logged_in, true);
+  delete value.values.session;
+  assert.equal((await value.message({ type: "FLOATING_STATUS" }, content)).logged_in, false);
+  assert.equal(value.requests.length, 0); assert.equal(value.versionRequests.length, 0);
+  for (const sender of [{ ...content, frameId: 1 }, { ...content, tab: { ...tab, url: "https://evil.example/" } }, { ...content, id: "webpage" }]) assert.equal(await value.message({ type: "FLOATING_STATUS" }, sender), undefined);
+  const login = { ...uiSender, frameId: 2, tab };
+  assert.equal((await value.message({ type: "SEND_CODE", payload: { email: "fixture@example.test" } }, login)).ok, true);
+  assert.equal(await value.message({ type: "CREATE", payload: {} }, login), undefined);
+  assert.equal(await value.message({ type: "SEND_CODE", payload: {} }, content), undefined);
+  assert.equal(await value.message({ type: "SEND_CODE", payload: {} }, { ...login, tab: { ...tab, url: "https://evil.example/" } }), undefined);
+  assert.equal(await value.message({ type: "SEND_CODE", payload: {} }, { ...login, frameId: 0 }), undefined);
 });
