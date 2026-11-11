@@ -13,7 +13,7 @@
 | [教程 ZIP](https://oss2.58it.cn/goodhr-local-agent-v6.3.2-windows-x64-181bbde9.zip) | 31544713 | `181bbde9e2956c8eee259037a211edc6440ef11aa9f536d2cccee4ac01064846` |
 | [安装器 EXE](https://oss2.58it.cn/GoodHR-Local-Agent-Setup-v6.3.2-windows-x64-40ea5252.exe) | 32003228 | `40ea5252fc4cb1bb574cd17076870e238d3d8aa1bcef54b296bd8b8c4c783fc6` |
 
-ZIP 内只有安装器与安装教程图片，CRC 及内部安装器与外部成品逐字节一致。更新记录使用 EXE 的 URL 和 SHA256。
+ZIP 内只有安装器与安装教程图片，CRC 及内部安装器与外部成品逐字节一致。最初误把更新记录配为 EXE，已按专用工具分发要求修正为 ZIP URL 与 ZIP SHA256；当前线上下载及更新都使用上表 ZIP。
 
 ## 验证
 
@@ -30,3 +30,11 @@ ZIP 内只有安装器与安装教程图片，CRC 及内部安装器与外部成
 - 配置快照、发布 SQL、精确回滚 SQL 及临时表发布/回滚演练：`/opt/goodhr-release/windows-6.3.2-4389cce4-20261111/`。
 - 本轮不部署或重启云端服务，不清理旧文件、容器、镜像或数据卷。发布前根盘可用约 5.9 GiB，/www 约 4.0 GiB；仅新上传两份约 64 MB 的成品。
 - 配置由 64 条变为 65 条，完整历史及其他配置保留断言通过，发布和回滚 SQL 临时表演练通过。发布后前后端容器 ID、镜像和启动时间均不变；根盘约 5.9 GiB，/www 约 3.9 GiB。
+
+## 2026-11-11 下载格式修正
+
+- 原因是发布入口配置错误，专用工具已正确生成 ZIP；不需要修改或重新打包程序。Windows 更新链路本就支持下载、校验 ZIP，再解压并启动内部 EXE。
+- 仅替换 Windows 6.3.2 条目的 `url_win`、`sha256` 两个字段，条目数、Mac、历史、文案、版本与升级规则不变，`system.app_config` 整行保持一致。
+- 对实际已公网下载的 ZIP 调用正式 `verifySHA256` 和 `prepareInstaller`：校验成功，解压安装器 SHA256 与上表 EXE 一致，教程图片存在且非空；没有运行安装器。临时测试已清理，证据为 `D:/gh-pack/windows-632-20261111/zip-updater-verification.log`。
+- 默认公网 `/api/system/local-agent-updates` 与 `/download` 均已核验指向 ZIP，无需通过额外查询参数绕过缓存。
+- 修正前完整配置、精确回滚 SQL、临时表发布及回滚演练证据：`/opt/goodhr-release/windows-632-zip-correction-20261111/`。
