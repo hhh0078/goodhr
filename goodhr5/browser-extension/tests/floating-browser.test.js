@@ -151,6 +151,26 @@ test("浏览器合成BOSS附件：同源可见框架只读呈现叶子文字，�
 /** floatingFrame 查找宿主创建的独立简历页，不等待已经发生过的导航事件。 */
 async function floatingFrame(page) { await page.waitForFunction(() => window.fixtureShadow?.querySelector("iframe")?.contentDocument?.body?.dataset.ready === "true"); return page.frames().find((item) => item.url().includes("/src/floating.html")); }
 
+test("浏览器位置回归：默认右下角，拖动logo后资料短暂消失，再检测到手机号不会跳到左上角", async () => {
+  const { server, origin } = await localServer(), browser = await launchBrowser(), resume = sampleResume("position-fixture", "");
+  try {
+    const { page } = await preparePage(browser, origin, async () => ({ ok: true, data: { logged_in: true, resume, version } }));
+    await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
+    await page.evaluate((resume) => GoodHRFloating.update({ ...resume, phone: "13800000151" }, true), resume);
+    const host = page.locator("#goodhr-resume-assistant"), initial = await host.boundingBox();
+    assert.equal(initial.x + initial.width, 1130); assert.equal(initial.y + initial.height, 878);
+    await clickOwnButton(page, ".close");
+    const logo = await point(page, ".launcher"); await page.mouse.move(logo.x, logo.y); await page.mouse.down(); await page.mouse.move(750, 650, { steps: 8 }); await page.mouse.up();
+    const dragged = await host.boundingBox();
+    await page.evaluate(() => GoodHRFloating.update(null, true)); assert.equal(await host.isVisible(), false);
+    await page.evaluate((resume) => GoodHRFloating.update({ ...resume, phone: "13800000151" }, true), resume);
+    const restored = await host.boundingBox();
+    assert.equal(restored.x, Math.min(dragged.x, 1150 - restored.width - 8));
+    assert.equal(restored.y, Math.min(dragged.y, 900 - restored.height - 8));
+    assert.ok(restored.x > 600 && restored.y > 300, "恢复有号表单应保留拖动位置，并只向窗口内调整");
+  } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
+});
+
 test("浏览器合成页面：识别即自动展开，同人收起保持，换人重开且不影响业务页面", async () => {
   const { server, origin } = await localServer(), browser = await launchBrowser(), calls = [], resume = sampleResume();
   try {
