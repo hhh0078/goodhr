@@ -29,9 +29,9 @@ func (r *Runtime) EnsureCandidateConversation(ctx context.Context, browser model
 	return errors.Join(err, closing.moveErr)
 }
 
-// RequestCandidateInfo 在已确认身份的前程无忧聊天框内按岗位要求索要信息。
+// RequestCandidateInfo 只保留已确认聊天中的微信和邀投递；电话没有可用按钮，忽略勾选且不降级为文字。
 func (r *Runtime) RequestCandidateInfo(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.CandidateInfoRequest) error {
-	if !request.RequestPhone && !request.RequestWechat && !request.RequestResume {
+	if !request.RequestWechat && !request.RequestResume {
 		return nil
 	}
 	name, found, err := common.ReadOptional(ctx, browser, cfg, "candidate.chat_name")
@@ -40,15 +40,6 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, browser model.Browse
 	}
 	if !found || !common.CandidateNamesMatch(candidate.Name, name) {
 		return fmt.Errorf("前程无忧聊天对象还没确认，资料先不索要，请重新打开当前候选人聊天")
-	}
-	if request.RequestPhone {
-		message := strings.TrimSpace(cfg.Behavior.RequestPhoneMessage)
-		if message == "" {
-			return fmt.Errorf("前程无忧电话索要文案还没配置，这次先不发送，也不会点击付费取号")
-		}
-		if err = common.SendCandidateMessage(ctx, browser, cfg, candidate, message); err != nil {
-			return err
-		}
 	}
 	if request.RequestWechat {
 		if err = common.RequestCandidateInfo(ctx, browser, cfg, model.CandidateInfoRequest{RequestWechat: true}); err != nil {

@@ -45,6 +45,8 @@
   "_comment_candidate_batch_size": "仅候选人按20人小批读取；加载更多和重启恢复复用同一上限，避免整批50至100人读取超过Worker时限。",
   "behavior": {
     "_comment": "两页共用无限滚动列表，搜索页保留用户筛选，推荐页沿用原选岗流程；独立自动回复与附件下载尚未适配。",
+    "skip_greeting_phone_request": true,
+    "_comment_skip_greeting_phone_request": "没有可用的索要电话按钮，忽略电话勾选，不发文字、不为电话打开聊天；微信和邀投递保留。",
     "supports_paging": false,
     "_comment_supports_paging": "两页均用真实滚轮追加候选人。",
     "candidate_list_mode": "infinite_scroll",
@@ -62,9 +64,7 @@
     "candidate_bottom_inset": 288,
     "_comment_candidate_bottom_inset": "按钮底边需避开底部客服和积分浮层，仅通过列表上的真实竖向滚轮调整，不扩大横向留白。",
     "message_send_verify_empty": true,
-    "_comment_message_send_verify_empty": "发送后只读确认可编辑输入框清空，不能把点击当成成功或重复发送。",
-    "request_phone_message": "您好，方便留个联系电话吗？想和您进一步沟通这个岗位。",
-    "_comment_request_phone_message": "仅发送礼貌索要消息，不点击获取电话等付费权益按钮。"
+    "_comment_message_send_verify_empty": "发送后只读确认可编辑输入框清空，不能把点击当成成功或重复发送。"
   },
   "login_init_actions": [],
   "_comment_login_init_actions": "登录页面初始化动作，当前旧版没有可确认的弹框动作。",

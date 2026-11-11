@@ -129,7 +129,7 @@ func followupConfigFixture(t *testing.T) model.Config {
 	return cfg
 }
 
-// TestFollowupRequestsDoNotBuyPhone 验证电话用礼貌消息索要、微信走原生确认、简历点击邀投递，绝不点付费获取电话。
+// TestFollowupRequestsDoNotBuyPhone 验证电话勾选被忽略且不发文字，微信和邀投递仍正常，绝不点付费获取电话。
 func TestFollowupRequestsDoNotBuyPhone(t *testing.T) {
 	cfg := followupConfigFixture(t)
 	paid := cfg.Selectors["candidate.greet"]
@@ -140,8 +140,8 @@ func TestFollowupRequestsDoNotBuyPhone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(browser.sent) != 1 || browser.sent[0] != cfg.Behavior.RequestPhoneMessage || browser.wechatSent != 1 || browser.wechatConfirm || browser.resumeClicks != 1 || !browser.resumeVerified || browser.closeMoves != 0 {
-		t.Fatal("电话消息、微信确认与邀投递没有按配置完成")
+	if len(browser.sent) != 0 || browser.input != "" || browser.wechatSent != 1 || browser.wechatConfirm || browser.resumeClicks != 1 || !browser.resumeVerified || browser.closeMoves != 0 {
+		t.Fatal("电话没有跳过，或微信确认、邀投递没有按配置完成")
 	}
 	for _, click := range browser.clicks {
 		if click == "付费获取电话" {
@@ -219,8 +219,11 @@ func TestRequestInfoEmptyAndMismatch(t *testing.T) {
 	if err := NewRuntime().RequestCandidateInfo(context.Background(), nil, model.Config{}, model.Candidate{}, model.CandidateInfoRequest{}); err != nil {
 		t.Fatal(err)
 	}
+	if err := NewRuntime().RequestCandidateInfo(context.Background(), nil, model.Config{}, model.Candidate{}, model.CandidateInfoRequest{RequestPhone: true}); err != nil {
+		t.Fatal("仅勾选电话也不应读取或操作浏览器", err)
+	}
 	browser := &followupBrowserStub{name: "合成人选乙"}
-	err := NewRuntime().RequestCandidateInfo(context.Background(), browser, followupConfigFixture(t), model.Candidate{Name: "合成人选甲"}, model.CandidateInfoRequest{RequestPhone: true})
+	err := NewRuntime().RequestCandidateInfo(context.Background(), browser, followupConfigFixture(t), model.Candidate{Name: "合成人选甲"}, model.CandidateInfoRequest{RequestResume: true})
 	if err == nil || len(browser.clicks) != 0 {
 		t.Fatal("聊天对象不符时不能索要任何资料")
 	}

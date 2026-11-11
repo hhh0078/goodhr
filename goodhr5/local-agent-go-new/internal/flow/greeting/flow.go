@@ -748,7 +748,8 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 		return err
 	}
 	infoRequest := model.CandidateInfoRequest{
-		RequestPhone: prepared.Position.RequestPhone, RequestWechat: prepared.Position.RequestWechat,
+		RequestPhone:  prepared.Position.RequestPhone && !prepared.Platform.Behavior.SkipGreetingPhoneRequest,
+		RequestWechat: prepared.Position.RequestWechat,
 		RequestResume: prepared.Position.RequestResume,
 	}
 	greetMessage := strings.TrimSpace(prepared.Position.GreetMessage)
