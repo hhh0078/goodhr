@@ -44,7 +44,8 @@
       frame.src = extension.runtime.getURL(source); panel.appendChild(frame);
       // 不监听网页 postMessage；招聘页面无法指挥扩展登录、查重或保存。
     }
-    if (moved) { const rect = host.getBoundingClientRect(); moveWithinWindow(rect.left, rect.top); }
+    // 隐藏容器的矩形为零，不能据此覆盖用户拖动后的位置。
+    if (moved && !host.hidden) { const rect = host.getBoundingClientRect(); moveWithinWindow(rect.left, rect.top); }
   }
 
   /** mount 创建唯一、正常命名的隔离入口；不使用随机标识或检测规避伪装。 */
