@@ -189,6 +189,21 @@ func TestSearchGreetingSelectsAndConfirmsJob(t *testing.T) {
 		timeout    time.Duration
 	}{
 		{
+			name:       "已选完整同名岗位直接确认",
+			browser:    greetingPageBrowser{selected: greetingJobName, opensJobDialog: true, canConfirmGreeting: true},
+			operations: []string{"candidate.greet", "candidate.greet_job_confirm"},
+		},
+		{
+			name:       "同前缀不同岗位重新选择",
+			browser:    greetingPageBrowser{selected: "小学语文老师（普通班）", names: []string{greetingJobName}, opensJobDialog: true, canConfirmGreeting: true},
+			operations: []string{"candidate.greet", "candidate.greet_job_open", "输入:小学语文老师", "candidate.greet_job_name", "candidate.greet_job_confirm"},
+		},
+		{
+			name:       "只有省略文字不能直接确认",
+			browser:    greetingPageBrowser{selected: "小学语文老师…", names: []string{greetingJobName}, opensJobDialog: true, canConfirmGreeting: true},
+			operations: []string{"candidate.greet", "candidate.greet_job_open", "输入:小学语文老师", "candidate.greet_job_name", "candidate.greet_job_confirm"},
+		},
+		{
 			name: "跳过相似首项并精确选岗后发送招呼语",
 			browser: greetingPageBrowser{
 				names:          []string{"小学语文老师（普通班）", greetingJobName},

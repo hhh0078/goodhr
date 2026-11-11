@@ -18,6 +18,18 @@ func selectSearchGreetingJob(ctx context.Context, browser model.Browser, cfg mod
 	if name == "" {
 		return fmt.Errorf("GoodHR 岗位名称为空，请先检查岗位设置")
 	}
+	if present, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_job_selected"); err != nil {
+		return fmt.Errorf("检查已选沟通职位失败：%w", err)
+	} else if present {
+		// 选择器优先读取完整title，旧页面读取完整文本；省略文字不能按前缀放行。
+		selected, found, err := common.ReadOptional(ctx, browser, cfg, "candidate.greet_job_selected")
+		if err != nil {
+			return fmt.Errorf("核对已选沟通职位失败：%w", err)
+		}
+		if found && selected == name {
+			return common.ClickRequired(ctx, browser, cfg, "candidate.greet_job_confirm")
+		}
+	}
 	if err := common.ClickRequired(ctx, browser, cfg, "candidate.greet_job_open"); err != nil {
 		return fmt.Errorf("打开沟通职位列表失败：%w", err)
 	}

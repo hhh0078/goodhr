@@ -1309,6 +1309,8 @@
     }
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
+  "candidate_resume_ignored_query_keys": ["ka", "lid", "_"],
+  "_comment_candidate_resume_ignored_query_keys": "仅推荐入口忽略来源ka、追踪lid和缓存标记_；岗位、其他筛选查询参数和页面路由仍参与断点隔离。",
   "candidate_resume_fields": ["name", "education"],
   "_comment_candidate_resume_fields": "姓名与基础信息行联合核对；education已兼容新旧年龄/经验/学历区域，不使用含活跃时间的整个job-card-left，也不依赖招呼按钮文字。",
   "candidate_fields": {
