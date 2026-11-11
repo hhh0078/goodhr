@@ -3,6 +3,8 @@ package job51
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -160,7 +162,7 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 	}
 	full := true
 	request := contract.ScrollRequest{Target: &selector, WheelAnchor: &anchor, Distance: 260, MaxAttempts: 30, WaitMS: 180, RequireFull: &full, ViewportMargin: 48}
-	result, err := browser.Scroll(ctx, request)
+	result, err := scrollCandidateTarget(ctx, browser, request)
 	if err != nil {
 		return err
 	}
@@ -205,7 +207,7 @@ func (r *Runtime) scrollCandidateAction(ctx context.Context, browser model.Brows
 	}
 	full := true
 	request := contract.ScrollRequest{Target: &target, WheelAnchor: &anchor, Distance: 260, MaxAttempts: 30, WaitMS: 180, RequireFull: &full, ViewportMargin: 48}
-	result, err := browser.Scroll(ctx, request)
+	result, err := scrollCandidateTarget(ctx, browser, request)
 	if err != nil {
 		return err
 	}
@@ -240,6 +242,26 @@ func (r *Runtime) scrollCandidateAction(ctx context.Context, browser model.Brows
 			return err
 		}
 	}
+}
+
+// scrollCandidateTarget 在长距离定位耗尽轮数且只差48像素以内时，为同一精确目标补一段有限滚轮；断线、无进展或距离未知不重试。
+// Windows 与两种Mac共用Worker几何回执，仍由最终可见区域和平台遮挡检查决定是否允许操作。
+func scrollCandidateTarget(ctx context.Context, browser model.Browser, request contract.ScrollRequest) (contract.ScrollResult, error) {
+	result, err := browser.Scroll(ctx, request)
+	var workerErr *contract.WorkerError
+	if ctx.Err() != nil || request.Target == nil || request.MaxAttempts != 30 || !errors.As(err, &workerErr) || workerErr == nil || workerErr.Body.Code != "SCROLL_FAILED" || workerErr.Body.Step != "scroll" {
+		return result, err
+	}
+	var evidence struct {
+		Attempts  int      `json:"attempts"`
+		Remaining *float64 `json:"remaining_distance"`
+	}
+	if json.Unmarshal(workerErr.Body.Details, &evidence) != nil || evidence.Attempts != request.MaxAttempts || evidence.Remaining == nil || *evidence.Remaining < 0 || *evidence.Remaining > 48 {
+		return result, err
+	}
+	// 只补一次，不递归；沿用绑定公开编号的选择器，元素换序或消失仍交由Worker正常报错。
+	request.MaxAttempts = 20
+	return browser.Scroll(ctx, request)
 }
 
 // AdvanceCandidateList 通过公共真实滚轮能力加载更多前程无忧候选人。
