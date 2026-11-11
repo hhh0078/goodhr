@@ -123,6 +123,21 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(drop["containers_to_remove"], [])
         self.assertTrue({iid(3), iid(4), iid(7), iid(8)} <= set(drop["protected_image_ids"]))
 
+    def test_images_only_cleans_unreferenced_failed_candidates_and_keeps_stopped_objects(self):
+        """失败重试前可删未引用旧候选，所有停止及运行容器和共享祖先仍被保护。"""
+        self.snapshot["images"][iid(90)] = image(90, role="unknown", parent=1, tags=[])
+        self.snapshot["images"][iid(9)] = image(9, parent=90)
+        plan = retention.make_plan(self.snapshot, self.registry, self.policy, images_only=True)
+        self.assertTrue(plan["images_only"])
+        self.assertEqual(plan["containers_to_remove"], [])
+        self.assertEqual({row["id"] for row in plan["images_to_remove"]}, {iid(9), iid(90)})
+        self.assertTrue({row["Id"] for row in self.snapshot["containers"]} <= set(plan["protected_container_ids"]))
+        reader = FakeDocker(self.snapshot)
+        retention.execute_plan(plan, self.registry, self.policy, reader, self.root / "images-only-audit.json")
+        self.assertEqual(reader.state["containers"], self.snapshot["containers"])
+        with self.assertRaises(retention.GuardError):
+            retention.make_plan(self.snapshot, self.registry, self.policy, images_only=True, cache_only=True)
+
     def test_cache_only_still_requires_current_pair_evidence(self):
         """只清缓存也不能拿其他版本或损坏报告冒充当前配对的同账本证据。"""
         with self.assertRaises(retention.GuardError):

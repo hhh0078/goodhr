@@ -75,6 +75,41 @@ class AutomaticReleaseTests(unittest.TestCase):
             self.assertEqual(job.state["deployed_commit"], "b" * 40)
             self.assertEqual(job.state["source_commit"], COMMIT)
 
+    def test_prebuild_cleanup_keeps_all_stopped_and_running_containers(self):
+        """新一轮更新清理未引用失败镜像，计划若涉及任何容器就不能执行。"""
+        for invalid in (False, True):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory).resolve()
+                source = base / "goodhr5"
+                source.mkdir()
+                job = AutomaticRelease(source, Engine(), base / "state")
+                job.state_root.mkdir()
+                release = base / "releases/fixture"
+                release.mkdir(parents=True)
+                (release / "retention-registry.json").write_text("{}")
+                containers = job.live()
+                calls = []
+                def invoke(arguments, environment):
+                    """模拟固定SHA计划，保留一个额外停止容器的镜像引用。"""
+                    calls.append(arguments)
+                    if "plan" in arguments:
+                        self.assertIn("--images-only", arguments)
+                        Path(arguments[-1]).write_text(json.dumps({"images_only": True,
+                            "snapshot": {"containers": [{"Id": "stopped", "Image": "stopped-image"}]},
+                            "protected_container_ids": ["stopped"],
+                            "protected_image_ids": ["stopped-image", *[row["Image"] for row in containers.values()]],
+                            "containers_to_remove": [{"Id": "stopped"}] if invalid else [],
+                            "images_to_remove": [{"id": "unreferenced-failed-candidate"}]}))
+                with patch("auto_release.RELEASE_ROOT", base / "releases"), patch.object(job, "invoke", side_effect=invoke):
+                    if invalid:
+                        with self.assertRaises(CutoverError):
+                            job.reclaim_unused_images(containers, {})
+                    else:
+                        job.reclaim_unused_images(containers, {})
+                self.assertEqual(len(calls), 1 if invalid else 2)
+                if not invalid:
+                    self.assertIn("--sha256", calls[-1])
+
     def test_pending_review_blocks_build_and_cleanup(self):
         """用户未确认蓝绿容器时先停止自动编排，不读取旧代理目标或删除旧容器。"""
         with tempfile.TemporaryDirectory() as directory:

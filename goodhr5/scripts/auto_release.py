@@ -207,6 +207,8 @@ class AutomaticRelease:
         source = {path.name: path.read_bytes() for path in (self.source / "cloud/backend/db/migrations").glob("*.sql")
                   if not path.name.endswith(".down.sql")}
         pending = pending_migrations(source, ledger)
+        require(shutil.disk_usage(RELEASE_ROOT).free >= 6 * 1024**3, "根盘可用空间不足，保留当前线上版本")
+        self.reclaim_unused_images(containers, dict(os.environ))
         docker_root = command(["docker", "info", "--format", "{{.DockerRootDir}}"]).decode().strip()
         if shutil.disk_usage(docker_root).free < 3 * 1024**3:
             maintenance = self.state_root / ("cache-maintenance-" + str(time.time_ns()))
@@ -216,6 +218,29 @@ class AutomaticRelease:
             require(shutil.disk_usage(path).free >= minimum * 1024**3,
                     "发布可用空间不足：" + str(path) + "，保留当前线上版本")
         return database, postgres, user, redis, pending
+
+    def reclaim_unused_images(self, containers, environment):
+        """新构建前按真实上线组合的兼容登记清理闲置旧候选，全部容器及其镜像始终保留。"""
+        labels = [item["Config"].get("Labels") or {} for item in containers.values()]
+        release_id = labels[0].get("goodhr.release.id", "")
+        require(TAG.fullmatch(release_id) and all(row.get("goodhr.release.id") == release_id for row in labels),
+                "当前完整版本编号不一致，停止闲置镜像回收")
+        registry = RELEASE_ROOT / release_id / "retention-registry.json"
+        require(registry.is_file() and registry.resolve() == registry, "缺少当前真实版本兼容登记，停止回收")
+        directory = self.state_root / ("image-maintenance-" + str(time.time_ns()))
+        directory.mkdir(mode=0o700)
+        plan = directory / "plan.json"
+        self.update("检查闲置业务镜像")
+        self.invoke(["python3", "scripts/release_retention.py", "plan", "--images-only", "--registry", str(registry), "--out", str(plan)], environment)
+        value = json.loads(plan.read_text())
+        snapshot = value.get("snapshot", {})
+        referenced = {row["Image"] for row in snapshot.get("containers", [])}
+        require(value.get("images_only") is True and not value.get("containers_to_remove")
+                and {row["Id"] for row in snapshot.get("containers", [])} <= set(value.get("protected_container_ids", []))
+                and referenced | {row["Image"] for row in containers.values()} <= set(value.get("protected_image_ids", [])),
+                "闲置镜像清理不能影响任何运行或停止容器")
+        if value.get("images_to_remove"):
+            self.invoke(["python3", "scripts/release_retention.py", "apply", "--plan", str(plan), "--sha256", digest_file(plan)], environment)
 
     def verify_live(self, containers):
         """verify_live 在隔离验收完成后再次核对原两容器，避免把别的发布结果混进当前切换。"""
