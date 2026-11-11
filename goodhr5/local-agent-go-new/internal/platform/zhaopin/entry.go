@@ -30,6 +30,7 @@ func (r *Runtime) InitializeGreetingPage(ctx context.Context, browser model.Brow
 	if err != nil {
 		return err
 	}
+	r.manualSearch = manualSearch
 	if manualSearch {
 		ready, err := common.SelectorExists(ctx, browser, cfg, "candidate.item")
 		if err != nil {
