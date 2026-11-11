@@ -14,14 +14,14 @@ function decodeAttribute(value) {
 function attributePage(rows) {
   let intersections = 0;
   /** query 保留实际元素身份，交集后的列表顺序不变化。 */
-  function query(items) {
+  function query(items, binding = "list") {
     return {
       items,
       and(other) { intersections++; return query(items.filter(item => other.items.includes(item))); },
       count: async () => items.length,
       nth(index) {
         const item = items[index];
-        return { originalIndex: item.originalIndex, count: async () => 1, getAttribute: async name => item.attributes[name] ?? null,
+        return { binding, originalIndex: item.originalIndex, count: async () => 1, getAttribute: async name => item.attributes[name] ?? null,
           isVisible: async () => true, isEnabled: async () => true };
       },
     };
@@ -31,7 +31,7 @@ function attributePage(rows) {
       if (selector === ".row") return query(rows);
       const filters = [...selector.matchAll(/\[([^=\]]+)="([^"\\]*)"\]/g)];
       assert.ok(filters.length > 0, "本测试只接收实际attributeFilter产生的属性条件");
-      return query(rows.filter(row => filters.every(([, name, value]) => row.attributes[decodeAttribute(name)] === decodeAttribute(value))));
+      return query(rows.filter(row => filters.every(([, name, value]) => row.attributes[decodeAttribute(name)] === decodeAttribute(value))), "attribute");
     },
     url: () => "https://example.test/contacts",
     intersectionCount: () => intersections,
@@ -89,4 +89,40 @@ test("显式index仍针对原列表定位后核属性，不自动改到匹配项
   assert.deepEqual(selected.map(item => [item.locator.originalIndex, item.list_index, item.list_total]), [[11, 11, 14]]);
   await assert.rejects(primitive.resolveAll(page, listSpec({ key: "target" }, 10), 2, context), { code: "ELEMENT_NOT_FOUND" });
   assert.equal(page.intersectionCount(), 0);
+});
+
+test("长名单只读项绑定作用域唯一id，原行号和总数不变", async () => {
+  const rows = fixtureRows();
+  for (const row of rows) row.attributes.id = `public-${row.originalIndex}`;
+  const page = attributePage(rows);
+  const result = await new LocatorPrimitive().resolveAll(page, listSpec(), 2, context, 10, false, true);
+  assert.deepEqual(result.map(item => [item.locator.originalIndex, item.list_index, item.list_total]), [[10, 10, 14], [11, 11, 14]]);
+  // 字段用唯一id读取；跨动作element_ref仍保留原选择器，不扩大优化范围。
+  assert.deepEqual(result.map(item => item.list_read_locator.binding), ["attribute", "attribute"]);
+  assert.deepEqual(result.map(item => item.locator.binding), ["list", "list"]);
+});
+
+test("重复id不得把列表项绑定到另一行", async () => {
+  const rows = fixtureRows();
+  for (const row of rows) row.attributes.id = "duplicate";
+  const result = await new LocatorPrimitive().resolveAll(attributePage(rows), listSpec(), 2, context, 10, false, true);
+  assert.deepEqual(result.map(item => [item.locator.originalIndex, item.list_index]), [[10, 10], [11, 11]]);
+  assert.deepEqual(result.map(item => item.list_read_locator.binding), ["list", "list"]);
+});
+
+
+test("iframe列表只绑定框架内id，不读取主文档同名项", async () => {
+  const rows = fixtureRows();
+  for (const row of rows) row.attributes.id = `public-${row.originalIndex}`;
+  const frame = attributePage(rows);
+  const page = {
+    url: () => "https://example.test/frames",
+    locator(selector) {
+      assert.equal(selector, "iframe.list", "框架内卡片不得跳回主文档按id查找");
+      return { count: async () => 1, nth() { return this; }, contentFrame: () => frame };
+    },
+  };
+  const spec = { ...listSpec(), frames: [{ selectors: [{ type: "css", value: "iframe.list" }] }] };
+  const result = await new LocatorPrimitive().resolveAll(page, spec, 2, context, 10, false, true);
+  assert.deepEqual(result.map(item => [item.list_read_locator.originalIndex, item.list_read_locator.binding]), [[10, "attribute"], [11, "attribute"]]);
 });

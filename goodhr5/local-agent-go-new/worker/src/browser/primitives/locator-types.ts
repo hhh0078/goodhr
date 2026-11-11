@@ -30,6 +30,8 @@ export interface LocatorScope {
 export interface ResolvedElement {
   page: Page;
   locator: Locator;
+  /** 仅本次列表字段读取复用的定位，不写入跨动作element_ref。 */
+  list_read_locator?: Locator;
   matched_selector: SelectorCandidate;
   attempts: SelectorAttempt[];
   view: ElementView;
