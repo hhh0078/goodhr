@@ -753,7 +753,7 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 	}
 	greetMessage := strings.TrimSpace(prepared.Position.GreetMessage)
 	requestInfo := false
-	if candidateInfoRequestConfigured(infoRequest) {
+	if !prepared.Platform.Behavior.SkipGreetingInfoRequests && candidateInfoRequestConfigured(infoRequest) {
 		threshold := requestScoreThreshold(prepared.Position)
 		switch {
 		case !hasScore:
