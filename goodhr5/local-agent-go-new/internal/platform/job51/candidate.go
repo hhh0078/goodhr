@@ -29,6 +29,11 @@ func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg
 		}
 		trace.Budget(ctx, 0)
 	}
+	if r.startFromViewport && !r.viewportStarted && options.Cursor != nil {
+		if err := common.StartCandidateViewport(ctx, browser, cfg, options.Cursor); err != nil {
+			return nil, err
+		}
+	}
 	candidates, err = common.FindCandidates(ctx, identityBrowser{browser}, cfg, r.PlatformID(), options)
 	if err == nil {
 		trace.Begin("确认本批候选人身份", "candidate.item")
@@ -42,6 +47,9 @@ func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg
 		}
 		if err := r.rememberResumePoints(ctx, browser, cfg, candidates); err != nil {
 			return nil, err
+		}
+		if options.Cursor != nil {
+			r.viewportStarted = true
 		}
 		return candidates, nil
 	}

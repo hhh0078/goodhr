@@ -12,8 +12,8 @@ import (
 
 // FindCandidates 返回 Boss 当前候选人列表的结构化摘要。
 func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, options model.CandidateListOptions) ([]model.Candidate, error) {
-	if !r.viewportStarted && options.Cursor != nil {
-		if err := startCandidateViewport(ctx, browser, cfg, options.Cursor); err != nil {
+	if cfg.Behavior.CandidateStartFromViewport && cfg.Behavior.CandidateListMode == "infinite_scroll" && !r.viewportStarted && options.Cursor != nil {
+		if err := common.StartCandidateViewport(ctx, browser, cfg, options.Cursor); err != nil {
 			return nil, err
 		}
 	}

@@ -24,7 +24,7 @@ func TestResumeStopRestartWithScopeMigration(t *testing.T) {
 					t.Fatal(err)
 				}
 				p.Platform = cfg
-				browser.url = cfg.EntryURL
+				browser.url = cfg.ManualSearchURL
 				for i := range browser.rows {
 					browser.rows[i].Fields["education"] = browser.rows[i].Fields["basic_info"]
 					browser.rows[i].Fields["card_text"] = "合成普通卡片"

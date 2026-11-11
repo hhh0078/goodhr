@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
@@ -53,6 +54,9 @@ func (f *Flow) prepareCandidateResume(ctx context.Context, browser model.Browser
 	}
 	if currentCount != 1 || pageURL == "" {
 		return nil, fmt.Errorf("没确认当前人才页面，暂不恢复进度，请切到目标页面后再试")
+	}
+	if common.CandidatePageUsesViewport(prepared.Platform, pageURL) {
+		return nil, nil
 	}
 	key, scope, fields, err := candidateResumeScopeHashes(prepared, pageURL, true)
 	if err != nil {

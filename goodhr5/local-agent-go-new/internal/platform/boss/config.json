@@ -37,6 +37,10 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "candidate_start_from_viewport": true,
+    "_comment_candidate_start_from_viewport": "仅无限滚动推荐页从当前屏幕首张完整卡片开始，不查旧断点；手动搜索页保留原分页与断点方式。",
+    "candidate_viewport_top_inset": 100,
+    "_comment_candidate_viewport_top_inset": "BOSS顶部导航及推荐筛选区域占100 CSS像素；整张起点卡片必须在其下方，避免卡片被固定页头遮挡时仅露边缘也开工。",
     "_comment": "Boss 页面行为开关。",
     "skip_greeting_info_requests": true,
     "_comment_skip_greeting_info_requests": "主动打招呼不支持索要简历、手机号和微信，忽略岗位勾选且不为索要打开聊天；自动回复沿用原逻辑。",

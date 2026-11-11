@@ -44,6 +44,10 @@
   "candidate_batch_size": 20,
   "_comment_candidate_batch_size": "仅候选人按20人小批读取；加载更多和重启恢复复用同一上限，避免整批50至100人读取超过Worker时限。",
   "behavior": {
+    "candidate_viewport_top_inset": 200,
+    "_comment_candidate_viewport_top_inset": "推荐页顶部导航、岗位条与人才推荐筛选占200 CSS像素；仅用于完整卡片起点，不覆盖原216/288的后续操作避让。",
+    "candidate_start_from_viewport": true,
+    "_comment_candidate_start_from_viewport": "仅无限滚动推荐页从当前屏幕首张完整卡片开始，不查旧断点；手动搜索页保留原分页与断点方式。",
     "candidate_resume_by_identity": true,
     "_comment_candidate_resume_by_identity": "推荐页先按唯一候选人身份查找上次位置，未加载时使用真实滚轮分批寻找；身份重复或确实找不到才从头。",
     "_comment": "两页共用无限滚动列表，搜索页保留用户筛选，推荐页沿用原选岗流程；独立自动回复与附件下载尚未适配。",

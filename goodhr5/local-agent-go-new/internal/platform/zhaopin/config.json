@@ -48,6 +48,10 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "candidate_viewport_top_inset": 120,
+    "_comment_candidate_viewport_top_inset": "推荐页固定岗位栏和筛选栏占120 CSS像素，起点卡片必须完整位于其下方；不用于搜索页。",
+    "candidate_start_from_viewport": true,
+    "_comment_candidate_start_from_viewport": "仅无限滚动推荐页从当前屏幕首张完整卡片开始，不查旧断点；手动搜索页保留原分页与断点方式。",
     "candidate_resume_by_identity": true,
     "_comment_candidate_resume_by_identity": "仅推荐页按唯一身份查找断点，并用真实滚轮继续加载；搜索页由平台适配保留原前缀和分页保护。",
     "_comment": "智联页面行为开关。",

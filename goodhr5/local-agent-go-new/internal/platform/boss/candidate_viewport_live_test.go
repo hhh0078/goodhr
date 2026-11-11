@@ -70,6 +70,41 @@ func TestCurrentViewportExistingWorkerLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	b := &viewportLiveBrowser{Client: client.New(base), initial: map[int]contract.ElementBox{}}
+	if os.Getenv("GOODHR_BOSS_VIEWPORT_LIVE_OPEN_PAGE") == "1" {
+		pages, err := b.ListPages(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, page := range pages.Pages {
+			if page.Current {
+				defer func(id string) {
+					cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					_, _ = b.UsePage(cleanup, contract.PageUseRequest{PageID: id})
+				}(page.PageID)
+			}
+		}
+		target := ""
+		for _, page := range pages.Pages {
+			if common.PageURLMatches(page.URL, cfg.EntryURL) {
+				target = page.PageID
+				break
+			}
+		}
+		if target != "" {
+			_, err = b.UsePage(ctx, contract.PageUseRequest{PageID: target})
+		} else {
+			newTab := true
+			_, err = b.OpenPage(ctx, contract.PageOpenRequest{URL: cfg.EntryURL, NewTab: &newTab, WaitUntil: "domcontentloaded", TimeoutMS: 15000})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := common.UniqueCurrentPageURL(ctx, b)
+	if err != nil || !common.PageURLMatches(current, cfg.EntryURL) {
+		t.Fatal("当前不在唯一BOSS推荐页，不操作", err)
+	}
 	// 显式准备一个中部位置；此步只用于测试布置，真正启动阶段的包装器仍拒绝任何滚轮。
 	if raw := os.Getenv("GOODHR_BOSS_VIEWPORT_LIVE_PREPARE_INDEX"); raw != "" {
 		index, err := strconv.Atoi(raw)
@@ -80,9 +115,10 @@ func TestCurrentViewportExistingWorkerLive(t *testing.T) {
 			t.Fatal("准备中部测试位置失败", err)
 		}
 	}
-	current, err := common.UniqueCurrentPageURL(ctx, b)
-	if err != nil || !common.PageURLMatches(current, cfg.EntryURL) {
-		t.Fatal("当前不在唯一BOSS推荐页，不操作", err)
+	if directory := os.Getenv("GOODHR_BOSS_VIEWPORT_LIVE_SCREENSHOT_DIR"); directory != "" {
+		if _, err := b.Client.Screenshot(ctx, contract.ScreenshotRequest{Directory: directory, Filename: "boss-fully-visible.png"}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var first model.Candidate
 	for round := 0; round < 2; round++ {
@@ -96,10 +132,18 @@ func TestCurrentViewportExistingWorkerLive(t *testing.T) {
 		} else if rows[0].Index != first.Index || rows[0].Fingerprint != first.Fingerprint {
 			t.Fatal("重开任务后视口起点不同")
 		}
-		after, err := candidateViewport(ctx, b, cfg, rows[0].Index)
-		if err != nil || after.Box != b.initial[rows[0].Index] || !candidateIntersectsViewport(after, cfg) {
+		if rows[0].Index > 0 {
+			previous, err := common.CandidateViewport(ctx, b, cfg, rows[0].Index-1)
+			if err != nil || common.CandidateFullyVisible(previous, cfg) {
+				t.Fatal("跳过了更靠前的完整卡片", err)
+			}
+			t.Logf("前一张未完整显示：y=%.1f height=%.1f，页头避让=%d", previous.Box.Y, previous.Box.Height, cfg.Behavior.CandidateViewportTopInset)
+		}
+		after, err := common.CandidateViewport(ctx, b, cfg, rows[0].Index)
+		if err != nil || after.Box != b.initial[rows[0].Index] || !common.CandidateFullyVisible(after, cfg) {
 			t.Fatal("启动时改变了当前屏幕位置", err)
 		}
-		t.Logf("真实BOSS第%d次启动：从当前屏幕第%d行读取%d人，卡片边界未动；不回补、不查旧断点、无滚轮或发送", round+1, cursor.StartIndex, len(rows))
+		t.Logf("卡片边界：x=%.1f y=%.1f width=%.1f height=%.1f，视口=%.1fx%.1f", after.Box.X, after.Box.Y, after.Box.Width, after.Box.Height, after.Viewport.Width, after.Viewport.Height)
+		t.Logf("真实BOSS第%d次启动：从当前屏幕首个完整显示的第%d行读取%d人，卡片边界未动；不回补、不查旧断点、无滚轮或发送", round+1, cursor.StartIndex, len(rows))
 	}
 }

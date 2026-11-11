@@ -10,9 +10,17 @@ import (
 
 // FindCandidates 返回智联当前候选人列表的结构化摘要。
 func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, options model.CandidateListOptions) ([]model.Candidate, error) {
+	if r.startFromViewport && !r.viewportStarted && options.Cursor != nil {
+		if err := common.StartCandidateViewport(ctx, browser, cfg, options.Cursor); err != nil {
+			return nil, err
+		}
+	}
 	candidates, err := common.FindCandidates(ctx, browser, cfg, r.PlatformID(), options)
 	if err == nil {
 		r.RememberCandidateResume(cfg, candidates)
+		if options.Cursor != nil {
+			r.viewportStarted = true
+		}
 	}
 	return candidates, err
 }

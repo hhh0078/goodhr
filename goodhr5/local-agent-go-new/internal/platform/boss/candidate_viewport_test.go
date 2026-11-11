@@ -48,7 +48,7 @@ func (b *viewportBrowser) FindAll(_ context.Context, req contract.ElementFindAll
 	var rows []contract.FindAllItem
 	for i := req.StartIndex; i < min(b.count, req.StartIndex+req.MaxItems); i++ {
 		name := fmt.Sprintf("合成人选%d", i)
-		if i == 1 || i == b.start {
+		if i == 1 || i == b.start+1 {
 			name = "同名人选"
 		}
 		rows = append(rows, contract.FindAllItem{Index: i, TotalMatches: b.count, Text: name + " 30岁 本科", Fields: map[string]string{"name": name, "card_text": "普通合成卡片 30岁", "education": "30岁 本科"}})
@@ -67,11 +67,11 @@ func TestStartsAtCurrentViewport(t *testing.T) {
 	cfg := recommendationConfig(t)
 	cfg.MaxItems = 3
 	cfg.CandidateBatchSize = 3
-	b := &viewportBrowser{count: 120, start: 45, inset: cfg.Behavior.CandidateTopInset}
+	b := &viewportBrowser{count: 120, start: 45, inset: cfg.Behavior.CandidateViewportTopInset}
 	rt := NewRuntime()
 	cursor := &model.CandidateListCursor{}
 	rows, err := rt.FindCandidates(context.Background(), b, cfg, model.CandidateListOptions{Cursor: cursor})
-	if err != nil || len(rows) != 3 || rows[0].Index != 45 || rows[0].IdentityOccurrence != 1 || b.scrolls != 0 {
+	if err != nil || len(rows) != 3 || rows[0].Index != 46 || rows[0].IdentityOccurrence != 1 || b.scrolls != 0 {
 		t.Fatalf("未从屏幕当前首位开始：%v %+v", err, rows)
 	}
 	action, err := common.CandidateSelector(cfg, rows[0])
@@ -88,14 +88,14 @@ func TestStartsAtCurrentViewport(t *testing.T) {
 	fresh := NewRuntime()
 	cursor = &model.CandidateListCursor{}
 	rows, err = fresh.FindCandidates(context.Background(), b, cfg, model.CandidateListOptions{Cursor: cursor})
-	if err != nil || rows[0].Index != 70 || b.scrolls != 0 {
+	if err != nil || rows[0].Index != 71 || b.scrolls != 0 {
 		t.Fatal("新任务仍追旧位置", err)
 	}
 	if _, ok := any(fresh).(model.CandidateListResumer); ok {
 		t.Fatal("BOSS仍暴露历史断点恢复能力")
 	}
 	for _, start := range b.fullStarts {
-		if start < 45 {
+		if start < 46 {
 			t.Fatal("读取并处理了屏幕上方的整批候选人")
 		}
 	}
@@ -103,15 +103,18 @@ func TestStartsAtCurrentViewport(t *testing.T) {
 
 // TestViewportReadFailuresDoNotFallBackToHead 验证未加载、位置读取错误或名单刷新均明确停止，不伪装从第0人开始。
 func TestViewportReadFailuresDoNotFallBackToHead(t *testing.T) {
-	for _, kind := range []string{"空列表", "查找失败", "刷新"} {
+	for _, kind := range []string{"空列表", "查找失败", "刷新", "只有半张卡片"} {
 		t.Run(kind, func(t *testing.T) {
 			cfg := recommendationConfig(t)
-			b := &viewportBrowser{count: 20, start: 10, inset: cfg.Behavior.CandidateTopInset}
+			b := &viewportBrowser{count: 20, start: 10, inset: cfg.Behavior.CandidateViewportTopInset}
 			switch kind {
 			case "空列表":
 				b.count = 0
 			case "查找失败":
 				b.findErr = errors.New("合成读取中断")
+			case "只有半张卡片":
+				b.count = 1
+				b.start = 0
 			case "刷新":
 				b.refreshed = true
 			}
@@ -122,6 +125,33 @@ func TestViewportReadFailuresDoNotFallBackToHead(t *testing.T) {
 			}
 			if kind == "查找失败" && !strings.Contains(err.Error(), "合成读取中断") {
 				t.Fatal("原错误丢失")
+			}
+		})
+	}
+}
+
+// TestCandidateFullyVisible 验证上边缘、下边缘、横向裁切及页头底栏遮挡都不能当作完整卡片，刚好贴合边界可以开始。
+func TestCandidateFullyVisible(t *testing.T) {
+	cfg := model.Config{Behavior: model.Behavior{CandidateViewportTopInset: 100, CandidateViewportBottomInset: 50}}
+	for _, tc := range []struct {
+		name string
+		box  contract.ElementBox
+		want bool
+	}{
+		{"完整显示", contract.ElementBox{X: 10, Y: 120, Width: 800, Height: 200}, true},
+		{"贴合四边", contract.ElementBox{X: 0, Y: 100, Width: 1200, Height: 750}, true},
+		{"顶部露一点", contract.ElementBox{X: 10, Y: -190, Width: 800, Height: 200}, false},
+		{"顶部被页头遮住", contract.ElementBox{X: 10, Y: 99, Width: 800, Height: 200}, false},
+		{"底部露一点", contract.ElementBox{X: 10, Y: 840, Width: 800, Height: 200}, false},
+		{"底部被底栏遮住", contract.ElementBox{X: 10, Y: 651, Width: 800, Height: 200}, false},
+		{"左边裁切", contract.ElementBox{X: -1, Y: 120, Width: 800, Height: 200}, false},
+		{"右边裁切", contract.ElementBox{X: 401, Y: 120, Width: 800, Height: 200}, false},
+		{"卡片高于屏幕", contract.ElementBox{X: 10, Y: 100, Width: 800, Height: 900}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			view := contract.ElementView{Visible: true, Box: tc.box, Viewport: contract.ViewportSize{Width: 1200, Height: 900}}
+			if got := common.CandidateFullyVisible(view, cfg); got != tc.want {
+				t.Fatalf("完整卡片判断=%v，期望%v", got, tc.want)
 			}
 		})
 	}

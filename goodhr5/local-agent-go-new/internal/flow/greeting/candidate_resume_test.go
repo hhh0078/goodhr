@@ -13,6 +13,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/platform"
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
@@ -252,5 +253,33 @@ func TestCandidateResumeMigrationAndFailedWrites(t *testing.T) {
 	restored, err = (&Flow{Store: store}).prepareCandidateResume(ctx, browser, prepared, &resumeFlowRuntime{}, cursor)
 	if err != nil || restored.record.Point.CandidateID != "" || cursor.StartIndex != 0 {
 		t.Fatalf("锚点消失没有从头：%v %+v", err, cursor)
+	}
+}
+
+// TestRecommendationViewportSkipsHistoricalStorage 验证推荐页不会读取故障或旧断点库，而同平台分页搜索页仍走正常断点读取。
+func TestRecommendationViewportSkipsHistoricalStorage(t *testing.T) {
+	for _, id := range []string{"zhaopin", "51job"} {
+		t.Run(id, func(t *testing.T) {
+			cfg, err := platform.LoadConfig(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, b := resumeFlowFixture()
+			p.Platform = cfg
+			store, err := storage.Open(":memory:")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = store.Close()
+			b.url = cfg.EntryURL
+			session, err := (&Flow{Store: store}).prepareCandidateResume(context.Background(), b, p, &resumeFlowRuntime{}, &model.CandidateListCursor{})
+			if err != nil || session != nil {
+				t.Fatal("推荐页仍尝试读取历史断点", err)
+			}
+			b.url = cfg.ManualSearchURL
+			if _, err := (&Flow{Store: store}).prepareCandidateResume(context.Background(), b, p, &resumeFlowRuntime{}, &model.CandidateListCursor{}); err == nil {
+				t.Fatal("分页搜索页被误改为跳过断点")
+			}
+		})
 	}
 }
