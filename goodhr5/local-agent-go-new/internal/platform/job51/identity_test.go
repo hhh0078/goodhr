@@ -53,24 +53,28 @@ func (s *identityScopeStub) Scroll(_ context.Context, request contract.ScrollReq
 	return contract.ScrollResult{After: &contract.ElementView{Box: contract.ElementBox{X: 20, Y: y, Width: 700, Height: 200}, Viewport: contract.ViewportSize{Width: s.width, Height: 1040}, Visible: true}}, nil
 }
 
-// TestCandidateScrollNearEdgeFinishesOnce 验证Mac真页所见30轮后只差4像素可有限收尾，所有不明确或未进展错误原样停止。
+// TestCandidateScrollNearEdgeFinishesOnce 验证30轮后近边缘或远距离均只补一次，远处放大步长并设上限，不明确或无进展错误原样停止。
 func TestCandidateScrollNearEdgeFinishesOnce(t *testing.T) {
 	for _, item := range []struct {
-		name    string
-		code    string
-		step    string
-		details string
-		cancel  bool
-		finish  bool
+		name     string
+		code     string
+		step     string
+		details  string
+		cancel   bool
+		finish   bool
+		distance int
 	}{
-		{"差4像素", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":4}`, false, true},
-		{"取整为0像素", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":0}`, false, true},
-		{"仍相隔很远", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":49}`, false, false},
-		{"无进展", "SCROLL_NO_PROGRESS", "wheel", `{"attempts":30,"remaining_distance":4}`, false, false},
-		{"浏览器断开", "BROWSER_NOT_RUNNING", "scroll", `{"attempts":30,"remaining_distance":4}`, false, false},
-		{"缺少距离", "SCROLL_FAILED", "scroll", `{"attempts":30}`, false, false},
-		{"轮数未满", "SCROLL_FAILED", "scroll", `{"attempts":3,"remaining_distance":4}`, false, false},
-		{"任务取消", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":4}`, true, false},
+		{"差4像素", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":4}`, false, true, 260},
+		{"取整为0像素", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":0}`, false, true, 260},
+		{"差49像素", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":49}`, false, true, 260},
+		{"远距离", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":6000}`, false, true, 1500},
+		{"步长上限", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":1000000}`, false, true, 10000},
+		{"负距离", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":-1}`, false, false, 0},
+		{"无进展", "SCROLL_NO_PROGRESS", "wheel", `{"attempts":30,"remaining_distance":4}`, false, false, 0},
+		{"浏览器断开", "BROWSER_NOT_RUNNING", "scroll", `{"attempts":30,"remaining_distance":4}`, false, false, 0},
+		{"缺少距离", "SCROLL_FAILED", "scroll", `{"attempts":30}`, false, false, 0},
+		{"轮数未满", "SCROLL_FAILED", "scroll", `{"attempts":3,"remaining_distance":4}`, false, false, 0},
+		{"任务取消", "SCROLL_FAILED", "scroll", `{"attempts":30,"remaining_distance":4}`, true, false, 0},
 	} {
 		t.Run(item.name, func(t *testing.T) {
 			failure := &contract.WorkerError{Body: contract.WorkerErrorBody{Code: item.code, Step: item.step, Details: json.RawMessage(item.details)}}
@@ -96,7 +100,8 @@ func TestCandidateScrollNearEdgeFinishesOnce(t *testing.T) {
 				t.Fatalf("近边缘收尾失败：%v", err)
 			}
 			want := request
-			want.MaxAttempts = 20
+			want.MaxAttempts = 40
+			want.Distance = item.distance
 			if !reflect.DeepEqual(browser.scrolls[1], want) {
 				t.Fatal("收尾必须保留同一目标与完整可见要求")
 			}
@@ -309,5 +314,20 @@ func TestIdentityScopeRejectsAmbiguousOrChangedFormats(t *testing.T) {
 		if err == nil || len(browser.scrolls) != 0 {
 			t.Fatal("身份不能唯一确认时必须停下")
 		}
+	}
+}
+
+// TestCandidateScrollHeaderSmallGapKeepsUsableWheel 验证真页只差十几像素时仍使用足够的真实滚轮步长，并复核同一目标已经避开页头。
+func TestCandidateScrollHeaderSmallGapKeepsUsableWheel(t *testing.T) {
+	viewport := contract.ViewportSize{Width: 1280, Height: 775}
+	browser := &identityScopeStub{source: `<li id="RESUME_CARD_1000010">合成人选 28岁</li>`, views: []contract.ElementView{
+		{Box: contract.ElementBox{X: 88, Y: 196.4, Width: 1252, Height: 186.4}, Viewport: viewport, Visible: true},
+		{Box: contract.ElementBox{X: 88, Y: 245, Width: 1252, Height: 186.4}, Viewport: viewport, Visible: true},
+	}}
+	if err := NewRuntime().ScrollToCandidate(context.Background(), browser, loadPositionConfig(t), greetCandidateFixture()); err != nil {
+		t.Fatal(err)
+	}
+	if len(browser.scrolls) != 3 || browser.scrolls[1].Distance != -120 || browser.scrolls[1].Target != nil || browser.scrolls[2].Target == nil {
+		t.Fatalf("页头小距离没有使用足够步长并复核：%+v", browser.scrolls)
 	}
 }
