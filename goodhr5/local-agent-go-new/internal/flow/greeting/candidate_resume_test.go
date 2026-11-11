@@ -23,6 +23,15 @@ type resumeFlowRuntime struct {
 	common.CandidateResumeTracker
 }
 
+// resumeProviderRuntime 模拟正式日志封装只显式交付底层断点接口，其他方法继续由原运行时执行。
+type resumeProviderRuntime struct {
+	model.Runtime
+	resumer model.CandidateListResumer
+}
+
+// CandidateListResumer 返回已有平台的可选断点能力，不支持时保持 nil。
+func (r resumeProviderRuntime) CandidateListResumer() model.CandidateListResumer { return r.resumer }
+
 // FindCandidates 让补处理测试复用真实公共名单与断点实现，不模拟发送或平台脚本。
 func (r *resumeFlowRuntime) FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, options model.CandidateListOptions) ([]model.Candidate, error) {
 	rows, err := common.FindCandidates(ctx, browser, cfg, cfg.ID, options)
@@ -71,7 +80,7 @@ func TestCandidateResumePersistsFailuresAndLatestSuccess(t *testing.T) {
 	prepared, browser := resumeFlowFixture()
 	runtime := &resumeFlowRuntime{}
 	flow := &Flow{Store: store}
-	resume, err := flow.prepareCandidateResume(ctx, browser, prepared, runtime, &model.CandidateListCursor{})
+	resume, err := flow.prepareCandidateResume(ctx, browser, prepared, resumeProviderRuntime{runtime, runtime}, &model.CandidateListCursor{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +128,7 @@ func TestCandidateResumePersistsFailuresAndLatestSuccess(t *testing.T) {
 	defer reopened.Close()
 	cursor := &model.CandidateListCursor{}
 	runtime = &resumeFlowRuntime{}
-	restored, err := (&Flow{Store: reopened}).prepareCandidateResume(ctx, browser, prepared, runtime, cursor)
+	restored, err := (&Flow{Store: reopened}).prepareCandidateResume(ctx, browser, prepared, resumeProviderRuntime{runtime, runtime}, cursor)
 	if err != nil || restored.record.Point != latestPoint || cursor.StartIndex != 2 {
 		t.Fatalf("重启后恢复错误：%+v %v %+v", restored, err, cursor)
 	}
