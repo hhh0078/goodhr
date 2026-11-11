@@ -343,7 +343,8 @@ class Rehearsal:
         # PG18的真实PGDATA位于挂载根下面；显式chmod避免umask077阻断降权后的目录穿越，真实数据目录仍由官方入口保护为0700。
         data_path.chmod(0o755)
         require(stat.S_IMODE(data_path.stat().st_mode) == 0o755 and all(stat.S_IMODE(path.stat().st_mode) == 0o700 for path in (self.directory, self.root)), "隔离挂载根必须为0755，外层隔离和发布目录必须保持0700")
-        self.pg = self.own(self.prefix + "-pg", {"Image": self.pg_image["Id"], "Env": ["POSTGRES_USER=postgres", "POSTGRES_DB=" + self.args.database, "POSTGRES_PASSWORD=" + self.password], "HostConfig": {"NetworkMode": self.prefix, "Memory": 384 * 1024**2, "Binds": [str(data_path) + ":" + volumes[0]]}})
+        # 临时恢复库无需保留大量WAL；限制其软预算，为完整排序摘要的临时文件留空间，生产PG不变。
+        self.pg = self.own(self.prefix + "-pg", {"Image": self.pg_image["Id"], "Cmd": ["postgres", "-c", "max_wal_size=128MB", "-c", "min_wal_size=64MB"], "Env": ["POSTGRES_USER=postgres", "POSTGRES_DB=" + self.args.database, "POSTGRES_PASSWORD=" + self.password], "HostConfig": {"NetworkMode": self.prefix, "Memory": 384 * 1024**2, "Binds": [str(data_path) + ":" + volumes[0]]}})
         self.engine.start(self.pg)
         for attempt in range(40):
             try:
