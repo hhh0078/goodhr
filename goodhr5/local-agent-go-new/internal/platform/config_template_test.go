@@ -185,10 +185,14 @@ func TestLoadConfigUsesSafeBossDetailTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取 Boss 本地配置失败：%v", err)
 	}
-	selector := cfg.Selectors["candidate.open_target"]
-	if len(selector.Target.Selectors) != 1 ||
-		selector.Target.Selectors[0].Value != ".row:has(> .base-info.join-text-wrap)" {
-		t.Fatalf("Boss 详情入口必须保持为不包含头像的安全小区域：%+v", selector.Target.Selectors)
+	variants := cfg.Selectors["candidate.open_target"].Variants()
+	if len(variants) != 2 {
+		t.Fatalf("Boss 必须按数组保留新旧两种安全入口：%+v", variants)
+	}
+	for index, expected := range []string{".row:has(> .base-info.join-text-wrap)", ".base-info.join-text-wrap"} {
+		if len(variants[index].Target.Selectors) != 1 || variants[index].Target.Selectors[0].Value != expected {
+			t.Fatalf("Boss 第%d条详情入口应保留安全小区域：%+v", index+1, variants[index].Target.Selectors)
+		}
 	}
 }
 

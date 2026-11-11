@@ -81,7 +81,8 @@ func TestHotSearchWholeCardBrowser(t *testing.T) {
 			// 外层标题在候选人小卡片之外，并故意提供招呼按钮，必须仍然直接跳过。
 			fmt.Fprint(w, `<section class="promotion"><h3>热搜牛人推荐</h3><a onclick="fetch('/promo-click')">查看更多</a><div class="promotion-body"><div class="candidate-card-wrap"><span class="name">尚先生</span><span>热搜</span><span>首页推荐</span><button class="btn btn-greet" onclick="fetch('/promo-click')">打招呼</button><div class="base-info join-text-wrap" onclick="fetch('/promo-click')">31岁 本科 嵌入式开发</div></div></div></section>`)
 			fmt.Fprint(w, `<div class="candidate-card-wrap"><h3>热搜牛人推荐</h3><span class="name">李先生</span><div class="base-info join-text-wrap" onclick="fetch('/promo-click')">29岁 本科 嵌入式开发</div></div>`)
-			fmt.Fprint(w, `<div class="normal-wrapper"><div class="candidate-card-wrap"><span class="name" onclick="fetch('/promo-click')">王先生</span><button class="btn btn-greet" onclick="fetch('/promo-click')">打招呼</button><div class="row" onclick="parent.showDetail('王先生')"><div class="base-info join-text-wrap">34岁 本科 嵌入式开发</div></div></div></div></div><div style="height:80px"></div></div>`)
+			// 旧版没有外层 row，摘要本身接收鼠标；必须由数组的旧入口打开。
+			fmt.Fprint(w, `<div class="normal-wrapper"><div class="candidate-card-wrap"><span class="name" onclick="fetch('/promo-click')">王先生</span><button class="btn btn-greet" onclick="fetch('/promo-click')">打招呼</button><div class="base-info join-text-wrap" style="pointer-events:auto" onclick="parent.showDetail('王先生')">34岁 本科 嵌入式开发</div></div></div></div><div style="height:80px"></div></div>`)
 		case "/web/frame/c-resume/":
 			fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><button class="resume-custom-close" onclick="parent.closeDetail()">关闭</button><div id="resume" style="width:760px;height:580px">%s 普通候选人详情</div>`, request.URL.Query().Get("name"))
 		case "/promo-click":
@@ -134,5 +135,5 @@ func TestHotSearchWholeCardBrowser(t *testing.T) {
 	if count := promoClicks.Load(); count != 0 {
 		t.Fatalf("热搜卡片、相邻头像和招呼按钮不得被点击，实际点击 %d 次", count)
 	}
-	t.Log("基础信息不接收鼠标事件时，两张普通卡片详情均正常打开；热搜卡片、相邻头像和招呼按钮点击为零；原序号保持不变")
+	t.Log("新旧两种卡片详情均正常打开；数组入口各尝试一次；热搜卡片、相邻头像和招呼按钮点击为零；原序号保持不变")
 }

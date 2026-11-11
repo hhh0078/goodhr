@@ -3,6 +3,7 @@ package common
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -34,36 +35,38 @@ func OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.C
 			resultErr = fmt.Errorf("%w：打开检查失败：%v；关闭结果：%w", model.ErrCandidateDetailCleanupFailed, resultErr, cleanupErr)
 		}
 	}()
-	selector, err := CandidateActionSelector(cfg, "candidate.open_target", candidate)
+	clickSelectors, err := candidateDetailClickSelectors(cfg, candidate)
 	if err != nil {
 		return err
 	}
-	clickSelectors := []contract.SelectorSpec{selector, selector}
-	if _, configured := cfg.Selectors["candidate.open_target_fallback"]; configured {
-		fallback, fallbackErr := CandidateActionSelector(cfg, "candidate.open_target_fallback", candidate)
-		if fallbackErr != nil {
-			return fallbackErr
-		}
-		clickSelectors[1] = fallback
-	}
 	var clickErr error
-	for attempt := 1; attempt <= 2; attempt++ {
-		_, clickErr = browser.Click(ctx, contract.ElementClickRequest{Selector: clickSelectors[attempt-1], ViewportMargin: 16, Diagnostic: true, DiagnosticAttempt: attempt})
-		if clickErr != nil {
-			continue
+	for index, selector := range clickSelectors {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		attempt := index + 1
+		_, clickErr = browser.Click(ctx, contract.ElementClickRequest{Selector: selector, ViewportMargin: 16, Diagnostic: true, DiagnosticAttempt: attempt})
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if clickErr != nil && (errors.Is(clickErr, context.Canceled) || contract.IsSessionUnavailable(clickErr)) {
+			return clickErr
 		}
 		timeoutMS := 1500
-		if attempt == 2 {
+		if attempt == len(clickSelectors) {
 			timeoutMS = 5000
 		}
-		opened, probeErr := candidateDetailOpened(ctx, browser, cfg, timeoutMS, attempt)
-		if probeErr != nil {
-			return probeErr
+		// 明确未按下时可换下一条；结果不确定时先核对详情，避免对已经打开的弹窗重复点击。
+		if clickErr == nil || !messageClickNotStarted(clickErr) {
+			opened, probeErr := candidateDetailOpened(ctx, browser, cfg, timeoutMS, attempt)
+			if probeErr != nil {
+				return probeErr
+			}
+			if opened {
+				return nil
+			}
 		}
-		if opened {
-			return nil
-		}
-		if dialog, configured := cfg.Selectors["candidate.detail_dialog"]; configured && attempt == 1 {
+		if dialog, configured := cfg.Selectors["candidate.detail_dialog"]; configured {
 			dialog.TimeoutMS = 250
 			items, dialogErr := browser.FindAll(ctx, contract.ElementFindAllRequest{
 				Selector: dialog, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true, Diagnostic: true, DiagnosticAttempt: attempt,
@@ -73,7 +76,7 @@ func OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.C
 			}
 			if len(items) > 0 {
 				// 弹窗已经遮住卡片时只等待正文，不再点击背后的候选人入口。
-				opened, probeErr = candidateDetailOpened(ctx, browser, cfg, 5000, 2)
+				opened, probeErr := candidateDetailOpened(ctx, browser, cfg, 5000, attempt)
 				if probeErr != nil {
 					return probeErr
 				}
@@ -88,6 +91,45 @@ func OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.C
 		return clickErr
 	}
 	return fmt.Errorf("%w：候选人详情入口操作后正文仍未出现", model.ErrCandidateDetailUnavailable)
+}
+
+// candidateDetailClickSelectors 按配置顺序展开完整路径数组和目标数组，每条相同定位只保留一次，并兼容旧降级入口。
+// cfg 为平台本地配置，candidate 的身份约束会保留到每条独立点击请求，所有系统复用同一实现。
+func candidateDetailClickSelectors(cfg model.Config, candidate model.Candidate) ([]contract.SelectorSpec, error) {
+	var result []contract.SelectorSpec
+	seen := make(map[string]bool)
+	for _, key := range []string{"candidate.open_target", "candidate.open_target_fallback"} {
+		if _, exists := cfg.Selectors[key]; !exists && key == "candidate.open_target_fallback" {
+			continue
+		}
+		selector, err := CandidateActionSelector(cfg, key, candidate)
+		if err != nil {
+			return nil, err
+		}
+		for _, variant := range selector.Variants() {
+			for _, target := range variant.Target.Selectors {
+				if strings.TrimSpace(target.Value) == "" {
+					return nil, fmt.Errorf("详情入口配置中有空选择器")
+				}
+				single := variant
+				single.Target.Selectors = []contract.SelectorCandidate{target}
+				identity := single
+				identity.Description = ""
+				encoded, err := json.Marshal(identity)
+				if err != nil {
+					return nil, fmt.Errorf("核对详情入口配置失败：%w", err)
+				}
+				if !seen[string(encoded)] {
+					seen[string(encoded)] = true
+					result = append(result, single)
+				}
+			}
+		}
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("候选人详情入口未配置可用选择器")
+	}
+	return result, nil
 }
 
 // candidateDetailOpened 只检查详情是否出现，保留预期缺失的逐层证据，避免读取正文干扰打开判断。
