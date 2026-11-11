@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from release_activate import verify_application_source
+from release_cutover import CutoverError
 
 
 SCRIPT = Path(__file__).with_name("production-release.sh")
@@ -31,7 +33,15 @@ class ProductionSourceTests(unittest.TestCase):
             def check(action, tool_commit=tools):
                 """通过位置参数安全加载真实正式门禁，保留原应用身份。"""
                 command = 'source "$1"; action="$2"; GOODHR_SOURCE_COMMIT="$3"; production_tool_commit="$4"; production_check_source'
-                return subprocess.run(["bash", "-c", command, "source-test", str(SCRIPT), action, original, tool_commit], cwd=root, capture_output=True).returncode
+                result = subprocess.run(["bash", "-c", command, "source-test", str(SCRIPT), action, original, tool_commit], cwd=root, capture_output=True).returncode
+                if action == "--activate-only":
+                    try:
+                        verify_application_source(root, original, tool_commit)
+                        python_passed = True
+                    except CutoverError:
+                        python_passed = False
+                    self.assertEqual(python_passed, result == 0)
+                return result
             self.assertEqual(check("--activate-only"), 0)
             self.assertNotEqual(check("--build-only"), 0)
             app.write_text("应用改动不能沿用旧验收")

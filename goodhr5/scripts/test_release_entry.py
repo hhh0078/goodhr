@@ -26,6 +26,7 @@ PREPARE_FIXTURE = '''
 # 文件作用：仅测试使用的prepare替身，不访问真实发布目录、部署锁或Docker存储。
 production_prepare() {
   export GOODHR_SOURCE_COMMIT="${GOODHR_SOURCE_COMMIT:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}"
+  production_tool_commit="$GOODHR_SOURCE_COMMIT"
   export GOODHR_RELEASE_IMAGE_TAG="${GOODHR_RELEASE_IMAGE_TAG:-fixture-tag}"
   export GOODHR_BACKEND_DOCKERFILE_SHA=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   export GOODHR_FRONTEND_DOCKERFILE_SHA=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

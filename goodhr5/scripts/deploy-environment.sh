@@ -109,6 +109,7 @@ if [[ "$mode" == build ]]; then
   python3 "$root/scripts/release_activate.py" \
     --release-dir "$production_release_dir" --release-id "$GOODHR_RELEASE_IMAGE_TAG" \
     --source-commit "$GOODHR_SOURCE_COMMIT" \
+    --tool-commit "$production_tool_commit" \
     --backend-image "$production_backend_id" --frontend-image "$production_frontend_id" \
     --backend-dockerfile-sha "$GOODHR_BACKEND_DOCKERFILE_SHA" \
     --frontend-dockerfile-sha "$GOODHR_FRONTEND_DOCKERFILE_SHA" \

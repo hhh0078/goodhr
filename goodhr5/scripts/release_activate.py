@@ -201,6 +201,20 @@ def wait_health(url):
     raise CutoverError("正式服务健康检查未通过")
 
 
+def verify_application_source(source, application_commit, tool_commit):
+    """验证干净工具提交及原应用输入完全一致，允许仅发布工具修复，禁止替换已验收应用身份。"""
+    require(COMMIT.fullmatch(application_commit) and COMMIT.fullmatch(tool_commit), "应用或工具提交不完整")
+    commands = (["git", "rev-parse", "HEAD"], ["git", "status", "--porcelain", "--untracked-files=normal"])
+    results = [subprocess.run(command, cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30) for command in commands]
+    require(all(result.returncode == 0 for result in results) and results[0].stdout.decode().strip() == tool_commit
+            and not results[1].stdout.strip(), "激活前发布工具提交或工作区发生变化")
+    if application_commit != tool_commit:
+        result = subprocess.run(["git", "diff", "--quiet", application_commit, tool_commit, "--", "cloud/backend",
+                                 "cloud/frontend-next", "docker-compose.build.yml", "environments/production.env"],
+                                cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        require(result.returncode == 0, "候选应用输入已经改变，不能沿用旧验收")
+
+
 class Activation:
     """在调用方已持发布锁后执行可回退的双服务切换，依赖可注入以测试故障边界。"""
 
@@ -388,7 +402,9 @@ def main():
     parser = argparse.ArgumentParser(description="保留原运行参数的GoodHR正式镜像激活")
     for argument in ("release-dir", "release-id", "source-commit", "backend-image", "frontend-image", "backend-dockerfile-sha", "frontend-dockerfile-sha", "backend-url", "frontend-url", "evidence", "registry"):
         parser.add_argument("--" + argument, required=True)
+    parser.add_argument("--tool-commit")
     args = parser.parse_args()
+    args.tool_commit = args.tool_commit or args.source_commit
 
     def interrupted(signum, frame):
         """interrupted 把常见退出信号转成受控异常，让已开始的切换先恢复原两端。"""
@@ -406,9 +422,7 @@ def main():
 
     def gate():
         """gate 在配置备份后再次检查干净源码和实时账本，拒绝验收后漂移。"""
-        commands = (["git", "rev-parse", "HEAD"], ["git", "status", "--porcelain", "--untracked-files=normal"])
-        results = [subprocess.run(command, cwd=source_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30) for command in commands]
-        require(all(result.returncode == 0 for result in results) and results[0].stdout.decode().strip() == args.source_commit and not results[1].stdout.strip(), "激活前源码提交或工作区发生变化")
+        verify_application_source(source_root, args.source_commit, args.tool_commit)
         evidence_path = Path(args.evidence)
         require(evidence_path.is_file() and not evidence_path.is_symlink() and evidence_path.resolve() == evidence_path, "隔离验收证据路径不安全")
         evidence_bytes = evidence_path.read_bytes()
@@ -428,6 +442,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (CutoverError, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
-        print("正式激活未完成，请核对本次受限配置快照和 activation-journal.json；未操作数据库或删除镜像。", file=sys.stderr)
+    except (CutoverError, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+        reason = str(error) if isinstance(error, CutoverError) else "运行检查未通过，请查看私有发布材料"
+        print(json.dumps({"正式激活未完成": reason, "error_type": type(error).__name__}, ensure_ascii=False), file=sys.stderr)
         sys.exit(1)
