@@ -1,10 +1,14 @@
 // Package boss 实现 Boss 直聘平台的页面、候选人和消息能力。
 package boss
 
-import "goodhr5/local-agent-go-new/internal/browser/contract"
+import (
+	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/platform/common"
+)
 
 // Runtime 是 Boss 直聘平台运行时。
 type Runtime struct {
+	common.CandidateResumeTracker
 	contactRows map[string]contract.FindAllItem // 仅缓存本轮已核实的页面行，聊天与处理水位仍由服务器保存。
 }
 

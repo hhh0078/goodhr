@@ -1305,6 +1305,8 @@
     }
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
+  "candidate_resume_fields": ["name", "education"],
+  "_comment_candidate_resume_fields": "姓名与基础信息行联合核对；education已兼容新旧年龄/经验/学历区域，不使用含活跃时间的整个job-card-left，也不依赖招呼按钮文字。",
   "candidate_fields": {
     "card_text": {
       "_comment": "读取整张卡片及外层推荐标题；向上扩展时只能包含当前一个候选人，且不能越过候选人列表，避免波及相邻普通卡片。",

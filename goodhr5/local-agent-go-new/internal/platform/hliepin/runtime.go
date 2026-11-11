@@ -1,8 +1,11 @@
 // Package hliepin 实现猎聘猎头端平台的页面、候选人和消息能力。
 package hliepin
 
+import "goodhr5/local-agent-go-new/internal/platform/common"
+
 // Runtime 是猎聘猎头端平台运行时，保存当前单任务的岗位和开聊方式。
 type Runtime struct {
+	common.CandidateResumeTracker
 	positionName    string
 	detailReturnURL string
 	detailURL       string // 本次打开的完整详情地址，仅用于确认补关对象，不输出到日志。
