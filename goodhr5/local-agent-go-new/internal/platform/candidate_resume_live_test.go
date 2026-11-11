@@ -72,9 +72,15 @@ func TestCandidateResumeExistingPageLive(t *testing.T) {
 	if err != nil || len(next) < 2 {
 		t.Fatalf("恢复后读取失败：%v", err)
 	}
-	overlap, ok := freshResume.CandidateResumePoint(next[0])
-	if id != "51job" && (!ok || overlap != point || next[1].Fingerprint != rows[2].Fingerprint) {
-		t.Fatal("没有恢复到原锚点及下一人")
+	if id == "51job" {
+		if nextCursor.StartIndex != rows[1].Index+1 || next[0].Fingerprint != rows[2].Fingerprint {
+			t.Fatal("前程无忧未从最后完成者的下一人继续")
+		}
+	} else {
+		overlap, ok := freshResume.CandidateResumePoint(next[0])
+		if !ok || overlap != point || next[1].Fingerprint != rows[2].Fingerprint {
+			t.Fatal("没有恢复到原锚点及下一人")
+		}
 	}
 	t.Logf("%s真实页面只读通过：断点序列化后重建运行时，恢复行号%d；下一人一致；未点击、未发消息、未写用户数据库", id, nextCursor.StartIndex)
 }
