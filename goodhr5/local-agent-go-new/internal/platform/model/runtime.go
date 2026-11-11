@@ -77,6 +77,7 @@ type ConfiguredAction struct {
 
 // Behavior 表示平台翻页、详情和岗位选择行为。
 type Behavior struct {
+	CandidateResumeByIdentity   bool   `json:"candidate_resume_by_identity"`    // 推荐列表按唯一身份寻找断点，允许真实滚轮分批加载；零值保留严格前缀核对。
 	SkipGreetingPhoneRequest    bool   `json:"skip_greeting_phone_request"`     // 主动打招呼忽略电话索要勾选；零值保留其他平台行为。
 	SkipGreetingInfoRequests    bool   `json:"skip_greeting_info_requests"`     // 仅主动打招呼跳过电话、微信和简历索要；零值保留原行为，不影响自动回复。
 	AutoReplyAllContactInbox    bool   `json:"auto_reply_all_contact_inbox"`    // 扫描全部联系人，主流程按本机水位发现待核实的消息。

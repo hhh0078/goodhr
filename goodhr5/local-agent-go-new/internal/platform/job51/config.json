@@ -44,6 +44,8 @@
   "candidate_batch_size": 20,
   "_comment_candidate_batch_size": "仅候选人按20人小批读取；加载更多和重启恢复复用同一上限，避免整批50至100人读取超过Worker时限。",
   "behavior": {
+    "candidate_resume_by_identity": true,
+    "_comment_candidate_resume_by_identity": "推荐页先按唯一候选人身份查找上次位置，未加载时使用真实滚轮分批寻找；身份重复或确实找不到才从头。",
     "_comment": "两页共用无限滚动列表，搜索页保留用户筛选，推荐页沿用原选岗流程；独立自动回复与附件下载尚未适配。",
     "skip_greeting_phone_request": true,
     "_comment_skip_greeting_phone_request": "没有可用的索要电话按钮，忽略电话勾选，不发文字、不为电话打开聊天；微信和邀投递保留。",

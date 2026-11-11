@@ -11,7 +11,7 @@ type CandidateResumePoint struct {
 
 // CandidateListResumer 由具备可靠公开编号的平台实现；其他平台保持原有启动行为。
 type CandidateListResumer interface {
-	// RestoreCandidateList 只读核对已保存的位置，成功时更新本次游标；找不到返回false，读取错误继续返回。
+	// RestoreCandidateList 用标准读取和必要的真实滚轮找回位置，不点击或切岗；找不到返回false，读取错误继续返回。
 	RestoreCandidateList(context.Context, Browser, Config, CandidateResumePoint, *CandidateListCursor) (bool, error)
 	// CandidateResumePoint 交付本批已核实的候选人断点，主流程确认处理完成后才允许持久化。
 	CandidateResumePoint(Candidate) (CandidateResumePoint, bool)

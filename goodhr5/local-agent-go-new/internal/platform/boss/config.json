@@ -37,6 +37,8 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "candidate_resume_by_identity": true,
+    "_comment_candidate_resume_by_identity": "推荐页先按唯一候选人身份查找上次位置，未加载时使用真实滚轮分批寻找；身份重复或确实找不到才从头。",
     "_comment": "Boss 页面行为开关。",
     "skip_greeting_info_requests": true,
     "_comment_skip_greeting_info_requests": "主动打招呼不支持索要简历、手机号和微信，忽略岗位勾选且不为索要打开聊天；自动回复沿用原逻辑。",

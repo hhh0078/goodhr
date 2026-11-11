@@ -6,6 +6,7 @@ import "goodhr5/local-agent-go-new/internal/platform/model"
 // Runtime 是前程无忧平台运行时。
 type Runtime struct {
 	positionName   string
+	manualSearch   bool // 搜索页保留原名单顺序核对，推荐页允许按公开编号找回换序后的锚点。
 	resumeTracking bool
 	resumePoints   map[string]model.CandidateResumePoint
 }

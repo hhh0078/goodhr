@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
@@ -19,8 +20,8 @@ type CandidateResumeTracker struct {
 	points  map[int]model.CandidateResumePoint
 }
 
-// RestoreCandidateList 分批核对当前已加载名单，唯一身份和完整前缀均一致才恢复，读取失败不能冒充找不到。
-// 缺少平台编号时使用姓名、基本信息与经历的联合摘要；同摘要重复或字段变化均从头，不用姓名年龄猜位置。
+// RestoreCandidateList 分批核对唯一身份；启用推荐续跑的平台允许前缀换序，并在尚未加载时沿原链路继续寻找。
+// 完整前缀模式保持原有保护；任何读取、滚动或取消错误都原样返回，不冒充找不到并清除断点。
 func (r *CandidateResumeTracker) RestoreCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, point model.CandidateResumePoint, cursor *model.CandidateListCursor) (bool, error) {
 	r.enabled, r.keys, r.points = true, nil, nil
 	if cursor == nil {
@@ -30,16 +31,62 @@ func (r *CandidateResumeTracker) RestoreCandidateList(ctx context.Context, brows
 	if point.CandidateID == "" || point.PrefixHash == "" {
 		return false, nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	loadNext := cfg.Behavior.CandidateResumeByIdentity
+	for {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		keys, identities, err := readCandidateResumeSnapshot(ctx, browser, cfg)
+		if err != nil {
+			return false, err
+		}
+		matchIndex, matches := -1, 0
+		for index, key := range keys {
+			if key == point.CandidateID {
+				matches++
+				if cfg.Behavior.CandidateResumeByIdentity || HashText(strings.Join(keys[:index+1], "\n")) == point.PrefixHash {
+					matchIndex = index
+				}
+			}
+		}
+		if matches == 1 && matchIndex >= 0 {
+			r.keys = keys
+			cursor.StartIndex = matchIndex
+			// 主流程重叠读取锚点，必须恢复前面同名同龄者的计数，避免按默认第一个人定位。
+			if cfg.Behavior.CandidateResumeByIdentity {
+				cursor.IdentityOccurrences = make(map[string]int)
+				for _, identity := range identities[:matchIndex] {
+					cursor.IdentityOccurrences[identity]++
+				}
+			}
+			return true, nil
+		}
+		if matches > 0 || !loadNext {
+			r.keys = nil
+			return false, nil
+		}
+		loadNext, err = LoadMoreResumeCandidates(ctx, browser, cfg)
+		if err != nil {
+			return false, err
+		}
+		// 没有新增时仍再核对一次，避免等待期间锚点刚出现却直接从头。
+	}
+}
+
+// readCandidateResumeSnapshot 每批最多读取20人的最小身份，同时还原正常读取使用的姓名年龄定位键。
+func readCandidateResumeSnapshot(ctx context.Context, browser model.Browser, cfg model.Config) ([]string, []string, error) {
 	selector, err := RequiredSelector(cfg, "candidate.item")
 	if err != nil {
-		return false, err
+		return nil, nil, err
 	}
-	selector.TimeoutMS = 1 // 显式短探测；Go的零值会省略字段并变成Worker默认等待。
+	selector.TimeoutMS = 1
 	fields := candidateResumeFields(cfg)
 	if len(fields) == 0 {
-		return false, nil
+		return nil, nil, nil
 	}
-	matchIndex, matches := -1, 0
+	var keys, identities []string
 	for start := 0; ; start += 20 {
 		items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, StartIndex: start, MaxItems: 20,
 			Fields: fields, ReadConcurrency: 5, ExpectedMissing: true})
@@ -47,32 +94,20 @@ func (r *CandidateResumeTracker) RestoreCandidateList(ctx context.Context, brows
 			break
 		}
 		if err != nil {
-			return false, err
+			return nil, nil, err
 		}
 		for _, item := range items {
-			if item.Index != len(r.keys) {
-				return false, nil // 标准读取发现名单变化或漏行时，不拼接不同版本的名单。
+			if item.Index != len(keys) {
+				return nil, nil, fmt.Errorf("候选人名单正在刷新，断点暂不改动，请稍后再开始")
 			}
-			key := candidateResumeIdentity(cfg, item.Fields)
-			r.keys = append(r.keys, key)
-			if key == point.CandidateID {
-				matches++
-				if HashText(strings.Join(r.keys, "\n")) == point.PrefixHash {
-					matchIndex = item.Index
-				}
-			}
+			keys = append(keys, candidateResumeIdentity(cfg, item.Fields))
+			identities = append(identities, strings.Join(CandidateIdentityTexts(item.Fields["name"], item.Fields, item.Text), "\x00"))
 		}
 		if len(items) < 20 {
 			break
 		}
 	}
-	if matches != 1 || matchIndex < 0 {
-		r.keys = nil
-		return false, nil
-	}
-	// 重叠一张完成者供主流程去重，并保留分页和列表到底判断所需的真实尾部卡片。
-	cursor.StartIndex = matchIndex
-	return true, nil
+	return keys, identities, nil
 }
 
 // RememberCandidateResume 记住本批所有原始行的身份摘要，已过滤的推广行也占真实序号，不因此错位。
