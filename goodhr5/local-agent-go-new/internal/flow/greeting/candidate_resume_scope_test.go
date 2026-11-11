@@ -1,87 +1,25 @@
-// Package greeting 文件作用：验证BOSS停止重启的条件等价、旧断点迁移、真实条件隔离与变化原因，所有进度仅写测试库。
+// Package greeting 文件作用：验证智联正常断点的旧版摘要迁移和条件隔离；BOSS不再使用历史断点。
 package greeting
 
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
-	"strings"
-	"testing"
-
 	"goodhr5/local-agent-go-new/internal/platform"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"path/filepath"
+	"strings"
+	"testing"
 )
 
-// TestBossResumeEquivalentScope 验证BOSS推荐页只忽略声明的追踪参数及默认开启值，真实筛选、页面、岗位要求和禁发开关仍隔离。
-func TestBossResumeEquivalentScope(t *testing.T) {
-	p, _ := resumeFlowFixture()
-	cfg, err := platform.LoadConfig("boss")
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.Platform = cfg
-	_, want, _, err := candidateResumeScopeHashes(p, cfg.EntryURL, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 先证明旧版确实把同一开启语义算成不同条件，覆盖用户日志中的误判路径。
-	_, oldDefault, _, _ := candidateResumeScopeHashes(p, cfg.EntryURL, false)
-	enabled := true
-	explicit := p
-	explicit.Request.EnableGreet = &enabled
-	_, oldExplicit, _, _ := candidateResumeScopeHashes(explicit, cfg.EntryURL, false)
-	if oldDefault == oldExplicit {
-		t.Fatal("旧版误判场景未复现")
-	}
-
-	for _, kind := range []string{"默认与开启", "追踪参数", "筛选参数", "其他页面", "岗位要求", "关闭打招呼", "搜索页追踪参数"} {
-		t.Run(kind, func(t *testing.T) {
-			changed := p
-			page := cfg.EntryURL
-			equivalent := false
-			switch kind {
-			case "默认与开启":
-				enabled := true
-				changed.Request.EnableGreet = &enabled
-				equivalent = true
-			case "追踪参数":
-				page += "?ka=fixture&lid=trace&_=" + "123"
-				equivalent = true
-			case "筛选参数":
-				page += "?city=101&page=2"
-			case "其他页面":
-				page = "https://www.zhipin.com/web/chat/search"
-			case "岗位要求":
-				changed.Position.Description = "不同的岗位要求"
-			case "关闭打招呼":
-				disabled := false
-				changed.Request.EnableGreet = &disabled
-			case "搜索页追踪参数":
-				changed.Platform.EntryURL = "https://example.invalid/recommend"
-				page += "?ka=fixture"
-			}
-			_, got, _, err := candidateResumeScopeHashes(changed, page, true)
-			if err != nil || (got == want) != equivalent {
-				t.Fatalf("条件隔离不正确：%s %v", kind, err)
-			}
-		})
-	}
-	// 非BOSS平台没有配置白名单时，查询参数仍原样隔离，避免改变搜索页行为。
-	p.Platform.CandidateResumeIgnoredQueryKeys = nil
-	if candidateResumePageURL(p, cfg.EntryURL+"?ka=keep") != cfg.EntryURL+"?ka=keep" {
-		t.Fatal("未配置平台的参数被移除")
-	}
-}
-
-// TestBossStopRestartWithScopeMigration 使用正式BOSS运行时、SQLite重开及新任务，验证默认开启/显式开启切换和旧记录均接着下一人。
-func TestBossStopRestartWithScopeMigration(t *testing.T) {
+// TestResumeStopRestartWithScopeMigration 使用正式智联运行时、SQLite重开及新任务，验证默认开启/显式开启切换和旧记录均接着下一人。
+func TestResumeStopRestartWithScopeMigration(t *testing.T) {
 	for _, legacy := range []bool{false, true} {
 		for _, direction := range []bool{false, true} {
 			t.Run(map[bool]string{false: "新版", true: "旧版"}[legacy]+map[bool]string{false: "默认到开启", true: "开启到默认"}[direction], func(t *testing.T) {
 				ctx := context.Background()
 				p, browser := resumeFlowFixture()
-				cfg, err := platform.LoadConfig("boss")
+				cfg, err := platform.LoadConfig("zhaopin")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -100,7 +38,7 @@ func TestBossStopRestartWithScopeMigration(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				runtime, _ := platform.RuntimeFor("boss")
+				runtime, _ := platform.RuntimeFor("zhaopin")
 				session, err := (&Flow{Store: store}).prepareCandidateResume(ctx, browser, p, resumeProviderRuntime{runtime, runtime.(model.CandidateListResumer)}, &model.CandidateListCursor{})
 				if err != nil {
 					t.Fatal(err)
@@ -141,10 +79,7 @@ func TestBossStopRestartWithScopeMigration(t *testing.T) {
 				}
 				p.Request.TaskID = "restarted-task"
 				p.Position.ScannedCount = 999
-				if !legacy {
-					browser.url += "?ka=new&lid=another&_=456"
-				}
-				runtime, _ = platform.RuntimeFor("boss")
+				runtime, _ = platform.RuntimeFor("zhaopin")
 				cursor := &model.CandidateListCursor{}
 				restored, err := (&Flow{Store: store}).prepareCandidateResume(ctx, browser, p, resumeProviderRuntime{runtime, runtime.(model.CandidateListResumer)}, cursor)
 				if err != nil || restored.record.Point != want || cursor.StartIndex != 1 {
@@ -167,7 +102,7 @@ func TestBossStopRestartWithScopeMigration(t *testing.T) {
 				if reason := candidateResumeChangeReason(oldFields, newFields); !strings.Contains(reason, "岗位要求") || strings.Contains(reason, "页面或筛选参数") {
 					t.Fatal("变化原因不准确", reason)
 				}
-				fresh, _ := platform.RuntimeFor("boss")
+				fresh, _ := platform.RuntimeFor("zhaopin")
 				changed, err := (&Flow{Store: store}).prepareCandidateResume(ctx, browser, p, fresh, &model.CandidateListCursor{})
 				if err != nil || changed.record.Point.CandidateID != "" {
 					t.Fatal("真正修改条件后仍复用了旧断点", err)

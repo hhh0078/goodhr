@@ -37,7 +37,10 @@ func TestCandidateResumeExistingPageLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resumer := runtime.(model.CandidateListResumer)
+	resumer, supported := runtime.(model.CandidateListResumer)
+	if !supported {
+		t.Skip("此平台从当前屏幕开始，不使用历史断点")
+	}
 	browser := client.New(base)
 	cursor := &model.CandidateListCursor{}
 	if _, err := resumer.RestoreCandidateList(ctx, browser, cfg, model.CandidateResumePoint{}, cursor); err != nil {

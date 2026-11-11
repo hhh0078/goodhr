@@ -1,4 +1,4 @@
-// Package greeting 文件作用：在隔离Worker和500张静态合成卡片上验证扫描250人后模拟超时、SQLite重开、补失败者及接着第251人读取，不访问用户账号。
+// Package greeting 文件作用：在隔离Worker和500张静态合成卡片上验证扫描250人后模拟超时、SQLite重开、不回补失败者而接着第251人读取，不访问用户账号。
 package greeting
 
 import (
@@ -38,7 +38,7 @@ func (b *longListTimeoutBrowser) FindAll(ctx context.Context, req contract.Eleme
 	return b.Browser.FindAll(ctx, req)
 }
 
-// TestLongListResumeIsolatedWorker 在显式本机浏览器目录启用，真实读取500张静态卡片中的250人，再核对跨运行补处理及第251人续读。
+// TestLongListResumeIsolatedWorker 在显式本机浏览器目录启用，真实读取500张静态卡片中的250人，再核对跨运行不回补及第251人续读。
 func TestLongListResumeIsolatedWorker(t *testing.T) {
 	browserDir := os.Getenv("GOODHR_JOB51_LONG_LIST_BROWSER_DIR")
 	if browserDir == "" {
@@ -136,7 +136,7 @@ func TestLongListResumeIsolatedWorker(t *testing.T) {
 			}
 		}
 	}
-	if session.record.Point.CandidateID != "1000249" || len(session.record.Pending) != 2 {
+	if session.record.Point.CandidateID != "1000249" {
 		t.Fatal("早期失败仍冻结了第250人进度")
 	}
 	cursor.StartIndex = 250
@@ -159,22 +159,12 @@ func TestLongListResumeIsolatedWorker(t *testing.T) {
 	if err != nil || freshCursor.StartIndex != 250 {
 		t.Fatalf("重开库后没有恢复250行：%+v %v", freshCursor, err)
 	}
-	for _, want := range []int{3, 170} {
-		rows, retrying, err := recovered.retryCandidates(ctx, browser, cfg, fresh, model.CandidateListOptions{Cursor: freshCursor, ReadConcurrency: 5})
-		if err != nil || !retrying || len(rows) != 1 || rows[0].Index != want {
-			t.Fatalf("未正确补处理%d：%v %v", want, retrying, err)
-		}
-		if err := recovered.complete(ctx, rows[0], nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	_, retrying, err := recovered.retryCandidates(ctx, browser, cfg, fresh, model.CandidateListOptions{Cursor: freshCursor, ReadConcurrency: 5})
-	if err != nil || retrying || freshCursor.StartIndex != 250 || len(recovered.record.Pending) != 0 || recovered.record.Point.CandidateID != "1000249" {
-		t.Fatalf("补处理后未回最新位置：%+v %v", freshCursor, err)
+	if recovered.record.Point.CandidateID != "1000249" {
+		t.Fatal("失败者改变了最新进度")
 	}
 	rows, err := fresh.FindCandidates(ctx, browser, cfg, model.CandidateListOptions{Cursor: freshCursor, ReadConcurrency: 5})
 	if err != nil || len(rows) != 20 || rows[0].Index != 250 || rows[0].Fields["platform_candidate_id"] != "1000250" {
 		t.Fatalf("未从第251人继续：数量%d %v", len(rows), err)
 	}
-	t.Logf("隔离真实浏览器通过：500张合成卡片读完250人，模拟下一批超时后重开SQLite，先补第4和171人，再从第251人读取20人；最长字段批次%s；未使用用户账号或发送", browser.maxReadTime)
+	t.Logf("隔离真实浏览器通过：500张合成卡片读完250人，模拟下一批超时后重开SQLite，不回补第4和171人，直接从第251人读取20人；最长字段批次%s；未使用用户账号或发送", browser.maxReadTime)
 }

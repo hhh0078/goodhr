@@ -1,4 +1,4 @@
-// Package boss_test 文件作用：通过正式BOSS与智联适配验证推荐名单换序、分批加载与同名同龄序号恢复，不访问账号。
+// Package boss_test 文件作用：通过正式智联适配验证推荐名单换序、分批加载与同名同龄序号恢复，不访问账号。
 package platform_test
 
 import (
@@ -64,12 +64,12 @@ func (b *recommendResumeBrowser) Scroll(ctx context.Context, req contract.Scroll
 
 // TestRecommendResumeDistinguishesEmptyLoadingAndMissing 验证空白未就绪不清断点，真正抵达稳定底部且没有锚点才从头；活跃文字变化不冒充新名单。
 func TestRecommendResumeDistinguishesEmptyLoadingAndMissing(t *testing.T) {
-	cfg, err := platform.LoadConfig("boss")
+	cfg, err := platform.LoadConfig("zhaopin")
 	if err != nil {
 		t.Fatal(err)
 	}
 	point := model.CandidateResumePoint{CandidateID: "合成不在名单的身份", PrefixHash: "合成旧前缀"}
-	for _, id := range []string{"boss", "zhaopin"} {
+	for _, id := range []string{"zhaopin"} {
 		cfg, err := platform.LoadConfig(id)
 		if err != nil {
 			t.Fatal(err)
@@ -83,7 +83,7 @@ func TestRecommendResumeDistinguishesEmptyLoadingAndMissing(t *testing.T) {
 	defer cancel()
 	browser := &recommendResumeBrowser{rows: recommendResumeRows(3), loaded: 3}
 	cursor := &model.CandidateListCursor{StartIndex: 99}
-	found, err := recommendResumeRuntime(t, "boss").RestoreCandidateList(ctx, browser, cfg, point, cursor)
+	found, err := recommendResumeRuntime(t, "zhaopin").RestoreCandidateList(ctx, browser, cfg, point, cursor)
 	if err != nil || found || cursor.StartIndex != 0 || browser.scrolls != 3 {
 		t.Fatalf("没有等稳定底部或没有安全从头：%v %v %+v scrolls=%d", found, err, cursor, browser.scrolls)
 	}
@@ -100,7 +100,7 @@ func recommendResumeRows(count int) []map[string]string {
 
 // TestRecommendResumeLoadsBeyondFirstBatch 验证第46人不在首批时沿原滚轮寻找，每批不超过20人，断线不冒充找不到。
 func TestRecommendResumeLoadsBeyondFirstBatch(t *testing.T) {
-	for _, id := range []string{"boss", "zhaopin"} {
+	for _, id := range []string{"zhaopin"} {
 		t.Run(id, func(t *testing.T) {
 			cfg, err := platform.LoadConfig(id)
 			if err != nil {
@@ -141,7 +141,7 @@ func TestRecommendResumeLoadsBeyondFirstBatch(t *testing.T) {
 
 // TestRecommendResumeRestoresOccurrenceAfterReorder 验证前面换序不重置唯一锚点，并还原同名同龄者的真实序号；完全重复身份仍从头。
 func TestRecommendResumeRestoresOccurrenceAfterReorder(t *testing.T) {
-	for _, id := range []string{"boss", "zhaopin"} {
+	for _, id := range []string{"zhaopin"} {
 		t.Run(id, func(t *testing.T) {
 			cfg, err := platform.LoadConfig(id)
 			if err != nil {

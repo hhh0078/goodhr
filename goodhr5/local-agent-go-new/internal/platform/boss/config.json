@@ -37,8 +37,6 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
-    "candidate_resume_by_identity": true,
-    "_comment_candidate_resume_by_identity": "推荐页先按唯一候选人身份查找上次位置，未加载时使用真实滚轮分批寻找；身份重复或确实找不到才从头。",
     "_comment": "Boss 页面行为开关。",
     "skip_greeting_info_requests": true,
     "_comment_skip_greeting_info_requests": "主动打招呼不支持索要简历、手机号和微信，忽略岗位勾选且不为索要打开聊天；自动回复沿用原逻辑。",
@@ -1309,10 +1307,6 @@
     }
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
-  "candidate_resume_ignored_query_keys": ["ka", "lid", "_"],
-  "_comment_candidate_resume_ignored_query_keys": "仅推荐入口忽略来源ka、追踪lid和缓存标记_；岗位、其他筛选查询参数和页面路由仍参与断点隔离。",
-  "candidate_resume_fields": ["name", "education"],
-  "_comment_candidate_resume_fields": "姓名与基础信息行联合核对；education已兼容新旧年龄/经验/学历区域，不使用含活跃时间的整个job-card-left，也不依赖招呼按钮文字。",
   "candidate_fields": {
     "card_text": {
       "_comment": "读取整张卡片及外层推荐标题；向上扩展时只能包含当前一个候选人，且不能越过候选人列表，避免波及相邻普通卡片。",

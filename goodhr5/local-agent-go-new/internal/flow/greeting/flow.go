@@ -155,10 +155,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 		); err != nil {
 			return err
 		}
-		candidates, retrying, err := resume.retryCandidates(ctx, f.Browser, prepared.Platform, runtime, candidateListOptions)
-		if err == nil && !retrying {
-			candidates, err = runtime.FindCandidates(ctx, f.Browser, prepared.Platform, candidateListOptions)
-		}
+		candidates, err := runtime.FindCandidates(ctx, f.Browser, prepared.Platform, candidateListOptions)
 		if err != nil {
 			return err
 		}
@@ -350,10 +347,6 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			}
 		}
 		cancelPreviews()
-		// 每个未完成者只补一次，随后回到最新成功位置；不把补处理算作一批新名单。
-		if retrying {
-			continue
-		}
 		if shared.GracefulStopRequested(ctx) {
 			return nil
 		}

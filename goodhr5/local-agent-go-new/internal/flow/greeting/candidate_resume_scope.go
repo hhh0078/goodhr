@@ -5,12 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
-	"goodhr5/local-agent-go-new/internal/platform/common"
 )
 
 // candidateResumeScope 返回账号隔离键及按实际运行含义归一后的条件摘要。
@@ -22,7 +20,6 @@ func candidateResumeScope(prepared shared.PreparedTask, pageURL string) (string,
 // candidateResumeScopeHashes 同时生成各条件摘要；normalize为false时保留旧版字节格式，仅用于校验旧断点。
 func candidateResumeScopeHashes(prepared shared.PreparedTask, pageURL string, normalize bool) (string, string, map[string]string, error) {
 	if normalize {
-		pageURL = candidateResumePageURL(prepared, pageURL)
 		enabled := prepared.Request.EnableGreet == nil || *prepared.Request.EnableGreet
 		prepared.Request.EnableGreet = &enabled
 	}
@@ -61,26 +58,6 @@ func candidateResumeScopeHashes(prepared shared.PreparedTask, pageURL string, no
 		fields[key] = fmt.Sprintf("%x", sha256.Sum256(raw))
 	}
 	return fmt.Sprintf("greeting_resume:%x", sha256.Sum256(identity)), fmt.Sprintf("%x", sha256.Sum256(scope)), fields, nil
-}
-
-// candidateResumePageURL 仅对配置允许的推荐入口去除追踪参数，其他查询条件和页面路由始终参与断点隔离。
-func candidateResumePageURL(prepared shared.PreparedTask, raw string) string {
-	if len(prepared.Platform.CandidateResumeIgnoredQueryKeys) == 0 || !common.PageURLMatches(raw, prepared.Platform.EntryURL) {
-		return raw
-	}
-	page, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	query, err := url.ParseQuery(page.RawQuery)
-	if err != nil {
-		return raw
-	}
-	for _, key := range prepared.Platform.CandidateResumeIgnoredQueryKeys {
-		query.Del(key)
-	}
-	page.RawQuery = query.Encode()
-	return page.String()
 }
 
 // candidateResumeChangeReason 只输出变化字段的中文类别；旧断点没有分项摘要时明确说明，避免猜测具体原因。

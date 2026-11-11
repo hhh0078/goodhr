@@ -29,6 +29,8 @@ var (
 
 // Browser 定义平台适配层可以调用的 Worker 封装能力。
 type Browser interface {
+	// Find 只读查找单个元素及其真实视口位置，不滚动或点击。
+	Find(context.Context, contract.ElementFindRequest) (contract.FindResult, error)
 	OpenPage(context.Context, contract.PageOpenRequest) (contract.PageInfo, error)
 	ListPages(context.Context) (contract.PageListResult, error)
 	UsePage(context.Context, contract.PageUseRequest) (contract.PageInfo, error)
@@ -43,28 +45,27 @@ type Browser interface {
 
 // Config 保存随本地程序发布的平台 URL、选择器和行为参数。
 type Config struct {
-	ID                              string                           `json:"id"`
-	Name                            string                           `json:"name"`
-	LoginURL                        string                           `json:"login_url"`
-	EntryURL                        string                           `json:"entry_url"`
-	ManualSearchURL                 string                           `json:"manual_search_url"`
-	MessagesURL                     string                           `json:"messages_url"`
-	LoginURLs                       []string                         `json:"-"` // 仅数组格式启用多页面复用，旧字符串和对象继续使用单地址。
-	EntryURLs                       []string                         `json:"-"`
-	MessagesURLs                    []string                         `json:"-"`
-	Selectors                       map[string]contract.SelectorSpec `json:"selectors"`
-	CandidateFields                 map[string]contract.SelectorSpec `json:"candidate_fields"`
-	ConversationFields              map[string]contract.SelectorSpec `json:"conversation_fields"`
-	LoginInitActions                []ConfiguredAction               `json:"login_init_actions"`
-	GreetingInitActions             []ConfiguredAction               `json:"greeting_init_actions"`
-	MessageInitActions              []ConfiguredAction               `json:"message_init_actions"`
-	FilterActions                   []ConfiguredAction               `json:"filter_actions"`
-	Behavior                        Behavior                         `json:"behavior"`
-	ScrollDistance                  int                              `json:"scroll_distance"`
-	MaxItems                        int                              `json:"max_items"`
-	CandidateBatchSize              int                              `json:"candidate_batch_size,omitempty"`                // 仅限制候选人整批读取，不改变会话或联系人数量；零沿用MaxItems。
-	CandidateResumeFields           []string                         `json:"candidate_resume_fields,omitempty"`             // 平台选择已有的稳定身份字段，排除活跃标记等动态内容。
-	CandidateResumeIgnoredQueryKeys []string                         `json:"candidate_resume_ignored_query_keys,omitempty"` // 仅推荐入口忽略配置列出的追踪参数，真实筛选参数仍隔离断点。
+	ID                    string                           `json:"id"`
+	Name                  string                           `json:"name"`
+	LoginURL              string                           `json:"login_url"`
+	EntryURL              string                           `json:"entry_url"`
+	ManualSearchURL       string                           `json:"manual_search_url"`
+	MessagesURL           string                           `json:"messages_url"`
+	LoginURLs             []string                         `json:"-"` // 仅数组格式启用多页面复用，旧字符串和对象继续使用单地址。
+	EntryURLs             []string                         `json:"-"`
+	MessagesURLs          []string                         `json:"-"`
+	Selectors             map[string]contract.SelectorSpec `json:"selectors"`
+	CandidateFields       map[string]contract.SelectorSpec `json:"candidate_fields"`
+	ConversationFields    map[string]contract.SelectorSpec `json:"conversation_fields"`
+	LoginInitActions      []ConfiguredAction               `json:"login_init_actions"`
+	GreetingInitActions   []ConfiguredAction               `json:"greeting_init_actions"`
+	MessageInitActions    []ConfiguredAction               `json:"message_init_actions"`
+	FilterActions         []ConfiguredAction               `json:"filter_actions"`
+	Behavior              Behavior                         `json:"behavior"`
+	ScrollDistance        int                              `json:"scroll_distance"`
+	MaxItems              int                              `json:"max_items"`
+	CandidateBatchSize    int                              `json:"candidate_batch_size,omitempty"`    // 仅限制候选人整批读取，不改变会话或联系人数量；零沿用MaxItems。
+	CandidateResumeFields []string                         `json:"candidate_resume_fields,omitempty"` // 平台选择已有的稳定身份字段，排除活跃标记等动态内容。
 }
 
 // ConfiguredAction 表示平台配置驱动的一步点击或输入动作。

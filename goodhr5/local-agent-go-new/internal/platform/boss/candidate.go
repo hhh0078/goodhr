@@ -12,6 +12,11 @@ import (
 
 // FindCandidates 返回 Boss 当前候选人列表的结构化摘要。
 func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, options model.CandidateListOptions) ([]model.Candidate, error) {
+	if !r.viewportStarted && options.Cursor != nil {
+		if err := startCandidateViewport(ctx, browser, cfg, options.Cursor); err != nil {
+			return nil, err
+		}
+	}
 	candidates, err := common.FindCandidates(ctx, browser, cfg, r.PlatformID(), options)
 	if err != nil {
 		return nil, err
@@ -29,7 +34,9 @@ func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg
 			return nil, fmt.Errorf("候选人“%s”的完整卡片文字尚未读到，暂不操作", candidate.Name)
 		}
 	}
-	r.RememberCandidateResume(cfg, candidates)
+	if options.Cursor != nil {
+		r.viewportStarted = true
+	}
 	return candidates, nil
 }
 
