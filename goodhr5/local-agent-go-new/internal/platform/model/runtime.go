@@ -77,6 +77,7 @@ type ConfiguredAction struct {
 
 // Behavior 表示平台翻页、详情和岗位选择行为。
 type Behavior struct {
+	SkipGreetingPhoneRequest    bool   `json:"skip_greeting_phone_request"`     // 主动打招呼忽略电话索要勾选；零值保留其他平台行为。
 	SkipGreetingInfoRequests    bool   `json:"skip_greeting_info_requests"`     // 仅主动打招呼跳过电话、微信和简历索要；零值保留原行为，不影响自动回复。
 	AutoReplyAllContactInbox    bool   `json:"auto_reply_all_contact_inbox"`    // 扫描全部联系人，主流程按本机水位发现待核实的消息。
 	AutoReplyNativeInfoRequests bool   `json:"auto_reply_native_info_requests"` // 资料索要使用平台原生能力，未满足平台条件时明确暂缓且不降级成文字。
@@ -85,7 +86,6 @@ type Behavior struct {
 	AutoReplyAvatarContainerKey string `json:"auto_reply_avatar_container_key"` // 聊天历史内的头像使用已有滚动容器限定截图；页头头像无需配置。
 	CandidateTopInset           int    `json:"candidate_top_inset"`             // 卡片操作需避让的固定页头高度，单位CSS像素；零表示无需平台额外避让。
 	CandidateBottomInset        int    `json:"candidate_bottom_inset"`          // 实际操作按钮需避让的底部浮层高度，单位CSS像素；零保持旧平台行为。
-	RequestPhoneMessage         string `json:"request_phone_message"`           // 不使用付费取号入口时，在已确认身份的聊天框发送的礼貌索要电话文案。
 	RequestResumeMessage        string `json:"request_resume_message"`          // 平台邀请投递尚未验证时，在当前聊天框索要附件简历的文案。
 	SupportsPaging              bool   `json:"supports_paging"`
 	CandidateListMode           string `json:"candidate_list_mode"`

@@ -25,6 +25,7 @@ type greetingSettingRuntime struct {
 	opens, conversations, requests, messages int
 	readErr, closeErr                        error
 	keepConversationOpen                     bool
+	infoRequest                              model.CandidateInfoRequest
 }
 
 // OpenCandidateDetail 记录正常详情打开。
@@ -62,7 +63,8 @@ func (r *greetingSettingRuntime) EnsureCandidateConversation(context.Context, mo
 }
 
 // RequestCandidateInfo 记录资料索要调用。
-func (r *greetingSettingRuntime) RequestCandidateInfo(context.Context, model.Browser, model.Config, model.Candidate, model.CandidateInfoRequest) error {
+func (r *greetingSettingRuntime) RequestCandidateInfo(_ context.Context, _ model.Browser, _ model.Config, _ model.Candidate, request model.CandidateInfoRequest) error {
+	r.infoRequest = request
 	r.requests++
 	return nil
 }
@@ -83,6 +85,7 @@ func TestGreetingSettingControlsAllOutboundActions(t *testing.T) {
 		platformID string
 		skipInfo   bool
 		noMessage  bool
+		phoneOnly  bool
 	}{
 		{name: "default", send: 1},
 		{name: "enabled", setting: &enabled, send: 1},
@@ -90,7 +93,9 @@ func TestGreetingSettingControlsAllOutboundActions(t *testing.T) {
 		{name: "BOSS全部勾选且无追加消息", platformID: "boss", skipInfo: true, noMessage: true, send: 1},
 		{name: "BOSS保留追加消息", platformID: "boss", skipInfo: true, send: 1},
 		{name: "智联索要不变", platformID: "zhaopin", send: 1},
-		{name: "无忧索要不变", platformID: "51job", send: 1},
+		{name: "无忧仅保留微信简历", platformID: "51job", send: 1},
+		{name: "无忧仅勾电话不打开聊天", platformID: "51job", send: 1, phoneOnly: true, skipInfo: true, noMessage: true},
+		{name: "无忧忽略电话且保留追加消息", platformID: "51job", send: 1, phoneOnly: true, skipInfo: true},
 		{name: "猎聘企业索要不变", platformID: "liepin", send: 1},
 		{name: "猎聘猎头索要不变", platformID: "hliepin", send: 1},
 	} {
@@ -121,6 +126,10 @@ func TestGreetingSettingControlsAllOutboundActions(t *testing.T) {
 					t.Fatal(err)
 				}
 				prepared.Platform.Behavior.SkipGreetingInfoRequests = cfg.Behavior.SkipGreetingInfoRequests
+				prepared.Platform.Behavior.SkipGreetingPhoneRequest = cfg.Behavior.SkipGreetingPhoneRequest
+			}
+			if test.phoneOnly {
+				prepared.Position.RequestWechat, prepared.Position.RequestResume = false, false
 			}
 			if test.noMessage {
 				prepared.Position.GreetMessage = ""
@@ -146,6 +155,9 @@ func TestGreetingSettingControlsAllOutboundActions(t *testing.T) {
 			}
 			if test.noMessage {
 				wantMessages = 0
+			}
+			if runtime.requests > 0 && runtime.infoRequest.RequestPhone != !prepared.Platform.Behavior.SkipGreetingPhoneRequest {
+				t.Fatalf("电话勾选没有按平台能力过滤：%+v", runtime.infoRequest)
 			}
 			wantConversations := max(wantRequests, wantMessages)
 			if runtime.greetings != test.send || runtime.conversations != wantConversations || runtime.requests != wantRequests || runtime.messages != wantMessages || runtime.keepConversationOpen != (wantConversations > 0) {
