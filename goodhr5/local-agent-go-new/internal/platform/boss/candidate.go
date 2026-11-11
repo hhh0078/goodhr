@@ -29,6 +29,7 @@ func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg
 			return nil, fmt.Errorf("候选人“%s”的完整卡片文字尚未读到，暂不操作", candidate.Name)
 		}
 	}
+	r.RememberCandidateResume(cfg, candidates)
 	return candidates, nil
 }
 

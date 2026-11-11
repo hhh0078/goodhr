@@ -102,6 +102,9 @@ func AdvanceCandidatePageTarget(
 	}); err != nil {
 		return false, err
 	}
+	if options.Cursor != nil {
+		*options.Cursor = model.CandidateListCursor{} // 页码切换后从新页开头核对，不能沿用上页恢复的行号。
+	}
 	return waitForCandidateListChange(ctx, browser, cfg, platformID, before, options)
 }
 
@@ -141,6 +144,9 @@ func advanceCandidatePage(
 	}
 	if err = ClickRequired(ctx, browser, cfg, "candidate.next_page"); err != nil {
 		return false, err
+	}
+	if options.Cursor != nil {
+		*options.Cursor = model.CandidateListCursor{}
 	}
 	return waitForCandidateListChange(ctx, browser, cfg, platformID, before, options)
 }

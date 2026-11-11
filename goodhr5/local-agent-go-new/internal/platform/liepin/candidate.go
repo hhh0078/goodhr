@@ -10,7 +10,11 @@ import (
 
 // FindCandidates 返回猎聘企业端当前候选人列表的结构化摘要。
 func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, options model.CandidateListOptions) ([]model.Candidate, error) {
-	return common.FindCandidates(ctx, browser, cfg, r.PlatformID(), options)
+	candidates, err := common.FindCandidates(ctx, browser, cfg, r.PlatformID(), options)
+	if err == nil {
+		r.RememberCandidateResume(cfg, candidates)
+	}
+	return candidates, err
 }
 
 // ScrollToCandidate 通过真实滚轮定位指定猎聘企业端候选人。

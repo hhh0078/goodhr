@@ -135,6 +135,10 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 		ReadConcurrency: prepared.Preferences.CandidateReadConcurrency,
 		Cursor:          &model.CandidateListCursor{},
 	}
+	resume, err := f.prepareCandidateResume(ctx, f.Browser, prepared, runtime, candidateListOptions.Cursor)
+	if err != nil {
+		return err
+	}
 	for batch := 0; ; batch++ {
 		if shared.GracefulStopRequested(ctx) {
 			return nil
@@ -161,6 +165,10 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 		}
 		newCandidates := make([]model.Candidate, 0, len(candidates))
 		for _, candidate := range candidates {
+			if resume.completedAnchor(candidate) {
+				stats.Skipped++
+				continue
+			}
 			if strings.TrimSpace(candidate.Fingerprint) == "" {
 				if id, err := f.beginScreeningAttempt(ctx, prepared, candidate); err == nil {
 					if saveErr := f.completeScreeningAttempt(ctx, id, "候选人缺少稳定编号，未执行第一轮和第二轮"); saveErr != nil {
@@ -293,6 +301,10 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			}
 			candidateErr = f.finishCandidateProcessing(candidateCtx, prepared.Request.TaskID, candidateStartedAt, candidateErr)
 			cancelCandidate()
+			if err := resume.complete(ctx, candidate, candidateErr); err != nil {
+				cancelPreviews()
+				return err
+			}
 			if candidateErr != nil {
 				if errors.Is(candidateErr, model.ErrCandidateDetailUnavailable) {
 					f.log(prepared.Request.TaskID, "candidate_detail_unavailable", "skipped", time.Now(), candidateErr)

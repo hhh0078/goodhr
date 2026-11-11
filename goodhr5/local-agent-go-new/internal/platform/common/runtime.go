@@ -159,8 +159,12 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 	if err != nil {
 		return nil, err
 	}
+	maxItems := positiveOr(cfg.MaxItems, 100)
+	if cfg.CandidateBatchSize > 0 {
+		maxItems = min(maxItems, cfg.CandidateBatchSize)
+	}
 	request := contract.ElementFindAllRequest{
-		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100),
+		Selector: selector, MaxItems: maxItems,
 		ReadConcurrency: candidateReadConcurrency(options.ReadConcurrency), Fields: cfg.CandidateFields,
 	}
 	if options.Cursor != nil {

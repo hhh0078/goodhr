@@ -40,7 +40,9 @@
   "scroll_distance": 620,
   "_comment_scroll_distance": "候选人列表每次真实滚轮的基础距离。",
   "max_items": 100,
-  "_comment_max_items": "单次最多读取的候选人或会话数量。",
+  "_comment_max_items": "通用列表上限，保留联系人和会话的既有数量。",
+  "candidate_batch_size": 20,
+  "_comment_candidate_batch_size": "仅候选人按20人小批读取；加载更多和重启恢复复用同一上限，避免整批50至100人读取超过Worker时限。",
   "behavior": {
     "_comment": "两页共用无限滚动列表，搜索页保留用户筛选，推荐页沿用原选岗流程；独立自动回复与附件下载尚未适配。",
     "supports_paging": false,

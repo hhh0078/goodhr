@@ -19,6 +19,7 @@ func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg
 	if err != nil {
 		return nil, err
 	}
+	r.RememberCandidateResume(cfg, candidates)
 	result := make([]model.Candidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		if !strings.Contains(candidate.Summary, "立即沟通") && !strings.Contains(candidate.Summary, "继续沟通") {

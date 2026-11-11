@@ -586,3 +586,20 @@ func hasComment(object map[string]json.RawMessage) bool {
 	var comment string
 	return json.Unmarshal(object["_comment"], &comment) == nil && strings.TrimSpace(comment) != ""
 }
+
+// TestAllPlatformsSupportCandidateResume 验证全部平台都接入断点，前程无忧使用20人上限而不影响其他平台既有批量配置。
+func TestAllPlatformsSupportCandidateResume(t *testing.T) {
+	for _, id := range []string{"boss", "zhaopin", "51job", "liepin", "hliepin"} {
+		runtime, err := RuntimeFor(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := runtime.(model.CandidateListResumer); !ok {
+			t.Fatalf("%s未接入断点", id)
+		}
+	}
+	cfg, err := LoadConfig("51job")
+	if err != nil || cfg.CandidateBatchSize != 20 || cfg.MaxItems != 100 {
+		t.Fatalf("前程无忧小批上限错误：%d %v", cfg.CandidateBatchSize, err)
+	}
+}

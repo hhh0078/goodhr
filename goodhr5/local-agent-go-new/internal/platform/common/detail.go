@@ -57,7 +57,7 @@ func OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.C
 			timeoutMS = 5000
 		}
 		// 明确未按下时可换下一条；结果不确定时先核对详情，避免对已经打开的弹窗重复点击。
-		if clickErr == nil || !messageClickNotStarted(clickErr) {
+		if clickErr == nil || !ClickNotStarted(clickErr) {
 			opened, probeErr := candidateDetailOpened(ctx, browser, cfg, timeoutMS, attempt)
 			if probeErr != nil {
 				return probeErr

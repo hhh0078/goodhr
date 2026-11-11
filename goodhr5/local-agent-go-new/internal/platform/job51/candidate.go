@@ -38,6 +38,9 @@ func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg
 			candidates[index].Fields["platform_candidate_id"] = stableID
 			candidates[index].Fingerprint = r.PlatformID() + "_" + stableID
 		}
+		if err := r.rememberResumePoints(ctx, browser, cfg, candidates); err != nil {
+			return nil, err
+		}
 		return candidates, nil
 	}
 	if !common.IsElementMissing(err) {

@@ -145,6 +145,7 @@ func TestAdvanceCandidateNumberPageScrollsBeforeClick(t *testing.T) {
 			},
 		},
 	}
+	cursor := &model.CandidateListCursor{StartIndex: 17, IdentityOccurrences: map[string]int{"旧页": 1}}
 	advanced, err := AdvanceCandidateNumberPage(
 		context.Background(),
 		browser,
@@ -153,7 +154,7 @@ func TestAdvanceCandidateNumberPageScrollsBeforeClick(t *testing.T) {
 		"candidate.page_number",
 		2,
 		nil,
-		model.CandidateListOptions{ReadConcurrency: 10},
+		model.CandidateListOptions{ReadConcurrency: 10, Cursor: cursor},
 	)
 	if err != nil || !advanced {
 		t.Fatalf("数字翻页失败：advanced=%v err=%v", advanced, err)
@@ -168,6 +169,9 @@ func TestAdvanceCandidateNumberPageScrollsBeforeClick(t *testing.T) {
 	if browser.clickRequest.Verify == nil || browser.clickRequest.Verify.TargetVisible == nil ||
 		browser.clickRequest.Verify.TargetVisible.Target.Text != "2" {
 		t.Fatalf("数字翻页点击后没有确认当前页码：%+v", browser.clickRequest.Verify)
+	}
+	if browser.readRequest.StartIndex != 0 || cursor.StartIndex != 0 || len(cursor.IdentityOccurrences) != 0 {
+		t.Fatalf("翻页后沿用了旧断点：%+v %+v", browser.readRequest, cursor)
 	}
 	if browser.readRequest.ReadConcurrency != 10 {
 		t.Fatalf("翻页验证没有沿用个人并发配置：%d", browser.readRequest.ReadConcurrency)
