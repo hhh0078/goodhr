@@ -408,7 +408,7 @@
         ]
       },
       "state": "visible",
-      "timeout_ms": 600,
+      "timeout_ms": 1,
       "description": "前程无忧招呼职位选择层"
     },
     "candidate.greet_job_input": {
@@ -543,7 +543,7 @@
         ]
       },
       "state": "visible",
-      "timeout_ms": 600,
+      "timeout_ms": 1,
       "description": "前程无忧聊天点数浮层"
     },
     "candidate.chat_modal": {
@@ -560,7 +560,7 @@
         ]
       },
       "state": "visible",
-      "timeout_ms": 3000,
+      "timeout_ms": 1,
       "description": "前程无忧当前聊天框"
     },
     "candidate.chat_name": {
@@ -756,7 +756,7 @@
         ]
       },
       "state": "visible",
-      "timeout_ms": 3000,
+      "timeout_ms": 1,
       "description": "前程无忧展开的联系人侧栏"
     },
     "candidate.contact_drawer_close": {

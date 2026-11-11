@@ -17,6 +17,12 @@ type loggedRuntime struct {
 	logger shared.Logger
 }
 
+// CandidateListResumer 保留底层平台的可选断点能力，防止日志封装让正式任务静默跳过进度保存。
+func (l *loggedRuntime) CandidateListResumer() model.CandidateListResumer {
+	resumer, _ := l.Runtime.(model.CandidateListResumer)
+	return resumer
+}
+
 // loggedDetailRuntime 只为原本支持详情浏览的平台保留该可选能力。
 type loggedDetailRuntime struct {
 	*loggedRuntime

@@ -3,7 +3,6 @@ package job51
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -24,9 +23,18 @@ func (r *Runtime) EnsureCandidateConversation(ctx context.Context, browser model
 	if err != nil {
 		return err
 	}
-	closing := &closeMouseBrowser{Browser: browser, closeDescription: cfg.Selectors["candidate.chat_close"].Description}
-	err = common.EnsureCandidateConversationFromCard(ctx, closing, cfg, candidate)
-	return errors.Join(err, closing.moveErr)
+	// 上面已经关闭旧会话，直接从唯一卡片打开，避免公共复用流程再次检查、关闭同一个空聊天框。
+	found, err := common.CandidateActionExists(ctx, browser, cfg, candidate, "candidate.continue")
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("前程无忧当前卡片没有继续聊天入口，请检查页面后再试")
+	}
+	if err := common.CandidateAction(ctx, browser, cfg, candidate, "candidate.continue"); err != nil {
+		return err
+	}
+	return common.WaitCandidateConversation(ctx, browser, cfg, candidate)
 }
 
 // RequestCandidateInfo 只保留已确认聊天中的微信和邀投递；电话没有可用按钮，忽略勾选且不降级为文字。

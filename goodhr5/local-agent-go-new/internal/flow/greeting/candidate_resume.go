@@ -39,6 +39,10 @@ type candidateResumeSession struct {
 // prepareCandidateResume 读取上次进度并让平台只读核对编号；没有可靠断点能力的平台保持原流程。
 func (f *Flow) prepareCandidateResume(ctx context.Context, browser model.Browser, prepared shared.PreparedTask, runtime model.Runtime, cursor *model.CandidateListCursor) (*candidateResumeSession, error) {
 	resumer, supported := runtime.(model.CandidateListResumer)
+	if provider, ok := runtime.(model.CandidateListResumeProvider); ok {
+		resumer = provider.CandidateListResumer()
+		supported = resumer != nil
+	}
 	if !supported || f.Store == nil || prepared.Session.UserID == "" || prepared.Position.ID == "" || prepared.ProfilePath == "" {
 		return nil, nil
 	}

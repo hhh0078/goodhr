@@ -12,21 +12,24 @@ import (
 
 type followupBrowserStub struct {
 	model.Browser
-	opened         bool
-	name           string
-	clicks         []string
-	drawer         bool
-	input          string
-	sent           []string
-	wechatConfirm  bool
-	wechatSent     int
-	resumeSent     bool
-	resumePosition string
-	resumeClicks   int
-	resumeErr      error
-	resumeVerified bool
-	closeMoves     int
-	closeErr       error
+	opened               bool
+	name                 string
+	clicks               []string
+	drawer               bool
+	input                string
+	sent                 []string
+	wechatConfirm        bool
+	wechatSent           int
+	resumeSent           bool
+	resumePosition       string
+	resumeClicks         int
+	resumeErr            error
+	resumeVerified       bool
+	closeMoves           int
+	closeErr             error
+	chatProbesBeforeOpen int
+	continued            bool
+	chatLoadingProbes    int
 }
 
 // Read 返回合成聊天框姓名，不读取真实候选人资料。
@@ -49,6 +52,13 @@ func (s *followupBrowserStub) Scroll(context.Context, contract.ScrollRequest) (c
 func (s *followupBrowserStub) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	switch request.Selector.Description {
 	case "candidate.chat_modal", "candidate.chat_close":
+		if request.Selector.Description == "candidate.chat_modal" && s.continued && s.chatLoadingProbes > 0 {
+			s.chatLoadingProbes--
+			return nil, nil
+		}
+		if request.Selector.Description == "candidate.chat_modal" && !s.continued {
+			s.chatProbesBeforeOpen++
+		}
 		if s.opened {
 			return []contract.FindAllItem{{Index: 0}}, nil
 		}
@@ -82,6 +92,7 @@ func (s *followupBrowserStub) Click(_ context.Context, request contract.ElementC
 	}
 	if request.Selector.Description == "candidate.continue" {
 		s.opened = true
+		s.continued = true
 	}
 	switch request.Selector.Description {
 	case "前程无忧收起联系人侧栏":
@@ -109,6 +120,36 @@ func (s *followupBrowserStub) Click(_ context.Context, request contract.ElementC
 		}
 	}
 	return contract.ClickResult{Clicked: true}, nil
+}
+
+// TestConversationDoesNotRepeatClosedChatProbes 验证空聊天只检查一次、旧聊天只关闭一次，随后仍从稳定卡片核对新会话身份。
+func TestConversationDoesNotRepeatClosedChatProbes(t *testing.T) {
+	for _, opened := range []bool{false, true} {
+		browser := &followupBrowserStub{opened: opened, name: "合成人选"}
+		candidate := model.Candidate{Name: "合成人选", Index: 0, Fields: map[string]string{"platform_candidate_id": "100001"}}
+		if err := NewRuntime().EnsureCandidateConversation(context.Background(), browser, followupConfigFixture(t), candidate); err != nil {
+			t.Fatal(err)
+		}
+		wantProbes, wantClicks := 1, 1
+		if opened {
+			wantProbes, wantClicks = 2, 2
+		}
+		if browser.chatProbesBeforeOpen != wantProbes || len(browser.clicks) != wantClicks || !browser.continued {
+			t.Fatalf("重复探测或重复点击：opened=%v probes=%d clicks=%v", opened, browser.chatProbesBeforeOpen, browser.clicks)
+		}
+	}
+}
+
+// TestConversationStillWaitsForLoading 验证缩短即时探测后仍等待异步聊天加载，只点击一次继续聊天且不提前索要或发送。
+func TestConversationStillWaitsForLoading(t *testing.T) {
+	browser := &followupBrowserStub{name: "合成人选", chatLoadingProbes: 2}
+	candidate := model.Candidate{Name: "合成人选", Fields: map[string]string{"platform_candidate_id": "100001"}}
+	if err := NewRuntime().EnsureCandidateConversation(context.Background(), browser, followupConfigFixture(t), candidate); err != nil {
+		t.Fatal(err)
+	}
+	if browser.chatLoadingProbes != 0 || len(browser.clicks) != 1 || browser.clicks[0] != "candidate.continue" || len(browser.sent) != 0 || browser.resumeClicks != 0 {
+		t.Fatal("没有等待加载完成，或重复打开及提前联系")
+	}
 }
 
 // Input 只记录合成输入内容，由测试发送回包清空，不连接真实聊天服务。

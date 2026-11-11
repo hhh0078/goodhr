@@ -142,6 +142,9 @@ func workerLogObjects(item workerLogLine) (json.RawMessage, json.RawMessage) {
 	}
 	output["status"] = item.Status
 	output["duration_ms"] = item.DurationMS
+	if item.Action == "browser.script" {
+		output["script_message"] = item.Message
+	}
 	if item.RequestID != "" {
 		output["request_id"] = item.RequestID
 	}
@@ -225,6 +228,9 @@ func keepWorkerLog(item workerLogLine) bool {
 
 // workerLogMessage 把 Worker 稳定字段整理成中文用户日志。
 func workerLogMessage(item workerLogLine) string {
+	if item.Action == "browser.script" && item.Status == "warning" && !item.IsError {
+		return "网页脚本提示：" + strings.TrimSpace(item.Message) + "；操作结果以对应步骤为准"
+	}
 	if item.Action == "browser.exit" {
 		return "浏览器异常退出：" + strings.TrimSpace(item.ErrorMessage)
 	}

@@ -353,6 +353,12 @@ func visibleTaskStep(flow string, step string, status string, err error) bool {
 	if flow == "greeting" && step == "browse_candidate_detail" {
 		return status == "start" || status == "success"
 	}
+	if flow == "greeting" && status == "success" {
+		switch step {
+		case "ensure_candidate_conversation", "request_candidate_info", "send_candidate_message", "close_candidate_conversation":
+			return true
+		}
+	}
 	if status != "start" {
 		return false
 	}

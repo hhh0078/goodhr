@@ -16,3 +16,9 @@ type CandidateListResumer interface {
 	// CandidateResumePoint 交付本批已核实的候选人断点，主流程确认处理完成后才允许持久化。
 	CandidateResumePoint(Candidate) (CandidateResumePoint, bool)
 }
+
+// CandidateListResumeProvider 让流程封装显式交付底层断点能力；不支持的平台返回 nil，不冒充具备恢复能力。
+type CandidateListResumeProvider interface {
+	// CandidateListResumer 返回底层平台已有的断点对象，不支持时返回 nil。
+	CandidateListResumer() CandidateListResumer
+}
