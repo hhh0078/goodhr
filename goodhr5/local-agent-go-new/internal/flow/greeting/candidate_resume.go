@@ -34,6 +34,7 @@ type candidateResumeSession struct {
 	retrying       bool
 	restoreMain    bool
 	highWaterIndex int
+	byIdentity     bool
 }
 
 // prepareCandidateResume 读取上次进度并让平台只读核对编号；没有可靠断点能力的平台保持原流程。
@@ -69,7 +70,11 @@ func (f *Flow) prepareCandidateResume(ctx context.Context, browser model.Browser
 		return nil, err
 	}
 	var record candidateResumeRecord
-	if json.Unmarshal([]byte(raw), &record) != nil || (record.Version != 1 && record.Version != 2) || record.ScopeHash != scope {
+	validRecord := json.Unmarshal([]byte(raw), &record) == nil && (record.Version == 1 || record.Version == 2)
+	if validRecord && record.ScopeHash != scope {
+		f.log(prepared.Request.TaskID, "resume_conditions_changed", "start", time.Now(), nil)
+	}
+	if !validRecord || record.ScopeHash != scope {
 		record = candidateResumeRecord{Version: 2, ScopeHash: scope}
 	}
 	record.Version = 2 // 旧客户端不认识第二版时会从头检查，不能忽略未完成者直接跳到新位置。
@@ -79,14 +84,28 @@ func (f *Flow) prepareCandidateResume(ctx context.Context, browser model.Browser
 	}
 	if found {
 		shared.ReportProgress(f.Logger, prepared.Request.TaskID, "找到上次处理的位置了，我接着往下看")
+		f.log(prepared.Request.TaskID, "resume_candidate_progress", "start", time.Now(), nil)
 	} else if record.Point.CandidateID != "" {
 		record = candidateResumeRecord{Version: 2, ScopeHash: scope}
 		if raw != "" {
 			shared.ReportProgress(f.Logger, prepared.Request.TaskID, "上次的位置没对上，这次从头分批检查")
+			f.log(prepared.Request.TaskID, "resume_anchor_missing", "start", time.Now(), nil)
 		}
 	}
+	if len(record.Pending) > 0 {
+		f.log(prepared.Request.TaskID, "resume_pending_candidates", "start", time.Now(), nil)
+	}
 	return &candidateResumeSession{store: f.Store, runtime: resumer, key: key, record: record,
-		retries: append([]model.CandidateResumePoint(nil), record.Pending...), highWaterIndex: -1}, nil
+		retries: append([]model.CandidateResumePoint(nil), record.Pending...), highWaterIndex: -1,
+		byIdentity: prepared.Platform.Behavior.CandidateResumeByIdentity}, nil
+}
+
+// samePoint 仅在平台已经唯一核实身份的推荐续跑模式忽略旧前缀；其他平台保留原来的完整断点比较。
+func (s *candidateResumeSession) samePoint(first, second model.CandidateResumePoint) bool {
+	if s.byIdentity {
+		return first.CandidateID != "" && first.CandidateID == second.CandidateID
+	}
+	return first == second
 }
 
 // candidateResumeScope 把绑定信息和影响判断的岗位配置分别取摘要，不将Token、URL或个人信息写进设置键。
@@ -126,7 +145,7 @@ func (s *candidateResumeSession) completedAnchor(candidate model.Candidate) bool
 		return false
 	}
 	point, ok := s.runtime.CandidateResumePoint(candidate)
-	return ok && point == s.record.Point
+	return ok && s.samePoint(point, s.record.Point)
 }
 
 // complete 同时持久化最新成功位置与未完成者；补处理不能把较新的位置倒退，失败者也不能被后续成功覆盖。
@@ -140,14 +159,18 @@ func (s *candidateResumeSession) complete(ctx context.Context, candidate model.C
 	}
 	record := s.record
 	record.Pending = nil
+	retryOrderUnchanged := false
 	for _, pending := range s.record.Pending {
-		if pending != point {
+		if !s.samePoint(pending, point) {
 			record.Pending = append(record.Pending, pending)
+		} else if pending.PrefixHash == point.PrefixHash {
+			retryOrderUnchanged = true
 		}
 	}
 	if candidateErr != nil {
 		record.Pending = append(record.Pending, point)
-	} else if !s.retrying || s.record.Point.CandidateID == "" || candidate.Index > s.highWaterIndex {
+	} else if !s.retrying || s.record.Point.CandidateID == "" || (candidate.Index > s.highWaterIndex && (!s.byIdentity || retryOrderUnchanged)) {
+		// 推荐换序后补处理的行号不能跨过尚未扫描者；原前缀未变的尾部失败者修好后仍推进断点。
 		record.Point = point
 	}
 	if err := s.save(ctx, record); err != nil {

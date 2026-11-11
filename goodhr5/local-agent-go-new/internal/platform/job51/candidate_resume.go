@@ -1,4 +1,4 @@
-// Package job51 文件作用：通过标准列表HTML的公开编号恢复前程无忧断点，并以名单前缀摘要识别换序或换条件。
+// Package job51 文件作用：推荐页通过标准列表HTML公开编号恢复断点，搜索页保留名单前缀保护。
 package job51
 
 import (
@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
+	"time"
 
 	"golang.org/x/net/html"
 
@@ -14,11 +15,10 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// RestoreCandidateList 先只读定位最后完成者，名单前缀一致才从下一人继续，否则清零从头读取。
-// 只修改任务游标，不滚动、不点击，也不访问页面脚本状态；所有桌面系统使用相同实现。
+// RestoreCandidateList 推荐页先按唯一公开编号恢复；搜索页保留完整前缀核对，未加载的断点使用真实滚轮继续查找。
+// 只修改任务游标与临时滚动位置，不点击、切岗或访问页面脚本状态；三个桌面目标共用实现。
 func (r *Runtime) RestoreCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, point model.CandidateResumePoint, cursor *model.CandidateListCursor) (bool, error) {
-	r.resumeTracking = true
-	r.resumePoints = nil
+	r.resumeTracking, r.resumePoints = true, nil
 	if cursor == nil {
 		return false, fmt.Errorf("候选人读取位置还没准备好")
 	}
@@ -26,24 +26,38 @@ func (r *Runtime) RestoreCandidateList(ctx context.Context, browser model.Browse
 	if !numericCandidateID(point.CandidateID) || len(point.PrefixHash) != 64 {
 		return false, nil
 	}
-	ids, err := readResumeCandidateIDs(ctx, browser, cfg)
-	if common.IsElementMissing(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	for index, id := range ids {
-		if id == point.CandidateID && candidatePrefixHash(ids[:index+1]) == point.PrefixHash {
-			// 尾部也保留最后完成者用于主流程正常确认到底和加载下一批，不把空窗口误判为结束。
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	loadNext := cfg.Behavior.CandidateResumeByIdentity
+	for {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		ids, err := readResumeCandidateIDs(ctx, browser, cfg)
+		if err != nil && !common.IsElementMissing(err) {
+			return false, err
+		}
+		for index, id := range ids {
+			if id != point.CandidateID {
+				continue
+			}
+			if (!cfg.Behavior.CandidateResumeByIdentity || r.manualSearch) && candidatePrefixHash(ids[:index+1]) != point.PrefixHash {
+				return false, nil
+			}
 			cursor.StartIndex = index + 1
 			if cursor.StartIndex == len(ids) {
 				cursor.StartIndex = index
 			}
 			return true, nil
 		}
+		if !loadNext {
+			return false, nil
+		}
+		loadNext, err = common.LoadMoreResumeCandidates(ctx, identityBrowser{browser}, cfg)
+		if err != nil {
+			return false, err
+		}
 	}
-	return false, nil
 }
 
 // CandidateResumePoint 返回本批读取时核对过的编号与顺序摘要；是否完成由主流程决定，预读取本身不推进进度。

@@ -52,7 +52,7 @@ func (s *candidateResumeSession) retryCandidates(ctx context.Context, browser mo
 	return nil, false, nil
 }
 
-// readRecordedCandidate 兼容现有平台从锚点或下一人恢复的两种语义，最多往前只读一行，并用完整编号与前缀摘要核实，绝不按姓名猜测。
+// readRecordedCandidate 兼容锚点或下一人恢复，最多往前只读一行；平台核实唯一身份，严格模式仍比较前缀，不按姓名猜人。
 func (s *candidateResumeSession) readRecordedCandidate(ctx context.Context, browser model.Browser, cfg model.Config, runtime model.Runtime, point model.CandidateResumePoint, options model.CandidateListOptions) (model.Candidate, bool, error) {
 	cursor := &model.CandidateListCursor{}
 	found, err := s.runtime.RestoreCandidateList(ctx, browser, cfg, point, cursor)
@@ -72,7 +72,7 @@ func (s *candidateResumeSession) readRecordedCandidate(ctx context.Context, brow
 		}
 		if len(rows) == 1 {
 			actual, ok := s.runtime.CandidateResumePoint(rows[0])
-			if ok && actual == point {
+			if ok && s.samePoint(actual, point) {
 				return rows[0], true, nil
 			}
 		}
@@ -84,7 +84,7 @@ func (s *candidateResumeSession) readRecordedCandidate(ctx context.Context, brow
 	return model.Candidate{}, false, nil
 }
 
-// restartFromHead 在名单或前缀变化时清除不再可靠的定位并从头，不能把真实读取错误当作找不到。
+// restartFromHead 在无法可靠找到锚点时清除定位并从头，不能把真实读取错误当作找不到。
 func (s *candidateResumeSession) restartFromHead(ctx context.Context, browser model.Browser, cfg model.Config, cursor *model.CandidateListCursor) error {
 	if _, err := s.runtime.RestoreCandidateList(ctx, browser, cfg, model.CandidateResumePoint{}, cursor); err != nil {
 		return err

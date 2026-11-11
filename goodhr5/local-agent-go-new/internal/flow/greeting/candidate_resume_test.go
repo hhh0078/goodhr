@@ -69,6 +69,109 @@ func resumeFlowFixture() (shared.PreparedTask, *resumeFlowBrowser) {
 	return prepared, &resumeFlowBrowser{rows: rows, url: "https://example.invalid/search?q=不可落盘的查询"}
 }
 
+// TestRecommendedResumeRetriesAfterReorder 验证换序后补失败者时按身份匹配新前缀，不清除最新位置、不积累同一人的多个失败断点。
+func TestRecommendedResumeRetriesAfterReorder(t *testing.T) {
+	for _, scenario := range []struct{ failAgain, later bool }{{false, false}, {true, false}, {false, true}} {
+		ctx := context.Background()
+		store, err := storage.Open(filepath.Join(t.TempDir(), "resume.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer store.Close()
+		prepared, browser := resumeFlowFixture()
+		prepared.Platform.Behavior.CandidateResumeByIdentity = true
+		runtime := &resumeFlowRuntime{}
+		flow := &Flow{Store: store}
+		session, err := flow.prepareCandidateResume(ctx, browser, prepared, resumeProviderRuntime{runtime, runtime}, &model.CandidateListCursor{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		runtime.RememberCandidateResume(prepared.Platform, browser.rows)
+		if err := session.complete(ctx, browser.rows[0], errors.New("合成未完成")); err != nil {
+			t.Fatal(err)
+		}
+		if err := session.complete(ctx, browser.rows[2], nil); err != nil {
+			t.Fatal(err)
+		}
+		latest := session.record.Point
+		next := model.Candidate{Index: 3, Fingerprint: "test_new", Fields: map[string]string{"name": "新增合成人选", "basic_info": "33岁", "education": "合成学校"}}
+		wantRetryIndex, wantMainIndex, wantRows := 1, 2, 2
+		if scenario.later {
+			// 失败者被推荐系统移到更后面时，补处理不能跨过中间尚未扫描的新人。
+			browser.rows = []model.Candidate{browser.rows[1], browser.rows[2], next, browser.rows[0]}
+			wantRetryIndex, wantMainIndex, wantRows = 3, 1, 3
+		} else {
+			browser.rows[0], browser.rows[1] = browser.rows[1], browser.rows[0]
+			browser.rows = append(browser.rows, next)
+		}
+		for i := range browser.rows {
+			browser.rows[i].Index = i
+		}
+		runtime = &resumeFlowRuntime{}
+		cursor := &model.CandidateListCursor{}
+		session, err = flow.prepareCandidateResume(ctx, browser, prepared, resumeProviderRuntime{runtime, runtime}, cursor)
+		if err != nil || session.record.Point != latest {
+			t.Fatal("换序使最新进度被清空", err)
+		}
+		rows, retrying, err := session.retryCandidates(ctx, browser, prepared.Platform, runtime, model.CandidateListOptions{Cursor: cursor})
+		if err != nil || !retrying || len(rows) != 1 || rows[0].Index != wantRetryIndex {
+			t.Fatalf("没有补处理换序后的失败者：%v %v %+v", err, retrying, rows)
+		}
+		var retryErr error
+		if scenario.failAgain {
+			retryErr = errors.New("合成再次失败")
+		}
+		if err := session.complete(ctx, rows[0], retryErr); err != nil {
+			t.Fatal(err)
+		}
+		_, retrying, err = session.retryCandidates(ctx, browser, prepared.Platform, runtime, model.CandidateListOptions{Cursor: cursor})
+		wantPending := 0
+		if scenario.failAgain {
+			wantPending = 1
+		}
+		if err != nil || retrying || cursor.StartIndex != wantMainIndex || session.record.Point != latest || len(session.record.Pending) != wantPending {
+			t.Fatalf("补处理后没回最新位置或失败重复记录：%v %+v %+v", err, cursor, session.record)
+		}
+		rows, err = runtime.FindCandidates(ctx, browser, prepared.Platform, model.CandidateListOptions{Cursor: cursor})
+		if err != nil || len(rows) != wantRows || !session.completedAnchor(rows[0]) || session.completedAnchor(rows[1]) {
+			t.Fatal("锚点重叠未跳过或新增者被跳过", err)
+		}
+	}
+}
+
+// TestRetryTailAdvancesOnlyWithUnchangedPrefix 验证原名单未变的尾部失败修好后推进，换序后的补处理不能跨过未扫描区域。
+func TestRetryTailAdvancesOnlyWithUnchangedPrefix(t *testing.T) {
+	for _, changed := range []bool{false, true} {
+		ctx := context.Background()
+		store, err := storage.Open(":memory:")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer store.Close()
+		prepared, browser := resumeFlowFixture()
+		runtime := &resumeFlowRuntime{}
+		_, _ = runtime.RestoreCandidateList(ctx, browser, prepared.Platform, model.CandidateResumePoint{}, &model.CandidateListCursor{})
+		runtime.RememberCandidateResume(prepared.Platform, browser.rows)
+		main, _ := runtime.CandidateResumePoint(browser.rows[1])
+		tail, _ := runtime.CandidateResumePoint(browser.rows[2])
+		old := tail
+		if changed {
+			old.PrefixHash = "合成旧前缀"
+		}
+		session := &candidateResumeSession{store: store, runtime: runtime, key: "test-tail", byIdentity: true, retrying: true, highWaterIndex: 1, record: candidateResumeRecord{Point: main, Pending: []model.CandidateResumePoint{old}}}
+		if err := session.complete(ctx, browser.rows[2], nil); err != nil {
+			t.Fatal(err)
+		}
+		want := tail
+		if changed {
+			want = main
+		}
+		if session.record.Point != want || len(session.record.Pending) != 0 {
+			t.Fatal("尾部补处理没有按原顺序决定是否推进")
+		}
+	}
+}
+
 // TestCandidateResumePersistsFailuresAndLatestSuccess 验证最新进度独立推进，失败者单独持久化，重开库先补处理且不倒退最新成功位置。
 func TestCandidateResumePersistsFailuresAndLatestSuccess(t *testing.T) {
 	ctx := context.Background()

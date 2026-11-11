@@ -48,6 +48,8 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "candidate_resume_by_identity": true,
+    "_comment_candidate_resume_by_identity": "仅推荐页按唯一身份查找断点，并用真实滚轮继续加载；搜索页由平台适配保留原前缀和分页保护。",
     "_comment": "智联页面行为开关。",
     "supports_paging": false,
     "_comment_supports_paging": "智联推荐页当前按滚动加载。",

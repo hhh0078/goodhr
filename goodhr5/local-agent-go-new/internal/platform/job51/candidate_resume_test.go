@@ -65,7 +65,9 @@ func TestJob51ResumeFallback(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cursor := &model.CandidateListCursor{StartIndex: 888, IdentityOccurrences: map[string]int{"旧人": 1}}
-			found, err := NewRuntime().RestoreCandidateList(context.Background(), &identityScopeStub{source: resumeListHTML(test.ids)}, loadPositionConfig(t), point, cursor)
+			cfg := loadPositionConfig(t)
+			cfg.Behavior.CandidateResumeByIdentity = false // 覆盖旧配置和搜索页的严格前缀模式。
+			found, err := NewRuntime().RestoreCandidateList(context.Background(), &identityScopeStub{source: resumeListHTML(test.ids)}, cfg, point, cursor)
 			if found != test.want || (err != nil) != test.wantErr || cursor.StartIndex != test.index || len(cursor.IdentityOccurrences) != 0 {
 				t.Fatalf("错误恢复：found=%v err=%v cursor=%+v", found, err, cursor)
 			}
