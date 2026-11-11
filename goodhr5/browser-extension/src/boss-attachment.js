@@ -140,6 +140,21 @@
     return shared.sanitizeAvatarCandidates(candidates, pageURL);
   }
 
+  /** attachmentPhone 仅从附件独立号码行或明确联系方式行读取唯一完整号码，业务编号和多个号码均跳过。 */
+  function attachmentPhone(text) {
+    const phones = new Set();
+    for (const line of text.split("\n")) {
+      const direct = shared?.normalizePhone(line);
+      if (direct) phones.add(direct);
+      if (!/(?:手机|电话|联系方式|联系电话|mobile|phone|tel)\s*[:：]?/i.test(line) || /(?:编号|简历号|验证码)/.test(line)) continue;
+      const contact = line.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "");
+      for (const match of contact.matchAll(/(?<![\d+*＊])(?:1[3-9]\d{9}|(?:\+|00)\d[\d\s()-]{6,24}\d)(?![\d*＊])/g)) {
+        const phone = shared?.normalizePhone(match[0]); if (phone) phones.add(phone);
+      }
+    }
+    return phones.size === 1 ? [...phones][0] : "";
+  }
+
   /** extract 读取唯一可见 BOSS PDF，报告多页缺失及总页数无法确认的限制。 */
   function extract(doc, href) {
     let sourceURL;
@@ -153,10 +168,10 @@
     const consecutive = pages.length > 0 && pages.every((page, index) => page.number === index + 1 && page.loaded);
     const complete = Boolean(total && consecutive && pages.length === total), tooLong = Array.from(text).length > LIMIT;
     const warning = tooLong ? "附件太长，请换一份较短的简历" : !text ? "暂时读不到文字，请等附件加载；图片简历暂不支持" : total && !complete ? `正在加载附件（${pages.filter((page) => page.loaded).length}/${total} 页）` : !consecutive ? "附件还没加载完，请向下翻页" : "";
-    return { platform_id: "boss", source_url: sourceURL, avatar_candidates: avatarCandidates(viewer, href), attachment: { text: tooLong ? "" : text, page_count: pages.filter((page) => page.loaded).length, total_pages: total, complete, blocked: tooLong || !text || !consecutive || Boolean(total && !complete), warning } };
+    return { platform_id: "boss", source_url: sourceURL, phone: tooLong ? "" : attachmentPhone(text), avatar_candidates: avatarCandidates(viewer, href), attachment: { text: tooLong ? "" : text, page_count: pages.filter((page) => page.loaded).length, total_pages: total, complete, blocked: tooLong || !text || !consecutive || Boolean(total && !complete), warning } };
   }
 
-  const api = { visible, ownText, cleanPieces, layoutText, documents, declaredPages, avatarCandidates, extract };
+  const api = { visible, ownText, cleanPieces, layoutText, documents, declaredPages, avatarCandidates, attachmentPhone, extract };
   root.GoodHRBossAttachment = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

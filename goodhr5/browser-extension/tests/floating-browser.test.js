@@ -1,17 +1,21 @@
-/* 文件作用：用本机 Chrome 和本地合成页面验证自动悬浮、候选人切换时序、拖动及业务 DOM 隔离；不访问招聘网站。 */
+/* 文件作用：用本机 Chrome、Firefox 和合成页面验证悬浮入口、候选人切换、拖动及业务 DOM 隔离；不访问招聘网站。 */
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), http = require("node:http");
-const ROOT = path.resolve(__dirname, ".."), { chromium } = require(path.join(ROOT, "..", "cloud", "frontend-next", "node_modules", "@playwright", "test"));
+const ROOT = path.resolve(__dirname, ".."), { chromium, firefox } = require(path.join(ROOT, "..", "cloud", "frontend-next", "node_modules", "@playwright", "test"));
 const version = require("../package.json").version;
 const ARTIFACTS = process.env.GOODHR_EXTENSION_ARTIFACT_DIR || path.join(ROOT, "artifacts");
+
+/** launchBrowser 复用本机 Chrome；指定现有 Firefox 内核路径时以 browser 命名空间运行同一组合成验证，不下载浏览器。 */
+function launchBrowser() { return process.env.GOODHR_EXTENSION_FIREFOX_PATH ? firefox.launch({ executablePath: process.env.GOODHR_EXTENSION_FIREFOX_PATH, headless: true }) : chromium.launch({ channel: "chrome", headless: true }); }
 
 /** localServer 只在随机 loopback 端口提供插件脚本与独立合成 iframe，不提供业务 API 或外部代理。 */
 async function localServer(realFloating = false) {
   const html = '<!doctype html><style>body{margin:0;background:#f8f7f1;font:14px system-ui}button{background:red;color:white;font-size:30px}#business{padding:24px;height:1600px}</style><main id="business"><h1>合成候选人详情</h1><input id="business-input" value="不变的页面输入"><button id="business-action">招聘页面按钮</button><p>合成手机号13800000151 · 公司/学历仅作合成验证</p></main>';
   const iframe = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>本地简历浮层测试</title><style>body{font:13px system-ui;margin:12px}label{display:block;margin-bottom:8px}input,textarea{width:90%}</style><h2>未入库</h2><label>姓名<input id="name"></label><label>手机号<input id="phone"></label><label>备注<textarea id="note"></textarea></label><script src="/fixture-frame.js"></script></html>';
-  const frameScript = 'chrome.runtime.sendMessage({type:"STATE"}).then(result=>{document.getElementById("name").value=result.data.resume?.candidate_name||"";document.getElementById("phone").value=result.data.resume?.phone||"";document.body.dataset.ready="true";});';
+  const frameScript = '(globalThis.browser||globalThis.chrome).runtime.sendMessage({type:"STATE"}).then(result=>{document.getElementById("name").value=result.data.resume?.candidate_name||"";document.getElementById("phone").value=result.data.resume?.phone||"";document.body.dataset.ready="true";});';
   const server = http.createServer((request, response) => {
     const file = new URL(request.url, "http://127.0.0.1").pathname;
+    if (file === "/icons/32.png") { response.writeHead(200, { "Content-Type": "image/png" }); response.end(fs.readFileSync(path.join(ROOT, "assets", "icons", "32.png"))); return; }
     if (file === "/fixture" || (!realFloating && file === "/src/floating.html") || file === "/fixture-frame.js") { response.writeHead(200, { "Content-Type": file.endsWith(".js") ? "application/javascript" : "text/html; charset=utf-8" }); response.end(file === "/fixture" ? html : file.endsWith(".js") ? frameScript : iframe); return; }
     const filename = /^\/src\/[a-z.-]+$/.test(file) ? path.join(ROOT, file.slice(1)) : "";
     if (!filename || !fs.existsSync(filename)) { response.writeHead(404); response.end(); return; }
@@ -25,11 +29,12 @@ async function preparePage(browser, origin, handler) {
   const page = await browser.newPage({ viewport: { width: 1150, height: 900 } }), network = [];
   await page.route("**/*", (route) => { const url = route.request().url(); network.push(url); return url.startsWith(origin + "/") ? route.continue() : route.abort(); });
   await page.exposeFunction("fixtureMessage", handler);
-  await page.addInitScript(({ origin, version }) => {
-    window.chrome = { runtime: { id: "fixture-extension", getURL: (file) => origin + "/" + file, getManifest: () => ({ version }), sendMessage: async (message) => { const result = await window.fixtureMessage(message); if (message.type === "CLOSE_FLOATING" && result?.ok && window.top.fixtureCaptureListener) window.top.fixtureCaptureListener({ type: "CLOSE_FLOATING", identity: message.payload?.identity || "" }, { id: "fixture-extension" }, () => {}); return result; }, onMessage: { addListener: (listener) => { window.fixtureCaptureListener = listener; } } } };
+  await page.addInitScript(({ origin, version, firefox }) => {
+    window.chrome = { runtime: { id: "fixture-extension", getURL: (file) => origin + "/" + file, getManifest: () => ({ version }), sendMessage: async (message) => { const result = await window.fixtureMessage(message); if (["CANDIDATE_SNAPSHOT", "FLOATING_STATUS"].includes(message.type) && result?.ok && result.logged_in === undefined) result.logged_in = true; if (message.type === "CLOSE_FLOATING" && result?.ok && window.top.fixtureCaptureListener) window.top.fixtureCaptureListener({ type: "CLOSE_FLOATING", identity: message.payload?.identity || "" }, { id: "fixture-extension" }, () => {}); return result; }, onMessage: { addListener: (listener) => { window.fixtureCaptureListener = listener; } } } };
+    if (firefox) { window.browser = window.chrome; delete window.chrome; }
     // 只在合成测试页捕获本插件自己的 closed Shadow；生产脚本没有这一入口。
     const attachShadow = Element.prototype.attachShadow; Element.prototype.attachShadow = function (options) { const shadow = attachShadow.call(this, options); if (this.id === "goodhr-resume-assistant") window.fixtureShadow = shadow; return shadow; };
-  }, { origin, version });
+  }, { origin, version, firefox: Boolean(process.env.GOODHR_EXTENSION_FIREFOX_PATH) });
   await page.goto(origin + "/fixture"); return { page, network };
 }
 
@@ -45,8 +50,8 @@ async function waitForFixture(page, predicate, message) { const deadline = Date.
 /** sampleResume 提供同名不同平台编号的合成简历，用于验证候选人身份隔离。 */
 function sampleResume(id = "candidate-a", phone = "13800000151") { return { candidate_name: "合成悬浮候选人", phone, platform_id: "hliepin", platform_candidate_id: id, source_url: "https://h.liepin.com/resume/show", work_experiences: [{ company_name: "合成悬浮公司", position_name: "合成岗位", start_ym: "2021-01", content: "仅用于本地测试" }] }; }
 
-test("Chrome合成浮窗BOSS：自动basic和查重，点击后只提交后台保存任务并显示受理状态", async () => {
-  const { server, origin } = await localServer(true), browser = await chromium.launch({ channel: "chrome", headless: true }), calls = [], drafts = new Map(), errors = [];
+test("浏览器合成浮窗BOSS：自动basic和查重，点击后只提交后台保存任务并显示受理状态", async () => {
+  const { server, origin } = await localServer(true), browser = await launchBrowser(), calls = [], drafts = new Map(), errors = [];
   const hash = "a".repeat(64), snapshot = { platform_id: "boss", source_url: "https://www.zhipin.com/web/chat/index", capture_id: "boss-" + hash, attachment: { text_hash: hash, page_count: 1, total_pages: 0, complete: false, blocked: false, warning: "已读到1页，总页数请核对" } };
   let releaseBasic, releaseFull;
   try {
@@ -69,7 +74,7 @@ test("Chrome合成浮窗BOSS：自动basic和查重，点击后只提交后台�
     });
     page.on("pageerror", (error) => errors.push(error.message));
     await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
-    await page.evaluate((resume) => GoodHRFloating.update(resume), snapshot);
+    await page.evaluate((resume) => GoodHRFloating.update(resume, true), snapshot); if (!snapshot.phone) await clickOwnButton(page, ".launcher");
     await page.waitForFunction(() => window.fixtureShadow?.querySelector("iframe")?.contentDocument?.getElementById("attachment-panel"));
     const frame = page.frames().find((item) => item.url().includes("/src/floating.html"));
     await frame.locator("#attachment-panel").waitFor({ state: "visible" }); await page.waitForTimeout(550);
@@ -96,8 +101,8 @@ test("Chrome合成浮窗BOSS：自动basic和查重，点击后只提交后台�
   } finally { releaseBasic?.(); releaseFull?.(); await browser.close(); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("Chrome真实浮窗BOSS：当前 AI 未配置只提示，轮询状态不重复发起收费请求", async () => {
-  const { server, origin } = await localServer(true), browser = await chromium.launch({ channel: "chrome", headless: true }), calls = [];
+test("浏览器真实浮窗BOSS：当前 AI 未配置只提示，轮询状态不重复发起收费请求", async () => {
+  const { server, origin } = await localServer(true), browser = await launchBrowser(), calls = [];
   const hash = "b".repeat(64), snapshot = { platform_id: "boss", source_url: "https://www.zhipin.com/web/chat/index", capture_id: "boss-" + hash, attachment: { text_hash: hash, page_count: 1, total_pages: 0, complete: false, blocked: false } };
   try {
     const { page } = await preparePage(browser, origin, async ({ type, payload = {} }) => { calls.push({ type, payload }); if (type === "STATE") return { ok: true, data: { logged_in: true, data_use_accepted: true, account_key: "no-ai-fixture", resume: snapshot, version } }; if (type === "ATTACHMENT_START") return { ok: false, status: 422, code: "AI_NOT_CONFIGURED", message: "当前账号没有配置 AI" }; return { ok: true, data: {} }; });
@@ -107,8 +112,8 @@ test("Chrome真实浮窗BOSS：当前 AI 未配置只提示，轮询状态不重
   } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("Chrome合成BOSS附件：同源可见框架只读呈现叶子文字，多页缺失、隐藏框架和多附件均受保护", async () => {
-  const { server, origin } = await localServer(), browser = await chromium.launch({ channel: "chrome", headless: true });
+test("浏览器合成BOSS附件：同源可见框架只读呈现叶子文字，多页缺失、隐藏框架和多附件均受保护", async () => {
+  const { server, origin } = await localServer(), browser = await launchBrowser();
   try {
     const { page, network } = await preparePage(browser, origin, async () => ({ ok: true }));
     await page.evaluate(() => {
@@ -146,13 +151,13 @@ test("Chrome合成BOSS附件：同源可见框架只读呈现叶子文字，多�
 /** floatingFrame 查找宿主创建的独立简历页，不等待已经发生过的导航事件。 */
 async function floatingFrame(page) { await page.waitForFunction(() => window.fixtureShadow?.querySelector("iframe")?.contentDocument?.body?.dataset.ready === "true"); return page.frames().find((item) => item.url().includes("/src/floating.html")); }
 
-test("Chrome合成页面：识别即自动展开，同人收起保持，换人重开且不影响业务页面", async () => {
-  const { server, origin } = await localServer(), browser = await chromium.launch({ channel: "chrome", headless: true }), calls = [], resume = sampleResume();
+test("浏览器合成页面：识别即自动展开，同人收起保持，换人重开且不影响业务页面", async () => {
+  const { server, origin } = await localServer(), browser = await launchBrowser(), calls = [], resume = sampleResume();
   try {
     const { page, network } = await preparePage(browser, origin, async ({ type }) => { calls.push(type); return { ok: true, data: type === "STATE" ? { logged_in: true, account_key: "synthetic", resume, version } : {} }; });
     const before = await page.locator("#business").innerHTML(); await page.locator("#business-input").focus();
     await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
-    await page.evaluate((resume) => GoodHRFloating.update(resume), resume); const frame = await floatingFrame(page);
+    await page.evaluate((resume) => GoodHRFloating.update(resume, true), resume); const frame = await floatingFrame(page);
     assert.equal(await frame.locator("#name").inputValue(), resume.candidate_name); assert.equal(await frame.locator("#phone").inputValue(), resume.phone);
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
     assert.deepEqual(await page.evaluate(() => { const panel = window.fixtureShadow.querySelector(".panel"), iframe = window.fixtureShadow.querySelector("iframe"); return { panelWidth: panel.getBoundingClientRect().width, frameHeight: iframe.getBoundingClientRect().height }; }), { panelWidth: 248, frameHeight: 460 });
@@ -161,27 +166,27 @@ test("Chrome合成页面：识别即自动展开，同人收起保持，换人�
     assert.equal(await page.evaluate(() => document.activeElement.id), "business-input"); assert.equal(await page.locator("#business").innerHTML(), before);
     assert.equal(await page.evaluate(() => window.fixtureShadow.textContent.includes("打开助手") || window.fixtureShadow.textContent.includes("资料不会自动入库")), false);
     assert.equal(await page.evaluate(() => GoodHRFloating.close("not-current")), false); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
-    await frame.locator("#note").fill("关闭后保留的合成草稿"); await clickOwnButton(page, ".close");
-    await page.evaluate((resume) => { GoodHRFloating.update(resume); GoodHRFloating.update({ ...resume, online_status: "刚刚活跃" }); }, resume);
+    await frame.locator("#note").click(); await frame.locator("#note").fill("关闭后保留的合成草稿"); assert.equal(await frame.locator("#note").inputValue(), "关闭后保留的合成草稿"); await clickOwnButton(page, ".close");
+    await page.evaluate((resume) => { GoodHRFloating.update(resume, true); GoodHRFloating.update({ ...resume, online_status: "刚刚活跃" }, true); }, resume);
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), true);
-    assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), false); assert.equal(await frame.locator("#note").inputValue(), "关闭后保留的合成草稿");
-    await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume("candidate-b", "13800000152"));
+    assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true); assert.equal(await frame.locator("#note").inputValue(), "关闭后保留的合成草稿");
+    await page.evaluate((resume) => GoodHRFloating.update(resume, true), sampleResume("candidate-b", "13800000152"));
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
     await page.evaluate(() => { window.postMessage({ type: "CREATE", payload: { candidate_name: "伪造" } }, "*"); window.fixtureShadow.querySelector("iframe").contentWindow.postMessage({ type: "LOGIN", payload: { email: "evil@example.test" } }, "*"); });
     assert.equal(calls.some((type) => ["LOGIN", "CREATE", "UPDATE", "DUPLICATES", "FOLLOWUPS"].includes(type)), false);
     const bar = await point(page, ".bar"); await page.mouse.move(bar.x, bar.y); await page.mouse.down(); await page.mouse.move(-70, -70, { steps: 8 }); await page.mouse.up();
     const rectangle = await page.locator("#goodhr-resume-assistant").boundingBox(); assert.ok(rectangle.x >= 7 && rectangle.y >= 7); assert.ok(rectangle.x + rectangle.width <= 1150 && rectangle.y + rectangle.height <= 900);
-    await clickOwnButton(page, ".close"); await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume("candidate-c", "13800000153"));
+    await clickOwnButton(page, ".close"); await page.evaluate((resume) => GoodHRFloating.update(resume, true), sampleResume("candidate-c", "13800000153"));
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false); assert.equal(await page.locator("#goodhr-resume-assistant").count(), 1);
     assert.equal(await page.locator("#business").innerHTML(), before); assert.equal(await page.evaluate(() => window.scrollY), 0); assert.equal(network.some((url) => !url.startsWith(origin + "/")), false);
     fs.mkdirSync(ARTIFACTS, { recursive: true }); await page.screenshot({ path: path.join(ARTIFACTS, `plugin-floating-host-${version}.png`), caret: "initial" });
-    await page.evaluate(() => GoodHRFloating.update(null)); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), false);
-    await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume("candidate-c", "13800000153")); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
+    await page.evaluate(() => GoodHRFloating.update(null, true)); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), false);
+    await page.evaluate((resume) => GoodHRFloating.update(resume, true), sampleResume("candidate-c", "13800000153")); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), false);
   } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("Chrome合成页面：先同步快照再自动读到当前人，迟到捕获不能重新显示上一人", async () => {
-  const { server, origin } = await localServer(), browser = await chromium.launch({ channel: "chrome", headless: true }), calls = [], updates = [];
+test("浏览器合成页面：先同步快照再自动读到当前人，迟到捕获不能重新显示上一人", async () => {
+  const { server, origin } = await localServer(), browser = await launchBrowser(), calls = [], updates = [];
   let page, snapshot = null, releaseOld;
   const oldResponse = new Promise((resolve) => { releaseOld = resolve; });
   try {
@@ -197,7 +202,7 @@ test("Chrome合成页面：先同步快照再自动读到当前人，迟到捕�
     }));
     await page.exposeFunction("fixtureUpdate", (resume) => updates.push(resume?.platform_candidate_id || ""));
     await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
-    await page.evaluate((resume) => { window.fixtureCandidate = resume; window.GoodHRExtraction = { extractCurrentCandidate: () => window.fixtureCandidate }; const floating = GoodHRFloating; window.GoodHRFloating = { update: (value) => { floating.update(value); window.fixtureUpdate(value); } }; }, sampleResume());
+    await page.evaluate((resume) => { window.fixtureCandidate = resume; window.GoodHRExtraction = { extractCurrentCandidate: () => window.fixtureCandidate }; const floating = GoodHRFloating; window.GoodHRFloating = { update: (value, loggedIn) => { floating.update(value, loggedIn); window.fixtureUpdate(value); } }; }, sampleResume());
     await page.addScriptTag({ path: path.join(ROOT, "src", "content.js") }); assert.equal(await page.locator("#goodhr-resume-assistant").count(), 0);
     await page.evaluate((resume) => { window.fixtureCandidate = resume; window.fixtureCaptureListener({ type: "REQUEST_CAPTURE" }, { id: "fixture-extension" }, () => {}); }, sampleResume("candidate-b", "13800000152"));
     const frame = await floatingFrame(page); assert.equal(await frame.locator("#phone").inputValue(), "13800000152");
@@ -212,23 +217,23 @@ test("Chrome合成页面：先同步快照再自动读到当前人，迟到捕�
   } finally { releaseOld(); await browser.close(); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("Chrome合成页面：补齐手机号不打断同人收起状态，小窗口拖动只影响插件", async () => {
-  const { server, origin } = await localServer(), browser = await chromium.launch({ channel: "chrome", headless: true });
+test("浏览器合成页面：补齐手机号不打断同人收起状态，小窗口拖动只影响插件", async () => {
+  const { server, origin } = await localServer(), browser = await launchBrowser();
   try {
     const resume = sampleResume("candidate-a", ""), { page } = await preparePage(browser, origin, async () => ({ ok: true, data: { resume, version } }));
     await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
-    await page.evaluate((resume) => GoodHRFloating.update(resume), resume); await clickOwnButton(page, ".close");
-    await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume()); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), true);
+    await page.evaluate((resume) => GoodHRFloating.update(resume, true), resume); await clickOwnButton(page, ".launcher"); await clickOwnButton(page, ".close");
+    await page.evaluate((resume) => GoodHRFloating.update(resume, true), sampleResume()); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), true);
     assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".open")), null);
-    await page.evaluate((resume) => GoodHRFloating.update(resume), sampleResume("candidate-b", "13800000152")); await page.setViewportSize({ width: 360, height: 420 });
+    await page.evaluate((resume) => GoodHRFloating.update(resume, true), sampleResume("candidate-b", "13800000152")); await page.setViewportSize({ width: 360, height: 420 });
     const bar = await point(page, ".bar"); await page.mouse.move(bar.x, bar.y); await page.mouse.down(); await page.mouse.move(600, 600, { steps: 8 }); await page.mouse.up();
     const rectangle = await page.locator("#goodhr-resume-assistant").boundingBox(); assert.ok(rectangle.x >= 7 && rectangle.y >= 7); assert.ok(rectangle.x + rectangle.width <= 360 && rectangle.y + rectangle.height <= 420);
     assert.equal(await page.evaluate(() => window.scrollY), 0);
   } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("Chrome合成页面：页面换人仍处于防抖等待时，快照响应也不能展开旧人", async () => {
-  const { server, origin } = await localServer(), browser = await chromium.launch({ channel: "chrome", headless: true }), updates = [];
+test("浏览器合成页面：页面换人仍处于防抖等待时，快照响应也不能展开旧人", async () => {
+  const { server, origin } = await localServer(), browser = await launchBrowser(), updates = [];
   let snapshot = null, releaseOld;
   const oldResponse = new Promise((resolve) => { releaseOld = resolve; });
   try {
@@ -238,7 +243,7 @@ test("Chrome合成页面：页面换人仍处于防抖等待时，快照响应�
     });
     await page.exposeFunction("fixtureUpdate", (resume) => updates.push(resume?.platform_candidate_id || ""));
     await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
-    await page.evaluate((resume) => { window.fixtureCandidate = resume; window.GoodHRExtraction = { extractCurrentCandidate: () => window.fixtureCandidate }; const floating = GoodHRFloating; window.GoodHRFloating = { update: (value) => { floating.update(value); window.fixtureUpdate(value); } }; }, sampleResume());
+    await page.evaluate((resume) => { window.fixtureCandidate = resume; window.GoodHRExtraction = { extractCurrentCandidate: () => window.fixtureCandidate }; const floating = GoodHRFloating; window.GoodHRFloating = { update: (value, loggedIn) => { floating.update(value, loggedIn); window.fixtureUpdate(value); } }; }, sampleResume());
     await page.addScriptTag({ path: path.join(ROOT, "src", "content.js") });
     // 不触发新的捕获，模拟页面刚切换而 MutationObserver 的防抖尚未执行。
     await page.evaluate((resume) => { window.fixtureCandidate = resume; }, sampleResume("candidate-b", "13800000152")); releaseOld();
@@ -246,8 +251,8 @@ test("Chrome合成页面：页面换人仍处于防抖等待时，快照响应�
   } finally { releaseOld(); await browser.close(); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("Chrome真实简历浮层：初次自动读当前人，缺手机可填写，草稿不串人且一次点击直接添加", async () => {
-  const { server, origin } = await localServer(true), browser = await chromium.launch({ channel: "chrome", headless: true }), drafts = new Map(), writes = [], dialogs = [], errors = [];
+test("浏览器真实简历浮层：初次自动读当前人，缺手机可填写，草稿不串人且一次点击直接添加", async () => {
+  const { server, origin } = await localServer(true), browser = await launchBrowser(), drafts = new Map(), writes = [], dialogs = [], errors = [];
   let page, snapshot = null;
   try {
     ({ page } = await preparePage(browser, origin, async ({ type, payload = {}, resume }) => {
@@ -271,19 +276,22 @@ test("Chrome真实简历浮层：初次自动读当前人，缺手机可填写�
     await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
     await page.evaluate((resume) => { window.fixtureCandidate = resume; window.GoodHRExtraction = { extractCurrentCandidate: () => window.fixtureCandidate }; }, sampleResume("candidate-a", ""));
     await page.addScriptTag({ path: path.join(ROOT, "src", "content.js") });
+    await page.waitForFunction(() => Boolean(window.fixtureShadow?.querySelector(".launcher"))); await clickOwnButton(page, ".launcher");
     await page.waitForFunction(() => Boolean(window.fixtureShadow?.querySelector("iframe")?.contentDocument?.getElementById("name")?.value));
     const frame = page.frames().find((item) => item.url().includes("/src/floating.html"));
     assert.equal(await page.evaluate(() => document.activeElement.id), "business-input"); assert.equal(await page.locator("#business").innerHTML(), before);
     await frame.locator("#duplicate-status").filter({ hasText: "未入库，请补填手机号" }).waitFor();
     assert.equal(await frame.locator("#phone").inputValue(), ""); assert.equal(await frame.locator("#save").isDisabled(), true);
     assert.equal(await frame.locator("#login-form, #pair-start, #logout, #data-use").count(), 0);
-    await frame.locator("#phone").fill("13800000151"); await frame.locator("#note").fill("甲候选人的合成草稿");
+    await frame.locator("#phone").fill("13800000151"); await frame.locator("#note").click(); await frame.locator("#note").fill("甲候选人的合成草稿");
     await frame.waitForFunction(() => !document.getElementById("save").disabled);
     await frame.waitForFunction(() => document.getElementById("duplicate-status").textContent === "未入库");
     await page.waitForFunction(() => window.fixtureShadow.querySelector("iframe").contentDocument.getElementById("note").value === "甲候选人的合成草稿");
     await page.evaluate((resume) => { window.fixtureCandidate = resume; window.fixtureCaptureListener({ type: "REQUEST_CAPTURE" }, { id: "fixture-extension" }, () => {}); }, sampleResume("candidate-b", "13800000152"));
     await frame.waitForFunction(() => document.getElementById("phone").value === "13800000152"); assert.equal(await frame.locator("#note").inputValue(), "");
     await page.evaluate((resume) => { window.fixtureCandidate = resume; window.fixtureCaptureListener({ type: "REQUEST_CAPTURE" }, { id: "fixture-extension" }, () => {}); }, sampleResume("candidate-a", ""));
+    await page.waitForFunction(() => window.fixtureShadow.querySelector(".panel").hidden);
+    await clickOwnButton(page, ".launcher");
     await frame.waitForFunction(() => document.getElementById("phone").value === "13800000151" && document.getElementById("note").value === "甲候选人的合成草稿" && !document.getElementById("save").disabled);
     fs.mkdirSync(ARTIFACTS, { recursive: true }); await page.screenshot({ path: path.join(ARTIFACTS, `plugin-floating-actual-${version}.png`), caret: "initial" });
     await frame.locator("#save").click(); await frame.waitForFunction(() => document.getElementById("duplicate-status").textContent === "已入库");
@@ -291,13 +299,13 @@ test("Chrome真实简历浮层：初次自动读当前人，缺手机可填写�
     await frame.waitForFunction(() => document.getElementById("note").value === "");
     assert.equal(writes.filter((item) => item.type === "FOLLOWUPS").length, 1); assert.equal(writes.find((item) => item.type === "FOLLOWUPS").payload.note, "甲候选人的合成草稿");
     await frame.waitForFunction(() => document.getElementById("status").textContent === "已添加"); await page.waitForTimeout(300); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true);
-    await page.waitForFunction(() => document.getElementById("goodhr-resume-assistant").hidden); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), false);
+    await page.waitForFunction(() => window.fixtureShadow.querySelector(".panel").hidden); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true);
     assert.deepEqual(dialogs, []); assert.deepEqual(errors, []); assert.equal(await page.locator("#business").innerHTML(), before);
   } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("Chrome真实简历浮层：仅完整CREATE延迟关闭，UPDATE、部分失败和切人都保持打开", async () => {
-  const { server, origin } = await localServer(true), browser = await chromium.launch({ channel: "chrome", headless: true }), drafts = new Map(), closes = [];
+test("浏览器真实简历浮层：仅完整CREATE延迟关闭，UPDATE、部分失败和切人都保持打开", async () => {
+  const { server, origin } = await localServer(true), browser = await launchBrowser(), drafts = new Map(), closes = [];
   let page, snapshot = null, duplicateMode = "none", failFollowup = true, autoClose = true;
   try {
     ({ page } = await preparePage(browser, origin, async ({ type, payload = {}, resume }) => {
@@ -320,7 +328,7 @@ test("Chrome真实简历浮层：仅完整CREATE延迟关闭，UPDATE、部分�
     await page.addScriptTag({ path: path.join(ROOT, "src", "content.js") }); await page.waitForFunction(() => Boolean(window.fixtureShadow?.querySelector("iframe")?.contentDocument?.getElementById("name")?.value));
     const frame = page.frames().find((item) => item.url().includes("/src/floating.html"));
 
-    await frame.locator("#note").fill("这条备注模拟部分失败"); await frame.waitForFunction(() => !document.getElementById("save").disabled); await frame.locator("#save").click();
+    await frame.locator("#note").click(); await frame.locator("#note").fill("这条备注模拟部分失败"); await frame.waitForFunction(() => !document.getElementById("save").disabled); await frame.locator("#save").click();
     await frame.waitForFunction(() => document.getElementById("status").textContent.includes("输入保留")); await page.waitForTimeout(650); assert.equal(closes.length, 0); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true);
 
     failFollowup = false; duplicateMode = "none";
@@ -339,6 +347,59 @@ test("Chrome真实简历浮层：仅完整CREATE延迟关闭，UPDATE、部分�
     autoClose = true; await page.evaluate((resume) => { window.fixtureCandidate = resume; window.fixtureCaptureListener({ type: "REQUEST_CAPTURE" }, { id: "fixture-extension" }, () => {}); }, sampleResume("complete-create", "13800000205"));
     await frame.waitForFunction(() => document.getElementById("phone").value === "13800000205" && !document.getElementById("save").disabled); await frame.locator("#save").click(); await frame.waitForFunction(() => document.getElementById("status").textContent === "已添加");
     await page.waitForTimeout(300); assert.equal(closes.length, closesAfterSwitch); assert.equal(await page.locator("#goodhr-resume-assistant").isVisible(), true);
-    await page.waitForFunction(() => document.getElementById("goodhr-resume-assistant").hidden); assert.equal(closes.length, closesAfterSwitch + 1);
+    await page.waitForFunction(() => window.fixtureShadow.querySelector(".panel").hidden); assert.equal(closes.length, closesAfterSwitch + 1);
+  } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
+});
+
+// 验证真实插件登录页和表单的切换；所有账号、候选人及接口均为本机合成数据。
+test("浏览器合成页面：未登录和无号码只显示可拖logo，点击登录后补号，读到号码才自动展开", async () => {
+  const { server, origin } = await localServer(true), browser = await launchBrowser();
+  let loggedIn = false, snapshot = null, page;
+  try {
+    ({ page } = await preparePage(browser, origin, async ({ type, resume }) => {
+      if (type === "CANDIDATE_SNAPSHOT") { snapshot = resume ? { ...resume, capture_id: "fixture-" + resume.platform_candidate_id } : null; return { ok: true, logged_in: loggedIn }; }
+      if (type === "FLOATING_STATUS") return { ok: true, logged_in: loggedIn };
+      if (type === "STATE") return { ok: true, data: { logged_in: loggedIn, user: loggedIn ? { id: "login-fixture", email: "fixture@example.test" } : null, account_key: loggedIn ? "login-fixture" : "preview", data_use_accepted: true, auto_close_after_save: true, resume: snapshot, version } };
+      if (type === "LOGIN") { loggedIn = true; return { ok: true, data: {} }; }
+      if (type === "CHECK_UPDATE") return { ok: true, data: { current_version: version, latest_version: version } };
+      if (type === "DUPLICATES") return { ok: true, data: { matches: [], groups: [] } };
+      return { ok: true, data: {} };
+    }));
+    const before = await page.locator("#business").innerHTML();
+    await page.addScriptTag({ path: path.join(ROOT, "src", "shared.js") }); await page.addScriptTag({ path: path.join(ROOT, "src", "floating.js") });
+    await page.evaluate((resume) => { window.fixtureCandidate = resume; window.GoodHRExtraction = { extractCurrentCandidate: () => window.fixtureCandidate }; }, sampleResume("login-candidate", ""));
+    await page.addScriptTag({ path: path.join(ROOT, "src", "content.js") });
+    await page.waitForFunction(() => Boolean(window.fixtureShadow?.querySelector(".launcher")));
+    assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), true);
+    assert.equal(page.frames().some((frame) => frame.url().includes("/src/ui.html")), false);
+    const logo = await point(page, ".launcher"); await page.mouse.move(logo.x, logo.y); await page.mouse.down(); await page.mouse.move(300, 230, { steps: 8 }); await page.mouse.up();
+    assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), true, "拖动logo松手不误展开");
+    await clickOwnButton(page, ".launcher");
+    await page.waitForFunction(() => window.fixtureShadow.querySelector("iframe")?.contentDocument?.getElementById("email"));
+    const login = page.frames().find((frame) => frame.url().includes("/src/ui.html"));
+    await login.locator("#login-panel").waitFor({ state: "visible" });
+    fs.mkdirSync(ARTIFACTS, { recursive: true }); await page.screenshot({ path: path.join(ARTIFACTS, `plugin-floating-login-${version}.png`), caret: "initial" });
+    await login.locator("#email").fill("fixture@example.test"); await login.locator("#password").fill("synthetic-password"); await login.locator("#agreement").check(); await login.locator("#login-form button[type=submit]").click();
+    await page.waitForFunction(() => window.fixtureShadow.querySelector(".panel").hidden);
+    assert.equal(loggedIn, true); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector("iframe")), null, "登录切换时销毁旧登录文档，清除密码");
+    await clickOwnButton(page, ".launcher");
+    await page.waitForFunction(() => window.fixtureShadow.querySelector("iframe")?.contentDocument?.getElementById("name")?.value);
+    const form = page.frames().find((frame) => frame.url().includes("/src/floating.html"));
+    await form.locator("#phone").fill("13800000156"); await form.locator("#note").fill("手工补号草稿");
+    await page.waitForTimeout(2200); assert.equal(await form.locator("#phone").inputValue(), "13800000156");
+    await clickOwnButton(page, ".close");
+    await page.evaluate((resume) => { window.fixtureCandidate = resume; }, sampleResume("phone-candidate", "13800000157"));
+    await page.waitForFunction(() => !window.fixtureShadow.querySelector(".panel").hidden);
+    await form.waitForFunction(() => document.getElementById("phone").value === "13800000157");
+    await clickOwnButton(page, ".close"); await page.waitForTimeout(2200);
+    assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), true, "同一人手动收起后不重复弹出");
+    loggedIn = false;
+    await page.evaluate((resume) => { window.fixtureCandidate = resume; }, sampleResume("logged-out-phone", "13800000158"));
+    await page.waitForTimeout(2200); assert.equal(await page.evaluate(() => window.fixtureShadow.querySelector(".panel").hidden), true, "未登录即使读到号码也不自动展开");
+    await page.setViewportSize({ width: 360, height: 640 }); await clickOwnButton(page, ".launcher");
+    await page.waitForFunction(() => window.fixtureShadow.querySelector("iframe")?.contentDocument?.getElementById("email"));
+    await page.screenshot({ path: path.join(ARTIFACTS, `plugin-floating-login-mobile-${version}.png`), caret: "initial" });
+    const rectangle = await page.locator("#goodhr-resume-assistant").boundingBox(); assert.ok(rectangle.x >= 7 && rectangle.x + rectangle.width <= 360);
+    assert.equal(await page.locator("#business").innerHTML(), before); assert.equal(await page.evaluate(() => window.scrollY), 0);
   } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
 });

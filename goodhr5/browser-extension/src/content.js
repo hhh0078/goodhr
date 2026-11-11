@@ -9,7 +9,7 @@
   function capture(force = false) {
     const resume = GoodHRExtraction.extractCurrentCandidate(document, location.href);
     const fingerprint = JSON.stringify(resume);
-    if (!force && fingerprint === lastFingerprint) return latestCapture || Promise.resolve(true);
+    if (!force && fingerprint === lastFingerprint) return refreshFloatingSession(resume, fingerprint);
     const sequence = ++captureSequence;
     lastFingerprint = fingerprint;
     latestCapture = performCapture(resume, fingerprint, sequence); return latestCapture;
@@ -28,9 +28,20 @@
       if (result?.ok === false) throw new Error("捕获已更新，等待当前资料");
       // 自然页面变化仍可能处于防抖等待中，显示前再核对一次，避免旧人短暂出现。
       if (JSON.stringify(GoodHRExtraction.extractCurrentCandidate(document, location.href)) !== fingerprint) return capture(true);
-      globalThis.GoodHRFloating?.update(resume);
+      globalThis.GoodHRFloating?.update(resume, result?.logged_in === true);
       return true;
     } catch { if (sequence === captureSequence) lastFingerprint = ""; return false; /* 下一次自然检测可重试，不显示未同步的旧资料。 */ }
+  }
+
+  /** refreshFloatingSession 自然轮询只取登录布尔值，登录变化不要求招聘页面也发生变化。 */
+  async function refreshFloatingSession(resume, fingerprint) {
+    const sequence = captureSequence;
+    if (await latestCapture === false || sequence !== captureSequence) return false;
+    try {
+      const result = await extension.runtime.sendMessage({ type: "FLOATING_STATUS" });
+      if (result?.ok && sequence === captureSequence && JSON.stringify(GoodHRExtraction.extractCurrentCandidate(document, location.href)) === fingerprint) globalThis.GoodHRFloating?.update(resume, result.logged_in === true);
+      return result?.ok === true;
+    } catch { return false; }
   }
 
   /** scheduleCapture 合并页面自然变化，避免每个节点变化都重复扫描。 */
