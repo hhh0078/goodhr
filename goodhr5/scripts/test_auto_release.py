@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from auto_release import AutomaticRelease, cleanup_rehearsal, cleanup_restore_cache, current_release, pending_migrations
+from auto_release import AutomaticRelease, cleanup_rehearsal, cleanup_restore_cache, current_release, pending_migrations, cloud_changes
 from release_cutover import CutoverError
 from release_rehearse_auto import APPROVED, check_archives, check_ledger, check_library
 
@@ -57,6 +57,83 @@ class AutomaticReleaseTests(unittest.TestCase):
         pair = live_pair(COMMIT)
         pair["frontend"]["Config"]["Labels"]["goodhr.release.id"] = "another-pair"
         self.assertFalse(current_release(pair, COMMIT))
+
+    def test_non_cloud_commit_skips_build_even_after_previous_failure(self):
+        """只改备份脚本等非云端内容时不构建，并保留真实已运行提交。"""
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory).resolve() / "goodhr5"
+            source.mkdir()
+            job = AutomaticRelease(source, Engine(), Path(directory).resolve() / "state")
+            def query(arguments):
+                """固定目标提交，并模拟两个版本的云端输入完全相同。"""
+                return b"" if "status" in arguments or "diff" in arguments else COMMIT.encode()
+            with patch("auto_release.command", side_effect=query), patch.object(job, "check_target"), \
+                    patch.object(job, "check_health"), patch.object(job, "execute") as execute:
+                job.run()
+                execute.assert_not_called()
+            self.assertEqual(job.state["stage"], "云端无改动，跳过构建")
+            self.assertEqual(job.state["deployed_commit"], "b" * 40)
+            self.assertEqual(job.state["source_commit"], COMMIT)
+
+    def test_pending_review_blocks_build_and_cleanup(self):
+        """用户未确认蓝绿容器时先停止自动编排，不读取旧代理目标或删除旧容器。"""
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory).resolve() / "goodhr5"
+            source.mkdir()
+            job = AutomaticRelease(source, Engine(), Path(directory).resolve() / "state")
+            job.state_root.mkdir()
+            (job.state_root / "pending-review.json").write_text(json.dumps({
+                "schema_version": 1, "host": socket.gethostname(), "awaiting_user_confirmation": True}))
+            with patch.object(job, "execute") as execute, patch.object(job, "live") as live:
+                job.run()
+                execute.assert_not_called()
+                live.assert_not_called()
+
+    def test_ready_candidate_is_reused_without_activation(self):
+        """候选验收完成后每分钟检查都复用原镜像和证据，不重复构建或激活。"""
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            source = base / "goodhr5"
+            source.mkdir()
+            job = AutomaticRelease(source, Engine(), base / "state")
+            job.state_root.mkdir()
+            release = base / "auto-fixture"
+            release.mkdir()
+            images = {role: "sha256:" + str(index) * 64 for index, role in enumerate(("backend", "frontend"), 1)}
+            (release / "isolated-validation.json").write_text(json.dumps({"success": True, "host": socket.gethostname(),
+                "source_commit": COMMIT, **{role + "_image": value for role, value in images.items()}}))
+            job.state_path.write_text(json.dumps({"prepared_commit": COMMIT, "release_id": release.name, "candidate_images": images}))
+            def query(arguments):
+                """保留候选标签实际ID，目标提交和云端内容稳定。"""
+                if arguments[0] == "docker":
+                    return images["backend" if "-backend:" in arguments[-1] else "frontend"].encode()
+                return b"" if "diff" in arguments or "status" in arguments else COMMIT.encode()
+            with patch("auto_release.RELEASE_ROOT", base), patch("auto_release.cloud_changes", return_value=("b" * 40, True)), \
+                    patch("auto_release.command", side_effect=query), patch.object(job, "check_target"), \
+                    patch.object(job, "check_health"), patch.object(job, "execute") as execute:
+                job.run()
+                execute.assert_not_called()
+
+    def test_cloud_change_detection_uses_real_git_paths(self):
+        """真实Git目录中，文档改动跳过，后端源码改动必须构建。"""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            source = repo / "goodhr5"
+            (source / "cloud/backend").mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            def commit():
+                """仅提交本测试临时仓库，不改共享工作区。"""
+                subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+                subprocess.run(["git", "-C", str(repo), "-c", "user.name=测试", "-c", "user.email=test@example.invalid", "commit", "-qm", "测试变更"], check=True)
+                return subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+            (source / "cloud/backend/app.go").write_text("初始程序")
+            old = commit()
+            (source / "readme.md").write_text("仅文档变更")
+            docs = commit()
+            self.assertEqual(cloud_changes(source, live_pair(old), docs), (old, False))
+            (source / "cloud/backend/app.go").write_text("程序发生变化")
+            changed = commit()
+            self.assertEqual(cloud_changes(source, live_pair(old), changed), (old, True))
 
     def test_same_head_retries_failed_deployment_after_backoff(self):
         """发布失败后同一个提交仍会重试；等待期间不会每分钟重复构建，旧服务不受改动。"""
@@ -125,8 +202,8 @@ class AutomaticReleaseTests(unittest.TestCase):
         process.send_signal.assert_called_once_with(signal.SIGTERM)
         self.assertEqual(process.wait.call_args_list[-1].kwargs, {"timeout": 330})
 
-    def test_activation_uses_same_tag_only_after_rehearsal_and_cleanup(self):
-        """完整编排实际验证阶段顺序、同标签及候选身份，不靠一次成功返回绕过验收。"""
+    def test_candidate_waits_for_explicit_activation(self):
+        """自动编排完成验收和收尾后必须保留旧版，不越过显式激活门禁。"""
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory).resolve()
             source = base / "goodhr5"
@@ -148,10 +225,7 @@ class AutomaticReleaseTests(unittest.TestCase):
                         "success": True, "source_commit": COMMIT,
                         "backend_image": "sha256:" + "2" * 64, "frontend_image": "sha256:" + "2" * 64}))
                 else:
-                    self.assertTrue(cleanup.called)
-                    self.assertEqual(arguments[-1], "--activate-only")
-                    stages.append("activate")
-                    job.engine.values = live_pair(COMMIT)
+                    self.fail("自动准备候选不能切换正式服务")
 
             with patch("auto_release.RELEASE_ROOT", base / "releases"), \
                     patch.object(job, "preflight", return_value=preflight), patch.object(job, "check_target"), \
@@ -160,9 +234,11 @@ class AutomaticReleaseTests(unittest.TestCase):
                     patch("auto_release.command", return_value=("sha256:" + "2" * 64).encode()), \
                     patch("auto_release.cleanup_rehearsal") as cleanup:
                 job.execute(COMMIT, job.live())
-            self.assertEqual(stages, ["build", "rehearse", "activate"])
+            self.assertEqual(stages, ["build", "rehearse"])
             self.assertEqual(len(set(tags)), 1)
-            self.assertEqual(job.state["stage"], "已上线")
+            self.assertEqual(job.state["stage"], "候选已就绪，等待激活")
+            self.assertEqual(job.state["prepared_commit"], COMMIT)
+            self.assertFalse(current_release(job.live(), COMMIT))
 
     def test_shell_checks_deployment_when_git_is_already_current(self):
         """实际运行入口和临时Git仓库，复现两次HEAD相同仍须检查真实发布状态的旧故障。"""

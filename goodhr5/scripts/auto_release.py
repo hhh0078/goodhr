@@ -1,4 +1,4 @@
-"""文件作用：让宝塔定时任务自动完成正式候选、隔离验收及同标签激活，失败保留旧版并自动重试。"""
+"""文件作用：让宝塔定时任务准备正式候选及隔离验收；等待显式激活，失败保留旧版并自动重试。"""
 
 import argparse
 import datetime as dt
@@ -25,6 +25,18 @@ import release_hygiene as hygiene
 ROLES = ("backend", "frontend")
 RELEASE_ROOT = Path("/opt/goodhr-release")
 STATE_ROOT = RELEASE_ROOT / "auto-deploy"
+CLOUD_PATHS = ("cloud/backend", "cloud/frontend-next", "docker-compose.build.yml", "environments/production.env")
+
+
+def cloud_changes(source, containers, commit):
+    """只比较实际运行版本与目标的云端输入，文档和备份脚本不触发镜像构建。"""
+    labels = [item.get("Config", {}).get("Labels") or {} for item in containers.values()]
+    previous = {row.get("goodhr.source_commit") for row in labels}
+    require(len(previous) == 1 and COMMIT.fullmatch(next(iter(previous)) or ""), "正式前后端源码身份不一致，停止更新")
+    deployed = next(iter(previous))
+    require(current_release(containers, deployed), "正式前后端不是完整运行组合，停止更新")
+    changed = command(["git", "-C", str(source), "diff", "--name-only", deployed, commit, "--", *CLOUD_PATHS])
+    return deployed, bool(changed.strip())
 
 
 def current_release(containers, commit):
@@ -213,7 +225,7 @@ class AutomaticRelease:
                     and actual[role]["Image"] == containers[role]["Image"] for role in ROLES), "验收期间正式版本发生变化，重新检查")
 
     def execute(self, commit, containers):
-        """execute 按同一不可变标签依次构建、完整隔离与回退验收、精确收尾和正式激活。"""
+        """execute 按不可变标签构建、完整隔离与回退验收和精确收尾，等待显式激活。"""
         previous = self.state.get("previous_release_id")
         if previous:
             require(TAG.fullmatch(previous), "上轮自动发布编号异常")
@@ -228,7 +240,7 @@ class AutomaticRelease:
         environment = dict(os.environ, GOODHR_SOURCE_COMMIT=commit, GOODHR_RELEASE_IMAGE_TAG=tag,
                            GOODHR_DATABASE=database, GOODHR_VERIFIED_RELEASE_EVIDENCE=str(self.release / "isolated-validation.json"),
                            GOODHR_RETENTION_REGISTRY=str(self.release / "retention-registry.json"))
-        environment.setdefault("DOCKER_BUILDKIT", "0")
+        environment["DOCKER_BUILDKIT"] = "1"
         self.update("构建候选", release_id=tag, pending_migration_count=len(pending))
         self.invoke(["bash", "scripts/deploy-build.sh", "--build-only"], environment)
         images = {role: command(["docker", "image", "inspect", "--format", "{{.Id}}",
@@ -252,11 +264,8 @@ class AutomaticRelease:
             cleanup_rehearsal(self.engine, self.release)
             cleanup_restore_cache(self.release)
         self.verify_live(containers)
-        self.update("更新正式前后端")
-        self.invoke(["bash", "scripts/deploy-build.sh", "--activate-only"], environment)
-        require(current_release(self.live(), commit), "切换后的前后端源码提交不一致")
         self.check_health()
-        self.update("已上线", deployed_commit=commit, retry_after=0)
+        self.update("候选已就绪，等待激活", prepared_commit=commit, candidate_images=images, retry_after=0)
 
     def reclaim_build_cache(self, containers, images, environment, plan_directory=None):
         """reclaim_build_cache 空间低时使用当前真实版本的旧账本兼容登记精确回收，候选由本轮停止容器保护。"""
@@ -299,6 +308,15 @@ class AutomaticRelease:
         require(self.state_root.resolve() == self.state_root and not self.state_path.is_symlink(), "自动发布状态路径不安全")
         if self.state_path.exists():
             self.state = json.loads(self.state_path.read_text())
+        review = self.state_root / "pending-review.json"
+        if review.exists():
+            require(not review.is_symlink(), "验收保留记录路径异常")
+            record = json.loads(review.read_text())
+            require(record.get("schema_version") == 1 and record.get("host") == socket.gethostname()
+                    and record.get("awaiting_user_confirmation") is True, "验收保留记录异常，停止自动发布")
+            if self.state.get("stage") != "等待用户确认新容器":
+                self.update("等待用户确认新容器", review_record=str(review))
+            return
         commit = command(["git", "-C", str(self.source), "rev-parse", "HEAD"]).decode().strip()
         require(COMMIT.fullmatch(commit) and not command(["git", "-C", str(self.source), "status", "--porcelain", "--untracked-files=normal"]).strip(),
                 "源码有改动或提交不完整，停止自动更新")
@@ -312,6 +330,25 @@ class AutomaticRelease:
             if self.state.get("deployed_commit") != commit or self.state.get("stage") != "已上线":
                 self.check_health()
                 self.update("已上线", source_commit=commit, deployed_commit=commit, retry_after=0)
+            return
+        deployed, changed = cloud_changes(self.source, containers, commit)
+        if not changed:
+            self.check_health()
+            if self.state.get("source_commit") != commit or self.state.get("stage") != "云端无改动，跳过构建":
+                self.update("云端无改动，跳过构建", source_commit=commit, deployed_commit=deployed, retry_after=0)
+            return
+        prepared = self.state.get("prepared_commit") or ""
+        if isinstance(prepared, str) and COMMIT.fullmatch(prepared) and not command([
+                "git", "-C", str(self.source), "diff", "--name-only", prepared, commit, "--", *CLOUD_PATHS]).strip():
+            require(TAG.fullmatch(self.state.get("release_id") or ""), "既有候选编号缺失，停止重复构建")
+            evidence = json.loads((RELEASE_ROOT / self.state["release_id"] / "isolated-validation.json").read_text())
+            require(evidence.get("success") is True and evidence.get("source_commit") == prepared
+                    and evidence.get("host") == socket.gethostname()
+                    and all(evidence.get(role + "_image") == self.state.get("candidate_images", {}).get(role)
+                            == command(["docker", "image", "inspect", "--format", "{{.Id}}", "goodhr-production-" + role + ":" + self.state["release_id"]]).decode().strip()
+                            for role in ROLES), "既有候选身份或验收证据变化，停止重复构建")
+            self.check_health()
+            print("已有同一云端内容的验收候选，等待按原标签激活；不重复构建。", flush=True)
             return
         if self.state.get("source_commit") == commit and self.state.get("retry_after", 0) > time.time():
             print("上轮未通过，等待自动重试；正式站点保留旧版。", flush=True)

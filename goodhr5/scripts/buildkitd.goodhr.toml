@@ -1,0 +1,16 @@
+# 文件作用：仅约束GoodHR独立构建器；空闲缓存上限512MiB，构建并行度为1，不修改Docker全局配置。
+[worker.oci]
+  max-parallelism = 1
+  gc = true
+  reservedSpace = "0"
+  maxUsedSpace = "512MiB"
+  minFreeSpace = "3GiB"
+  [[worker.oci.gcpolicy]]
+    all = true
+    reservedSpace = "0"
+    maxUsedSpace = "512MiB"
+    minFreeSpace = "3GiB"
+[history]
+  maxEntries = 2
+[registry."docker.io"]
+  mirrors = ["docker.1ms.run", "docker.m.daocloud.io", "docker.1panel.live"]

@@ -53,7 +53,31 @@ if [[ "$action" != "--activate-only" ]]; then
   if [[ "$mode" == build ]]; then
     production_require_new_images
   fi
-  "${compose[@]}" build
+  if [[ "$mode" == build ]]; then
+    # 正式构建独占有资源限额的GoodHR构建器，禁止退回经典构建器制造中间镜像。
+    export DOCKER_CONFIG=/www/wwwroot/goodhr-deploy-tools/docker
+    export DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=1
+    export GOODHR_BUILD_NODE_OPTIONS="${GOODHR_BUILD_NODE_OPTIONS:---max-old-space-size=1024}"
+    python3 "$root/scripts/release_builder.py" check
+    # production_trim_build 构建被取消时也收拢本轮缓存，保留原失败退出码。
+    production_trim_build() {
+      local result=$?
+      trap - EXIT
+      python3 "$root/scripts/release_builder.py" trim || result=1
+      exit "$result"
+    }
+    trap production_trim_build EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    build_status=0
+    "${compose[@]}" build --builder goodhr-release || build_status=$?
+    # 成功失败均收拢本构建器缓存；清理失败必须停止后续激活。
+    python3 "$root/scripts/release_builder.py" trim
+    trap - EXIT INT TERM
+    [[ "$build_status" == 0 ]] || exit "$build_status"
+  else
+    "${compose[@]}" build
+  fi
 fi
 if [[ "$mode" == build ]]; then
   production_check_images
