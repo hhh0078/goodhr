@@ -298,15 +298,15 @@
     ],
     "candidate.list": [
       {
-        "_comment": "智联搜索页候选人列表，只用于智联搜索页。",
+        "_comment": "智联搜索页滚轮区域必须包含候选人名单及其同级分页栏，避免把下一页按钮裁在可操作区外。",
         "parents": [],
         "target": {
-          "_comment": "智联搜索页候选人列表目标。",
+          "_comment": "搜索结果外层区域；实际卡片读取仍由candidate.item限定在.search-resume-list。",
           "selectors": [
             {
-              "_comment": "智联搜索页候选人列表页面选择器。",
+              "_comment": "同时包含.search-resume-list与.search-result__pagination的可见结果区域。",
               "type": "css",
-              "value": ".search-resume-list"
+              "value": ".search-result"
             }
           ]
         },
