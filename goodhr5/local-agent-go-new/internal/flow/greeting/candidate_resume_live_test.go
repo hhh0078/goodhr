@@ -1,4 +1,4 @@
-// Package greeting 文件作用：在已登录前程无忧验证20人分批、真实滚动、SQLite重开与安全回退，禁止真实发送和写入用户任务数据库。
+// Package greeting 文件作用：在已登录前程无忧验证小批读取、真实滚轮、失败者补处理、250人断点与SQLite重开，禁止发送和写入用户进度。
 package greeting
 
 import (
@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -67,7 +68,7 @@ func (*candidateResumeLiveBrowser) PressKey(context.Context, contract.KeyboardPr
 	return contract.KeyboardPressResult{}, fmt.Errorf("只读断点验收禁止按键")
 }
 
-// TestJob51ResumeSQLiteExistingWorkerLive 使用测试库模拟完成标记，重开库后验证中间位置续读，并在当前条件允许时滚动加载至少100个唯一人选。
+// TestJob51ResumeSQLiteExistingWorkerLive 使用测试库模拟完成与失败，重开库先补失败者再续读；默认核对100人，可显式扩到300人覆盖250人断点和真实返回滚轮。
 func TestJob51ResumeSQLiteExistingWorkerLive(t *testing.T) {
 	base := os.Getenv("GOODHR_JOB51_RESUME_LIVE_WORKER_URL")
 	if base == "" {
@@ -77,7 +78,14 @@ func TestJob51ResumeSQLiteExistingWorkerLive(t *testing.T) {
 	if err != nil || parsed.Scheme != "http" || parsed.Hostname() != "127.0.0.1" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		t.Fatal("只能使用明确指定的本机Worker")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	target := 100
+	if raw := os.Getenv("GOODHR_JOB51_RESUME_LIVE_TARGET"); raw != "" {
+		target, err = strconv.Atoi(raw)
+		if err != nil || target < 100 || target > 500 {
+			t.Fatal("真实名单目标只允许100至500人")
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 	browser := &candidateResumeLiveBrowser{Client: client.New(base)}
 	pages, err := browser.ListPages(ctx)
@@ -128,7 +136,11 @@ func TestJob51ResumeSQLiteExistingWorkerLive(t *testing.T) {
 		t.Fatalf("首批20人未读完整：数量%d 错误%v", len(first), err)
 	}
 	for _, candidate := range first {
-		if err := session.complete(ctx, candidate, nil); err != nil {
+		var failure error
+		if candidate.Index == 3 {
+			failure = fmt.Errorf("仅测试库模拟未完成")
+		}
+		if err := session.complete(ctx, candidate, failure); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -163,9 +175,27 @@ func TestJob51ResumeSQLiteExistingWorkerLive(t *testing.T) {
 	if err != nil || recovered.record.Point != session.record.Point || freshCursor.StartIndex != last.Index+1 {
 		t.Fatalf("SQLite重开后恢复失败：cursor%+v err%v", freshCursor, err)
 	}
+	failed, retrying, err := recovered.retryCandidates(ctx, browser, cfg, fresh, model.CandidateListOptions{Cursor: freshCursor, ReadConcurrency: 5})
+	if err != nil || !retrying || len(failed) != 1 || failed[0].Index != 3 {
+		t.Fatalf("没有先补第4人：%v %v", retrying, err)
+	}
+	if err := fresh.ScrollToCandidate(ctx, browser, cfg, failed[0]); err != nil {
+		t.Fatalf("返回第4人失败：%v", err)
+	}
+	if err := recovered.complete(ctx, failed[0], nil); err != nil {
+		t.Fatal(err)
+	}
+	_, retrying, err = recovered.retryCandidates(ctx, browser, cfg, fresh, model.CandidateListOptions{Cursor: freshCursor, ReadConcurrency: 5})
+	if err != nil || retrying || len(recovered.record.Pending) != 0 || freshCursor.StartIndex != 20 {
+		t.Fatalf("补处理后没有回到第21人：%v %v", retrying, err)
+	}
+	t.Log("重开测试库后先找回第4位未完成者，补处理后仍从第21人继续，未联系真实候选人")
 	next, err := fresh.FindCandidates(ctx, browser, cfg, model.CandidateListOptions{Cursor: freshCursor, ReadConcurrency: 5})
 	if err != nil || len(next) == 0 || next[0].Fields["card_dom_id"] != expected.Value {
 		t.Fatalf("续读没有接上正确下一人：数量%d 错误%v", len(next), err)
+	}
+	if err := fresh.ScrollToCandidate(ctx, browser, cfg, next[0]); err != nil {
+		t.Fatalf("回到第21人失败：%v", err)
 	}
 	t.Logf("进度库关闭重开后从行号%d继续，下一人公开编号一致，续读%d人", freshCursor.StartIndex, len(next))
 	// 只在测试设置中放入缺失编号，真实页面不做删除或任何DOM修改。
@@ -207,7 +237,32 @@ func TestJob51ResumeSQLiteExistingWorkerLive(t *testing.T) {
 		}
 	}
 	batch := next
-	for round := 0; len(seen) < 100 && round < 6; round++ {
+	expected251 := ""
+	for round := 0; len(seen) < target && round < target; round++ {
+		for _, candidate := range batch {
+			if candidate.Index >= 250 {
+				continue
+			}
+			var failure error
+			if candidate.Index == 170 {
+				failure = fmt.Errorf("仅测试库模拟未完成")
+			}
+			if err := recovered.complete(ctx, candidate, failure); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// 测试准备只用真实滚轮到批尾，模拟正式逐人处理后的页面位置；后续断点返回仍验证正式平台方法。
+		tail, err := common.IndexedSelector(cfg, "candidate.item", batch[len(batch)-1].Index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		anchor, err := common.RequiredSelector(cfg, "candidate.list")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := browser.Scroll(ctx, contract.ScrollRequest{Target: &tail, WheelAnchor: &anchor, Distance: 10000, MaxAttempts: 30, WaitMS: 180}); err != nil {
+			t.Fatalf("测试准备滚到批尾失败：%v", err)
+		}
 		advanced, err := fresh.AdvanceCandidateList(ctx, browser, cfg, batch, model.CandidateListOptions{Cursor: freshCursor, ReadConcurrency: 5})
 		if err != nil {
 			t.Fatal(err)
@@ -225,8 +280,58 @@ func TestJob51ResumeSQLiteExistingWorkerLive(t *testing.T) {
 				t.Fatal("加载下一批重复或倒回开头")
 			}
 			seen[candidate.Fingerprint] = true
+			if candidate.Index == 250 {
+				expected251 = candidate.Fields["platform_candidate_id"]
+			}
 		}
 		t.Logf("当前批%d人，累计%d个唯一人选，读取起点%d", len(batch), len(seen), freshCursor.StartIndex)
+	}
+	if target >= 300 && len(seen) < target {
+		t.Skipf("当前筛选仅核对%d人，未完成指定%d人的长名单验收", len(seen), target)
+	}
+	if target >= 300 && len(seen) >= 300 {
+		if expected251 == "" || len(recovered.record.Pending) != 1 {
+			t.Fatal("未覆盖第251人或第171人未完成记录")
+		}
+		if err := reopened.Close(); err != nil {
+			t.Fatal(err)
+		}
+		latestStore, err := storage.Open(storePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer latestStore.Close()
+		latestRuntime, err := platform.RuntimeFor("51job")
+		if err != nil {
+			t.Fatal(err)
+		}
+		latestCursor := &model.CandidateListCursor{}
+		latest, err := (&Flow{Store: latestStore}).prepareCandidateResume(ctx, browser, prepared, latestRuntime, latestCursor)
+		if err != nil || latestCursor.StartIndex != 250 {
+			t.Fatalf("250人后重新开库没有恢复：%v %+v", err, latestCursor)
+		}
+		failed, retrying, err := latest.retryCandidates(ctx, browser, cfg, latestRuntime, model.CandidateListOptions{Cursor: latestCursor, ReadConcurrency: 5})
+		if err != nil || !retrying || len(failed) != 1 || failed[0].Index != 170 {
+			t.Fatalf("没有找回第171人：%v %v", retrying, err)
+		}
+		if err := latestRuntime.ScrollToCandidate(ctx, browser, cfg, failed[0]); err != nil {
+			t.Fatalf("返回第171人失败：%v", err)
+		}
+		if err := latest.complete(ctx, failed[0], nil); err != nil {
+			t.Fatal(err)
+		}
+		_, retrying, err = latest.retryCandidates(ctx, browser, cfg, latestRuntime, model.CandidateListOptions{Cursor: latestCursor, ReadConcurrency: 5})
+		if err != nil || retrying || latestCursor.StartIndex != 250 {
+			t.Fatalf("补处理后没有回到250：%v %v", retrying, err)
+		}
+		rows, err := latestRuntime.FindCandidates(ctx, browser, cfg, model.CandidateListOptions{Cursor: latestCursor, ReadConcurrency: 5})
+		if err != nil || len(rows) == 0 || rows[0].Fields["platform_candidate_id"] != expected251 {
+			t.Fatalf("没有接上正确第251人：%v", err)
+		}
+		if err := latestRuntime.ScrollToCandidate(ctx, browser, cfg, rows[0]); err != nil {
+			t.Fatalf("回到第251人失败：%v", err)
+		}
+		t.Log("真实300人名单已核对：测试库保存前250人并保留第171人未完成，关库重开后先补第171人，再准确接上第251人；未发送或修改用户进度")
 	}
 	if browser.maxItems != 20 || browser.scrolls == 0 {
 		t.Fatal("没有覆盖20人读取和真实滚轮")
