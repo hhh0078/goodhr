@@ -9,10 +9,10 @@ production_prepare() {
   flock -n 11 || { echo "源码正在更新或发布，本次先停一下" >&2; return 1; }
   python3 "$root/scripts/release_guard.py" dockerfiles
   export GOODHR_SOURCE_COMMIT="${GOODHR_SOURCE_COMMIT:-$(git rev-parse HEAD)}"
+  production_tool_commit="$(git rev-parse HEAD)"
   [[ "$GOODHR_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "源码提交格式不正确" >&2; return 1; }
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    [[ "$(git rev-parse HEAD)" == "$GOODHR_SOURCE_COMMIT" && -z "$(git status --porcelain --untracked-files=normal)" ]] ||
-      { echo "源码有未提交改动或提交不一致，先停一下发布" >&2; return 1; }
+    production_check_source || return
   fi
   export GOODHR_RELEASE_IMAGE_TAG="${GOODHR_RELEASE_IMAGE_TAG:-${GOODHR_SOURCE_COMMIT:0:12}-$(date -u +%Y%m%dT%H%M%SZ)}"
   [[ "$GOODHR_RELEASE_IMAGE_TAG" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]] ||
@@ -50,12 +50,19 @@ PY
   GOODHR_BACKEND_DOCKERFILE_SHA="$(sha256sum "$root/cloud/backend/Dockerfile.release" | cut -d' ' -f1)"
   GOODHR_FRONTEND_DOCKERFILE_SHA="$(sha256sum "$root/cloud/frontend-next/Dockerfile" | cut -d' ' -f1)"
   printf '发布标签：%s\n' "$GOODHR_RELEASE_IMAGE_TAG"
+  printf '应用源码：%s；发布工具：%s\n' "$GOODHR_SOURCE_COMMIT" "$production_tool_commit"
 }
 
 # production_check_source 复核持锁后和构建完成时的源码身份，防止混入另一轮工作区改动。
 production_check_source() {
-  [[ "$(git rev-parse HEAD)" == "$GOODHR_SOURCE_COMMIT" && -z "$(git status --porcelain --untracked-files=normal)" ]] ||
+  [[ "$(git rev-parse HEAD)" == "$production_tool_commit" && -z "$(git status --porcelain --untracked-files=normal)" ]] ||
     { echo "发布期间源码发生变化，请重新核对候选" >&2; return 1; }
+  if [[ "$production_tool_commit" != "$GOODHR_SOURCE_COMMIT" ]]; then
+    # 只允许激活既有候选时更新发布工具；应用全部构建输入必须与原提交逐字节相同。
+    [[ "$action" == --activate-only ]] && git diff --quiet "$GOODHR_SOURCE_COMMIT" "$production_tool_commit" -- \
+      cloud/backend cloud/frontend-next docker-compose.build.yml environments/production.env ||
+      { echo "候选应用输入已改变，必须重新构建和验收" >&2; return 1; }
+  fi
 }
 
 # production_require_new_images 拒绝覆盖任一已经存在的版本标签，查询失败也必须停止构建。
