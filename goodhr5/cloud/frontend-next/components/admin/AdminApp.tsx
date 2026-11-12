@@ -66,7 +66,6 @@ import {
   detectLocalAgent,
   formatDate,
   localRequest,
-  syncCloudSessionToLocalAgent,
 } from "@/lib/admin-api";
 import { requiredRuntimeComponents } from "@/lib/admin-runtime";
 import {
@@ -310,8 +309,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         setAgentBase(nextBase);
         setAgentVersion("");
         await bindDetectedLocalAgent(nextBase);
-        // 同步云端令牌给本地程序，供云端命令通道（WorkBuddy 连接器）下发任务；失败不影响控制台使用。
-        void syncCloudSessionToLocalAgent(nextBase).catch(() => {});
         void reportUserFlow({
           step: "agent_detected",
           source: "frontend_agent_probe",
