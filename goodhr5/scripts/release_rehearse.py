@@ -232,7 +232,7 @@ class Rehearsal:
         return command(["docker", "exec", "-i", self.pg, "psql", "-XqAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", self.args.database], sql.encode())
 
     def database_snapshot(self, columns=None, preserve_default_library=False):
-        """database_snapshot 流式核对完整表，或固定升级前字段的投影；默认话术例外另行逐字段审计。"""
+        """database_snapshot 逐行计算完整内容的SHA256后排序短摘要，保留重复次数，避免大表正文排序写满磁盘。"""
         tables = sorted(columns) if columns is not None else self.psql("SELECT n.nspname||E'\\t'||c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p') AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema' ORDER BY 1;").decode().splitlines()
         result = {}
         for table in tables:
@@ -241,7 +241,7 @@ class Rehearsal:
             target = quote_identifier(schema) + "." + quote_identifier(name)
             selected = ",".join(quote_identifier(key) for key in columns[table]) if columns is not None else "*"
             condition = " WHERE config_key<>'system.auto_reply_library'" if preserve_default_library and table == "public\tsystem_configs" else ""
-            sql = "SET statement_timeout='600s'; COPY (SELECT row_to_json(t)::text FROM (SELECT " + selected + " FROM " + target + condition + ") t ORDER BY row_to_json(t)::text COLLATE \"C\") TO STDOUT;"
+            sql = "SET statement_timeout='600s'; COPY (SELECT encode(sha256(convert_to(row_to_json(t)::text,'UTF8')),'hex') COLLATE \"C\" AS row_hash FROM (SELECT " + selected + " FROM " + target + condition + ") t ORDER BY row_hash) TO STDOUT;"
             digest, rows = hashlib.sha256(), 0
             with tempfile.TemporaryFile() as errors:
                 process = subprocess.Popen(["docker", "exec", "-i", self.pg, "psql", "-XqAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", self.args.database], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors)
