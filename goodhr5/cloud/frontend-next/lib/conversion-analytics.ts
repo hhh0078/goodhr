@@ -4,7 +4,7 @@ export const CLARITY_PROJECT_ID = "z92qaybaap";
 const ARRIVAL_KEY = "goodhr.auth.pending-arrival";
 type AuthFlow = "new_account" | "existing_account" | "unknown";
 type ConversionEvent = "site_visit" | "login_view" | "code_request" | "code_sent" | "code_failed" | "login_submit" | "agreement_opened" | "agreement_accepted" | "agreement_cancelled" | "validation_failed" | "login_failed" | "register_success" | "login_success" | "password_setup_required" | "password_setup_completed" | "admin_entered";
-type ConversionDetail = { flow?: AuthFlow; method?: "code" | "password"; reason?: "email" | "code" | "password" | "password_confirmation" | "send_code_first" | "network" | "credentials" | "rate_limit" | "email_domain" | "other" };
+type ConversionDetail = { flow?: AuthFlow; method?: "code" | "password" | "wechat"; reason?: "email" | "code" | "password" | "password_confirmation" | "send_code_first" | "network" | "credentials" | "rate_limit" | "email_domain" | "other" };
 type ClarityCommand = ((...args: unknown[]) => void) & { q?: unknown[][] };
 
 declare global {
