@@ -233,14 +233,9 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 			return escapeErr
 		}
 		if escapeErr == nil {
-			// Escape 无响应时尽快让备用按钮接手，不使用完整按钮关闭轮询来拖慢每位候选人的处理。
-			verifyCtx, cancel := context.WithTimeout(ctx, time.Second)
-			hidden, verifyErr := waitSelectorHidden(verifyCtx, browser, cfg, detailKey)
-			cancel()
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if verifyErr != nil && !errors.Is(verifyErr, context.DeadlineExceeded) {
+			// 限制复查次数，不用一秒子期限中断正在执行的读取，避免把正常关闭误报成 Worker 故障。
+			hidden, verifyErr := waitSelectorHidden(ctx, browser, cfg, detailKey, panelEscapeCheckAttempts)
+			if verifyErr != nil {
 				return verifyErr
 			}
 			if hidden {
@@ -291,6 +286,14 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 		_, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
 		return err
 	}
+	// 按钮回执异常或按钮已消失时先核对弹窗，避免已经关闭却报错或对底下的页面追加 Escape。
+	hidden, verifyErr := waitSelectorHidden(ctx, browser, cfg, detailKey, panelEscapeCheckAttempts)
+	if verifyErr != nil {
+		return verifyErr
+	}
+	if hidden {
+		return nil
+	}
 	if cfg.Behavior.DetailCloseEscapeFirst {
 		if clickErr != nil {
 			return fmt.Errorf("%w；备用关闭按钮未能关闭详情：%w", escapeErr, clickErr)
@@ -303,7 +306,7 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 		}
 		return err
 	}
-	hidden, err := waitSelectorHidden(ctx, browser, cfg, detailKey)
+	hidden, err = waitSelectorHidden(ctx, browser, cfg, detailKey, panelCloseCheckAttempts)
 	if err != nil {
 		return err
 	}
