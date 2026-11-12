@@ -79,13 +79,14 @@ type wechatCurrentBinding struct {
 
 // MemoryWechatFollowStore 用同一把锁保护关注、挑战和奖励，适合本地开发与单元测试。
 type MemoryWechatFollowStore struct {
-	mu            sync.Mutex
-	subscriptions *MemorySubscriptionStore
-	pending       map[string]wechatPendingBinding
-	follows       map[string]wechatFollowState
-	bindings      map[string]wechatCurrentBinding
-	giftEmails    map[string]int
-	giftOpenIDs   map[string]struct{}
+	mu              sync.Mutex
+	subscriptions   *MemorySubscriptionStore
+	pending         map[string]wechatPendingBinding
+	follows         map[string]wechatFollowState
+	bindings        map[string]wechatCurrentBinding
+	loginIdentities map[string]string
+	giftEmails      map[string]int
+	giftOpenIDs     map[string]struct{}
 }
 
 // NewMemoryWechatFollowStore 创建内存公众号存储，并共享现有内存会员数据。
@@ -94,12 +95,13 @@ func NewMemoryWechatFollowStore(subscriptions *MemorySubscriptionStore) *MemoryW
 		subscriptions = NewMemorySubscriptionStore()
 	}
 	return &MemoryWechatFollowStore{
-		subscriptions: subscriptions,
-		pending:       make(map[string]wechatPendingBinding),
-		follows:       make(map[string]wechatFollowState),
-		bindings:      make(map[string]wechatCurrentBinding),
-		giftEmails:    make(map[string]int),
-		giftOpenIDs:   make(map[string]struct{}),
+		subscriptions:   subscriptions,
+		pending:         make(map[string]wechatPendingBinding),
+		follows:         make(map[string]wechatFollowState),
+		bindings:        make(map[string]wechatCurrentBinding),
+		loginIdentities: make(map[string]string),
+		giftEmails:      make(map[string]int),
+		giftOpenIDs:     make(map[string]struct{}),
 	}
 }
 

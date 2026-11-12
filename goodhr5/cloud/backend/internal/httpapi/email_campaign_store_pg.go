@@ -192,6 +192,9 @@ func (s *PostgresEmailCampaignStore) FindTargetUsers(filter EmailTargetFilter) (
 		if err := rows.Scan(&email, &rawProfile, &rawFlow); err != nil {
 			return nil, err
 		}
+		if isWechatAccount(email) {
+			continue
+		}
 		flow, err := parseUserFlowState(rawFlow)
 		if err != nil {
 			return nil, err

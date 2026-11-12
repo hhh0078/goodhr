@@ -29,12 +29,13 @@ var wechatAcceptedBindingCode = regexp.MustCompile(`^(?:[1-9][0-9]{3}|[23456789A
 
 // WechatOfficialService 验证微信身份并把公众号绑定到当前登录账号。
 type WechatOfficialService struct {
-	auth    *AuthService
-	store   WechatFollowStore
-	configs SystemConfigStore
-	now     func() time.Time
-	cache   wechatBindingCache
-	newCode func() (string, error)
+	auth       *AuthService
+	store      WechatFollowStore
+	configs    SystemConfigStore
+	now        func() time.Time
+	cache      wechatBindingCache
+	newCode    func() (string, error)
+	loginCache *wechatLoginCache
 }
 
 // wechatIncomingMessage 对应微信明文或加密回调的 XML 字段。
@@ -72,6 +73,7 @@ type wechatEncryptedReply struct {
 func NewWechatOfficialService(auth *AuthService, store WechatFollowStore, configs SystemConfigStore) *WechatOfficialService {
 	service := &WechatOfficialService{auth: auth, store: store, configs: configs, now: time.Now, newCode: newWechatBindingCode}
 	service.cache = newMemoryWechatBindingCache(func() time.Time { return service.now() })
+	service.loginCache = newWechatLoginCache(auth, func() time.Time { return service.now() })
 	if auth != nil {
 		if redisStore, ok := auth.store.(*RedisAuthStore); ok {
 			service.cache = &redisWechatBindingCache{client: redisStore.client}
@@ -363,7 +365,16 @@ func (s *WechatOfficialService) handleMessage(ctx context.Context, config Wechat
 		}
 		return "", nil
 	}
-	if message.MsgType != "text" || !config.Enabled {
+	if message.MsgType != "text" {
+		return "", nil
+	}
+	if strings.HasPrefix(strings.TrimSpace(message.Content), "验证码") {
+		if config.LoginEnabled == nil || !*config.LoginEnabled {
+			return "公众号登录暂时没开启，可以先用邮箱登录。", nil
+		}
+		return s.handleLoginMessage(ctx, config, message)
+	}
+	if !config.Enabled {
 		return "", nil
 	}
 	days, err := loadWechatFollowRewardDays(s.configs)

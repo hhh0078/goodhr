@@ -47,6 +47,8 @@ func parseWechatFollowRewardDays(raw string) (int, error) {
 
 // WechatOfficialConfig 保存回调与关注绑定配置，仅允许超级管理员编辑。
 type WechatOfficialConfig struct {
+	// LoginEnabled 独立控制免密登录，旧配置未填写时默认启用已配置的回调，不改变关注奖励。
+	LoginEnabled   *bool  `json:"login_enabled,omitempty"`
 	Enabled        bool   `json:"enabled"`
 	AccountName    string `json:"account_name"`
 	AppID          string `json:"app_id"`
@@ -86,6 +88,8 @@ func loadWechatOfficialConfig(store SystemConfigStore) (WechatOfficialConfig, er
 		config.QRImageURL = "https://open.weixin.qq.com/qr/code?username=" + url.QueryEscape(config.OriginalID)
 	}
 	config.Enabled = config.Enabled && record.Enabled
+	loginEnabled := record.Enabled && (config.LoginEnabled == nil || *config.LoginEnabled)
+	config.LoginEnabled = &loginEnabled
 	return config, nil
 }
 
@@ -123,8 +127,8 @@ func validateWechatOfficialConfig(c WechatOfficialConfig) error {
 			return errors.New("二维码图片请填写完整 HTTPS 链接")
 		}
 	}
-	if c.Enabled && (c.AppID == "" || c.OriginalID == "" || c.Token == "" || c.EncodingAESKey == "") {
-		return errors.New("先补齐 AppID、原始 ID、Token 和 EncodingAESKey，再开启关注奖励")
+	if (c.Enabled || c.LoginEnabled != nil && *c.LoginEnabled) && (c.AppID == "" || c.OriginalID == "" || c.Token == "" || c.EncodingAESKey == "") {
+		return errors.New("先补齐 AppID、原始 ID、Token 和 EncodingAESKey，再开启公众号登录或关注奖励")
 	}
 	return nil
 }
@@ -203,7 +207,7 @@ func canonicalWechatOfficialFields(values map[string]json.RawMessage) (map[strin
 	for key, value := range values {
 		canonical := key
 		switch strings.ToLower(key) {
-		case "enabled", "account_name", "app_id", "original_id", "token", "encoding_aes_key", "qr_image_url", "message_mode", "encoding_aes_key_configured", "callback_url", "reward_days":
+		case "enabled", "login_enabled", "account_name", "app_id", "original_id", "token", "encoding_aes_key", "qr_image_url", "message_mode", "encoding_aes_key_configured", "callback_url", "reward_days":
 			canonical = strings.ToLower(key)
 		}
 		if _, exists := result[canonical]; exists {

@@ -551,7 +551,7 @@ func (s *AdminEmailService) automaticEmailBaseURL(baseURL string) string {
 func (s *AdminEmailService) resolveRecipients(req sendAdminEmailRequest) ([]string, string, error) {
 	seen := map[string]bool{}
 	add := func(email string) {
-		if normalized, ok := normalizeEmail(email); ok {
+		if normalized, ok := normalizeEmail(email); ok && !isWechatAccount(normalized) {
 			seen[normalized] = true
 		}
 	}

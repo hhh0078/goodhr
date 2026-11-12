@@ -9,8 +9,8 @@ import BrandMark from "@/components/BrandMark";
 import LoginForm from "@/components/LoginForm";
 
 const loginPoints = [
-  "验证码或密码都能登录",
-  "新账号用验证码和密码完成注册",
+  "公众号扫码，发送验证码即可登录",
+  "邮箱验证码和密码入口继续保留",
   "平台账号与浏览器数据仍保留在本地",
 ];
 
@@ -26,6 +26,10 @@ export default function LoginPage() {
         }
         @media (min-width: 900px) {
           .public-login-1 .public-login-11.ant-typography { font-size: 64px; }
+        }
+        @media (max-width: 899px) {
+          .public-login-8 > div:first-child { order: 2; }
+          .public-login-17 { order: 1; }
         }
       `}</style>
       <div className="public-container public-login-2">
