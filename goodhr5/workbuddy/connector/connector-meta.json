@@ -7,7 +7,7 @@
   "description": "查看 GoodHR 岗位和额度，一键启动候选人筛选任务并取回结果。招聘平台的登录状态和数据只保存在用户电脑本地。",
   "description_zh": "查看 GoodHR 岗位和额度，一键启动候选人筛选任务并取回结果，招聘数据只保存在用户电脑本地。",
   "description_en": "View GoodHR job positions and quota, start candidate screening tasks with one click, and fetch the results. Recruitment data stays on the user's own computer.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "minWorkbuddyVersion": "4.24.0",
   "auth_mode": "server-side",
   "examples_zh": [
@@ -29,7 +29,7 @@
     "data": {
       "mcp_oauth": {
         "server_url": "https://goodhr.58it.cn/mcp",
-        "scopes": ["mcp"]
+        "scopes": "mcp"
       }
     }
   }
