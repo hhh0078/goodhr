@@ -12,6 +12,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/api"
 	"goodhr5/local-agent-go-new/internal/browser/client"
 	browserprocess "goodhr5/local-agent-go-new/internal/browser/process"
+	"goodhr5/local-agent-go-new/internal/cloudws"
 	"goodhr5/local-agent-go-new/internal/config"
 	downloadflow "goodhr5/local-agent-go-new/internal/flow/download"
 	"goodhr5/local-agent-go-new/internal/flow/greeting"
@@ -53,6 +54,7 @@ type Application struct {
 	downloads *downloadflow.Monitor
 	ocr       *ocr.Client
 	incidents *diagnostics.BrowserIncidentRecorder
+	cloudWS   *cloudws.Client
 }
 
 // New 按依赖顺序创建 SQLite、客户端、流程和本地 HTTP 服务。
@@ -133,6 +135,10 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 		Cloud: cloudClient, DeviceID: device.Current, Incidents: incidents,
 	})
 	application.server = server
+	// 云端命令通道客户端：接收 WorkBuddy 连接器下发的岗位启动命令。
+	cloudWS := cloudws.NewClient(cfg.CloudURL, server.CurrentCloudToken, server.CloudStartFromWS)
+	server.SetCloudWSStatus(cloudWS.Connected)
+	application.cloudWS = cloudWS
 	return application, nil
 }
 
@@ -187,6 +193,10 @@ func (a *Application) Run(ctx context.Context) error {
 	replyDone := make(chan struct{})
 	go func() { defer close(replyDone); a.runner.RunAutoReplyBackground(replyCtx) }()
 	defer stopReply()
+	cloudWSCtx, stopCloudWS := context.WithCancel(runCtx)
+	cloudWSDone := make(chan struct{})
+	go func() { defer close(cloudWSDone); a.cloudWS.Run(cloudWSCtx) }()
+	defer stopCloudWS()
 	go func() {
 		select {
 		case <-a.shutdown:
