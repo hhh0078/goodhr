@@ -18,3 +18,5 @@
 .placeholder { width: 160px; height: 160px; fill: var(--goodhr-text, #17211c); }
 .consent { flex-direction: column; gap: 4px; background: rgba(247,250,248,.78); }
 .consent :global(.ant-btn-link) { padding-inline: 0; font-size: 12px; }
+
+.consent :global(.ant-btn).consentButton { border-radius: 6px; padding-inline: 16px; }

@@ -153,10 +153,9 @@ export default function WechatLogin({ agreementAccepted, onAgreementChange, onAg
         {agreementAccepted && challenge ? <Image width={160} height={160} src={challenge.qr_image_url} alt="GoodHR 公众号二维码，请用微信扫码" preview={false} /> : null}
         {!agreementAccepted ? <>
           <ConsentQRPlaceholder />
-          <div className={`${styles.cover} ${styles.consent}`}>
-            <Typography.Text strong>请先同意协议</Typography.Text>
-            <Button type="primary" onClick={() => onAgreementChange(true)}>同意</Button>
-            <Button type="link" aria-label="查看使用协议与隐私说明" onClick={onAgreement}>使用说明与隐私协议</Button>
+          <div className={`${styles.cover} ${styles.consent}`} aria-label="请先同意协议">
+            <Button type="primary" className={styles.consentButton} style={{ borderRadius: 6 }} onClick={() => onAgreementChange(true)}>同意协议</Button>
+            <Button type="link" aria-label="查看二维码蒙板协议" onClick={onAgreement}>使用说明与隐私协议</Button>
           </div>
         </>
           : loading && !challenge ? <Spin aria-label="正在准备登录码" />
@@ -171,8 +170,8 @@ export default function WechatLogin({ agreementAccepted, onAgreementChange, onAg
       </div> : null}
       <div className={styles.actions}>
         <span className={styles.agreement}>
-          <Checkbox checked={agreementAccepted} onChange={event => { agreement.current = event.target.checked; onAgreementChange(event.target.checked); }}>我已阅读并同意</Checkbox>
-          {agreementAccepted ? <Button type="link" aria-label="查看使用协议与隐私说明" onClick={onAgreement}>《协议》</Button> : null}
+          <Checkbox aria-label="我已阅读并同意" checked={agreementAccepted} onChange={event => { agreement.current = event.target.checked; onAgreementChange(event.target.checked); }}>同意</Checkbox>
+          <Button type="link" aria-label="查看使用协议与隐私说明" onClick={onAgreement}>使用说明与隐私协议</Button>
         </span>
         <Button type="link" aria-label="重新生成" disabled={!agreementAccepted} loading={loading} onClick={regenerate}>重新生成</Button>
       </div>
