@@ -87,6 +87,7 @@ GoodHR 提供了模拟休息、打开概率、操作间隔等配置，但这些�
 如果你不同意，或者无法承担相关风险，请停止使用 GoodHR。`;
 
 const LOGIN_MODE_CACHE_KEY = "goodhr.login.mode";
+const AGREEMENT_CACHE_KEY = "goodhr.login.agreement";
 
 /** LoginForm 提供验证码发送、倒计时、协议确认和登录状态保存。 */
 export default function LoginForm() {
@@ -124,6 +125,7 @@ export default function LoginForm() {
 
   useEffect(() => {
     captureLocalAgentPortFromURL();
+    try { setAgreementChecked(localStorage.getItem(AGREEMENT_CACHE_KEY) === "accepted"); } catch { /* 缓存不可用时由本人重新勾选。 */ }
     const cachedMode = localStorage.getItem(LOGIN_MODE_CACHE_KEY);
     if (cachedMode === "wechat" || cachedMode === "code" || cachedMode === "password") setLoginMode(cachedMode);
     const cachedEmail = (localStorage.getItem(SESSION_EMAIL_KEY) || "")
@@ -164,7 +166,6 @@ export default function LoginForm() {
   }, [resetCooldown]);
 
   useEffect(() => {
-    setAgreementChecked(false);
     setContinueAfterAgreement(false);
     setAcceptedEmail((current) => (current === normalizedEmail ? current : ""));
   }, [normalizedEmail]);
@@ -373,13 +374,23 @@ export default function LoginForm() {
     trackConversion("validation_failed", { flow: authFlow, method: loginMode, reason });
   }
 
+  /** changeAgreement 保存本人勾选偏好；主动取消时清除缓存，不把缓存当作云端登录或协议记录。 */
+  function changeAgreement(checked: boolean) {
+    setAgreementChecked(checked);
+    if (!checked) setAcceptedEmail("");
+    try {
+      if (checked) localStorage.setItem(AGREEMENT_CACHE_KEY, "accepted");
+      else localStorage.removeItem(AGREEMENT_CACHE_KEY);
+    } catch { /* 浏览器禁用存储时仅保留当前页面勾选，不阻断登录。 */ }
+    if (checked) trackConversion("agreement_accepted", { flow: authFlow, method: loginMode });
+  }
+
   /** acceptAgreement 确认协议并自动继续待完成的登录，不再要求用户重复点击。 */
   function acceptAgreement() {
-    setAgreementChecked(true);
+    changeAgreement(true);
     setAcceptedEmail(normalizedEmail);
     setAgreementOpen(false);
     setError("");
-    trackConversion("agreement_accepted", { flow: authFlow, method: loginMode });
     setContinueAfterAgreement(false);
     if (continueAfterAgreement) void login(true);
   }
@@ -425,7 +436,7 @@ export default function LoginForm() {
             邮箱密码
           </Button>
         </div>
-        {!loginPreferencesLoaded ? null : loginMode === "wechat" ? <WechatLogin agreementAccepted={agreementChecked} onAgreement={() => setAgreementOpen(true)} onSuccess={finishLogin} /> : <>
+        {!loginPreferencesLoaded ? null : loginMode === "wechat" ? <WechatLogin agreementAccepted={agreementChecked} onAgreementChange={changeAgreement} onAgreement={openAgreement} onSuccess={finishLogin} /> : <>
         <Form.Item label="邮箱" htmlFor="login-email">
           <Input
             id="login-email"
@@ -517,11 +528,7 @@ export default function LoginForm() {
           <Checkbox
             checked={agreementReady}
             disabled={loading}
-            onChange={(event) => {
-              setAgreementChecked(event.target.checked);
-              if (!event.target.checked) setAcceptedEmail("");
-              else trackConversion("agreement_accepted", { flow: authFlow, method: loginMode });
-            }}
+            onChange={(event) => changeAgreement(event.target.checked)}
           >我已阅读并同意</Checkbox>
           <Button type="link" className="public-agreement-link" onClick={openAgreement} disabled={loading}>
             《使用协议与隐私说明》

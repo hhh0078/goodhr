@@ -167,9 +167,13 @@
   margin-bottom: 18px;
 }
 .public-login-tabs {
-  display: flex;
+  display: grid;
   gap: 8px;
   margin-bottom: 18px;
+}
+.public-login-tabs .ant-btn { min-width: 0; padding-inline: 8px; }
+@media (max-width: 380px) {
+  .public-login-tabs .ant-btn { padding-inline: 2px; font-size: 12px; }
 }
 .public-login-inline {
   display: flex;

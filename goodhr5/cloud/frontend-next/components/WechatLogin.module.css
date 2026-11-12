@@ -1,9 +1,20 @@
-/* 文件作用说明：让公众号二维码、登录指令与等待状态在现有登录面板中清晰展示，并适配窄屏。 */
-.login { width: 100%; padding: 8px 0; }
-.qr { position: relative; display: flex; align-items: center; justify-content: center; width: 224px; height: 224px; max-width: 100%; background: #fff; border: 1px solid var(--goodhr-border); border-radius: 8px; }
-.code { font-variant-numeric: tabular-nums; letter-spacing: 1px; user-select: all; }
-.status { min-height: 28px; text-align: center; font-size: 13px; color: var(--goodhr-text-secondary); }
-.expired { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: rgba(255,255,255,.96); border-radius: 8px; }
+/* 文件作用说明：紧凑展示协议前置的微信登录区，手机和桌面均保持验证码倒计时及协议操作同排。 */
+.login { width: 100%; padding: 4px 0; }
+.heading { font-size: 14px; white-space: nowrap; }
+.qr { position: relative; display: flex; align-items: center; justify-content: center; width: 176px; height: 176px; background: #fff; border: 1px solid var(--goodhr-border); border-radius: 8px; }
+.cover { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(247,250,248,.96); border-radius: 8px; }
+.codeRow { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.code { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 1px; user-select: all; }
+.countdown { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.countdown :global(.ant-typography) { font-size: 12px; }
+.countdown :global(.ant-spin) { display: inline-flex; }
+.actions { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; white-space: nowrap; }
+.agreement { display: inline-flex; align-items: center; }
+.agreement :global(.ant-checkbox-label) { padding-inline-end: 0; font-size: 12px; }
+.agreement :global(.ant-btn) { padding-inline: 0; font-size: 12px; }
+.actions > :global(.ant-btn) { padding-inline: 0; font-size: 12px; }
 .hint { margin: 0 !important; font-size: 12px; line-height: 1.7; text-align: center; }
 
-.actions { display: flex; align-items: center; justify-content: center; gap: 16px; white-space: nowrap; }
+.placeholder { width: 160px; height: 160px; fill: var(--goodhr-text, #17211c); }
+.consent { flex-direction: column; gap: 4px; background: rgba(247,250,248,.78); }
+.consent :global(.ant-btn-link) { padding-inline: 0; font-size: 12px; }
