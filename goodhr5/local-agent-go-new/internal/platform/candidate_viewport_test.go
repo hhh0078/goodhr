@@ -26,3 +26,24 @@ func TestViewportModeMatchesPageConfiguration(t *testing.T) {
 		}
 	}
 }
+
+// TestDetailReadBudgetsOnlyApplyToBody 验证五个平台仅正文取值有5秒预算，不改变其他节点、定位等待和整次任务保护。
+func TestDetailReadBudgetsOnlyApplyToBody(t *testing.T) {
+	for _, id := range []string{"boss", "zhaopin", "51job", "liepin", "hliepin"} {
+		cfg, err := platform.LoadConfig(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for key, spec := range cfg.Selectors {
+			for _, variant := range spec.Variants() {
+				want := 0
+				if key == "candidate.detail" {
+					want = 5000
+				}
+				if variant.ReadTimeoutMS != want {
+					t.Fatalf("%s %s预算%d，预期%d", id, key, variant.ReadTimeoutMS, want)
+				}
+			}
+		}
+	}
+}

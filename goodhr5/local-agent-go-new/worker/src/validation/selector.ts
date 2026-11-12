@@ -104,6 +104,8 @@ function parseSelectorVariants(
   if (timeout !== undefined) {
     result.timeout_ms = timeout;
   }
+  const readTimeout = optionalNumber(record, "read_timeout_ms", { min: 100, max: 10_000 });
+  if (readTimeout !== undefined) result.read_timeout_ms = readTimeout;
   if (record.read_property === "text" || record.read_property === "html") {
     result.read_property = record.read_property;
   }

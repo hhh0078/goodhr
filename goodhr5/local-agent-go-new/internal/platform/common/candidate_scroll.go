@@ -174,7 +174,7 @@ func advanceCandidateCursor(cursor *model.CandidateListCursor, startIndex int, b
 	if cursor == nil {
 		return
 	}
-	if startIndex == 0 {
+	if startIndex == 0 || cursor.IdentityByIndex {
 		cursor.IdentityOccurrences = nil
 	} else {
 		if cursor.IdentityOccurrences == nil {

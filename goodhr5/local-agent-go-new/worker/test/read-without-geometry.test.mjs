@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FindAction } from '../dist/browser/actions/find.js';
 import { ReadAction } from '../dist/browser/actions/read.js';
+import { parseSelectorSpec } from '../dist/validation/selector.js';
 import { LocatorPrimitive } from '../dist/browser/primitives/locator.js';
 import { ElementRegistry } from '../dist/browser/session/element-registry.js';
 import { startRequestProgress, requestProgress } from '../dist/logging/request-progress.js';
@@ -41,7 +42,7 @@ function harness(t) {
       getAttribute: async name => nodes[0]?.attrs?.[name] ?? null,
       isVisible: async () => { counters.visible++; target.onVisible?.(); return nodes[0]?.visible ?? true; },
       isEnabled: async () => { counters.enabled++; return nodes[0]?.enabled ?? true; },
-      innerText: async () => { counters.text++; return nodes[0]?.text ?? ''; },
+      innerText: async options => { counters.text++; return target.readText ? target.readText(options) : nodes[0]?.text ?? ''; },
       innerHTML: async () => '<span>目标</span>',
       boundingBox: async () => { counters.box++; return { x: 10, y: 20, width: 40, height: 30 }; },
     };
@@ -145,5 +146,25 @@ test('普通元素阅读失败明确停在定位还是已定位后取值，仅�
       assert.equal(err.details?.read_value_timeout_ms, mode === 'timeout' ? 1500 : undefined);
       return true;
     });
+  }
+});
+
+
+test('定位预算不改变取值预算；正文可单独给5秒，错误诊断记录实际时限', async t => {
+  const h=harness(t);const timeouts=[];
+  h.target.readText=({timeout})=>{timeouts.push(timeout);if(timeout<2000)throw Object.assign(new Error('native read timeout'),{name:'TimeoutError'});return '延迟正文';};
+  await assert.rejects(h.read.execute({selector:{...h.selector,timeout_ms:8000}},h.context),e=>e.details.read_value_timeout_ms===1500);
+  const result=await h.read.execute({selector:{...h.selector,read_timeout_ms:5000}},h.context);
+  assert.equal(result.value,'延迟正文');assert.deepEqual(timeouts,[1500,5000]);
+  h.target.readText=()=>{throw Object.assign(new Error('native read timeout'),{name:'TimeoutError'});};
+  await assert.rejects(h.read.execute({selector:{...h.selector,read_timeout_ms:5000}},h.context),e=>e.details.read_value_timeout_ms===5000);
+});
+
+test('取值预算通过协议校验和完整备用路径，不能传入无限或超大时限', () => {
+  const base={description:'合成正文',target:group('.detail'),read_timeout_ms:5000};
+  const parsed=parseSelectorSpec([base,{...base,read_timeout_ms:4000}],'read-timeout','element.read');
+  assert.equal(parsed.read_timeout_ms,5000);assert.equal(parsed.alternatives[0].read_timeout_ms,4000);
+  for(const [value,want] of [[0,100],[100000,10000],[Infinity,undefined],['5000',undefined]]) {
+    assert.equal(parseSelectorSpec({...base,read_timeout_ms:value},'read-timeout','element.read').read_timeout_ms,want);
   }
 });

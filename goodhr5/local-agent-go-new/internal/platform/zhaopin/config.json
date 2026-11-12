@@ -355,6 +355,16 @@
         "description": "智联候选人列表"
       }
     ],
+    "candidate.identity_check": {
+      "_comment": "先按真实列表行号定位，再仅在这一张卡片内核对身份，不统计上方同名者。",
+      "target": {
+        "_comment": "已定位的当前卡片自身。",
+        "selectors": [{"_comment": "标准相对选择器仅指向当前卡片自身。", "type": "css", "value": ":scope"}]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "当前候选人卡片身份核对"
+    },
     "candidate.item": [
       {
         "_comment": "智联候选人卡片。",
@@ -461,6 +471,8 @@
       },
       "state": "visible",
       "timeout_ms": 5000,
+      "read_timeout_ms": 5000,
+      "_comment_read_timeout_ms": "已定位的简历正文允许5秒取值，查找和整次任务时限仍独立保留。",
       "description": "智联候选人详情正文"
     },
     "candidate.greet": [

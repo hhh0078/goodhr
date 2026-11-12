@@ -38,6 +38,7 @@ export class ReadAction {
         : request.property ?? "text",
     });
     let readingValue = false;
+    let readTimeoutMS = elementReadTimeoutMS;
     try {
       markRequestProgress(actionContext, "locate_read_target");
       const found = await this.find.one(
@@ -52,22 +53,24 @@ export class ReadAction {
       let value: string;
       let property: string;
       const selectedSpec = found.resolved.resolved_spec ?? request.selector;
+      readTimeoutMS = selectedSpec.read_timeout_ms ?? elementReadTimeoutMS;
       const readAttribute = request.use_selector_read ? selectedSpec.read_attribute : request.attribute;
       const readProperty = request.use_selector_read ? selectedSpec.read_property : request.property;
       if (readAttribute) {
         value = await this.primitive.attribute(
           found.resolved.locator,
           readAttribute,
+          readTimeoutMS,
         );
         property = `attribute:${readAttribute}`;
       } else if (readProperty === "value") {
-        value = await this.primitive.editableValue(found.resolved.locator);
+        value = await this.primitive.editableValue(found.resolved.locator, readTimeoutMS);
         property = "value";
       } else if (readProperty === "html") {
-        value = await this.primitive.html(found.resolved.locator);
+        value = await this.primitive.html(found.resolved.locator, readTimeoutMS);
         property = "html";
       } else {
-        value = await this.primitive.text(found.resolved.locator);
+        value = await this.primitive.text(found.resolved.locator, readTimeoutMS);
         property = "text";
       }
       const result: ReadResult = {
@@ -87,7 +90,7 @@ export class ReadAction {
         trace_id: actionContext.trace_id,
         retryable: true,
         details: readingValue && error instanceof Error && error.name === "TimeoutError"
-          ? { read_value_timeout_ms: elementReadTimeoutMS } : {},
+          ? { read_value_timeout_ms: readTimeoutMS } : {},
         message: `${request.selector.description} 暂时没读到`,
       });
       this.logger.failure(actionContext, normalized);

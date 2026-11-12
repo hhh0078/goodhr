@@ -1,17 +1,16 @@
-// Package common 文件作用：推荐名单从当前屏幕首张完整卡片起跑，标准只读几何定位并保留同名计数，不追旧断点或预先滚动。
+// Package common 文件作用：推荐名单从当前屏幕首张完整卡片起跑，标准只读几何定位，不回读屏幕上方人选，不追旧断点或预先滚动。
 package common
 
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// StartCandidateViewport 用标准元素边界二分定位纵向名单的首个完整显示的卡片，还原前方同名同龄计数，避免恢复时点到屏幕上方的同名者。
+// StartCandidateViewport 用标准元素边界二分定位纵向名单的首个完整显示的卡片，仅保存当前行号；动作时在该行内核对身份，不读取前方同名者。
 func StartCandidateViewport(ctx context.Context, browser model.Browser, cfg model.Config, cursor *model.CandidateListCursor) error {
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
@@ -60,31 +59,6 @@ func StartCandidateViewport(ctx context.Context, browser model.Browser, cfg mode
 	if first == count {
 		return fmt.Errorf("当前没有完整显示的候选人卡片，请拉宽或拉高窗口、调整列表位置后再开始")
 	}
-	// 只读前方最小身份字段，不处理、不滚回旧人选；原定位规则需要保留同名同龄者的真实出现序号。
-	occurrences := make(map[string]int)
-	fields := make(map[string]contract.SelectorSpec)
-	for _, key := range []string{"name", "age", "candidate_age"} {
-		if field, exists := cfg.CandidateFields[key]; exists {
-			fields[key] = field
-		}
-	}
-	for start := 0; start < first; start += 20 {
-		size := min(20, first-start)
-		rows, err := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, StartIndex: start, MaxItems: size, Fields: fields, ReadConcurrency: 5})
-		if err != nil {
-			return fmt.Errorf("核对同名候选人位置失败：%w", err)
-		}
-		if len(rows) != size {
-			return fmt.Errorf("候选人列表正在刷新，请等稳定后再开始")
-		}
-		for offset, row := range rows {
-			if row.Index != start+offset || strings.TrimSpace(row.Fields["name"]) == "" {
-				return fmt.Errorf("候选人位置尚未读完整，请等列表稳定后再开始")
-			}
-			identity := strings.Join(CandidateIdentityTexts(row.Fields["name"], row.Fields, row.Text), "\x00")
-			occurrences[identity]++
-		}
-	}
 	// 名单异步刷新或用户移动滚动条时，不把过期的屏幕位置当作新起点。
 	after, err := CandidateViewport(ctx, browser, cfg, first)
 	if err != nil {
@@ -93,7 +67,7 @@ func StartCandidateViewport(ctx context.Context, browser model.Browser, cfg mode
 	if !CandidateFullyVisible(after, cfg) || after.Box.Y != view.Box.Y || after.Box.Height != view.Box.Height {
 		return fmt.Errorf("当前候选人位置刚发生变化，请等页面稳定后再开始")
 	}
-	*cursor = model.CandidateListCursor{StartIndex: first, IdentityOccurrences: occurrences}
+	*cursor = model.CandidateListCursor{StartIndex: first, IdentityByIndex: true}
 	return nil
 }
 

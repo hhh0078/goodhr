@@ -20,7 +20,7 @@ type viewportBrowser struct {
 	inset        int
 	findErr      error
 	refreshed    bool
-	prefixRead   bool
+	findCalls    int
 	fullStarts   []int
 	scrolls      int
 }
@@ -32,8 +32,9 @@ func (b *viewportBrowser) Find(_ context.Context, req contract.ElementFindReques
 	}
 	i := *req.Selector.Target.Index
 	y := float64((i-b.start)*200 + b.inset - 50)
-	if b.refreshed && b.prefixRead {
-		y += 10
+	b.findCalls++
+	if b.refreshed {
+		y += float64(b.findCalls) / 10
 	}
 	return contract.FindResult{View: contract.ElementView{Visible: true, Box: contract.ElementBox{X: 10, Y: y, Width: 800, Height: 200}, Viewport: contract.ViewportSize{Width: 1200, Height: 900}}}, nil
 }
@@ -42,8 +43,9 @@ func (b *viewportBrowser) Find(_ context.Context, req contract.ElementFindReques
 func (b *viewportBrowser) FindAll(_ context.Context, req contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	if len(req.Fields) > 1 {
 		b.fullStarts = append(b.fullStarts, req.StartIndex)
-	} else if len(req.Fields) > 0 {
-		b.prefixRead = true
+	}
+	if len(req.Fields) > 0 && req.StartIndex < b.start+1 {
+		return nil, errors.New("禁止读取屏幕上方姓名")
 	}
 	var rows []contract.FindAllItem
 	for i := req.StartIndex; i < min(b.count, req.StartIndex+req.MaxItems); i++ {
@@ -74,11 +76,11 @@ func TestStartsAtCurrentViewport(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows, err := rt.FindCandidates(context.Background(), b, cfg, model.CandidateListOptions{Cursor: cursor})
-	if err != nil || len(rows) != 3 || rows[0].Index != 46 || rows[0].IdentityOccurrence != 1 || b.scrolls != 0 {
+	if err != nil || len(rows) != 3 || rows[0].Index != 46 || rows[0].IdentityOccurrence != 0 || b.scrolls != 0 {
 		t.Fatalf("未从屏幕当前首位开始：%v %+v", err, rows)
 	}
 	action, err := common.CandidateSelector(cfg, rows[0])
-	if err != nil || *action.Target.Index != 1 {
+	if err != nil || action.Target.Index != nil || len(action.Parents) == 0 || *action.Parents[len(action.Parents)-1].Index != 46 {
 		t.Fatal("当前同名者误指向屏幕上方的人", err)
 	}
 	cursor.StartIndex = 48
@@ -87,7 +89,6 @@ func TestStartsAtCurrentViewport(t *testing.T) {
 		t.Fatal("后续批次又回到初始屏幕", err)
 	}
 	b.start = 70
-	b.prefixRead = false
 	fresh := NewRuntime()
 	cursor = &model.CandidateListCursor{}
 	if err := common.StartCandidateViewport(context.Background(), b, cfg, cursor); err != nil {

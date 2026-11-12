@@ -130,6 +130,7 @@ type Position struct {
 
 // Candidate 表示从招聘平台页面读取的候选人摘要。
 type Candidate struct {
+	IdentityByIndex    bool              `json:"-"` // 当前视口起跑的人选按真实行号加行内身份核对，避免遍历同名者。
 	Index              int               `json:"index"`
 	Fingerprint        string            `json:"fingerprint"`
 	Name               string            `json:"name"`
@@ -148,6 +149,7 @@ type CandidateListOptions struct {
 
 // CandidateListCursor 保存当前任务滚动列表的读取位置，避免追加内容超过单批上限后重复读取开头。
 type CandidateListCursor struct {
+	IdentityByIndex     bool // 真实列表行内核对身份，不统计屏幕上方的同名者。
 	StartIndex          int
 	IdentityOccurrences map[string]int // 已读窗口中同名同龄候选人的数量，用于后续窗口稳定定位。
 }

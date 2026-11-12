@@ -185,6 +185,8 @@
       },
       "state": "visible",
       "timeout_ms": 5000,
+      "read_timeout_ms": 5000,
+      "_comment_read_timeout_ms": "已定位的简历正文允许5秒取值，查找和整次任务时限仍独立保留。",
       "description": "猎聘猎头端详情正文"
     },
     "candidate.detail_close": {

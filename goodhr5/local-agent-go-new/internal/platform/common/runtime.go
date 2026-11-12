@@ -216,8 +216,9 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 		}
 	}
 	result := make([]model.Candidate, 0, len(items))
+	identityByIndex := options.Cursor != nil && options.Cursor.IdentityByIndex
 	identityOccurrences := make(map[string]int)
-	if options.Cursor != nil {
+	if options.Cursor != nil && !identityByIndex {
 		for identity, count := range options.Cursor.IdentityOccurrences {
 			identityOccurrences[identity] = count
 		}
@@ -226,11 +227,14 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 		name := strings.TrimSpace(item.Fields["name"])
 		fingerprint := CandidateFingerprint(platformID, name, item.Fields, item.Text)
 		identityTexts := CandidateIdentityTexts(name, item.Fields, item.Text)
-		identityKey := strings.Join(identityTexts, "\x00")
-		identityOccurrence := identityOccurrences[identityKey]
-		identityOccurrences[identityKey] = identityOccurrence + 1
+		identityOccurrence := 0
+		if !identityByIndex {
+			identityKey := strings.Join(identityTexts, "\x00")
+			identityOccurrence = identityOccurrences[identityKey]
+			identityOccurrences[identityKey] = identityOccurrence + 1
+		}
 		result = append(result, model.Candidate{
-			Index: item.Index, Fingerprint: fingerprint, Name: name,
+			Index: item.Index, Fingerprint: fingerprint, Name: name, IdentityByIndex: identityByIndex,
 			Summary: item.Text, Fields: item.Fields,
 			IdentityTexts: identityTexts, IdentityOccurrence: identityOccurrence,
 		})
@@ -566,6 +570,23 @@ func CandidateSelector(cfg model.Config, candidate model.Candidate) (contract.Se
 			return variant
 		})
 		return selector, nil
+	}
+	if candidate.IdentityByIndex {
+		check := cfg.Selectors["candidate.identity_check"]
+		if len(check.Target.Selectors) == 0 {
+			return contract.SelectorSpec{}, fmt.Errorf("平台 %s 缺少当前卡片身份核对配置", cfg.ID)
+		}
+		index := max(candidate.Index, 0)
+		return selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+			card := variant.Target
+			card.Index = &index
+			variant.Parents = append(append([]contract.SelectorGroup(nil), variant.Parents...), card)
+			variant.Target = check.Target
+			variant.Target.Index = nil
+			variant.Target.Texts = append(append([]string(nil), check.Target.Texts...), identityTexts...)
+			variant.Description = firstNonEmpty(candidate.Name, variant.Description)
+			return variant
+		}), nil
 	}
 	occurrence := max(candidate.IdentityOccurrence, 0)
 	selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
