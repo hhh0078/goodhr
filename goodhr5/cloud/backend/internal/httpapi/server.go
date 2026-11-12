@@ -63,6 +63,8 @@ type Server struct {
 	tenants               *TenantService
 	cookies               *CookieService
 	wechatOfficial        *WechatOfficialService
+	workBuddyOAuth        *WorkBuddyOAuthService
+	workBuddyMCP          *WorkBuddyMCPService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
@@ -183,6 +185,11 @@ func NewServer() (*Server, error) {
 		assistant.store = nil
 	}
 	shareStore := NewCandidateShareStore(db)
+	// WorkBuddy 连接器 OAuth 数据：正式环境用 PostgreSQL，开发环境退回内存存储。
+	var workBuddyOAuthStore WorkBuddyOAuthStore = NewMemoryWorkBuddyOAuthStore()
+	if db != nil {
+		workBuddyOAuthStore = NewPostgresWorkBuddyOAuthStore(db)
+	}
 	if memory, ok := candidateStore.(*MemoryCandidateStore); ok {
 		memory.purgeLinks.recruitment, _ = recruitmentStore.(*MemoryRecruitmentStore)
 		memory.purgeLinks.mail, _ = recruitmentMailStore.(*MemoryRecruitmentMailStore)
@@ -237,6 +244,8 @@ func NewServer() (*Server, error) {
 		tenants:               NewTenantService(auth, tenantStore, mailer),
 		cookies:               NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
 		wechatOfficial:        NewWechatOfficialService(auth, wechatFollowStore, systemConfigStore),
+		workBuddyOAuth:        NewWorkBuddyOAuthService(auth, workBuddyOAuthStore, systemConfigStore),
+		workBuddyMCP:          NewWorkBuddyMCPService(auth, positionStore, tenantStore, agentStore, agentWS, candidateStore, positionLogStore, subscriptionStore, systemConfigStore),
 	}, nil
 }
 
@@ -410,7 +419,16 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/cookies", s.cookies.List)
 	mux.HandleFunc("/api/cookies/create", s.cookies.Create)
 	mux.HandleFunc("/api/cookies/", s.cookieRoute)
-	return cors(s.extensionSessionGuard(mux))
+
+	// WorkBuddy 连接器：OAuth 发现、注册、授权与令牌端点，以及 MCP streamableHttp 入口。
+	mux.HandleFunc("/.well-known/oauth-protected-resource", s.workBuddyOAuth.WellKnownProtectedResource)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", s.workBuddyOAuth.WellKnownAuthorizationServer)
+	mux.HandleFunc("/oauth/register", s.workBuddyOAuth.Register)
+	mux.HandleFunc("/oauth/authorize", s.workBuddyOAuth.Authorize)
+	mux.HandleFunc("/oauth/token", s.workBuddyOAuth.Token)
+	mux.HandleFunc("/api/workbuddy/authorize", s.workBuddyOAuth.AuthorizeConsent)
+	mux.HandleFunc("/mcp", s.workBuddyMCP.ServeMCP)
+	return cors(s.workBuddySessionGuard(s.extensionSessionGuard(mux)))
 }
 
 // recruitmentRoute 将企业招聘设置、流程操作和邮件接口分发给各自服务。

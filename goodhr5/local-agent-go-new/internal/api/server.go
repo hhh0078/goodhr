@@ -71,6 +71,9 @@ type Server struct {
 	resumeSummaries          *summaryflow.Manager
 	resumeDownloads          *downloadresume.Manager
 	startupSync              *startupCamoufoxSync
+	cloudSession             cloudSessionState
+	cloudWSStatusMu          sync.RWMutex
+	cloudWSStatus            func() bool
 }
 
 // Dependencies 保存本地 HTTP 接口调用的应用服务。
@@ -123,6 +126,8 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	mux.HandleFunc("POST /api/v1/tasks/start", server.handleTaskStart)
 	mux.HandleFunc("POST /api/v1/tasks/stop", server.handleTaskStop)
 	mux.HandleFunc("GET /api/v1/tasks/{task_id}", server.handleTaskStatus)
+	mux.HandleFunc("POST /api/v1/cloud/session", server.handleCloudSessionSet)
+	mux.HandleFunc("GET /api/v1/cloud/session", server.handleCloudSessionGet)
 	mux.HandleFunc("/api/v1/local/logs", server.handleLocalLogs)
 	mux.HandleFunc("/api/v1/local/auto-reply/{action}", server.handleLocalAutoReply)
 	mux.HandleFunc("/api/v1/local/positions/{position_id}/{action}", server.handleLocalPosition)

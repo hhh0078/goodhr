@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "goodhr": {
+      "type": "streamableHttp",
+      "url": "https://goodhr.58it.cn/mcp",
+      "timeout": 30000
+    }
+  }
+}
