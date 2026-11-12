@@ -39,7 +39,9 @@ class BuilderTests(unittest.TestCase):
             builder.trim(engine)
         arguments = call.call_args.args[0]
         self.assertEqual(arguments[:3], ["prune", "--builder", "goodhr-release"])
-        self.assertIn("512MiB", arguments)
+        self.assertEqual(arguments[arguments.index("--max-used-space") + 1], "4GiB")
+        self.assertEqual(builder.CONFIG.read_text().count('maxUsedSpace = "4GiB"'), 2)
+        self.assertIn('mirrors = ["docker.m.daocloud.io", "docker.1ms.run", "docker.1panel.live"]', builder.CONFIG.read_text())
         self.assertNotIn("--force", arguments)
         self.assertEqual(engine.request.call_count, 1)
         self.assertTrue(engine.request.call_args.args[1].endswith("/containers/registered-id/stop?t=30"))

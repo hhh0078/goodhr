@@ -77,9 +77,9 @@ def setup(engine):
 
 
 def trim(engine):
-    """仅回收已登记构建器的缓存到512MiB目标，随后停止空闲构建器，不删除镜像或数据卷。"""
+    """仅回收已登记构建器超出4GiB的缓存，保留可复用依赖后停止空闲构建器，不删除镜像或数据卷。"""
     container = verify(engine)
-    call(["prune", "--builder", NAME, "--all", "--reserved-space", "0", "--max-used-space", "512MiB"], input=b"y\n")
+    call(["prune", "--builder", NAME, "--all", "--reserved-space", "0", "--max-used-space", "4GiB"], input=b"y\n")
     verify(engine)
     engine.request("POST", engine.prefix + "/containers/" + container["Id"] + "/stop?t=30")
 
