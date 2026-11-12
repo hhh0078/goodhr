@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from release_cutover import CutoverError
 from release_rehearse import Rehearsal, migration_fingerprint
-from release_rehearse_auto import AutomaticUpgradeRehearsal, verify_fact_retirement
+from release_rehearse_auto import AutomaticUpgradeRehearsal, verify_fact_retirement, without_retired_fact_data
 
 
 class AutomaticMigrationTests(unittest.TestCase):
@@ -47,6 +47,22 @@ class AutomaticMigrationTests(unittest.TestCase):
         job.migration_archive = Mock(side_effect=[new, old])
         job.psql = Mock(side_effect=lambda sql: b"2026-11-12T14:00:00Z" if "clock_timestamp" in sql and job.psql.call_count == 1 else b"2026-11-12T14:00:01Z")
         return job
+
+    def test_restore_omits_only_retired_statistics_data(self):
+        """恢复清单只能省略统计明细数据项，业务数据、原表定义和索引都不得省略。"""
+        toc = (b"; archive\n1; 1259 100 TABLE public system_stat_facts postgres\n"
+               b"2; 0 101 TABLE DATA public users postgres\n"
+               b"3; 0 100 TABLE DATA public system_stat_facts postgres\n"
+               b"4; 1259 102 INDEX public system_stat_facts_pkey postgres\n")
+        filtered = without_retired_fact_data(toc)
+        self.assertIn(b"2; 0 101 TABLE DATA public users postgres\n", filtered)
+        self.assertIn(b"1; 1259 100 TABLE public system_stat_facts postgres\n", filtered)
+        self.assertIn(b"4; 1259 102 INDEX public system_stat_facts_pkey postgres\n", filtered)
+        self.assertIn(b"\n; user-authorized retired statistics data: 3;", filtered)
+        for invalid in (toc.replace(b"TABLE DATA public system_stat_facts", b"TABLE DATA public another_table"),
+                        toc + b"5; 0 103 TABLE DATA public system_stat_facts postgres\n"):
+            with self.assertRaises(CutoverError):
+                without_retired_fact_data(invalid)
 
     def test_unregistered_migration_runs_and_records_frozen_evidence(self):
         """新SQL真正进入恢复流程，旧数据不变后才生成与动态摘要绑定的证据。"""

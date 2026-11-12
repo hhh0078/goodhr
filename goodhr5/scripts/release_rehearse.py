@@ -321,6 +321,10 @@ class Rehearsal:
                     "旧前后端回退改变了已迁移的完整账本或数据库结构")
         return True
 
+    def restore_data_options(self, dump):
+        """restore_data_options 默认恢复整份备份；仅有明确退役合同的子类可调整固定TOC数据项。"""
+        return []
+
     def restore(self):
         """restore 从明确生产库只读导出完整dump并在无外网网络的新PostgreSQL中恢复。"""
         self.directory.mkdir(mode=0o700)
@@ -355,7 +359,7 @@ class Rehearsal:
                     raise
                 time.sleep(1)
         with dump.open("rb") as source:
-            command(["docker", "exec", "-i", self.pg, "pg_restore", "-U", "postgres", "-d", self.args.database, "--no-owner", "--no-acl", "--exit-on-error"], source=source, timeout=600)
+            command(["docker", "exec", "-i", self.pg, "pg_restore", "-U", "postgres", "-d", self.args.database, "--no-owner", "--no-acl", "--exit-on-error", *self.restore_data_options(dump)], source=source, timeout=600)
         self.baseline = self.database_snapshot()
         self.filenames = self.ledger()
         self.fingerprint = migration_fingerprint(self.filenames)

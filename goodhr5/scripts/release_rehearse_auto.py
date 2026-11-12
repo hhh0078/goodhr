@@ -6,11 +6,12 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import uuid
 
 from release_activate import save_json
 from release_cutover import CutoverError, require
-from release_rehearse import Rehearsal, assert_preserved, main, migration_fingerprint
+from release_rehearse import Rehearsal, assert_preserved, command, main, migration_fingerprint
 from release_rehearse_platforms import in_window
 from release_rehearse_screening import ScreeningRehearsal
 from release_retention import digest_file
@@ -21,6 +22,43 @@ APPROVED = POLICY["bootstrap_migrations"]
 LIBRARY = "system.auto_reply_library"
 FACT_RETIREMENT = "0126_retire_system_stat_facts.sql"
 FACT_TABLE = "public.system_stat_facts"
+
+
+def without_retired_fact_data(toc):
+    """without_retired_fact_data 仅省略已取消统计表的一项数据，其他表数据、表定义和索引完整保留。"""
+    lines = toc.splitlines(keepends=True)
+    matches = [index for index, line in enumerate(lines)
+               if re.match(rb"^[0-9]+; [0-9]+ [0-9]+ TABLE DATA public system_stat_facts(?: |\r?$)", line)]
+    require(len(matches) == 1, "完整备份必须有且只有一项原统计表数据，禁止扩大恢复省略范围")
+    lines[matches[0]] = b"; user-authorized retired statistics data: " + lines[matches[0]]
+    return b"".join(lines)
+
+
+def archived_fact_snapshot(container, dump):
+    """archived_fact_snapshot 从完整备份流式读出退役表COPY数据并校验可解压性、行数和摘要，不落盘或执行SQL。"""
+    digest, rows, seen, reading, complete = hashlib.sha256(), 0, False, False, False
+    with dump.open("rb") as source, tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(["docker", "exec", "-i", container, "pg_restore", "--data-only", "--schema=public", "--table=system_stat_facts", "--file=-"],
+                                   stdin=source, stdout=subprocess.PIPE, stderr=errors)
+        try:
+            for line in process.stdout:
+                if line.startswith(b"COPY public.system_stat_facts (") and line.rstrip().endswith(b"FROM stdin;"):
+                    require(not seen, "退役表归档存在多个COPY数据段")
+                    seen, reading = True, True
+                elif reading and line.rstrip(b"\r\n") == b"\\.":
+                    reading, complete = False, True
+                elif reading:
+                    digest.update(line)
+                    rows += 1
+            require(process.wait(timeout=630) == 0 and seen and complete and not reading,
+                    "退役统计表的完整备份数据无法完整读出，不继续迁移")
+        finally:
+            process.stdout.close()
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+    return {"rows": rows, "sha256": digest.hexdigest(), "digest_format": "backup_COPY_data_sha256",
+            "restored_into_isolated_database": False}
 
 
 def verify_fact_retirement(before, after, snapshot, backup_sha256, migration_sha256):
@@ -93,6 +131,28 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
 
     migrations = ()
 
+    def restore_data_options(self, dump):
+        """restore_data_options 先冻结镜像SQL和真实账本；仅在本次退役迁移中跳过已完整归档的统计数据。"""
+        candidate = self.migration_archive(self.candidate["backend"], "candidate")
+        rollback = self.migration_archive(self.rollback["backend"], "rollback")
+        ledger = command(["docker", "exec", self.production_pg["Id"], "psql", "-XqAt", "-v", "ON_ERROR_STOP=1",
+                          "-U", self.args.postgres_user, "-d", self.args.database, "-c",
+                          "SELECT filename FROM public.schema_migrations ORDER BY filename;"]).decode().splitlines()
+        check_archives(candidate, rollback, ledger, Path(self.args.source_root) / "cloud/backend/db/migrations")
+        self.restore_archives, self.restore_initial_ledger = (candidate, rollback), ledger
+        if FACT_RETIREMENT not in set(candidate) - set(ledger):
+            return []
+        self.backed_up_retired_facts = archived_fact_snapshot(self.pg, dump)
+        save_json(self.directory / "retired-statistics-backup.json", {
+            "table": FACT_TABLE, "backup_sha256": digest_file(dump), **self.backed_up_retired_facts,
+        }, exclusive=True)
+        path = self.directory / "restore-without-retired-statistics.list"
+        path.write_bytes(without_retired_fact_data((self.directory / "database-toc.txt").read_bytes()))
+        path.chmod(0o600)
+        target = "/tmp/goodhr-restore-without-retired-statistics.list"
+        command(["docker", "cp", str(path), self.pg + ":" + target])
+        return ["--use-list", target]
+
     def library_rows(self):
         """library_rows 仅在内存读取唯一种子记录，不把用户话术或其他配置值写入日志。"""
         return [json.loads(row) for row in self.psql(
@@ -106,8 +166,12 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         Rehearsal.restore(self)
         self.before_filenames, self.before_fingerprint = list(self.filenames), self.fingerprint
         self.before_ledger, self.before_schema = self.ledger_records(), self.database_schema()
-        candidate = self.migration_archive(self.candidate["backend"], "candidate")
-        rollback = self.migration_archive(self.rollback["backend"], "rollback")
+        if hasattr(self, "restore_archives"):
+            candidate, rollback = self.restore_archives
+            require(sorted(self.restore_initial_ledger) == sorted(self.before_filenames), "完整备份与真实迁移账本不一致")
+        else:
+            candidate = self.migration_archive(self.candidate["backend"], "candidate")
+            rollback = self.migration_archive(self.rollback["backend"], "rollback")
         source = Path(self.args.source_root) / "cloud/backend/db/migrations"
         self.approved = check_archives(candidate, rollback, self.before_filenames, source)
         self.migrations = tuple(sorted(set(candidate) - set(self.before_filenames)))
@@ -126,6 +190,8 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
                     "取消统计明细缺少真实旧表基线")
             # 只有用户明确取消的冗余投影可退役；业务表、账本和其他统计数据仍完整比较。
             columns.pop(FACT_TABLE.replace(".", "\t", 1))
+            if hasattr(self, "backed_up_retired_facts"):
+                require(self.baseline[FACT_TABLE.replace(".", "\t", 1)]["rows"] == 0, "已取消统计数据被重新恢复到副本")
         baseline = self.database_snapshot(columns, preserve_default_library=library_upgrade)
         before_library = self.library_rows() if library_upgrade else None
         statements = ["BEGIN;"]
@@ -146,7 +212,7 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         retired_projections = []
         if retirement:
             retired_projections.append(verify_fact_retirement(
-                self.before_schema, schema, self.baseline[FACT_TABLE.replace(".", "\t", 1)],
+                self.before_schema, schema, getattr(self, "backed_up_retired_facts", self.baseline[FACT_TABLE.replace(".", "\t", 1)]),
                 digest_file(self.directory / "database.dump"), self.approved[FACT_RETIREMENT]))
             save_json(self.directory / "retired-statistics-projection.json", retired_projections[0], exclusive=True)
         self.retired_projections = retired_projections

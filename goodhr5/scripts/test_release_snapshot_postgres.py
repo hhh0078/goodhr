@@ -3,12 +3,15 @@
 import hashlib
 import json
 import os
+from pathlib import Path
 import subprocess
+import tempfile
 import time
 from types import SimpleNamespace
 import unittest
 
 from release_rehearse import Rehearsal
+from release_rehearse_auto import archived_fact_snapshot, without_retired_fact_data
 
 
 @unittest.skipUnless(os.environ.get("GOODHR_SNAPSHOT_TEST_IMAGE"), "需要显式指定本机已有PostgreSQL测试镜像")
@@ -22,7 +25,7 @@ class SnapshotPostgresTests(unittest.TestCase):
         self.assertEqual(len(volumes), 1)
         identifier = subprocess.check_output([
             "docker", "create", "--network", "none", "--memory", "384m", "--pids-limit", "128",
-            "--label", "goodhr.project=snapshot-test", "--tmpfs", volumes[0] + ":rw,size=128m",
+            "--label", "goodhr.project=snapshot-test", "--tmpfs", volumes[0] + ":rw,size=256m",
             "--env", "POSTGRES_HOST_AUTH_METHOD=trust", image["Id"],
         ], text=True).strip()
         try:
@@ -64,6 +67,31 @@ class SnapshotPostgresTests(unittest.TestCase):
             self.assertNotEqual(after, baseline)
             runner.psql("TRUNCATE goodhr_snapshot_contract;")
             self.assertEqual(runner.database_snapshot(columns)[table], {"rows": 0, "sha256": hashlib.sha256(b"").hexdigest()})
+            runner.psql("INSERT INTO goodhr_snapshot_contract(value) VALUES('原业务保留'); "
+                        "CREATE TABLE system_stat_facts(event_key text PRIMARY KEY,metrics jsonb); "
+                        "INSERT INTO system_stat_facts VALUES('合成一','{}'),('合成二','{\"内容\":\"中文\"}');")
+            business = runner.database_snapshot(columns)
+            with tempfile.TemporaryDirectory() as directory:
+                dump = Path(directory) / "complete.dump"
+                with dump.open("wb") as destination:
+                    subprocess.run(["docker", "exec", identifier, "pg_dump", "-U", "postgres", "-Fc", "postgres"], stdout=destination, check=True)
+                archived = archived_fact_snapshot(identifier, dump)
+                self.assertEqual(archived["rows"], 2)
+                copy = runner.psql("COPY public.system_stat_facts TO STDOUT;")
+                self.assertEqual(archived["sha256"], hashlib.sha256(copy).hexdigest())
+                with dump.open("rb") as source:
+                    toc = subprocess.check_output(["docker", "exec", "-i", identifier, "pg_restore", "--list"], stdin=source)
+                listing = Path(directory) / "restore.list"
+                listing.write_bytes(without_retired_fact_data(toc))
+                subprocess.run(["docker", "cp", str(listing), identifier + ":/tmp/restore.list"], check=True, stdout=subprocess.DEVNULL)
+                runner.psql("CREATE DATABASE snapshot_restore_test;")
+                with dump.open("rb") as source:
+                    subprocess.run(["docker", "exec", "-i", identifier, "pg_restore", "-U", "postgres", "-d", "snapshot_restore_test", "--no-owner", "--no-acl", "--exit-on-error", "--use-list", "/tmp/restore.list"], stdin=source, check=True, stdout=subprocess.DEVNULL)
+                restored = Rehearsal.__new__(Rehearsal)
+                restored.pg, restored.args = identifier, SimpleNamespace(database="snapshot_restore_test")
+                self.assertEqual(restored.database_snapshot(columns), business)
+                self.assertEqual(restored.psql("SELECT COUNT(*) FROM system_stat_facts;").strip(), b"0")
+                self.assertEqual(runner.psql("SELECT COUNT(*) FROM system_stat_facts;").strip(), b"2")
         finally:
             actual = json.loads(subprocess.check_output(["docker", "container", "inspect", identifier]))[0]
             self.assertEqual(actual["Config"]["Labels"]["goodhr.project"], "snapshot-test")
