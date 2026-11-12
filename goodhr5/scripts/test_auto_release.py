@@ -110,6 +110,48 @@ class AutomaticReleaseTests(unittest.TestCase):
                 if not invalid:
                     self.assertIn("--sha256", calls[-1])
 
+    def test_preflight_only_reclaims_images_when_docker_disk_is_low(self):
+        """Docker空间足够时不要求闲置回收材料；空间不足仍保留回收保护和最终磁盘预算。"""
+        from types import SimpleNamespace
+        for free_gib, invalid_registry in ((4, True), (2, True), (2, False)):
+            with self.subTest(free_gib=free_gib, invalid_registry=invalid_registry), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory).resolve()
+                source = base / "goodhr5"
+                migrations = source / "cloud/backend/db/migrations"
+                migrations.mkdir(parents=True)
+                (migrations / "0001_base.sql").write_text("base schema")
+                job = AutomaticRelease(source, Engine(), base / "state")
+                job.state_root.mkdir()
+                containers = job.live()
+                containers["backend"]["Config"]["Env"] = ["GOODHR_PG_DSN=dbname=fixture"]
+                services = {"postgres": {"Id": "fixture-pg", "State": {"Running": True}, "Config": {"Env": []}},
+                            "redis": {"Image": "fixture-redis", "State": {"Running": True}}}
+                docker_root = base / "docker"
+
+                def query(arguments):
+                    """只模拟真实账本与Docker数据盘位置，不运行外部命令。"""
+                    return str(docker_root).encode() if arguments[1] == "info" else b"0001_base.sql\n"
+
+                def disk_usage(path):
+                    """根盘始终满足八GiB，Docker盘按场景返回且清理失败后不虚增空间。"""
+                    return SimpleNamespace(free=(free_gib if Path(path) == docker_root else 8) * 1024**3)
+
+                with patch("auto_release.RELEASE_ROOT", base), patch("auto_release.command", side_effect=query), \
+                        patch("auto_release.shutil.disk_usage", side_effect=disk_usage), patch.object(job, "check_target"), \
+                        patch.object(job.engine, "inspect", side_effect=lambda name: services[name]), \
+                        patch.object(job, "reclaim_unused_images", side_effect=CutoverError("没有兼容历史回退，禁止回收") if invalid_registry else None) as images, \
+                        patch.object(job, "reclaim_build_cache") as cache:
+                    if free_gib >= 3:
+                        result = job.preflight(containers)
+                        self.assertEqual(result[0], "fixture")
+                        images.assert_not_called()
+                        cache.assert_not_called()
+                    else:
+                        with self.assertRaises(CutoverError):
+                            job.preflight(containers)
+                        images.assert_called_once()
+                        self.assertEqual(cache.call_count, 0 if invalid_registry else 1)
+
     def test_pending_review_blocks_build_and_cleanup(self):
         """用户未确认蓝绿容器时先停止自动编排，不读取旧代理目标或删除旧容器。"""
         with tempfile.TemporaryDirectory() as directory:

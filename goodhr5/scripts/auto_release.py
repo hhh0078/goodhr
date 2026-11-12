@@ -205,8 +205,10 @@ class AutomaticRelease:
                   if not path.name.endswith(".down.sql")}
         pending = pending_migrations(source, ledger)
         require(shutil.disk_usage(RELEASE_ROOT).free >= 6 * 1024**3, "根盘可用空间不足，保留当前线上版本")
-        self.reclaim_unused_images(containers, dict(os.environ))
         docker_root = command(["docker", "info", "--format", "{{.DockerRootDir}}"]).decode().strip()
+        # 空间足够时无需删除镜像，不能让非必要回收的历史材料要求阻断新候选验收。
+        if shutil.disk_usage(docker_root).free < 3 * 1024**3:
+            self.reclaim_unused_images(containers, dict(os.environ))
         if shutil.disk_usage(docker_root).free < 3 * 1024**3:
             maintenance = self.state_root / ("cache-maintenance-" + str(time.time_ns()))
             maintenance.mkdir(mode=0o700)
