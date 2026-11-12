@@ -211,6 +211,16 @@ export async function bindDetectedLocalAgent(baseURL: string) {
   });
 }
 
+/** syncCloudSessionToLocalAgent 把浏览器云端登录令牌同步给本地程序，供云端命令通道（WorkBuddy 连接器）建连使用。 */
+export async function syncCloudSessionToLocalAgent(baseURL: string) {
+  const token = getToken();
+  if (!token) return;
+  return localRequest(baseURL, "/api/v1/cloud/session", {
+    method: "POST",
+    body: { token },
+  });
+}
+
 /** ensureLocalAgentReady 在用户执行浏览器动作前重新绑定当前账号，并串行等待本次进程的浏览器检查，避免同端口重启后沿用旧连接状态。 */
 export async function ensureLocalAgentReady(baseURL: string) {
   const token = getToken();
