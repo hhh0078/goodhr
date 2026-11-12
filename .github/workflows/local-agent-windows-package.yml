@@ -63,7 +63,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $version = $env:PACKAGE_VERSION
           $setup = "release/GoodHR-Local-Agent-Setup-v$version-windows-x64.exe"
-          if ((Get-Item $setup).VersionInfo.ProductVersion -ne $version) { throw '安装器版本不一致' }
+          # Inno Setup 的版本资源带有定长填充空格，核对时只移除两端空白。
+          if ((Get-Item $setup).VersionInfo.ProductVersion.Trim() -ne $version) { throw '安装器版本不一致' }
           $info = Get-Content "release/goodhr-local-agent-v$version-windows-x64/build-info.json" -Raw | ConvertFrom-Json
           if ($info.version -ne $version -or $info.environment -ne 'production' -or $info.public_base_url -ne 'https://goodhr.58it.cn') { throw '包内构建配置不一致' }
           $files = @($setup, "release/goodhr-local-agent-v$version-windows-x64.zip") | ForEach-Object {
