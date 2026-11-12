@@ -428,6 +428,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/oauth/token", s.workBuddyOAuth.Token)
 	mux.HandleFunc("/api/workbuddy/authorize", s.workBuddyOAuth.AuthorizeConsent)
 	mux.HandleFunc("/mcp", s.workBuddyMCP.ServeMCP)
+	// 正式站点仅将/api转发后端；公开OAuth地址经Next转发到这些等价入口，避免改动已有站点路由。
+	mux.HandleFunc("/api/workbuddy/oauth/protected-resource", s.workBuddyOAuth.WellKnownProtectedResource)
+	mux.HandleFunc("/api/workbuddy/oauth/authorization-server", s.workBuddyOAuth.WellKnownAuthorizationServer)
+	mux.HandleFunc("/api/workbuddy/oauth/register", s.workBuddyOAuth.Register)
+	mux.HandleFunc("/api/workbuddy/oauth/authorize", s.workBuddyOAuth.Authorize)
+	mux.HandleFunc("/api/workbuddy/oauth/token", s.workBuddyOAuth.Token)
+	mux.HandleFunc("/api/workbuddy/mcp", s.workBuddyMCP.ServeMCP)
 	return cors(s.workBuddySessionGuard(s.extensionSessionGuard(mux)))
 }
 

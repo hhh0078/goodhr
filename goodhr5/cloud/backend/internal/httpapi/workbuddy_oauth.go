@@ -62,9 +62,9 @@ func (s *WorkBuddyOAuthService) WellKnownProtectedResource(w http.ResponseWriter
 	}
 	base := workBuddyBaseURL(r)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"resource":               base + "/mcp",
-		"authorization_servers":  []string{base},
-		"scopes_supported":       []string{"mcp"},
+		"resource":                 base + "/mcp",
+		"authorization_servers":    []string{base},
+		"scopes_supported":         []string{"mcp"},
 		"bearer_methods_supported": []string{"header"},
 	})
 }
@@ -417,7 +417,7 @@ func (s *Server) workBuddySessionGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := bearerToken(r.Header.Get("Authorization"))
 		if token != "" {
-			if session, err := s.auth.store.GetSession(token); err == nil && session.Kind == workbuddySessionKind && r.URL.Path != "/mcp" {
+			if session, err := s.auth.store.GetSession(token); err == nil && session.Kind == workbuddySessionKind && r.URL.Path != "/mcp" && r.URL.Path != "/api/workbuddy/mcp" {
 				writeError(w, http.StatusForbidden, "连接器会话只能访问 /mcp，其他功能请在 GoodHR 控制台操作")
 				return
 			}
