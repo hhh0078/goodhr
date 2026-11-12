@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,11 @@ import (
 
 // statisticsPostgresFixture 在独立测试schema执行真实迁移，退出仅删除本次创建的schema。
 func statisticsPostgresFixture(t *testing.T) *sql.DB {
+	return statisticsPostgresFixtureBefore(t, "")
+}
+
+// statisticsPostgresFixtureBefore 可停在指定迁移前，为有历史明细的真实升级创建隔离测试schema。
+func statisticsPostgresFixtureBefore(t *testing.T, stopBefore string) *sql.DB {
 	t.Helper()
 	dsn := os.Getenv("GOODHR_STATISTICS_TEST_DSN")
 	if dsn == "" {
@@ -55,6 +61,9 @@ func statisticsPostgresFixture(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	for _, file := range files {
+		if stopBefore != "" && file.Name() == stopBefore {
+			break
+		}
 		if strings.HasSuffix(file.Name(), ".sql") && !strings.HasSuffix(file.Name(), ".down.sql") {
 			aiRechargeApplyMigration(t, db, file.Name())
 		}
@@ -167,7 +176,7 @@ func TestSystemStatisticsPostgres(t *testing.T) {
 	}
 }
 
-// TestSystemStatisticsPostgresFacts 验证统计事实跨明细删除保留、运行重传去重及筛选修订只更新一次。
+// TestSystemStatisticsPostgresFacts 验证即时视图不复制记录、原业务去重仍有效且清理源记录后不保留隐藏明细。
 func TestSystemStatisticsPostgresFacts(t *testing.T) {
 	db := statisticsPostgresFixture(t)
 	var tenant, user, position string
@@ -183,24 +192,29 @@ func TestSystemStatisticsPostgresFacts(t *testing.T) {
 	const event = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	for i := 0; i < 2; i++ {
 		statisticsTestExec(t, db, `INSERT INTO browser_events(event_id,user_id,payload,created_at) VALUES($1,$2,'{"action":"browser.exit","is_error":true}',now()) ON CONFLICT DO NOTHING`, event, user)
-		statisticsTestExec(t, db, `DELETE FROM browser_events WHERE event_id=$1`, event)
 	}
 	var count int64
 	if err := db.QueryRow(`SELECT COUNT(*) FROM system_stat_facts WHERE kind='runtime'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("runtime replay counted twice: %d %v", count, err)
 	}
+	statisticsTestExec(t, db, `DELETE FROM browser_events WHERE event_id=$1`, event)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM system_stat_facts WHERE kind='runtime'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("deleted source left hidden statistics: %d %v", count, err)
+	}
 	statisticsTestExec(t, db, `INSERT INTO position_screening_records(tenant_id,position_id,owner_user_id,attempt_id,revision,occurred_at,snapshot) VALUES($1,$2,$3,'11111111-1111-4111-8111-111111111111',1,now(),'{"platform_id":"boss","first":{"status":"running"},"second":{"status":"not_executed"}}')`, tenant, position, user)
 	statisticsTestExec(t, db, `UPDATE position_screening_records SET revision=2,snapshot='{"platform_id":"boss","first":{"status":"completed","accepted":true,"duration_ms":100},"second":{"status":"not_executed"}}'`)
-	statisticsTestExec(t, db, `UPDATE position_screening_records SET revision=1,snapshot='{"platform_id":"boss","first":{"status":"running"}}'`)
-	statisticsTestExec(t, db, `DELETE FROM position_screening_records`)
 	var passed int64
 	if err := db.QueryRow(`SELECT COUNT(*),SUM((metrics->>'first_pass')::int) FROM system_stat_facts WHERE kind='screening'`).Scan(&count, &passed); err != nil || count != 1 || passed != 1 {
 		t.Fatalf("screening revision or pruning damaged aggregate: %d %d %v", count, passed, err)
 	}
+	statisticsTestExec(t, db, `DELETE FROM position_screening_records`)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM system_stat_facts WHERE kind='screening'`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("screening statistics were persisted after source cleanup")
+	}
 	statisticsTestExec(t, db, `UPDATE positions SET daily_greeted_date='2026-11-09',daily_greeted_count=2 WHERE id=$1`, position)
 	statisticsTestExec(t, db, `UPDATE positions SET daily_greeted_date='2026-11-10',daily_greeted_count=1 WHERE id=$1`, position)
 	statisticsTestExec(t, db, `UPDATE positions SET daily_greeted_count=2 WHERE id=$1`, position)
-	if err := db.QueryRow(`SELECT SUM((metrics->>'count')::int) FROM system_stat_facts WHERE kind='greeting'`).Scan(&count); err != nil || count != 4 {
+	if err := db.QueryRow(`SELECT SUM((metrics->>'count')::int) FROM system_stat_facts WHERE kind='greeting'`).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("cross-day greeting total=%d err=%v", count, err)
 	}
 	// 原事务回滚时不能留下统计数字。
@@ -214,7 +228,7 @@ func TestSystemStatisticsPostgresFacts(t *testing.T) {
 	if err = tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRow(`SELECT COUNT(*) FROM system_stat_facts WHERE kind='runtime'`).Scan(&count); err != nil || count != 1 {
+	if err = db.QueryRow(`SELECT COUNT(*) FROM system_stat_facts WHERE kind='runtime'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("rolled back event leaked: %d %v", count, err)
 	}
 	// 迁移重复执行不得重置采集起点，或把已记录的事实再次累计。
@@ -222,16 +236,16 @@ func TestSystemStatisticsPostgresFacts(t *testing.T) {
 	if err = db.QueryRow(`SELECT MAX(complete_from) FROM system_stat_coverage`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	aiRechargeApplyMigration(t, db, "0124_system_statistics.sql")
+	aiRechargeApplyMigration(t, db, "0126_retire_system_stat_facts.sql")
 	if err = db.QueryRow(`SELECT MAX(complete_from) FROM system_stat_coverage`).Scan(&after); err != nil || !before.Equal(after) {
 		t.Fatal("migration reset collection coverage")
 	}
-	if err = db.QueryRow(`SELECT COUNT(*) FROM system_stat_facts WHERE kind='runtime'`).Scan(&count); err != nil || count != 1 {
+	if err = db.QueryRow(`SELECT COUNT(*) FROM system_stat_facts WHERE kind='runtime'`).Scan(&count); err != nil || count != 0 {
 		t.Fatal("migration duplicated facts")
 	}
 }
 
-// TestSystemStatisticsPostgresAICleanup 验证七日清理前后消费曲线、金额、Token及模型总量完全一致。
+// TestSystemStatisticsPostgresAICleanup 验证明细清理后金额和笔数仍完整，缺失Token及模型不冒充完整历史。
 func TestSystemStatisticsPostgresAICleanup(t *testing.T) {
 	db := statisticsPostgresFixture(t)
 	at := aiUsageDay(time.Now()).AddDate(0, 0, -9)
@@ -253,7 +267,62 @@ func TestSystemStatisticsPostgresAICleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Amounts["consumption"] != after.Amounts["consumption"] || after.Metrics["prompt_tokens"] != 100 || after.Amounts["bonus_consumption"] != "0.0234" || len(after.Models) != 1 || after.Models[0].Amount != "0.1234" || after.Curve[6].Amount != "0.1234" {
+	if before.Amounts["consumption"] != after.Amounts["consumption"] || before.Metrics["charged_calls"] != after.Metrics["charged_calls"] || len(after.Models) != 0 || after.Curve[6].Amount != "0.1234" || len(after.Warnings) == 0 {
 		t.Fatalf("cleanup changed statistics: before=%+v after=%+v", before, after)
+	}
+	if _, ok := after.Metrics["prompt_tokens"]; ok {
+		t.Fatal("pruned token history was presented as complete")
+	}
+	if _, ok := after.Amounts["bonus_consumption"]; ok {
+		t.Fatal("pruned bonus split was presented as complete")
+	}
+}
+
+// TestSystemStatisticsPostgresRetireFacts 验证有旧明细时的真实升级、无存储及触发器停写，并保护全部当前财务指标。
+func TestSystemStatisticsPostgresRetireFacts(t *testing.T) {
+	db := statisticsPostgresFixtureBefore(t, "0126_retire_system_stat_facts.sql")
+	var user string
+	if err := db.QueryRow(`INSERT INTO users(email,ai_wallet_ledger_version) VALUES('retire-stats@example.test',1) RETURNING id::text`).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	statisticsTestExec(t, db, `UPDATE users SET last_login_at=now() WHERE id=$1`, user)
+	statisticsTestExec(t, db, `INSERT INTO browser_events(event_id,user_id,payload,created_at) SELECT md5(i::text),$1,'{"action":"runtime.log","is_error":false}',now() FROM generate_series(1,10000) i`, user)
+	statisticsTestExec(t, db, `INSERT INTO browser_events(event_id,user_id,payload,created_at) VALUES('ffffffffffffffffffffffffffffffff',$1,'{"action":"browser.exit","is_error":true}',now())`, user)
+	statisticsTestExec(t, db, `INSERT INTO ai_balance_records(user_id,user_email,change_cents,balance_after_cents,change_units,balance_after_units,bonus_change_units,wallet_ledger_version,category,model_id,prompt_tokens,completion_tokens,created_at) VALUES($1,'retire-stats@example.test',-1,0,-1234,0,-234,1,'ai_usage','retire-model',100,20,now())`, user)
+	now := time.Now()
+	start := aiUsageDay(now)
+	store := &postgresSystemStatistics{db: db}
+	before, err := store.Summary(context.Background(), start, start.AddDate(0, 0, 1), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aiRechargeApplyMigration(t, db, "0126_retire_system_stat_facts.sql")
+	after, err := store.Summary(context.Background(), start, start.AddDate(0, 0, 1), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before.Amounts, after.Amounts) || !reflect.DeepEqual(before.Current, after.Current) || !reflect.DeepEqual(before.Curve, after.Curve) {
+		t.Fatalf("retirement changed business or money: before=%+v after=%+v", before, after)
+	}
+	for _, key := range []string{"active_users", "runtime_errors", "affected_users", "charged_calls", "prompt_tokens", "completion_tokens"} {
+		if before.Metrics[key] != after.Metrics[key] {
+			t.Fatalf("current metric %s changed: %d -> %d", key, before.Metrics[key], after.Metrics[key])
+		}
+	}
+	var kind string
+	var storage, triggers, sources int64
+	if err = db.QueryRow(`SELECT relkind::text,pg_total_relation_size(oid) FROM pg_class WHERE oid=to_regclass('system_stat_facts')`).Scan(&kind, &storage); err != nil || kind != "v" || storage != 0 {
+		t.Fatalf("statistics still stores rows: kind=%s bytes=%d error=%v", kind, storage, err)
+	}
+	if err = db.QueryRow(`SELECT COUNT(*) FROM pg_trigger WHERE tgrelid IN ('users'::regclass,'ai_balance_records'::regclass,'position_screening_records'::regclass,'browser_events'::regclass,'positions'::regclass) AND tgname LIKE 'system_stat_%'`).Scan(&triggers); err != nil || triggers != 0 {
+		t.Fatal("statistics capture trigger still active")
+	}
+	if err = db.QueryRow(`SELECT COUNT(*) FROM browser_events`).Scan(&sources); err != nil || sources != 10001 {
+		t.Fatal("retirement deleted original business events")
+	}
+	statisticsTestExec(t, db, `INSERT INTO browser_events(event_id,user_id,payload,created_at) VALUES('eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',$1,'{"action":"runtime.log","is_error":false}',now())`, user)
+	aiRechargeApplyMigration(t, db, "0126_retire_system_stat_facts.sql")
+	if err = db.QueryRow(`SELECT COUNT(*) FROM system_stat_facts WHERE kind='runtime'`).Scan(&sources); err != nil || sources != 1 {
+		t.Fatal("normal runtime events were copied into statistics")
 	}
 }

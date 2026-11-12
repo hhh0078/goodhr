@@ -13,11 +13,30 @@ from release_cutover import CutoverError, require
 from release_rehearse import Rehearsal, assert_preserved, main, migration_fingerprint
 from release_rehearse_platforms import in_window
 from release_rehearse_screening import ScreeningRehearsal
+from release_retention import digest_file
 
 
 POLICY = json.loads(Path(__file__).with_name("auto-release-policy.json").read_text())
 APPROVED = POLICY["bootstrap_migrations"]
 LIBRARY = "system.auto_reply_library"
+FACT_RETIREMENT = "0126_retire_system_stat_facts.sql"
+FACT_TABLE = "public.system_stat_facts"
+
+
+def verify_fact_retirement(before, after, snapshot, backup_sha256, migration_sha256):
+    """verify_fact_retirement 只允许用户取消的重复统计表转为无存储视图；其他旧表仍逐字段完整核验。"""
+    require(FACT_TABLE in before["tables"] and FACT_TABLE not in after["tables"]
+            and after.get("views", {}).get(FACT_TABLE, {}).get("kind") == "v",
+            "取消统计明细后必须保留无存储的旧版查询视图")
+    require(not any("capture_system_stat" in name for name in after.get("functions", {}))
+            and not any(name.startswith("system_stat_") for table in after["tables"].values()
+                        for name in table.get("triggers", {})), "统计明细采集仍在运行")
+    require(isinstance(snapshot, dict) and isinstance(snapshot.get("rows"), int) and snapshot["rows"] >= 0
+            and all(re.fullmatch(r"[0-9a-f]{64}", value or "") for value in
+                    (snapshot.get("sha256"), backup_sha256, migration_sha256)), "取消统计明细缺少完整备份及旧表摘要")
+    return {"table": FACT_TABLE, "before": snapshot, "backup_sha256": backup_sha256,
+            "migration_sha256": migration_sha256, "replacement": "non_materialized_view",
+            "user_authorized_projection_retirement": True}
 
 
 def check_archives(candidate, rollback, ledger, source):
@@ -83,6 +102,7 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
     def restore(self):
         """restore 在内部PG自动试跑本次新SQL，保护旧字段和账本，历史默认话术种子继续按原摘要单独核验。"""
         require(self.additive is None, "自动升级不得混用其他迁移例外")
+        self.retired_projections = []
         Rehearsal.restore(self)
         self.before_filenames, self.before_fingerprint = list(self.filenames), self.fingerprint
         self.before_ledger, self.before_schema = self.ledger_records(), self.database_schema()
@@ -100,6 +120,12 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         library_upgrade = library_migration in self.migrations and self.approved[library_migration] == APPROVED[library_migration]
         columns = {name.replace(".", "\t", 1): [col["name"] for col in value["columns"]]
                    for name, value in self.before_schema["tables"].items() if name != "public.schema_migrations"}
+        retirement = FACT_RETIREMENT in self.migrations
+        if retirement:
+            require(FACT_TABLE in self.before_schema["tables"] and FACT_TABLE.replace(".", "\t", 1) in self.baseline,
+                    "取消统计明细缺少真实旧表基线")
+            # 只有用户明确取消的冗余投影可退役；业务表、账本和其他统计数据仍完整比较。
+            columns.pop(FACT_TABLE.replace(".", "\t", 1))
         baseline = self.database_snapshot(columns, preserve_default_library=library_upgrade)
         before_library = self.library_rows() if library_upgrade else None
         statements = ["BEGIN;"]
@@ -117,18 +143,44 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         if library_upgrade:
             check_library(before_library, self.library_rows(), candidate[library_migration].decode(), start, end)
         require(schema == expected_schema, "恢复库DDL与同一固定SQL的结构参考库不一致")
+        retired_projections = []
+        if retirement:
+            retired_projections.append(verify_fact_retirement(
+                self.before_schema, schema, self.baseline[FACT_TABLE.replace(".", "\t", 1)],
+                digest_file(self.directory / "database.dump"), self.approved[FACT_RETIREMENT]))
+            save_json(self.directory / "retired-statistics-projection.json", retired_projections[0], exclusive=True)
+        self.retired_projections = retired_projections
         self.psql("GRANT SELECT ON ALL TABLES IN SCHEMA public TO rehearsal_app; "
                   "REVOKE CREATE ON SCHEMA public FROM rehearsal_app;")
         self.filenames, self.baseline = self.ledger(), self.database_snapshot()
         self.fingerprint = migration_fingerprint(self.filenames)
         self.migrated_schema, self.migrated_ledger = schema, ledger
         save_json(self.directory / "automatic-upgrade.json", {
-            "approved_sha256": self.approved, "old_projected_data_preserved": True,
+            "approved_sha256": self.approved, "old_projected_data_preserved": not bool(retired_projections),
+            "all_business_data_preserved": True,
             "default_library_verified": library_upgrade, "old_ledger_preserved": True,
             "schema_verified": True, "execution": "fixed_image_sql_in_restored_database",
             "application_read_only": True, "before_fingerprint": self.before_fingerprint,
             "after_fingerprint": self.fingerprint,
+            "retired_non_business_projections": retired_projections,
         }, exclusive=True)
+
+    def pair(self, label, images):
+        """pair 沿用完整组合验收，将明确取消的非业务投影及备份摘要写入两份回退兼容报告。"""
+        super().pair(label, images)
+        if self.retired_projections:
+            self.reports[label]["retired_non_business_projections"] = self.retired_projections
+            save_json(self.directory / (label + "-pair-summary.json"), self.reports[label])
+
+    def finish(self):
+        """finish 保留原发布证据和回退登记，并显式披露用户授权移除的统计投影，不能冒充保留该表数据。"""
+        super().finish()
+        if self.retired_projections:
+            path = self.root / "isolated-validation.json"
+            evidence = json.loads(path.read_text())
+            evidence["retired_non_business_projections"] = self.retired_projections
+            evidence["legacy_data_scope"] = "all_business_data_except_explicitly_retired_statistics_projection"
+            save_json(path, evidence)
 
 
 if __name__ == "__main__":

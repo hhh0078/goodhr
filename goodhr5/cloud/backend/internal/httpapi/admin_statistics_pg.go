@@ -1,4 +1,4 @@
-// 本文件使用只读一致性快照聚合全站统计，财务金额复用权威流水和已清理日账，统计事实不受明细清理影响。
+// 本文件使用只读一致性快照聚合全站统计；财务复用权威流水和日账，其他指标读取现有业务，不复制保存统计明细。
 package httpapi
 
 import (
@@ -172,6 +172,18 @@ func statisticsBusiness(ctx context.Context, tx *sql.Tx, r *SystemStatistics, st
 
 // statisticsRetention 只计算观察日已结束且完整采集的注册用户，未到期和缺历史不当成未回访。
 func statisticsRetention(ctx context.Context, tx *sql.Tx, r *SystemStatistics, start, end, now time.Time) error {
+	retained, err := statisticsRetainsFacts(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if !retained {
+		for _, offset := range []int{1, 7} {
+			r.Metrics[fmt.Sprintf("retention_%d_eligible", offset)] = 0
+			r.Metrics[fmt.Sprintf("retention_%d_returned", offset)] = 0
+		}
+		r.Warnings = append(r.Warnings, "历史登录明细不再保存，留存率暂不展示。")
+		return nil
+	}
 	for _, offset := range []int{1, 7} {
 		var eligible, returned int64
 		err := tx.QueryRowContext(ctx, `WITH cohort AS (
@@ -191,6 +203,13 @@ func statisticsRetention(ctx context.Context, tx *sql.Tx, r *SystemStatistics, s
 		r.Metrics[fmt.Sprintf("retention_%d_eligible", offset)], r.Metrics[fmt.Sprintf("retention_%d_returned", offset)] = eligible, returned
 	}
 	return nil
+}
+
+// statisticsRetainsFacts 识别旧明细表与新版无存储视图，避免把缺失的历史活动当成零或完整留存。
+func statisticsRetainsFacts(ctx context.Context, tx *sql.Tx) (bool, error) {
+	var retained bool
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT relkind IN ('r','p') FROM pg_class WHERE oid=to_regclass('system_stat_facts')),false)`).Scan(&retained)
+	return retained, err
 }
 
 // statisticsFunnel 使用所选期间注册的同一批用户依次统计，人数去重且不把跨批次活动拼成转化率。
@@ -299,6 +318,14 @@ func statisticsGroups(ctx context.Context, tx *sql.Tx, r *SystemStatistics, star
 
 // statisticsCoverage 直说新统计采集起点，禁止将回填不全的老记录冒充全天或历史完整统计。
 func statisticsCoverage(ctx context.Context, tx *sql.Tx, r *SystemStatistics, start time.Time) error {
+	retained, err := statisticsRetainsFacts(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if !retained {
+		r.Warnings = append(r.Warnings, "统计按当前保留的业务记录计算，历史活跃、筛选、运行异常和招呼可能不完整。消费金额与扣费笔数仍包含日汇总。")
+		return nil
+	}
 	var since time.Time
 	if err := tx.QueryRowContext(ctx, `SELECT MAX(complete_from) FROM system_stat_coverage`).Scan(&since); err != nil {
 		return err
