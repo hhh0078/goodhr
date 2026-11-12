@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -14,7 +15,7 @@ import (
 	"strings"
 )
 
-var wechatLoginCommand = regexp.MustCompile(`^验证码\s*([0-9]{8})$`)
+var wechatLoginCommand = regexp.MustCompile(`^验证码[\s：:]*([0-9]{4}|[0-9]{8})$`)
 
 // wechatLoginPollRequest 只从生成登录码的页面接受随机凭据；公开短码不能用来领取登录态。
 type wechatLoginPollRequest struct {
@@ -35,7 +36,7 @@ func (s *WechatOfficialService) wechatLoginConfig() (WechatOfficialConfig, error
 	return config, nil
 }
 
-// CreateLogin 为当前页面生成五分钟有效的八位短码与256位随机凭据，尚未确认微信或协议时不创建账号。
+// CreateLogin 为当前页面生成五分钟有效的四位短码与256位随机凭据，尚未确认微信或协议时不创建账号。
 func (s *WechatOfficialService) CreateLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "请用 POST 获取登录码")
@@ -45,15 +46,6 @@ func (s *WechatOfficialService) CreateLogin(w http.ResponseWriter, r *http.Reque
 	config, err := s.wechatLoginConfig()
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, err.Error())
-		return
-	}
-	allowed, err := s.cache.TakeGeneration(r.Context(), "wechat-login:"+wechatLoginClientIP(r))
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "登录码暂时没准备好，稍后再试")
-		return
-	}
-	if !allowed {
-		writeError(w, http.StatusTooManyRequests, "登录码生成得有点频繁，已有的码仍能用，稍后再来就行")
 		return
 	}
 	var request struct {
@@ -68,29 +60,50 @@ func (s *WechatOfficialService) CreateLogin(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusBadRequest, "旧登录码凭据不完整，请刷新页面")
 			return
 		}
-		if err := s.loginCache.Cancel(r.Context(), wechatBindingCodeHash(request.PreviousTicket)); err != nil {
-			writeError(w, http.StatusServiceUnavailable, "旧登录码还没收好，请稍后重试")
-			return
-		}
 	}
+	allowed, err := s.loginCache.TakeGeneration(r.Context(), wechatLoginClientIP(r))
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "登录码暂时没准备好，稍后再试")
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusTooManyRequests, "点得有点快，当前登录码仍能用，请稍后再换")
+		return
+	}
+
 	ticket, err := newWechatMessageNonce()
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "登录码生成没成功，请重试")
 		return
 	}
+	previousHash := ""
+	if request.PreviousTicket != "" {
+		previousHash = wechatBindingCodeHash(request.PreviousTicket)
+	}
 	for attempt := 0; attempt < wechatBindingGenerationRetries; attempt++ {
-		value, err := rand.Int(rand.Reader, big.NewInt(100000000))
+		value, err := rand.Int(rand.Reader, big.NewInt(10000))
 		if err != nil {
 			break
 		}
-		code := fmt.Sprintf("%08d", value.Int64())
+		code := fmt.Sprintf("%04d", value.Int64())
 		now := s.now().UTC()
 		challenge := wechatLoginChallenge{TicketHash: wechatBindingCodeHash(ticket), CodeHash: wechatBindingCodeHash(code), AppID: config.AppID, CreatedAt: now.Unix(), ExpiresAt: now.Add(wechatLoginTTL).Unix()}
-		created, err := s.loginCache.Create(r.Context(), challenge)
+		// 登录与绑定共用短码占位，纯数字消息只能对应其中一种用途。
+		reserved, reserveErr := s.cache.ReserveCode(r.Context(), challenge.CodeHash, challenge.TicketHash, wechatLoginTTL)
+		if reserveErr != nil {
+			break
+		}
+		if !reserved {
+			continue
+		}
+		created, err := s.loginCache.Create(r.Context(), challenge, previousHash)
 		if err != nil {
 			break
 		}
 		if !created {
+			if err := s.cache.ReleaseCode(r.Context(), challenge.CodeHash, challenge.TicketHash); err != nil {
+				break
+			}
 			continue
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "ticket": ticket, "login_code": code, "qr_image_url": config.QRImageURL, "expires_at": now.Add(wechatLoginTTL).Format("2006-01-02T15:04:05Z07:00")})
@@ -169,11 +182,12 @@ func (s *WechatOfficialService) PollLogin(w http.ResponseWriter, r *http.Request
 	s.auth.completeLogin(w, email, strings.TrimSpace(req.InviterID), true, false, "wechat")
 }
 
-// handleLoginMessage 只处理已完成微信签名校验的“验证码 八位数字”消息，未知或过期码不能创建账号或泄漏页面凭据。
+// handleLoginMessage 只处理已完成微信签名校验的“验证码 四位数字”消息，未知或过期码不能创建账号或泄漏页面凭据。
 func (s *WechatOfficialService) handleLoginMessage(ctx context.Context, config WechatOfficialConfig, message wechatIncomingMessage) (string, error) {
 	parts := wechatLoginCommand.FindStringSubmatch(strings.TrimSpace(message.Content))
 	if len(parts) != 2 {
-		return "请把 GoodHR 登录页上的“验证码 八位数字”完整发给我。", nil
+		log.Printf("GoodHR wechat login_message status=invalid_format")
+		return "请把 GoodHR 登录页上的“验证码 四位数字”完整发给我。", nil
 	}
 	appID, openID, err := normalizeWechatIdentity(config.AppID, message.FromUserName)
 	if err != nil {
@@ -194,8 +208,10 @@ func (s *WechatOfficialService) handleLoginMessage(ctx context.Context, config W
 		return "", err
 	}
 	if !approved {
+		log.Printf("GoodHR wechat login_message status=expired_or_unmatched")
 		return "这个登录码已过期或没对上，请回 GoodHR 重新生成。", nil
 	}
+	log.Printf("GoodHR wechat login_message status=approved")
 	return "微信确认好了，请回刚才的 GoodHR 登录页，页面会自动进入。只发送你自己登录页上的验证码。", nil
 }
 

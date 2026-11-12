@@ -33,12 +33,12 @@ func TestWechatLoginCacheAtomic(t *testing.T) {
 			ticket := strings.Repeat("a", 64)
 			code := wechatBindingCodeHash("12345678")
 			value := wechatLoginChallenge{TicketHash: ticket, CodeHash: code, CreatedAt: now.Unix(), ExpiresAt: now.Add(wechatLoginTTL).Unix(), AppID: "wx-test"}
-			if ok, err := c.Create(ctx, value); err != nil || !ok {
+			if ok, err := c.Create(ctx, value, ""); err != nil || !ok {
 				t.Fatal(ok, err)
 			}
 			collision := value
 			collision.TicketHash = strings.Repeat("b", 64)
-			if ok, err := other.Create(ctx, collision); err != nil || ok {
+			if ok, err := other.Create(ctx, collision, ""); err != nil || ok {
 				t.Fatal("短码碰撞覆盖旧页面", ok, err)
 			}
 			if ok, err := other.Approve(ctx, code, "wx-test", "owner", now.Add(-time.Second).Unix()); err != nil || ok {
@@ -76,7 +76,7 @@ func TestWechatLoginCacheAtomic(t *testing.T) {
 			if ok, err := c.Approve(ctx, code, "wx-test", "owner", now.Unix()); err != nil || ok {
 				t.Fatal("消费后又被回调复活", ok, err)
 			}
-			if ok, err := c.Create(ctx, value); err != nil || !ok {
+			if ok, err := c.Create(ctx, value, ""); err != nil || !ok {
 				t.Fatal(ok, err)
 			}
 			if err := other.Cancel(ctx, ticket); err != nil {
@@ -122,4 +122,60 @@ func wechatLoginTestRedis(t *testing.T) *redis.Client {
 	}
 	t.Fatal("隔离Redis未启动")
 	return nil
+}
+
+// TestWechatLoginReplaceAndGeneration 验证Redis和内存换码均先保住旧码，正常换码超过五次仍可用且防刷窗口有效。
+func TestWechatLoginReplaceAndGeneration(t *testing.T) {
+	for _, mode := range []string{"memory", "redis"} {
+		t.Run(mode, func(t *testing.T) {
+			now := time.Now().UTC()
+			c := newWechatLoginCache(nil, func() time.Time { return now })
+			if mode == "redis" {
+				c.client = wechatLoginTestRedis(t)
+			}
+			ctx := context.Background()
+			old := wechatLoginChallenge{TicketHash: strings.Repeat("a", 64), CodeHash: wechatBindingCodeHash("1234"), AppID: "wx-test", CreatedAt: now.Unix(), ExpiresAt: now.Add(wechatLoginTTL).Unix()}
+			if ok, err := c.Create(ctx, old, ""); err != nil || !ok {
+				t.Fatal(ok, err)
+			}
+			if ok, err := c.HasCode(ctx, old.CodeHash, old.AppID); err != nil || !ok {
+				t.Fatal("有效码未识别", ok, err)
+			}
+			if ok, err := c.HasCode(ctx, old.CodeHash, "other-app"); err != nil || ok {
+				t.Fatal("跨公众号识别登录码", ok, err)
+			}
+			next := old
+			next.TicketHash = strings.Repeat("b", 64)
+			if ok, err := c.Create(ctx, next, old.TicketHash); err != nil || ok {
+				t.Fatal("碰撞不应创建新码", ok, err)
+			}
+			if _, err := c.Read(ctx, old.TicketHash, false); err != nil {
+				t.Fatal("失败换码丢失原码", err)
+			}
+			next.CodeHash = wechatBindingCodeHash("5678")
+			if ok, err := c.Create(ctx, next, old.TicketHash); err != nil || !ok {
+				t.Fatal(ok, err)
+			}
+			if _, err := c.Read(ctx, old.TicketHash, false); !errors.Is(err, ErrNotFound) {
+				t.Fatal("成功换码后旧码未失效", err)
+			}
+			if ok, err := c.Approve(ctx, next.CodeHash, next.AppID, "existing-follower", now.Unix()); err != nil || !ok {
+				t.Fatal(ok, err)
+			}
+			for i := 0; i < 60; i++ {
+				if ok, err := c.TakeGeneration(ctx, "test-ip"); err != nil || !ok {
+					t.Fatalf("第%d次生成错误受限：%v %v", i+1, ok, err)
+				}
+			}
+			if ok, err := c.TakeGeneration(ctx, "test-ip"); err != nil || ok {
+				t.Fatal("未保留防刷限制", ok, err)
+			}
+			if _, err := c.Read(ctx, next.TicketHash, false); err != nil {
+				t.Fatal("防刷限制影响现有码", err)
+			}
+			if ok, err := c.TakeGeneration(ctx, "other-ip"); err != nil || !ok {
+				t.Fatal("其他来源受限", ok, err)
+			}
+		})
+	}
 }

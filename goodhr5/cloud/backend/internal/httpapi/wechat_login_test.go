@@ -25,7 +25,7 @@ func createWechatLoginForTest(t *testing.T, s *Server) (string, string) {
 	if err := json.Unmarshal(r.Body.Bytes(), &data); err != nil {
 		t.Fatal(err)
 	}
-	if !validWechatLoginTicket(data.Ticket) || len(data.Code) != 8 {
+	if !validWechatLoginTicket(data.Ticket) || len(data.Code) != 4 {
 		t.Fatalf("登录凭据和公开码没有分离：%+v", data)
 	}
 	return data.Ticket, data.Code
@@ -246,5 +246,58 @@ func TestWechatLoginDoesNotSendToInternalIdentity(t *testing.T) {
 	recipients, _, err := admin.resolveRecipients(sendAdminEmailRequest{Emails: []string{"wx-test@wechat.goodhr.invalid", "legacy@example.com"}})
 	if err != nil || len(recipients) != 1 || recipients[0] != "legacy@example.com" {
 		t.Fatal("手工群发包含内部账号", recipients, err)
+	}
+}
+
+// TestWechatLoginExistingFollowerAndLegacyCode 验证历史关注者无需重新关注，兼容中文冒号和仍有效的八位旧登录码。
+func TestWechatLoginExistingFollowerAndLegacyCode(t *testing.T) {
+	s, config := newWechatOfficialTestServer(t, "safe")
+	now := s.wechatOfficial.now()
+	openID := "previously-followed-user"
+	if err := s.wechatOfficial.store.RecordFollow(context.Background(), config.AppID, openID, true, now.Add(-365*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	for _, legacy := range []bool{false, true} {
+		ticket, code := createWechatLoginForTest(t, s)
+		if legacy {
+			if err := s.wechatOfficial.loginCache.Cancel(context.Background(), wechatBindingCodeHash(ticket)); err != nil {
+				t.Fatal(err)
+			}
+			code = "12345678"
+			value := wechatLoginChallenge{TicketHash: wechatBindingCodeHash(ticket), CodeHash: wechatBindingCodeHash(code), AppID: config.AppID, CreatedAt: now.Unix(), ExpiresAt: now.Add(wechatLoginTTL).Unix()}
+			if ok, err := s.wechatOfficial.loginCache.Create(context.Background(), value, ""); err != nil || !ok {
+				t.Fatal(ok, err)
+			}
+		}
+		response := wechatTestCallback(t, s, config, wechatTestMessage(config, now, openID, "text", "验证码："+code), true)
+		reply := wechatTestReply(t, response, config, true, openID)
+		if !strings.Contains(reply, "微信确认好了") {
+			t.Fatal(reply)
+		}
+		if got := pollWechatLoginForTest(t, s, ticket, true); got["access_token"] == nil {
+			t.Fatal(got)
+		}
+	}
+}
+
+// TestWechatLoginNumericCode 验证已关注用户直接发送四位数字可登录，登录码与绑定码占位互斥。
+func TestWechatLoginNumericCode(t *testing.T) {
+	s, config := newWechatOfficialTestServer(t, "safe")
+	config.Enabled = false
+	saveWechatOfficialTestConfig(t, s, config)
+	if err := s.wechatOfficial.store.RecordFollow(context.Background(), config.AppID, "numeric-follower", true, s.wechatOfficial.now().Add(-24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	ticket, code := createWechatLoginForTest(t, s)
+	reserved, err := s.wechatOfficial.cache.ReserveCode(context.Background(), wechatBindingCodeHash(code), "binding-owner", wechatBindingTTL)
+	if err != nil || reserved {
+		t.Fatal("登录码未与绑定码互斥", reserved, err)
+	}
+	response := wechatTestCallback(t, s, config, wechatTestMessage(config, s.wechatOfficial.now(), "numeric-follower", "text", code), true)
+	if reply := wechatTestReply(t, response, config, true, "numeric-follower"); !strings.Contains(reply, "微信确认好了") {
+		t.Fatal(reply)
+	}
+	if result := pollWechatLoginForTest(t, s, ticket, true); result["access_token"] == nil {
+		t.Fatal(result)
 	}
 }

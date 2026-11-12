@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"regexp"
@@ -24,6 +25,8 @@ const wechatBindingGenerationRetries = 64
 
 // wechatFollowAuthorNotice 在原关注回复后补充作者联系方式，使用官网原图链接，避免替换会员提示或依赖未认证账号无权调用的主动消息接口。
 const wechatFollowAuthorNotice = "\n\n本公众号仅用于重要消息通知。使用中有疑问，请联系作者，微信：17607080935。\n作者微信二维码：\nhttps://goodhr.58it.cn/assets/contact/wechat-developer.jpg\n点开图片后长按识别，添加作者微信。"
+
+var wechatNumericLoginCode = regexp.MustCompile(`^[0-9]{4}$`)
 
 var wechatAcceptedBindingCode = regexp.MustCompile(`^(?:[1-9][0-9]{3}|[23456789A-HJ-NP-Z]{8})$`)
 
@@ -226,6 +229,9 @@ func wechatBindingCodeHash(code string) string {
 
 // Callback 校验微信的 GET 通知地址验证或 POST 消息事件，并支持安全模式。
 func (s *WechatOfficialService) Callback(w http.ResponseWriter, r *http.Request) {
+	// 仅记处理阶段，不记录回调URL、签名、短码、微信身份或消息正文。
+	stage := "received"
+	defer func() { log.Printf("GoodHR wechat callback method=%s stage=%s", r.Method, stage) }()
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -237,6 +243,7 @@ func (s *WechatOfficialService) Callback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	query := r.URL.Query()
+	stage = "validating_signature"
 	timestamp, nonce := query.Get("timestamp"), query.Get("nonce")
 	unix, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil || nonce == "" || len(nonce) > 256 || len(timestamp) > 16 || unix < s.now().Add(-10*time.Minute).Unix() || unix > s.now().Add(10*time.Minute).Unix() {
@@ -306,10 +313,13 @@ func (s *WechatOfficialService) Callback(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid message recipient", http.StatusBadRequest)
 		return
 	}
+	stage = "signature_verified"
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	text, err := s.handleMessage(ctx, config, message)
+	stage = "message_processed"
 	if err != nil {
+		stage = "message_processing_failed"
 		// 非200让微信重试，不能在落库失败时回复绑定成功。
 		http.Error(w, "message temporarily unavailable", http.StatusInternalServerError)
 		return
@@ -343,6 +353,7 @@ func (s *WechatOfficialService) Callback(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	stage = "reply_written"
 	_, _ = w.Write(reply)
 }
 
@@ -374,6 +385,17 @@ func (s *WechatOfficialService) handleMessage(ctx context.Context, config Wechat
 		}
 		return s.handleLoginMessage(ctx, config, message)
 	}
+	if config.LoginEnabled != nil && *config.LoginEnabled && wechatNumericLoginCode.MatchString(strings.TrimSpace(message.Content)) {
+		active, err := s.loginCache.HasCode(ctx, wechatBindingCodeHash(strings.TrimSpace(message.Content)), config.AppID)
+		if err != nil {
+			return "", err
+		}
+		if active {
+			message.Content = "验证码 " + strings.TrimSpace(message.Content)
+			return s.handleLoginMessage(ctx, config, message)
+		}
+	}
+
 	if !config.Enabled {
 		return "", nil
 	}

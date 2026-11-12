@@ -25,16 +25,17 @@ type wechatLoginChallenge struct {
 
 // wechatLoginCache 让 Redis 和无数据库开发模式保持相同的一次消费、期限及首个微信认领规则。
 type wechatLoginCache struct {
-	client     *redis.Client
-	mu         sync.Mutex
-	challenges map[string]wechatLoginChallenge
-	codes      map[string]string
-	now        func() time.Time
+	client      *redis.Client
+	mu          sync.Mutex
+	challenges  map[string]wechatLoginChallenge
+	codes       map[string]string
+	generations map[string]wechatCacheCounter
+	now         func() time.Time
 }
 
 // newWechatLoginCache 共享认证 Redis，未配置 Redis 时使用有期限的开发缓存，连接故障不降级。
 func newWechatLoginCache(auth *AuthService, now func() time.Time) *wechatLoginCache {
-	c := &wechatLoginCache{challenges: make(map[string]wechatLoginChallenge), codes: make(map[string]string), now: now}
+	c := &wechatLoginCache{challenges: make(map[string]wechatLoginChallenge), codes: make(map[string]string), generations: make(map[string]wechatCacheCounter), now: now}
 	if auth != nil {
 		if store, ok := auth.store.(*RedisAuthStore); ok {
 			c.client = store.client
@@ -47,6 +48,17 @@ var wechatLoginCreateScript = redis.NewScript(`
 if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
 redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[3])
 redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3])
+if ARGV[4] ~= '' then
+ local raw = redis.call('GET', KEYS[3])
+ if raw then
+  local old = cjson.decode(raw)
+  if old.app_id == ARGV[5] then
+   redis.call('DEL', KEYS[3])
+   local key = ARGV[6] .. old.code_hash
+   if redis.call('GET', key) == old.ticket_hash then redis.call('DEL', key) end
+  end
+ end
+end
 return 1`)
 
 var wechatLoginApproveScript = redis.NewScript(`
@@ -77,6 +89,31 @@ return raw`)
 const wechatLoginTicketPrefix = "goodhr:wechat-login:ticket:"
 const wechatLoginCodePrefix = "goodhr:wechat-login:code:"
 
+// TakeGeneration 为登录单独保留每个IP十分钟60次额度，不与关注绑定共用五次配额；刷新复用原码不消耗额度。
+func (c *wechatLoginCache) TakeGeneration(ctx context.Context, clientIP string) (bool, error) {
+	const limit = 60
+	if c.client != nil {
+		n, err := wechatGenerationScript.Run(ctx, c.client, []string{wechatCacheKey("login-generation-v2", clientIP)}, limit, wechatBindingTTL.Milliseconds()).Int()
+		return n == 1, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	key := wechatBindingCodeHash(clientIP)
+	current := c.generations[key]
+	if !current.expiresAt.After(c.now()) {
+		current = wechatCacheCounter{expiresAt: c.now().Add(wechatBindingTTL)}
+	}
+	if current.count >= limit {
+		return false, nil
+	}
+	current.count++
+	c.generations[key] = current
+	return true, nil
+}
+
 // Cancel 只凭原页面的随机凭据作废旧码，重新生成后旧公众号消息不再错误提示登录成功。
 func (c *wechatLoginCache) Cancel(ctx context.Context, ticketHash string) error {
 	if c.client != nil {
@@ -96,14 +133,15 @@ func (c *wechatLoginCache) Cancel(ctx context.Context, ticketHash string) error 
 	return nil
 }
 
-// Create 原子占用短码并保存浏览器凭据，碰撞时由调用者重新生成，绝不覆盖其他登录页面。
-func (c *wechatLoginCache) Create(ctx context.Context, value wechatLoginChallenge) (bool, error) {
+// Create 原子占用新码并仅在成功后作废同公众号旧凭据；碰撞或缓存故障时保留原码。
+// previousHash 为空表示首次生成，否则是当前页面持有的旧随机凭据摘要。
+func (c *wechatLoginCache) Create(ctx context.Context, value wechatLoginChallenge, previousHash string) (bool, error) {
 	if c.client != nil {
 		data, err := json.Marshal(value)
 		if err != nil {
 			return false, err
 		}
-		n, err := wechatLoginCreateScript.Run(ctx, c.client, []string{wechatLoginCodePrefix + value.CodeHash, wechatLoginTicketPrefix + value.TicketHash}, value.TicketHash, string(data), wechatLoginTTL.Milliseconds()).Int()
+		n, err := wechatLoginCreateScript.Run(ctx, c.client, []string{wechatLoginCodePrefix + value.CodeHash, wechatLoginTicketPrefix + value.TicketHash, wechatLoginTicketPrefix + previousHash}, value.TicketHash, string(data), wechatLoginTTL.Milliseconds(), previousHash, value.AppID, wechatLoginCodePrefix).Int()
 		return n == 1, err
 	}
 	c.mu.Lock()
@@ -125,9 +163,40 @@ func (c *wechatLoginCache) Create(ctx context.Context, value wechatLoginChalleng
 	if _, exists := c.challenges[value.TicketHash]; exists {
 		return false, nil
 	}
+	if old, exists := c.challenges[previousHash]; exists && old.AppID == value.AppID {
+		delete(c.challenges, previousHash)
+		if c.codes[old.CodeHash] == previousHash {
+			delete(c.codes, old.CodeHash)
+		}
+	}
 	c.challenges[value.TicketHash] = value
 	c.codes[value.CodeHash] = value.TicketHash
 	return true, nil
+}
+
+// HasCode 只检查当前公众号是否持有有效登录码，用于区分纯数字登录与原有绑定；不泄漏页面凭据。
+func (c *wechatLoginCache) HasCode(ctx context.Context, codeHash, appID string) (bool, error) {
+	if c.client != nil {
+		ticketHash, err := c.client.Get(ctx, wechatLoginCodePrefix+codeHash).Result()
+		if errors.Is(err, redis.Nil) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		value, err := c.Read(ctx, ticketHash, false)
+		if errors.Is(err, ErrNotFound) {
+			return false, nil
+		}
+		return err == nil && value.AppID == appID, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	value, exists := c.challenges[c.codes[codeHash]]
+	return exists && value.AppID == appID && value.ExpiresAt > c.now().Unix(), nil
 }
 
 // Approve 只接受期限内、生成之后的签名消息；重复回调幂等，另一微信不能覆盖已经认领的页面。

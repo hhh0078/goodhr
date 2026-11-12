@@ -124,6 +124,8 @@ export default function LoginForm() {
 
   useEffect(() => {
     captureLocalAgentPortFromURL();
+    const cachedMode = localStorage.getItem(LOGIN_MODE_CACHE_KEY);
+    if (cachedMode === "wechat" || cachedMode === "code" || cachedMode === "password") setLoginMode(cachedMode);
     const cachedEmail = (localStorage.getItem(SESSION_EMAIL_KEY) || "")
       .trim()
       .toLowerCase();
@@ -423,7 +425,7 @@ export default function LoginForm() {
             邮箱密码
           </Button>
         </div>
-        {loginMode === "wechat" ? <WechatLogin agreementAccepted={agreementChecked} onAgreement={() => setAgreementOpen(true)} onSuccess={finishLogin} /> : <>
+        {!loginPreferencesLoaded ? null : loginMode === "wechat" ? <WechatLogin agreementAccepted={agreementChecked} onAgreement={() => setAgreementOpen(true)} onSuccess={finishLogin} /> : <>
         <Form.Item label="邮箱" htmlFor="login-email">
           <Input
             id="login-email"
