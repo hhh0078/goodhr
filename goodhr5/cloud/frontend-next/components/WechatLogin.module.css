@@ -1,6 +1,6 @@
 /* 文件作用说明：紧凑展示协议前置的微信登录区，手机和桌面均保持验证码倒计时及协议操作同排。 */
 .login { width: 100%; padding: 4px 0; }
-.heading { font-size: 14px; white-space: nowrap; }
+.heading { max-width: 100%; font-size: 14px; text-align: center; line-height: 1.5; }
 .qr { position: relative; display: flex; align-items: center; justify-content: center; width: 176px; height: 176px; background: #fff; border: 1px solid var(--goodhr-border); border-radius: 8px; }
 .cover { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(247,250,248,.96); border-radius: 8px; }
 .codeRow { display: flex; align-items: center; justify-content: center; gap: 10px; }
@@ -8,7 +8,7 @@
 .countdown { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .countdown :global(.ant-typography) { font-size: 12px; }
 .countdown :global(.ant-spin) { display: inline-flex; }
-.actions { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; white-space: nowrap; }
+.actions { display: flex; width: 100%; align-items: center; justify-content: center; gap: 16px; white-space: nowrap; }
 .agreement { display: inline-flex; align-items: center; }
 .agreement :global(.ant-checkbox-label) { padding-inline-end: 0; font-size: 12px; }
 .agreement :global(.ant-btn) { padding-inline: 0; font-size: 12px; }

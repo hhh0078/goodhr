@@ -148,7 +148,6 @@ export default function WechatLogin({ agreementAccepted, onAgreementChange, onAg
 
   return (
     <Flex vertical align="center" gap={10} className={styles.login}>
-      <Typography.Text strong className={styles.heading}>微信扫码，发送下方数字登录</Typography.Text>
       <div className={styles.qr}>
         {agreementAccepted && challenge ? <Image width={160} height={160} src={challenge.qr_image_url} alt="GoodHR 公众号二维码，请用微信扫码" preview={false} /> : null}
         {!agreementAccepted ? <>
@@ -161,8 +160,9 @@ export default function WechatLogin({ agreementAccepted, onAgreementChange, onAg
           : loading && !challenge ? <Spin aria-label="正在准备登录码" />
           : challenge && (status === "expired" || remaining === 0) ? <div className={styles.cover}><Typography.Text strong>登录码过期了</Typography.Text></div> : null}
       </div>
+      <Typography.Text strong className={styles.heading}>使用微信扫码，将下面的数字发送给公众号。</Typography.Text>
       {agreementAccepted && challenge ? <div className={styles.codeRow}>
-        <Typography.Text className={styles.code} style={{ fontSize: 24, fontWeight: 700 }} aria-label="微信登录码">{challenge.login_code}</Typography.Text>
+        <Typography.Text className={styles.code} style={{ fontSize: 24, fontWeight: 700, color: "var(--ant-color-error, #c83f49)" }} aria-label="微信登录码">{challenge.login_code}</Typography.Text>
         <span className={styles.countdown}>
           {status !== "expired" && remaining > 0 ? <Spin size="small" aria-label="正在等待微信确认" /> : null}
           <Typography.Text type="secondary" aria-label="登录码倒计时">{status === "expired" || remaining === 0 ? "已过期" : `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")} 后过期`}</Typography.Text>
