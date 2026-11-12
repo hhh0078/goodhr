@@ -243,7 +243,7 @@ func (m SMTPMailer) SendSubscriptionReward(email string, notice SubscriptionRewa
 
 // sendAIBalanceNotice 发送 AI 余额变动提醒，未配置邮件服务时安全跳过。
 func sendAIBalanceNotice(mailer Mailer, email string, notice AIBalanceNotice) error {
-	if mailer == nil || notice.ChangeUnits == 0 {
+	if mailer == nil || notice.ChangeUnits == 0 || isWechatAccount(email) {
 		return nil
 	}
 	return mailer.SendAIBalanceNotice(email, notice)

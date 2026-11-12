@@ -420,6 +420,10 @@ func (s *PositionExecutionService) FailNotice(w http.ResponseWriter, r *http.Req
 
 // sendPositionStatusNotice 发送岗位结束或失败邮件提醒。
 func (s *PositionExecutionService) sendPositionStatusNotice(position Position, status, errorMessage string, runGreetedCount int, runSkippedCount int) error {
+	// 微信账号没有真实邮箱，不让可选邮件提醒阻断岗位结束确认。
+	if isWechatAccount(position.UserEmail) {
+		return nil
+	}
 	if s.mailer == nil {
 		return errors.New("mailer not configured")
 	}

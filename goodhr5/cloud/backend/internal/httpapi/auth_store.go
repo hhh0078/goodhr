@@ -24,10 +24,11 @@ type AuthStore interface {
 }
 
 type Session struct {
-	Kind      string
-	Email     string
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	Kind        string
+	LoginMethod string
+	Email       string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
 }
 
 type MemoryAuthStore struct {

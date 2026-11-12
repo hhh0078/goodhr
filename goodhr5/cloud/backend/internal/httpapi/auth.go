@@ -100,7 +100,7 @@ func (s *AuthService) SendCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email, ok := normalizeEmail(req.Email)
-	if !ok {
+	if !ok || isWechatAccount(email) {
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
@@ -157,7 +157,7 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email, ok := normalizeEmail(req.Email)
-	if !ok {
+	if !ok || isWechatAccount(email) {
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
@@ -224,7 +224,7 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		passwordSet = true
 	}
 
-	s.completeLogin(w, email, strings.TrimSpace(req.InviterID), req.AgreementAccepted, !passwordSet)
+	s.completeLogin(w, email, strings.TrimSpace(req.InviterID), req.AgreementAccepted, !passwordSet, "email")
 }
 
 // PasswordLogin 使用邮箱和密码创建登录会话。
@@ -239,7 +239,7 @@ func (s *AuthService) PasswordLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email, ok := normalizeEmail(req.Email)
-	if !ok || req.Password == "" {
+	if !ok || isWechatAccount(email) || req.Password == "" {
 		writeError(w, http.StatusBadRequest, "请输入邮箱和密码")
 		return
 	}
@@ -289,7 +289,7 @@ func (s *AuthService) PasswordLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.completeLogin(w, email, "", req.AgreementAccepted, false)
+	s.completeLogin(w, email, "", req.AgreementAccepted, false, "password")
 }
 
 // SetupPassword 为验证码登录后的历史账号补设密码。
@@ -409,7 +409,7 @@ func (s *AuthService) SendPasswordResetCode(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	email, ok := normalizeEmail(req.Email)
-	if !ok {
+	if !ok || isWechatAccount(email) {
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
@@ -463,7 +463,7 @@ func (s *AuthService) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email, ok := normalizeEmail(req.Email)
-	if !ok {
+	if !ok || isWechatAccount(email) {
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
@@ -501,7 +501,7 @@ func (s *AuthService) ResetPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // completeLogin 保存会话并完成登录后的账号初始化。
-func (s *AuthService) completeLogin(w http.ResponseWriter, email string, inviterID string, agreementAccepted bool, requiresPasswordSetup bool) {
+func (s *AuthService) completeLogin(w http.ResponseWriter, email string, inviterID string, agreementAccepted bool, requiresPasswordSetup bool, loginMethod string) {
 
 	token, err := randomToken()
 	if err != nil {
@@ -511,8 +511,9 @@ func (s *AuthService) completeLogin(w http.ResponseWriter, email string, inviter
 
 	now := time.Now()
 	if err := s.store.SaveSession(token, Session{
-		Email:     email,
-		CreatedAt: now,
+		Email:       email,
+		LoginMethod: loginMethod,
+		CreatedAt:   now,
 	}, sessionTTL); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save session")
 		return
@@ -598,7 +599,7 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 			"expires_at": session.ExpiresAt,
 		},
 		"show_trial_welcome":      showTrialWelcome,
-		"requires_password_setup": !passwordSet,
+		"requires_password_setup": !passwordSet && session.LoginMethod != "wechat" && !isWechatAccount(session.Email),
 	})
 }
 
@@ -732,6 +733,8 @@ func (s *AuthService) publicUser(email string) map[string]any {
 		"id":                         inviteID,
 		"invite_id":                  inviteID,
 		"email":                      email,
+		"display_name":               accountDisplayName(email),
+		"login_identity":             accountLoginIdentity(email),
 		"role":                       s.userRole(email),
 		"role_label":                 s.userRoleLabel(email),
 		"is_super_admin":             s.IsSuperAdmin(email),
