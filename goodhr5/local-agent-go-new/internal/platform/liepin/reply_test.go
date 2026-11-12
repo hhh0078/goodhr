@@ -787,3 +787,8 @@ func TestLiepinStandaloneResumeKeepsCandidateCaption(t *testing.T) {
 		}
 	}
 }
+
+// Find 本组猎聘回归不应读取BOSS几何位置，意外调用时明确失败。
+func (b *liepinReplyBrowserStub) Find(context.Context, contract.ElementFindRequest) (contract.FindResult, error) {
+	return contract.FindResult{}, fmt.Errorf("猎聘自动回复测试不允许额外几何查询")
+}

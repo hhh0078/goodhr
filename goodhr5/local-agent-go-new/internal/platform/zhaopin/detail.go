@@ -3,15 +3,52 @@ package zhaopin
 
 import (
 	"context"
+	"maps"
 	"strings"
 
+	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
 // OpenCandidateDetail 打开指定智联候选人详情。
 func (r *Runtime) OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
+	if r.manualSearch {
+		var err error
+		cfg, err = candidateDetailConfig(ctx, browser, cfg, candidate)
+		if err != nil {
+			return err
+		}
+	}
 	return common.OpenCandidateDetail(ctx, browser, cfg, candidate)
+}
+
+// candidateDetailConfig 仅搜索页只读核对当前候选人所在的卡片路径，避免先按推荐页空等五秒并误记失败。
+// 保留每条路径的身份约束和详情备用入口；加载中全未命中时仍使用完整配置等待，不缓存跨人选的匹配结果。
+func candidateDetailConfig(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) (model.Config, error) {
+	card, err := common.CandidateSelector(cfg, candidate)
+	if err != nil || len(card.Alternatives) == 0 {
+		return cfg, err
+	}
+	base := cfg.Selectors["candidate.item"].Variants()
+	var matched []contract.SelectorSpec
+	for index, variant := range card.Variants() {
+		variant.TimeoutMS = 1
+		items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
+			Selector: variant, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true,
+		})
+		if err != nil && !common.IsElementMissing(err) {
+			return cfg, err
+		}
+		if len(items) > 0 {
+			matched = append(matched, base[index])
+		}
+	}
+	if len(matched) > 0 {
+		cfg.Selectors = maps.Clone(cfg.Selectors)
+		cfg.Selectors["candidate.item"] = contract.SelectorVariants(matched)
+	}
+	return cfg, nil
 }
 
 // ExtractCandidateDetail 提取当前智联候选人详情文本。

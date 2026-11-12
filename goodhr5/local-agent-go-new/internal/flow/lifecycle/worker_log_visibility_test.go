@@ -9,10 +9,48 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/storage"
 	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 )
+
+// TestScriptWarningsAndStepDurationsRemainVisible 验证脚本提示保留原始证据及未知结果，真实点击失败不降级，关键后续步骤耗时可分享。
+func TestScriptWarningsAndStepDurationsRemainVisible(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SaveTask(ctx, storage.TaskRun{TaskID: "script-task", PositionID: "script-position", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := NewTaskLogger(store, nil)
+	var raw bytes.Buffer
+	sink := diagnostics.WorkerLine(&raw, logger.WorkerLine)
+	sink([]byte(`2026-11-11T15:40:20.000Z pw:browser [pid=42][err] JavaScript error: , line 0: uncaught exception: 该用户当天已展示`))
+	sink([]byte(`{"trace_id":"script-task","action":"element.click","step":"click","status":"failed","level":"error","error_message":"该用户当天已展示"}`))
+	steps := []string{"ensure_candidate_conversation", "request_candidate_info", "send_candidate_message", "close_candidate_conversation"}
+	for _, step := range steps {
+		logger.Step("script-task", "greeting", step, "success", time.Now().Add(-200*time.Millisecond), nil)
+	}
+	logs, err := store.ListPositionLogs(ctx, "script-position", 100)
+	if err != nil || len(logs) != 6 {
+		t.Fatalf("提示、真实故障或耗时缺失：%v %v", logs, err)
+	}
+	if logs[0].IsError || logs[0].Status != "warning" || !strings.Contains(logs[0].Message, "操作结果以对应步骤为准") || !bytes.Contains(logs[0].Output, []byte(`"operation_outcome":"unknown"`)) || !bytes.Contains(logs[0].Output, []byte(`"script_message"`)) {
+		t.Fatalf("脚本提示被当作成功或操作失败：%+v", logs[0])
+	}
+	if !logs[1].IsError || !strings.Contains(logs[1].Message, "没处理成功") {
+		t.Fatal("真实点击失败被隐藏")
+	}
+	for i, step := range steps {
+		if logs[i+2].Step != step || logs[i+2].DurationMS < 200 || logs[i+2].IsError {
+			t.Fatalf("步骤耗时未保存：%+v", logs[i+2])
+		}
+	}
+}
 
 // TestRoutineMouseLogsRemainLocal 验证连续正常鼠标动作完整留在诊断文件，岗位只保留候选人关键动作。
 func TestRoutineMouseLogsRemainLocal(t *testing.T) {

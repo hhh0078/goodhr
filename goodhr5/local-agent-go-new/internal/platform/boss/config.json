@@ -37,7 +37,13 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "candidate_start_from_viewport": true,
+    "_comment_candidate_start_from_viewport": "仅无限滚动推荐页从当前屏幕首张完整卡片开始，不查旧断点；手动搜索页保留原分页与断点方式。",
+    "candidate_viewport_top_inset": 100,
+    "_comment_candidate_viewport_top_inset": "BOSS顶部导航及推荐筛选区域占100 CSS像素；整张起点卡片必须在其下方，避免卡片被固定页头遮挡时仅露边缘也开工。",
     "_comment": "Boss 页面行为开关。",
+    "skip_greeting_info_requests": true,
+    "_comment_skip_greeting_info_requests": "主动打招呼不支持索要简历、手机号和微信，忽略岗位勾选且不为索要打开聊天；自动回复沿用原逻辑。",
     "supports_paging": false,
     "_comment_supports_paging": "Boss 推荐页当前按滚动加载，不点击下一页。",
     "candidate_list_mode": "infinite_scroll",
@@ -252,6 +258,16 @@
       "timeout_ms": 5000,
       "description": "Boss候选人列表"
     },
+    "candidate.identity_check": {
+      "_comment": "先按真实列表行号定位，再仅在这一张卡片内核对身份，不统计上方同名者。",
+      "target": {
+        "_comment": "已定位的当前卡片自身。",
+        "selectors": [{"_comment": "标准相对选择器仅指向当前卡片自身。", "type": "css", "value": ":scope"}]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "当前候选人卡片身份核对"
+    },
     "candidate.item": {
       "_comment": "候选人卡片列表项。",
       "frames": [
@@ -273,19 +289,31 @@
       "timeout_ms": 5000,
       "description": "Boss候选人卡片"
     },
-    "candidate.open_target": {
-      "_comment": "卡片内打开详情的安全小区域；只点击年龄、经验和学历摘要，避开头像、按钮和其它会弹出浮层的区域。",
+    "candidate.open_target": [{
+      "_comment": "只点击年龄、经验和学历所在行；内部摘要为 pointer-events:none，必须定位接收鼠标事件的外层行，避开头像和按钮。",
       "parents": [],
       "target": {
-        "_comment": "每张候选人卡片固定存在的基础信息摘要。",
+        "_comment": "当前候选人卡片中直接包含基础信息摘要的唯一行。",
         "selectors": [
-          { "_comment": "Boss 年龄、经验和学历摘要；实测点击会打开简历详情，且不会命中头像。", "type": "css", "value": ".base-info.join-text-wrap" }
+          { "_comment": "基础信息外层行接收真实鼠标事件，可通过悬停校验；不扩大到整张卡片。", "type": "css", "value": ".row:has(> .base-info.join-text-wrap)" }
         ]
       },
       "state": "visible",
       "timeout_ms": 5000,
       "description": "Boss候选人基础信息详情入口"
-    },
+    }, {
+      "_comment": "保留旧版和灰度页面的基础信息摘要；新路径未成功时只尝试本路径一次。",
+      "parents": [],
+      "target": {
+        "_comment": "旧版直接接收鼠标事件的年龄、经验和学历摘要。",
+        "selectors": [
+          { "_comment": "保留之前验证过的安全小区域，不降级到整张卡片或头像。", "type": "css", "value": ".base-info.join-text-wrap" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "Boss候选人旧版基础信息详情入口"
+    }],
     "candidate.favorite": {
       "_comment": "只操作当前可见详情右侧的未收藏按钮，不在候选人卡片里查找，不按序号猜测。",
       "frames": [{ "_comment": "推荐列表框架，收藏按钮位于外层详情右侧。", "selectors": [{ "_comment": "通过唯一框架名称定位推荐区域。", "type": "css", "value": "iframe[name='recommendFrame']" }] }],
@@ -338,6 +366,8 @@
       },
       "state": "visible",
       "timeout_ms": 5000,
+      "read_timeout_ms": 5000,
+      "_comment_read_timeout_ms": "已定位的简历正文允许5秒取值，查找和整次任务时限仍独立保留。",
       "description": "Boss候选人详情正文"
     },
     "candidate.detail_screenshot": {

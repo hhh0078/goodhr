@@ -1,0 +1,82 @@
+# 文件作用说明：在原生 Windows 中用正式脚本构建、校验本地程序安装器和含教程图片的 ZIP，不自动修改线上更新配置。
+name: Local Agent Windows package
+
+on:
+  push:
+    branches: [codex/release-6.3.4.1]
+    paths: [.github/workflows/local-agent-windows-package.yml]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 安装包版本号
+        required: true
+        default: 6.3.4.1
+      source:
+        description: 已通过验收的源码提交
+        required: true
+        default: 7f75094c0c40c5012615e92c73299b53ad36d6bb
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      PACKAGE_VERSION: ${{ inputs.version || '6.3.4.1' }}
+      SOURCE_COMMIT: ${{ inputs.source || '7f75094c0c40c5012615e92c73299b53ad36d6bb' }}
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: goodhr5/local-agent-go-new
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.0
+          cache: false
+      - name: 检查镜像与安装器工具
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm config get registry
+          go env GOPROXY
+          npm config set registry https://registry.npmmirror.com
+          go env -w GOPROXY=https://goproxy.cn,direct
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe") -and -not (Get-Command ISCC.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 安装失败' }
+          }
+      - name: 执行正式 Windows 打包与关闭流程回归
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test ./internal/platform/boss ./internal/platform/common
+          if ($LASTEXITCODE -ne 0) { throw 'Windows 关闭流程回归失败' }
+          ./scripts/package-windows.ps1 -Version $env:PACKAGE_VERSION build
+      - name: 核对版本并保存发布凭据
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:PACKAGE_VERSION
+          $setup = "release/GoodHR-Local-Agent-Setup-v$version-windows-x64.exe"
+          # Inno Setup 的版本资源带有定长填充空格，核对时只移除两端空白。
+          if ((Get-Item $setup).VersionInfo.ProductVersion.Trim() -ne $version) { throw '安装器版本不一致' }
+          $info = Get-Content "release/goodhr-local-agent-v$version-windows-x64/build-info.json" -Raw | ConvertFrom-Json
+          if ($info.version -ne $version -or $info.environment -ne 'production' -or $info.public_base_url -ne 'https://goodhr.58it.cn') { throw '包内构建配置不一致' }
+          $files = @($setup, "release/goodhr-local-agent-v$version-windows-x64.zip") | ForEach-Object {
+            @{ name = (Split-Path $_ -Leaf); bytes = (Get-Item $_).Length; sha256 = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() }
+          }
+          @{ version = $version; source_commit = (git rev-parse HEAD); files = $files } | ConvertTo-Json -Depth 5 | Set-Content release/windows-package-receipt.json -Encoding UTF8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-agent-windows-${{ env.PACKAGE_VERSION }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            goodhr5/local-agent-go-new/release/GoodHR-Local-Agent-Setup-v*-windows-x64.exe
+            goodhr5/local-agent-go-new/release/goodhr-local-agent-v*-windows-x64.zip
+            goodhr5/local-agent-go-new/release/windows-package-receipt.json

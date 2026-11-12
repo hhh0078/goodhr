@@ -1,4 +1,4 @@
-// Package greeting 文件作用：验证关闭发送开关后只读取并关闭详情，任何招呼、索要和消息动作都不执行。
+// Package greeting 文件作用：验证发送开关及平台主动招呼索要限制，正常招呼与追加消息保留，自动回复不在此处修改。
 package greeting
 
 import (
@@ -14,6 +14,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/platform"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
@@ -23,6 +24,8 @@ type greetingSettingRuntime struct {
 	imageDetailRuntime
 	opens, conversations, requests, messages int
 	readErr, closeErr                        error
+	keepConversationOpen                     bool
+	infoRequest                              model.CandidateInfoRequest
 }
 
 // OpenCandidateDetail 记录正常详情打开。
@@ -44,7 +47,8 @@ func (r *greetingSettingRuntime) CloseCandidateDetail(context.Context, model.Bro
 }
 
 // GreetCandidate 记录招呼调用并验证发送前已经关闭详情。
-func (r *greetingSettingRuntime) GreetCandidate(context.Context, model.Browser, model.Config, model.Candidate, model.GreetRequest) error {
+func (r *greetingSettingRuntime) GreetCandidate(_ context.Context, _ model.Browser, _ model.Config, _ model.Candidate, request model.GreetRequest) error {
+	r.keepConversationOpen = request.KeepConversationOpen
 	r.greetings++
 	if r.closes != 1 {
 		return errors.New("打招呼前必须已经关闭详情")
@@ -59,7 +63,8 @@ func (r *greetingSettingRuntime) EnsureCandidateConversation(context.Context, mo
 }
 
 // RequestCandidateInfo 记录资料索要调用。
-func (r *greetingSettingRuntime) RequestCandidateInfo(context.Context, model.Browser, model.Config, model.Candidate, model.CandidateInfoRequest) error {
+func (r *greetingSettingRuntime) RequestCandidateInfo(_ context.Context, _ model.Browser, _ model.Config, _ model.Candidate, request model.CandidateInfoRequest) error {
+	r.infoRequest = request
 	r.requests++
 	return nil
 }
@@ -74,13 +79,25 @@ func (r *greetingSettingRuntime) SendCandidateMessage(context.Context, model.Bro
 func TestGreetingSettingControlsAllOutboundActions(t *testing.T) {
 	enabled, disabled := true, false
 	for _, test := range []struct {
-		name    string
-		setting *bool
-		send    int
+		name       string
+		setting    *bool
+		send       int
+		platformID string
+		skipInfo   bool
+		noMessage  bool
+		phoneOnly  bool
 	}{
 		{name: "default", send: 1},
 		{name: "enabled", setting: &enabled, send: 1},
 		{name: "disabled", setting: &disabled},
+		{name: "BOSS全部勾选且无追加消息", platformID: "boss", skipInfo: true, noMessage: true, send: 1},
+		{name: "BOSS保留追加消息", platformID: "boss", skipInfo: true, send: 1},
+		{name: "智联索要不变", platformID: "zhaopin", send: 1},
+		{name: "无忧仅保留微信简历", platformID: "51job", send: 1},
+		{name: "无忧仅勾电话不打开聊天", platformID: "51job", send: 1, phoneOnly: true, skipInfo: true, noMessage: true},
+		{name: "无忧忽略电话且保留追加消息", platformID: "51job", send: 1, phoneOnly: true, skipInfo: true},
+		{name: "猎聘企业索要不变", platformID: "liepin", send: 1},
+		{name: "猎聘猎头索要不变", platformID: "hliepin", send: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -103,6 +120,20 @@ func TestGreetingSettingControlsAllOutboundActions(t *testing.T) {
 					AIOptions:    cloud.PositionAIOptions{RequestScoreThreshold: 1},
 				},
 			}
+			if test.platformID != "" {
+				cfg, err := platform.LoadConfig(test.platformID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				prepared.Platform.Behavior.SkipGreetingInfoRequests = cfg.Behavior.SkipGreetingInfoRequests
+				prepared.Platform.Behavior.SkipGreetingPhoneRequest = cfg.Behavior.SkipGreetingPhoneRequest
+			}
+			if test.phoneOnly {
+				prepared.Position.RequestWechat, prepared.Position.RequestResume = false, false
+			}
+			if test.noMessage {
+				prepared.Position.GreetMessage = ""
+			}
 			if test.send == 0 {
 				prepared.Preferences.GreetBeforeDelayMin = 1
 				prepared.Preferences.GreetBeforeDelayMax = 1
@@ -118,7 +149,18 @@ func TestGreetingSettingControlsAllOutboundActions(t *testing.T) {
 			if runtime.opens != 1 || runtime.domReads != 1 || runtime.closes != 1 {
 				t.Fatalf("详情读取和关闭应照常执行：%+v", runtime)
 			}
-			if runtime.greetings != test.send || runtime.conversations != test.send || runtime.requests != test.send || runtime.messages != test.send {
+			wantRequests, wantMessages := test.send, test.send
+			if test.skipInfo {
+				wantRequests = 0
+			}
+			if test.noMessage {
+				wantMessages = 0
+			}
+			if runtime.requests > 0 && runtime.infoRequest.RequestPhone != !prepared.Platform.Behavior.SkipGreetingPhoneRequest {
+				t.Fatalf("电话勾选没有按平台能力过滤：%+v", runtime.infoRequest)
+			}
+			wantConversations := max(wantRequests, wantMessages)
+			if runtime.greetings != test.send || runtime.conversations != wantConversations || runtime.requests != wantRequests || runtime.messages != wantMessages || runtime.keepConversationOpen != (wantConversations > 0) {
 				t.Fatalf("发送开关未覆盖全部外发入口：招呼=%d 聊天=%d 索要=%d 消息=%d", runtime.greetings, runtime.conversations, runtime.requests, runtime.messages)
 			}
 			if stats.Processed != 1 || stats.Succeeded != test.send || stats.Skipped != 1-test.send || stats.Failed != 0 {

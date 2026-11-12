@@ -13,18 +13,22 @@ import (
 	"testing"
 )
 
-// TestMacAppRunsInBackground 验证 Mac 安装包声明为后台应用，避免无窗口的 Agent 在 Dock 持续跳动。
+// TestMacAppRunsInBackground 验证 Mac 使用原生菜单栏入口，既隐藏 Dock 图标又接收重复打开和退出事件。
 func TestMacAppRunsInBackground(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("仅在 macOS 上验证应用包配置")
 	}
 	plist := filepath.Join("..", "..", "packaging", "macos", "Info.plist")
-	output, err := exec.Command("plutil", "-extract", "LSBackgroundOnly", "raw", "-o", "-", plist).Output()
+	output, err := exec.Command("plutil", "-extract", "LSUIElement", "raw", "-o", "-", plist).Output()
 	if err != nil {
 		t.Fatalf("读取 Mac 应用后台配置失败：%v", err)
 	}
 	if strings.TrimSpace(string(output)) != "true" {
-		t.Fatalf("Mac 应用必须声明 LSBackgroundOnly=true，当前为 %q", strings.TrimSpace(string(output)))
+		t.Fatalf("Mac 应用必须声明 LSUIElement=true，当前为 %q", strings.TrimSpace(string(output)))
+	}
+	output, err = exec.Command("plutil", "-extract", "CFBundleExecutable", "raw", "-o", "-", plist).Output()
+	if err != nil || strings.TrimSpace(string(output)) != "goodhr-launcher" {
+		t.Fatalf("Mac 必须通过原生事件循环启动 Go 服务：%q，错误 %v", output, err)
 	}
 }
 

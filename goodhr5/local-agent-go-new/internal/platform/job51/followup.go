@@ -3,7 +3,6 @@ package job51
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -24,14 +23,23 @@ func (r *Runtime) EnsureCandidateConversation(ctx context.Context, browser model
 	if err != nil {
 		return err
 	}
-	closing := &closeMouseBrowser{Browser: browser, closeDescription: cfg.Selectors["candidate.chat_close"].Description}
-	err = common.EnsureCandidateConversationFromCard(ctx, closing, cfg, candidate)
-	return errors.Join(err, closing.moveErr)
+	// 上面已经关闭旧会话，直接从唯一卡片打开，避免公共复用流程再次检查、关闭同一个空聊天框。
+	found, err := common.CandidateActionExists(ctx, browser, cfg, candidate, "candidate.continue")
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("前程无忧当前卡片没有继续聊天入口，请检查页面后再试")
+	}
+	if err := common.CandidateAction(ctx, browser, cfg, candidate, "candidate.continue"); err != nil {
+		return err
+	}
+	return common.WaitCandidateConversation(ctx, browser, cfg, candidate)
 }
 
-// RequestCandidateInfo 在已确认身份的前程无忧聊天框内按岗位要求索要信息。
+// RequestCandidateInfo 只保留已确认聊天中的微信和邀投递；电话没有可用按钮，忽略勾选且不降级为文字。
 func (r *Runtime) RequestCandidateInfo(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.CandidateInfoRequest) error {
-	if !request.RequestPhone && !request.RequestWechat && !request.RequestResume {
+	if !request.RequestWechat && !request.RequestResume {
 		return nil
 	}
 	name, found, err := common.ReadOptional(ctx, browser, cfg, "candidate.chat_name")
@@ -40,15 +48,6 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, browser model.Browse
 	}
 	if !found || !common.CandidateNamesMatch(candidate.Name, name) {
 		return fmt.Errorf("前程无忧聊天对象还没确认，资料先不索要，请重新打开当前候选人聊天")
-	}
-	if request.RequestPhone {
-		message := strings.TrimSpace(cfg.Behavior.RequestPhoneMessage)
-		if message == "" {
-			return fmt.Errorf("前程无忧电话索要文案还没配置，这次先不发送，也不会点击付费取号")
-		}
-		if err = common.SendCandidateMessage(ctx, browser, cfg, candidate, message); err != nil {
-			return err
-		}
 	}
 	if request.RequestWechat {
 		if err = common.RequestCandidateInfo(ctx, browser, cfg, model.CandidateInfoRequest{RequestWechat: true}); err != nil {

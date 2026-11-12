@@ -119,7 +119,7 @@ def legacy_entries(approval, snapshot, evidence_hash=digest_file, evidence_reade
         key, name, image_id, role = row["id"], row["name"], row["image"], row["role"]
         require(isinstance(key, str) and CONTAINER_ID.fullmatch(key) and key not in ids and isinstance(image_id, str) and IMAGE_ID.fullmatch(image_id) and role in ROLES, "历史批准三元身份异常或重复")
         ids.add(key)
-        require(isinstance(name, str) and re.fullmatch(r"/goodhr-production-" + role + r"(?:-1)?-(?:backup|before|failed)-[A-Za-z0-9_.-]+", name), "历史批准对象不是已调查的GoodHR应用备份名称")
+        require(isinstance(name, str) and re.fullmatch(r"/goodhr-production-" + role + r"(?:-1)?-(?:backup|before|failed|candidate)-[A-Za-z0-9_.-]+", name), "历史批准对象不是已调查的GoodHR应用备份或候选名称")
         require(key in actual and key in recorded and image_id in snapshot["images"] and image_id in source["images"], "历史批准对象不存在于来源或实际快照")
         container, original = actual[key], recorded[key]
         for value in (container, original):

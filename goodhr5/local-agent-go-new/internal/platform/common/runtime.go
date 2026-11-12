@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	panelCloseCheckAttempts = 20
-	panelCloseCheckInterval = 180 * time.Millisecond
+	panelCloseCheckAttempts  = 20
+	panelEscapeCheckAttempts = 4
+	panelCloseCheckInterval  = 180 * time.Millisecond
 )
 
 // OpenPage 打开平台配置中的页面地址。
@@ -159,8 +160,12 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 	if err != nil {
 		return nil, err
 	}
+	maxItems := positiveOr(cfg.MaxItems, 100)
+	if cfg.CandidateBatchSize > 0 {
+		maxItems = min(maxItems, cfg.CandidateBatchSize)
+	}
 	request := contract.ElementFindAllRequest{
-		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100),
+		Selector: selector, MaxItems: maxItems,
 		ReadConcurrency: candidateReadConcurrency(options.ReadConcurrency), Fields: cfg.CandidateFields,
 	}
 	if options.Cursor != nil {
@@ -211,8 +216,9 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 		}
 	}
 	result := make([]model.Candidate, 0, len(items))
+	identityByIndex := options.Cursor != nil && options.Cursor.IdentityByIndex
 	identityOccurrences := make(map[string]int)
-	if options.Cursor != nil {
+	if options.Cursor != nil && !identityByIndex {
 		for identity, count := range options.Cursor.IdentityOccurrences {
 			identityOccurrences[identity] = count
 		}
@@ -221,11 +227,14 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 		name := strings.TrimSpace(item.Fields["name"])
 		fingerprint := CandidateFingerprint(platformID, name, item.Fields, item.Text)
 		identityTexts := CandidateIdentityTexts(name, item.Fields, item.Text)
-		identityKey := strings.Join(identityTexts, "\x00")
-		identityOccurrence := identityOccurrences[identityKey]
-		identityOccurrences[identityKey] = identityOccurrence + 1
+		identityOccurrence := 0
+		if !identityByIndex {
+			identityKey := strings.Join(identityTexts, "\x00")
+			identityOccurrence = identityOccurrences[identityKey]
+			identityOccurrences[identityKey] = identityOccurrence + 1
+		}
 		result = append(result, model.Candidate{
-			Index: item.Index, Fingerprint: fingerprint, Name: name,
+			Index: item.Index, Fingerprint: fingerprint, Name: name, IdentityByIndex: identityByIndex,
 			Summary: item.Text, Fields: item.Fields,
 			IdentityTexts: identityTexts, IdentityOccurrence: identityOccurrence,
 		})
@@ -338,13 +347,18 @@ func CloseOptionalPanel(ctx context.Context, browser model.Browser, cfg model.Co
 	var clickErr error
 	for attempt := 1; attempt <= 2; attempt++ {
 		_, clickErr = browser.Click(ctx, contract.ElementClickRequest{Selector: closeSelector})
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		checks := panelCloseCheckAttempts
 		if clickErr != nil {
-			if contract.IsSessionUnavailable(clickErr) {
+			if contract.IsSessionUnavailable(clickErr) || errors.Is(clickErr, context.Canceled) || errors.Is(clickErr, context.DeadlineExceeded) {
 				return clickErr
 			}
-			continue
+			checks = panelEscapeCheckAttempts
 		}
-		hidden, waitErr := waitSelectorHidden(ctx, browser, cfg, panelKey)
+		// 点击回执异常不代表弹层还在；先确认真实状态，再决定是否允许补点。
+		hidden, waitErr := waitSelectorHidden(ctx, browser, cfg, panelKey, checks)
 		if waitErr != nil {
 			return waitErr
 		}
@@ -355,7 +369,7 @@ func CloseOptionalPanel(ctx context.Context, browser model.Browser, cfg model.Co
 	if _, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
 		return fmt.Errorf("%s没关好，点击关闭失败：%w；按 Escape 也失败：%w", label, clickErr, err)
 	}
-	hidden, err := waitSelectorHidden(ctx, browser, cfg, panelKey)
+	hidden, err := waitSelectorHidden(ctx, browser, cfg, panelKey, panelCloseCheckAttempts)
 	if err != nil {
 		return err
 	}
@@ -368,17 +382,24 @@ func CloseOptionalPanel(ctx context.Context, browser model.Browser, cfg model.Co
 	return nil
 }
 
-// waitSelectorHidden 短暂轮询确认弹层已经隐藏，避免把关闭动画误判成关闭失败。
-func waitSelectorHidden(ctx context.Context, browser model.Browser, cfg model.Config, key string) (bool, error) {
-	for attempt := 1; attempt <= panelCloseCheckAttempts; attempt++ {
+// waitSelectorHidden 按次数轮询确认弹层隐藏，复查上限不截断单次浏览器请求；任务自身的取消和时限仍然有效。
+// maxAttempts 为最多复查次数，所有系统共用同一套纯状态读取。
+func waitSelectorHidden(ctx context.Context, browser model.Browser, cfg model.Config, key string, maxAttempts int) (bool, error) {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
 		opened, err := ProbeSelectorExists(ctx, browser, cfg, key)
 		if err != nil {
+			return false, err
+		}
+		if err := ctx.Err(); err != nil {
 			return false, err
 		}
 		if !opened {
 			return true, nil
 		}
-		if attempt == panelCloseCheckAttempts {
+		if attempt == maxAttempts {
 			break
 		}
 		timer := time.NewTimer(panelCloseCheckInterval)
@@ -549,6 +570,23 @@ func CandidateSelector(cfg model.Config, candidate model.Candidate) (contract.Se
 			return variant
 		})
 		return selector, nil
+	}
+	if candidate.IdentityByIndex {
+		check := cfg.Selectors["candidate.identity_check"]
+		if len(check.Target.Selectors) == 0 {
+			return contract.SelectorSpec{}, fmt.Errorf("平台 %s 缺少当前卡片身份核对配置", cfg.ID)
+		}
+		index := max(candidate.Index, 0)
+		return selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
+			card := variant.Target
+			card.Index = &index
+			variant.Parents = append(append([]contract.SelectorGroup(nil), variant.Parents...), card)
+			variant.Target = check.Target
+			variant.Target.Index = nil
+			variant.Target.Texts = append(append([]string(nil), check.Target.Texts...), identityTexts...)
+			variant.Description = firstNonEmpty(candidate.Name, variant.Description)
+			return variant
+		}), nil
 	}
 	occurrence := max(candidate.IdentityOccurrence, 0)
 	selector = selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {

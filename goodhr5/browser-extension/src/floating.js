@@ -2,8 +2,8 @@
 (function (root) {
   "use strict";
   const extension = root.browser || root.chrome;
-  let host = null, panel = null, frame = null, currentIdentity = "", currentPhone = "";
-  let moved = false;
+  let host = null, panel = null, frame = null, launcher = null, currentIdentity = "", currentPhone = "";
+  let moved = false, loggedIn = false, suppressClick = false, manuallyClosed = false;
 
   /** makeElement 在插件自己的 Shadow DOM 内创建静态 UI，不插入不可信 HTML。 */
   function makeElement(tag, className, text = "") { const node = document.createElement(tag); node.className = className; node.textContent = text; return node; }
@@ -16,15 +16,16 @@
     host.style.setProperty("--goodhr-floating-right", "auto"); host.style.setProperty("--goodhr-floating-bottom", "auto");
   }
 
-  /** bindDragging 仅在插件标题栏拖动自己的容器，不滚动、点击或改写招聘页面。 */
+  /** bindDragging 仅拖动插件标题栏或 logo，超过四像素才算拖动，避免松手误展开。 */
   function bindDragging(grip) {
     let dragging = null;
     grip.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0 || event.target.closest("button")) return;
-      const rect = host.getBoundingClientRect(); dragging = { id: event.pointerId, x: event.clientX - rect.left, y: event.clientY - rect.top };
+      if (event.button !== 0 || (event.target.closest("button") && grip !== launcher)) return;
+      suppressClick = false;
+      const rect = host.getBoundingClientRect(); dragging = { id: event.pointerId, x: event.clientX - rect.left, y: event.clientY - rect.top, startX: event.clientX, startY: event.clientY };
       grip.setPointerCapture(event.pointerId); event.preventDefault(); event.stopPropagation();
     });
-    grip.addEventListener("pointermove", (event) => { if (!dragging || dragging.id !== event.pointerId) return; moved = true; moveWithinWindow(event.clientX - dragging.x, event.clientY - dragging.y); event.stopPropagation(); });
+    grip.addEventListener("pointermove", (event) => { if (!dragging || dragging.id !== event.pointerId || (!suppressClick && Math.hypot(event.clientX - dragging.startX, event.clientY - dragging.startY) < 4)) return; moved = true; suppressClick = true; moveWithinWindow(event.clientX - dragging.x, event.clientY - dragging.y); event.stopPropagation(); });
     /** stopDrag 结束当前插件拖拽并释放自身指针，不改变页面焦点。 */
     function stopDrag(event) { if (!dragging || dragging.id !== event.pointerId) return; dragging = null; if (grip.hasPointerCapture(event.pointerId)) grip.releasePointerCapture(event.pointerId); event.stopPropagation(); }
     grip.addEventListener("pointerup", stopDrag); grip.addEventListener("pointercancel", stopDrag);
@@ -32,14 +33,19 @@
 
   /** setOpen 仅展开或收起插件面板；收起时保留 iframe 输入，避免备注草稿丢失。 */
   function setOpen(value) {
-    panel.hidden = !value; host.hidden = !value;
+    panel.hidden = !value; launcher.hidden = value; host.hidden = !currentIdentity;
+    launcher.setAttribute("aria-expanded", String(value));
     if (!value) extension.runtime.sendMessage?.({ type: "FLOATING_CLOSED" })?.catch?.(() => {});
+    const source = loggedIn ? "src/floating.html" : "src/ui.html";
+    panel.classList.toggle("login", !loggedIn);
+    if (frame && frame.getAttribute("src") !== extension.runtime.getURL(source)) { frame.remove(); frame = null; }
     if (value && !frame) {
       frame = makeElement("iframe", "frame"); frame.title = "GoodHR 简历助手"; frame.referrerPolicy = "no-referrer";
-      frame.src = extension.runtime.getURL("src/floating.html"); panel.appendChild(frame);
+      frame.src = extension.runtime.getURL(source); panel.appendChild(frame);
       // 不监听网页 postMessage；招聘页面无法指挥扩展登录、查重或保存。
     }
-    if (value && moved) { const rect = host.getBoundingClientRect(); moveWithinWindow(rect.left, rect.top); }
+    // 隐藏容器的矩形为零，不能据此覆盖用户拖动后的位置。
+    if (moved && !host.hidden) { const rect = host.getBoundingClientRect(); moveWithinWindow(rect.left, rect.top); }
   }
 
   /** mount 创建唯一、正常命名的隔离入口；不使用随机标识或检测规避伪装。 */
@@ -53,12 +59,16 @@
       .grip{cursor:grab;touch-action:none;user-select:none}
       button{font:inherit;border:1px solid #0b8968;border-radius:7px;background:#0b8968;color:#fff;padding:7px 12px;cursor:pointer;white-space:nowrap}button:hover{background:#087253}button:focus-visible{outline:2px solid #0b8968;outline-offset:2px}
       .panel{width:248px;max-width:calc(100vw - 26px)}.bar{display:flex;justify-content:space-between;align-items:center;height:26px;padding:0 8px;font-size:12px;color:#6b8b7e;background:#f4fbf7}.handle{font-size:16px;letter-spacing:2px}.close{background:transparent;color:#477a68;border-color:transparent;padding:0 6px;font-size:18px;line-height:22px}
+      .panel.login{width:340px}.launcher{display:flex;align-items:center;justify-content:center;width:48px;height:48px;padding:8px;border:0;border-radius:11px;background:#fff}.launcher:hover{background:#f4fbf7}.launcher img{width:32px;height:32px;pointer-events:none}
       .frame{display:block;border:0;background:#fff;width:100%;height:min(460px,calc(100vh - 64px))}[hidden]{display:none!important}`;
     const shell = makeElement("div", "shell");
+    launcher = makeElement("button", "launcher grip"); launcher.type = "button"; launcher.setAttribute("aria-label", "打开 GoodHR 简历助手"); launcher.title = "GoodHR 简历助手（可拖动）";
+    const logo = makeElement("img", ""); logo.src = extension.runtime.getURL("icons/32.png"); logo.alt = ""; launcher.appendChild(logo); bindDragging(launcher);
+    launcher.addEventListener("click", () => { if (suppressClick) { suppressClick = false; return; } manuallyClosed = false; setOpen(true); });
     panel = makeElement("section", "panel"); panel.hidden = true;
     const bar = makeElement("div", "bar grip"), label = makeElement("span", "handle", "⋮⋮"), close = makeElement("button", "close", "×"); close.type = "button"; close.setAttribute("aria-label", "收起 GoodHR 简历助手"); label.setAttribute("aria-hidden", "true"); bar.setAttribute("aria-label", "拖动 GoodHR 简历助手"); bindDragging(bar);
-    close.addEventListener("click", () => setOpen(false)); bar.append(label, close); panel.appendChild(bar);
-    shell.append(panel); shadow.append(style, shell); document.documentElement.appendChild(host);
+    close.addEventListener("click", () => { manuallyClosed = true; setOpen(false); }); bar.append(label, close); panel.appendChild(bar);
+    shell.append(launcher, panel); shadow.append(style, shell); document.documentElement.appendChild(host);
     shadow.addEventListener("click", (event) => event.stopPropagation());
     root.addEventListener("resize", () => { if (moved && host && !host.hidden) { const rect = host.getBoundingClientRect(); moveWithinWindow(rect.left, rect.top); } });
   }
@@ -68,20 +78,24 @@
     return root.GoodHRShared?.resumeIdentity(resume) || JSON.stringify([resume.platform_id || "", resume.platform_candidate_id || "", resume.source_url || "", resume.candidate_name, resume.birth_ym || "", resume.educations?.[0]?.school_name || ""]);
   }
 
-  /** update 自动显示新候选人的简历面板，同一人主动收起后保持收起，资料消失只隐藏自己的容器。 */
-  function update(resume) {
-    if (!resume?.candidate_name && !resume?.attachment) { if (host && !host.hidden) setOpen(false); currentIdentity = ""; currentPhone = ""; return; }
+  /** update 保持原候选人范围；未登录或未读到完整手机号仅显示 logo，登录且读到号码才自动展开。 */
+  function update(resume, authenticated = false) {
+    if (!resume?.candidate_name && !resume?.attachment) { currentIdentity = ""; currentPhone = ""; manuallyClosed = false; if (host && !host.hidden) setOpen(false); return; }
     const identity = identityOf(resume), phone = root.GoodHRShared ? root.GoodHRShared.normalizePhone(resume.phone) : resume.phone || "";
     const changed = identity !== currentIdentity || Boolean(phone && currentPhone && phone !== currentPhone);
+    const sessionChanged = loggedIn !== Boolean(authenticated), phoneAppeared = Boolean(phone && !currentPhone), phoneDisappeared = Boolean(currentPhone && !phone);
+    loggedIn = Boolean(authenticated);
     mount(); host.setAttribute("aria-label", `${resume.candidate_name || "BOSS 附件"} 的 GoodHR 简历助手`);
-    currentIdentity = identity; currentPhone = changed ? phone : phone || currentPhone;
-    if (changed) setOpen(true);
+    currentIdentity = identity; currentPhone = phone;
+    if (changed) manuallyClosed = false;
+    if (changed || sessionChanged || phoneDisappeared || (phoneAppeared && !manuallyClosed)) setOpen(loggedIn && Boolean(phone) && !manuallyClosed);
+    else if (host.hidden) host.hidden = false;
   }
 
   /** close 仅在身份仍对应当前候选人时收起插件卡片，避免迟到的保存结果关闭下一人的卡片。 */
   function close(identity = "") {
     if (!host || !panel || (identity && identity !== currentIdentity)) return false;
-    setOpen(false); return true;
+    manuallyClosed = true; setOpen(false); return true;
   }
 
   /** open 仅恢复仍对应原候选人的已存在卡片，提交失败的迟到通知不能展开下一位候选人。 */

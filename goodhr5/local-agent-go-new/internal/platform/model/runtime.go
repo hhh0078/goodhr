@@ -29,6 +29,8 @@ var (
 
 // Browser 定义平台适配层可以调用的 Worker 封装能力。
 type Browser interface {
+	// Find 只读查找单个元素及其真实视口位置，不滚动或点击。
+	Find(context.Context, contract.ElementFindRequest) (contract.FindResult, error)
 	OpenPage(context.Context, contract.PageOpenRequest) (contract.PageInfo, error)
 	ListPages(context.Context) (contract.PageListResult, error)
 	UsePage(context.Context, contract.PageUseRequest) (contract.PageInfo, error)
@@ -43,25 +45,27 @@ type Browser interface {
 
 // Config 保存随本地程序发布的平台 URL、选择器和行为参数。
 type Config struct {
-	ID                  string                           `json:"id"`
-	Name                string                           `json:"name"`
-	LoginURL            string                           `json:"login_url"`
-	EntryURL            string                           `json:"entry_url"`
-	ManualSearchURL     string                           `json:"manual_search_url"`
-	MessagesURL         string                           `json:"messages_url"`
-	LoginURLs           []string                         `json:"-"` // 仅数组格式启用多页面复用，旧字符串和对象继续使用单地址。
-	EntryURLs           []string                         `json:"-"`
-	MessagesURLs        []string                         `json:"-"`
-	Selectors           map[string]contract.SelectorSpec `json:"selectors"`
-	CandidateFields     map[string]contract.SelectorSpec `json:"candidate_fields"`
-	ConversationFields  map[string]contract.SelectorSpec `json:"conversation_fields"`
-	LoginInitActions    []ConfiguredAction               `json:"login_init_actions"`
-	GreetingInitActions []ConfiguredAction               `json:"greeting_init_actions"`
-	MessageInitActions  []ConfiguredAction               `json:"message_init_actions"`
-	FilterActions       []ConfiguredAction               `json:"filter_actions"`
-	Behavior            Behavior                         `json:"behavior"`
-	ScrollDistance      int                              `json:"scroll_distance"`
-	MaxItems            int                              `json:"max_items"`
+	ID                    string                           `json:"id"`
+	Name                  string                           `json:"name"`
+	LoginURL              string                           `json:"login_url"`
+	EntryURL              string                           `json:"entry_url"`
+	ManualSearchURL       string                           `json:"manual_search_url"`
+	MessagesURL           string                           `json:"messages_url"`
+	LoginURLs             []string                         `json:"-"` // 仅数组格式启用多页面复用，旧字符串和对象继续使用单地址。
+	EntryURLs             []string                         `json:"-"`
+	MessagesURLs          []string                         `json:"-"`
+	Selectors             map[string]contract.SelectorSpec `json:"selectors"`
+	CandidateFields       map[string]contract.SelectorSpec `json:"candidate_fields"`
+	ConversationFields    map[string]contract.SelectorSpec `json:"conversation_fields"`
+	LoginInitActions      []ConfiguredAction               `json:"login_init_actions"`
+	GreetingInitActions   []ConfiguredAction               `json:"greeting_init_actions"`
+	MessageInitActions    []ConfiguredAction               `json:"message_init_actions"`
+	FilterActions         []ConfiguredAction               `json:"filter_actions"`
+	Behavior              Behavior                         `json:"behavior"`
+	ScrollDistance        int                              `json:"scroll_distance"`
+	MaxItems              int                              `json:"max_items"`
+	CandidateBatchSize    int                              `json:"candidate_batch_size,omitempty"`    // 仅限制候选人整批读取，不改变会话或联系人数量；零沿用MaxItems。
+	CandidateResumeFields []string                         `json:"candidate_resume_fields,omitempty"` // 平台选择已有的稳定身份字段，排除活跃标记等动态内容。
 }
 
 // ConfiguredAction 表示平台配置驱动的一步点击或输入动作。
@@ -75,32 +79,38 @@ type ConfiguredAction struct {
 
 // Behavior 表示平台翻页、详情和岗位选择行为。
 type Behavior struct {
-	AutoReplyAllContactInbox    bool   `json:"auto_reply_all_contact_inbox"`    // 扫描全部联系人，主流程按本机水位发现待核实的消息。
-	AutoReplyNativeInfoRequests bool   `json:"auto_reply_native_info_requests"` // 资料索要使用平台原生能力，未满足平台条件时明确暂缓且不降级成文字。
-	SupportsPostDeletionHistory bool   `json:"supports_post_deletion_history"`  // 可按稳定会话核身并且只读取删除后的消息。
-	AutoReplyResumeLoadsHistory bool   `json:"auto_reply_resume_loads_history"` // 平台采集简历时自行加载并核验来源，公共流程无需先读历史再回到底部。
-	AutoReplyAvatarContainerKey string `json:"auto_reply_avatar_container_key"` // 聊天历史内的头像使用已有滚动容器限定截图；页头头像无需配置。
-	CandidateTopInset           int    `json:"candidate_top_inset"`             // 卡片操作需避让的固定页头高度，单位CSS像素；零表示无需平台额外避让。
-	CandidateBottomInset        int    `json:"candidate_bottom_inset"`          // 实际操作按钮需避让的底部浮层高度，单位CSS像素；零保持旧平台行为。
-	RequestPhoneMessage         string `json:"request_phone_message"`           // 不使用付费取号入口时，在已确认身份的聊天框发送的礼貌索要电话文案。
-	RequestResumeMessage        string `json:"request_resume_message"`          // 平台邀请投递尚未验证时，在当前聊天框索要附件简历的文案。
-	SupportsPaging              bool   `json:"supports_paging"`
-	CandidateListMode           string `json:"candidate_list_mode"`
-	AttachmentMode              string `json:"attachment_mode"`
-	AttachmentAllowedScheme     string `json:"attachment_allowed_scheme"`
-	AttachmentAllowedHost       string `json:"attachment_allowed_host"`
-	AttachmentAllowedPath       string `json:"attachment_allowed_path"`
-	AttachmentPreviewPath       string `json:"attachment_preview_path"` // 从当前可见预览文件地址验证的路径前缀，未知形态不得推测下载地址。
-	SkipPositionSelection       bool   `json:"skip_position_selection"`
-	DirectPositionSelection     bool   `json:"direct_position_selection"`
-	SelectFirstPositionResult   bool   `json:"select_first_position_result"`
-	NeedsDetail                 bool   `json:"needs_detail"`
-	StitchDetailScreenshots     bool   `json:"stitch_detail_screenshots"`
-	DetailCloseEscapeFirst      bool   `json:"detail_close_escape_first"`       // 先按 Escape 并确认详情消失，未关闭时才点击备用关闭按钮。
-	AutoReplySendEnterFirst     bool   `json:"auto_reply_send_enter_first"`     // 自动回复优先用焦点已核验的回车发送。
-	AutoReplySingleLineMessages bool   `json:"auto_reply_single_line_messages"` // 出站正文先把CRLF/LF换成普通空格，避免单行平台发送时直接连词。
-	MessageSendEnterFallback    bool   `json:"message_send_enter_fallback"`     // 发送按钮明确尚未点击时，允许聚焦输入框后按回车兜底。
-	MessageSendVerifyEmpty      bool   `json:"message_send_verify_empty"`       // 发送后确认输入框清空，避免把按键成功当成消息发送成功。
+	CandidateViewportTopInset    int    `json:"candidate_viewport_top_inset"`    // 推荐页完整卡片起点的固定顶部遮挡，不与后续操作避让混用。
+	CandidateViewportBottomInset int    `json:"candidate_viewport_bottom_inset"` // 推荐页完整卡片起点的固定底部遮挡，默认不额外扣减。
+	CandidateSearchFromViewport  bool   `json:"candidate_search_from_viewport"`  // 显式启用的搜索页也从当前完整卡片开始，后续翻页仍正常进行。
+	CandidateStartFromViewport   bool   `json:"candidate_start_from_viewport"`   // 推荐页从当前首张完整卡片起跑，搜索页由独立配置决定。
+	CandidateResumeByIdentity    bool   `json:"candidate_resume_by_identity"`    // 推荐列表按唯一身份寻找断点，允许真实滚轮分批加载；零值保留严格前缀核对。
+	SkipGreetingPhoneRequest     bool   `json:"skip_greeting_phone_request"`     // 主动打招呼忽略电话索要勾选；零值保留其他平台行为。
+	SkipGreetingInfoRequests     bool   `json:"skip_greeting_info_requests"`     // 仅主动打招呼跳过电话、微信和简历索要；零值保留原行为，不影响自动回复。
+	AutoReplyAllContactInbox     bool   `json:"auto_reply_all_contact_inbox"`    // 扫描全部联系人，主流程按本机水位发现待核实的消息。
+	AutoReplyNativeInfoRequests  bool   `json:"auto_reply_native_info_requests"` // 资料索要使用平台原生能力，未满足平台条件时明确暂缓且不降级成文字。
+	SupportsPostDeletionHistory  bool   `json:"supports_post_deletion_history"`  // 可按稳定会话核身并且只读取删除后的消息。
+	AutoReplyResumeLoadsHistory  bool   `json:"auto_reply_resume_loads_history"` // 平台采集简历时自行加载并核验来源，公共流程无需先读历史再回到底部。
+	AutoReplyAvatarContainerKey  string `json:"auto_reply_avatar_container_key"` // 聊天历史内的头像使用已有滚动容器限定截图；页头头像无需配置。
+	CandidateTopInset            int    `json:"candidate_top_inset"`             // 卡片操作需避让的固定页头高度，单位CSS像素；零表示无需平台额外避让。
+	CandidateBottomInset         int    `json:"candidate_bottom_inset"`          // 实际操作按钮需避让的底部浮层高度，单位CSS像素；零保持旧平台行为。
+	RequestResumeMessage         string `json:"request_resume_message"`          // 平台邀请投递尚未验证时，在当前聊天框索要附件简历的文案。
+	SupportsPaging               bool   `json:"supports_paging"`
+	CandidateListMode            string `json:"candidate_list_mode"`
+	AttachmentMode               string `json:"attachment_mode"`
+	AttachmentAllowedScheme      string `json:"attachment_allowed_scheme"`
+	AttachmentAllowedHost        string `json:"attachment_allowed_host"`
+	AttachmentAllowedPath        string `json:"attachment_allowed_path"`
+	AttachmentPreviewPath        string `json:"attachment_preview_path"` // 从当前可见预览文件地址验证的路径前缀，未知形态不得推测下载地址。
+	SkipPositionSelection        bool   `json:"skip_position_selection"`
+	DirectPositionSelection      bool   `json:"direct_position_selection"`
+	SelectFirstPositionResult    bool   `json:"select_first_position_result"`
+	NeedsDetail                  bool   `json:"needs_detail"`
+	StitchDetailScreenshots      bool   `json:"stitch_detail_screenshots"`
+	DetailCloseEscapeFirst       bool   `json:"detail_close_escape_first"`       // 先按 Escape 并确认详情消失，未关闭时才点击备用关闭按钮。
+	AutoReplySendEnterFirst      bool   `json:"auto_reply_send_enter_first"`     // 自动回复优先用焦点已核验的回车发送。
+	AutoReplySingleLineMessages  bool   `json:"auto_reply_single_line_messages"` // 出站正文先把CRLF/LF换成普通空格，避免单行平台发送时直接连词。
+	MessageSendEnterFallback     bool   `json:"message_send_enter_fallback"`     // 发送按钮明确尚未点击时，允许聚焦输入框后按回车兜底。
+	MessageSendVerifyEmpty       bool   `json:"message_send_verify_empty"`       // 发送后确认输入框清空，避免把按键成功当成消息发送成功。
 
 	AutoReplyOnlineProfileFragment          string `json:"auto_reply_online_profile_fragment"`           // 在线弹层允许的唯一URL片段；仅同源同路径同查询的空片段和此值可切换，空值保持原URL严格校验。
 	AutoReplyOnlineProfileHidesConversation bool   `json:"auto_reply_online_profile_hides_conversation"` // 已实证的DOM在线弹层会隐藏原聊天；仅本次从原生核身入口打开后允许临时缺少聊天，关闭后仍须重新核身。
@@ -120,6 +130,7 @@ type Position struct {
 
 // Candidate 表示从招聘平台页面读取的候选人摘要。
 type Candidate struct {
+	IdentityByIndex    bool              `json:"-"` // 当前视口起跑的人选按真实行号加行内身份核对，避免遍历同名者。
 	Index              int               `json:"index"`
 	Fingerprint        string            `json:"fingerprint"`
 	Name               string            `json:"name"`
@@ -138,6 +149,7 @@ type CandidateListOptions struct {
 
 // CandidateListCursor 保存当前任务滚动列表的读取位置，避免追加内容超过单批上限后重复读取开头。
 type CandidateListCursor struct {
+	IdentityByIndex     bool // 真实列表行内核对身份，不统计屏幕上方的同名者。
 	StartIndex          int
 	IdentityOccurrences map[string]int // 已读窗口中同名同龄候选人的数量，用于后续窗口稳定定位。
 }

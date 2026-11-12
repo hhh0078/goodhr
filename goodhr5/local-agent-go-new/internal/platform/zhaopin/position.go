@@ -10,7 +10,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// SelectPosition 沿用智联手动搜索结果，推荐页仍在职位选择弹层选择任务岗位。
+// SelectPosition 沿用手动搜索结果；推荐页完整岗位名一致时保留当前位置，否则沿原弹层切换岗位。
 func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config, position model.Position) error {
 	manualSearch, err := common.CurrentPageUsesManualSearch(ctx, browser, cfg)
 	if err != nil {
@@ -18,6 +18,13 @@ func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg
 	}
 	r.positionName = strings.TrimSpace(position.Name)
 	if manualSearch {
+		return nil
+	}
+	current, found, err := common.ReadOptional(ctx, browser, cfg, "position.current")
+	if err != nil {
+		return err
+	}
+	if found && r.positionName != "" && strings.EqualFold(strings.Join(strings.Fields(current), ""), strings.Join(strings.Fields(r.positionName), "")) {
 		return nil
 	}
 	before, err := common.FindCandidates(ctx, browser, cfg, cfg.ID, model.CandidateListOptions{})

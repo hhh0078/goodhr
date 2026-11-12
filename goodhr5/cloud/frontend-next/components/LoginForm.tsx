@@ -19,6 +19,7 @@ import {
   TOKEN_KEY,
 } from "@/lib/api";
 import { captureLocalAgentPortFromURL } from "@/lib/admin-api";
+import WechatLogin from "@/components/WechatLogin";
 import PasswordSetupDialog from "@/components/PasswordSetupDialog";
 
 const AGREEMENT_MARKDOWN = `## GoodHR 使用协议与隐私说明
@@ -93,7 +94,7 @@ export default function LoginForm() {
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
-  const [loginMode, setLoginMode] = useState<"code" | "password">("code");
+  const [loginMode, setLoginMode] = useState<"wechat" | "code" | "password">("wechat");
   const [isNewAccount, setIsNewAccount] = useState<boolean | null>(null);
   const [passwordSetupRequired, setPasswordSetupRequired] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -126,11 +127,7 @@ export default function LoginForm() {
     const cachedEmail = (localStorage.getItem(SESSION_EMAIL_KEY) || "")
       .trim()
       .toLowerCase();
-    if (cachedEmail) setEmail(cachedEmail);
-    const cachedMode = localStorage.getItem(LOGIN_MODE_CACHE_KEY);
-    if (cachedMode === "code" || cachedMode === "password") {
-      setLoginMode(cachedMode);
-    }
+    if (cachedEmail && !cachedEmail.endsWith("@wechat.goodhr.invalid")) setEmail(cachedEmail);
     setLoginPreferencesLoaded(true);
     const token = localStorage.getItem(TOKEN_KEY) || "";
     if (token) window.location.replace(resolveNextPath());
@@ -296,7 +293,7 @@ export default function LoginForm() {
     const token = String(data.access_token || "");
     if (!token) throw new Error("登录成功但未返回登录凭证");
     localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(SESSION_EMAIL_KEY, normalizedEmail);
+    localStorage.setItem(SESSION_EMAIL_KEY, String(data.user?.email || normalizedEmail));
     localStorage.removeItem(INVITE_CACHE_KEY);
     trackConversion(loginMode === "code" && isNewAccount ? "register_success" : "login_success", { flow: authFlow, method: loginMode });
     markPendingAdminArrival(authFlow);
@@ -407,14 +404,15 @@ export default function LoginForm() {
         onFinish={() => void login()}
         className="public-login-form"
       >
-        <div className="public-login-tabs">
+        <div className="public-login-tabs" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+          <Button block type={loginMode === "wechat" ? "primary" : "default"} onClick={() => setLoginMode("wechat")} disabled={loading}>微信扫码</Button>
           <Button
             block
             type={loginMode === "code" ? "primary" : "default"}
             onClick={() => setLoginMode("code")}
             disabled={loading}
           >
-            验证码注册/登录
+            邮箱验证码
           </Button>
           <Button
             block
@@ -422,9 +420,10 @@ export default function LoginForm() {
             onClick={() => setLoginMode("password")}
             disabled={loading}
           >
-            密码登录
+            邮箱密码
           </Button>
         </div>
+        {loginMode === "wechat" ? <WechatLogin agreementAccepted={agreementChecked} onAgreement={() => setAgreementOpen(true)} onSuccess={finishLogin} /> : <>
         <Form.Item label="邮箱" htmlFor="login-email">
           <Input
             id="login-email"
@@ -568,6 +567,7 @@ export default function LoginForm() {
                 ? "注册并进入控制台"
                 : "登录并进入控制台"}
         </Button>
+        </>}
       </Form>
       <Typography.Paragraph
         className="public-login-note"
@@ -578,7 +578,7 @@ export default function LoginForm() {
           color: "var(--goodhr-text-secondary, #637069)",
         }}
       >
-        新邮箱注册需要验证码和密码。老账号没有密码也别慌，先用验证码登录，我会带你补上。
+        {loginMode === "wechat" ? "登录即将使用当前微信对应的 GoodHR 账号。请只发送自己页面上的验证码。" : "新邮箱注册需要验证码和密码。老账号没有密码也别慌，先用验证码登录，我会带你补上。"}
       </Typography.Paragraph>
       <Modal
         open={agreementOpen}

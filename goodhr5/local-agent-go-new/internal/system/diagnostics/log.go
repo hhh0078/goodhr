@@ -285,11 +285,15 @@ func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
 			}
 			output := map[string]any{}
 			stderrKind := ""
+			action := "worker.stderr"
+			diagnostic := false
 			if isBrowserInternalStaleObject(message) {
 				stderrKind = "browser_internal_stale_object"
 			} else if family := browserStartupOutputFamily(message); family != "" {
 				stderrKind = "browser_internal_startup_output"
 				output["startup_family"] = family
+			} else if isBrowserScriptOutput(message) {
+				stderrKind, action, diagnostic = "browser_script_output", "browser.script", true
 			}
 			if stderrKind != "" {
 				status, level, isError = "warning", "warn", false
@@ -302,7 +306,7 @@ func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
 			}
 			data, _ = json.Marshal(map[string]any{
 				"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": "worker",
-				"action": "worker.stderr", "step": "process_output", "status": status, "level": level,
+				"action": action, "diagnostic": diagnostic, "step": "process_output", "status": status, "level": level,
 				"is_error": isError, "error_message": errorMessage, "message": message,
 				"input": map[string]any{}, "output": output,
 			})
@@ -315,6 +319,20 @@ func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
 			next(bytes.TrimSpace(safe))
 		}
 	}
+}
+
+// isBrowserScriptOutput 仅识别 Firefox 匿名页面脚本的原始输出，保留为结果未知的提示，不覆盖结构化动作故障或致命错误。
+func isBrowserScriptOutput(message string) bool {
+	if hasFatalBrowserOutput(message) {
+		return false
+	}
+	match := browserStartupOutput.FindStringSubmatch(message)
+	if match == nil || match[1] != "err" {
+		return false
+	}
+	const prefix = "JavaScript error: , line 0: uncaught exception: "
+	payload := strings.TrimSpace(match[2])
+	return strings.HasPrefix(payload, prefix) && strings.TrimSpace(strings.TrimPrefix(payload, prefix)) != ""
 }
 
 // isBrowserInternalStaleObject 仅识别 Firefox 调试输出中的 Juggler 对象失效，不推断操作已经恢复。

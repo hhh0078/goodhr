@@ -1,4 +1,4 @@
-// Package boss 文件作用：使用隔离 Worker 和本机页面回归完整卡片标题读取，验证热搜牛人不被点击且前后普通详情正常。
+// Package boss 文件作用：使用隔离 Worker 和本机页面验证热搜卡片不被点击，以及基础信息不接收鼠标事件时普通详情仍能打开。
 package boss
 
 import (
@@ -75,12 +75,14 @@ func TestHotSearchWholeCardBrowser(t *testing.T) {
 		case "/":
 			fmt.Fprint(w, `<!doctype html><meta charset="utf-8"><style>body{margin:0}iframe{border:0;width:1240px;height:900px}.detail{position:fixed;left:200px;top:100px;width:800px;height:700px;background:white}</style><iframe name="recommendFrame" src="/recommend"></iframe><script>function showDetail(name){let frame=document.createElement('iframe');frame.className='detail';frame.src='/web/frame/c-resume/?name='+encodeURIComponent(name);document.body.append(frame)}function closeDetail(){document.querySelector('.detail').remove()}</script>`)
 		case "/recommend":
-			fmt.Fprint(w, `<!doctype html><meta charset="utf-8"><style>body{margin:64px;font:18px sans-serif}.card-list{height:820px;overflow:auto;padding-bottom:64px;box-sizing:border-box}.candidate-card-wrap{height:160px;border-bottom:1px solid #ddd;padding:10px}.base-info{width:480px;padding:12px;cursor:pointer}.name{font-weight:bold}.btn{float:right;margin:20px}h3{margin:12px}</style><div class="card-list"><div class="list-content">`)
-			fmt.Fprint(w, `<div class="normal-wrapper"><div class="candidate-card-wrap"><span class="name">文先生</span><span>热搜</span><button class="btn btn-greet">打招呼</button><div class="base-info join-text-wrap" onclick="parent.showDetail('文先生')">32岁 本科 嵌入式开发</div></div></div>`)
+			// 对齐 BOSS 当前结构：基础信息忽略鼠标，外层行接收点击；相邻头像和招呼按钮不得被误点。
+			fmt.Fprint(w, `<!doctype html><meta charset="utf-8"><style>body{margin:64px;font:18px sans-serif}.card-list{height:820px;overflow:auto;padding-bottom:64px;box-sizing:border-box}.candidate-card-wrap{height:160px;border-bottom:1px solid #ddd;padding:10px}.row{width:504px;cursor:pointer}.base-info{width:480px;padding:12px;pointer-events:none}.name{font-weight:bold}.btn{float:right;margin:20px}h3{margin:12px}</style><div class="card-list"><div class="list-content">`)
+			fmt.Fprint(w, `<div class="normal-wrapper"><div class="candidate-card-wrap"><span class="name" onclick="fetch('/promo-click')">文先生</span><span>热搜</span><button class="btn btn-greet" onclick="fetch('/promo-click')">打招呼</button><div class="row" onclick="parent.showDetail('文先生')"><div class="base-info join-text-wrap">32岁 本科 嵌入式开发</div></div></div></div>`)
 			// 外层标题在候选人小卡片之外，并故意提供招呼按钮，必须仍然直接跳过。
 			fmt.Fprint(w, `<section class="promotion"><h3>热搜牛人推荐</h3><a onclick="fetch('/promo-click')">查看更多</a><div class="promotion-body"><div class="candidate-card-wrap"><span class="name">尚先生</span><span>热搜</span><span>首页推荐</span><button class="btn btn-greet" onclick="fetch('/promo-click')">打招呼</button><div class="base-info join-text-wrap" onclick="fetch('/promo-click')">31岁 本科 嵌入式开发</div></div></div></section>`)
 			fmt.Fprint(w, `<div class="candidate-card-wrap"><h3>热搜牛人推荐</h3><span class="name">李先生</span><div class="base-info join-text-wrap" onclick="fetch('/promo-click')">29岁 本科 嵌入式开发</div></div>`)
-			fmt.Fprint(w, `<div class="normal-wrapper"><div class="candidate-card-wrap"><span class="name">王先生</span><button class="btn btn-greet">打招呼</button><div class="base-info join-text-wrap" onclick="parent.showDetail('王先生')">34岁 本科 嵌入式开发</div></div></div></div><div style="height:80px"></div></div>`)
+			// 旧版没有外层 row，摘要本身接收鼠标；必须由数组的旧入口打开。
+			fmt.Fprint(w, `<div class="normal-wrapper"><div class="candidate-card-wrap"><span class="name" onclick="fetch('/promo-click')">王先生</span><button class="btn btn-greet" onclick="fetch('/promo-click')">打招呼</button><div class="base-info join-text-wrap" style="pointer-events:auto" onclick="parent.showDetail('王先生')">34岁 本科 嵌入式开发</div></div></div></div><div style="height:80px"></div></div>`)
 		case "/web/frame/c-resume/":
 			fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><button class="resume-custom-close" onclick="parent.closeDetail()">关闭</button><div id="resume" style="width:760px;height:580px">%s 普通候选人详情</div>`, request.URL.Query().Get("name"))
 		case "/promo-click":
@@ -131,7 +133,7 @@ func TestHotSearchWholeCardBrowser(t *testing.T) {
 		}
 	}
 	if count := promoClicks.Load(); count != 0 {
-		t.Fatalf("热搜牛人卡片不得被点击，实际点击 %d 次", count)
+		t.Fatalf("热搜卡片、相邻头像和招呼按钮不得被点击，实际点击 %d 次", count)
 	}
-	t.Log("完整卡片外层标题读取成功；两张热搜卡片直接跳过且点击为零；前后普通详情均正常；原序号保持不变")
+	t.Log("新旧两种卡片详情均正常打开；数组入口各尝试一次；热搜卡片、相邻头像和招呼按钮点击为零；原序号保持不变")
 }

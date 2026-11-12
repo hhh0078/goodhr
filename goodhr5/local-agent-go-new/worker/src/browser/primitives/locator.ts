@@ -70,6 +70,7 @@ export class LocatorPrimitive {
     },
     startIndex = 0,
     fromEnd = false,
+    pinUniqueId = false,
   ): Promise<ResolvedElement[]> {
     return this.resolveWithPolling(
       page,
@@ -84,6 +85,7 @@ export class LocatorPrimitive {
           { ...context, frame_path: framePath },
           startIndex,
           fromEnd,
+          pinUniqueId,
         ),
     );
   }
@@ -102,6 +104,7 @@ export class LocatorPrimitive {
     },
     startIndex: number,
     fromEnd: boolean,
+    pinUniqueId: boolean,
   ): Promise<ResolvedElement[]> {
     const scope = await this.resolveScope(page, spec, attempts, context);
     for (const candidate of spec.target.selectors) {
@@ -152,6 +155,7 @@ export class LocatorPrimitive {
         results.push({
           page,
           locator: item,
+          ...(pinUniqueId ? { list_read_locator: await this.pinListItem(page, scope, item, (spec.frames?.length ?? 0) === 0) } : {}),
           matched_selector: candidate,
           attempts: [...attempts],
           view,
@@ -165,6 +169,25 @@ export class LocatorPrimitive {
       }
     }
     throw this.notFound(page, spec, attempts, context);
+  }
+
+  /** pinListItem 在本次只读请求内用作用域唯一的公开id固定列表项，避免每读一个字段都重新遍历整张可见名单。 */
+  private async pinListItem(page: Page, scope: LocatorScope, item: Locator, mainDocument: boolean): Promise<Locator> {
+    assertRequestActive();
+    const id = await item.getAttribute("id", { timeout: 1500 });
+    assertRequestActive();
+    if (!id) return item;
+    // 主文档id唯一时直接用Page定位，不在后续字段读取中重复计算复合祖先的可见性；iframe不得跨到主文档找同名id。
+    if (mainDocument) {
+      const direct = page.locator(attributeFilter({ id }));
+      if (await direct.count() === 1) { assertRequestActive(); return direct.nth(0); }
+      assertRequestActive();
+    }
+    const pinned = scope.locator(attributeFilter({ id }));
+    const count = await pinned.count();
+    assertRequestActive();
+    // 无id或id重复时保留原定位语义；不把短生命周期Locator换成易过期的ElementHandle。
+    return count === 1 ? pinned.nth(0) : item;
   }
 
   /** resolveRelative 在已找到的父元素范围内继续解析子元素。 */

@@ -741,7 +741,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               />
               <div className="goodhr-toolbar-identity">
                 <Typography.Text strong ellipsis>
-                  {user?.email || "GoodHR 控制台"}
+                  {user?.display_name || user?.email || "GoodHR 控制台"}
                 </Typography.Text>
                 <Typography.Text
                   type="secondary"

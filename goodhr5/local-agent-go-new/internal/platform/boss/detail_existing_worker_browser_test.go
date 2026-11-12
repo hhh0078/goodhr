@@ -25,8 +25,24 @@ import (
 // detailRecordingBrowser 记录正式封装点击的返回值和 Escape 次数，不增加另一条浏览器操作链路。
 type detailRecordingBrowser struct {
 	*client.Client
-	clicks  []contract.ClickResult
-	escapes int
+	clicks     []contract.ClickResult
+	escapes    int
+	probeDelay time.Duration
+}
+
+// FindAll 在 Esc 后首个真实状态请求前模拟读取延迟，验证超过一秒仍能核实关闭且不额外点击。
+func (b *detailRecordingBrowser) FindAll(ctx context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if b.escapes > 0 && b.probeDelay > 0 {
+		timer := time.NewTimer(b.probeDelay)
+		b.probeDelay = 0
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return b.Client.FindAll(ctx, request)
 }
 
 // Click 复用正式 Browser Client，并保存点击及隐藏验证结果。
@@ -133,6 +149,9 @@ func TestBossDetailCloseExistingWorkerLayouts(t *testing.T) {
 				}
 			}
 			recorded := &detailRecordingBrowser{Client: browser}
+			if escapeWorks {
+				recorded.probeDelay = 1100 * time.Millisecond
+			}
 			if err := common.CloseCandidateDetail(caseCtx, recorded, cfg); err != nil {
 				t.Fatalf("正式平台关闭流程失败：%v", err)
 			}

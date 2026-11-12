@@ -1,0 +1,7 @@
+/* 文件作用说明：让公众号二维码、登录指令与等待状态在现有登录面板中清晰展示，并适配窄屏。 */
+.login { width: 100%; padding: 8px 0; }
+.qr { position: relative; display: flex; align-items: center; justify-content: center; width: 224px; height: 224px; max-width: 100%; background: #fff; border: 1px solid var(--goodhr-border); border-radius: 8px; }
+.code { font-variant-numeric: tabular-nums; letter-spacing: 1px; user-select: all; }
+.status { min-height: 28px; text-align: center; font-size: 13px; color: var(--goodhr-text-secondary); }
+.expired { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: rgba(255,255,255,.96); border-radius: 8px; }
+.hint { margin: 0 !important; font-size: 12px; line-height: 1.7; text-align: center; }

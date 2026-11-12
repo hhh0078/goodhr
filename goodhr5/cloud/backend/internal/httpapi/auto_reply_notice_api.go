@@ -44,6 +44,10 @@ func (s *AutoReplyService) agentSendNotification(w http.ResponseWriter, r *http.
 		writeAutoReplyError(w, http.StatusBadRequest, "NOTICE_INVALID", err.Error())
 		return
 	}
+	if isWechatAccount(requestContext.Session.Email) {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email_sent": false, "warning": "微信账号暂不发送邮件，请到自动回复工作台查看待确认问题。"})
+		return
+	}
 	dedupeKey := autoReplyNoticeDedupeKey(position.ID, item)
 	id, existingStatus, err := s.store.claimAutoReplyNotice(r.Context(), requestContext.Tenant.ID, position.ID, requestContext.Session.Email, dedupeKey)
 	if err != nil {

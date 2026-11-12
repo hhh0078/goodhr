@@ -32,6 +32,7 @@ func (r *Runtime) InitializeGreetingPage(ctx context.Context, browser model.Brow
 	if err != nil {
 		return err
 	}
+	r.manualSearch = manualSearch
 	if err := r.CloseCandidateDetail(ctx, browser, cfg, model.Candidate{}); err != nil {
 		return fmt.Errorf("前程无忧上一份简历还没收好，请关闭详情后再开始：%w", err)
 	}

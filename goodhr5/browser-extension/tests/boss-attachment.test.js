@@ -124,3 +124,14 @@ test("头像指纹隔离同文字不同照片，人工改号仍保持同一附�
   assert.notEqual(shared.resumeIdentity(resume), shared.resumeIdentity({ ...resume, attachment: { ...resume.attachment, avatar_hash: "c".repeat(64) } }));
   assert.equal(shared.resumeIdentity(resume), shared.resumeIdentity({ ...resume, phone: "13800000991" }));
 });
+
+
+test("附件手机号只采信独立号码或明确联系行，掩码、邮箱编号和多号码不触发自动展开", () => {
+  assert.equal(reader.attachmentPhone("姓名：合成\n电话：13800000151\n工作经历"), "13800000151");
+  assert.equal(reader.attachmentPhone("姓名：合成\n+86 13800000151"), "13800000151");
+  assert.equal(reader.attachmentPhone("手机号：138****0151"), "");
+  assert.equal(reader.attachmentPhone("简历编号：13800000151"), "");
+  assert.equal(reader.attachmentPhone("phone:13800000151@example.test"), "");
+  assert.equal(reader.attachmentPhone("电话：13800000151 / 13800000152"), "");
+  assert.equal(reader.attachmentPhone(""), "");
+});

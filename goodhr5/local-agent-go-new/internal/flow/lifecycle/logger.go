@@ -353,6 +353,12 @@ func visibleTaskStep(flow string, step string, status string, err error) bool {
 	if flow == "greeting" && step == "browse_candidate_detail" {
 		return status == "start" || status == "success"
 	}
+	if flow == "greeting" && status == "success" {
+		switch step {
+		case "ensure_candidate_conversation", "request_candidate_info", "send_candidate_message", "close_candidate_conversation":
+			return true
+		}
+	}
 	if status != "start" {
 		return false
 	}
@@ -361,6 +367,9 @@ func visibleTaskStep(flow string, step string, status string, err error) bool {
 		"greeting/select_position":           true,
 		"greeting/apply_basic_filters":       true,
 		"greeting/scan_decide_and_greet":     true,
+		"greeting/resume_candidate_progress": true,
+		"greeting/resume_anchor_missing":     true,
+		"greeting/resume_conditions_changed": true,
 		"auto_reply/open_message_page":       true,
 		"auto_reply/scan_generate_and_reply": true,
 	}
@@ -565,6 +574,9 @@ func userStepLabel(step string) string {
 		"request_candidate_info":        "索要候选人资料",
 		"ensure_candidate_conversation": "确认候选人对话框",
 		"send_candidate_message":        "发送首次打招呼语",
+		"resume_candidate_progress":     "已找到上次人选，接着当前进度继续",
+		"resume_anchor_missing":         "上次人选未能唯一定位，这次从头扫描",
+		"resume_conditions_changed":     "岗位条件或页面已改变，这次重新扫描",
 		"close_candidate_conversation":  "关闭候选人对话框",
 		"greet":                         "打招呼",
 		"save_candidate":                "保存处理结果",

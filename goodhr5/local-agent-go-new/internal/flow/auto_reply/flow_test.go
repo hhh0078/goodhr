@@ -1000,3 +1000,8 @@ func TestMessageFingerprintIsStable(t *testing.T) {
 		t.Fatal("同一条消息的指纹必须稳定")
 	}
 }
+
+// Find 本组自动回复回归不应请求BOSS推荐卡片的几何，意外调用时明确失败。
+func (b *autoReplyBrowserStub) Find(context.Context, contract.ElementFindRequest) (contract.FindResult, error) {
+	return contract.FindResult{}, fmt.Errorf("自动回复回归不允许额外几何查询")
+}

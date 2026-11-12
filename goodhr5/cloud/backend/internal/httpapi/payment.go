@@ -545,7 +545,7 @@ func (s *PaymentService) applyInvitePaymentReward(order PaymentOrder) error {
 
 // sendSubscriptionRewardNotice 发送会员天数变动提醒邮件。
 func sendSubscriptionRewardNotice(mailer Mailer, systemConfigs SystemConfigStore, email string, notice SubscriptionRewardNotice) error {
-	if mailer == nil || notice.Days == 0 {
+	if mailer == nil || notice.Days == 0 || isWechatAccount(email) {
 		return nil
 	}
 	access, err := subscriptionAccess(systemConfigs, Subscription{

@@ -17,6 +17,13 @@ async function runChromeExtension() {
     const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
     await worker.evaluate(() => {
       globalThis.fixtureSenders = [];
+      // 合成登录只在扩展后台返回测试凭证，不请求真实登录或招聘接口。
+      globalThis.fetch = async (url) => {
+        const pathname = new URL(url).pathname;
+        if (pathname === "/api/auth/extension-login") return Response.json({ token: "synthetic-extension-token", expires_at: "2030-01-01T00:00:00Z", user: { id: "synthetic-extension-user", email: "fixture@example.test" } });
+        if (pathname === "/api/system/browser-extension") return Response.json({ release: { version: chrome.runtime.getManifest().version } });
+        throw new Error("合成验证不放行其他网络请求");
+      };
       chrome.runtime.onMessage.addListener((message, sender) => { if (["STATE", "PREVIEW"].includes(message.type)) fixtureSenders.push({ type: message.type, url: sender.url, frameId: sender.frameId, tab: sender.tab ? { id: sender.tab.id, url: sender.tab.url } : null }); });
     });
     await context.route("**/*", (route) => {
@@ -28,6 +35,11 @@ async function runChromeExtension() {
     });
     await page.goto("https://h.liepin.com/resume/showresumedetail?resumeId=synthetic-extension-1");
     const host = page.locator("#goodhr-resume-assistant"); await host.waitFor();
+    assert.equal(page.frames().some((item) => item.url().startsWith(`chrome-extension://${installed.id}/src/floating.html`)), false, "未登录时不会自动打开表单");
+    await host.click();
+    if (!page.frames().some((item) => item.url().startsWith(`chrome-extension://${installed.id}/src/ui.html`))) await page.waitForEvent("framenavigated", { predicate: (item) => item.url().startsWith(`chrome-extension://${installed.id}/src/ui.html`) });
+    const login = page.frames().find((item) => item.url().includes("/src/ui.html"));
+    await login.locator("#email").fill("fixture@example.test"); await login.locator("#password").fill("synthetic-password"); await login.locator("#agreement").check(); await login.locator("#login-form button[type=submit]").click();
     if (!page.frames().some((frame) => frame.url().startsWith(`chrome-extension://${installed.id}/src/floating.html`))) await page.waitForEvent("framenavigated", { predicate: (frame) => frame.url().startsWith(`chrome-extension://${installed.id}/src/floating.html`) });
     const frame = page.frames().find((item) => item.url().includes("/src/floating.html")); assert.ok(frame);
     await frame.locator("#duplicate-status").waitFor({ state: "visible" });
@@ -42,10 +54,11 @@ async function runChromeExtension() {
     await frame.evaluate(() => { loggedIn = true; dataUseAccepted = true; updateRequired = false; globalThis.syntheticCostDecision = "waiting"; confirmAICost("合成成本确认，本流程不会调用 AI").then((accepted) => { globalThis.syntheticCostDecision = accepted; }); });
     await frame.locator("#cost-confirmation").waitFor({ state: "visible" });
     await waitForWorkerCondition(worker, () => [...costConfirmationPorts.values()].some((ports) => ports.size === 1));
-    await worker.evaluate((tabID) => chrome.tabs.sendMessage(tabID, { type: "CLOSE_FLOATING" }, { frameId: 0 }), senders[0].tab.id);
+    await worker.evaluate((tabID) => chrome.tabs.sendMessage(tabID, { type: "CLOSE_FLOATING", identity: GoodHRShared.resumeIdentity(snapshots.get(tabID)) }, { frameId: 0 }), senders[0].tab.id);
     await frame.waitForFunction(() => globalThis.syntheticCostDecision === false); await waitForWorkerCondition(worker, () => costConfirmationPorts.size === 0);
     await page.goto("https://www.zhipin.com/web/chat/index?token=synthetic-extension-only");
     await page.locator("#goodhr-resume-assistant").waitFor();
+    await page.locator("#goodhr-resume-assistant").click();
     if (!page.frames().some((item) => item.url().startsWith(`chrome-extension://${installed.id}/src/floating.html`))) await page.waitForEvent("framenavigated", { predicate: (item) => item.url().startsWith(`chrome-extension://${installed.id}/src/floating.html`) });
     const bossFrame = page.frames().find((item) => item.url().startsWith(`chrome-extension://${installed.id}/src/floating.html`));
     await bossFrame.locator("#attachment-panel").waitFor({ state: "visible" });
@@ -53,7 +66,7 @@ async function runChromeExtension() {
     assert.equal(bossState.ok, true); assert.equal(bossState.data.resume.platform_id, "boss"); assert.equal(bossState.data.resume.attachment.page_count, 1); assert.equal(bossState.data.resume.attachment.complete, true);
     assert.equal(bossState.data.resume.source_url, "https://www.zhipin.com/web/chat/index"); assert.equal(Object.hasOwn(bossState.data.resume.attachment, "text"), false); assert.match(bossState.data.resume.attachment.text_hash, /^[a-f0-9]{64}$/);
     assert.equal(await bossFrame.locator("#name").inputValue(), "", "未授权预览不能调用AI或猜姓名"); assert.equal(await page.locator("#boss-business").textContent(), "合成聊天内容，不属于附件");
-    console.log(JSON.stringify({ installed: true, floating_preview: true, sender_tab_present: true, sender_frame: senders[0].frameId, cost_port_close_cancelled: true, boss_same_origin_pdf: true, boss_public_state_without_text: true, chrome: await context.browser()?.version() }));
+    console.log(JSON.stringify({ installed: true, floating_login: true, phone_gated_open: true, floating_preview: true, sender_tab_present: true, sender_frame: senders[0].frameId, cost_port_close_cancelled: true, boss_same_origin_pdf: true, boss_public_state_without_text: true, chrome: await context.browser()?.version() }));
   } finally {
     await context.close();
     if (!path.resolve(profile).startsWith(path.join(ROOT, "artifacts", "chrome-profile-"))) throw new Error("测试Chrome临时目录超出插件范围，停止清理");

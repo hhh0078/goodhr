@@ -275,6 +275,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)
 	// 公众号绑定仅连接用户身份和会员，不影响本地程序任务执行。
 	if s.wechatOfficial != nil {
+		mux.HandleFunc("/api/auth/wechat/create", s.wechatOfficial.CreateLogin)
+		mux.HandleFunc("/api/auth/wechat/poll", s.wechatOfficial.PollLogin)
 		mux.HandleFunc("/api/wechat-official/status", s.wechatOfficial.Status)
 		mux.HandleFunc("/api/wechat-official/binding", s.wechatOfficial.CreateBinding)
 		mux.HandleFunc("/api/wechat-official/callback", s.wechatOfficial.Callback)

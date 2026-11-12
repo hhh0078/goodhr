@@ -135,7 +135,11 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 		ReadConcurrency: prepared.Preferences.CandidateReadConcurrency,
 		Cursor:          &model.CandidateListCursor{},
 	}
-	for batch := 0; ; batch++ {
+	resume, err := f.prepareCandidateResume(ctx, f.Browser, prepared, runtime, candidateListOptions.Cursor)
+	if err != nil {
+		return err
+	}
+	for batch := 0; ; {
 		if shared.GracefulStopRequested(ctx) {
 			return nil
 		}
@@ -159,8 +163,15 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			shared.ReportProgress(f.Logger, prepared.Request.TaskID, "当前页面已经没有候选人，这轮任务完成了")
 			return nil
 		}
+		if batch == 0 {
+			shared.ReportProgress(f.Logger, prepared.Request.TaskID, fmt.Sprintf("本次先看“%s”（列表第%d位）", candidates[0].Name, candidates[0].Index+1))
+		}
 		newCandidates := make([]model.Candidate, 0, len(candidates))
 		for _, candidate := range candidates {
+			if resume.completedAnchor(candidate) {
+				stats.Skipped++
+				continue
+			}
 			if strings.TrimSpace(candidate.Fingerprint) == "" {
 				if id, err := f.beginScreeningAttempt(ctx, prepared, candidate); err == nil {
 					if saveErr := f.completeScreeningAttempt(ctx, id, "候选人缺少稳定编号，未执行第一轮和第二轮"); saveErr != nil {
@@ -293,6 +304,10 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			}
 			candidateErr = f.finishCandidateProcessing(candidateCtx, prepared.Request.TaskID, candidateStartedAt, candidateErr)
 			cancelCandidate()
+			if err := resume.complete(ctx, candidate, candidateErr); err != nil {
+				cancelPreviews()
+				return err
+			}
 			if candidateErr != nil {
 				if errors.Is(candidateErr, model.ErrCandidateDetailUnavailable) {
 					f.log(prepared.Request.TaskID, "candidate_detail_unavailable", "skipped", time.Now(), candidateErr)
@@ -365,6 +380,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 		); err != nil {
 			return err
 		}
+		batch++
 	}
 }
 
@@ -728,12 +744,13 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 		return err
 	}
 	infoRequest := model.CandidateInfoRequest{
-		RequestPhone: prepared.Position.RequestPhone, RequestWechat: prepared.Position.RequestWechat,
+		RequestPhone:  prepared.Position.RequestPhone && !prepared.Platform.Behavior.SkipGreetingPhoneRequest,
+		RequestWechat: prepared.Position.RequestWechat,
 		RequestResume: prepared.Position.RequestResume,
 	}
 	greetMessage := strings.TrimSpace(prepared.Position.GreetMessage)
 	requestInfo := false
-	if candidateInfoRequestConfigured(infoRequest) {
+	if !prepared.Platform.Behavior.SkipGreetingInfoRequests && candidateInfoRequestConfigured(infoRequest) {
 		threshold := requestScoreThreshold(prepared.Position)
 		switch {
 		case !hasScore:

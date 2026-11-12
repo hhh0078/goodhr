@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
@@ -23,17 +24,32 @@ type detailCloseBrowser struct {
 	clicks                              []contract.ElementClickRequest
 	probes                              []contract.ElementFindAllRequest
 	actions                             []string
+	probeDelayAfterEscape               time.Duration
+	closeDespiteClickError              bool
+	closeDuringButtonProbe              bool
 }
 
 // FindAll 独立模拟弹窗及按钮，记录关闭成功后是否多余查找按钮或访问已销毁正文。
-func (b *detailCloseBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+func (b *detailCloseBrowser) FindAll(ctx context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	b.probes = append(b.probes, request)
 	if strings.Contains(request.Selector.Description, "关闭按钮") {
 		b.actions = append(b.actions, "find-close")
+		if b.closeDuringButtonProbe {
+			b.present = false
+		}
 		if !b.buttonMissing && b.present {
 			return []contract.FindAllItem{{}}, nil
 		}
 		return nil, nil
+	}
+	if len(b.keys) > 0 && b.probeDelayAfterEscape > 0 {
+		timer := time.NewTimer(b.probeDelayAfterEscape)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	if len(b.keys) > 0 && b.probeErrAfterEscape != nil {
 		return nil, b.probeErrAfterEscape
@@ -61,11 +77,59 @@ func (b *detailCloseBrowser) PressKey(_ context.Context, request contract.Keyboa
 func (b *detailCloseBrowser) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
 	b.clicks = append(b.clicks, request)
 	b.actions = append(b.actions, "click")
+	if b.closeDespiteClickError {
+		b.present = false
+	}
 	if b.clickErr != nil {
 		return contract.ClickResult{}, b.clickErr
 	}
 	b.present = false
 	return contract.ClickResult{Clicked: true, Verified: true}, nil
+}
+
+// TestCloseCandidateDetailSlowVerification 验证 Esc 已关闭后，超过一秒的正常状态读取不会被人为截断成关闭失败。
+func TestCloseCandidateDetailSlowVerification(t *testing.T) {
+	browser := &detailCloseBrowser{present: true, escapeWorks: true, probeDelayAfterEscape: 1100 * time.Millisecond}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := NewRuntime().CloseCandidateDetail(ctx, browser, recommendationConfig(t), model.Candidate{}); err != nil {
+		t.Fatalf("正常关闭后的慢读取不能误报故障：%v", err)
+	}
+	if browser.present || !reflect.DeepEqual(browser.actions, []string{"escape"}) {
+		t.Fatalf("确认已关闭后不能继续找按钮或点击：%+v", browser)
+	}
+}
+
+// TestCloseCandidateDetailRechecksButtonOutcome 验证备用按钮回执异常或检查按钮时弹窗消失，都以再次确认的弹窗状态收尾。
+func TestCloseCandidateDetailRechecksButtonOutcome(t *testing.T) {
+	for _, duringProbe := range []bool{false, true} {
+		browser := &detailCloseBrowser{present: true, escapeErr: errors.New("测试 Esc 未发送"), closeDuringButtonProbe: duringProbe}
+		if !duringProbe {
+			browser.clickErr = &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "CLICK_VERIFY_FAILED"}}
+			browser.closeDespiteClickError = true
+		}
+		if err := NewRuntime().CloseCandidateDetail(context.Background(), browser, recommendationConfig(t), model.Candidate{}); err != nil {
+			t.Fatalf("弹窗已确认消失后不应报关闭失败：%v", err)
+		}
+		wantClicks := 1
+		if duringProbe {
+			wantClicks = 0
+		}
+		if browser.present || len(browser.clicks) != wantClicks || len(browser.keys) != 1 {
+			t.Fatalf("按钮结果复核不得多点或多按 Esc：%+v", browser)
+		}
+	}
+}
+
+// TestCloseCandidateDetailSlowProbeRespectsCancellation 验证真实任务取消仍立即结束关闭验证，不能借慢读取继续发动作。
+func TestCloseCandidateDetailSlowProbeRespectsCancellation(t *testing.T) {
+	browser := &detailCloseBrowser{present: true, escapeWorks: true, probeDelayAfterEscape: time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	err := NewRuntime().CloseCandidateDetail(ctx, browser, recommendationConfig(t), model.Candidate{})
+	if !errors.Is(err, context.DeadlineExceeded) || !reflect.DeepEqual(browser.actions, []string{"escape"}) {
+		t.Fatalf("任务到期后不能继续补点或误报成功：%v %+v", err, browser)
+	}
 }
 
 // TestCloseCandidateDetailEscapeFirst 验证 Boss 的 Escape 关闭成功后不再查找或点击备用按钮。

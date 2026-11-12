@@ -54,6 +54,28 @@ StartTask
 
 会员权限由云端统一返回：免费版可以运行关键词或 OCR 的基础打招呼任务；Plus 基础版和 Max 全能版都可以运行 AI 筛选与 AI 打招呼；只有 Max 全能版可以启动自动回复。本地程序必须同时校验 `active`、`allow_ai` 和 `allow_auto_reply`，不能只看会员名称或到期时间。
 
+## BOSS 详情入口悬停适配（2026-11-11）
+
+BOSS 部分页面的基础信息 `.base-info.join-text-wrap` 使用 `pointer-events: none`，直接定位摘要会被真实悬停检查拦住，出现移动却没有按下鼠标。`internal/platform/boss/config.json` 的 `candidate.open_target` 使用完整对象数组：先尝试接收事件的 `.row:has(> .base-info.join-text-wrap)`，再尝试旧页面的 `.base-info.join-text-wrap`。
+
+共用 Go 详情流程展开数组，保留每条入口的候选人身份、父级和框架约束，相同完整定位去重。每条入口只发起一次点击请求，详情打开后停止；结果不确定时先检查详情，弹窗已出现时只等正文，不继续点击背后卡片。旧的单对象配置和独立备用入口仍兼容。Worker 的元素等待轮询保留，不额外重发点击请求。
+
+Windows x64、macOS arm64 和 macOS amd64 共用这一份配置和流程。配置通过 `internal/platform/config.go` 的 `go:embed` 随 Go 程序发布，后台修改不会覆盖已安装客户端；Windows 必须从包含本次改动的源码重新打包。
+
+验证：macOS arm64 已登录 BOSS 页面确认样式并实际打开详情；隔离 Camoufox 的 `TestHotSearchWholeCardBrowser` 同时覆盖摘要穿透的新卡片和没有外层 row 的旧卡片，两种详情均打开，相邻姓名、招呼按钮及热搜入口点击均为零。单元测试覆盖逐条一次、成功停止、重复配置、旧单对象、取消及断线停止；三个目标的 Go 编译通过。Windows 与 Intel Mac 的真实运行尚未验证。
+
+## macOS 重复打开与正常退出（6.3.2）
+
+Mac 的 `.app` 入口改为 `packaging/macos/launcher.m` 原生 AppKit 启动器，响应 Finder 重复打开事件，并在菜单栏显示 HR。菜单可打开控制台或退出本地程序；退出先通知 Go 正常收尾，等待任务、浏览器和数据处理结束，不强杀进程。Go 更新流程正常退出后，启动器也随之退出。
+
+安装器升级前核对当前用户、命令行和实际可执行文件，正常退出 `/Applications` 下的旧程序；默认端口被项目 release 中同 bundle ID 的 GoodHR 占用时也会处理，避免安装新版本后网页仍连接旧版本。身份不符的进程不停止。登录资料保留；安装过程等待旧版退出后再替换文件。
+
+Windows 保持原有启动和安装方式，不编译 AppKit 文件。Mac 打包脚本分别验证 Go 与原生启动器的 arm64、x86_64 两个架构，并打入两套 Worker 原生依赖。`GOODHR_MAC_LAUNCHER_TEST=1 go test ./cmd/goodhr-local-agent -run '^TestMac'` 在 Mac arm64 桌面通过独立应用验证重复打开回执、等待业务收尾和安装器身份核对，不连接用户的浏览器或登录资料；Intel 真机安装、Windows 真机运行仍需对应设备验收。
+
+## 候选人断点与智联选岗（2026-11-11）
+
+所有平台支持保存最后连续处理完成的位置，再次开始先核对断点，找不到或名单顺序变化则从头。前程无忧候选人每批20人，联系人上限不变；智联选岗等待搜索加载和稳定，并按完整标题匹配。实现、跨系统规则、真实验收及未完成范围见 [断点续跑与智联选岗](docs/candidate-resume-and-zhaopin-job.md)。新流程随 Go 程序发布，需要重新打包才能用于正在安装的客户端。
+
 ## 连接超时与闪退日志
 
 运行日志不再写入用户目录中的 `goodhr.jsonl` 或 `crash.log`。Go、Browser Worker 和 OCR 的诊断统一自动上传到云端“全部日志”，包含错误原因、动作、步骤、耗时、调用栈及原生输入诊断；读取和输入错误不再被替换成“详细内容保存在本机”。登录前的启动记录仅在内存短暂等待，登录成功后上传。普通日志每秒批量上传，错误立即唤醒上传，正常退出前再限时提交最后记录。
@@ -154,6 +176,8 @@ Go 与 Worker 步骤日志统一写入岗位日志，每个岗位只保留最近
 
 下载同步在 Browser Worker 第一次启动前会安静等待，不会把正常的未启动状态打印成错误；Worker 曾经连接成功后如果意外断开，仍会记录提醒。
 
+Windows、Mac 打包入口和中文用法统一放在 [`package-tools/`](package-tools/README.md)。Windows 分发 ZIP 包含安装程序和 `安装教程图片.jpg`；Mac 包不放图片。旧脚本路径继续可用。
+
 macOS 正式包只在 Mac 上生成：
 
 ```bash
@@ -177,7 +201,7 @@ cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
 
 Windows 脚本会独立编译 `windows/amd64` GUI 主程序，打包 Worker 生产依赖，同时生成以下文件：
 
-- `release\goodhr-local-agent-v6-windows-x64.zip`
+- `release\goodhr-local-agent-v6-windows-x64.zip`（安装程序和安装说明图片，发给用户用这个）
 - `release\GoodHR-Local-Agent-Setup-v6-windows-x64.exe`
 
 每次构建会先删除本版本的旧安装器，避免遗留文件与 Windows 图标缓存混淆。安装器首次安装默认按 `D → B → E → C` 选择存在的磁盘，优先安装到 `D:\GoodHRLocalAgent`；C 盘兜底使用当前用户的 `%LOCALAPPDATA%\Programs\GoodHRLocalAgent`。升级时保留用户上一次选定的目录。

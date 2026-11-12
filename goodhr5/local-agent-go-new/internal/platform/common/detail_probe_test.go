@@ -30,14 +30,14 @@ func (b *emptyDetailProbeBrowser) FindAll(_ context.Context, request contract.El
 	return nil, nil
 }
 
-// TestDetailProbeEmptyResultIsUnavailable 验证空结果继续第二次探测，最终返回不可用而不是假成功。
+// TestDetailProbeEmptyResultIsUnavailable 验证单个入口只点击一次，空详情最终返回不可用而不是假成功。
 func TestDetailProbeEmptyResultIsUnavailable(t *testing.T) {
 	browser := &emptyDetailProbeBrowser{}
 	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
 		"candidate.item": selector("候选人卡片"), "candidate.open_target": selector("详情入口"), "candidate.detail": selector("详情正文"),
 	}}
 	err := OpenCandidateDetail(context.Background(), browser, cfg, model.Candidate{Index: 0})
-	if !errors.Is(err, model.ErrCandidateDetailUnavailable) || len(browser.clicks) != 2 || len(browser.probes) != 2 {
+	if !errors.Is(err, model.ErrCandidateDetailUnavailable) || len(browser.clicks) != 1 || len(browser.probes) != 1 {
 		t.Fatalf("空详情被当成成功或没有正确重试：%v %+v", err, browser)
 	}
 	for index, probe := range browser.probes {

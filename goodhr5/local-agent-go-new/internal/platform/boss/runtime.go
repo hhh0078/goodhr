@@ -1,7 +1,9 @@
 // Package boss 实现 Boss 直聘平台的页面、候选人和消息能力。
 package boss
 
-import "goodhr5/local-agent-go-new/internal/browser/contract"
+import (
+	"goodhr5/local-agent-go-new/internal/browser/contract"
+)
 
 // Runtime 是 Boss 直聘平台运行时。
 type Runtime struct {

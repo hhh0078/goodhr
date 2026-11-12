@@ -179,16 +179,20 @@ func TestLoadConfigUsesSafeZhaopinCandidateActions(t *testing.T) {
 	}
 }
 
-// TestLoadConfigUsesSafeBossDetailTarget 验证 Boss 只点击基础信息摘要打开详情，避免随机命中候选人头像。
+// TestLoadConfigUsesSafeBossDetailTarget 验证 Boss 点击接收鼠标事件的基础信息行，避免摘要禁用鼠标导致悬停失败或误点头像。
 func TestLoadConfigUsesSafeBossDetailTarget(t *testing.T) {
 	cfg, err := LoadConfig("boss")
 	if err != nil {
 		t.Fatalf("读取 Boss 本地配置失败：%v", err)
 	}
-	selector := cfg.Selectors["candidate.open_target"]
-	if len(selector.Target.Selectors) != 1 ||
-		selector.Target.Selectors[0].Value != ".base-info.join-text-wrap" {
-		t.Fatalf("Boss 详情入口必须保持为不包含头像的安全小区域：%+v", selector.Target.Selectors)
+	variants := cfg.Selectors["candidate.open_target"].Variants()
+	if len(variants) != 2 {
+		t.Fatalf("Boss 必须按数组保留新旧两种安全入口：%+v", variants)
+	}
+	for index, expected := range []string{".row:has(> .base-info.join-text-wrap)", ".base-info.join-text-wrap"} {
+		if len(variants[index].Target.Selectors) != 1 || variants[index].Target.Selectors[0].Value != expected {
+			t.Fatalf("Boss 第%d条详情入口应保留安全小区域：%+v", index+1, variants[index].Target.Selectors)
+		}
 	}
 }
 
@@ -581,4 +585,21 @@ func assertSelectorGroupComments(t *testing.T, group commentedSelectorGroup, pat
 func hasComment(object map[string]json.RawMessage) bool {
 	var comment string
 	return json.Unmarshal(object["_comment"], &comment) == nil && strings.TrimSpace(comment) != ""
+}
+
+// TestAllPlatformsSupportCandidateResume 验证BOSS按屏幕起跑，其余平台保留断点，前程无忧使用20人上限而不影响其他平台既有批量配置。
+func TestAllPlatformsSupportCandidateResume(t *testing.T) {
+	for _, id := range []string{"boss", "zhaopin", "51job", "liepin", "hliepin"} {
+		runtime, err := RuntimeFor(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := runtime.(model.CandidateListResumer); ok != (id != "boss") {
+			t.Fatalf("%s断点能力不符合平台启动方式", id)
+		}
+	}
+	cfg, err := LoadConfig("51job")
+	if err != nil || cfg.CandidateBatchSize != 20 || cfg.MaxItems != 100 {
+		t.Fatalf("前程无忧小批上限错误：%d %v", cfg.CandidateBatchSize, err)
+	}
 }

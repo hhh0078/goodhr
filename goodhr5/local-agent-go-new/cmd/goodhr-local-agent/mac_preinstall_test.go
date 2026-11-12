@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -16,6 +17,108 @@ import (
 	"testing"
 	"time"
 )
+
+// TestMacPreinstallListenerHelper 仅在独立测试进程中模拟占用本地端口的旧客户端，收到正常退出信号后释放端口。
+func TestMacPreinstallListenerHelper(t *testing.T) {
+	if os.Getenv("GOODHR_PREINSTALL_HELPER") != "1" {
+		return
+	}
+	if port := os.Getenv("GOODHR_PREINSTALL_PORT"); port != "" {
+		listener, err := net.Listen("tcp", "127.0.0.1:"+port)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	defer cancel()
+	if err := os.WriteFile(os.Getenv("GOODHR_PREINSTALL_READY"), []byte("ready"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	<-ctx.Done()
+}
+
+// TestMacPreinstallChecksReleaseAppIdentity 验证默认端口上的 release 旧版被正常退出，而相同文件名但不同应用身份的进程保留。
+func TestMacPreinstallChecksReleaseAppIdentity(t *testing.T) {
+	for _, bundleID := range []string{"cn.58it.goodhr.localagent", "example.unrelated.agent"} {
+		t.Run(bundleID, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			bundle := filepath.Join(root, "release", "GoodHR Local Agent.app")
+			executable := filepath.Join(bundle, "Contents", "MacOS", "goodhr-local-agent")
+			if err := os.MkdirAll(filepath.Dir(executable), 0700); err != nil {
+				t.Fatal(err)
+			}
+			current, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			binary, err := os.ReadFile(current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(executable, binary, 0700); err != nil {
+				t.Fatal(err)
+			}
+			plist := `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>` + bundleID + `</string></dict></plist>`
+			if err := os.WriteFile(filepath.Join(bundle, "Contents", "Info.plist"), []byte(plist), 0600); err != nil {
+				t.Fatal(err)
+			}
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			port := listener.Addr().(*net.TCPAddr).Port
+			_ = listener.Close()
+			ready := filepath.Join(root, "ready")
+			child := exec.Command(executable, "-test.run=^TestMacPreinstallListenerHelper$")
+			child.Env = append(os.Environ(), "GOODHR_PREINSTALL_HELPER=1", "GOODHR_PREINSTALL_PORT="+strconv.Itoa(port), "GOODHR_PREINSTALL_READY="+ready)
+			if err := child.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = child.Process.Kill(); _ = child.Wait() }()
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				if _, err := os.Stat(ready); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("隔离旧客户端没有监听测试端口")
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			content, err := os.ReadFile("../../packaging/macos/preinstall")
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := strings.ReplaceAll(string(content), "health_port=43129", "health_port="+strconv.Itoa(port))
+			script = strings.ReplaceAll(script, "console_user=$(/usr/bin/stat -f %Su /dev/console)", "console_user=$(/usr/bin/id -un)")
+			// 隔离测试不能匹配真实 /Applications 客户端，只从本次临时端口发现假进程。
+			script = strings.ReplaceAll(script, "/Applications/GoodHR", root+"/not-installed/GoodHR")
+			path := filepath.Join(root, "preinstall-test")
+			if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			if output, err := exec.CommandContext(ctx, "/bin/sh", path).CombinedOutput(); err != nil {
+				t.Fatalf("安装前检查失败：%v，%s", err, output)
+			}
+			connection, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second)
+			if connection != nil {
+				_ = connection.Close()
+			}
+			if bundleID == "cn.58it.goodhr.localagent" && err == nil {
+				t.Fatal("同身份 release 旧版仍然占用本地端口")
+			}
+			if bundleID != "cn.58it.goodhr.localagent" && err != nil {
+				t.Fatal("不同应用身份的进程被误停")
+			}
+		})
+	}
+}
 
 // TestMacPreinstallStopsOnlyInstalledAgent 验证升级前只停目标进程，且端口释放前不会继续安装。
 func TestMacPreinstallStopsOnlyInstalledAgent(t *testing.T) {
@@ -27,14 +130,19 @@ func TestMacPreinstallStopsOnlyInstalledAgent(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(fakeExecutable), 0700); err != nil {
 		t.Fatal(err)
 	}
-	sleepBinary, err := os.ReadFile("/bin/sleep")
+	testExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sleepBinary, err := os.ReadFile(testExecutable)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(fakeExecutable, sleepBinary, 0700); err != nil {
 		t.Fatal(err)
 	}
-	target := exec.Command(fakeExecutable, "30")
+	target := exec.Command(fakeExecutable, "-test.run=^TestMacPreinstallListenerHelper$")
+	target.Env = append(os.Environ(), "GOODHR_PREINSTALL_HELPER=1", "GOODHR_PREINSTALL_PORT=", "GOODHR_PREINSTALL_READY="+filepath.Join(tempDir, "target-ready"))
 	if err := target.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -48,11 +156,24 @@ func TestMacPreinstallStopsOnlyInstalledAgent(t *testing.T) {
 	if err := os.WriteFile(unrelatedExecutable, sleepBinary, 0700); err != nil {
 		t.Fatal(err)
 	}
-	unrelated := exec.Command(unrelatedExecutable, "30")
+	unrelated := exec.Command(unrelatedExecutable, "-test.run=^TestMacPreinstallListenerHelper$")
+	unrelated.Env = append(os.Environ(), "GOODHR_PREINSTALL_HELPER=1", "GOODHR_PREINSTALL_PORT=", "GOODHR_PREINSTALL_READY="+filepath.Join(tempDir, "unrelated-ready"))
 	if err := unrelated.Start(); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = unrelated.Process.Kill(); _ = unrelated.Wait() }()
+	deadline := time.Now().Add(5 * time.Second)
+	for _, marker := range []string{"target-ready", "unrelated-ready"} {
+		for {
+			if _, err := os.Stat(filepath.Join(tempDir, marker)); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("隔离进程没有准备好")
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

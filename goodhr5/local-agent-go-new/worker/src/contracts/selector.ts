@@ -32,6 +32,7 @@ export interface SelectorSpec {
   target: SelectorGroup;
   state?: SelectorState;
   timeout_ms?: number;
+  read_timeout_ms?: number; // 已定位元素的取值时限；省略时仍为1500毫秒。
   read_property?: "text" | "html";
   read_attribute?: string;
   description: string;

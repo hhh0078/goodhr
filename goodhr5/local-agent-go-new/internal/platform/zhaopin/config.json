@@ -48,6 +48,12 @@
   "max_items": 100,
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
+    "candidate_viewport_top_inset": 120,
+    "_comment_candidate_viewport_top_inset": "推荐页固定岗位栏和筛选栏占120 CSS像素，起点卡片必须完整位于其下方；不用于搜索页。",
+    "candidate_start_from_viewport": true,
+    "_comment_candidate_start_from_viewport": "仅无限滚动推荐页从当前屏幕首张完整卡片开始，不查旧断点；手动搜索页保留原分页与断点方式。",
+    "candidate_resume_by_identity": true,
+    "_comment_candidate_resume_by_identity": "仅推荐页按唯一身份查找断点，并用真实滚轮继续加载；搜索页由平台适配保留原前缀和分页保护。",
     "_comment": "智联页面行为开关。",
     "supports_paging": false,
     "_comment_supports_paging": "智联推荐页当前按滚动加载。",
@@ -80,6 +86,13 @@
   "_comment_filter_actions": "旧版智联没有自动基础筛选动作。",
   "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
   "selectors": {
+    "position.current": {
+      "_comment": "仅读取当前激活岗位的完整标题，CSS省略不影响文本。",
+      "target": {"_comment": "当前岗位标题节点。", "selectors": [{"_comment": "当前激活岗位的完整文字，不混入隐藏标签。", "type": "css", "value": ".job-pane__item--active .job-pane__item-job-title:visible"}]},
+      "state": "visible",
+      "timeout_ms": 800,
+      "description": "智联当前岗位完整名称"
+    },
     "position.open": [
       {
         "_comment": "智联更多职位入口。",
@@ -298,15 +311,15 @@
     ],
     "candidate.list": [
       {
-        "_comment": "智联搜索页候选人列表，只用于智联搜索页。",
+        "_comment": "智联搜索页滚轮区域必须包含候选人名单及其同级分页栏，避免把下一页按钮裁在可操作区外。",
         "parents": [],
         "target": {
-          "_comment": "智联搜索页候选人列表目标。",
+          "_comment": "搜索结果外层区域；实际卡片读取仍由candidate.item限定在.search-resume-list。",
           "selectors": [
             {
-              "_comment": "智联搜索页候选人列表页面选择器。",
+              "_comment": "同时包含.search-resume-list与.search-result__pagination的可见结果区域。",
               "type": "css",
-              "value": ".search-resume-list"
+              "value": ".search-result"
             }
           ]
         },
@@ -342,6 +355,16 @@
         "description": "智联候选人列表"
       }
     ],
+    "candidate.identity_check": {
+      "_comment": "先按真实列表行号定位，再仅在这一张卡片内核对身份，不统计上方同名者。",
+      "target": {
+        "_comment": "已定位的当前卡片自身。",
+        "selectors": [{"_comment": "标准相对选择器仅指向当前卡片自身。", "type": "css", "value": ":scope"}]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "当前候选人卡片身份核对"
+    },
     "candidate.item": [
       {
         "_comment": "智联候选人卡片。",
@@ -448,6 +471,8 @@
       },
       "state": "visible",
       "timeout_ms": 5000,
+      "read_timeout_ms": 5000,
+      "_comment_read_timeout_ms": "已定位的简历正文允许5秒取值，查找和整次任务时限仍独立保留。",
       "description": "智联候选人详情正文"
     },
     "candidate.greet": [
@@ -585,38 +610,117 @@
       "description": "智联沟通职位搜索输入框"
     },
     "candidate.greet_job_name": {
-      "_comment": "在当前可见的职位下拉层内精确匹配职位标题，供唯一性检查和点击复用。",
+      "_comment": "按完整title属性定位职位，显示省略号不能改变匹配结果。",
       "parents": [],
       "target": {
         "_comment": "只匹配可见职位选项的标题节点，排除搜索框和弹窗内已选标题。",
         "selectors": [
-          { "_comment": "可见职位选项内的独立职位标题。", "type": "css", "value": ".jsn-job-selector-popper:visible .jsn-job-selector__option .jsn-job-selector__option--title:visible" }
+          {
+            "_comment": "可见职位选项内的独立职位标题。",
+            "type": "css",
+            "value": ".jsn-job-selector-popper:visible .jsn-job-selector__option .jsn-job-selector__option--title[title]:visible"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联沟通职位选项标题",
+      "read_attribute": "title",
+      "_comment_read_attribute": "完整岗位名称的可见标题属性，用于动态精确匹配。"
+    },
+    "candidate.greet_job_name_legacy": {
+      "_comment": "兼容没有title属性的旧页面，只能精确匹配完整显示文字。",
+      "parents": [],
+      "target": {
+        "_comment": "只匹配可见职位选项的标题节点，排除搜索框和弹窗内已选标题。",
+        "selectors": [
+          {
+            "_comment": "可见职位选项内的独立职位标题。",
+            "type": "css",
+            "value": ".jsn-job-selector-popper:visible .jsn-job-selector__option .jsn-job-selector__option--title:not([title]):visible"
+          }
         ]
       },
       "state": "visible",
       "timeout_ms": 5000,
       "description": "智联沟通职位选项标题"
     },
-    "candidate.greet_job_selected": {
-      "_comment": "读取弹窗内已选职位标题，确认与目标职位一致后再继续。",
-      "parents": [
-        {
-          "_comment": "已打开且标题完整匹配的沟通职位弹窗。",
-          "selectors": [
-            { "_comment": "已选职位所属的沟通职位弹窗。", "type": "css", "value": ".km-modal--open:has(.resume-buttons-chat__title:text-is(\"选择沟通职位\")):visible" }
-          ]
-        }
-      ],
+    "candidate.greet_job_loading": {
+      "_comment": "用户已登录真实搜索页确认：搜索输入后延迟出现的职位骨架；存在时不能按旧结果点击。",
       "target": {
-        "_comment": "只读取弹窗内职位输入控件显示的当前标题。",
+        "_comment": "当前展开的职位下拉层中的加载骨架区域。",
         "selectors": [
-          { "_comment": "已选沟通职位的可见标题。", "type": "css", "value": ".jsn-job-selector__label .jsn-job-selector__option--title:visible" }
+          {
+            "_comment": "只检查当前可见职位下拉层自己的加载标记，不读取隐藏状态。",
+            "type": "css",
+            "value": ".jsn-job-selector-popper:visible .jsn-job-selector-loading:visible"
+          }
         ]
       },
       "state": "visible",
-      "timeout_ms": 5000,
-      "description": "智联已选沟通职位"
+      "timeout_ms": 1,
+      "description": "智联沟通职位正在加载"
     },
+    "candidate.greet_job_selected": [
+      {
+        "_comment": "读取弹窗内已选职位标题，确认与目标职位一致后再继续。",
+        "parents": [
+          {
+            "_comment": "已打开且标题完整匹配的沟通职位弹窗。",
+            "selectors": [
+              {
+                "_comment": "已选职位所属的沟通职位弹窗。",
+                "type": "css",
+                "value": ".km-modal--open:has(.resume-buttons-chat__title:text-is(\"选择沟通职位\")):visible"
+              }
+            ]
+          }
+        ],
+        "target": {
+          "_comment": "只读取弹窗内职位输入控件显示的当前标题。",
+          "selectors": [
+            {
+              "_comment": "已选沟通职位的可见标题。",
+              "type": "css",
+              "value": ".jsn-job-selector__label .jsn-job-selector__option--title[title]:visible"
+            }
+          ]
+        },
+        "state": "visible",
+        "timeout_ms": 5000,
+        "description": "智联已选沟通职位",
+        "read_attribute": "title",
+        "_comment_read_attribute": "回读完整岗位名称，不能用带省略号的显示文字确认。"
+      },
+      {
+        "_comment": "读取弹窗内已选职位标题，确认与目标职位一致后再继续。",
+        "parents": [
+          {
+            "_comment": "已打开且标题完整匹配的沟通职位弹窗。",
+            "selectors": [
+              {
+                "_comment": "已选职位所属的沟通职位弹窗。",
+                "type": "css",
+                "value": ".km-modal--open:has(.resume-buttons-chat__title:text-is(\"选择沟通职位\")):visible"
+              }
+            ]
+          }
+        ],
+        "target": {
+          "_comment": "只读取弹窗内职位输入控件显示的当前标题。",
+          "selectors": [
+            {
+              "_comment": "已选沟通职位的可见标题。",
+              "type": "css",
+              "value": ".jsn-job-selector__label .jsn-job-selector__option--title:not([title]):visible"
+            }
+          ]
+        },
+        "state": "visible",
+        "timeout_ms": 5000,
+        "description": "智联已选沟通职位"
+      }
+    ],
     "candidate.greet_job_confirm": {
       "_comment": "在沟通职位弹窗内点击确定，提交已核对的职位。",
       "parents": [

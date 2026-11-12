@@ -27,6 +27,7 @@ type SelectorSpec struct {
 	Target         SelectorGroup     `json:"target"`
 	State          string            `json:"state,omitempty"`
 	TimeoutMS      int               `json:"timeout_ms,omitempty"`
+	ReadTimeoutMS  int               `json:"read_timeout_ms,omitempty"` // 元素已定位后取值的预算，零保持Worker默认值。
 	ReadProperty   string            `json:"read_property,omitempty"`
 	ReadAttribute  string            `json:"read_attribute,omitempty"`
 	Description    string            `json:"description"`

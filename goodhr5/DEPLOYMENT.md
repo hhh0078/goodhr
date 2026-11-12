@@ -140,7 +140,9 @@ npm run dev
 
 ## 本地程序打包：Windows / macOS
 
-打包前停止本机招聘任务，确认 Go、Node.js 22+、Inno Setup 6 已安装。脚本使用 npm 国内镜像和 Go 国内镜像；会重新安装并编译 Worker、生成 Go 程序、ZIP 和安装器。相同版本和环境的旧产物会被替换。
+统一入口和完整用法见 [`local-agent-go-new/package-tools/README.md`](local-agent-go-new/package-tools/README.md)。Windows ZIP 根目录包含安装程序和 `安装教程图片.jpg`，Mac 包不放图片；下列旧命令继续可用。
+
+打包前停止本机招聘任务，确认 Go、Node.js 22+ 已安装；Windows 还需要 Inno Setup 6，Mac 需要 Xcode Command Line Tools。脚本使用 npm 国内镜像和 Go 国内镜像；会重新安装并编译 Worker、生成 Go 程序、ZIP 和安装器。相同版本和环境的旧产物会被替换。
 
 在 `goodhr5/local-agent-go-new` 目录执行，最后的 `build` 或 `dev` 必填：
 
@@ -164,8 +166,9 @@ macOS 在同一目录使用 `zsh scripts/package-release.sh 6.1.1 build`，测�
 | --- | --- |
 | Windows 正式安装器 | `GoodHR-Local-Agent-Setup-v6.1.1-windows-x64.exe` |
 | Windows 测试安装器 | `GoodHR-Local-Agent-Setup-v6.1.1-test-windows-x64.exe` |
-| Windows 程序目录 ZIP | `goodhr-local-agent-v6.1.1-windows-x64.zip`，测试名增加 `-test` |
-| macOS 程序目录 ZIP | `goodhr-local-agent-v6.1.1-darwin-arm64.zip` 或 `darwin-x64.zip`，测试名增加 `-test` |
+| Windows 安装程序与说明图片 ZIP | `goodhr-local-agent-v6.1.1-windows-x64.zip`，测试名增加 `-test` |
+| macOS 通用安装器 | `GoodHR-Local-Agent-Setup-v6.1.1-mac-universal.pkg`，测试名增加 `-test` |
+| macOS 通用应用 ZIP | `goodhr-local-agent-v6.1.1-darwin-universal.zip`，测试名增加 `-test` |
 
 打包后先查看发布目录中的 `build-info.json`，确认版本及域名；再安装对应 `.exe` 并启动，检查控制台域名、本地 `/health`、组件下载及浏览器打开。安装器、桌面快捷方式使用 `assets/goodhr-logo-transparent-512.png` 生成的图标；首次安装按 D → B → E → C 选择磁盘，升级保留原目录。
 

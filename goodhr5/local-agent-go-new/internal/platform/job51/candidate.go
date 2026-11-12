@@ -3,6 +3,8 @@ package job51
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -37,6 +39,9 @@ func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg
 			}
 			candidates[index].Fields["platform_candidate_id"] = stableID
 			candidates[index].Fingerprint = r.PlatformID() + "_" + stableID
+		}
+		if err := r.rememberResumePoints(ctx, browser, cfg, candidates); err != nil {
+			return nil, err
 		}
 		return candidates, nil
 	}
@@ -157,7 +162,7 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 	}
 	full := true
 	request := contract.ScrollRequest{Target: &selector, WheelAnchor: &anchor, Distance: 260, MaxAttempts: 30, WaitMS: 180, RequireFull: &full, ViewportMargin: 48}
-	result, err := browser.Scroll(ctx, request)
+	result, err := scrollCandidateTarget(ctx, browser, request)
 	if err != nil {
 		return err
 	}
@@ -171,7 +176,8 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 		if attempt >= 3 {
 			return fmt.Errorf("前程无忧固定页头还挡着候选人，这次先不点击，请把目标卡片向下移一点再开始")
 		}
-		distance := -int(math.Ceil(float64(cfg.Behavior.CandidateTopInset) - result.After.Box.Y + 16))
+		// 小滚轮在平台上会衰减，保留120的最低步长，避免差十几像素时三轮仍被页头遮挡。
+		distance := -max(120, int(math.Ceil(float64(cfg.Behavior.CandidateTopInset)-result.After.Box.Y+16)))
 		if _, err = browser.Scroll(ctx, contract.ScrollRequest{WheelAnchor: &anchor, Distance: distance, MaxAttempts: 1, WaitMS: 180}); err != nil {
 			return err
 		}
@@ -202,7 +208,7 @@ func (r *Runtime) scrollCandidateAction(ctx context.Context, browser model.Brows
 	}
 	full := true
 	request := contract.ScrollRequest{Target: &target, WheelAnchor: &anchor, Distance: 260, MaxAttempts: 30, WaitMS: 180, RequireFull: &full, ViewportMargin: 48}
-	result, err := browser.Scroll(ctx, request)
+	result, err := scrollCandidateTarget(ctx, browser, request)
 	if err != nil {
 		return err
 	}
@@ -237,6 +243,28 @@ func (r *Runtime) scrollCandidateAction(ctx context.Context, browser model.Brows
 			return err
 		}
 	}
+}
+
+// scrollCandidateTarget 在正常定位耗尽轮数且剩余距离明确时，为同一精确目标补一段有限滚轮；远距离按回执放大步长，断线、无进展或距离未知不重试。
+// Windows 与两种Mac共用Worker几何回执，仍由最终可见区域和平台遮挡检查决定是否允许操作。
+func scrollCandidateTarget(ctx context.Context, browser model.Browser, request contract.ScrollRequest) (contract.ScrollResult, error) {
+	result, err := browser.Scroll(ctx, request)
+	var workerErr *contract.WorkerError
+	if ctx.Err() != nil || request.Target == nil || request.MaxAttempts != 30 || !errors.As(err, &workerErr) || workerErr == nil || workerErr.Body.Code != "SCROLL_FAILED" || workerErr.Body.Step != "scroll" {
+		return result, err
+	}
+	var evidence struct {
+		Attempts  int      `json:"attempts"`
+		Remaining *float64 `json:"remaining_distance"`
+	}
+	if json.Unmarshal(workerErr.Body.Details, &evidence) != nil || evidence.Attempts != request.MaxAttempts || evidence.Remaining == nil || *evidence.Remaining < 0 {
+		return result, err
+	}
+	// 只补一次，不递归；远距离按剩余距离的四分之一调节步长，最多10000，临近目标仍由Worker几何收小。
+	// 沿用绑定公开编号的选择器，元素换序或消失仍交由Worker正常报错。
+	request.Distance = max(request.Distance, int(math.Ceil(math.Min(*evidence.Remaining/4, 10000))))
+	request.MaxAttempts = 40 // 给远距离减速后的像素级收尾留足轮数；整次仍最多一段，不循环。
+	return browser.Scroll(ctx, request)
 }
 
 // AdvanceCandidateList 通过公共真实滚轮能力加载更多前程无忧候选人。

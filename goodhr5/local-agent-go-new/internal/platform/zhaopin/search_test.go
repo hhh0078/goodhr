@@ -162,8 +162,8 @@ func TestSearchConfigPreservesRecommendSelectors(t *testing.T) {
 		}
 	}
 	list := cfg.Selectors["candidate.list"].Variants()
-	if len(list) != 2 || list[0].Target.Selectors[0].Value != ".search-resume-list" || list[1].Target.Selectors[len(list[1].Target.Selectors)-1].Value != "body" {
-		t.Fatalf("搜索页应使用自己的列表落点，推荐页保留原 body 兜底：%+v", list)
+	if len(list) != 2 || list[0].Target.Selectors[0].Value != ".search-result" || list[1].Target.Selectors[len(list[1].Target.Selectors)-1].Value != "body" {
+		t.Fatalf("搜索页滚轮区域须包含名单和同级分页栏，推荐页保留原 body 兜底：%+v", list)
 	}
 	searchItem := cfg.Selectors["position.item"].Variants()[1].Target.Selectors[0].Value
 	if !strings.Contains(searchItem, ":visible") || !strings.Contains(searchItem, ":not(:has(.app-job-selector__job:text-is('不限')))") {

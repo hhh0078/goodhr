@@ -37,7 +37,7 @@ func sendMessage(ctx context.Context, browser model.Browser, cfg model.Config, i
 		if ctx.Err() != nil {
 			return errors.Join(buttonErr, ctx.Err())
 		}
-		if result.Clicked || !cfg.Behavior.MessageSendEnterFallback || !messageClickNotStarted(err) {
+		if result.Clicked || !cfg.Behavior.MessageSendEnterFallback || !ClickNotStarted(err) {
 			return buttonErr
 		}
 		// 查找或移动失败后重新聚焦原输入框，不重新输入，避免改动或重复消息内容。
@@ -66,8 +66,8 @@ func sendMessage(ctx context.Context, browser model.Browser, cfg model.Config, i
 	return nil
 }
 
-// messageClickNotStarted 根据 Worker 的点击阶段判断是否能安全兜底，浏览器中断和不确定结果不得重发。
-func messageClickNotStarted(err error) bool {
+// ClickNotStarted 根据 Worker 的点击阶段判断是否可以重新定位或安全兜底，浏览器中断和不确定结果不得重发。
+func ClickNotStarted(err error) bool {
 	if contract.IsSessionUnavailable(err) {
 		return false
 	}
