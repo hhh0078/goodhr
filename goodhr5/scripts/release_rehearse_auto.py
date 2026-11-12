@@ -1,4 +1,4 @@
-"""文件作用：隔离验收冻结的自动回复及全站统计迁移，逐字段保护旧数据并验证完整旧应用回退。"""
+"""文件作用：自动发现并隔离验收本次镜像的新迁移，逐字段保护旧数据并验证完整旧应用回退。"""
 
 import hashlib
 import json
@@ -21,27 +21,28 @@ LIBRARY = "system.auto_reply_library"
 
 
 def check_archives(candidate, rollback, ledger, source):
-    """check_archives 只允许冻结的整组19份迁移，旧SQL逐字节不变且镜像、源码和固定SHA一致。"""
-    require(set(candidate) - set(ledger) == set(APPROVED) and not set(APPROVED) & set(ledger),
-            "当前升级不匹配已冻结的19份迁移，保留线上旧版")
-    require(set(rollback) == set(ledger) and set(candidate) == set(rollback) | set(APPROVED),
+    """check_archives 从干净源码和候选镜像自动冻结新增SQL，旧SQL逐字节不变，不依赖人工名单。"""
+    require(ledger and rollback and set(rollback) <= set(ledger) <= set(candidate),
             "候选、回退与实际账本的迁移集合不符")
     require(all(candidate[name] == value for name, value in rollback.items()), "既有迁移SQL被修改")
-    for name, digest in APPROVED.items():
+    source_files = {path.name: path for path in source.glob("*.sql") if not path.name.endswith(".down.sql")}
+    require(set(candidate) == set(source_files), "候选镜像没有完整携带本次源码迁移")
+    for name, value in candidate.items():
         require(re.fullmatch(r"[0-9]{4}_[a-z0-9_]+\.sql", name) is not None
-                and hashlib.sha256(candidate[name]).hexdigest() == digest
-                and hashlib.sha256((source / name).read_bytes()).hexdigest() == digest,
-                "待迁移SQL不匹配冻结摘要：" + name)
+                and not source_files[name].is_symlink() and source_files[name].read_bytes() == value,
+                "镜像内迁移与本次干净源码不一致：" + name)
+    return {name: hashlib.sha256(candidate[name]).hexdigest() for name in sorted(set(candidate) - set(rollback))}
 
 
-def check_ledger(before, after, start, end):
-    """check_ledger 精确保留旧账本全部字段，只追加冻结迁移并核对真实执行窗口。"""
+def check_ledger(before, after, start, end, migrations):
+    """check_ledger 精确保留旧账本全部字段，只追加本次自动冻结的迁移并核对真实执行窗口。"""
     old = {row["filename"]: row for row in before}
     new = {row["filename"]: row for row in after}
     require(len(old) == len(before) and len(new) == len(after)
-            and set(new) == set(old) | set(APPROVED), "升级账本数量或集合不符")
+            and not set(old) & set(migrations)
+            and set(new) == set(old) | set(migrations), "升级账本数量或集合不符")
     require(all(new[name] == row for name, row in old.items()), "旧迁移账本或原执行时间改变")
-    for name in APPROVED:
+    for name in migrations:
         require(set(new[name]) == set(before[0]), "新增迁移账本字段异常")
         in_window(new[name]["applied_at"], start, end)
 
@@ -69,9 +70,9 @@ def check_library(before, after, sql, start, end):
 
 
 class AutomaticUpgradeRehearsal(ScreeningRehearsal):
-    """复用既有备份、隔离网络、只读配对探测、回退登记和精确收尾，仅增加固定19份迁移验收。"""
+    """复用备份、隔离网络、只读配对探测和回退登记，新增SQL自动按本次源码冻结后验收。"""
 
-    migrations = tuple(sorted(APPROVED))
+    migrations = ()
 
     def library_rows(self):
         """library_rows 仅在内存读取唯一种子记录，不把用户话术或其他配置值写入日志。"""
@@ -80,34 +81,27 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
             "WHERE config_key='system.auto_reply_library';").decode().splitlines()]
 
     def restore(self):
-        """restore 将完整备份恢复到内部PG，执行冻结SQL并验证旧字段、完整账本、精确DDL和种子例外。"""
-        require(self.additive is None, "固定自动升级不得混用其他迁移例外")
+        """restore 在内部PG自动试跑本次新SQL，保护旧字段和账本，历史默认话术种子继续按原摘要单独核验。"""
+        require(self.additive is None, "自动升级不得混用其他迁移例外")
         Rehearsal.restore(self)
         self.before_filenames, self.before_fingerprint = list(self.filenames), self.fingerprint
         self.before_ledger, self.before_schema = self.ledger_records(), self.database_schema()
         candidate = self.migration_archive(self.candidate["backend"], "candidate")
         rollback = self.migration_archive(self.rollback["backend"], "rollback")
         source = Path(self.args.source_root) / "cloud/backend/db/migrations"
-        require(all((source / name).read_bytes() == value for name, value in candidate.items()),
-                "镜像内SQL与干净源码不一致")
-        if set(candidate) == set(self.filenames):
-            missing = set(candidate) - set(rollback)
-            require(set(rollback) <= set(candidate) and missing <= set(APPROVED)
-                    and all(candidate[name] == value for name, value in rollback.items())
-                    and all(hashlib.sha256(candidate[name]).hexdigest() == APPROVED[name] for name in missing),
-                    "已迁移数据库与完整旧应用的SQL范围尚未核验")
-            self.migrations = ()
-            self.approved = {name: APPROVED[name] for name in sorted(missing)}
-            self.before_filenames = sorted(rollback)
+        self.approved = check_archives(candidate, rollback, self.before_filenames, source)
+        self.migrations = tuple(sorted(set(candidate) - set(self.before_filenames)))
+        self.before_filenames = sorted(rollback)
+        if not self.migrations:
             self.migrated_schema, self.migrated_ledger = self.before_schema, self.before_ledger
             self.psql("REVOKE CREATE ON SCHEMA public FROM rehearsal_app;")
             return
-        check_archives(candidate, rollback, self.before_filenames, source)
-        self.approved = dict(APPROVED)
+        library_migration = "0121_auto_reply_wechat_defaults.sql"
+        library_upgrade = library_migration in self.migrations and self.approved[library_migration] == APPROVED[library_migration]
         columns = {name.replace(".", "\t", 1): [col["name"] for col in value["columns"]]
                    for name, value in self.before_schema["tables"].items() if name != "public.schema_migrations"}
-        baseline = self.database_snapshot(columns, preserve_default_library=True)
-        before_library = self.library_rows()
+        baseline = self.database_snapshot(columns, preserve_default_library=library_upgrade)
+        before_library = self.library_rows() if library_upgrade else None
         statements = ["BEGIN;"]
         for name in self.migrations:
             statements.extend([candidate[name].decode(),
@@ -117,10 +111,11 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         start = self.psql("SELECT clock_timestamp()::text;").decode().strip()
         self.psql("\n".join(statements))
         end = self.psql("SELECT clock_timestamp()::text;").decode().strip()
-        assert_preserved(baseline, self.database_snapshot(columns, preserve_default_library=True))
+        assert_preserved(baseline, self.database_snapshot(columns, preserve_default_library=library_upgrade))
         ledger, schema = self.ledger_records(), self.database_schema()
-        check_ledger(self.before_ledger, ledger, start, end)
-        check_library(before_library, self.library_rows(), candidate["0121_auto_reply_wechat_defaults.sql"].decode(), start, end)
+        check_ledger(self.before_ledger, ledger, start, end, self.migrations)
+        if library_upgrade:
+            check_library(before_library, self.library_rows(), candidate[library_migration].decode(), start, end)
         require(schema == expected_schema, "恢复库DDL与同一固定SQL的结构参考库不一致")
         self.psql("GRANT SELECT ON ALL TABLES IN SCHEMA public TO rehearsal_app; "
                   "REVOKE CREATE ON SCHEMA public FROM rehearsal_app;")
@@ -129,7 +124,7 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         self.migrated_schema, self.migrated_ledger = schema, ledger
         save_json(self.directory / "automatic-upgrade.json", {
             "approved_sha256": self.approved, "old_projected_data_preserved": True,
-            "default_library_verified": True, "old_ledger_preserved": True,
+            "default_library_verified": library_upgrade, "old_ledger_preserved": True,
             "schema_verified": True, "execution": "fixed_image_sql_in_restored_database",
             "application_read_only": True, "before_fingerprint": self.before_fingerprint,
             "after_fingerprint": self.fingerprint,

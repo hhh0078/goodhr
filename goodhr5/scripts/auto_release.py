@@ -2,9 +2,9 @@
 
 import argparse
 import datetime as dt
-import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -17,7 +17,6 @@ import urllib.request
 from release_activate import COMMIT, TAG, DockerEngine, save_json
 from release_cutover import CutoverError, require
 from release_rehearse import IDENTIFIER, command, dsn_database
-from release_rehearse_auto import APPROVED
 from release_retention import digest_file
 import release_hygiene as hygiene
 
@@ -50,12 +49,10 @@ def current_release(containers, commit):
 
 
 def pending_migrations(source, ledger):
-    """pending_migrations 只自动接受零迁移或整组冻结升级；缺失、修改及未知新迁移均在构建前停止。"""
+    """pending_migrations 自动发现新迁移，不要求人工登记；缺失账本和异常文件名仍停止，内容留给镜像隔离验收。"""
     require(ledger and len(ledger) == len(set(ledger)) and set(ledger) <= set(source), "源码与生产迁移账本不一致")
     pending = set(source) - set(ledger)
-    require(not pending or pending == set(APPROVED), "有尚未登记隔离验收的新迁移，线上保留旧版")
-    require(all(hashlib.sha256(source[name]).hexdigest() == APPROVED[name] for name in pending),
-            "迁移摘要与已审阅的固定升级不一致")
+    require(all(re.fullmatch(r"[0-9]{4}_[a-z0-9_]+\.sql", name) for name in pending), "新增迁移文件名不规范")
     return sorted(pending)
 
 

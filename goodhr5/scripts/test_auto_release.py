@@ -430,18 +430,43 @@ class MigrationGateTests(unittest.TestCase):
         """source 读取实际冻结SQL，测试不会通过伪造迁移证据绕开摘要门禁。"""
         return {name: (ROOT / "cloud/backend/db/migrations" / name).read_bytes() for name in APPROVED}
 
-    def test_unknown_or_changed_migration_is_rejected(self):
-        """只允许已审阅整组迁移，任意新增文件或一字节改动均应在构建前拒绝。"""
+    def test_new_migrations_do_not_require_manual_registration(self):
+        """已提交的新SQL直接进入副本验收，不再要求预先编辑固定名单。"""
         source = self.source()
         source["0001_base.sql"] = b"base"
         self.assertEqual(pending_migrations(source, ["0001_base.sql"]), sorted(APPROVED))
         source["9999_unknown.sql"] = b"unknown"
-        with self.assertRaises(CutoverError):
-            pending_migrations(source, ["0001_base.sql"])
-        del source["9999_unknown.sql"]
+        self.assertEqual(pending_migrations(source, ["0001_base.sql"]), sorted([*APPROVED, "9999_unknown.sql"]))
         source[next(iter(APPROVED))] += b" changed"
+        self.assertIn("9999_unknown.sql", pending_migrations(source, ["0001_base.sql"]))
+        for ledger in ([], ["missing.sql"], ["0001_base.sql", "0001_base.sql"]):
+            with self.assertRaises(CutoverError):
+                pending_migrations(source, ledger)
+        source["9999_bad'name.sql"] = b"invalid filename"
         with self.assertRaises(CutoverError):
             pending_migrations(source, ["0001_base.sql"])
+
+    def test_automatic_archive_binding_and_already_migrated_database(self):
+        """未登记的新SQL绑定源码与镜像；已执行的同名迁移不重跑，修改旧SQL或源码不一致仍拒绝。"""
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            previous = {"0001_base.sql": b"old schema"}
+            candidate = {**previous, "0125_new_identity.sql": b"CREATE TABLE identities(id INT);"}
+            for name, value in candidate.items():
+                (source / name).write_bytes(value)
+            expected = {"0125_new_identity.sql": hashlib.sha256(candidate["0125_new_identity.sql"]).hexdigest()}
+            self.assertEqual(check_archives(candidate, previous, list(previous), source), expected)
+            self.assertEqual(check_archives(candidate, previous, list(candidate), source), expected)
+            self.assertEqual(check_archives(candidate, candidate, list(candidate), source), {})
+            with self.assertRaises(CutoverError):
+                check_archives(dict(candidate, **{"0001_base.sql": b"changed"}), previous, list(previous), source)
+            (source / "0125_new_identity.sql").write_bytes(b"different source")
+            with self.assertRaises(CutoverError):
+                check_archives(candidate, previous, list(previous), source)
+            (source / "0125_new_identity.sql").write_bytes(candidate["0125_new_identity.sql"])
+            (source / "0126_not_packaged.sql").write_bytes(b"extra")
+            with self.assertRaises(CutoverError):
+                check_archives(candidate, previous, list(previous), source)
 
     def test_existing_sql_cannot_change(self):
         """候选不允许修改回退镜像已经携带的旧SQL。"""
@@ -454,11 +479,21 @@ class MigrationGateTests(unittest.TestCase):
         """追加新账本并不能掩盖原账本执行时间被修改。"""
         before = [{"filename": "0001_base.sql", "applied_at": "2020-01-01T00:00:00Z"}]
         after = before + [{"filename": name, "applied_at": "2026-11-11T00:00:01Z"} for name in APPROVED]
-        check_ledger(before, after, "2026-11-11T00:00:00Z", "2026-11-11T00:00:02Z")
+        check_ledger(before, after, "2026-11-11T00:00:00Z", "2026-11-11T00:00:02Z", APPROVED)
         after = copy.deepcopy(after)
         after[0]["applied_at"] = "2026-11-11T00:00:01Z"
         with self.assertRaises(CutoverError):
-            check_ledger(before, after, "2026-11-11T00:00:00Z", "2026-11-11T00:00:02Z")
+            check_ledger(before, after, "2026-11-11T00:00:00Z", "2026-11-11T00:00:02Z", APPROVED)
+
+    def test_unregistered_migration_must_preserve_exact_ledger(self):
+        """动态迁移只允许追加本次文件，漏写、多写、越过执行时间或修改旧行都失败。"""
+        before = [{"filename": "0001_base.sql", "applied_at": "2020-01-01T00:00:00Z"}]
+        new = {"filename": "0125_new_identity.sql", "applied_at": "2026-11-11T00:00:01Z"}
+        check_ledger(before, before + [new], "2026-11-11T00:00:00Z", "2026-11-11T00:00:02Z", [new["filename"]])
+        for after in (before, before + [new, new], before + [dict(new, filename="0126_other.sql")],
+                      before + [dict(new, applied_at="2020-01-01T00:00:00Z")]):
+            with self.assertRaises(CutoverError):
+                check_ledger(before, after, "2026-11-11T00:00:00Z", "2026-11-11T00:00:02Z", [new["filename"]])
 
     def test_custom_or_empty_library_must_remain_exact(self):
         """用户清空的话术和所有原字段必须原样保留，不能用默认升级覆盖。"""

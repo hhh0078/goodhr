@@ -1,5 +1,5 @@
 {
-  "_description": "文件作用：冻结本次主分支到正式环境的19份已审阅迁移；未登记的新迁移停止自动切换，须随功能提交专属验收。",
+  "_description": "文件作用：保留历史19份升级的种子数据例外与旧版本兼容摘要；新迁移不再依赖人工登记，自动从本次源码和镜像冻结并隔离验收。",
   "bootstrap_migrations": {
     "0104_auto_reply_configuration.sql": "f7301f2ef9b34f93f9ef261c6acbc9c08576713396fe7c076438ee2b6e5531bf",
     "0105_auto_reply_result_summaries.sql": "b1a793e5b9bb87bb73c41247074c11f47f87ac621d8a704a73e56d22281949fe",
