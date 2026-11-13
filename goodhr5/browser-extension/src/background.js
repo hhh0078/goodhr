@@ -14,6 +14,8 @@ let authGeneration = 0, revokeInFlight = null, lastRevokeAttempt = 0;
 const duplicateCache = new Map(), captureTimers = new Map();
 let draftQueue = Promise.resolve();
 const refreshRequests = new Map();
+// 使用时续满30天；五分钟内的界面轮询和连续操作复用刚续期的凭证。
+const SESSION_RENEW_WINDOW_MS = (30 * 24 * 60 - 5) * 60 * 1000;
 let updateInFlight = null, updateInitialization = null, updateCheckedAt = 0, knownUpdate = null;
 const VERSION_WRITES = new Set(["CREATE", "UPDATE", "AVATAR_RETRY", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_RETRY", "SUMMARY_SAVE", "ATTACHMENT_START"]);
 
@@ -154,9 +156,20 @@ async function logout() {
   return retryRevocation(true);
 }
 
-/** cloudRequest 请求插件受限接口，过期时最多刷新一次，不自动重放业务失败。 */
+/** renewSessionIfNeeded 使用已有登录时提前续满30天，复用并发续期且不恢复已退出的账号。
+ * @param {number} generation - 发起使用操作时的账号代次。
+ * @returns {Promise<void>} 等待需要的续期完成；临时故障由调用方提示重试。
+ */
+async function renewSessionIfNeeded(generation = authGeneration) {
+  const settings = await readSettings(), expiresAt = Date.parse(settings.session?.expires_at || "");
+  if (generation !== authGeneration) throw new Error("账号已经变化，不会恢复旧账号登录");
+  if (settings.session?.token && Number.isFinite(expiresAt) && expiresAt - Date.now() <= SESSION_RENEW_WINDOW_MS) await refreshSession(settings.session.token, generation);
+}
+
+/** cloudRequest 请求插件受限接口前提前续期，401最多重试一次，不自动重放其他业务失败。 */
 async function cloudRequest(path, body, method, retry = true, expectedGeneration = authGeneration) {
   const generation = expectedGeneration;
+  if (retry) await renewSessionIfNeeded(generation);
   const settings = await readSettings();
   if (generation !== authGeneration) throw new Error("账号已经变化，本次操作已停止，请确认账号后重新保存");
   if (!settings.session?.token) throw new Error("我先小声提醒一下，请先登录 GoodHR");
@@ -167,9 +180,7 @@ async function cloudRequest(path, body, method, retry = true, expectedGeneration
   } catch (error) {
     if (error.status === 401 && retry && path !== "/api/auth/extension-refresh") {
       if (generation !== authGeneration) throw new Error("账号已经变化，本次操作已停止，请确认账号后重新保存");
-      try {
-        await refreshSession(settings.session.token, generation);
-      } catch { if ((await readSettings()).session?.token === settings.session.token) await extension.storage.local.remove("session"); throw new Error("登录已经过期，请重新登录，我保留了当前表单"); }
+      await refreshSession(settings.session.token, generation);
       return cloudRequest(path, body, method, false, generation);
     }
     throw error;
@@ -187,7 +198,16 @@ async function refreshSession(oldToken, generation) {
     pending = (async () => { const result = await requestJSON(shared.CLOUD_BASE + "/api/auth/extension-refresh", { method: "POST", headers: { Authorization: `Bearer ${oldToken}` }, body: "{}" }); await storeSession(result, generation); })();
     refreshRequests.set(key, pending);
   }
-  try { await pending; } finally { if (refreshRequests.get(key) === pending) refreshRequests.delete(key); }
+  try { await pending; }
+  catch (error) {
+    // 只有服务端明确拒绝凭证才清理登录；断网、超时和服务故障保留凭证供重试。
+    if (error.status === 401) {
+      const current = await readSettings();
+      if (generation === authGeneration && current.session?.token === oldToken) await extension.storage.local.remove("session");
+      throw Object.assign(new Error("登录已经过期，请重新登录，我保留了当前表单"), { status: 401 });
+    }
+    throw error;
+  } finally { if (refreshRequests.get(key) === pending) refreshRequests.delete(key); }
 }
 
 /** localBase 仅允许本机 127.0.0.1 的合法端口作为配对目标。 */
@@ -324,7 +344,9 @@ async function prepareAvatar(captureID, sourceTab = null) {
 
 /** publicState 返回不含 token、配对令牌、挑战值的界面状态。 */
 async function publicState(sourceTab = null) {
-  await retryRevocation(); await tryRestore(); const settings = await readSettings();
+  await retryRevocation(); await tryRestore();
+  try { await renewSessionIfNeeded(); } catch { /* 临时故障不阻止显示账号或草稿；业务操作会再次续期并明确提示错误。 */ }
+  const settings = await readSettings();
   return { logged_in: Boolean(settings.session?.token), account_key: accountKey(settings), paired: Boolean(settings.pairing_token && !settings.pending_revoke), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), auto_close_after_save: settings.auto_close_after_save !== false, resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version, update: await checkUpdate() };
 }
 

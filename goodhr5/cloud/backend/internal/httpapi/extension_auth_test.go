@@ -59,6 +59,42 @@ func TestExtensionSessionCannotReplaceAgentConnection(t *testing.T) {
 	}
 }
 
+// TestExtensionSessionRenewsAnotherThirtyDays 验证第29天续期后重新获得完整30天，且可重复续期而非固定总时长。
+func TestExtensionSessionRenewsAnotherThirtyDays(t *testing.T) {
+	const lifetime = 30 * 24 * time.Hour
+	if extensionSessionTTL != lifetime {
+		t.Fatalf("plugin session lifetime = %s, want %s", extensionSessionTTL, lifetime)
+	}
+	store := NewMemoryAuthStore()
+	now := time.Now()
+	store.now = func() time.Time { return now }
+	token := "thirty-day-session"
+	if err := store.SaveSession(token, Session{Email: "test@example.com", Kind: extensionSessionKind}, extensionSessionTTL); err != nil {
+		t.Fatal(err)
+	}
+	auth := &AuthService{store: store}
+	for round := 0; round < 2; round++ {
+		now = now.Add(29 * 24 * time.Hour)
+		w := requestExtensionSessionOperation(auth.ExtensionRefresh, token)
+		if w.Code != http.StatusOK {
+			t.Fatalf("round %d refresh: status=%d body=%s", round, w.Code, w.Body.String())
+		}
+		var result extensionLoginResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		token = result.AccessToken
+		session, err := store.GetSession(token)
+		if err != nil || !session.ExpiresAt.Equal(now.Add(lifetime)) {
+			t.Fatalf("round %d expiry=%s, want=%s err=%v", round, session.ExpiresAt, now.Add(lifetime), err)
+		}
+	}
+	now = now.Add(lifetime)
+	if w := requestExtensionSessionOperation(auth.ExtensionRefresh, token); w.Code != http.StatusUnauthorized {
+		t.Fatalf("expired session renewed: status=%d", w.Code)
+	}
+}
+
 // TestExtensionRefreshAndLogoutConsumeOldSession 验证续期旧凭证只能使用一次，退出后不能复活且网页凭证不会被消费。
 func TestExtensionRefreshAndLogoutConsumeOldSession(t *testing.T) {
 	store := NewMemoryAuthStore()

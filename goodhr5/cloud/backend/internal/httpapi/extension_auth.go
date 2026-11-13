@@ -12,7 +12,7 @@ import (
 )
 
 const extensionSessionKind = "browser_extension"
-const extensionSessionTTL = 7 * 24 * time.Hour
+const extensionSessionTTL = 30 * 24 * time.Hour
 
 // extensionLoginResponse 保存既有登录接口返回的凭证，凭证降权后才允许交付插件。
 type extensionLoginResponse struct {

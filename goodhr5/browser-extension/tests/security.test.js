@@ -4,7 +4,7 @@ const test = require("node:test"), assert = require("node:assert/strict"), fs = 
 const src = path.join(__dirname, "..", "src");
 
 /** backgroundFixture 构造后台执行环境和无真实网络的受限会话。 */
-function backgroundFixture(fetchReply) {
+function backgroundFixture(fetchReply, clock = null) {
   const values = { session: { token: "private-background-token", user: { email: "fixture@example.test", id: "fixture" }, expires_at: "2030-01-01" } }, requests = [], versionRequests = []; let listener, connectListener;
   const extension = {
     runtime: { id: "test-extension", getURL: (value) => "chrome-extension://test-extension/" + value, getManifest: () => ({ version: require("../package.json").version }), onMessage: { addListener: (handler) => { listener = handler; } }, onConnect: { addListener: (handler) => { connectListener = handler; } } },
@@ -12,7 +12,9 @@ function backgroundFixture(fetchReply) {
     tabs: { query: async () => [], create: async () => ({}), onRemoved: { addListener: () => {} }, onUpdated: { addListener: () => {} } },
     action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {}, setTitle: () => {} }
   };
-  const context = vm.createContext({ chrome: extension, URL, AbortSignal, crypto: crypto.webcrypto, Uint8Array, TextEncoder, console, setTimeout, clearTimeout, fetch: async (url, options) => { if (new URL(url).pathname === "/api/system/browser-extension") { versionRequests.push({ url, options }); return response({ release: { version: extension.runtime.getManifest().version } }); } requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
+  /** FixtureDate 使用可推进的时钟验证跨月续期，不等待真实日期变化。 */
+  class FixtureDate extends Date { static now() { return clock ? clock.now : Date.now(); } }
+  const context = vm.createContext({ chrome: extension, URL, AbortSignal, Date: FixtureDate, crypto: crypto.webcrypto, Uint8Array, TextEncoder, console, setTimeout, clearTimeout, fetch: async (url, options) => { if (new URL(url).pathname === "/api/system/browser-extension") { versionRequests.push({ url, options }); return response({ release: { version: extension.runtime.getManifest().version } }); } requests.push({ url, options }); return fetchReply ? fetchReply(url, options) : response({ ok: true, matches: [], token: "refreshed", user: { email: "fixture@example.test" } }); } });
   for (const file of ["shared.js", "avatar.js", "boss-vue-avatar.js", "background.js"]) vm.runInContext(fs.readFileSync(path.join(src, file), "utf8"), context);
   return { values, requests, versionRequests, context, extension, connect: (port) => connectListener(port), message: (message, sender) => new Promise((resolve) => { const result = listener(message, sender, resolve); if (result === false) resolve(undefined); }) };
 }
@@ -550,6 +552,65 @@ test("业务请求仅向生产 HTTPS 域名，凭证在后台 Bearer 头且不�
   const value = backgroundFixture(); value.values.data_use_accepted = true;
   const result = await value.message({ type: "DUPLICATES", payload: { resume: { candidate_name: "测试", phone: "13812345678", platform_id: "hliepin" } } }, { id: "test-extension", url: "chrome-extension://test-extension/src/ui.html" });
   assert.equal(result.ok, true); assert.equal(value.requests.length, 1); assert.equal(value.requests[0].url, "https://goodhr.58it.cn/api/candidates/duplicates"); assert.equal(value.requests[0].options.headers.Authorization, "Bearer private-background-token"); assert.equal(value.requests[0].options.redirect, "error");
+});
+
+test("第29天打开插件续满30天，下一轮第29天业务请求仍可再次续满", async () => {
+  const day = 24 * 60 * 60 * 1000, clock = { now: Date.parse("2026-01-01T00:00:00Z") };
+  let refreshCount = 0;
+  const value = backgroundFixture((url) => url.endsWith("/extension-refresh") ? response({ token: `renewed-${++refreshCount}`, user: { id: "fixture", email: "fixture@example.test" }, expires_at: new Date(clock.now + 30 * day).toISOString() }) : response({ positions: [] }), clock);
+  value.values.session.expires_at = new Date(clock.now + 30 * day).toISOString();
+  clock.now += 29 * day;
+  const state = await value.message({ type: "STATE" }, uiSender);
+  assert.equal(state.ok, true); assert.equal(state.data.logged_in, true); assert.equal(refreshCount, 1);
+  assert.equal(Date.parse(state.data.expires_at), clock.now + 30 * day);
+  await value.message({ type: "STATE" }, uiSender); assert.equal(refreshCount, 1, "同一时刻的轮询不重复续期");
+  clock.now += 29 * day;
+  const result = await value.message({ type: "POSITIONS" }, uiSender);
+  assert.equal(result.ok, true); assert.equal(refreshCount, 2); assert.equal(Date.parse(value.values.session.expires_at), clock.now + 30 * day);
+  assert.deepEqual(value.requests.map(({ url }) => new URL(url).pathname), ["/api/auth/extension-refresh", "/api/auth/extension-refresh", "/api/positions"]);
+});
+
+test("尚未过期的旧7天登录使用时升级为30天，并发业务请求只续期一次", async () => {
+  const clock = { now: Date.parse("2026-01-07T00:00:00Z") };
+  let refreshCount = 0;
+  const value = backgroundFixture(async (url) => {
+    if (!url.endsWith("/extension-refresh")) return response({ positions: [] });
+    refreshCount++; await new Promise((resolve) => setTimeout(resolve, 10));
+    return response({ token: "upgraded-30-days", user: { id: "fixture", email: "fixture@example.test" }, expires_at: new Date(clock.now + 30 * 86400000).toISOString() });
+  }, clock);
+  value.values.session.expires_at = "2026-01-08T00:00:00Z";
+  const results = await Promise.all([value.message({ type: "POSITIONS" }, uiSender), value.message({ type: "POSITIONS" }, uiSender)]);
+  assert.ok(results.every((result) => result.ok)); assert.equal(refreshCount, 1);
+  assert.ok(value.requests.filter(({ url }) => !url.endsWith("/extension-refresh")).every(({ options }) => options.headers.Authorization === "Bearer upgraded-30-days"));
+});
+
+test("主动续期及401后的续期遇到断网或服务故障都保留登录，恢复后可重试", async () => {
+  for (const proactive of [false, true]) for (const status of [0, 500]) {
+    let recovered = false;
+    const value = backgroundFixture((url) => {
+      if (url.endsWith("/extension-refresh")) {
+        if (recovered) return response({ token: "recovered-session", user: { id: "fixture", email: "fixture@example.test" }, expires_at: new Date(Date.now() + 30 * 86400000).toISOString() });
+        if (!status) throw new TypeError("synthetic network unavailable");
+        return response({ message: "synthetic server unavailable" }, status);
+      }
+      return recovered || proactive ? response({ positions: [] }) : response({ message: "synthetic unauthorized" }, 401);
+    });
+    if (proactive) value.values.session.expires_at = new Date(Date.now() + 86400000).toISOString();
+    const result = await value.message({ type: "POSITIONS" }, uiSender);
+    assert.equal(result.ok, false); assert.equal(value.values.session.token, "private-background-token");
+    const state = await value.message({ type: "STATE" }, uiSender); assert.equal(state.ok, true); assert.equal(state.data.logged_in, true);
+    recovered = true;
+    if (!proactive) value.values.session.expires_at = new Date(Date.now() + 86400000).toISOString();
+    assert.equal((await value.message({ type: "POSITIONS" }, uiSender)).ok, true); assert.equal(value.values.session.token, "recovered-session");
+  }
+});
+
+test("续期确认失效才清理登录，超过30天未使用不会复活旧凭证", async () => {
+  const value = backgroundFixture(() => response({ message: "synthetic expired session" }, 401));
+  value.values.session.expires_at = new Date(Date.now() - 86400000).toISOString();
+  const result = await value.message({ type: "POSITIONS" }, uiSender);
+  assert.equal(result.ok, false); assert.equal(result.status, 401); assert.equal(value.values.session, undefined);
+  assert.equal(value.requests.length, 1); assert.ok(value.requests[0].url.endsWith("/extension-refresh"));
 });
 
 test("备注和推荐并发401只消费旧token一次，两个请求共用新session", async () => {
