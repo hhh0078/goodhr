@@ -12,7 +12,7 @@
 
 签名版在 Firefox 重启后仍会保留。GoodHR 本地程序也会在启动时校验并准备最新版签名插件，供 GoodHR 自带的 Firefox 自动加载。
 
-本次构建的是 **1.0.19 未签名测试包**，文件名包含 `unsigned`，不能按正式 XPI 安装，也不会替换上述签名更新配置。测试时打开 `about:debugging#/runtime/this-firefox`，点“临时载入附加组件”，选择未签名 `.xpi`（或解压后选择 `manifest.json`）。浏览器重启后需重新临时加载，不要把测试包当成正式签名包。
+本次构建的是 **1.0.20 未签名测试包**，文件名包含 `unsigned`，不能按正式 XPI 安装，也不会替换上述签名更新配置。测试时打开 `about:debugging#/runtime/this-firefox`，点“临时载入附加组件”，选择未签名 `.xpi`（或解压后选择 `manifest.json`）。浏览器重启后需重新临时加载，不要把测试包当成正式签名包。
 
 ## 使用方式
 
