@@ -160,7 +160,7 @@ export default function WechatLogin({ agreementAccepted, onAgreementChange, onAg
           : loading && !challenge ? <Spin aria-label="正在准备登录码" />
           : challenge && (status === "expired" || remaining === 0) ? <div className={styles.cover}><Typography.Text strong>登录码过期了</Typography.Text></div> : null}
       </div>
-      <Typography.Text strong className={styles.heading}>使用微信扫码，将下面的数字发送给公众号。</Typography.Text>
+      <Typography.Text strong className={styles.heading}>使用微信扫码关注公众号，将下面的数字发送给公众号。</Typography.Text>
       {agreementAccepted && challenge ? <div className={styles.codeRow}>
         <Typography.Text className={styles.code} style={{ fontSize: 24, fontWeight: 700, color: "var(--ant-color-error, #c83f49)" }} aria-label="微信登录码">{challenge.login_code}</Typography.Text>
         <span className={styles.countdown}>
