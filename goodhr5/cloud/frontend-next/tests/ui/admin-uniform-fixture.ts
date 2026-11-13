@@ -98,8 +98,8 @@ export async function mockUniformAdmin(page: Page, empty = false, withMessages =
     }
     if (method === "OPTIONS") return fulfillFixture(204);
     state.calls.push({ path, method, query: url.search, origin: url.origin });
-    // 后台初始化会自动绑定本地会话；仅对此合成握手回包，不执行真实绑定或任何任务操作。
-    if (method === "POST" && path === "/api/v1/session/bind") return fulfillFixture(200, { ok: true, email: "uniform@example.invalid" });
+    // 后台初始化会绑定本地会话并同步云端会话；仅模拟这两种握手，不执行真实绑定或任务操作。
+    if (method === "POST" && ["/api/v1/session/bind", "/api/v1/cloud/session"].includes(path)) return fulfillFixture(200, { ok: true, email: "uniform@example.invalid" });
     // 会话初始化上报引导状态也使用固定回包，合成记录不发往云端。
     if (method === "POST" && path === "/api/user-flow") return fulfillFixture(200, { ok: true, flow: { version: 2, state: "completed", stage: "completed", steps: {} } });
     // 公开页面尺寸回归通过真正的登录表单写入合成token，不使用初始化脚本注入存储。

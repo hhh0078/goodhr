@@ -150,3 +150,22 @@
     gap: 20px;
   }
 }
+
+/* 平台专题复用阅读布局，新增教程入口与底部试用区，不改变原有专题尺寸。 */
+.public-marketing:has(.platform-guide) .public-marketingshell-7 { max-width: 1100px; font-size: clamp(32px, 4vw, 52px); line-height: 1.25; }
+.public-marketing:has(.platform-guide) .public-marketingshell-6 { color: var(--goodhr-primary-dark, #0f754a); }
+.platform-guide-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 24px; }
+.platform-guide-tutorial,
+.platform-guide-start { display: flex; align-items: center; justify-content: space-between; gap: 28px; padding: 28px; border: 1px solid var(--goodhr-border, #dce5e0); border-radius: 8px; }
+.platform-guide-tutorial { margin-top: 28px; background: #fff; }
+.platform-guide-start { margin-top: 48px; background: var(--goodhr-primary-soft, #edf7f1); }
+.platform-guide-start h2 { margin: 0 0 12px; font-size: 25px; line-height: 1.5; }
+.platform-guide-tutorial .recruitment-guide-button,
+.platform-guide-start .recruitment-guide-button { flex-shrink: 0; }
+.platform-guide-navigation { display: flex; flex-wrap: wrap; gap: 12px 28px; }
+.platform-guide-navigation a { display: inline-flex; align-items: center; min-height: 44px; font-size: 16px; }
+@media (max-width: 599px) {
+  .platform-guide-tools { grid-template-columns: 1fr; }
+  .platform-guide-tutorial,
+  .platform-guide-start { flex-direction: column; align-items: stretch; padding: 20px; gap: 20px; }
+}

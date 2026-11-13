@@ -80,6 +80,21 @@
   padding: 10px 0;
   color: var(--goodhr-primary-dark, #0f754a);
 }
+.public-platform-guide-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 8px;
+  color: var(--goodhr-primary-dark, #0f754a);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.public-platform-guide-link:focus-visible {
+  outline: 3px solid var(--goodhr-primary-dark, #0f754a);
+  outline-offset: 4px;
+}
 .public-platform-title {
   font-size: clamp(26px, 4vw, 36px);
   line-height: 1.4;
