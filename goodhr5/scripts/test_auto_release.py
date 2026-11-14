@@ -111,10 +111,10 @@ class AutomaticReleaseTests(unittest.TestCase):
                     self.assertIn("--sha256", calls[-1])
 
     def test_preflight_only_reclaims_images_when_docker_disk_is_low(self):
-        """Docker空间足够时不要求闲置回收材料；空间不足仍保留回收保护和最终磁盘预算。"""
+        """根盘至少1GiB时允许发布；Docker盘仍须3GiB，低空间回收继续保留全部保护。"""
         from types import SimpleNamespace
-        for free_gib, invalid_registry in ((4, True), (2, True), (2, False)):
-            with self.subTest(free_gib=free_gib, invalid_registry=invalid_registry), tempfile.TemporaryDirectory() as directory:
+        for root_gib, free_gib, invalid_registry in ((0.99, 4, True), (1, 4, True), (5.77, 4, True), (8, 2, True), (8, 2, False)):
+            with self.subTest(root_gib=root_gib, free_gib=free_gib, invalid_registry=invalid_registry), tempfile.TemporaryDirectory() as directory:
                 base = Path(directory).resolve()
                 source = base / "goodhr5"
                 migrations = source / "cloud/backend/db/migrations"
@@ -133,15 +133,20 @@ class AutomaticReleaseTests(unittest.TestCase):
                     return str(docker_root).encode() if arguments[1] == "info" else b"0001_base.sql\n"
 
                 def disk_usage(path):
-                    """根盘始终满足八GiB，Docker盘按场景返回且清理失败后不虚增空间。"""
-                    return SimpleNamespace(free=(free_gib if Path(path) == docker_root else 8) * 1024**3)
+                    """按场景返回两个分区的真实预算，模拟回收后空间仍不足。"""
+                    return SimpleNamespace(free=int((free_gib if Path(path) == docker_root else root_gib) * 1024**3))
 
                 with patch("auto_release.RELEASE_ROOT", base), patch("auto_release.command", side_effect=query), \
                         patch("auto_release.shutil.disk_usage", side_effect=disk_usage), patch.object(job, "check_target"), \
                         patch.object(job.engine, "inspect", side_effect=lambda name: services[name]), \
                         patch.object(job, "reclaim_unused_images", side_effect=CutoverError("没有兼容历史回退，禁止回收") if invalid_registry else None) as images, \
                         patch.object(job, "reclaim_build_cache") as cache:
-                    if free_gib >= 3:
+                    if root_gib < 1:
+                        with self.assertRaisesRegex(CutoverError, "不足1GiB"):
+                            job.preflight(containers)
+                        images.assert_not_called()
+                        cache.assert_not_called()
+                    elif free_gib >= 3:
                         result = job.preflight(containers)
                         self.assertEqual(result[0], "fixture")
                         images.assert_not_called()

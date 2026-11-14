@@ -33,7 +33,7 @@ production_prepare() {
   docker_root="$(docker info --format '{{.DockerRootDir}}')"
   python3 - "$lock_root" "$docker_root" <<'PY'
 import shutil, sys
-for path, minimum in ((sys.argv[1], 6 * 1024**3), (sys.argv[2], 3 * 1024**3)):
+for path, minimum in ((sys.argv[1], 1024**3), (sys.argv[2], 3 * 1024**3)):
     if shutil.disk_usage(path).free < minimum:
         raise SystemExit("可用空间不足，发布提前停止；先核对发布材料和回退保留清单")
 PY

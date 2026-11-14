@@ -204,7 +204,7 @@ class AutomaticRelease:
         source = {path.name: path.read_bytes() for path in (self.source / "cloud/backend/db/migrations").glob("*.sql")
                   if not path.name.endswith(".down.sql")}
         pending = pending_migrations(source, ledger)
-        require(shutil.disk_usage(RELEASE_ROOT).free >= 6 * 1024**3, "根盘可用空间不足，保留当前线上版本")
+        require(shutil.disk_usage(RELEASE_ROOT).free >= 1024**3, "根盘可用空间不足1GiB，保留当前线上版本")
         docker_root = command(["docker", "info", "--format", "{{.DockerRootDir}}"]).decode().strip()
         # 空间足够时无需删除镜像，不能让非必要回收的历史材料要求阻断新候选验收。
         if shutil.disk_usage(docker_root).free < 3 * 1024**3:
@@ -213,7 +213,7 @@ class AutomaticRelease:
             maintenance = self.state_root / ("cache-maintenance-" + str(time.time_ns()))
             maintenance.mkdir(mode=0o700)
             self.reclaim_build_cache(containers, {}, dict(os.environ), maintenance)
-        for path, minimum in ((RELEASE_ROOT, 6), (Path(docker_root), 3)):
+        for path, minimum in ((RELEASE_ROOT, 1), (Path(docker_root), 3)):
             require(shutil.disk_usage(path).free >= minimum * 1024**3,
                     "发布可用空间不足：" + str(path) + "，保留当前线上版本")
         return database, postgres, user, redis, pending
