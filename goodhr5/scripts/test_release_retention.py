@@ -76,7 +76,7 @@ class RetentionTests(unittest.TestCase):
         self.evidence = self.root / "verified.json"
         self.evidence.write_bytes(b'{"compatibility":"verified by release operator"}')
         self.fingerprint = "f" * 64
-        self.policy = {"schema_version": 1, "rollback_keep_per_service": 2, "minimum_compatible_rollback_per_service": 1, "delete_original_database_backups": False, "trusted_runtime_images": {"backend": [iid(1)], "frontend": [iid(2)]}}
+        self.policy = {"schema_version": 1, "rollback_keep_per_service": 1, "minimum_compatible_rollback_per_service": 1, "delete_original_database_backups": False, "trusted_runtime_images": {"backend": [iid(1)], "frontend": [iid(2)]}}
         values = [image(1, role="base", tags=["alpine:3.22"]), image(2, role="base", tags=["node:22-alpine"]), image(3, parent=1), image(4, role="frontend", parent=2), image(5, parent=1), image(6, role="frontend", parent=2), image(7, parent=1), image(8, role="frontend", parent=2)]
         self.snapshot = {"host": "test-production", "containers": sorted([container(1, "goodhr-production-backend-1", 3, True), container(2, "goodhr-production-frontend-1", 4, True, "frontend"), container(3, "goodhr-production-backend-1-backup-obsolete", 7), container(4, "goodhr-production-frontend-1-backup-obsolete", 8, role="frontend"), container(5, "postgres", 1, True, role="database")], key=lambda row: row["Id"]), "images": {row["Id"]: row for row in values}}
         self.registry = {"schema_version": 1, "host": self.snapshot["host"], "current_migration_fingerprint": self.fingerprint, "migration_probe": {"container": "postgres", "database": "goodhr5", "user": "postgres"}, "verified_releases": [self.record("rollback", 5, 6, "2026-10-14T08:00:00+08:00")]}
@@ -182,13 +182,21 @@ class RetentionTests(unittest.TestCase):
         with self.assertRaises(retention.GuardError):
             self.plan()
 
-    def test_each_service_keeps_at_most_two_real_compatible_pairings(self):
+    def test_only_latest_complete_compatible_pair_is_kept(self):
         """历史数量受限且保留真实验证配对，不把独立前后端记录拼接成新配对。"""
         self.registry["verified_releases"] = [self.record("frontend-only", 3, 6, "2026-10-15T08:00:00+08:00"), self.record("both-older", 5, 8, "2026-10-14T08:00:00+08:00"), self.record("too-old", 7, 8, "2026-10-13T08:00:00+08:00")]
         plan = self.plan()
-        self.assertTrue(all(1 <= len(refs) <= 2 for refs in plan["historical_images"].values()))
+        self.assertTrue(all(len(refs) == 1 for refs in plan["historical_images"].values()))
+        self.assertEqual([row["id"] for row in plan["compatible_rollback_records"]], ["both-older"])
         actual_pairs = {(row["backend_image"], row["frontend_image"]) for row in self.registry["verified_releases"]}
         self.assertTrue(all((row["backend_image"], row["frontend_image"]) in actual_pairs for row in plan["compatible_rollback_records"]))
+
+    def test_separate_role_records_cannot_replace_one_complete_rollback(self):
+        """只有分别覆盖一个角色的两条记录时，不能拼成一套未经验证的回退。"""
+        self.registry["verified_releases"] = [self.record("frontend-only", 3, 6, "2026-10-15T08:00:00+08:00"),
+                                              self.record("backend-only", 5, 4, "2026-10-14T08:00:00+08:00")]
+        with self.assertRaises(retention.GuardError):
+            self.plan()
 
     def test_children_are_removed_before_parents(self):
         """镜像操作按孩子到父亲排序，祖先不会在仍有孩子时先被请求删除。"""

@@ -157,4 +157,11 @@ PY
     --registry "${GOODHR_RETENTION_REGISTRY:-/opt/goodhr-release/retention-registry.json}" --out "$plan" || return
   plan_sha="$(sha256sum "$plan" | cut -d' ' -f1)" || return
   python3 "$root/scripts/release_retention.py" apply --plan "$plan" --sha256 "$plan_sha" || return
+  plan="$production_release_dir/archive-retention-plan-$finalize_id.json"
+  python3 "$root/scripts/release_archive_retention.py" plan \
+    --registry "${GOODHR_RETENTION_REGISTRY:-/opt/goodhr-release/retention-registry.json}" --plan "$plan" || return
+  plan_sha="$(sha256sum "$plan" | cut -d' ' -f1)" || return
+  python3 "$root/scripts/release_archive_retention.py" apply \
+    --registry "${GOODHR_RETENTION_REGISTRY:-/opt/goodhr-release/retention-registry.json}" \
+    --plan "$plan" --sha256 "$plan_sha" || return
 }

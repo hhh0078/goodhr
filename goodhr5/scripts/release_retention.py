@@ -77,8 +77,8 @@ def save_json(path, value):
 
 
 def policy_values(policy):
-    """policy_values 限定每端最多两个历史回退且至少保留一个，运行基础始终保留。"""
-    require(policy.get("schema_version") == 1 and policy.get("rollback_keep_per_service") == 2 and policy.get("minimum_compatible_rollback_per_service") == 1, "回收策略必须明确每端最多2个、至少1个兼容历史镜像")
+    """policy_values 限定只保留最近一套完整兼容回退，运行基础始终保留。"""
+    require(policy.get("schema_version") == 1 and policy.get("rollback_keep_per_service") == 1 and policy.get("minimum_compatible_rollback_per_service") == 1, "回收策略必须明确只保留1套兼容历史镜像")
     require(policy.get("delete_original_database_backups") is False, "策略必须禁止删除原始数据库备份")
     runtimes = policy.get("trusted_runtime_images")
     require(isinstance(runtimes, dict) and all(isinstance(runtimes.get(role), list) and runtimes[role] and all(isinstance(ref, str) and IMAGE_ID.fullmatch(ref) for ref in runtimes[role]) for role in ROLES), "策略缺少可信运行基础")
@@ -258,23 +258,11 @@ def verified_records(registry, host, evidence_hash=digest_file, evidence_reader=
 
 
 def select_rollbacks(records, current, images):
-    """select_rollbacks 保留经过完整配对验证的历史镜像，每端至少一个、最多两个，绝不拼接虚假配对。"""
+    """select_rollbacks 只保留最近一套两端均可回退的完整验证组合，不拼接不同版本。"""
     valid = [row for row in records if all(row[role + "_image"] in images for role in ROLES)]
-    selected, historical = [], {role: set() for role in ROLES}
-    for role in ROLES:
-        candidate = next((row for row in valid if row[role + "_image"] != current[role]), None)
-        require(candidate is not None, "缺少与当前数据库兼容且有证据的" + role + "历史回退，禁止回收")
-        if candidate not in selected:
-            selected.append(candidate)
-            for kind in ROLES:
-                if candidate[kind + "_image"] != current[kind]:
-                    historical[kind].add(candidate[kind + "_image"])
-    for row in valid:
-        additions = {role: historical[role] | ({row[role + "_image"]} if row[role + "_image"] != current[role] else set()) for role in ROLES}
-        if row not in selected and all(len(values) <= 2 for values in additions.values()) and additions != historical:
-            selected.append(row)
-            historical = additions
-    return selected, historical
+    candidate = next((row for row in valid if all(row[role + "_image"] != current[role] for role in ROLES)), None)
+    require(candidate is not None, "缺少与当前数据库兼容且有证据的完整历史回退，禁止回收")
+    return [candidate], {role: {candidate[role + "_image"]} for role in ROLES}
 
 
 def make_plan(snapshot, registry, policy, known_names=(), evidence_hash=digest_file, evidence_reader=None, legacy_allowlist=None, legacy_evidence_hash=digest_file, legacy_evidence_reader=None, cache_only=False, drop_build_cache=False, images_only=False):

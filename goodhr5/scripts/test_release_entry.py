@@ -43,13 +43,14 @@ if tool=='python3':
  if args and args[0].endswith('auto_release.py'):sys.exit(0)
  if args and args[0].endswith('release_guard.py'):sys.exit(21 if os.environ.get('FIXTURE_GUARD_FAIL')=='1' else 0)
  if args and args[0].endswith('release_activate.py'):sys.exit(35 if os.environ.get('FIXTURE_ACTIVATION_FAIL')=='1' else 0)
- if args and args[0].endswith(('release_hygiene.py','release_retention.py')):
+ if args and args[0].endswith(('release_hygiene.py','release_retention.py','release_archive_retention.py')):
   retention=args[0].endswith('release_retention.py')
   if retention and 'check' in args:
    registry=json.loads(Path(args[args.index('--registry')+1]).read_text())
    sys.exit(23 if os.environ.get('FIXTURE_PRECHECK_FAIL')=='1' or not registry.get('schema_version') else 0)
   if 'plan' in args:
-   Path(args[args.index('--out')+1]).write_text('{"candidates":[]}',encoding='utf-8');print('{"targets":0}')
+   option='--plan' if args[0].endswith('release_archive_retention.py') else '--out'
+   Path(args[args.index(option)+1]).write_text('{"candidates":[]}',encoding='utf-8');print('{"targets":0}')
   elif 'apply' in args:
    if not retention and os.environ.get('FIXTURE_HYGIENE_FAIL')=='1':sys.exit(31)
    if retention and os.environ.get('FIXTURE_RETENTION_FAIL')=='1':sys.exit(32)
