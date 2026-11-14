@@ -1,5 +1,6 @@
 /* 本文件提供官网手绘双主题的共享排版；选择器限于公开页面，不改变后台和私人分享页面。 */
-.public-theme-root { min-height: 100vh; background: var(--public-paper); }
+.public-theme-root { min-height: 100vh; background: var(--public-paper); --public-scene-backdrop: url("/illustrations/backdrop-green.webp"); }
+.public-theme-rose { --public-scene-backdrop: url("/illustrations/backdrop-rose.webp"); }
 .public-theme-root .public-marketing,
 .public-theme-root .public-login-1 {
   color: var(--public-ink);
@@ -31,8 +32,9 @@
   border-radius: 999px;
   border-color: var(--public-border);
   background: var(--public-surface);
-  background: color-mix(in srgb, var(--public-surface) 94%, transparent);
-  backdrop-filter: blur(16px);
+  background: color-mix(in srgb, var(--public-surface) 64%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
   box-shadow: 0 10px 30px #34251a12;
 }
 .public-theme-root .public-site-desktop-links { gap: 9px; margin-left: auto; }
@@ -74,9 +76,10 @@
 .public-theme-rose .public-illustration .public-illustration-rose { display: block; }
 .public-theme-root .public-home-5 { padding: 48px 0 16px; }
 .public-theme-root .public-home-5,
-.public-theme-root .public-marketingshell-4 { background-image: url("/illustrations/backdrop-green.webp"); background-size: cover; background-position: center bottom; }
-.public-theme-rose .public-home-5,
-.public-theme-rose .public-marketingshell-4 { background-image: url("/illustrations/backdrop-rose.webp"); }
+.public-theme-root .public-marketingshell-4 { position: relative; isolation: isolate; background: none; }
+/* 同一张首屏背景向上延伸到悬浮导航后方，避免导航与首屏之间出现白色断层。 */
+.public-theme-root .public-home-5::before,
+.public-theme-root .public-marketingshell-4::before { content: ""; position: absolute; z-index: -1; inset: -180px 0 0; background: var(--public-scene-backdrop) center bottom / cover no-repeat; pointer-events: none; }
 .public-home-hero-layout { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 12px; }
 .public-theme-root .public-home-7 { position: relative; z-index: 1; max-width: 640px; align-self: start; padding-top: 48px; padding-bottom: 30px; }
 .public-theme-root .public-home-8 { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; width: auto; padding: 9px 13px; border: 1px solid var(--public-border); color: var(--public-action); border-radius: 7px; background: var(--public-surface); }
