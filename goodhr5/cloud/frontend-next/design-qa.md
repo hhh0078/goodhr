@@ -1,3 +1,44 @@
+<!-- 文件作用：记录本轮胶囊悬浮导航、选中状态、功能切换与透明Logo的验证证据。 -->
+# 官网导航与交互补充验收 · 2026-11-14
+
+final result: passed
+
+## 目标、状态和证据
+
+- 继续在 `codex/website-handdrawn-20261114` 分支修订，预览 http://127.0.0.1:3186/ ，保留用户本地审阅状态。
+- Source visual truth：用户功能区截图 `/var/folders/r0/6ywnrqgj39n16q_1l0_khxlm0000gp/T/codex-clipboard-243bf682-ef05-4f20-aced-ad1adcb1056e.png`（2894×1574）；上一轮 `home-green-desktop-final.jpg` 为导航改动前依据。用户要求调整布局，不以复制旧两列结构为目标。
+- Implementation screenshot：`/Users/Zhuanz/Documents/Codex/2026-11-14/goodhr-website-handdrawn/revision-interactions/features-desktop-rose-final.jpg`（1440×1000，CSS视口1440×1000，未登录，莓红主题，第二项展开）；同目录绿色版本为 `features-desktop-green-final.jpg`。
+- 手机证据：`features-mobile-rose.jpg`、`51job-selected-mobile.jpg`，CSS 390×844；另检查320、768、1024、1280宽度。
+- Full-view comparison：已打开同目录 `comparison-features.png`，来源与实现均按720px等宽、保留比例归一化。实现裁取视口中126–892px的功能区域，避免导航干扰。来源为高密度用户截图，无法确认原CSS视口，因此只比较结构与阅读密度，不作逐像素字体尺寸推断。
+- Focused-region comparison：已打开 `comparison-nav.png`，导航改动前后均按1280×76实像素裁切并列于同图，确认完整胶囊、选中高亮、统计及其他入口没有被挤掉。`pricing-selected-desktop.jpg`、`51job-selected-desktop.jpg` 和手机版检查具体栏目与平台子项。
+
+## Findings 与修订结果
+
+- **[P2，已解决] 导航缺少当前栏目归属。** 首页精确匹配，文章详情归动态，三个招聘能力页归功能介绍；平台栏目与当前平台子项分别高亮。桌面和手机使用同一个判定方法，补充边界测试以避免相似地址误选。
+- **[P2，已解决] 导航形态与悬浮要求不符。** 改为999px圆角胶囊，sticky随滚动保持在顶部；手机真实统计放在下方独立小胶囊，保留原有文字。实际滚动后读到headerTop=0，并为锚点及标题预留140px滚动偏移。
+- **[P2，已解决] 功能区重复四格，缺乏点击反馈。** 替换为一张较大主插画与四条原生可展开目录。点击或Enter展开后联动对应插画和进度标记，原文、原链接仍在服务端HTML内。保持一次最多展开一项，允许再次点击收起。
+- **Logo**：采用用户提供的前程无忧应用图标，使用内置Image Gen移除外侧白底；256×256透明WebP实测角落alpha=0。内部图案及文字保留，平台卡片、专题和导航共同复用。文件和处理说明见 `public/assets/platforms/LOGO-SOURCES.md`。
+- 当前无待处理P0/P1/P2；对照后没有新增视觉修补。
+
+## 五项视觉检查
+
+- 字体：保持上一版中文衬线大标题和无衬线正文；目录标题22px、手机18px，长标题正常换行，原说明不省略。
+- 布局：较大场景图与纵向目录建立主次，替代重复的等宽四格；手机图在上、目录在下。悬浮导航与正文留白分离，没有横向溢出。
+- 颜色：两套原有配色、渐变背景与手绘素材保留；选中状态同时使用底色、字重和边线反馈，减少动效设置会关闭过渡和进入动画。
+- 图片：主场景切换复用现有真实手绘WebP，不生成假产品数据，不以CSS图形替代素材；前程无忧透明底在手机莓红主题下已查看。
+- 文案：17/17页面正文、页脚、标题及SEO元数据与原始基线一致，仅沿用上一轮已授权删除的首页段落；本轮没有新增宣传承诺或改写原文。
+
+## 验证
+
+- `routes-qa.json`：18路由×桌面/手机=36状态通过；`breakpoints-qa.json`：额外四档宽度均无溢出。
+- 功能切换、互斥展开、Enter操作、对应插画；桌面定价实际点击、手机抽屉跳转及自动关闭；首页、定价、文章归属和平台子项高亮均已检查。
+- `console-final.json`：最终浏览器error/warn为空。中途旧预览标签出现一次加载失败，服务HTTP200；更换同一IAB浏览器的新标签后实际桌面与手机链接跳转均通过。
+- `copy-verification.json`：17/17文案和SEO检查通过；`tests-interactions.log`：175/175测试通过；`build-interactions.log`：TypeScript与生产构建通过；`git diff --check`通过。
+- 证据目录均位于 `/Users/Zhuanz/Documents/Codex/2026-11-14/goodhr-website-handdrawn/revision-interactions/`，测试及构建日志在其上级目录。
+- 未在实体手机测试；未发布生产；未发送验证码、安装软件或执行招聘操作。
+
+---
+
 <!-- 本文件记录官网手绘双主题改版的视觉目标、检查证据与历史验收结果。 -->
 # GoodHR 官网手绘双配色检查 · 2026-11-14
 

@@ -1,7 +1,12 @@
 /** 本文件验证官网配色偏好、公开页面边界和文字对比度，不改变后台主题。 */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PUBLIC_APPEARANCES, normalizePublicAppearance, isPublicAppearancePath, createPublicAppearanceVariables } from "./public-appearance.ts";
+import { PUBLIC_APPEARANCES, normalizePublicAppearance, isPublicAppearancePath, createPublicAppearanceVariables, isPublicNavigationActive } from "./public-appearance.ts";
+
+test("导航选中覆盖专题和文章，同时避免首页或相似地址误选", () => {
+  for (const [path, href] of [["/", "/"], ["/pricing/", "/pricing"], ["/articles/a", "/articles"], ["/platforms/51job", "/platforms"], ["/hr-tools", "/features"]]) assert.equal(isPublicNavigationActive(path, href), true);
+  for (const [path, href] of [[null, "/"], ["/features", "/"], ["/pricing-extra", "/pricing"], ["/articles-other/a", "/articles"], ["/platforms/boss", "/features"]]) assert.equal(isPublicNavigationActive(path, href), false);
+});
 
 /** luminance 按sRGB计算亮度，用于检查按钮和正文在两套背景上的可读性。 */
 function luminance(hex) {

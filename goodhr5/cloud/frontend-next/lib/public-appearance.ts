@@ -21,6 +21,15 @@ export function isPublicAppearancePath(pathname: string | null): boolean {
     || path.startsWith("/articles/") || /^\/platforms\/(boss|zhilian|liepin|liepin-headhunter|51job)$/.test(path);
 }
 
+/** isPublicNavigationActive 判断官网导航归属，首页精确匹配，专题页归入对应栏目。 */
+export function isPublicNavigationActive(pathname: string | null, href: string): boolean {
+  if (!pathname) return false;
+  const path = pathname.replace(/\/$/, "") || "/";
+  if (href === "/") return path === "/";
+  if (href === "/features" && ["/recruitment-automation", "/recruitment-auto-reply", "/hr-tools"].includes(path)) return true;
+  return path === href || path.startsWith(`${href}/`);
+}
+
 /** createPublicAppearanceVariables 为官网正文及其浮层输出同一套局部颜色变量。 */
 export function createPublicAppearanceVariables(appearance: PublicAppearance): string {
   const p = PUBLIC_APPEARANCES[normalizePublicAppearance(appearance)];

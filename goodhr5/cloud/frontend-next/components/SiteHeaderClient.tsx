@@ -4,12 +4,14 @@
 import { DownOutlined, MenuOutlined } from "@ant-design/icons";
 import { Button, Drawer } from "antd";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 import type { PublicStatsData } from "@/lib/public-data";
 import BrandMark from "./BrandMark";
 import PublicStats from "./PublicStats";
 import PublicThemeSwitch from "./PublicThemeSwitch";
 import PlatformLogo from "./admin/PlatformLogo";
+import { isPublicNavigationActive } from "@/lib/public-appearance";
 
 const navItems = [
   { label: "首页", href: "/" },
@@ -29,6 +31,7 @@ function PlatformNavigation({ links, mobile = false, onNavigate }: {
   mobile?: boolean;
   onNavigate?: () => void;
 }) {
+  const pathname = usePathname();
   const [expanded, setExpanded] = useState(false);
   const container = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -66,6 +69,7 @@ function PlatformNavigation({ links, mobile = false, onNavigate }: {
         ref={trigger}
         type="button"
         className="public-platform-trigger"
+        data-active={isPublicNavigationActive(pathname, "/platforms") || undefined}
         aria-expanded={expanded}
         aria-controls={listID}
         onClick={(event) => setExpanded((value) => mobile || event.detail === 0 ? !value : true)}
@@ -76,7 +80,7 @@ function PlatformNavigation({ links, mobile = false, onNavigate }: {
         <ul id={listID} className="public-platform-links">
           {links.map((link) => (
             <li key={link.href}>
-              <Link href={link.href} onClick={() => { setExpanded(false); onNavigate?.(); }}>
+              <Link href={link.href} aria-current={isPublicNavigationActive(pathname, link.href) ? "page" : undefined} onClick={() => { setExpanded(false); onNavigate?.(); }}>
                 <span className="public-platform-logo" aria-hidden="true"><PlatformLogo platformID={link.platformID} size={26} /></span>
                 {link.label}
               </Link>
@@ -96,6 +100,7 @@ export default function SiteHeaderClient({
   stats: PublicStatsData;
   platformLinks: PlatformNavigationLink[];
 }) {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
   /** closeMenu 关闭移动端导航。 */
@@ -111,7 +116,7 @@ export default function SiteHeaderClient({
           <nav className="public-site-desktop-links" aria-label="官网导航">
             {navItems.map((item) => (
               <Fragment key={item.href}>
-                <Link href={item.href}>{item.label}</Link>
+                <Link href={item.href} aria-current={isPublicNavigationActive(pathname, item.href) ? pathname === item.href ? "page" : "location" : undefined}>{item.label}</Link>
                 {item.href === "/features" && <PlatformNavigation links={platformLinks} />}
               </Fragment>
             ))}
@@ -123,9 +128,6 @@ export default function SiteHeaderClient({
             </Button>
           </div>
           <PublicThemeSwitch />
-          <div className="public-site-mobile-stats">
-            <PublicStats stats={stats} compact mobile />
-          </div>
           <Button
             className="public-site-mobile-menu"
             aria-label="打开导航菜单"
@@ -134,6 +136,7 @@ export default function SiteHeaderClient({
             onClick={() => setOpen(true)}
           />
         </div>
+        <div className="public-site-mobile-stats"><PublicStats stats={stats} compact mobile /></div>
       </div>
       <Drawer
         rootClassName="public-theme-portal public-site-drawer"
@@ -152,7 +155,7 @@ export default function SiteHeaderClient({
           >
             {navItems.map((item) => (
               <Fragment key={item.href}>
-                <Link href={item.href} onClick={closeMenu}>{item.label}</Link>
+                <Link href={item.href} aria-current={isPublicNavigationActive(pathname, item.href) ? pathname === item.href ? "page" : "location" : undefined} onClick={closeMenu}>{item.label}</Link>
                 {item.href === "/features" && <PlatformNavigation links={platformLinks} mobile onNavigate={closeMenu} />}
               </Fragment>
             ))}

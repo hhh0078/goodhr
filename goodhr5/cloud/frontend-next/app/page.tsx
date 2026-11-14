@@ -14,6 +14,7 @@ import SiteHeader from "@/components/SiteHeader";
 import StructuredData from "@/components/StructuredData";
 import WorkflowBand from "@/components/WorkflowBand";
 import PublicIllustration from "@/components/PublicIllustration";
+import PublicFeatureShowcase from "@/components/PublicFeatureShowcase";
 import DownOutlined from "@ant-design/icons/lib/icons/DownOutlined";
 import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import { AUTO_REPLY_RELEASE_NOTICE, RECRUITMENT_PLATFORM_SUMMARY } from "@/lib/recruitment-platforms";
@@ -237,33 +238,7 @@ export default function HomePage() {
             <h2 className="public-text public-home-33">
               招聘自动化，不只是批量点击
             </h2>
-            <div className="public-home-34">
-              {automationScenes.map((item, index) => {
-                return (
-                  <div
-                    key={item.title}
-                    style={
-                      {
-                        "--public-home-35-0":
-                          (index % 2 === 0 ? 4 : 0) * 8 + "px",
-                        "--public-home-35-1":
-                          (index % 2 === 1 ? 4 : 0) * 8 + "px",
-                        "--public-home-35-2":
-                          index % 2 === 0 ? "1px solid" : "none",
-                      } as import("react").CSSProperties
-                    }
-                    className="public-home-35"
-                  >
-                    <PublicIllustration kind={(["analysis", "greeting", "followup", "analysis"] as const)[index]} className="public-home-scene-art" />
-                    <h3 className="public-text public-home-37">{item.title}</h3>
-                    <p className="public-text public-home-38">
-                      {item.description}
-                    </p>
-                    <Link href={item.href} className="public-topic-link">了解{item.title.replace("（开发中）", "")} →</Link>
-                  </div>
-                );
-              })}
-            </div>
+            <PublicFeatureShowcase scenes={automationScenes} />
           </div>
         </section>
 
