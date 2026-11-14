@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import MarketingShell from "@/components/MarketingShell";
+import PublicIllustration from "@/components/PublicIllustration";
 import StructuredData from "@/components/StructuredData";
 import { ARTICLE_LIST_PAGE_SIZE, formatArticleDate, positivePage } from "@/lib/article-public-utils";
 import { getPublicArticlePage } from "@/lib/public-articles";
@@ -57,9 +58,12 @@ export default async function ArticlesPage({ searchParams }: ArticleListProps) {
                 {articles.items.map((article) => (
                   <li key={article.id} className={styles.listItem}>
                     <Link href={`/articles/${article.id}`} className={styles.articleLink}>
+                      <div>
                       <h2 className={styles.title}>{article.title}</h2>
                       <time className={styles.date} dateTime={article.published_at}>发布于 {formatArticleDate(article.published_at)}</time>
                       {article.excerpt ? <p className={styles.excerpt}>{article.excerpt}</p> : null}
+                      </div>
+                      <PublicIllustration kind="analysis" className={styles.thumbnail} />
                     </Link>
                   </li>
                 ))}

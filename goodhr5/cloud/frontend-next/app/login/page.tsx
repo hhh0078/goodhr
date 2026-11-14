@@ -7,6 +7,8 @@ import Paragraph from "antd/es/typography/Paragraph";
 import Title from "antd/es/typography/Title";
 import BrandMark from "@/components/BrandMark";
 import LoginForm from "@/components/LoginForm";
+import PublicIllustration from "@/components/PublicIllustration";
+import PublicThemeSwitch from "@/components/PublicThemeSwitch";
 
 const loginPoints = [
   "公众号扫码，发送验证码即可登录",
@@ -35,7 +37,8 @@ export default function LoginPage() {
       <div className="public-container public-login-2">
         <div className="public-login-3">
           <BrandMark />
-          <Button href="/" icon={<ArrowBackRoundedIcon aria-hidden="true" />}>
+          <PublicThemeSwitch />
+          <Button className="public-login-back" href="/" icon={<ArrowBackRoundedIcon aria-hidden="true" />}>
             返回首页
           </Button>
         </div>
@@ -99,6 +102,7 @@ export default function LoginPage() {
                 </div>
               ))}
             </div>
+            <PublicIllustration className="public-login-art" />
           </div>
           <div className="public-panel public-login-17">
             <Title

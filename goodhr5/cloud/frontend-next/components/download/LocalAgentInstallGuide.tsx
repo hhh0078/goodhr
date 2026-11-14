@@ -42,6 +42,7 @@ export default function LocalAgentInstallGuide({
         {label}
       </Button>
       <Modal
+        rootClassName="public-theme-portal"
         open={open}
         title={`安装 ${platform} 版 GoodHR`}
         width={620}

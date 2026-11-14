@@ -9,11 +9,12 @@ import type { RecruitmentGuide } from "@/lib/recruitment-guides";
 import { absoluteURL } from "@/lib/seo";
 import { PLATFORM_GUIDES } from "@/lib/platform-guides";
 import "./recruitment-guide.css";
+import DownOutlined from "@ant-design/icons/lib/icons/DownOutlined";
 
 /** RecruitmentGuidePage 输出专题正文、平台能力、费用边界、常见问题和相关入口。 */
 export default function RecruitmentGuidePage({ guide }: { guide: RecruitmentGuide }) {
   return (
-    <MarketingShell eyebrow={guide.eyebrow} title={guide.heading} description={guide.introduction}>
+    <MarketingShell eyebrow={guide.eyebrow} title={guide.heading} description={guide.introduction} platformID={guide.platformId}>
       <StructuredData data={[
         {
           "@context": "https://schema.org",
@@ -100,7 +101,7 @@ export default function RecruitmentGuidePage({ guide }: { guide: RecruitmentGuid
         <section className="recruitment-guide-section" aria-labelledby="guide-faq">
           <h2 id="guide-faq">你可能还想问</h2>
           <div className="recruitment-guide-faq">
-            {guide.faqs.map((faq) => <div key={faq.question}><h3>{faq.question}</h3><p>{faq.answer}</p></div>)}
+            {guide.faqs.map((faq, index) => <details key={faq.question} name="recruitment-guide-faq" open={index === 0}><summary><h3>{faq.question}<DownOutlined aria-hidden="true" /></h3></summary><p>{faq.answer}</p></details>)}
           </div>
         </section>
 

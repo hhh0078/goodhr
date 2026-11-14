@@ -4,9 +4,7 @@ import ArrowForwardRoundedIcon from "@ant-design/icons/lib/icons/ArrowRightOutli
 import CheckCircleRoundedIcon from "@ant-design/icons/lib/icons/CheckCircleOutlined";
 import DownloadRoundedIcon from "@ant-design/icons/lib/icons/DownloadOutlined";
 import MarkChatReadRoundedIcon from "@ant-design/icons/lib/icons/CommentOutlined";
-import PersonSearchRoundedIcon from "@ant-design/icons/lib/icons/UserOutlined";
 import SaveAltRoundedIcon from "@ant-design/icons/lib/icons/DownloadOutlined";
-import SpeedRoundedIcon from "@ant-design/icons/lib/icons/DashboardOutlined";
 import Button from "antd/es/button";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -15,6 +13,8 @@ import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import StructuredData from "@/components/StructuredData";
 import WorkflowBand from "@/components/WorkflowBand";
+import PublicIllustration from "@/components/PublicIllustration";
+import DownOutlined from "@ant-design/icons/lib/icons/DownOutlined";
 import { BROWSER_EXTENSION_SUPPORTED_PLATFORM_TEXT } from "@/lib/browser-extension-platforms";
 import { AUTO_REPLY_RELEASE_NOTICE, RECRUITMENT_PLATFORM_SUMMARY } from "@/lib/recruitment-platforms";
 import {
@@ -66,28 +66,24 @@ const productFlows = [
 
 const automationScenes = [
   {
-    icon: PersonSearchRoundedIcon,
     title: "自动筛选与 AI 筛选",
     href: "/recruitment-automation",
     description:
       "按岗位要求处理候选人，通过 AI 结合经历完成简历评分、详情分析和筛选理由说明。",
   },
   {
-    icon: SpeedRoundedIcon,
     title: "自动打招呼与 AI 打招呼",
     href: "/recruitment-automation",
     description:
       "根据岗位模板和筛选结果自动执行打招呼，减少 HR 与猎头逐个打开候选人、重复点击的时间。",
   },
   {
-    icon: MarkChatReadRoundedIcon,
     title: "招聘消息自动回复（开发中）",
     href: "/recruitment-auto-reply",
     description:
       "围绕岗位目标、候选人意向和面试沟通继续适配，当前仍在开发验证，尚未正式发布。",
   },
   {
-    icon: SaveAltRoundedIcon,
     title: "简历下载与人才库整理",
     href: "/hr-tools",
     description:
@@ -176,7 +172,7 @@ export default function HomePage() {
       <SiteHeader />
       <main>
         <section className="public-home-5">
-          <div className="public-container">
+          <div className="public-container public-home-hero-layout">
             <div className="public-home-7">
               <div className="public-home-8">
                 <CheckCircleRoundedIcon
@@ -189,10 +185,6 @@ export default function HomePage() {
                 多平台招聘自动化，
                 <span className="public-home-12">把时间留给人</span>
               </h1>
-              <p className="public-text public-home-13">
-                在 BOSS直聘、猎聘、智联招聘按岗位要求筛选候选人、自动打招呼，再把简历、推荐和面试进度接起来。前程无忧人才推荐与搜索已接入新版客户端，本次 Mac 安装包已更新，Windows 安装包随后更新。
-              </p>
-
               <p className="public-text public-home-14">
                 HR
                 和猎头的自动招聘助手。先免费试用，满意再充值，最低1元起充
@@ -219,6 +211,7 @@ export default function HomePage() {
                 </Button>
               </div>
             </div>
+            <PublicIllustration className="public-home-hero-art" priority />
           </div>
         </section>
 
@@ -246,7 +239,6 @@ export default function HomePage() {
             </h2>
             <div className="public-home-34">
               {automationScenes.map((item, index) => {
-                const Icon = item.icon;
                 return (
                   <div
                     key={item.title}
@@ -262,7 +254,7 @@ export default function HomePage() {
                     }
                     className="public-home-35"
                   >
-                    <Icon className="public-home-36" aria-hidden="true" />
+                    <PublicIllustration kind={(["analysis", "greeting", "followup", "analysis"] as const)[index]} className="public-home-scene-art" />
                     <h3 className="public-text public-home-37">{item.title}</h3>
                     <p className="public-text public-home-38">
                       {item.description}
@@ -319,19 +311,25 @@ export default function HomePage() {
         </section>
 
         <section className="public-home-48">
-          <div className="public-container">
+          <div className="public-container public-home-faq-layout">
+            <div className="public-home-faq-intro">
             <p className="public-text public-home-50">常见问题</p>
             <h2 className="public-text public-home-51">
               HR 和猎头最关心的问题
             </h2>
+            <PublicIllustration kind="followup" className="public-home-faq-art" />
+            </div>
             <div className="public-home-52">
-              {faqs.map((item) => (
-                <article key={item.question} className="public-home-53">
+              {faqs.map((item, index) => (
+                <details key={item.question} className="public-home-53" name="goodhr-home-faq" open={index === 0}>
+                  <summary>
                   <h3 className="public-text public-home-54">
                     {item.question}
+                    <DownOutlined aria-hidden="true" />
                   </h3>
+                  </summary>
                   <p className="public-text public-home-55">{item.answer}</p>
-                </article>
+                </details>
               ))}
             </div>
           </div>
@@ -348,6 +346,7 @@ export default function HomePage() {
                   注册即送体验金额，先免费试用，使用满意了再充值。
                 </p>
               </div>
+              <PublicIllustration className="public-home-closing-art" />
               <Button
                 href="/download"
                 type="primary"

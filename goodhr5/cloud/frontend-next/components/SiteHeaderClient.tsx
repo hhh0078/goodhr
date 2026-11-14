@@ -8,6 +8,8 @@ import { Fragment, useEffect, useId, useRef, useState } from "react";
 import type { PublicStatsData } from "@/lib/public-data";
 import BrandMark from "./BrandMark";
 import PublicStats from "./PublicStats";
+import PublicThemeSwitch from "./PublicThemeSwitch";
+import PlatformLogo from "./admin/PlatformLogo";
 
 const navItems = [
   { label: "首页", href: "/" },
@@ -19,7 +21,7 @@ const navItems = [
   { label: "联系作者", href: "/contact" },
 ];
 
-type PlatformNavigationLink = { label: string; href: string };
+type PlatformNavigationLink = { label: string; href: string; platformID: string };
 
 /** PlatformNavigation 复用平台链接，桌面支持悬停和键盘，手机通过点击展开。 */
 function PlatformNavigation({ links, mobile = false, onNavigate }: {
@@ -75,6 +77,7 @@ function PlatformNavigation({ links, mobile = false, onNavigate }: {
           {links.map((link) => (
             <li key={link.href}>
               <Link href={link.href} onClick={() => { setExpanded(false); onNavigate?.(); }}>
+                <span className="public-platform-logo" aria-hidden="true"><PlatformLogo platformID={link.platformID} size={26} /></span>
                 {link.label}
               </Link>
             </li>
@@ -119,6 +122,7 @@ export default function SiteHeaderClient({
               进入控制台
             </Button>
           </div>
+          <PublicThemeSwitch />
           <div className="public-site-mobile-stats">
             <PublicStats stats={stats} compact mobile />
           </div>
@@ -132,6 +136,7 @@ export default function SiteHeaderClient({
         </div>
       </div>
       <Drawer
+        rootClassName="public-theme-portal public-site-drawer"
         placement="right"
         open={open}
         onClose={closeMenu}

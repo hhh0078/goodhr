@@ -10,6 +10,7 @@ import { CORE_SEO_KEYWORDS, SITE_URL } from "@/lib/seo";
 import Providers from "./providers";
 import "./globals.css";
 import "./admin.css";
+import "@/components/public-editorial.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -66,7 +67,7 @@ type RootLayoutProps = { children: ReactNode };
 /** RootLayout 输出全站 HTML 结构并挂载统一主题。 */
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" data-scroll-behavior="smooth">
       <body>
         <StructuredData
           data={[

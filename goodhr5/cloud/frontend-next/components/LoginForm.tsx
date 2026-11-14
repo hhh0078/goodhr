@@ -590,6 +590,7 @@ export default function LoginForm() {
         {loginMode === "wechat" ? "登录即将使用当前微信对应的 GoodHR 账号。请只发送自己页面上的验证码。" : "新邮箱注册需要验证码和密码。老账号没有密码也别慌，先用验证码登录，我会带你补上。"}
       </Typography.Paragraph>
       <Modal
+        rootClassName="public-theme-portal"
         open={agreementOpen}
         onCancel={cancelAgreement}
         title="GoodHR 使用协议与隐私说明"
@@ -617,6 +618,7 @@ export default function LoginForm() {
         </div>
       </Modal>
       <Modal
+        rootClassName="public-theme-portal"
         open={resetOpen}
         onCancel={() => {
           if (!resetBusy) setResetOpen(false);

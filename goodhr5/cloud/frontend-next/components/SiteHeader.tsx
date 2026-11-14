@@ -10,6 +10,7 @@ export default async function SiteHeader() {
   const stats = await getPublicStats();
   const platformLinks = PLATFORM_GUIDES.map((guide) => ({
     href: guide.path,
+    platformID: guide.platformId,
     label: RECRUITMENT_PLATFORM_FACTS.find((platform) => platform.id === guide.platformId)?.name || guide.eyebrow,
   }));
   return <SiteHeaderClient stats={stats} platformLinks={platformLinks} />;

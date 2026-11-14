@@ -8,6 +8,7 @@ export const PLATFORM_ICON_SRC: Record<string, string> = {
   hliepin: "/assets/platforms/liepin-logo.jpg",
   liepin: "/assets/platforms/liepin-logo.jpg",
   zhaopin: "/assets/platforms/zhaopin-logo.jpg",
+  "51job": "/assets/platforms/51job-logo.png",
 };
 
 /** platformLabel 返回招聘平台中文名称。 */

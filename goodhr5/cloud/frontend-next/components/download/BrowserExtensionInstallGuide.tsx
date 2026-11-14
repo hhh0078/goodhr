@@ -51,6 +51,7 @@ export default function BrowserExtensionInstallGuide({
         {label}
       </Button>
       <Modal
+        rootClassName="public-theme-portal"
         open={open}
         title="安装浏览器插件"
         width={620}

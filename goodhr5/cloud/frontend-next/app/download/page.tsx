@@ -8,6 +8,7 @@ import Button from "antd/es/button";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import MarketingShell from "@/components/MarketingShell";
+import PublicIllustration from "@/components/PublicIllustration";
 import DownloadUpdateRecords from "@/components/download/DownloadUpdateRecords";
 import BrowserExtensionInstallGuide from "@/components/download/BrowserExtensionInstallGuide";
 import LocalAgentInstallGuide from "@/components/download/LocalAgentInstallGuide";
@@ -45,10 +46,12 @@ export default async function DownloadPage() {
       <section className={`public-download-2 ${styles.content}`}>
         <div className="public-container">
           <section id="local-agent" className={styles.downloadSection} aria-labelledby="local-agent-heading">
+            <div className="public-download-intro"><div>
             <h1 id="local-agent-heading" className="public-text public-download-11">本地程序下载</h1>
             <p className={`public-text public-download-18 ${styles.sectionDescription}`}>
               运行已适配平台的招聘任务、AI 筛选和自动打招呼。安装后会自动打开控制台。
             </p>
+            </div><PublicIllustration kind="analysis" className="public-download-art" /></div>
             <div className={`public-download-4 ${styles.cardGrid}`}>
               <DownloadCard
                 icon={<WindowRoundedIcon aria-hidden="true" />}

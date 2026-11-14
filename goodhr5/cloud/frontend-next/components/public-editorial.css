@@ -1,0 +1,313 @@
+/* 本文件提供官网手绘双主题的共享排版；选择器限于公开页面，不改变后台和私人分享页面。 */
+.public-theme-root { min-height: 100vh; background: var(--public-paper); }
+.public-theme-root .public-marketing,
+.public-theme-root .public-login-1 {
+  color: var(--public-ink);
+  background: var(--public-paper);
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.public-theme-root .public-container { max-width: 1360px; padding-inline: 40px; }
+.public-theme-root .public-marketing a { text-underline-offset: 5px; }
+.public-theme-root .public-marketing a:focus-visible,
+.public-theme-root button:focus-visible { outline: 3px solid var(--public-action); outline-offset: 5px; }
+.public-theme-root .public-marketing h1,
+.public-theme-root .public-marketing h2,
+.public-theme-root .public-login-11 {
+  font-family: "Iowan Old Style", "Songti SC", STSong, "Noto Serif CJK SC", serif;
+  letter-spacing: -.025em;
+  text-wrap: balance;
+}
+.public-theme-root .public-marketing .ant-btn { box-shadow: none; }
+.public-theme-root .public-marketing .ant-btn-primary { background: var(--public-action); border-color: var(--public-action); }
+.public-theme-root .public-marketing .ant-btn-default { background: var(--public-surface); border-color: var(--public-border); color: var(--public-ink); }
+.public-theme-root .public-site-header { padding-top: 20px; }
+.public-theme-root .public-site-navigation {
+  display: flex;
+  gap: 18px;
+  min-height: 76px;
+  padding: 12px 22px;
+  border-radius: 12px;
+  border-color: var(--public-border);
+  background: var(--public-surface);
+  box-shadow: 0 8px 28px #34251a07;
+}
+.public-theme-root .public-site-desktop-links { gap: 9px; margin-left: auto; }
+.public-theme-root .public-site-desktop-links a { padding-inline: 3px; font-size: 13px; }
+.public-theme-root .public-site-desktop-actions { gap: 16px; }
+.public-theme-root .public-platform-trigger { font-size: 13px; padding-inline: 3px; }
+.public-theme-root .public-platform-links { background: var(--public-surface); }
+.public-theme-root .public-platform-links a:hover { background: var(--public-soft); }
+.public-theme-root .public-publicstats-6 { font-size: 15px; color: var(--public-ink); }
+.public-theme-root .public-publicstats-8 { font-size: 10px; color: var(--public-muted); }
+.public-theme-switch { display: inline-flex; align-items: center; gap: 1px; flex: 0 0 auto; }
+.public-theme-choice {
+  width: 40px; height: 44px; padding: 6px; border: 0; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; background: transparent;
+}
+.public-theme-swatch { display: flex; width: 24px; height: 24px; overflow: hidden; border: 2px solid var(--public-surface); border-radius: 50%; box-shadow: 0 0 0 1px var(--public-border); transform: rotate(-35deg); }
+.public-theme-swatch > span { width: 50%; height: 100%; }
+.public-theme-choice[aria-pressed="true"] .public-theme-swatch { box-shadow: 0 0 0 2px var(--public-action); }
+.public-theme-choice:hover { background: var(--public-soft); }
+.public-theme-portal .ant-drawer-content { background: var(--public-surface); color: var(--public-ink); }
+.public-theme-portal .public-platform-links { background: transparent; }
+.public-theme-portal .public-platform-links a:hover { background: var(--public-soft); }
+.public-theme-portal .public-site-drawer-content > nav { gap: 16px; }
+.public-theme-portal .public-site-drawer-content a { color: var(--public-ink); }
+.public-theme-portal .public-site-drawer-content > .ant-btn-primary { color: #fff; }
+
+/* 图片自带手绘线条与纸感，页面不再用图形或文字模拟插画。 */
+.public-illustration { position: relative; aspect-ratio: 1; min-width: 0; }
+.public-illustration > img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.public-illustration .public-illustration-rose { display: none; position: absolute; inset: 0; }
+.public-theme-rose .public-illustration > img:first-child { visibility: hidden; }
+.public-theme-rose .public-illustration .public-illustration-rose { display: block; }
+.public-theme-root .public-home-5 { padding: 48px 0 16px; }
+.public-theme-root .public-home-5,
+.public-theme-root .public-marketingshell-4 { background-image: url("/illustrations/backdrop-green.webp"); background-size: cover; background-position: center bottom; }
+.public-theme-rose .public-home-5,
+.public-theme-rose .public-marketingshell-4 { background-image: url("/illustrations/backdrop-rose.webp"); }
+.public-home-hero-layout { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 12px; }
+.public-theme-root .public-home-7 { position: relative; z-index: 1; max-width: 640px; align-self: start; padding-top: 48px; padding-bottom: 30px; }
+.public-theme-root .public-home-8 { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; width: auto; padding: 9px 13px; border: 1px solid var(--public-border); color: var(--public-action); border-radius: 7px; background: var(--public-surface); }
+.public-theme-root .public-home-9 { font-size: 17px; }
+.public-theme-root .public-home-10 { font-size: 13px; line-height: 1.4; }
+.public-theme-root .public-home-11 { margin-top: 25px; font-size: clamp(40px, 4.65vw, 66px); line-height: 1.28; font-weight: 900; }
+.public-theme-root .public-home-12 { display: block; color: var(--public-action); }
+.public-theme-root .public-home-14 { max-width: 510px; margin-top: 26px; font-size: 17px; font-weight: 600; line-height: 1.9; color: var(--public-action); text-wrap: balance; }
+.public-theme-root .public-home-15 { margin-top: 30px; gap: 12px; }
+.public-theme-root .public-home-16,
+.public-theme-root .public-home-18 { height: 46px; padding-inline: 23px; font-size: 15px; }
+.public-home-hero-art { width: 100%; max-width: 565px; justify-self: end; }
+.public-theme-root .public-workflowband-1 { background: transparent; border: 0; padding: 14px 0 60px; }
+.public-theme-root .public-workflowband-3 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; gap: 26px; padding: 0; }
+.public-theme-root .public-workflowband-6 { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 0; text-align: center; }
+.public-workflow-connector { position: absolute; right: -22px; top: 68px; color: var(--public-action); font-size: 20px; }
+.public-workflow-art { width: 150px; }
+.public-theme-root .public-workflowband-10 { font-size: 21px; font-weight: 750; color: var(--public-ink); }
+.public-theme-root .public-workflowband-11 { max-width: 240px; margin-top: 7px; font-size: 14px; line-height: 1.7; color: var(--public-muted); text-wrap: balance; }
+.public-theme-root .public-home-23,
+.public-theme-root .public-home-30,
+.public-theme-root .public-home-39,
+.public-theme-root .public-home-48 { background: transparent; padding: 72px 0; border-top: 1px solid var(--public-border); }
+.public-theme-root .public-home-25,
+.public-theme-root .public-home-32,
+.public-theme-root .public-home-41,
+.public-theme-root .public-home-50 { color: var(--public-action); font-size: 14px; font-weight: 700; letter-spacing: .04em; }
+.public-theme-root .public-home-26,
+.public-theme-root .public-home-33,
+.public-theme-root .public-home-42,
+.public-theme-root .public-home-51 { max-width: 950px; margin-top: 14px; font-size: clamp(28px, 3.3vw, 42px); line-height: 1.4; font-weight: 800; }
+.public-theme-root .public-home-27 { max-width: 950px; margin-top: 22px; font-size: 16px; line-height: 1.9; color: var(--public-muted); }
+.public-theme-root .public-platform-list { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-top: 32px; align-items: start; }
+.public-theme-root .public-platform-item { display: flex; flex-direction: column; min-height: 225px; padding: 20px; border: 1px solid var(--public-border); border-radius: 8px; background: var(--public-surface); }
+.public-theme-root .public-platform-heading { flex-direction: column; align-items: flex-start; gap: 12px; }
+.public-theme-root .public-platform-heading h3 { font-size: 18px; line-height: 1.6; }
+.public-platform-logo { display: inline-flex; flex-shrink: 0; }
+.public-platform-logo .ant-avatar img { object-fit: contain; }
+.public-platform-detail { margin-top: 15px; }
+.public-platform-detail > summary { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 5px; cursor: pointer; list-style: none; }
+.public-platform-detail > summary::-webkit-details-marker,
+.public-home-53 > summary::-webkit-details-marker,
+.recruitment-guide-faq > details > summary::-webkit-details-marker { display: none; }
+.public-platform-detail > summary .anticon { margin-top: 7px; font-size: 11px; color: var(--public-action); }
+.public-platform-detail[open] > summary .anticon { transform: rotate(180deg); }
+.public-platform-detail[open] { margin-bottom: 10px; }
+.public-theme-root .public-platform-item p { line-height: 1.9; }
+.public-theme-root .public-platform-status { background: var(--public-soft); color: var(--public-action); font-size: 11px; line-height: 1.65; font-weight: 650; }
+.public-theme-root .public-platform-guide-link { color: var(--public-action); margin-top: auto; padding-top: 16px; font-size: 12px; line-height: 1.7; }
+.public-theme-root .public-platform-navigation .public-platform-links a,
+.public-theme-portal .public-platform-navigation .public-platform-links a { display: flex; align-items: center; gap: 10px; }
+.public-theme-root .public-home-34 { margin-top: 34px; gap: 0 36px; border: 0; }
+.public-theme-root .public-home-35 { border: 0; border-top: 1px solid var(--public-border); padding: 28px 0 32px; }
+.public-home-scene-art { width: 120px; margin-bottom: 14px; }
+.public-theme-root .public-home-37 { margin-top: 0; font-size: 24px; }
+.public-theme-root .public-home-38 { font-size: 16px; line-height: 1.85; }
+.public-theme-root .public-home-43 { gap: 20px; margin-top: 32px; border: 0; }
+.public-theme-root .public-home-44 { padding: 28px; border: 1px solid var(--public-border); background: var(--public-surface); border-radius: 8px; }
+.public-theme-root .public-home-45 { font-size: 27px; color: var(--public-action); }
+.public-theme-root .public-home-46 { font-size: 23px; }
+.public-theme-root .public-home-47 { font-size: 16px; line-height: 1.85; }
+.public-home-faq-layout { display: grid; grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr); gap: 70px; align-items: start; }
+.public-home-faq-art { width: 215px; margin-top: 28px; }
+.public-theme-root .public-home-51 { font-size: 37px; line-height: 1.5; }
+.public-theme-root .public-home-52 { display: block; margin-top: 0; padding: 0 26px; border: 1px solid var(--public-border); border-radius: 8px; background: var(--public-surface); }
+.public-theme-root .public-home-53 { display: block; min-width: 0; padding: 0; border: 0; border-bottom: 1px solid var(--public-border); }
+.public-theme-root .public-home-53:last-child { border-bottom: 0; }
+.public-home-53 > summary,
+.recruitment-guide-faq > details > summary { list-style: none; cursor: pointer; padding: 22px 0; }
+.public-home-53 > summary:focus-visible,
+.recruitment-guide-faq > details > summary:focus-visible,
+.public-platform-detail > summary:focus-visible { outline: 2px solid var(--public-action); outline-offset: 4px; }
+.public-theme-root .public-home-54,
+.public-theme-root .recruitment-guide-faq h3 { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 0; font-size: 17px; line-height: 1.7; }
+.public-home-54 .anticon,
+.recruitment-guide-faq h3 .anticon { flex-shrink: 0; color: var(--public-action); font-size: 13px; transition: transform .15s; }
+.public-home-53[open] .public-home-54 .anticon,
+.recruitment-guide-faq > details[open] h3 .anticon { transform: rotate(180deg); }
+.public-theme-root .public-home-55 { margin: 0; padding: 0 22px 22px 0; font-size: 15px; line-height: 1.9; }
+.public-theme-root .public-home-56 { padding: 30px 0 64px; background: var(--public-soft); border: 0; }
+.public-theme-root .public-home-58 { display: grid; grid-template-columns: minmax(0, 1fr) 220px auto; gap: 32px; align-items: center; padding: 0; }
+.public-home-closing-art { width: 220px; }
+.public-theme-root .public-home-60 { font-size: clamp(26px, 3vw, 38px); }
+.public-theme-root .public-home-61 { font-size: 16px; line-height: 1.8; }
+
+/* 内页沿用同一套纸感、手绘插图和清晰的长文阅读节奏，原文均由原组件输出。 */
+.public-theme-root .public-marketingshell-4 { padding: 50px 0 48px; }
+.public-interior-intro { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(220px, .65fr); align-items: center; gap: 60px; }
+.public-interior-eyebrow { display: flex; align-items: center; gap: 14px; }
+.public-theme-root .public-marketingshell-6 { font-size: 14px; color: var(--public-action); letter-spacing: .035em; }
+.public-theme-root .public-marketingshell-7,
+.public-theme-root .public-marketing:has(.platform-guide) .public-marketingshell-7 { margin-top: 16px; font-size: clamp(32px, 4.1vw, 54px); line-height: 1.3; font-weight: 850; }
+.public-theme-root .public-marketingshell-8 { margin-top: 22px; max-width: 760px; color: var(--public-muted); font-size: 17px; line-height: 1.9; }
+.public-interior-art { width: 100%; max-width: 330px; justify-self: end; }
+.public-theme-root .recruitment-guide { padding-bottom: 80px; }
+.public-theme-root .recruitment-guide-section { padding-top: 62px; }
+.public-theme-root .recruitment-guide-section h2 { font-size: clamp(26px, 2.8vw, 36px); line-height: 1.5; }
+.public-theme-root .recruitment-guide-columns { gap: 20px; border-top: 0; }
+.public-theme-root .recruitment-guide-columns > div { padding: 25px; border: 1px solid var(--public-border); border-radius: 8px; background: var(--public-surface); }
+.public-theme-root .recruitment-guide-steps { gap: 20px; }
+.public-theme-root .recruitment-guide-steps li { padding: 28px 25px 28px 65px; border: 1px solid var(--public-border); background: var(--public-surface); border-radius: 8px; }
+.public-theme-root .recruitment-guide-steps li::before { left: 24px; top: 30px; }
+.public-theme-root .recruitment-guide-faq { max-width: 1000px; display: block; padding: 0 26px; border: 1px solid var(--public-border); border-radius: 8px; background: var(--public-surface); }
+.public-theme-root .recruitment-guide-faq > details { min-width: 0; border-bottom: 1px solid var(--public-border); }
+.public-theme-root .recruitment-guide-faq > details:last-child { border-bottom: 0; }
+.public-theme-root .recruitment-guide-faq > details > p { padding-bottom: 22px; }
+.public-theme-root .platform-guide-tutorial { background: var(--public-surface); }
+.public-theme-root .platform-guide-start { padding: 32px; }
+.public-theme-root .public-features-4 { border: 0; gap: 20px; }
+.public-theme-root .public-features-5 { padding: 28px; border: 1px solid var(--public-border); border-radius: 8px; background: var(--public-surface); }
+.public-theme-root .public-features-6 { font-size: 28px; color: var(--public-action); }
+.public-theme-root .public-features-7 { font-family: inherit; font-size: 21px; }
+.public-theme-root .public-features-8 { font-size: 15px; line-height: 1.85; }
+.public-theme-root .public-topic-navigation { gap: 12px 26px; padding-block: 18px; border-bottom: 1px solid var(--public-border); }
+.public-theme-root .public-pricing-copy { max-width: 1000px; padding: 38px; border: 1px solid var(--public-border); border-radius: 8px; background: var(--public-surface); gap: 22px; }
+.public-theme-root .public-pricing-copy h2 { margin-top: 10px; font-size: 29px; }
+.public-theme-root .public-pricing-copy p { max-width: 810px; line-height: 1.95; }
+.public-download-intro { display: flex; justify-content: space-between; align-items: center; gap: 30px; margin-bottom: 24px; }
+.public-download-intro > div:first-child { max-width: 850px; }
+.public-download-art { flex: 0 0 125px; width: 125px; }
+.public-theme-root .public-download-11 { font-family: "Songti SC", STSong, serif; font-size: 34px; line-height: 1.45; }
+.public-theme-root .public-download-19,
+.public-theme-root .public-contact-13 { background: var(--public-surface); box-shadow: none; }
+.public-theme-root .public-contact-5 { padding-block: 30px; }
+.public-theme-root .public-contact-10 { color: var(--public-action); overflow-wrap: anywhere; }
+.public-theme-root .public-videos-videoguidelist-4 { border-color: var(--public-border); background: var(--public-surface); }
+.public-theme-root .public-sitefooter-1 { padding: 38px 0; border-top: 1px solid var(--public-border); background: var(--public-surface); }
+.public-theme-root .public-sitefooter-3 { gap: 24px 40px; align-items: center; }
+.public-theme-root .public-sitefooter-6 { font-size: 13px; line-height: 1.8; }
+.public-theme-root .public-sitefooter-7 { gap: 14px 23px; }
+.public-theme-root .public-sitefooter-9 { font-size: 13px; }
+.public-theme-root .public-sitefooter-10 { white-space: nowrap; }
+.public-theme-root .public-login-1 { padding-bottom: 40px; }
+.public-theme-root .public-login-3 { display: flex; align-items: center; gap: 16px; }
+.public-login-back { margin-left: auto; }
+.public-login-art { width: min(360px, 100%); margin-top: 22px; }
+.public-theme-root .public-login-17 { background: var(--public-surface); border-color: var(--public-border); box-shadow: 0 18px 50px #34251a08; }
+
+@media (max-width: 1230px) {
+  .public-theme-root .public-site-navigation { gap: 11px; padding-inline: 16px; }
+  .public-theme-root .public-site-desktop-links { gap: 5px; }
+  .public-theme-root .public-site-desktop-links a,
+  .public-theme-root .public-platform-trigger { font-size: 12px; }
+  .public-theme-root .public-site-desktop-actions { gap: 10px; }
+}
+@media (max-width: 1120px) {
+  .public-theme-root .public-site-desktop-links,
+  .public-theme-root .public-site-desktop-actions { display: none; }
+  .public-theme-root .public-site-mobile-stats { display: block; margin-left: auto; }
+  .public-theme-root .public-site-navigation .public-site-mobile-menu { display: inline-flex; }
+  .public-theme-root .public-theme-switch { margin-left: auto; }
+  .public-theme-root .public-site-mobile-stats { margin-left: 10px; }
+  .public-theme-root .public-home-11 { font-size: clamp(38px, 4.7vw, 54px); }
+  .public-interior-intro { gap: 30px; }
+}
+@media (max-width: 899px) {
+  .public-theme-root .public-container { padding-inline: 28px; }
+  .public-theme-root .public-home-5 { padding-top: 32px; }
+  .public-theme-root .public-home-7 { padding-top: 20px; padding-bottom: 0; }
+  .public-theme-root .public-home-14 { font-size: 15px; }
+  .public-theme-root .public-home-15 { gap: 8px; }
+  .public-theme-root .public-home-16,
+  .public-theme-root .public-home-18 { padding-inline: 16px; }
+  .public-theme-root .public-home-34 { grid-template-columns: 1fr 1fr; }
+  .public-theme-root .public-home-43 { grid-template-columns: 1fr; }
+  .public-theme-root .public-platform-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .public-home-faq-layout { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .public-home-faq-art { display: none; }
+  .public-theme-root .public-home-58 { grid-template-columns: minmax(0, 1fr) auto; }
+  .public-home-closing-art { display: none; }
+  .public-theme-root .public-workflowband-3 { gap: 18px; }
+  .public-workflow-art { width: 115px; }
+  .public-theme-root .public-workflowband-10 { font-size: 18px; }
+  .public-theme-root .public-workflowband-11 { font-size: 13px; }
+  .public-interior-intro { grid-template-columns: minmax(0, 1fr) 220px; }
+  .public-theme-root .public-marketingshell-8 { font-size: 16px; }
+}
+@media (max-width: 699px) {
+  .public-theme-root .public-container { padding-inline: 20px; }
+  .public-theme-root .public-site-header { padding-top: 12px; }
+  .public-theme-root .public-site-navigation { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px 10px; padding: 10px 14px 12px; }
+  .public-theme-root .public-site-navigation > .public-brandmark-1 { min-width: 0; }
+  .public-theme-root .public-theme-switch { margin: 0; }
+  .public-theme-root .public-site-mobile-stats { grid-column: 1 / -1; grid-row: 2; margin: 3px 0 0; padding-top: 8px; border-top: 1px solid var(--public-border); }
+  .public-theme-root .public-site-mobile-stats .public-publicstats-1 { justify-content: center; gap: 24px; }
+  .public-theme-root .public-site-mobile-stats .public-publicstats-1 > div:not(.public-publicstats-3) { display: flex; gap: 7px; align-items: baseline; }
+  .public-theme-root .public-publicstats-8 { font-size: 10px; }
+  .public-theme-root .public-site-mobile-stats .public-publicstats-3 { height: 14px; }
+  .public-theme-root .public-home-5 { padding-top: 32px; }
+  .public-home-hero-layout { grid-template-columns: 1fr; gap: 12px; }
+  .public-theme-root .public-home-7 { max-width: none; padding-top: 0; }
+  .public-theme-root .public-home-11 { margin-top: 20px; font-size: clamp(34px, 8.3vw, 52px); line-height: 1.3; }
+  .public-theme-root .public-home-14 { margin-top: 18px; max-width: 420px; font-size: 15px; line-height: 1.8; }
+  .public-theme-root .public-home-15 { margin-top: 22px; flex-direction: row; align-items: center; }
+  .public-theme-root .public-home-15 .ant-btn { width: auto; }
+  .public-home-hero-art { width: min(100%, 430px); justify-self: center; margin-top: 5px; }
+  .public-theme-root .public-workflowband-1 { padding: 10px 0 40px; }
+  .public-theme-root .public-workflowband-3 { grid-template-columns: 1fr 1fr; gap: 22px 16px; }
+  .public-theme-root .public-workflowband-6 { gap: 7px; }
+  .public-theme-root .public-workflow-connector { display: none; }
+  .public-workflow-art { width: 125px; }
+  .public-theme-root .public-workflowband-10 { font-size: 19px; }
+  .public-theme-root .public-workflowband-11 { font-size: 13px; }
+  .public-theme-root .public-home-23,
+  .public-theme-root .public-home-30,
+  .public-theme-root .public-home-39,
+  .public-theme-root .public-home-48 { padding: 45px 0; }
+  .public-theme-root .public-home-26,
+  .public-theme-root .public-home-33,
+  .public-theme-root .public-home-42,
+  .public-theme-root .public-home-51 { font-size: 29px; }
+  .public-theme-root .public-platform-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .public-theme-root .public-platform-item { min-height: 220px; padding: 16px; }
+  .public-theme-root .public-platform-heading h3 { font-size: 17px; }
+  .public-theme-root .public-platform-status { font-size: 10px; padding-inline: 5px; }
+  .public-theme-root .public-platform-guide-link { font-size: 12px; }
+  .public-theme-root .public-home-34 { grid-template-columns: 1fr; }
+  .public-theme-root .public-home-52 { grid-template-columns: 1fr; }
+  .public-theme-root .public-home-58 { grid-template-columns: 1fr; gap: 24px; }
+  .public-theme-root .public-home-62 { justify-self: start; }
+  .public-theme-root .public-home-56 { padding: 38px 0; }
+  .public-theme-root .public-marketingshell-4 { padding: 34px 0 38px; }
+  .public-interior-intro { grid-template-columns: 1fr; gap: 18px; }
+  .public-theme-root .public-marketingshell-7,
+  .public-theme-root .public-marketing:has(.platform-guide) .public-marketingshell-7 { font-size: 34px; }
+  .public-interior-art { width: 210px; justify-self: center; }
+  .public-theme-root .public-marketingshell-8 { font-size: 16px; line-height: 1.85; }
+  .public-theme-root .recruitment-guide-section { padding-top: 40px; }
+  .public-theme-root .recruitment-guide-faq { grid-template-columns: 1fr; }
+  .public-theme-root .recruitment-guide-steps { grid-template-columns: 1fr; }
+  .public-theme-root .public-pricing-copy { width: calc(100% - 40px); padding: 24px; }
+  .public-theme-root .public-pricing-copy h2 { font-size: 26px; }
+  .public-download-intro { gap: 15px; }
+  .public-download-art { flex-basis: 85px; width: 85px; }
+  .public-theme-root .public-download-11 { font-size: 28px; }
+  .public-theme-root .public-sitefooter-3 { gap: 24px; }
+  .public-theme-root .public-sitefooter-7 { gap: 13px 21px; }
+  .public-theme-root .public-login-3 { flex-wrap: wrap; }
+  .public-theme-root .public-login-3 .public-theme-switch { margin-left: auto; }
+  .public-login-back { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-theme-root .public-marketing *, .public-theme-portal * { scroll-behavior: auto; animation: none; transition: none; }
+}
