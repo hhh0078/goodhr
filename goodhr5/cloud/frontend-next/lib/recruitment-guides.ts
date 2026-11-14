@@ -1,6 +1,7 @@
 /** 本文件集中维护招聘自动化、消息回复和 HR 猎头工具专题的可见内容与搜索说明。 */
 
 export type RecruitmentGuide = {
+  platformId?: string;
   path: string;
   title: string;
   description: string;
