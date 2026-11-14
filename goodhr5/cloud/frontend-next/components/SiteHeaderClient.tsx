@@ -1,10 +1,10 @@
 /** 本文件负责官网顶部导航和移动端菜单的客户端交互。 */
 "use client";
 
-import { MenuOutlined } from "@ant-design/icons";
+import { DownOutlined, MenuOutlined } from "@ant-design/icons";
 import { Button, Drawer } from "antd";
 import Link from "next/link";
-import { useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import type { PublicStatsData } from "@/lib/public-data";
 import BrandMark from "./BrandMark";
 import PublicStats from "./PublicStats";
@@ -19,11 +19,79 @@ const navItems = [
   { label: "联系作者", href: "/contact" },
 ];
 
+type PlatformNavigationLink = { label: string; href: string };
+
+/** PlatformNavigation 复用平台链接，桌面支持悬停和键盘，手机通过点击展开。 */
+function PlatformNavigation({ links, mobile = false, onNavigate }: {
+  links: PlatformNavigationLink[];
+  mobile?: boolean;
+  onNavigate?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const listID = useId();
+
+  // 点击菜单外部时收起，离开组件后及时移除监听。
+  useEffect(() => {
+    if (!expanded) return;
+    /** closeOutside 在点击组件外部时关闭平台列表。 */
+    function closeOutside(event: PointerEvent) {
+      if (event.target instanceof Node && !container.current?.contains(event.target)) setExpanded(false);
+    }
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [expanded]);
+
+  return (
+    <div
+      ref={container}
+      className={`public-platform-navigation${mobile ? " public-platform-navigation-mobile" : ""}`}
+      onPointerEnter={(event) => { if (!mobile && event.pointerType !== "touch") setExpanded(true); }}
+      onPointerLeave={(event) => {
+        if (!mobile && !event.currentTarget.contains(document.activeElement)) setExpanded(false);
+      }}
+      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setExpanded(false); }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && expanded) {
+          event.stopPropagation();
+          setExpanded(false);
+          trigger.current?.focus();
+        }
+      }}
+    >
+      <button
+        ref={trigger}
+        type="button"
+        className="public-platform-trigger"
+        aria-expanded={expanded}
+        aria-controls={listID}
+        onClick={(event) => setExpanded((value) => mobile || event.detail === 0 ? !value : true)}
+      >
+        适配平台 <DownOutlined aria-hidden="true" />
+      </button>
+      <div className="public-platform-dropdown" hidden={!expanded}>
+        <ul id={listID} className="public-platform-links">
+          {links.map((link) => (
+            <li key={link.href}>
+              <Link href={link.href} onClick={() => { setExpanded(false); onNavigate?.(); }}>
+                {link.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 /** SiteHeaderClient 输出带交互的桌面导航和移动端菜单。 */
 export default function SiteHeaderClient({
   stats,
+  platformLinks,
 }: {
   stats: PublicStatsData;
+  platformLinks: PlatformNavigationLink[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -39,9 +107,10 @@ export default function SiteHeaderClient({
           <BrandMark />
           <nav className="public-site-desktop-links" aria-label="官网导航">
             {navItems.map((item) => (
-              <Link key={item.href} href={item.href}>
-                {item.label}
-              </Link>
+              <Fragment key={item.href}>
+                <Link href={item.href}>{item.label}</Link>
+                {item.href === "/features" && <PlatformNavigation links={platformLinks} />}
+              </Fragment>
             ))}
           </nav>
           <div className="public-site-desktop-actions">
@@ -77,9 +146,10 @@ export default function SiteHeaderClient({
             className="public-site-drawer-content"
           >
             {navItems.map((item) => (
-              <Link key={item.href} href={item.href} onClick={closeMenu}>
-                {item.label}
-              </Link>
+              <Fragment key={item.href}>
+                <Link href={item.href} onClick={closeMenu}>{item.label}</Link>
+                {item.href === "/features" && <PlatformNavigation links={platformLinks} mobile onNavigate={closeMenu} />}
+              </Fragment>
             ))}
           </nav>
           <Button href="/login" onClick={closeMenu} type="primary" block>

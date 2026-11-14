@@ -178,6 +178,92 @@
 .public-site-drawer-content nav {
   padding: 10px 0;
 }
+.public-platform-navigation {
+  position: relative;
+}
+.public-platform-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 10px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--goodhr-text, #17211c);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.public-platform-trigger .anticon {
+  font-size: 10px;
+  transition: transform 150ms ease;
+}
+.public-platform-trigger[aria-expanded="true"] .anticon {
+  transform: rotate(180deg);
+}
+.public-platform-trigger:focus-visible,
+.public-platform-links a:focus-visible {
+  outline: 2px solid var(--goodhr-primary, #159a62);
+  outline-offset: 2px;
+}
+.public-platform-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
+  padding-top: 8px;
+  min-width: 210px;
+}
+.public-platform-links {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--goodhr-border, #dce5e0);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(31, 55, 43, 0.12);
+}
+.public-platform-links li {
+  margin: 0;
+}
+.public-platform-navigation .public-platform-links a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  color: var(--goodhr-text, #17211c);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.public-platform-links a:hover {
+  background: #edf5f0;
+}
+.public-platform-navigation-mobile .public-platform-trigger {
+  width: 100%;
+  justify-content: space-between;
+  padding: 0;
+  color: inherit;
+}
+.public-platform-navigation-mobile .public-platform-dropdown {
+  position: static;
+  padding-top: 4px;
+  min-width: 0;
+}
+.public-platform-navigation-mobile .public-platform-links {
+  padding: 0 0 0 10px;
+  border: 0;
+  border-left: 1px solid var(--goodhr-border, #dce5e0);
+  border-radius: 0;
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-platform-trigger .anticon {
+    transition: none;
+  }
+}
 .public-login-form .ant-form-item {
   margin-bottom: 18px;
 }
