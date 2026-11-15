@@ -291,7 +291,7 @@ func (s *AssistantService) recommend(ctx context.Context, scope CandidateLibrary
 	if err != nil {
 		return nil, err
 	}
-	// 各模型步骤内部已经最多纠错5次；一旦开始付费流程，外层不得整轮重跑并重复支付已成功或费用未确认的调用。
+	// 各模型步骤内部已统一为首次失败后最多重试3次；一旦开始付费流程，外层不得整轮重跑并重复支付已成功或费用未确认的调用。
 	defer func() {
 		var fatal assistantFatalError
 		if runErr != nil && !errors.As(runErr, &fatal) && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, context.DeadlineExceeded) {

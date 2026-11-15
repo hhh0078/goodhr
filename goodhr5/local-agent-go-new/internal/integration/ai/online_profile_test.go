@@ -60,12 +60,12 @@ func TestOnlineProfileVisionUsesImageAndEditablePrompt(t *testing.T) {
 	}
 }
 
-// TestOnlineProfileVisionDoesNotRetryUnknownCharges 验证未知AI结果不自动重复扣费或把空识别当成成功。
-func TestOnlineProfileVisionDoesNotRetryUnknownCharges(t *testing.T) {
+// TestOnlineProfileVisionRetriesThreeTimes 验证临时识别错误统一重试三次且不能误报成功。
+func TestOnlineProfileVisionRetriesThreeTimes(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls.Add(1); http.Error(w, "unavailable", 503) }))
 	defer server.Close()
-	if _, err := New().ReadAutoReplyOnlineProfileVision(context.Background(), cloud.AIConfig{BaseURL: server.URL, APIKey: "synthetic", Model: "vision"}, [][]byte{onlineVisionTestPNG(t)}, ""); err == nil || calls.Load() != 1 {
+	if _, err := New().ReadAutoReplyOnlineProfileVision(context.Background(), cloud.AIConfig{BaseURL: server.URL, APIKey: "synthetic", Model: "vision"}, [][]byte{onlineVisionTestPNG(t)}, ""); err == nil || calls.Load() != maxAIAttempts {
 		t.Fatal("识别失败自动重试或误报成功", calls.Load(), err)
 	}
 }

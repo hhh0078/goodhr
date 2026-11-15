@@ -33,7 +33,7 @@ func (e *RecommendationFormatError) Error() string {
 	return fmt.Sprintf("推荐报告字段 %s %s", e.field, e.reason)
 }
 
-// GenerateAutoReplyRecommendation 执行一次模型请求，可信简历和岗位快照由本地固定流程填写。
+// GenerateAutoReplyRecommendation 统一重试模型请求及结果校验，可信简历和岗位快照由本地固定流程填写。
 func (c *Client) GenerateAutoReplyRecommendation(ctx context.Context, cfg cloud.AIConfig, source cloud.AutoReplyRecommendationReport, prompt ...string) (cloud.AutoReplyRecommendationReport, error) {
 	if err := c.Ready(cfg); err != nil {
 		return cloud.AutoReplyRecommendationReport{}, err
@@ -46,24 +46,15 @@ func (c *Client) GenerateAutoReplyRecommendation(ctx context.Context, cfg cloud.
 	if err != nil {
 		return cloud.AutoReplyRecommendationReport{}, err
 	}
-	disabled := false
 	system := autoReplyRecommendationPrompt
 	if len(prompt) > 0 && strings.TrimSpace(prompt[0]) != "" {
 		_, contract, _ := strings.Cut(autoReplyRecommendationPrompt, "只返回一个JSON对象")
 		system = strings.TrimSpace(prompt[0]) + "\n只返回一个JSON对象" + contract
 	}
 	system += "\n" + recommendationFactsContract
-	payload, err := json.Marshal(chatRequest{Model: cfg.Model, Messages: []chatMessage{textChatMessage("system", system), textChatMessage("user", string(dynamic))}, Temperature: cfg.Temperature, Stream: true, EnableThinking: &disabled})
-	if err != nil {
-		return cloud.AutoReplyRecommendationReport{}, err
-	}
-	var completion streamCompletion
-	content, err := c.doChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, payload, chatOptions{Completion: &completion, Operation: "AI 推荐分析"})
-	if err != nil {
-		return cloud.AutoReplyRecommendationReport{}, err
-	}
-	report, parseErr := parseRecommendationAnalysis(content, source)
-	return report, completion.parseError(parseErr)
+	return chatResult(ctx, c, cfg, []chatMessage{textChatMessage("system", system), textChatMessage("user", string(dynamic))}, chatOptions{Operation: "AI 推荐分析"}, func(content string) (cloud.AutoReplyRecommendationReport, error) {
+		return parseRecommendationAnalysis(content, source)
+	})
 }
 
 // parseRecommendationAnalysis 只接受模型可填写的分析字段，身份、岗位、条件和生成时间由本地提供。

@@ -64,11 +64,18 @@ func startEvaluation(
 	final := make(chan EvaluationResult, 1)
 	var earlyOnce sync.Once
 	go func() {
+		var published *Decision
 		decision, err := evaluate(func(decision Decision) {
 			earlyOnce.Do(func() {
+				copy := decision
+				published = &copy
 				early <- decision
 			})
 		})
+		// 已交付的评分是业务依据；尾部补读重试只能补齐简历，不能改写已经执行的判断。
+		if err == nil && published != nil {
+			decision.Accepted, decision.Score, decision.Reason = published.Accepted, published.Score, published.Reason
+		}
 		final <- EvaluationResult{Decision: decision, Err: err}
 		close(final)
 	}()
