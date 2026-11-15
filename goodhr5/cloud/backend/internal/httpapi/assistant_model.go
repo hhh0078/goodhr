@@ -129,7 +129,9 @@ func (s *AssistantService) callModel(ctx context.Context, scope CandidateLibrary
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+platform.UpstreamAPIKey)
-	response, err := s.wallet.httpClient.Do(request)
+	response, err := doServerAIRequest(s.wallet.httpClient, request, serverAIRequestOptions{Failed: func(_ int, response *http.Response, raw []byte) error {
+		return s.wallet.settleFailedAIResponse(scope.UserEmail, model, response, raw)
+	}})
 	if err != nil {
 		return assistantFatalError{"AI 连接中断，付费结果未确认；请核对后重试"}
 	}

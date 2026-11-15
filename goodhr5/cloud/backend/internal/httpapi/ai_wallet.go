@@ -301,12 +301,69 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.UpstreamAPIKey))
 	obs, req := observeAIProxy(w, r, req, s.httpClient.Timeout)
-	resp, err := s.httpClient.Do(req)
+	var retryCost int64
+	retryUnknown := false
+	resp, err := doServerAIRequest(s.httpClient, req, serverAIRequestOptions{
+		Before: func(attempt int) error {
+			balance, balanceErr := s.wallet.BalanceUnits(email)
+			if balanceErr != nil {
+				return &serverAIRequestError{Attempts: attempt - 1, Status: 422, Reason: "balance_unavailable"}
+			}
+			if balance <= 0 {
+				return &serverAIRequestError{Attempts: attempt - 1, Status: 402, Reason: "balance_insufficient"}
+			}
+			return nil
+		},
+		Failed: func(attempt int, response *http.Response, raw []byte) error {
+			if obs != nil {
+				obs.bytes += int64(len(raw))
+			}
+			if response == nil || response.StatusCode < 200 || response.StatusCode >= 300 {
+				retryUnknown = true
+				return nil
+			}
+			result, _ := readAIWire(raw)
+			receipt, settleErr := s.settleAIUsage(email, model, result.Prompt, result.Completion)
+			if settleErr != nil {
+				return &serverAIRequestError{Attempts: attempt, Status: 500, Reason: "billing_failed", Cause: settleErr}
+			}
+			if receipt.Status == "charged" && receipt.CostUnits != nil {
+				var sumErr error
+				retryCost, sumErr = checkedAIWalletAdd(retryCost, *receipt.CostUnits)
+				if sumErr != nil {
+					return &serverAIRequestError{Attempts: attempt, Reason: "billing_total_invalid"}
+				}
+			} else {
+				retryUnknown = true
+			}
+			return nil
+		},
+	})
 	if err != nil {
-		obs.report(w, "", aiProxyReason(err, "transport_error"), 0, false)
-		writeError(w, http.StatusBadGateway, "AI 服务暂时没接上，我再试也得先缓缓。")
+		status, phase, reason, upstreamStatus := http.StatusUnprocessableEntity, "", aiProxyReason(err, "transport_error"), 0
+		var failure *serverAIRequestError
+		if errors.As(err, &failure) {
+			upstreamStatus = failure.Status
+			w.Header().Set("X-GoodHR-AI-Attempts", strconv.Itoa(failure.Attempts))
+			if failure.Status == 402 {
+				status = 402
+			}
+			if failure.Reason == "read_stream" || failure.Reason == "read_body" {
+				phase, reason = failure.Reason, aiProxyReason(failure.Cause, "stream_interrupted")
+			} else if failure.Reason == "http_status" {
+				phase, reason = "upstream_status", "http_status"
+			} else if failure.Reason != "transport_error" {
+				phase, reason = "validate_response", failure.Reason
+			}
+		}
+		obs.report(w, phase, reason, upstreamStatus, false)
+		// 422 表示上游预算已结束，旧客户端也不会按 5xx/429 再重试一轮。
+		writeJSON(w, status, map[string]any{"error": "AI 已在服务器完成重试，仍没拿到可用结果，请稍后再试", "code": "AI_RETRY_EXHAUSTED"})
 		return
 	}
+	w.Header().Set("X-GoodHR-AI-Attempts", resp.Header.Get("X-GoodHR-Upstream-Attempts"))
+	resp.Header.Del("X-GoodHR-Upstream-Attempts")
+	resp.Header.Del("X-GoodHR-AI-Attempts")
 	defer resp.Body.Close()
 	// 上游不能代替本代理声明 GoodHR 诊断协议或覆盖故障分类。
 	resp.Header.Del(aiDiagnosticHeader)
@@ -347,6 +404,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		receipt, err := s.settleAIUsage(email, model, promptTokens, completionTokens)
+		receipt = mergeAIRetryBilling(receipt, retryCost, retryUnknown)
 		if err != nil {
 			obs.report(w, "billing", "billing_failed", resp.StatusCode, true)
 			log.Printf("[内置AI] 流式扣费记录写入失败 user=%s model=%s prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, promptTokens, completionTokens, err)
@@ -366,6 +424,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		promptTokens, completionTokens := aiUsageFromResponse(respBody)
 		receipt, err = s.settleAIUsage(email, model, promptTokens, completionTokens)
+		receipt = mergeAIRetryBilling(receipt, retryCost, retryUnknown)
 		if err != nil {
 			obs.report(w, "billing", "billing_failed", resp.StatusCode, false)
 			log.Printf("[内置AI] 扣费记录写入失败 user=%s model=%s prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, promptTokens, completionTokens, err)
