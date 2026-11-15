@@ -112,7 +112,7 @@ func TestAssistantChunkSelectionIncludesLateExperience(t *testing.T) {
 // strconvForTest 返回短的测试编号，不依赖候选人真实标识。
 func strconvForTest(value int) string { return string(rune('a' + value)) }
 
-// TestAssistantRecommendationJSONRetriesWithHistory 验证非法JSON会连同历史回馈模型，最多五次且每次保留真实用量扣费。
+// TestAssistantRecommendationJSONRetriesWithHistory 验证非法JSON由服务器统一重试三次，提示词不变且逐次保留实际扣费。
 func TestAssistantRecommendationJSONRetriesWithHistory(t *testing.T) {
 	calls := 0
 	wallet, _ := embeddingFixture(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -124,8 +124,8 @@ func TestAssistantRecommendationJSONRetriesWithHistory(t *testing.T) {
 		if json.NewDecoder(request.Body).Decode(&input) != nil || input.Format["type"] != "json_object" {
 			t.Fatal("missing JSON response format")
 		}
-		if calls > 1 && (len(input.Messages) < 4 || !strings.Contains(input.Messages[len(input.Messages)-1].Content, "校验错误")) {
-			t.Fatal("retry lost original response or error history")
+		if len(input.Messages) != 2 {
+			t.Fatal("通用格式重试不应修改业务提示词")
 		}
 		raw := `{"choices":[{"message":{"content":"not json"}}],"usage":{"prompt_tokens":100,"completion_tokens":50}}`
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(raw)), Header: make(http.Header)}, nil
@@ -136,7 +136,7 @@ func TestAssistantRecommendationJSONRetriesWithHistory(t *testing.T) {
 		Value string `json:"value"`
 	}
 	err := s.recommendationJSON(context.Background(), CandidateLibraryScope{UserEmail: "embedding@example.com"}, budget, "只返回value", map[string]string{"input": "测试"}, &result, nil)
-	if err == nil || calls != 5 || budget.Calls != 5 || budget.PromptTokens != 500 {
+	if err == nil || calls != serverAIMaxAttempts || budget.Calls != serverAIMaxAttempts || budget.PromptTokens != 100*serverAIMaxAttempts {
 		t.Fatalf("calls=%d budget=%+v err=%v", calls, budget, err)
 	}
 	var fatal assistantFatalError

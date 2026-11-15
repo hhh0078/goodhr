@@ -130,7 +130,22 @@ func (s *AssistantService) recommendationJSON(ctx context.Context, scope Candida
 		}
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Authorization", "Bearer "+platform.UpstreamAPIKey)
-		response, err := s.wallet.httpClient.Do(request)
+		response, err := doServerAIRequest(s.wallet.httpClient, request, serverAIRequestOptions{Before: func(attempt int) error {
+			if attempt > 1 {
+				if budget.Calls >= 120 || budget.PromptTokens >= 300000 || budget.CompletionTokens >= 100000 {
+					return fmt.Errorf("%w: %w", assistantFatalError{errRecommendationBudget.Error()}, errRecommendationBudget)
+				}
+				budget.Calls++
+			}
+			return nil
+		}, Failed: func(_ int, response *http.Response, raw []byte) error {
+			if response != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
+				usage, _ := readAIWire(raw)
+				budget.PromptTokens += usage.Prompt
+				budget.CompletionTokens += usage.Completion
+			}
+			return s.wallet.settleFailedAIResponse(scope.UserEmail, model, response, raw)
+		}})
 		if err != nil {
 			return assistantFatalError{"AI连接中断，付费结果未确认，请核对后重试"}
 		}

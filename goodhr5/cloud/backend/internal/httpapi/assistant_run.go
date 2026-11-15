@@ -132,7 +132,28 @@ func (s *AssistantService) runConversation(ctx context.Context, original Candida
 		var call *assistantModelEvent
 		done := false
 		attemptText := ""
-		err = s.modelCall(ctx, scope, messages, func(event assistantModelEvent) error {
+		modelCtx := withServerAIGuard(ctx, func() error {
+			freshScope, checkErr := s.currentScope(original)
+			if checkErr != nil {
+				return checkErr
+			}
+			currentRecord, checkErr := s.store.Get(ctx, key)
+			if checkErr != nil {
+				return checkErr
+			}
+			currentRun := currentRecord.Runs[runID]
+			if currentRun == nil {
+				return ErrNotFound
+			}
+			if currentRun.Status == "cancelled" {
+				return context.Canceled
+			}
+			if currentRun.Status == "completed" || currentRun.Status == "failed" {
+				return assistantFatalError{"任务已经结束"}
+			}
+			return s.validateRunReferences(freshScope, currentRun)
+		})
+		err = s.modelCall(modelCtx, scope, messages, func(event assistantModelEvent) error {
 			encoded, _ := json.Marshal(event)
 			rawEvents.Write(encoded)
 			rawEvents.WriteByte('\n')

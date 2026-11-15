@@ -113,7 +113,7 @@ func (s *AIConfigService) requestAIText(ctx context.Context, config aiConfigRequ
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(config.APIKey))
 	req.Header.Set("Content-Type", "application/json")
 	start := time.Now()
-	resp, err := s.httpClient.Do(req)
+	resp, err := doServerAIRequest(s.httpClient, req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return "", errors.New("AI 服务请求超时，请检查接口地址和网络")
