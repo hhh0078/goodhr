@@ -310,7 +310,7 @@ func TestBuiltinAICompatibleChatFallsBackAndChargesSameModel(t *testing.T) {
 				}
 				responseBody := `{"choices":[{"message":{"content":"成功"}}],"usage":{"prompt_tokens":1000000,"completion_tokens":1000000}}`
 				if test.stream {
-					responseBody = "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1000000,\"completion_tokens\":1000000}}\n\ndata: [DONE]\n\n"
+					responseBody = "data: {\"choices\":[{\"delta\":{\"content\":\"成功\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":1000000,\"completion_tokens\":1000000}}\n\ndata: [DONE]\n\n"
 				}
 				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(responseBody))}, nil
 			})}

@@ -51,7 +51,7 @@ func createAssistantForTest(t *testing.T, routes http.Handler, token, id string)
 // waitAssistantRun 等待合成后台任务到达终态，超时给出真实状态而不是只检查200。
 func waitAssistantRun(t *testing.T, s *AssistantService, scope CandidateLibraryScope, sessionID, runID string) assistantRun {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
 		record, err := s.store.Get(context.Background(), assistantKey(scope, sessionID))
 		if err != nil {
@@ -268,7 +268,7 @@ func TestAssistantUncertainEmbeddingStopsOuterRetry(t *testing.T) {
 		t.Fatalf("创建任务失败: %d %v", status, data)
 	}
 	run := waitAssistantRun(t, server.assistant, scope, "uncertain-embedding", data["run_id"].(string))
-	if run.Status != "failed" || conversationCalls.Load() != 2 || parseCalls.Load() != 1 || embeddingCalls.Load() != 1 {
-		t.Fatalf("不确定付费调用被重试: status=%s conversation=%d parse=%d embedding=%d", run.Status, conversationCalls.Load(), parseCalls.Load(), embeddingCalls.Load())
+	if run.Status != "failed" || conversationCalls.Load() != 2 || parseCalls.Load() != 1 || embeddingCalls.Load() != serverAIMaxAttempts {
+		t.Fatalf("服务器重试预算或外层隔离失效: status=%s conversation=%d parse=%d embedding=%d", run.Status, conversationCalls.Load(), parseCalls.Load(), embeddingCalls.Load())
 	}
 }

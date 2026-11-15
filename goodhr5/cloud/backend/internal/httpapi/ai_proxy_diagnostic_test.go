@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// TestBuiltinProxyFailureBoundary 区分响应头前连接/等待故障，保留服务商响应状态与正文。
+// TestBuiltinProxyFailureBoundary 区分响应头前连接/等待故障，在四次失败后返回明确终态，并保留实际服务商状态诊断。
 func TestBuiltinProxyFailureBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		name, phase, reason string
@@ -61,18 +61,14 @@ func TestBuiltinProxyFailureBoundary(t *testing.T) {
 			if json.Unmarshal([]byte(rec.Header().Get(aiUpstreamFailureHeader)), &d) != nil || d.Phase != tc.phase || d.Reason != tc.reason || d.HTTPStatus != tc.upstream || d.LimitMS != 180000 {
 				t.Fatalf("unexpected failure: %+v HTTP %d", d, rec.Code)
 			}
-			if tc.upstream != 0 {
-				if rec.Code != tc.upstream || rec.Body.String() != `{"error":"provider response"}` {
-					t.Fatal("上游 HTTP 错误被改写")
-				}
-			} else if rec.Code != 502 {
-				t.Fatal(rec.Code)
+			if rec.Code != 422 || !strings.Contains(rec.Body.String(), "AI_RETRY_EXHAUSTED") || rec.Header().Get("X-GoodHR-AI-Attempts") != "4" {
+				t.Fatalf("服务器预算没有终止：%d %s", rec.Code, rec.Body.String())
 			}
 		})
 	}
 }
 
-// TestBuiltinProxyInterruptedStream 验证先收到内容再中断时先发阶段证据；旧客户端仍按旧方式收回执。
+// TestBuiltinProxyInterruptedStream 验证中断内容不提前交给客户端，服务器用完重试后按原诊断协议返回终态。
 func TestBuiltinProxyInterruptedStream(t *testing.T) {
 	const chunk = "data: {\"choices\":[{\"delta\":{\"content\":\"fixture\"}}]}\n\n"
 	for _, mode := range []string{"interrupted", "clean-eof", "legacy"} {
@@ -98,6 +94,22 @@ func TestBuiltinProxyInterruptedStream(t *testing.T) {
 			rec := httptest.NewRecorder()
 			service.CompatibleChat(rec, req)
 			body := rec.Body.String()
+			if mode != "clean-eof" {
+				if rec.Code != 422 || strings.Contains(body, "fixture") || !strings.Contains(body, "AI_RETRY_EXHAUSTED") {
+					t.Fatal("失败流被提前转给客户端", body)
+				}
+				if mode == "legacy" {
+					if rec.Header().Get(aiUpstreamFailureHeader) != "" {
+						t.Fatal("旧客户端收到诊断协议")
+					}
+					return
+				}
+				var failure aiProxyFailure
+				if json.Unmarshal([]byte(rec.Header().Get(aiUpstreamFailureHeader)), &failure) != nil || failure.Phase != "read_stream" || failure.Reason != "timeout" || failure.HTTPStatus != 200 || failure.ReceivedBytes != int64(serverAIMaxAttempts*len(chunk)) {
+					t.Fatalf("%+v", failure)
+				}
+				return
+			}
 			marker := strings.Index(body, "goodhr_upstream_failure")
 			bill := strings.Index(body, "goodhr_billing")
 			if !strings.HasPrefix(body, chunk) || bill < 0 || strings.Count(body, "[DONE]") != 1 {

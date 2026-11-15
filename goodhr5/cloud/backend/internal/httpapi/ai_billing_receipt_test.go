@@ -28,9 +28,9 @@ func TestCompatibleChatBillingMatchesWallet(t *testing.T) {
 		{"json", "application/json", `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":181,"completion_tokens":4361}}`, false, true, false},
 		{"stream_json_fallback", "application/json", `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":181,"completion_tokens":4361}}`, true, true, false},
 		{"stream", "text/event-stream", "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":181,\"completion_tokens\":4361}}\n\ndata: [DONE]\n\n", true, true, false},
-		{"legacy", "text/event-stream", "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":181,\"completion_tokens\":4361}}\n\ndata: [DONE]\n\n", true, false, false},
+		{"legacy", "text/event-stream", "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":181,\"completion_tokens\":4361}}\n\ndata: [DONE]\n\n", true, false, false},
 		{"missing_usage", "text/event-stream", "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n", true, true, false},
-		{"ledger_failure", "text/event-stream", "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":181,\"completion_tokens\":4361}}\n\ndata: [DONE]\n\n", true, true, true},
+		{"ledger_failure", "text/event-stream", "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":181,\"completion_tokens\":4361}}\n\ndata: [DONE]\n\n", true, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service, wallet := embeddingFixture(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
