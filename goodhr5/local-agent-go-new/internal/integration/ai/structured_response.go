@@ -82,6 +82,14 @@ func parseDecisionWithStructured(content string, threshold float64, includeResum
 		}
 		return Decision{}, responseErr
 	}
+	if strings.TrimSpace(reason) == "" {
+		responseErr := newResponseError(fmt.Errorf("AI 判断没有返回有效 reason，请重新生成"), content, "model_content", true)
+		responseErr.Diagnostic.ParseField = "reason"
+		if parsed.Analysis != nil {
+			responseErr.Diagnostic.ParseField = "analysis.reason"
+		}
+		return Decision{}, responseErr
+	}
 	decision := normalizedDecision(*score, reason, threshold)
 	if !includeResume {
 		return decision, nil

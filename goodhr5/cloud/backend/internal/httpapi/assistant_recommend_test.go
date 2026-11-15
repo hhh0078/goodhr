@@ -112,7 +112,7 @@ func TestAssistantChunkSelectionIncludesLateExperience(t *testing.T) {
 // strconvForTest 返回短的测试编号，不依赖候选人真实标识。
 func strconvForTest(value int) string { return string(rune('a' + value)) }
 
-// TestAssistantRecommendationJSONRetriesWithHistory 验证非法JSON会连同历史回馈模型，最多五次且每次保留真实用量扣费。
+// TestAssistantRecommendationJSONRetriesWithHistory 验证非法JSON会连同历史回馈模型，最多四次且每次保留真实用量扣费。
 func TestAssistantRecommendationJSONRetriesWithHistory(t *testing.T) {
 	calls := 0
 	wallet, _ := embeddingFixture(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -136,12 +136,12 @@ func TestAssistantRecommendationJSONRetriesWithHistory(t *testing.T) {
 		Value string `json:"value"`
 	}
 	err := s.recommendationJSON(context.Background(), CandidateLibraryScope{UserEmail: "embedding@example.com"}, budget, "只返回value", map[string]string{"input": "测试"}, &result, nil)
-	if err == nil || calls != 5 || budget.Calls != 5 || budget.PromptTokens != 500 {
+	if err == nil || calls != maxAIAttempts || budget.Calls != maxAIAttempts || budget.PromptTokens != 100*maxAIAttempts {
 		t.Fatalf("calls=%d budget=%+v err=%v", calls, budget, err)
 	}
 	var fatal assistantFatalError
 	if !errors.As(err, &fatal) {
-		t.Fatal("inner five-attempt exhaustion could be retried by outer conversation")
+		t.Fatal("inner four-attempt exhaustion could be retried by outer conversation")
 	}
 }
 

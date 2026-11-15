@@ -1,4 +1,4 @@
-// Package ai 文件作用：用HTTP替身验证简历摘要固定提示词、JSON结果和未知计费不自动重试。
+// Package ai 文件作用：用HTTP替身验证简历摘要固定提示词、JSON结果和临时故障统一重试。
 package ai
 
 import (
@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// TestSummarizeResumeSingleAttempt 验证AI摘要只发出一次调用，简历指令不替换系统提示词。
+// TestSummarizeResumeSingleAttempt 验证AI摘要成功只发一次调用，简历指令不替换系统提示词。
 func TestSummarizeResumeSingleAttempt(t *testing.T) {
 	var calls atomic.Int32
 	var failure atomic.Bool
@@ -46,7 +46,7 @@ func TestSummarizeResumeSingleAttempt(t *testing.T) {
 	}
 	failure.Store(true)
 	_, err = New().SummarizeResume(context.Background(), cfg, candidate)
-	if err == nil || calls.Load() != 2 {
-		t.Fatal("未知计费失败被自动重试")
+	if err == nil || calls.Load() != 1+maxAIAttempts {
+		t.Fatal("失败后未按公共预算重试")
 	}
 }

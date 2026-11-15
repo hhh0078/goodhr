@@ -243,7 +243,7 @@ func TestResponseErrorKeepsEarlierBodyWhenRetryCannotConnect(t *testing.T) {
 	})
 	_, err := client.EvaluateCandidatePreview(context.Background(), cloud.AIConfig{BaseURL: "http://fixture", APIKey: "fixture", Model: "retry-model"}, cloud.PositionSnapshot{}, model.Candidate{})
 	diagnostic, ok := ResponseDiagnosticFromError(err)
-	if !ok || attempts != 3 || diagnostic.Response != body || diagnostic.RequestAttempt != 1 || !strings.Contains(diagnostic.FinalRequestError, "测试后续连接断开") {
+	if !ok || attempts != maxAIAttempts || diagnostic.Response != body || diagnostic.RequestAttempt != 1 || !strings.Contains(diagnostic.FinalRequestError, "测试后续连接断开") {
 		t.Fatalf("重试覆盖了之前的实际正文：ok=%v attempts=%d bodyBytes=%d responseAttempt=%d lastError=%s", ok, attempts, len(diagnostic.Response), diagnostic.RequestAttempt, diagnostic.FinalRequestError)
 	}
 }
