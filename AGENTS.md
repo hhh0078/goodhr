@@ -92,6 +92,8 @@
 
 ## 生产发布与空间收尾规范
 
+- 用户于2026-11-15再次明确：常规main提交的云端更新必须在自动验收通过后自动激活，不得停在“候选已就绪，等待激活”。复用已验收的同内容候选，保留真实回退、源码与镜像身份核对、失败重试及既有空间收尾约束；特殊人工新旧容器验收记录仍须按原流程处理。
+
 - 正式云端发布统一走 `goodhr5/scripts/deploy-build.sh`；先 `--build-only` 准备候选，经隔离数据库和回退组合验收后，再用同一不可变标签 `--activate-only` 激活。用户于2026-11-11明确要求宝塔定时任务自动更新正式前后端：`auto_deploy.sh` 可通过 `scripts/auto_release.py` 自动编排这三个阶段，只有本轮完整验收通过才能激活；不得重新启用旧的源码挂载重启路线。
 - 禁止以任意历史 GoodHR 成品镜像作为 `FROM`，包括“复用线上镜像后删除 /app 再复制新文件”。必须先运行 `scripts/release_guard.py dockerfiles`，构建后对实际镜像运行 `image` 检查；只允许正式 Dockerfile 的干净官方基础或 `release-policy.json` 中按角色核验过的固定运行镜像。一次性重新封装现有编译产物也必须经过同样检查。
 - 构建元数据采用 `goodhr.release.id` 和 `goodhr.dockerfile_sha256`，不要新增 `goodhr.release` 标签，避免经典构建器把同一次构建的标签中间镜像误认为旧成品。构建缓存必须使用约定的 `goodhr.project`、`goodhr.build.stage` 及完成标记；每种阶段最多保留一条已完成缓存分支。
