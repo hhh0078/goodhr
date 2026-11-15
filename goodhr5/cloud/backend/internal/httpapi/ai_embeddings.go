@@ -226,7 +226,7 @@ func (s *AIWalletService) embedForUser(ctx context.Context, email string, texts 
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(config.UpstreamAPIKey))
-	response, err := s.httpClient.Do(request)
+	response, err := doServerAIRequest(s.httpClient, request)
 	if err != nil {
 		return empty, errors.New("向量响应未确认，可能产生上游费用；请核对后再试")
 	}

@@ -77,7 +77,7 @@ func (s *httpResumeReranker) Rerank(ctx context.Context, query string, documents
 	if s.key != "" {
 		request.Header.Set("Authorization", "Bearer "+s.key)
 	}
-	response, err := s.client.Do(request)
+	response, err := doServerAIRequest(s.client, request)
 	if err != nil {
 		return nil, errors.New("独立精排服务连接失败")
 	}

@@ -46,7 +46,7 @@ func (s *AttachmentParseService) parseAI(ctx context.Context, cfg AIConfig, inpu
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.APIKey))
-	response, err := s.ai.httpClient.Do(request)
+	response, err := doServerAIRequest(s.ai.httpClient, request)
 	if err != nil {
 		return nil, "AI_RESULT_UNCERTAIN", "AI 结果暂时没确认，可能已经计费；请核对后手动重试", true
 	}
