@@ -726,7 +726,7 @@ func toolCallResponse(id string, name string, arguments string, tokens int) stri
 func manyToolCallsResponse(count int) string {
 	calls := make([]string, 0, count)
 	for index := 0; index < count; index++ {
-		calls = append(calls, fmt.Sprintf(`{"id":"call-%d","type":"function","function":{"name":"send_messages","arguments":"{}"}}`, index+1))
+		calls = append(calls, fmt.Sprintf(`{"id":"call-%d","type":"function","function":{"name":"get_context","arguments":"{}"}}`, index+1))
 	}
 	return `{"choices":[{"message":{"role":"assistant","tool_calls":[` + strings.Join(calls, ",") + `]}}]}`
 }
@@ -885,8 +885,8 @@ func TestModelHTTPUsesWritableConditionFields(t *testing.T) {
 	}
 }
 
-// TestUnmarkedInvalidToolArgumentsRetryBeforeBusinessAudit 验证公共 AI 层先重试坏 JSON，只有最终有效工具进入业务审计。
-func TestUnmarkedInvalidToolArgumentsRetryBeforeBusinessAudit(t *testing.T) {
+// TestUnmarkedInvalidToolArgumentsShowOnlyInHumanAudit 验证缺结束标记的工具参数在审计显示证据，模型仍可沿原协议修正。
+func TestUnmarkedInvalidToolArgumentsShowOnlyInHumanAudit(t *testing.T) {
 	state := &responderTestState{aiResponses: []string{
 		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"bad","type":"function","function":{"name":"send_messages","arguments":"{"}}]}}]}` + "\n",
 		toolCallResponse("good", toolSendMessages, `{"messages":[{"type":"answer","content":"您好，薪资以面谈为准。"}]}`, 11),
@@ -900,7 +900,7 @@ func TestUnmarkedInvalidToolArgumentsRetryBeforeBusinessAudit(t *testing.T) {
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if len(state.toolCalls) != 2 || len(state.aiRequests) != 2 || state.toolCalls[1].ErrorCode != "" || state.toolCalls[0].ToolCallID != "good" || strings.Contains(string(state.aiRequests[1]), "完整性未知") {
+	if len(state.toolCalls) != 4 || len(state.aiRequests) != 2 || state.toolCalls[1].ErrorCode != "INVALID_TOOL_ARGUMENTS" || !strings.Contains(state.toolCalls[1].ErrorMessage, "完整性未知") || strings.Contains(string(state.aiRequests[1]), "完整性未知") {
 		t.Fatalf("人工审计与模型修复错误信息未正确区分：%+v", state.toolCalls)
 	}
 }

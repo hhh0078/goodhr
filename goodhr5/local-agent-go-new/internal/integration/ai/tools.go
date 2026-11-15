@@ -6,11 +6,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 )
@@ -130,20 +133,33 @@ func (c *Client) ChatWithTools(ctx context.Context, cfg cloud.AIConfig, request 
 		return ToolChatResult{}, fmt.Errorf("编码 AI 工具请求失败：%w", err)
 	}
 	endpoint := chatCompletionsURL(cfg.BaseURL)
-	return runAIRequest(ctx, "AI 工具调用", cfg.Model, func(attempt int) (ToolChatResult, error) {
-		result, err := c.doToolChatRequest(ctx, endpoint, cfg.APIKey, encoded, int64(attempt))
-		if err == nil {
-			err = validateToolChatResult(result, request.Tools)
+	var lastErr error
+	var previous []failurediag.Detail
+	for attempt := 1; attempt <= 3; attempt++ {
+		result, requestErr := c.doToolChatRequest(ctx, endpoint, cfg.APIKey, encoded, int64(attempt))
+		if requestErr == nil {
+			return result, nil
 		}
-		return result, err
-	})
+		lastErr = requestErr
+		var serviceErr *ServiceError
+		if !errors.As(requestErr, &serviceErr) || !serviceErr.Retryable || attempt == 3 {
+			return ToolChatResult{}, withAIHistory(requestErr, previous)
+		}
+		retryStarted := time.Now()
+		delay := max(serviceErr.RetryAfter, time.Duration(attempt)*500*time.Millisecond)
+		if err = waitRetry(ctx, delay); err != nil {
+			return ToolChatResult{}, withAIHistory(retryWaitError(ctx, err, requestErr, "AI 工具调用", attempt, retryStarted, delay), previous)
+		}
+		previous = append(previous, failurediag.Details(requestErr)...)
+	}
+	return ToolChatResult{}, lastErr
 }
 
 // doToolChatRequest 执行一次工具请求并按响应类型选择 JSON 或 SSE 解析。
 func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey string, payload []byte, attempts ...int64) (result ToolChatResult, runErr error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return ToolChatResult{}, &ServiceError{Message: "创建 AI 工具请求失败：" + err.Error(), Fatal: true, Cause: err}
+		return ToolChatResult{}, fmt.Errorf("创建 AI 工具请求失败：%w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	request.Header.Set("Content-Type", "application/json")
@@ -226,7 +242,6 @@ func readToolChatStream(reader io.Reader, billing ...*billingObserver) (ToolChat
 	calls := make(map[int]*ToolCall)
 	tokenUsage := 0
 	endMarked := false
-	var protocolErr error
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "data:") {
@@ -244,14 +259,7 @@ func readToolChatStream(reader io.Reader, billing ...*billingObserver) (ToolChat
 		}
 		var chunk toolStreamChunk
 		if json.Unmarshal([]byte(data), &chunk) != nil {
-			protocolErr = fmt.Errorf("AI 工具流式响应不是有效 JSON")
 			continue
-		}
-		var signal struct {
-			Error json.RawMessage `json:"error"`
-		}
-		if json.Unmarshal([]byte(data), &signal) == nil && len(signal.Error) > 0 && string(signal.Error) != "null" {
-			protocolErr = fmt.Errorf("AI 工具流式响应返回服务错误")
 		}
 		if chunk.Usage.TotalTokens > 0 {
 			tokenUsage = chunk.Usage.TotalTokens
@@ -284,9 +292,6 @@ func readToolChatStream(reader io.Reader, billing ...*billingObserver) (ToolChat
 	}
 	if err := observation.streamError(); err != nil {
 		return ToolChatResult{}, err
-	}
-	if protocolErr != nil {
-		return ToolChatResult{}, protocolErr
 	}
 	indexes := make([]int, 0, len(calls))
 	for index := range calls {
@@ -331,24 +336,4 @@ func toolCallsUnsupported(statusCode int, body string) bool {
 		strings.Contains(lower, "unknown") ||
 		strings.Contains(lower, "不支持")
 	return mentionsTool && rejectsTool
-}
-
-// validateToolChatResult 在公共 AI 边界校验工具名称和 JSON 参数，坏参数不得交给业务工具执行。
-func validateToolChatResult(result ToolChatResult, tools []ToolDefinition) error {
-	seen := map[string]bool{}
-	for _, call := range result.Message.ToolCalls {
-		allowed := false
-		for _, tool := range tools {
-			if tool.Function.Name == call.Function.Name {
-				allowed = true
-				break
-			}
-		}
-		raw := strings.TrimSpace(call.Function.Arguments)
-		if !allowed || call.ID == "" || seen[call.ID] || call.Type != "function" || !json.Valid([]byte(raw)) || !strings.HasPrefix(raw, "{") {
-			return call.WithArgumentParseDiagnostic(fmt.Errorf("AI 工具名称、编号或 JSON 参数不完整"))
-		}
-		seen[call.ID] = true
-	}
-	return nil
 }

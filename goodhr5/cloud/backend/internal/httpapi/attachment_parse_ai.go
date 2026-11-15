@@ -1,4 +1,4 @@
-// 本文件复用批量简历的完整 JSON 合同，通过当前用户配置统一重试 AI 请求和结果校验；不使用系统默认配置，不保存或输出 AI 密钥。
+// 本文件复用批量简历的完整 JSON 合同，通过当前用户配置执行一次 AI 请求；不使用系统默认配置，不保存或输出 AI 密钥。
 package httpapi
 
 import (
@@ -24,30 +24,8 @@ var attachmentGenderPattern = regexp.MustCompile(`(?:性别\s*[:：]?\s*|(?:^|[\
 var attachmentEnglishGenderPattern = regexp.MustCompile(`(?i)\b(?:gender|sex)\s*[:：]?\s*(female|male)\b`)
 var attachmentPresentPattern = regexp.MustCompile(`(?i)\b(?:present|current|now)\b`)
 
-// attachmentAIError 保留解析接口原错误码和费用未知状态，不向日志输出附件内容。
-type attachmentAIError struct {
-	code, message string
-	uncertain     bool
-}
-
-// Error 返回附件解析的原中文提示。
-func (e *attachmentAIError) Error() string { return e.message }
-
-// parseAI 统一重试请求与简历字段校验；内置地址仍经过既有余额及逐次 usage 扣费路径。
+// parseAI 使用原用户配置和单次 HTTP 请求；内置地址仍经过既有 CompatibleChat 余额及 usage 扣费路径。
 func (s *AttachmentParseService) parseAI(ctx context.Context, cfg AIConfig, input attachmentParseRequest) (map[string]any, string, string, bool) {
-	value, err := retryAI(ctx, "AI 附件解析", func(_ int) (map[string]any, error) { return s.parseAIOnce(ctx, cfg, input) })
-	if err == nil {
-		return value, "", "", false
-	}
-	var failure *attachmentAIError
-	if errors.As(err, &failure) {
-		return nil, failure.code, err.Error(), failure.uncertain
-	}
-	return nil, "AI_REQUEST_CANCELLED", "AI 识别已停止，可以稍后再试", false
-}
-
-// parseAIOnce 执行一次附件识别及原字段校验，不自行重试或触发业务写入。
-func (s *AttachmentParseService) parseAIOnce(ctx context.Context, cfg AIConfig, input attachmentParseRequest) (map[string]any, error) {
 	system := loadDefaultPrompts(s.ai.systemConfigs).BossAttachmentBasicPrompt
 	if input.Phase == "full" {
 		system = attachmentFullSystem + "\n还必须先判断原文是否确实是个人简历，在同一个JSON对象返回is_resume布尔值。合同、广告、岗位说明、下载失败页、空模板均返回is_resume:false，不提取候选人。只有包含明确个人履历的材料才返回true。性别不得凭姓名推测，年月无据不得编造。"
@@ -60,53 +38,50 @@ func (s *AttachmentParseService) parseAIOnce(ctx context.Context, cfg AIConfig, 
 	}
 	payload, err := json.Marshal(requestBody)
 	if err != nil {
-		return nil, noAIRetry(&attachmentAIError{"AI_CONFIG_INVALID", "AI 配置暂时不可用，请检查后重试", false})
+		return nil, "AI_CONFIG_INVALID", "AI 配置暂时不可用，请检查后重试", false
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeAIChatCompletionsURL(cfg.BaseURL), bytes.NewReader(payload))
 	if err != nil {
-		return nil, noAIRetry(&attachmentAIError{"AI_CONFIG_INVALID", "AI 地址没有读完整，请检查个人配置", false})
+		return nil, "AI_CONFIG_INVALID", "AI 地址没有读完整，请检查个人配置", false
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.APIKey))
 	response, err := s.ai.httpClient.Do(request)
 	if err != nil {
-		return nil, &attachmentAIError{"AI_RESULT_UNCERTAIN", "AI 结果暂时没确认，可能已经计费；请核对后手动重试", true}
+		return nil, "AI_RESULT_UNCERTAIN", "AI 结果暂时没确认，可能已经计费；请核对后手动重试", true
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, (8<<20)+1))
 	if err != nil || len(body) > 8<<20 {
-		return nil, &attachmentAIError{"AI_RESULT_UNCERTAIN", "AI 响应没有读完整，可能已经计费；请核对后再试", true}
+		return nil, "AI_RESULT_UNCERTAIN", "AI 响应没有读完整，可能已经计费；请核对后再试", true
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		if response.StatusCode == http.StatusPaymentRequired {
-			return nil, noAIRetry(&attachmentAIError{"AI_BALANCE_INSUFFICIENT", "AI 余额有点紧张，请充值后再识别附件", false})
+			return nil, "AI_BALANCE_INSUFFICIENT", "AI 余额有点紧张，请充值后再识别附件", false
 		}
-		failure := &attachmentAIError{"AI_REQUEST_FAILED", "AI 没有完成识别，请检查接口、Key、模型和余额后再试", false}
-		policy := aiHTTPFailure(response, failure.message)
-		policy.cause = failure
-		return nil, policy
+		return nil, "AI_REQUEST_FAILED", "AI 没有完成识别，请检查接口、Key、模型和余额后再试", false
 	}
 	content := aiResponseContent(body)
 	var raw map[string]any
 	start, end := strings.Index(content, "{"), strings.LastIndex(content, "}")
 	if start < 0 || end < start || json.Unmarshal([]byte(content[start:end+1]), &raw) != nil || raw == nil {
-		return nil, &attachmentAIError{"AI_RESPONSE_INVALID", "AI 没返回可用的简历结果，请核对费用后手动重试", false}
+		return nil, "AI_RESPONSE_INVALID", "AI 没返回可用的简历结果，请核对费用后手动重试", false
 	}
 	flag, valid := raw["is_resume"].(bool)
 	if !valid {
-		return nil, &attachmentAIError{"AI_RESPONSE_INVALID", "AI 没明确确认这是一份个人简历，请核对后手动重试", false}
+		return nil, "AI_RESPONSE_INVALID", "AI 没明确确认这是一份个人简历，请核对后手动重试", false
 	}
 	if !flag {
-		return nil, noAIRetry(&attachmentAIError{"NOT_A_RESUME", "这份材料没识别成个人简历，请打开完整附件后重试", false})
+		return nil, "NOT_A_RESUME", "这份材料没识别成个人简历，请打开完整附件后重试", false
 	}
 	resume, err := sanitizeAttachmentResume(raw, input)
 	if err != nil {
-		return nil, &attachmentAIError{"AI_RESPONSE_INVALID", "AI 返回的简历字段不完整，请核对费用后手动重试", false}
+		return nil, "AI_RESPONSE_INVALID", "AI 返回的简历字段不完整，请核对费用后手动重试", false
 	}
 	if encoded, err := json.Marshal(resume); err != nil || len(encoded) > 1<<20 {
-		return nil, &attachmentAIError{"AI_RESPONSE_INVALID", "AI 返回的结构化简历太长，请分开整理后再试", false}
+		return nil, "AI_RESPONSE_INVALID", "AI 返回的结构化简历太长，请分开整理后再试", false
 	}
-	return resume, nil
+	return resume, "", "", false
 }
 
 // sanitizeAttachmentResume 白名单过滤模型字段，并把平台来源重新绑定到可信请求，模型不能授予身份或写入权限。

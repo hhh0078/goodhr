@@ -27,7 +27,7 @@ func (c *Client) ParseAutoReplyResume(ctx context.Context, cfg cloud.AIConfig, t
 	return c.parseResume(ctx, cfg, text, system)
 }
 
-// parseResume 使用调用方指定的系统消息执行有结构约束的简历解析并统一重试。
+// parseResume 使用调用方指定的系统消息执行一次有结构约束的简历解析。
 func (c *Client) parseResume(ctx context.Context, cfg cloud.AIConfig, text, system string) (cloud.LibraryCandidate, error) {
 	if err := c.Ready(cfg); err != nil {
 		return cloud.LibraryCandidate{}, err
@@ -40,23 +40,32 @@ func (c *Client) parseResume(ctx context.Context, cfg cloud.AIConfig, text, syst
 		textChatMessage("system", system+"\n还必须先判断原文是否确实是个人简历，在同一个JSON对象返回is_resume布尔值。合同、广告、岗位说明、下载失败页、空模板均返回is_resume:false，不提取候选人。只有包含明确个人履历的材料才返回true。"),
 		textChatMessage("user", "请整理下面这份简历原文：\n"+text),
 	}
-	return chatResult(ctx, c, cfg, messages, chatOptions{Operation: "AI 简历解析"}, func(content string) (cloud.LibraryCandidate, error) {
-		var candidate cloud.LibraryCandidate
-		object := extractJSONObject(content)
-		if err := json.Unmarshal([]byte(object), &candidate); err != nil {
-			return cloud.LibraryCandidate{}, withResponseModel(newParsedResponseError(fmt.Errorf("AI没返回有效的简历草稿，请重试：%w", err), content, object, "model_content"), cfg.Model)
-		}
-		if candidate.IsResume != nil && !*candidate.IsResume {
-			return candidate, nil
-		}
-		if strings.TrimSpace(candidate.CandidateName) == "" && strings.TrimSpace(candidate.PersonalDescription) == "" && len(candidate.WorkExperiences) == 0 && len(candidate.Educations) == 0 {
-			return cloud.LibraryCandidate{}, fmt.Errorf("AI没找到可确认的简历信息，请检查原文后再试")
-		}
-		// 来源、编号和版本只能来自用户与云端；AI不得为身份或来源授权。
-		candidate.ID, candidate.RowVersion = "", 0
-		candidate.SourceType = "ai_import"
-		candidate.PlatformID, candidate.PlatformCandidateID, candidate.SourceURL = "", "", ""
-		candidate.RawText = text
+	// 通用chat默认重试三次；导入结果不明时不能自动重复扣费，因此复用单次请求能力。
+	disabled := false
+	payload, err := json.Marshal(chatRequest{Model: cfg.Model, Messages: messages, Temperature: cfg.Temperature, Stream: true, EnableThinking: &disabled})
+	if err != nil {
+		return cloud.LibraryCandidate{}, fmt.Errorf("简历请求没整理好，请重新导入")
+	}
+	var completion streamCompletion
+	content, err := c.doChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, payload, chatOptions{Completion: &completion, Operation: "AI 简历解析"})
+	if err != nil {
+		return cloud.LibraryCandidate{}, err
+	}
+	var candidate cloud.LibraryCandidate
+	object := extractJSONObject(content)
+	if err := json.Unmarshal([]byte(object), &candidate); err != nil {
+		return cloud.LibraryCandidate{}, completion.parseError(withResponseModel(newParsedResponseError(fmt.Errorf("AI没返回有效的简历草稿，请重试：%w", err), content, object, "model_content"), cfg.Model))
+	}
+	if candidate.IsResume != nil && !*candidate.IsResume {
 		return candidate, nil
-	})
+	}
+	if strings.TrimSpace(candidate.CandidateName) == "" && strings.TrimSpace(candidate.PersonalDescription) == "" && len(candidate.WorkExperiences) == 0 && len(candidate.Educations) == 0 {
+		return cloud.LibraryCandidate{}, completion.parseError(fmt.Errorf("AI没找到可确认的简历信息，请检查原文后再试"))
+	}
+	// 来源、编号和版本只能来自用户与云端；AI不得为身份或来源授权。
+	candidate.ID, candidate.RowVersion = "", 0
+	candidate.SourceType = "ai_import"
+	candidate.PlatformID, candidate.PlatformCandidateID, candidate.SourceURL = "", "", ""
+	candidate.RawText = text
+	return candidate, nil
 }

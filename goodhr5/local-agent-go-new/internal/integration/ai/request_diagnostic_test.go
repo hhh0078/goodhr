@@ -126,7 +126,7 @@ func TestTrustedProxyTailPreservesDecisionAndBilling(t *testing.T) {
 	defer s.Close()
 	t.Setenv("GOODHR_PUBLIC_BASE_URL", s.URL)
 	for _, key := range []string{"custom", "ghai_test"} {
-		billed := make(chan Billing, maxAIAttempts)
+		billed := make(chan Billing, 1)
 		ctx := WithBillingReporter(context.Background(), func(b Billing) { billed <- b })
 		evaluation, err := New().EvaluateCandidatePreviewEarly(ctx, cloud.AIConfig{BaseURL: s.URL + "/api/ai-compatible/v1", APIKey: key, Model: "test"}, cloud.PositionSnapshot{}, model.Candidate{})
 		if err != nil || evaluation.Final == nil || evaluation.Decision.Score != 80 {
@@ -143,15 +143,15 @@ func TestTrustedProxyTailPreservesDecisionAndBilling(t *testing.T) {
 			}
 			continue
 		}
-		if len(d) != 2*maxAIAttempts || d[0].Impact != "评分已返回，完整输出未收完" || d[1].Source != "内置 AI 代理" || d[1].LimitMS != 180000 {
+		if len(d) != 2 || d[0].Impact != "评分已返回，完整输出未收完" || d[1].Source != "内置 AI 代理" || d[1].LimitMS != 180000 {
 			t.Fatalf("丢失已出评分或上游诊断：%+v", d)
 		}
 		resp, ok := ResponseDiagnosticFromError(final.Err)
-		if !ok || resp.ResponseComplete || resp.RequestAttempt != maxAIAttempts {
-			t.Fatalf("应保留流不完整且重试后的原始结果：%+v", resp)
+		if !ok || resp.ResponseComplete || resp.RequestAttempt != 1 {
+			t.Fatalf("应保留流不完整且不重试的原始结果：%+v", resp)
 		}
 	}
-	if headers.Load() != maxAIAttempts {
+	if headers.Load() != 1 {
 		t.Fatalf("只有可信内置请求才协商；实际次数 %d", headers.Load())
 	}
 }
@@ -253,7 +253,7 @@ func TestAIMissingStreamEndOnlyForExistingParseError(t *testing.T) {
 				t.Fatalf("已有解析失败的完整性诊断错误：%+v, %v", diag, err)
 			}
 			d := failurediag.Details(err)
-			if tc.unknown && (len(d) != maxAIAttempts || !strings.Contains(d[0].Reason, "完整性未知")) || !tc.unknown && len(d) != 0 {
+			if tc.unknown && (len(d) != 1 || !strings.Contains(d[0].Reason, "完整性未知")) || !tc.unknown && len(d) != 0 {
 				t.Fatalf("流结束信号证据有误：%+v", d)
 			}
 		})
@@ -301,7 +301,7 @@ func TestBuiltinUnmarkedUpstreamOnlyDiagnosesParseFailure(t *testing.T) {
 		}
 		diag, ok := ResponseDiagnosticFromError(err)
 		d := failurediag.Details(err)
-		if !ok || !diag.ResponseCompletionUnknown || len(d) != maxAIAttempts || d[0].Source != "内置 AI 代理" || d[0].ReceivedBytes != 123 || d[0].HTTPStatus != 200 {
+		if !ok || !diag.ResponseCompletionUnknown || len(d) != 1 || d[0].Source != "内置 AI 代理" || d[0].ReceivedBytes != 123 || d[0].HTTPStatus != 200 {
 			t.Fatalf("代理补发 DONE 不应覆盖上游缺结束标记：%+v %+v %v", diag, d, err)
 		}
 	}

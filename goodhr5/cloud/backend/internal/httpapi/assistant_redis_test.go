@@ -234,7 +234,7 @@ func TestAssistantInvalidHistoryNotSentToModel(t *testing.T) {
 	}
 }
 
-// TestAssistantToolArgumentsStrict 验证工具执行前拒绝重复键、未知字段和错误类型，并把错误及原调用历史回送至第四次截止。
+// TestAssistantToolArgumentsStrict 验证工具执行前拒绝重复键、未知字段和错误类型，并把错误及原调用历史回送至第五次截止。
 func TestAssistantToolArgumentsStrict(t *testing.T) {
 	for _, raw := range []string{`{"query":"Go","query":"Java"}`, `{"query":"Go","tenant_id":"other"}`, `{"query":123}`, `{"query":"Go"}{"id":"other"}`} {
 		t.Run(raw, func(t *testing.T) {
@@ -250,7 +250,7 @@ func TestAssistantToolArgumentsStrict(t *testing.T) {
 				calls++
 				if calls > 1 {
 					body, _ := json.Marshal(messages)
-					if !strings.Contains(string(body), "本轮输出未通过校验") {
+					if !strings.Contains(string(body), "工具执行回执") || !strings.Contains(string(body), "error") {
 						t.Error("没有把错误和历史回送给模型")
 					}
 				}
@@ -268,7 +268,7 @@ func TestAssistantToolArgumentsStrict(t *testing.T) {
 				}
 				return nil
 			})
-			if err == nil || calls != maxAIAttempts || results != 0 || retries != 0 {
+			if err == nil || calls != 5 || results != 5 || retries != 4 {
 				t.Fatalf("参数执行或重试不符合合同: err=%v calls=%d results=%d retries=%d", err, calls, results, retries)
 			}
 		})

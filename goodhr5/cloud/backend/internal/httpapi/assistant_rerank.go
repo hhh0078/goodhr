@@ -61,11 +61,6 @@ func newHTTPResumeReranker() (ResumeReranker, error) {
 
 // Rerank 兼容常见rerank服务的query/documents合同，严格核对返回索引和有限数字。
 func (s *httpResumeReranker) Rerank(ctx context.Context, query string, documents []ResumeRerankDocument) ([]ResumeRerankScore, error) {
-	return retryAI(ctx, "AI 独立精排", func(_ int) ([]ResumeRerankScore, error) { return s.rerankOnce(ctx, query, documents) })
-}
-
-// rerankOnce 只执行一次精排请求，索引与分数校验仍在统一重试范围内。
-func (s *httpResumeReranker) rerankOnce(ctx context.Context, query string, documents []ResumeRerankDocument) ([]ResumeRerankScore, error) {
 	texts := []string{}
 	for _, document := range documents {
 		texts = append(texts, document.Text)
@@ -76,7 +71,7 @@ func (s *httpResumeReranker) rerankOnce(ctx context.Context, query string, docum
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, noAIRetry(err)
+		return nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	if s.key != "" {
@@ -88,10 +83,7 @@ func (s *httpResumeReranker) rerankOnce(ctx context.Context, query string, docum
 	}
 	defer response.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, (2<<20)+1))
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, aiHTTPFailure(response, "独立精排服务暂时不可用")
-	}
-	if err != nil || len(raw) > 2<<20 {
+	if err != nil || len(raw) > 2<<20 || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, errors.New("独立精排响应未完整完成")
 	}
 	var result struct {

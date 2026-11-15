@@ -1,4 +1,4 @@
-// Package ai 文件作用：通过本地HTTP替身验证固定提示词、字段结构和导入AI统一重试，不请求付费AI。
+// Package ai 文件作用：通过本地HTTP替身验证固定提示词、字段结构和导入AI不自动重试，不请求付费AI。
 package ai
 
 import (
@@ -45,14 +45,14 @@ func TestParseResumeKeepsImportedInstructionsAsUserData(t *testing.T) {
 	}
 }
 
-// TestParseResumeRetriesThreeTimes 验证首次5xx失败后额外重试三次，总共四次请求。
-func TestParseResumeRetriesThreeTimes(t *testing.T) {
+// TestParseResumeDoesNotAutomaticallyRetry 验证5xx也只发一次请求，避免未知计费重复解析。
+func TestParseResumeDoesNotAutomaticallyRetry(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); http.Error(w, "temporary", 503) }))
 	defer server.Close()
 	_, err := New().ParseResume(context.Background(), cloud.AIConfig{BaseURL: server.URL, APIKey: "test", Model: "test"}, "虚构简历")
-	if err == nil || calls.Load() != maxAIAttempts {
-		t.Fatalf("重试次数不正确：calls=%d err=%v", calls.Load(), err)
+	if err == nil || calls.Load() != 1 {
+		t.Fatalf("自动重复请求：calls=%d err=%v", calls.Load(), err)
 	}
 }
 

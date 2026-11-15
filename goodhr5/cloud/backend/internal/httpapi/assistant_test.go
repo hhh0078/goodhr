@@ -1,4 +1,4 @@
-// 本文件验证助手严格JSON、统一三次重试、独立任务、消息幂等、事件续传与两小时只由新消息续期。
+// 本文件验证助手严格JSON、五次修复、独立任务、消息幂等、事件续传与两小时只由新消息续期。
 package httpapi
 
 import (
@@ -51,7 +51,7 @@ func createAssistantForTest(t *testing.T, routes http.Handler, token, id string)
 // waitAssistantRun 等待合成后台任务到达终态，超时给出真实状态而不是只检查200。
 func waitAssistantRun(t *testing.T, s *AssistantService, scope CandidateLibraryScope, sessionID, runID string) assistantRun {
 	t.Helper()
-	deadline := time.Now().Add(6 * time.Second)
+	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		record, err := s.store.Get(context.Background(), assistantKey(scope, sessionID))
 		if err != nil {
@@ -155,8 +155,8 @@ func TestAssistantTaskIdempotencyAndResume(t *testing.T) {
 	}
 }
 
-// TestAssistantRetriesAtMostThree 验证错误和历史回送后第4次仍失败必须终止，坏正文不进入事件流。
-func TestAssistantRetriesAtMostThree(t *testing.T) {
+// TestAssistantRepairsAtMostFive 验证错误和历史回送后第5次仍失败必须终止，坏正文不进入事件流。
+func TestAssistantRepairsAtMostFive(t *testing.T) {
 	server, routes, token, scope := assistantFixture(t)
 	createAssistantForTest(t, routes, token, "repair-session")
 	var calls atomic.Int32
@@ -181,7 +181,7 @@ func TestAssistantRetriesAtMostThree(t *testing.T) {
 		t.Fatal(status)
 	}
 	run := waitAssistantRun(t, server.assistant, scope, "repair-session", data["run_id"].(string))
-	if run.Status != "failed" || calls.Load() != maxAIAttempts || missingHistory.Load() {
+	if run.Status != "failed" || calls.Load() != 5 || missingHistory.Load() {
 		t.Fatalf("修复次数或历史不正确: status=%s calls=%d history=%v", run.Status, calls.Load(), missingHistory.Load())
 	}
 	for _, event := range run.Events {
@@ -268,7 +268,7 @@ func TestAssistantUncertainEmbeddingStopsOuterRetry(t *testing.T) {
 		t.Fatalf("创建任务失败: %d %v", status, data)
 	}
 	run := waitAssistantRun(t, server.assistant, scope, "uncertain-embedding", data["run_id"].(string))
-	if run.Status != "failed" || conversationCalls.Load() != 2 || parseCalls.Load() != 1 || embeddingCalls.Load() != maxAIAttempts {
-		t.Fatalf("模型步骤重试预算或上层隔离失效: status=%s conversation=%d parse=%d embedding=%d", run.Status, conversationCalls.Load(), parseCalls.Load(), embeddingCalls.Load())
+	if run.Status != "failed" || conversationCalls.Load() != 2 || parseCalls.Load() != 1 || embeddingCalls.Load() != 1 {
+		t.Fatalf("不确定付费调用被重试: status=%s conversation=%d parse=%d embedding=%d", run.Status, conversationCalls.Load(), parseCalls.Load(), embeddingCalls.Load())
 	}
 }

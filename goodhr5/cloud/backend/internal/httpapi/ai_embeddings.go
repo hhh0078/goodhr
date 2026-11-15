@@ -182,13 +182,8 @@ func validateEmbeddingTexts(texts []string) error {
 	return nil
 }
 
-// embedForUser 统一重试向量请求和结果校验，外层无需重跑已成功的付费步骤。
+// embedForUser 读取本人站内配置，校验响应后复用分笔钱包扣款；网络不明时由上层显式决定是否重试。
 func (s *AIWalletService) embedForUser(ctx context.Context, email string, texts []string) (embeddingResponse, error) {
-	return retryAI(ctx, "AI 向量请求", func(_ int) (embeddingResponse, error) { return s.embedForUserOnce(ctx, email, texts) })
-}
-
-// embedForUserOnce 只执行一次向量请求和校验，配置与账本异常禁止重复请求模型。
-func (s *AIWalletService) embedForUserOnce(ctx context.Context, email string, texts []string) (embeddingResponse, error) {
 	var empty embeddingResponse
 	if !aiSearchEnabled() {
 		return empty, &embeddingCallError{http.StatusServiceUnavailable, "简历向量搜索暂未启用"}
@@ -237,7 +232,7 @@ func (s *AIWalletService) embedForUserOnce(ctx context.Context, email string, te
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return empty, aiHTTPFailure(response, "向量服务没有完成请求，请检查模型渠道和余额后重试")
+		return empty, errors.New("向量服务没有完成请求，请检查模型渠道和余额后重试")
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxAICompatibleBodyBytes+1))
 	if err != nil || len(body) > maxAICompatibleBodyBytes {
@@ -256,7 +251,7 @@ func (s *AIWalletService) embedForUserOnce(ctx context.Context, email string, te
 		return empty, err
 	}
 	if _, err = s.wallet.AdjustBalance(AIWalletRecord{UserEmail: email, ChangeUnits: -cost, Category: "ai_usage", Reason: "内置向量调用扣费", ModelID: builtinEmbeddingModel, PromptTokens: prompt, CompletionTokens: completion}); err != nil {
-		return empty, noAIRetry(errors.New("向量已返回，但扣费回执没有确认，请先核对账本后再试"))
+		return empty, errors.New("向量已返回，但扣费回执没有确认，请先核对账本后再试")
 	}
 	return result, nil
 }

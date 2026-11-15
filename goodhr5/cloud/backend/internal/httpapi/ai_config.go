@@ -95,19 +95,8 @@ func (s *AIConfigService) requestAITest(ctx context.Context, config aiConfigRequ
 	return s.requestAIText(ctx, config, []AIMsg{{Role: "user", Content: "请只返回两个字：成功"}})
 }
 
-// requestAIText 统一重试文字请求和可选结果校验，业务调用方不另写重试。
-func (s *AIConfigService) requestAIText(ctx context.Context, config aiConfigRequest, messages []AIMsg, validate ...func(string) error) (string, error) {
-	return retryAI(ctx, "AI 文字请求", func(_ int) (string, error) {
-		content, err := s.requestAITextOnce(ctx, config, messages)
-		if err == nil && len(validate) > 0 && validate[0] != nil {
-			err = validate[0](content)
-		}
-		return content, err
-	})
-}
-
-// requestAITextOnce 只执行一次文字请求，重试预算由公共 AI 层管理。
-func (s *AIConfigService) requestAITextOnce(ctx context.Context, config aiConfigRequest, messages []AIMsg) (string, error) {
+// requestAIText 复用已校验的用户接口、响应解析和超时控制，执行一次文字请求。
+func (s *AIConfigService) requestAIText(ctx context.Context, config aiConfigRequest, messages []AIMsg) (string, error) {
 	payload, err := json.Marshal(map[string]any{
 		"model":       strings.TrimSpace(config.Model),
 		"messages":    messages,
@@ -119,7 +108,7 @@ func (s *AIConfigService) requestAITextOnce(ctx context.Context, config aiConfig
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeAIChatCompletionsURL(config.BaseURL), bytes.NewReader(payload))
 	if err != nil {
-		return "", noAIRetry(fmt.Errorf("AI 接口地址无效：%w", err))
+		return "", fmt.Errorf("AI 接口地址无效：%w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(config.APIKey))
 	req.Header.Set("Content-Type", "application/json")
@@ -138,7 +127,7 @@ func (s *AIConfigService) requestAITextOnce(ctx context.Context, config aiConfig
 		return "", fmt.Errorf("读取 AI 服务响应失败：%w", err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", aiHTTPFailure(resp, fmt.Sprintf("AI 服务返回状态码 %d：%s", resp.StatusCode, aiErrorMessage(body)))
+		return "", fmt.Errorf("AI 服务返回状态码 %d：%s", resp.StatusCode, aiErrorMessage(body))
 	}
 	content := aiResponseContent(body)
 	if content == "" {

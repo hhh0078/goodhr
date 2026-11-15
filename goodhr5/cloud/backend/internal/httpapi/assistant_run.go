@@ -103,16 +103,36 @@ func (s *AssistantService) runConversation(ctx context.Context, original Candida
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		scope, err := s.scopeForModel(ctx, original, key, runID)
+		scope, err := s.currentScope(original)
 		if err != nil {
 			return err
+		}
+		// 工具执行后权限可能变化；每次把历史送回模型前重新读取并核对最新引用。
+		latest, err := s.store.Get(ctx, key)
+		if err != nil {
+			return err
+		}
+		current := latest.Runs[runID]
+		if current == nil {
+			return ErrNotFound
+		}
+		if current.Status == "cancelled" {
+			return context.Canceled
+		}
+		if current.Status == "completed" || current.Status == "failed" {
+			return errors.New("任务已经结束")
+		}
+		if len(current.References) > 0 {
+			if err := s.validateRunReferences(scope, current); err != nil {
+				return err
+			}
 		}
 		events := []assistantModelEvent{}
 		var rawEvents strings.Builder
 		var call *assistantModelEvent
 		done := false
 		attemptText := ""
-		err = s.callValidatedModel(ctx, scope, messages, func(event assistantModelEvent) error {
+		err = s.modelCall(ctx, scope, messages, func(event assistantModelEvent) error {
 			encoded, _ := json.Marshal(event)
 			rawEvents.Write(encoded)
 			rawEvents.WriteByte('\n')
@@ -133,16 +153,32 @@ func (s *AssistantService) runConversation(ctx context.Context, original Candida
 				done = true
 			}
 			return nil
-		}, func() (CandidateLibraryScope, error) {
-			return s.scopeForModel(ctx, original, key, runID)
 		})
 		messages = append(messages, AIMsg{Role: "assistant", Content: rawEvents.String()})
 		if err != nil {
-			return err
+			var fatal assistantFatalError
+			if errors.As(err, &fatal) || errors.Is(err, context.Canceled) {
+				return err
+			}
+			failures++
+			messages = append(messages, AIMsg{Role: "user", Content: "本轮输出校验失败，全部不采用。请结合历史重新返回合规JSON事件。错误：" + err.Error()})
+			if failures >= 5 {
+				return errors.New("同一步骤已尝试5次，仍未得到合规结果，本轮已停止")
+			}
+			if emitErr := emit("retry", map[string]any{"attempt": failures + 1, "error": err.Error(), "reset_text": true}); emitErr != nil {
+				return emitErr
+			}
+			continue
 		}
 		if call == nil {
 			if !done {
-				return errors.New("AI 未返回结束事件")
+				failures++
+				if failures >= 5 {
+					return errors.New("模型5次未正常结束，本轮已停止")
+				}
+				messages = append(messages, AIMsg{Role: "user", Content: "没有工具调用时必须以JSON done事件结束，请修正。"})
+				_ = emit("retry", map[string]any{"attempt": failures + 1, "error": "缺少结束事件", "reset_text": true})
+				continue
 			}
 			answer += attemptText
 			if err := s.saveConversation(ctx, key, runID, messages[1:], answer); err != nil {
@@ -151,7 +187,13 @@ func (s *AssistantService) runConversation(ctx context.Context, original Candida
 			return emit("completed", map[string]any{"result": lastResult})
 		}
 		if done || attemptText != "" {
-			return errors.New("AI 工具事件合同未通过")
+			failures++
+			messages = append(messages, AIMsg{Role: "user", Content: "调用工具的这一轮只能提供summary与一个tool事件，请等待工具结果后再写正文或done。"})
+			if failures >= 5 {
+				return errors.New("工具协议已连续失败5次，本轮已停止")
+			}
+			_ = emit("retry", map[string]any{"attempt": failures + 1, "error": "工具结果尚未返回，请勿提前生成结论", "reset_text": true})
+			continue
 		}
 		callID := assistantID()
 		var arguments any
@@ -216,8 +258,8 @@ func (s *AssistantService) runConversation(ctx context.Context, original Candida
 				return err
 			}
 			failures++
-			if failures >= maxAIAttempts {
-				return errors.New("同一步骤已尝试4次仍未完成，请调整要求后再试")
+			if failures >= 5 {
+				return errors.New("同一步骤已尝试5次仍未完成，请调整要求后再试")
 			}
 			if emitErr := emit("retry", map[string]any{"attempt": failures + 1, "error": err.Error()}); emitErr != nil {
 				return emitErr
@@ -351,33 +393,4 @@ func (s *AssistantService) searchPositions(scope CandidateLibraryScope, query, i
 // assistantJobProjection 保留完整岗位需求与工作条件，排除客户联系人和内部备注。
 func assistantJobProjection(job HeadhunterJob) map[string]any {
 	return map[string]any{"id": job.ID, "name": job.Name, "description": job.Description, "requirements": job.Requirements, "city": job.City, "education": job.Education, "experience": job.Experience, "salary_min": job.SalaryMin, "salary_max": job.SalaryMax, "salary_unit": "万元/年，0为未知", "revision": job.Revision, "source": "headhunter", "complete": true}
-}
-
-// scopeForModel 每次付费尝试前复核账号、本轮状态与引用，撤权或跨实例取消后立即停止。
-func (s *AssistantService) scopeForModel(ctx context.Context, original CandidateLibraryScope, key, runID string) (CandidateLibraryScope, error) {
-	scope, err := s.currentScope(original)
-	if err != nil {
-		return scope, err
-	}
-	// 工具执行后权限可能变化；每次把历史送回模型前重新读取并核对最新引用。
-	latest, err := s.store.Get(ctx, key)
-	if err != nil {
-		return scope, err
-	}
-	current := latest.Runs[runID]
-	if current == nil {
-		return scope, ErrNotFound
-	}
-	if current.Status == "cancelled" {
-		return scope, context.Canceled
-	}
-	if current.Status == "completed" || current.Status == "failed" {
-		return scope, errors.New("任务已经结束")
-	}
-	if len(current.References) > 0 {
-		if err := s.validateRunReferences(scope, current); err != nil {
-			return scope, err
-		}
-	}
-	return scope, nil
 }

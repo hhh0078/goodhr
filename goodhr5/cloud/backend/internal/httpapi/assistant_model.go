@@ -131,14 +131,14 @@ func (s *AssistantService) callModel(ctx context.Context, scope CandidateLibrary
 	request.Header.Set("Authorization", "Bearer "+platform.UpstreamAPIKey)
 	response, err := s.wallet.httpClient.Do(request)
 	if err != nil {
-		return errors.New("AI 连接中断，响应暂未确认")
+		return assistantFatalError{"AI 连接中断，付费结果未确认；请核对后重试"}
 	}
 	defer response.Body.Close()
 	if response.StatusCode == 401 || response.StatusCode == 403 || response.StatusCode == 402 {
 		return assistantFatalError{"AI 认证或余额不足，请检查配置后再试"}
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return aiHTTPFailure(response, fmt.Sprintf("AI 服务返回状态 %d", response.StatusCode))
+		return fmt.Errorf("AI 服务返回状态 %d", response.StatusCode)
 	}
 	scanner := bufio.NewScanner(io.LimitReader(response.Body, 8<<20))
 	scanner.Buffer(make([]byte, 4096), 2<<20)
@@ -222,10 +222,10 @@ func (s *AssistantService) callModel(ctx context.Context, scope CandidateLibrary
 		}
 	}
 	if err = scanner.Err(); err != nil {
-		readError = errors.New("AI 流中断，响应暂未确认")
+		readError = assistantFatalError{"AI 流中断，付费结果未确认；请核对后重试"}
 	}
 	if prompt < 0 || completion < 0 || prompt+completion <= 0 {
-		return errors.New("AI 没有返回可靠用量，结果暂不采用，请核对服务配置")
+		return assistantFatalError{"AI 没有返回可靠用量，结果暂不采用，请核对服务配置"}
 	}
 	if err = s.wallet.chargeAIUsage(scope.UserEmail, model, prompt, completion); err != nil {
 		return assistantFatalError{"AI 已返回，但计费回执未保存，请核对后重试"}
@@ -234,7 +234,7 @@ func (s *AssistantService) callModel(ctx context.Context, scope CandidateLibrary
 		return readError
 	}
 	if !finished {
-		return errors.New("AI 流未正常结束，请稍后再试")
+		return assistantFatalError{"AI 流未正常结束，请核对费用后重试"}
 	}
 	accept(pending.String())
 	if protocolError != nil {
@@ -260,29 +260,6 @@ func validateAssistantModelEvent(event assistantModelEvent) error {
 		if event.Arguments[0] != '{' {
 			return errors.New("工具参数必须是 JSON 对象")
 		}
-		if event.Name == "search_positions" {
-			var input struct {
-				Query string `json:"query"`
-				ID    string `json:"id"`
-			}
-			if err := strictAssistantJSON(event.Arguments, &input); err != nil {
-				return err
-			}
-			if len([]rune(input.Query)) > 200 || len(input.ID) > 100 {
-				return errors.New("岗位查询参数太长")
-			}
-		} else {
-			var input struct {
-				JobID       string `json:"job_id"`
-				Preferences string `json:"preferences"`
-			}
-			if err := strictAssistantJSON(event.Arguments, &input); err != nil {
-				return err
-			}
-			if input.JobID == "" || len([]rune(input.Preferences)) > 10000 {
-				return errors.New("岗位编号缺失或偏好条件过长")
-			}
-		}
 	case "done":
 		if event.Text != "" || event.Name != "" || len(event.Arguments) > 0 {
 			return errors.New("结束事件只能包含 type 字段")
@@ -291,82 +268,4 @@ func validateAssistantModelEvent(event assistantModelEvent) error {
 		return errors.New("模型事件类型不在允许范围")
 	}
 	return nil
-}
-
-// callValidatedModel 在公共 AI 层重试完整事件合同，失败尝试的正文和工具不会交给业务执行。
-func (s *AssistantService) callValidatedModel(ctx context.Context, scope CandidateLibraryScope, messages []AIMsg, emit func(assistantModelEvent) error, before ...func() (CandidateLibraryScope, error)) error {
-	messages = append([]AIMsg(nil), messages...)
-	events, err := retryAI(ctx, "AI 助手事件", func(_ int) ([]assistantModelEvent, error) {
-		if len(before) > 0 && before[0] != nil {
-			var checkErr error
-			scope, checkErr = before[0]()
-			if checkErr != nil {
-				return nil, noAIRetry(checkErr)
-			}
-		}
-		batch := []assistantModelEvent{}
-		var raw strings.Builder
-		err := s.modelCall(ctx, scope, messages, func(event assistantModelEvent) error {
-			if err := validateAssistantModelEvent(event); err != nil {
-				return err
-			}
-			if len(batch) >= 200 {
-				return errors.New("模型本轮事件过多，请缩短回答")
-			}
-			encoded, _ := json.Marshal(event)
-			raw.Write(encoded)
-			raw.WriteByte('\n')
-			if raw.Len() > 1<<20 {
-				return errors.New("模型本轮输出过长")
-			}
-			batch = append(batch, event)
-			return nil
-		})
-		if err == nil {
-			err = validateAssistantEventBatch(batch)
-		}
-		if err != nil {
-			// 纠错仅发送当前模型自己生成的事件和错误，固定 system 消息不变。
-			messages = append(messages, AIMsg{Role: "assistant", Content: raw.String()}, AIMsg{Role: "user", Content: "本轮输出未通过校验，全部不采用。请重新返回合规JSON事件。错误：" + err.Error()})
-		}
-		return batch, err
-	})
-	if err != nil {
-		return err
-	}
-	for _, event := range events {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		// 业务事件发布失败不可重新调用模型，避免已发布事件重复执行。
-		if err := emit(event); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validateAssistantEventBatch 在事件交付前核实一个工具或完整结束正文，防止半轮结果触发业务动作。
-func validateAssistantEventBatch(events []assistantModelEvent) error {
-	tools, done, text := 0, false, false
-	for _, event := range events {
-		if done || tools > 0 {
-			return errors.New("结束或工具事件之后不能继续输出")
-		}
-		switch event.Type {
-		case "tool":
-			tools++
-		case "text":
-			text = true
-		case "done":
-			done = true
-		}
-	}
-	if tools == 1 && !done && !text {
-		return nil
-	}
-	if tools == 0 && done {
-		return nil
-	}
-	return errors.New("调用工具时只返回summary与一个tool事件；没有工具时必须以done结束")
 }

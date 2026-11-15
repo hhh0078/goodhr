@@ -17,6 +17,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
 // Client 是无共享任务状态的 OpenAI 兼容客户端。
@@ -122,12 +123,19 @@ func (c *Client) evaluateCandidate(
 	system := candidateSystemPrompt(cfg, position)
 	user := candidateUserPrompt(position, candidate, detail)
 	var completion streamCompletion
-	return chatResult(ctx, c, cfg, []chatMessage{
+	content, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", system),
 		textChatMessage("user", user),
-	}, candidateChatOptions("候选人详情评分", position, decisionThreshold(cfg, position), earlyDecision, &completion), func(content string) (Decision, error) {
-		return parseDecisionWithStructured(content, decisionThreshold(cfg, position), position.CommonConfig.OutputStructuredResume)
-	})
+	}, candidateChatOptions("候选人详情评分", position, decisionThreshold(cfg, position), earlyDecision, &completion))
+	if err != nil {
+		return Decision{}, err
+	}
+	decision, err := parseDecisionWithStructured(
+		content,
+		decisionThreshold(cfg, position),
+		position.CommonConfig.OutputStructuredResume,
+	)
+	return decision, completion.parseError(withResponseModel(err, cfg.Model))
 }
 
 // EvaluateCandidatePreview 只根据候选人基础信息判断是否值得打开详情。
@@ -138,12 +146,15 @@ func (c *Client) EvaluateCandidatePreview(ctx context.Context, cfg cloud.AIConfi
 // evaluateCandidatePreview 复用卡片提示词并允许在完整分数与原因可用时回调，不把尾部响应计入判定耗时。
 func (c *Client) evaluateCandidatePreview(ctx context.Context, cfg cloud.AIConfig, position cloud.PositionSnapshot, candidate model.Candidate, early func(Decision)) (Decision, error) {
 	var completion streamCompletion
-	return chatResult(ctx, c, cfg, []chatMessage{
+	content, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", candidatePreviewSystemPrompt(position)),
 		textChatMessage("user", candidatePreviewUserPrompt(position, candidate)),
-	}, candidateChatOptions("候选人基础预分析", position, detailDecisionThreshold(position), early, &completion), func(content string) (Decision, error) {
-		return parseDecision(content, detailDecisionThreshold(position))
-	})
+	}, candidateChatOptions("候选人基础预分析", position, detailDecisionThreshold(position), early, &completion))
+	if err != nil {
+		return Decision{}, err
+	}
+	decision, err := parseDecision(content, detailDecisionThreshold(position))
+	return decision, completion.parseError(withResponseModel(err, cfg.Model))
 }
 
 // EvaluateCandidateVision 根据候选人详情截图和文本生成强类型图片判断。
@@ -178,12 +189,19 @@ func (c *Client) evaluateCandidateVision(
 		return Decision{}, fmt.Errorf("AI 图片详情没有可读取的图片")
 	}
 	var completion streamCompletion
-	return chatResult(ctx, c, cfg, []chatMessage{
+	content, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", candidateSystemPrompt(cfg, position)),
 		{Role: "user", Content: messageContent{Parts: parts}},
-	}, candidateChatOptions("候选人图片评分", position, decisionThreshold(cfg, position), earlyDecision, &completion), func(content string) (Decision, error) {
-		return parseDecisionWithStructured(content, decisionThreshold(cfg, position), position.CommonConfig.OutputStructuredResume)
-	})
+	}, candidateChatOptions("候选人图片评分", position, decisionThreshold(cfg, position), earlyDecision, &completion))
+	if err != nil {
+		return Decision{}, err
+	}
+	decision, err := parseDecisionWithStructured(
+		content,
+		decisionThreshold(cfg, position),
+		position.CommonConfig.OutputStructuredResume,
+	)
+	return decision, completion.parseError(withResponseModel(err, cfg.Model))
 }
 
 // GenerateReply 根据会话上下文生成一条简短回复。
@@ -196,15 +214,17 @@ func (c *Client) GenerateReply(ctx context.Context, cfg cloud.AIConfig, position
 		system = "你是招聘助理。根据会话生成一条简短、礼貌、不过度承诺的回复，只输出回复正文。"
 	}
 	user := fmt.Sprintf("岗位：%s\n候选人：%s\n会话：%s", position.Name, conversation.Name, history)
-	return chatResult(ctx, c, cfg, []chatMessage{
+	reply, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", system),
 		textChatMessage("user", user),
-	}, candidateChatOptions("生成聊天回复", position, 0, nil, nil), func(reply string) (string, error) {
-		if strings.TrimSpace(reply) == "" {
-			return "", newResponseError(fmt.Errorf("AI 没有生成回复"), reply, "model_content", true)
-		}
-		return strings.TrimSpace(reply), nil
-	})
+	}, candidateChatOptions("生成聊天回复", position, 0, nil, nil))
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(reply) == "" {
+		return "", withResponseModel(newResponseError(fmt.Errorf("AI 没有生成回复"), reply, "model_content", true), cfg.Model)
+	}
+	return strings.TrimSpace(reply), nil
 }
 
 // chatOptions 保存单次 AI 请求的思考模式和流式提前评分配置。
@@ -216,7 +236,6 @@ type chatOptions struct {
 	EnableThinking bool
 	Threshold      float64
 	EarlyDecision  func(Decision)
-	Validate       func(string) error
 }
 
 // candidateChatOptions 根据岗位开关创建一次 AI 请求配置。
@@ -230,7 +249,7 @@ func candidateChatOptions(operation string, position cloud.PositionSnapshot, thr
 	}
 }
 
-// chat 统一执行请求与结果校验，首次失败后最多重试三次。
+// chat 调用 OpenAI 兼容接口，临时错误最多尝试三次。
 func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMessage, options chatOptions) (string, error) {
 	if err := c.Ready(cfg); err != nil {
 		return "", err
@@ -247,29 +266,54 @@ func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMe
 		return "", fmt.Errorf("编码 AI 请求失败：%w", err)
 	}
 	endpoint := chatCompletionsURL(cfg.BaseURL)
+	var lastErr error
+	var receivedDiagnostic *ResponseDiagnostic
+	var previous []failurediag.Detail
 	if send := options.EarlyDecision; send != nil {
-		options.EarlyDecision = func(d Decision) {
-			if !options.PriorEarly {
-				options.PriorEarly = true
-				send(d)
-			}
-		}
+		options.EarlyDecision = func(d Decision) { options.PriorEarly = true; send(d) }
 	}
-	return runAIRequest(ctx, options.Operation, cfg.Model, func(attempt int) (string, error) {
+	for attempt := 1; attempt <= 3; attempt++ {
 		options.Attempt = int64(attempt)
-		content, err := c.doChatRequest(ctx, endpoint, cfg.APIKey, encoded, options)
-		if err == nil && options.Validate != nil {
-			err = options.Validate(content)
+		content, requestErr := c.doChatRequest(ctx, endpoint, cfg.APIKey, encoded, options)
+		if requestErr == nil {
+			return content, nil
 		}
-		return content, err
-	})
+		requestErr = withResponseModel(requestErr, cfg.Model)
+		if diagnostic, ok := ResponseDiagnosticFromError(requestErr); ok {
+			diagnostic.RequestAttempt = attempt
+			receivedDiagnostic = &diagnostic
+			requestErr = &ResponseError{Cause: requestErr, Diagnostic: diagnostic}
+		} else if receivedDiagnostic != nil {
+			// 后续重试若连接都未建立，仍保留先前实际收到的正文，并注明最终连接错误。
+			diagnostic := *receivedDiagnostic
+			diagnostic.FinalRequestError = requestErr.Error()
+			requestErr = &ResponseError{Cause: requestErr, Diagnostic: diagnostic}
+		}
+		lastErr = requestErr
+		var serviceErr *ServiceError
+		if !errors.As(requestErr, &serviceErr) || !serviceErr.Retryable || attempt == 3 {
+			return "", withAIHistory(requestErr, previous)
+		}
+		retryStarted := time.Now()
+		delay := max(serviceErr.RetryAfter, time.Duration(attempt)*500*time.Millisecond)
+		if err = waitRetry(ctx, delay); err != nil {
+			err = retryWaitError(ctx, err, requestErr, options.Operation, attempt, retryStarted, delay)
+			err = withAIHistory(err, previous)
+			if diagnostic, ok := ResponseDiagnosticFromError(lastErr); ok {
+				return "", &ResponseError{Cause: err, Diagnostic: diagnostic}
+			}
+			return "", err
+		}
+		previous = append(previous, failurediag.Details(requestErr)...)
+	}
+	return "", lastErr
 }
 
 // doChatRequest 执行一次 AI 请求并兼容 JSON 和 SSE 响应。
 func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey string, payload []byte, options chatOptions) (value string, runErr error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return "", &ServiceError{Message: "创建 AI 请求失败：" + err.Error(), Fatal: true, Cause: err}
+		return "", fmt.Errorf("创建 AI 请求失败：%w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	request.Header.Set("Content-Type", "application/json")
@@ -441,7 +485,7 @@ func newHTTPServiceError(statusCode int, body string, retryAfter string) *Servic
 		body = string([]rune(body)[:500])
 	}
 	lower := strings.ToLower(body)
-	retryable := statusCode == http.StatusRequestTimeout || statusCode == http.StatusTooManyRequests || statusCode >= 500
+	retryable := statusCode == http.StatusTooManyRequests || statusCode >= 500
 	fatal := retryable || statusCode == 401 || statusCode == 402 || statusCode == 403 || statusCode == 404
 	if statusCode == 400 || statusCode == 422 {
 		fatal = containsAny(lower, "quota", "balance", "余额", "额度", "api key", "model", "模型", "not found")
