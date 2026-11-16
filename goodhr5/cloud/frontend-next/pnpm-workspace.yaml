@@ -1,3 +1,5 @@
 allowBuilds:
+  # core-js 安装脚本仅显示项目赞助信息，兼容方法无需运行该脚本。
+  core-js: false
   es5-ext: false
   sharp: true
