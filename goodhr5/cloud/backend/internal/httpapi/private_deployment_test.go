@@ -14,6 +14,36 @@ import (
 	"testing"
 )
 
+// TestPrivateAssetsWithoutPublicDiscovery 验证公网接口撤回后私有分支仍有完整组件清单，不掩盖源服务器错误。
+func TestPrivateAssetsWithoutPublicDiscovery(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusGone, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }))
+			defer source.Close()
+			manifest, err := loadPrivateAssetManifest(context.Background(), source.Client(), source.URL)
+			if status == http.StatusServiceUnavailable {
+				if err == nil {
+					t.Fatal("源服务故障被错误忽略")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := requiredPrivatePlatforms(manifest); err != nil {
+				t.Fatal(err)
+			}
+			for _, platforms := range manifest.RuntimeComponents {
+				for _, asset := range platforms {
+					if !validAssetHash(asset.SHA256) {
+						t.Fatal("随附组件缺少SHA256")
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestPrivateAIStartWithoutWallet 验证私有自定义接口无本站余额可启动，线上相同配置仍被拦截。
 func TestPrivateAIStartWithoutWallet(t *testing.T) {
 	server := mustNewServer(t)

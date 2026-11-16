@@ -4,6 +4,7 @@ package httpapi
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,11 @@ import (
 )
 
 const privateManifestName = "runtime-manifest.json"
+
+// bundledPrivateRuntimeManifest 随私有分支提供已核验组件清单，公网未提供发现接口时仍可部署。
+//
+//go:embed private_runtime_manifest.json
+var bundledPrivateRuntimeManifest []byte
 
 // PrivateRuntimeLibrary 将 Windows 运行库入口固定到本次已缓存并校验的内网文件。
 func (s *Server) PrivateRuntimeLibrary(w http.ResponseWriter, r *http.Request) {
@@ -134,28 +140,10 @@ func downloadPrivateAssets(ctx context.Context, directory string) (deploymentAss
 		source = "https://goodhr.58it.cn"
 	}
 	client := &http.Client{Timeout: 15 * time.Minute, CheckRedirect: privateAssetRedirect}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source+"/api/system/deployment-assets", nil)
+	manifest, err := loadPrivateAssetManifest(ctx, client, source)
 	if err != nil {
 		return deploymentAssets{}, err
 	}
-	if request.URL.Scheme != "https" || request.URL.User != nil {
-		return deploymentAssets{}, fmt.Errorf("公网组件源必须使用 HTTPS")
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return deploymentAssets{}, err
-	}
-	defer response.Body.Close()
-	var payload struct {
-		Config deploymentAssets `json:"config"`
-	}
-	if response.StatusCode != http.StatusOK {
-		return deploymentAssets{}, fmt.Errorf("读取最新兼容组件失败（%d），请确认组件源已升级", response.StatusCode)
-	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&payload); err != nil {
-		return deploymentAssets{}, err
-	}
-	manifest := payload.Config
 	if err := requiredPrivatePlatforms(manifest); err != nil {
 		return deploymentAssets{}, err
 	}
@@ -177,6 +165,43 @@ func downloadPrivateAssets(ctx context.Context, directory string) (deploymentAss
 		}
 	}
 	return manifest, nil
+}
+
+// loadPrivateAssetManifest 优先读取已发布清单，发现接口不存在时使用分支随附的已核验清单。
+func loadPrivateAssetManifest(ctx context.Context, client *http.Client, source string) (deploymentAssets, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source+"/api/system/deployment-assets", nil)
+	if err != nil {
+		return deploymentAssets{}, err
+	}
+	if request.URL.Scheme != "https" || request.URL.User != nil {
+		return deploymentAssets{}, fmt.Errorf("公网组件源必须使用 HTTPS")
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return deploymentAssets{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound || response.StatusCode == http.StatusGone {
+		var manifest deploymentAssets
+		if err := json.Unmarshal(bundledPrivateRuntimeManifest, &manifest); err != nil {
+			return deploymentAssets{}, err
+		}
+		if err := requiredPrivatePlatforms(manifest); err != nil {
+			return deploymentAssets{}, err
+		}
+		log.Print("[内网组件准备] 公网未提供发现接口，使用私有分支随附的已核验兼容清单")
+		return manifest, nil
+	}
+	var payload struct {
+		Config deploymentAssets `json:"config"`
+	}
+	if response.StatusCode != http.StatusOK {
+		return deploymentAssets{}, fmt.Errorf("读取最新兼容组件失败（%d），请确认组件源已升级", response.StatusCode)
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&payload); err != nil {
+		return deploymentAssets{}, err
+	}
+	return payload.Config, nil
 }
 
 // privateAssetRedirect 公网准备阶段仅允许 HTTPS 重定向，禁止降级和 URL 凭证。

@@ -1,0 +1,65 @@
+{
+  "runtime_components": {
+    "camoufox": {
+      "darwin-x64": {
+        "version": "152.0.4-beta.30",
+        "url": "https://oss2.58it.cn/camoufox-152.0.4-beta.30-goodhr-window-r1-mac.x86_64.zip",
+        "sha256": "2c075ea66c7322f2e1446452a84152de456f971898f58d1a43197c2c4d0bf3e7",
+        "note": "GoodHR 窗口刷新修补 r1，更新后请完全退出浏览器再打开"
+      },
+      "mac": {
+        "version": "152.0.4-beta.30",
+        "url": "https://oss2.58it.cn/camoufox-152.0.4-beta.30-goodhr-window-r1-mac.arm64.zip",
+        "sha256": "45b09f22dcd9666cd4e5347967ef9980845f571ea8e836bd6a1cb122c3bc43fa",
+        "note": "GoodHR 窗口刷新修补 r1，更新后请完全退出浏览器再打开"
+      },
+      "win": {
+        "version": "152.0.4-beta.30",
+        "url": "https://oss2.58it.cn/camoufox-152.0.4-beta.30-goodhr-window-r1-win.x86_64.zip",
+        "sha256": "c264719312c3344782a4e723511922d8ca872ebb27d8ea73e335ff35b1598bfa",
+        "note": "GoodHR 窗口刷新修补 r1，更新后请退出浏览器和本地程序再打开"
+      }
+    },
+    "node_runtime": {
+      "darwin-x64": {
+        "version": "22.19.0",
+        "url": "https://oss2.58it.cn/goodhr-node-runtime-v22.19.0-darwin-x64.tar.gz",
+        "sha256": "bae90145c832278b2f93dbcf0ed3865755c6ef726efb9c7a5dc77ed519dec3ca",
+        "note": "GoodHR Node 运行环境 macOS Intel"
+      },
+      "mac": {
+        "version": "22.19.0",
+        "url": "https://oss2.58it.cn/goodhr-node-runtime-v22.19.0-darwin-arm64.tar.gz",
+        "sha256": "4f2fdfb47352e3ab3908268dd2552081ce1e72f86b4e0ef45b379c18816af552",
+        "note": "GoodHR Node 运行环境 macOS Apple Silicon"
+      },
+      "win": {
+        "version": "22.19.0",
+        "url": "https://oss2.58it.cn/goodhr-node-runtime-win-x64.zip",
+        "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86",
+        "note": "GoodHR Node 运行环境 Windows x64"
+      }
+    },
+    "ocr": {
+      "darwin-x64": {
+        "version": "goodhr-ocr-vision-v1.0.0",
+        "url": "https://oss2.58it.cn/goodhr-ocr-vision-v1.0.0-darwin-universal.zip",
+        "sha256": "6a1afd55ce506659b15dc2c88d601e8947a5a20f153959f1c81c8a2e063099e3",
+        "note": "GoodHR OCR macOS 通用安装包"
+      },
+      "mac": {
+        "version": "goodhr-ocr-vision-v1.0.0",
+        "url": "https://oss2.58it.cn/goodhr-ocr-vision-v1.0.0-darwin-universal.zip",
+        "sha256": "6a1afd55ce506659b15dc2c88d601e8947a5a20f153959f1c81c8a2e063099e3",
+        "note": "GoodHR OCR macOS 通用安装包"
+      },
+      "win": {
+        "version": "rapidocr-json-v0.2.0",
+        "url": "https://oss2.58it.cn/goodhr-rapidocr-json-win-x64-v0.2.0.zip",
+        "sha256": "4db6867818002f194f79d1edda291efb438ab6f371d4b307bae990232b917a3d",
+        "note": "RapidOCR-json Windows x64，包含中英文 V3/V4 模型"
+      }
+    }
+  },
+  "_description": "文件作用：记录2026-11-16已核验的最新兼容运行组件，私有部署不依赖公网新增接口也能准备安装资源。"
+}
