@@ -811,19 +811,7 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 		} else {
 			f.log(prepared.Request.TaskID, "ensure_candidate_conversation", "success", startedAt, nil)
 		}
-		if conversationReady && requestInfo {
-			startedAt = time.Now()
-			if err := runtime.RequestCandidateInfo(ctx, f.Browser, prepared.Platform, candidate, infoRequest); err != nil {
-				if shared.ShouldStopTaskImmediately(err) {
-					return err
-				}
-				conversationReady = false
-				f.log(prepared.Request.TaskID, "request_candidate_info", "warning", startedAt, err)
-				f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "索要候选人资料失败")
-			} else {
-				f.log(prepared.Request.TaskID, "request_candidate_info", "success", startedAt, nil)
-			}
-		}
+		// 先发招呼语，再索要资料；邀投递失败或弹出确认层不能吞掉已配置的首次消息。
 		if conversationReady && greetMessage != "" {
 			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "正在发送打招呼消息", "running", nil)
 			startedAt = time.Now()
@@ -831,12 +819,25 @@ func (f *Flow) processCandidateAttempt(ctx context.Context, prepared shared.Prep
 				if shared.ShouldStopTaskImmediately(err) {
 					return err
 				}
+				conversationReady = false
 				f.log(prepared.Request.TaskID, "send_candidate_message", "failed", startedAt, err)
 				shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "打招呼消息没发成功，请检查当前聊天", "failed", err)
 				f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "发送候选人消息失败")
 			} else {
 				f.log(prepared.Request.TaskID, "send_candidate_message", "success", startedAt, nil)
 				shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "打招呼消息已发送", "success", nil)
+			}
+		}
+		if conversationReady && requestInfo {
+			startedAt = time.Now()
+			if err := runtime.RequestCandidateInfo(ctx, f.Browser, prepared.Platform, candidate, infoRequest); err != nil {
+				if shared.ShouldStopTaskImmediately(err) {
+					return err
+				}
+				f.log(prepared.Request.TaskID, "request_candidate_info", "warning", startedAt, err)
+				f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "索要候选人资料失败")
+			} else {
+				f.log(prepared.Request.TaskID, "request_candidate_info", "success", startedAt, nil)
 			}
 		}
 	}
