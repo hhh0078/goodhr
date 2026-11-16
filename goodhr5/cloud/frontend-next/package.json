@@ -2,6 +2,12 @@
   "name": "frontend-next",
   "version": "0.1.0",
   "private": true,
+  "browserslist": [
+    "Chrome >= 92",
+    "Edge >= 92",
+    "Firefox >= 111",
+    "Safari >= 16.4"
+  ],
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 5173",
     "build": "next build",
@@ -19,6 +25,7 @@
     "@wangeditor/editor-for-react": "^1.0.6",
     "antd": "6.6.5",
     "canvas-confetti": "1.9.4",
+    "core-js": "3.51.0",
     "dayjs": "1.11.13",
     "hls.js": "1.7.3",
     "next": "16.2.9",
