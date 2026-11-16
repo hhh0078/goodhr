@@ -2153,7 +2153,7 @@ export default function PositionsPage() {
               },
               {
                 value: "51job",
-                label: "前程无忧",
+                label: platformLabel("51job"),
                 disabled: !isPlatformOpen(platformConfigs, "51job"),
                 description: isPlatformOpen(platformConfigs, "51job")
                   ? "支持 DOM 详情识别，请先升级本地程序。"

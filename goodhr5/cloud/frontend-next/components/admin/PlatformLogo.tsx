@@ -22,7 +22,7 @@ export function platformLabel(platformID: string) {
         : platformID === "liepin"
           ? "猎聘企业端"
           : platformID === "51job"
-            ? "前程无忧"
+            ? "前程无忧猎头端"
             : platformID || "未知平台";
 }
 
