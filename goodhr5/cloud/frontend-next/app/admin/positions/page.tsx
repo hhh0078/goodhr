@@ -156,9 +156,8 @@ type FloatingPositionTask = {
 /** PositionsPage 管理岗位筛选、详情识别和 AI 提示词配置。 */
 export default function PositionsPage() {
   const router = useRouter();
-  const { user, subscription, notify, confirm, agentBase, appConfig } =
+  const { user, subscription, notify, confirm, agentBase } =
     useAdmin();
-  const isPrivate = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "private" || appConfig?.deployment?.private === true;
   const screeningAccount = `${user?.tenant_id || ""}:${user?.id || user?.email || ""}`;
   const [items, setItems] = useState<any[]>([]);
   const [positionScope, setPositionScope] = useState("true");
@@ -863,7 +862,7 @@ export default function PositionsPage() {
   }
   /** checkPositionStartGuard 每次并行读取最新后台版本要求、本地版本和AI余额，结果仅用于当前弹框，不打开平台或运行任务。 */
   async function checkPositionStartGuard(item: any, isCurrent: () => boolean = () => true) {
-    const usesAI = positionUsesAI(item) && !isPrivate;
+    const usesAI = positionUsesAI(item);
     setStartStatus(
       usesAI ? "正在检查 AI 余额和本地程序版本..." : "正在检查本地程序版本...",
     );
@@ -1994,7 +1993,7 @@ export default function PositionsPage() {
                   />
                 </Form.Item>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {isPrivate ? "使用个人配置中的 AI 接口，私有部署不检查本站余额。" : "AI 按实际用量扣余额，无需额外购买会员。启动至少需要 0.10 元，并使用内置 AI。"}
+                  AI 按实际用量扣余额，无需额外购买会员。启动至少需要 0.10 元，并使用内置 AI。
                 </Typography.Text>
               </>
             ) : null}
@@ -2118,7 +2117,7 @@ export default function PositionsPage() {
                 disabled:
                   !isPlatformOpen(platformConfigs, "boss"),
                 description: isPlatformOpen(platformConfigs, "boss")
-                  ? (isPrivate ? "详情固定使用 AI 识别，请配置支持图片的内网模型。" : "详情固定使用 AI 识别，需要内置 AI 配置和充足余额。")
+                  ? "详情固定使用 AI 识别，需要内置 AI 配置和充足余额。"
                   : "暂未开放",
                 iconSrc: platformIconSrc("boss"),
               },

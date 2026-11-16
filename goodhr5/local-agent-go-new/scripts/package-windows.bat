@@ -7,7 +7,7 @@ set "VERSION=%~1"
 if "%VERSION%"=="" set "VERSION=6"
 set "BUILD_MODE=%~2"
 if "%BUILD_MODE%"=="" (
-  echo [GoodHR] 请在版本号后填写 dev、build 或 private，例如 package-windows.bat 6.1.1 build
+  echo [GoodHR] 请在版本号后填写 dev 或 build，例如 package-windows.bat 6.1.1 build
   exit /b 1
 )
 

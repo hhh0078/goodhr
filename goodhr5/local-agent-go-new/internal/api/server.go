@@ -446,9 +446,6 @@ func allowedOrigin(origin string) bool {
 	}
 	scheme := strings.ToLower(parsed.Scheme)
 	hostname := strings.ToLower(parsed.Hostname())
-	if config.PrivateDeployment() && origin == config.ServiceOrigin() {
-		return true
-	}
 	if scheme == "https" && parsed.Port() == "" && (hostname == "goodhr.58it.cn" || hostname == "goodhr-test.ai.58it.cn" || hostname == "goodhr5.58it.cn" || hostname == "goodhr.ai.58it.cn") {
 		return true
 	}

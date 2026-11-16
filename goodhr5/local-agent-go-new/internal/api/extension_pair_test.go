@@ -17,23 +17,6 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
-// TestPrivateExtensionPairUsesConfiguredConsole 验证私有配对在指定内网源授权，不打开公网或开发网页。
-func TestPrivateExtensionPairUsesConfiguredConsole(t *testing.T) {
-	previous := config.DefaultDeploymentMode
-	config.DefaultDeploymentMode = "private"
-	t.Cleanup(func() { config.DefaultDeploymentMode = previous })
-	t.Setenv("GOODHR_CLOUD_API_BASE", "https://192.168.1.20:8443")
-	s := newExtensionPairTestServer(t, http.NotFoundHandler())
-	s.cfg.ConsoleURL = "https://192.168.1.20:8443"
-	response := extensionPairTestRequest(s, "/api/v1/extensions/pair/start", extensionPairRequest{InstallationID: strings.Repeat("i", 32), Challenge: strings.Repeat("c", 64)})
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "https://192.168.1.20:8443/admin/resumes?") {
-		t.Fatalf("私有配对地址不正确：%s", response.Body.String())
-	}
-	if !allowedOrigin("https://192.168.1.20:8443") || allowedOrigin("https://192.168.1.20:8444") {
-		t.Fatal("私有站点跨域来源未精确匹配")
-	}
-}
-
 // newExtensionPairTestServer 创建隔离的本地数据库和模拟云端，不使用真实账号。
 func newExtensionPairTestServer(t *testing.T, cloudHandler http.Handler) *Server {
 	t.Helper()

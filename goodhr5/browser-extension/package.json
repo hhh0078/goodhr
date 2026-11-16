@@ -1,13 +1,12 @@
 {
   "name": "goodhr-resume-extension",
-  "version": "1.0.21",
+  "version": "1.0.20",
   "private": true,
   "description": "文件作用：GoodHR 只读简历采集插件的版本与无依赖构建、测试入口。",
   "scripts": {
     "build": "node scripts/build.js",
     "build:chrome": "node scripts/build.js --chrome",
     "build:firefox:unsigned": "node scripts/build.js --firefox",
-    "build:private": "node scripts/build.js --private",
     "build:local": "node scripts/build.js --local",
     "lint:firefox": "npx --yes web-ext@10.7.0 lint --source-dir dist-firefox-unsigned/firefox --output=json",
     "sign:firefox": "npx --yes web-ext@10.7.0 sign --channel=unlisted --source-dir dist-firefox-unsigned/firefox --artifacts-dir artifacts/firefox-signed",

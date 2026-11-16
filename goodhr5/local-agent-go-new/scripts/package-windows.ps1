@@ -3,19 +3,18 @@
 param(
   [string]$Version = "6",
   [Parameter(Position = 0)]
-  [ValidateSet("dev", "build", "private")]
+  [ValidateSet("dev", "build")]
   [string]$Mode
 )
 
 $ErrorActionPreference = "Stop"
 if (-not $Mode) { throw "请在打包命令后指定 dev（测试）或 build（正式），例如：-Version 6.1.1 build" }
-$Environment = if ($Mode -eq "build") { "production" } elseif ($Mode -eq "private") { "private" } else { "test" }
-$DeploymentMode = if ($Mode -eq "private") { "private" } else { "public" }
+$Environment = if ($Mode -eq "build") { "production" } else { "test" }
 
 $ProjectDir = Resolve-Path (Join-Path $PSScriptRoot "..")
 $WorkerDir = Join-Path $ProjectDir "worker"
 $ReleaseRoot = Join-Path $ProjectDir "release"
-$EnvironmentSuffix = if ($Environment -eq "test") { "-test" } elseif ($Environment -eq "private") { "-private" } else { "" }
+$EnvironmentSuffix = if ($Environment -eq "test") { "-test" } else { "" }
 $PackageName = "goodhr-local-agent-v$Version$EnvironmentSuffix-windows-x64"
 $PackageDir = Join-Path $ReleaseRoot $PackageName
 $ArchivePath = Join-Path $ReleaseRoot "$PackageName.zip"
@@ -76,14 +75,12 @@ function Find-InnoSetup {
   throw "没有找到 Inno Setup 6，请安装后再生成 Windows 安装器"
 }
 
-$EnvironmentFile = if ($env:GOODHR_ENV_FILE) { $env:GOODHR_ENV_FILE } else { Join-Path $ProjectDir "..\environments\$Environment.env" }
+$EnvironmentFile = Join-Path $ProjectDir "..\environments\$Environment.env"
 if (-not (Test-Path -LiteralPath $EnvironmentFile)) { throw "没有找到环境配置：$EnvironmentFile" }
 $DomainLine = Get-Content -LiteralPath $EnvironmentFile | Where-Object { $_ -match '^GOODHR_PUBLIC_BASE_URL=' } | Select-Object -First 1
 if (-not $DomainLine) { throw "环境配置缺少 GOODHR_PUBLIC_BASE_URL" }
 $PublicBaseURL = ($DomainLine -split '=', 2)[1].Trim().TrimEnd('/')
-if ($Mode -eq "private") {
-  if ($PublicBaseURL -notmatch '^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$') { throw "私有地址需包含 https://，可带端口" }
-} elseif ($PublicBaseURL -notmatch '^https://[a-z0-9.-]+$') { throw "环境主域名格式不正确" }
+if ($PublicBaseURL -notmatch '^https://[a-z0-9.-]+$') { throw "环境主域名格式不正确" }
 
 $Npm = Find-CommandPath @("npm.cmd", "npm")
 $Node = Find-CommandPath @("node.exe", "node")
@@ -161,7 +158,7 @@ try {
   $env:GOOS = "windows"
   $env:GOARCH = "amd64"
   $env:GOPROXY = $GoProxy
-  $Ldflags = "-H windowsgui -s -w -X goodhr5/local-agent-go-new/internal/version.Value=$Version -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=$PublicBaseURL -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=$PublicBaseURL -X goodhr5/local-agent-go-new/internal/config.DefaultDeploymentMode=$DeploymentMode"
+  $Ldflags = "-H windowsgui -s -w -X goodhr5/local-agent-go-new/internal/version.Value=$Version -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=$PublicBaseURL -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=$PublicBaseURL"
   & $Go build -trimpath -ldflags $Ldflags -o (Join-Path $PackageDir "goodhr-local-agent.exe") .\cmd\goodhr-local-agent
   if ($LASTEXITCODE -ne 0) {
     throw "Windows Go 主程序编译失败，退出码：$LASTEXITCODE"

@@ -781,7 +781,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                   aria-label="视频教程"
                 />
               </Tooltip>
-              {process.env.NEXT_PUBLIC_DEPLOYMENT_MODE !== "private" && appConfig?.deployment?.private !== true && <Button
+              <Button
                 aria-label="AI余额充值"
                 onClick={() => setRechargeOpen(true)}
               >
@@ -789,7 +789,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                   ? `剩${subscription.remaining_days}天 · AI余额 ${formatAIBalance(aiWallet)}`
                   : `${subscription.expires_at ? `已过期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}` */}
                 {`AI余额 ${formatAIBalance(aiWallet)}`}
-              </Button>}
+              </Button>
               <Button
                 data-testid="local-agent-status"
                 className="goodhr-desktop-sm"

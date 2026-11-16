@@ -169,11 +169,8 @@ func validateAIConfigTestRequest(req aiConfigRequest) error {
 		return errors.New("请填写 AI 模型")
 	}
 	parsed, err := url.Parse(strings.TrimSpace(req.BaseURL))
-	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" || (parsed.Scheme != "https" && (!privateDeployment() || parsed.Scheme != "http")) {
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" {
 		return errors.New("AI 接口必须是有效的公网 HTTPS 地址")
-	}
-	if privateDeployment() {
-		return nil
 	}
 	if ip := net.ParseIP(parsed.Hostname()); ip != nil && !isPublicAIIP(ip) {
 		return errors.New("AI 接口不允许使用内网地址")
@@ -187,16 +184,11 @@ func validateAIConfigTestRequest(req aiConfigRequest) error {
 // newAIConfigTestHTTPClient 创建限制内网访问和重定向的 AI 测试客户端。
 func newAIConfigTestHTTPClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if !privateDeployment() {
-		transport.DialContext = dialPublicAIEndpoint
-	}
+	transport.DialContext = dialPublicAIEndpoint
 	return &http.Client{
 		Timeout:   aiRequestTimeout,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if privateDeployment() && len(via) > 0 && (req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host) {
-				return errors.New("私有 AI 接口不能跳转到其它站点")
-			}
 			if err := validateAIConfigTestRequest(aiConfigRequest{BaseURL: req.URL.String(), Model: "redirect", APIKey: "redirect"}); err != nil {
 				return err
 			}

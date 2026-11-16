@@ -1,6 +1,5 @@
 /* 文件作用：简历专用隔离浮窗处理查重、直接入库和独立记录，账号设置由工具栏页面负责。 */
 "use strict";
-let configuredCloudBase = GoodHRShared.CLOUD_BASE;
 const extension = globalThis.browser || globalThis.chrome, $ = (id) => document.getElementById(id), shared = GoodHRShared;
 const resumeFields = { name: "candidate_name", phone: "phone", "candidate-email": "email", city: "work_region", position: "current_position", "expected-position": "expected_position" };
 const attachmentFields = ["gender", "first-company", "first-work-start", "first-work-end", "first-school", "first-school-start", "first-school-end"];
@@ -335,7 +334,6 @@ async function applySnapshot(resume, switching = false) {
 /** loadState 同步账号授权与当前人，切换账号清空上一人的表单草稿。 */
 async function loadState() {
   const sequence = ++stateSequence, state = await send("STATE"); if (sequence !== stateSequence) return;
-  configuredCloudBase = shared.normalizeServerBase(state.cloud_base || shared.CLOUD_BASE);
   const nextAccount = state.account_key || (state.logged_in ? JSON.stringify([state.user?.id || "", state.user?.email || ""]) : "preview"), changedAccount = nextAccount !== accountKey;
   if (changedAccount || !state.logged_in || !state.data_use_accepted) settleCostConfirmation(false);
   if (changedAccount) { identity = ""; accountKey = nextAccount; positions = []; folders = []; folderLoadError = ""; folderLoading = false; folderSequence++; }
@@ -352,7 +350,7 @@ async function loadState() {
 /** loadPreview 只重读当前可见资料，不提交简历到云端。 */
 async function loadPreview() { const result = await send("PREVIEW"); await applySnapshot(result.resume, identity !== shared.resumeIdentity(result.resume)); showStatus(result.resume ? "已重新读取" : "还没看到简历，请打开候选人详情"); }
 /** renderUpdate 强制更新时醒目展示当前及最新版本，并锁住全部写操作。 */
-function renderUpdate(update) { if (!update) return; updateRequired = Boolean(update.update_required || update.required); const available = updateRequired || Boolean(update.update_available); $("update-notice").hidden = !available; $("update-notice").classList.toggle("optional", !updateRequired); $("update-title").textContent = updateRequired ? "请先更新插件，才能继续保存简历" : "插件有新版本"; $("update-versions").textContent = `当前 ${update.current_version || extension.runtime.getManifest?.().version || ""} · 最新 ${update.latest_version || ""}`; $("update-link").href = configuredCloudBase + "/download#browser-extension"; refreshActions(); }
+function renderUpdate(update) { if (!update) return; updateRequired = Boolean(update.update_required || update.required); const available = updateRequired || Boolean(update.update_available); $("update-notice").hidden = !available; $("update-notice").classList.toggle("optional", !updateRequired); $("update-title").textContent = updateRequired ? "请先更新插件，才能继续保存简历" : "插件有新版本"; $("update-versions").textContent = `当前 ${update.current_version || extension.runtime.getManifest?.().version || ""} · 最新 ${update.latest_version || ""}`; $("update-link").href = shared.CLOUD_BASE + "/download#browser-extension"; refreshActions(); }
 /** checkUpdate 读取正式发布状态，固定指向官网下载页。 */
 async function checkUpdate() { const result = await send("CHECK_UPDATE"); renderUpdate(result); }
 /** loadPositions 读取完整岗位，旧账号返回值丢弃。 */
@@ -423,7 +421,7 @@ async function checkDuplicates(force = false) {
 /** renderCriteria 展示后端实际查询条件，不猜测缺失字段。 */
 function renderCriteria(criteria) { $("duplicate-criteria").replaceChildren(); if (!criteria) return; const values = [["姓氏", criteria.surname], ["性别", { male: "男", female: "女" }[criteria.gender] || criteria.gender], ["年龄范围", criteria.age_min ? `${criteria.age_min}—${criteria.age_max}岁` : ""], ["最早学校", [criteria.earliest_school, criteria.earliest_school_year].filter(Boolean).join(" · ")], ["最早公司", [criteria.earliest_company, criteria.earliest_company_year].filter(Boolean).join(" · ")]]; for (const [label, value] of values) if (value) { const line = document.createElement("p"); line.textContent = `${label}：${value}`; $("duplicate-criteria").append(line); } }
 /** candidateLink 生成GoodHR完整详情地址。 */
-function candidateLink(id) { return `${configuredCloudBase}/admin/resumes/detail?candidate_id=${encodeURIComponent(id)}`; }
+function candidateLink(id) { return `${shared.CLOUD_BASE}/admin/resumes/detail?candidate_id=${encodeURIComponent(id)}`; }
 /** renderMatches 展示可读分组，多个或相似候选人必须用户选择。 */
 function renderMatches() { $("duplicates").replaceChildren(); const shown = new Set(); for (const group of groups) { if (!(group.matches || []).length) continue; const header = document.createElement("p"); header.className = "group-title"; header.textContent = [group.title, group.summary].filter(Boolean).join(" · "); $("duplicates").append(header); for (const match of group.matches) { shown.add(match.candidate?.id); renderMatch(match); } } for (const match of matches) if (!shown.has(match.candidate?.id)) renderMatch(match); }
 /** renderMatch 绑定人工选择，候选人内容全部安全文本显示。 */

@@ -293,24 +293,18 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 		if err != nil {
 			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_CONFIG_UNAVAILABLE", message: "AI 配置暂时没读到，请稍后再试。"}
 		}
-		if !privateDeployment() && !isOfficialAIURL(config.BaseURL) {
+		if !isOfficialAIURL(config.BaseURL) {
 			return &positionStartError{status: http.StatusForbidden, code: "BUILTIN_AI_REQUIRED", message: builtinAIRequiredMessage}
 		}
-		if privateDeployment() && !isCurrentSiteAIURL(config.BaseURL) {
-			if err := validateAIConfigTestRequest(aiConfigRequest{BaseURL: config.BaseURL, Model: config.Model, APIKey: config.APIKey}); err != nil || !config.Enabled {
-				return &positionStartError{status: http.StatusBadRequest, code: "AI_CONFIG_INVALID", message: "AI 配置还没填完整，请到个人配置检查地址、模型和 Key"}
-			}
-		} else {
-			if s.aiWallet == nil {
-				return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
-			}
-			balance, err := s.aiWallet.BalanceUnits(email)
-			if err != nil {
-				return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
-			}
-			if balance < minimumPositionAIBalanceUnits {
-				return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "AI 余额不足 0.10 元，岗位这次没有启动，请先充值"}
-			}
+		if s.aiWallet == nil {
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
+		}
+		balance, err := s.aiWallet.BalanceUnits(email)
+		if err != nil {
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
+		}
+		if balance < minimumPositionAIBalanceUnits {
+			return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "AI 余额不足 0.10 元，岗位这次没有启动，请先充值"}
 		}
 	}
 	if err := s.store.ClaimPositionStart(email, position.ID); err != nil {

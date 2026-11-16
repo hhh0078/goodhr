@@ -23,12 +23,3 @@ goodhr5/scripts/__pycache__/
 # 微信支付证书只能保存在部署机，禁止提交到 Git。
 **/certs/wechat/*.pem
 **/secrets/wechat/*.pem
-
-# 私有部署的密码与持久业务文件不能进入仓库。
-goodhr5/environments/private.env
-goodhr5/private-data/
-goodhr5/browser-extension/dist-private/
-
-# 浏览器检查记录和截图属于本机验收产物。
-/.playwright-cli/
-/output/playwright/

@@ -299,9 +299,3 @@ Worker 现会在最长 30 秒后自动回收元素引用，即使此时没有新
 用上面的脚本加 `--assert-fixed`，在相同 Mac arm64 环境、真实 Camoufox 和相同 30ms 读取延迟下重测：10 万次引用生成过程中引用数保持 10000，堆内存增加约 9–10 MiB；真实等待 31 秒后自动变为 0，GC 后堆内存回到基线。纯截止时间超时与真实 HTTP 连接取消两个场景，取消后新增读取均为 0，新请求正常完成，读取峰值均保持 4，旧请求已经排空，没有出现修复前的 8 路叠加。浏览器保持连接且可继续读取。
 
 测试使用独立浏览器应用副本、全新临时 Profile、随机端口及独立编译目录，没有连接、停止、重启或覆盖其他对话使用的 Agent、Worker、招聘浏览器和登录资料。Windows x64、Mac arm64 与 Mac amd64 共用同一份 TypeScript 实现，并验证三个 Go 主程序目标编译；本轮真实浏览器验证只在 Mac arm64 上执行，Windows 与 Intel 真机仍未验证。源码合并不代表客户端已发布或运行中的 Worker 已更新。
-
-## 私有内网版本
-
-打包参数新增 `private`，服务地址来自 `../environments/private.env`。Windows x64 与 macOS Apple/Intel 共用同源下载策略；Windows VC++ 地址改为内网入口，Mac 不安装该运行库。私有数据目录按服务地址隔离，普通版本保留原数据路径与 HTTPS 下载策略。完整部署、证书和打包登记步骤见 [私有内网部署](../docs/私有内网部署.md)。
-
-本轮已验证 Windows amd64、darwin arm64、darwin amd64 编译及配置、组件、更新器、本地API测试；Windows 与 Intel Mac 安装、原生依赖及招聘网站真机运行仍需对应设备验收。

@@ -1,7 +1,6 @@
 /* 文件作用：工具栏账号设置页处理登录、用途授权、本地程序配对和更新提示，不包含候选人表单。 */
 "use strict";
 const extension = globalThis.browser || globalThis.chrome, $ = (id) => document.getElementById(id), shared = GoodHRShared;
-let cloudBase = shared.CLOUD_BASE;
 let mode = "password", busy = false, pairPending = false, loggedIn = false, paired = false, stateSequence = 0, updateChecked = false;
 
 /** send 通过固定后台消息操作账号和设置，界面不保存凭证。 */
@@ -30,16 +29,13 @@ function setMode(next) {
   for (const name of ["password", "code", "local"]) $(name + "-mode").setAttribute("aria-pressed", String(mode === name));
 }
 /** renderUpdate 显示固定官网下载入口，强制更新与普通更新有不同醒目程度。 */
-function renderUpdate(update) { if (!update) return; const required = Boolean(update.update_required || update.required), available = required || Boolean(update.update_available); $("update-notice").hidden = !available; $("update-notice").classList.toggle("optional", !required); $("update-title").textContent = required ? "请先更新插件，才能继续保存简历" : "插件有新版本"; $("update-versions").textContent = `当前 ${update.current_version || $("version").textContent.replace(/^v/, "")} · 最新 ${update.latest_version || ""}`; $("update-link").href = cloudBase + "/download#browser-extension"; }
+function renderUpdate(update) { if (!update) return; const required = Boolean(update.update_required || update.required), available = required || Boolean(update.update_available); $("update-notice").hidden = !available; $("update-notice").classList.toggle("optional", !required); $("update-title").textContent = required ? "请先更新插件，才能继续保存简历" : "插件有新版本"; $("update-versions").textContent = `当前 ${update.current_version || $("version").textContent.replace(/^v/, "")} · 最新 ${update.latest_version || ""}`; $("update-link").href = shared.CLOUD_BASE + "/download#browser-extension"; }
 /** loadState 同步账号与一次用途授权，旧异步响应不能覆盖新状态。 */
 async function loadState() {
   const sequence = ++stateSequence, state = await send("STATE"); if (sequence !== stateSequence) return;
   loggedIn = Boolean(state.logged_in); paired = Boolean(state.paired); pairPending = Boolean(state.pairing_pending);
   $("version").textContent = `v${state.version}`; $("consent").checked = Boolean(state.data_use_accepted); $("auto-close").checked = state.auto_close_after_save !== false; $("local-port").value = state.local_port || 43129;
   $("revocation-panel").hidden = !state.revocation_pending; $("revocation-message").textContent = state.revocation_message || "";
-  cloudBase = shared.normalizeServerBase(state.cloud_base || shared.CLOUD_BASE);
-  if (document.activeElement !== $("server-address")) $("server-address").value = cloudBase;
-  $("agreement-link").href = cloudBase + "/login";
   $("login-panel").hidden = loggedIn; $("account-row").hidden = !loggedIn; $("account").textContent = state.user?.email || "GoodHR 账号";
   $("pair-heading").textContent = loggedIn ? "本地程序" : "本地程序登录";
   $("pair-state").textContent = paired ? "已连接" : loggedIn ? "AI总结需要连接" : "本地程序已登录即可使用";
@@ -51,13 +47,6 @@ async function loadState() {
 /** pollPair 查询既有配对申请，不重复申请授权。 */
 async function pollPair() { if (!pairPending || busy) return; try { const result = await send("PAIR_CHECK"); showPairStatus(result.status === "pending" ? "等待控制台确认" : result.status === "expired" ? "授权已过期，请重新连接" : ""); if (result.status !== "pending") { pairPending = false; await loadState(); } } catch (error) { showPairStatus(error.message); } }
 
-$("server-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  let next; try { next = shared.normalizeServerBase($("server-address").value); } catch (error) { showStatus(error.message, true); return; }
-  // 必须在用户点击的同一事件内申请目标站点权限，仅授权填写的地址。
-  const permission = next === shared.CLOUD_BASE ? Promise.resolve(true) : extension.permissions.request({ origins: [next+"/*"] });
-  runAction(async () => { if (!await permission) throw new Error("没有获得这个地址的访问权限，原地址已保留"); await send("SAVE_SERVER", { cloud_base: next }); updateChecked = false; await loadState(); showStatus("地址已保存，请重新登录并授权"); });
-});
 $("password-mode").addEventListener("click", () => setMode("password"));
 $("code-mode").addEventListener("click", () => setMode("code"));
 $("local-mode").addEventListener("click", () => setMode("local"));

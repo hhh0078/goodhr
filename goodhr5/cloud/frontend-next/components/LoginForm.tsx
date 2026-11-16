@@ -91,12 +91,11 @@ const AGREEMENT_CACHE_KEY = "goodhr.login.agreement";
 
 /** LoginForm 提供验证码发送、倒计时、协议确认和登录状态保存。 */
 export default function LoginForm() {
-  const isPrivate = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "private";
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
-  const [loginMode, setLoginMode] = useState<"wechat" | "code" | "password">(isPrivate ? "password" : "wechat");
+  const [loginMode, setLoginMode] = useState<"wechat" | "code" | "password">("wechat");
   const [isNewAccount, setIsNewAccount] = useState<boolean | null>(null);
   const [passwordSetupRequired, setPasswordSetupRequired] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -128,7 +127,7 @@ export default function LoginForm() {
     captureLocalAgentPortFromURL();
     try { setAgreementChecked(localStorage.getItem(AGREEMENT_CACHE_KEY) === "accepted"); } catch { /* 缓存不可用时由本人重新勾选。 */ }
     const cachedMode = localStorage.getItem(LOGIN_MODE_CACHE_KEY);
-    if (cachedMode === "password" || (!isPrivate && (cachedMode === "wechat" || cachedMode === "code"))) setLoginMode(cachedMode);
+    if (cachedMode === "wechat" || cachedMode === "code" || cachedMode === "password") setLoginMode(cachedMode);
     const cachedEmail = (localStorage.getItem(SESSION_EMAIL_KEY) || "")
       .trim()
       .toLowerCase();
@@ -418,8 +417,8 @@ export default function LoginForm() {
         onFinish={() => void login()}
         className="public-login-form"
       >
-        <div className="public-login-tabs" style={{ gridTemplateColumns: `repeat(${isPrivate ? 2 : 3}, minmax(0, 1fr))` }}>
-          {!isPrivate && <Button block type={loginMode === "wechat" ? "primary" : "default"} onClick={() => setLoginMode("wechat")} disabled={loading}>微信扫码</Button>}
+        <div className="public-login-tabs" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+          <Button block type={loginMode === "wechat" ? "primary" : "default"} onClick={() => setLoginMode("wechat")} disabled={loading}>微信扫码</Button>
           <Button
             block
             type={loginMode === "code" ? "primary" : "default"}

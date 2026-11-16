@@ -10,7 +10,7 @@ import LoginForm from "@/components/LoginForm";
 import PublicIllustration from "@/components/PublicIllustration";
 import PublicThemeSwitch from "@/components/PublicThemeSwitch";
 
-const loginPoints = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "private" ? ["使用本企业的内网账号和密码登录", "AI 与组件下载使用本企业配置的内网地址", "招聘网站仍需正常联网访问"] : [
+const loginPoints = [
   "公众号扫码，发送验证码即可登录",
   "邮箱验证码和密码入口继续保留",
   "平台账号与浏览器数据仍保留在本地",

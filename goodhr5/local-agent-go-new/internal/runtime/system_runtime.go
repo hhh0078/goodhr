@@ -3,7 +3,6 @@ package runtime
 
 import (
 	"context"
-	"goodhr5/local-agent-go-new/internal/config"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -21,9 +20,6 @@ func (m *Manager) SystemRuntimeStatus(refresh bool) SystemRuntimeStatus {
 		return m.systemStatus
 	}
 	m.systemStatus = checkSystemRuntime(m.NodePath(), m.entryPath)
-	if config.PrivateDeployment() && m.systemStatus.Required {
-		m.systemStatus.DownloadURL = config.ServiceOrigin() + "/api/system/runtime-library"
-	}
 	m.systemChecked = true
 	return m.systemStatus
 }

@@ -81,13 +81,6 @@ func NewServer() (*Server, error) {
 	mailer, exposeDebugCode := config.Mailer()
 	tenantStore := config.TenantStore(db)
 	systemConfigStore := config.SystemConfigStore(db)
-	if err := preparePrivateAssets(systemConfigStore); err != nil {
-		return nil, err
-	}
-	passwordStore := config.PasswordStore(db)
-	if err := bootstrapPrivateAdmin(passwordStore, config.SuperAdmins); err != nil {
-		return nil, err
-	}
 	subscriptionStore := config.SubscriptionStore(db)
 	var wechatFollowStore WechatFollowStore
 	if db != nil {
@@ -126,7 +119,7 @@ func NewServer() (*Server, error) {
 	aiConfigStore := newModelRestrictedAIConfigStore(config.AIConfigStore(db), systemConfigStore)
 	aiWalletStore := config.AIWalletStore(db)
 	aiWalletService := NewAIWalletService(nil, aiWalletStore, aiConfigStore, systemConfigStore)
-	auth := NewAuthService(authStore, passwordStore, mailer, exposeDebugCode && !privateDeployment(), tenantStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins, config.UniversalLoginCodeOffsetMin)
+	auth := NewAuthService(authStore, config.PasswordStore(db), mailer, exposeDebugCode, tenantStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins, config.UniversalLoginCodeOffsetMin)
 	auth.wechatFollowStore = wechatFollowStore
 	aiWalletService.auth = auth
 	agentWS := NewAgentWSHub(auth)
@@ -387,15 +380,6 @@ func (s *Server) Routes() http.Handler {
 		mux.HandleFunc("/api/public/articles/", s.articles.PublicDetail)
 	}
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
-	if privateDeployment() {
-		if directory := privateAssetsDir(); directory != "" {
-			mux.Handle("/downloads/private/", http.StripPrefix("/downloads/private/", http.FileServer(http.Dir(directory))))
-		}
-		if directory := os.Getenv("GOODHR_PRIVATE_EXTENSION_DIR"); directory != "" {
-			mux.Handle("/zip/", http.StripPrefix("/zip/", http.FileServer(http.Dir(directory))))
-		}
-		mux.HandleFunc("/api/system/runtime-library", s.PrivateRuntimeLibrary)
-	}
 	mux.HandleFunc("/api/help/guide", s.help.Guide)
 	mux.HandleFunc("/api/help/chat", s.help.Chat)
 	// 注册平台账号信息接口，只保存名称和本地 profile 标识。
@@ -420,7 +404,6 @@ func (s *Server) Routes() http.Handler {
 	// 注册平台配置接口，用于读取平台选择器和行为配置供岗位运行执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
 	mux.HandleFunc("/api/system/app-config", s.GetAppConfig)
-	mux.HandleFunc("/api/system/deployment-assets", s.GetDeploymentAssets)
 	mux.HandleFunc("/api/system/local-agent-updates", s.GetLocalAgentUpdates)
 	mux.HandleFunc("/api/system/local-agent-console-url", s.GetLocalAgentConsoleURL)
 	mux.HandleFunc("/api/system/default-prompts", s.GetDefaultPrompts)
@@ -589,7 +572,6 @@ func (s *Server) GetAppConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	// 公开接口仅保留内置 AI 的展示字段，防止上游密钥或后续新增内部配置泄露。
 	if appConfig, ok := value.(map[string]any); ok {
-		appConfig["deployment"] = map[string]any{"private": privateDeployment(), "public_base_url": deploymentPublicBaseURL()}
 		if builtinAI, ok := appConfig["builtin_ai"].(map[string]any); ok {
 			publicBuiltinAI := make(map[string]any)
 			for _, key := range []string{"public_base_url", "default_model", "signup_bonus_cents", "models"} {

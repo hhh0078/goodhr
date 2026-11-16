@@ -9,7 +9,7 @@ const snapshots = new Map();
 const snapshotSequences = new Map();
 const attachmentImportRequests = new Map();
 const attachmentTaskScopes = new Map();
-let restoreAttempted = false, serverSwitching = false, activeUIMessages = 0;
+let restoreAttempted = false;
 let authGeneration = 0, revokeInFlight = null, lastRevokeAttempt = 0;
 const duplicateCache = new Map(), captureTimers = new Map();
 let draftQueue = Promise.resolve();
@@ -41,7 +41,7 @@ async function checkUpdate(force = false) {
   if (!force && updateCheckedAt && Date.now() - updateCheckedAt < 60000) return knownUpdate;
   updateInFlight = (async () => {
     try {
-      const result = await requestJSON((await cloudBase()) + "/api/system/browser-extension?browser=" + extensionBrowser(), { timeout_ms: 6000 }), release = result.release || {};
+      const result = await requestJSON(shared.CLOUD_BASE + "/api/system/browser-extension?browser=" + extensionBrowser(), { timeout_ms: 6000 }), release = result.release || {};
       if (/^\d+\.\d+\.\d+$/.test(String(release.version || ""))) {
         knownUpdate = updateSummary(release);
         await extension.storage.local.set({ known_extension_release: { version: knownUpdate.latest_version, note: knownUpdate.note } });
@@ -60,30 +60,7 @@ async function requireCurrentVersion() {
 }
 
 /** readSettings 读取插件私有登录与配对信息，不读取任何网站缓存。 */
-async function readSettings() { return extension.storage.local.get(["cloud_base", "session", "installation_id", "pairing_token", "pairing_account_key", "local_port", "pending_pair", "pending_revoke", "data_use_accepted", "auto_close_after_save"]); }
-
-/** cloudBase 读取用户明确配置的 GoodHR 服务源，默认继续连接官方服务。 */
-async function cloudBase() { const settings = await readSettings(); return shared.normalizeServerBase(settings.cloud_base || shared.CLOUD_BASE); }
-
-/** saveServer 退出并撤销旧站授权后切换服务，清除站点相关缓存，禁止旧凭证带入新站。 */
-async function saveServer(value) {
-  if (serverSwitching) throw new Error("服务地址正在切换，请稍等一下");
-  if (activeUIMessages || refreshRequests.size) throw new Error("当前操作还没处理完，请稍后再保存服务地址");
-  serverSwitching = true;
-  try {
-    const next = shared.normalizeServerBase(value), current = await cloudBase();
-    if (next === current) return { cloud_base: current };
-    if (next !== shared.CLOUD_BASE && !await extension.permissions.contains({ origins: [next+"/*"] })) throw new Error("请先允许插件连接这个服务地址");
-    const result = await logout();
-    if (result.revocation_pending) throw new Error("旧服务的授权还没撤销，请恢复旧服务连接并点重试撤销，再切换地址");
-    if (updateInFlight) await updateInFlight;
-    authGeneration++;
-    await extension.storage.local.remove(["session", "pairing_token", "pairing_account_key", "ui_drafts", "known_extension_release", "data_use_accepted", "pending_pair"]);
-    await extension.storage.local.set({ cloud_base: next });
-    knownUpdate = null; updateCheckedAt = 0; restoreAttempted = true;
-    return { cloud_base: next };
-  } finally { serverSwitching = false; }
-}
+async function readSettings() { return extension.storage.local.get(["session", "installation_id", "pairing_token", "pairing_account_key", "local_port", "pending_pair", "pending_revoke", "data_use_accepted", "auto_close_after_save"]); }
 
 /** requestJSON 请求固定白名单地址并限制超时，拒绝重定向至其他域名。 */
 async function requestJSON(url, options = {}) {
@@ -146,7 +123,7 @@ async function processPendingRevocation() {
   }
   const failed = [];
   for (const token of pending.cloud_tokens || []) {
-    try { await requestJSON((await cloudBase()) + "/api/auth/extension-logout", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: "{}", timeout_ms: 6000 }); }
+    try { await requestJSON(shared.CLOUD_BASE + "/api/auth/extension-logout", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: "{}", timeout_ms: 6000 }); }
     catch { failed.push(token); }
   }
   pending.cloud_tokens = failed;
@@ -197,7 +174,7 @@ async function cloudRequest(path, body, method, retry = true, expectedGeneration
   if (generation !== authGeneration) throw new Error("账号已经变化，本次操作已停止，请确认账号后重新保存");
   if (!settings.session?.token) throw new Error("我先小声提醒一下，请先登录 GoodHR");
   try {
-    const result = await requestJSON((settings.cloud_base || shared.CLOUD_BASE) + path, { method: method || (body ? "POST" : "GET"), headers: { Authorization: `Bearer ${settings.session.token}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const result = await requestJSON(shared.CLOUD_BASE + path, { method: method || (body ? "POST" : "GET"), headers: { Authorization: `Bearer ${settings.session.token}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
     if (generation !== authGeneration) throw new Error("账号已经变化，旧账号的结果已停止展示，请重新确认保存结果");
     return result;
   } catch (error) {
@@ -212,14 +189,13 @@ async function cloudRequest(path, body, method, retry = true, expectedGeneration
 
 /** refreshSession 同一账号代次和旧token只刷新一次，并发401复用已更新的受限会话。 */
 async function refreshSession(oldToken, generation) {
-  if (serverSwitching) throw new Error("服务地址正在切换，请稍等一下");
   const settings = await readSettings();
   if (generation !== authGeneration) throw new Error("账号已经变化，不会恢复旧账号登录");
   if (settings.session?.token && settings.session.token !== oldToken) return;
   const key = JSON.stringify([generation, oldToken]);
   let pending = refreshRequests.get(key);
   if (!pending) {
-    pending = (async () => { const result = await requestJSON((settings.cloud_base || shared.CLOUD_BASE) + "/api/auth/extension-refresh", { method: "POST", headers: { Authorization: `Bearer ${oldToken}` }, body: "{}" }); await storeSession(result, generation); })();
+    pending = (async () => { const result = await requestJSON(shared.CLOUD_BASE + "/api/auth/extension-refresh", { method: "POST", headers: { Authorization: `Bearer ${oldToken}` }, body: "{}" }); await storeSession(result, generation); })();
     refreshRequests.set(key, pending);
   }
   try { await pending; }
@@ -264,7 +240,7 @@ async function beginPair(port) {
   const challenge = Array.from(crypto.getRandomValues(new Uint8Array(32)), (item) => item.toString(16).padStart(2, "0")).join("");
   const result = await localRequest("/api/v1/extensions/pair/start", { installation_id: installationID, challenge });
   const approve = new URL(result.approve_url);
-  if (![shared.CLOUD_BASE, "http://127.0.0.1:5173"].concat((await readSettings()).cloud_base || []).includes(approve.origin) || approve.pathname !== "/admin/resumes") throw new Error("本地程序返回了不受支持的授权地址");
+  if (![shared.CLOUD_BASE, "http://127.0.0.1:5173"].includes(approve.origin) || approve.pathname !== "/admin/resumes") throw new Error("本地程序返回了不受支持的授权地址");
   await extension.storage.local.set({ pending_pair: { pairing_id: result.pairing_id, installation_id: installationID, challenge, expires_at: Date.now() + Math.min(Number(result.expires_in || 300), 600) * 1000 } });
   await extension.tabs.create({ url: approve.href });
   return { status: "pending" };
@@ -371,7 +347,7 @@ async function publicState(sourceTab = null) {
   await retryRevocation(); await tryRestore();
   try { await renewSessionIfNeeded(); } catch { /* 临时故障不阻止显示账号或草稿；业务操作会再次续期并明确提示错误。 */ }
   const settings = await readSettings();
-  return { cloud_base: settings.cloud_base || shared.CLOUD_BASE, logged_in: Boolean(settings.session?.token), account_key: accountKey(settings), paired: Boolean(settings.pairing_token && !settings.pending_revoke), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), auto_close_after_save: settings.auto_close_after_save !== false, resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version, update: await checkUpdate() };
+  return { logged_in: Boolean(settings.session?.token), account_key: accountKey(settings), paired: Boolean(settings.pairing_token && !settings.pending_revoke), user: settings.session?.user ? { email: settings.session.user.email, id: settings.session.user.id } : null, expires_at: settings.session?.expires_at, local_port: settings.local_port || 43129, pairing_pending: Boolean(settings.pending_pair), revocation_pending: Boolean(settings.pending_revoke), revocation_message: settings.pending_revoke ? revocationSummary(settings.pending_revoke).message : "", data_use_accepted: Boolean(settings.data_use_accepted), auto_close_after_save: settings.auto_close_after_save !== false, resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version, update: await checkUpdate() };
 }
 
 /** accountKey 用公开账号标识隔离草稿和迟到界面请求，不包含任何凭证。 */
@@ -714,21 +690,9 @@ async function setFloatingOpen(payload, sourceTab, opening, generation) {
   return opening ? { opened: Boolean(result?.opened) } : { closed: Boolean(result?.closed) };
 }
 
-/** handleUIMessage 串行隔离服务切换与在途账号操作，避免迟到的旧站授权写入新站。 */
+/** handleUIMessage 接收插件界面的明确操作，所有接口固定而非通用代理。 */
 async function handleUIMessage(message, sourceTab = null) {
-  if (serverSwitching) throw new Error("服务地址正在切换，请稍等一下");
-  if (message.type === "SAVE_SERVER") {
-    if (sourceTab) throw new Error("请从工具栏设置服务地址");
-    return saveServer(message.payload?.cloud_base);
-  }
-  activeUIMessages++;
-  try { return await handleUIMessageInner(message, sourceTab); }
-  finally { activeUIMessages--; }
-}
-
-/** handleUIMessageInner 接收插件界面的明确操作，所有接口固定而非通用代理。 */
-async function handleUIMessageInner(message, sourceTab = null) {
-  const generation = authGeneration, payload = { ...(message.payload || {}), expected_generation: generation }, serverBase = await cloudBase();
+  const generation = authGeneration, payload = { ...(message.payload || {}), expected_generation: generation };
   if (["POSITIONS", "FOLDERS", "DUPLICATES", "CREATE", "UPDATE", "AVATAR_RETRY", "DETAIL", "FOLLOWUPS", "SUMMARY_START", "SUMMARY_POLL", "SUMMARY_CANCEL", "SUMMARY_RETRY", "SUMMARY_SAVE", "ATTACHMENT_START", "ATTACHMENT_POLL", "ATTACHMENT_CANCEL", "ATTACHMENT_IMPORT_POLL"].includes(message.type) && payload.account_key) { const generation = authGeneration, settings = await readSettings(); if (generation !==authGeneration || payload.account_key !== accountKey(settings)) throw new Error("账号已经变化，本次操作已停止，请确认账号后继续"); }
   if (VERSION_WRITES.has(message.type)) { await requireConsent(); await requireActiveSession(); await requireCurrentVersion(); }
   switch (message.type) {
@@ -736,12 +700,12 @@ async function handleUIMessageInner(message, sourceTab = null) {
     case "PREVIEW": return { resume: publicResume(await currentSnapshot(sourceTab)), version: extension.runtime.getManifest().version };
     case "CONSENT": if (!payload.accepted) { authGeneration++; duplicateCache.clear(); } await extension.storage.local.set({ data_use_accepted: payload.accepted === true }); if (payload.accepted) { void reconcileDrafts().catch(() => {}); const snapshot = await currentSnapshot(sourceTab), tab = sourceTab || await activeTab(); if (tab?.id && snapshot) scheduleCaptureCheck(tab.id, snapshot); } return { ok: true };
     case "SET_AUTO_CLOSE": await extension.storage.local.set({ auto_close_after_save: payload.enabled !== false }); return { enabled: payload.enabled !== false };
-    case "SEND_CODE": return requestJSON(serverBase + "/api/auth/extension-send-code", { method: "POST", body: JSON.stringify({ email: shared.cleanText(payload.email, 120) }) });
+    case "SEND_CODE": return requestJSON(shared.CLOUD_BASE + "/api/auth/extension-send-code", { method: "POST", body: JSON.stringify({ email: shared.cleanText(payload.email, 120) }) });
     case "LOGIN": {
       const generation = ++authGeneration;
       const input = { email: shared.cleanText(payload.email, 120), agreement_accepted: payload.agreement_accepted === true };
       if (payload.code) input.code = shared.cleanText(payload.code, 20); else input.password = String(payload.password || "");
-      await storeSession(await requestJSON(serverBase + "/api/auth/extension-login", { method: "POST", body: JSON.stringify(input) }), generation);
+      await storeSession(await requestJSON(shared.CLOUD_BASE + "/api/auth/extension-login", { method: "POST", body: JSON.stringify(input) }), generation);
       return publicState(sourceTab);
     }
     case "LOGOUT": return logout();
@@ -844,7 +808,7 @@ function onMessage(message, sender, sendResponse) {
   if (sender.id !== extension.runtime.id) return false;
   if (isTrustedUI(sender)) {
     const floating = new URL(sender.url).pathname === "/src/floating.html";
-    if (floating && ["SAVE_SERVER", "LOGIN", "SEND_CODE", "CONSENT", "SET_AUTO_CLOSE", "PAIR_START", "PAIR_CHECK", "RESTORE", "LOGOUT", "REVOKE_RETRY", "OPEN_SIDEBAR"].includes(message.type)) return false;
+    if (floating && ["LOGIN", "SEND_CODE", "CONSENT", "SET_AUTO_CLOSE", "PAIR_START", "PAIR_CHECK", "RESTORE", "LOGOUT", "REVOKE_RETRY", "OPEN_SIDEBAR"].includes(message.type)) return false;
     if (!floating && sender.tab && !["STATE", "CHECK_UPDATE", "LOGIN", "SEND_CODE", "CONSENT", "SET_AUTO_CLOSE", "PAIR_START", "PAIR_CHECK", "RESTORE", "LOGOUT", "REVOKE_RETRY"].includes(message.type)) return false;
     // 嵌入UI的sender.tab由浏览器提供；任何payload里的tab编号都不能改变资料来源。
     if (sender.tab && (!shared.platformForURL(sender.tab.url) || !Number.isInteger(sender.frameId) || sender.frameId < 1)) return false;
