@@ -2,6 +2,15 @@
 (function (root) {
   "use strict";
   const CLOUD_BASE = "https://goodhr.58it.cn";
+  /** normalizeServerBase 规范化用户明确填写的服务源，拒绝路径、凭证和查询参数。 */
+  function normalizeServerBase(value) {
+    let text = String(value || "").trim();
+    if (!text) return CLOUD_BASE;
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) text = "https://" + text;
+    let endpoint; try { endpoint = new URL(text); } catch { throw new Error("服务地址没填对，请填写 IP 或域名，可带端口"); }
+    if (!["http:", "https:"].includes(endpoint.protocol) || !endpoint.hostname || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || !["", "/"].includes(endpoint.pathname)) throw new Error("服务地址只填写协议、IP或域名和端口，不要带路径或账号密码");
+    return endpoint.origin;
+  }
   const PLATFORM_HOSTS = ["lpt.liepin.com", "h.liepin.com", "rd6.zhaopin.com", "ehire.51job.com", "www.zhipin.com"];
   const STAGES = { draft: "已关联", recommended: "已推荐", contacting: "沟通中", interview: "面试中", offer: "Offer", hired: "已入职", paused: "暂停" };
 
@@ -259,7 +268,7 @@
     return result;
   }
 
-  const api = { CLOUD_BASE, PLATFORM_HOSTS, STAGES, cleanText, sanitizeFolderIDs, normalizePhone, platformForURL, safeSourceURL, safeBossVueAvatarSource, safeAvatarSource, attachmentAvatarDimensions, sanitizeAvatarCandidates, validStoredAvatar, newKey, resumeIdentity, hashText, sanitizeAttachment, sanitizeAttachmentImport, attachmentImportReceipt, unacceptedImportError, earliestExperience, attachmentReviewFields, mergeAttachmentReview, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, candidateWriteResume, describeResumeChanges, saveFollowups };
+  const api = { CLOUD_BASE, normalizeServerBase, PLATFORM_HOSTS, STAGES, cleanText, sanitizeFolderIDs, normalizePhone, platformForURL, safeSourceURL, safeBossVueAvatarSource, safeAvatarSource, attachmentAvatarDimensions, sanitizeAvatarCandidates, validStoredAvatar, newKey, resumeIdentity, hashText, sanitizeAttachment, sanitizeAttachmentImport, attachmentImportReceipt, unacceptedImportError, earliestExperience, attachmentReviewFields, mergeAttachmentReview, duplicateInput, classifyDuplicates, compareVersions, stripSummaryContacts, summaryAction, sanitizeResume, nonEmptyResumePatch, candidateWriteResume, describeResumeChanges, saveFollowups };
   root.GoodHRShared = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

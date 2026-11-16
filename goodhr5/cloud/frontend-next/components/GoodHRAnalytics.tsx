@@ -10,7 +10,7 @@ export default function GoodHRAnalytics() {
   const pathname = usePathname();
   const stopped = useRef(false);
   useLayoutEffect(() => {
-    if (!pathname) return;
+    if (process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "private" || !pathname) return;
     if (!canRecordClarity(pathname)) {
       try { if (window.clarity) { window.clarity("stop"); stopped.current = true; } } catch { /* 停止回放不影响页面。 */ }
       return;
@@ -34,7 +34,7 @@ export default function GoodHRAnalytics() {
       trackConversion(pathname === "/login" ? "login_view" : "site_visit");
     } catch { /* 统计被浏览器或扩展拦截时，不影响页面和登录。 */ }
   }, [pathname]);
-  if (!pathname || isPrivateAnalyticsPath(pathname)) return null;
+  if (process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "private" || !pathname || isPrivateAnalyticsPath(pathname)) return null;
   return <Script id="baidu-analytics" strategy="afterInteractive">{`var _hmt = _hmt || [];
 (function() {
   var hm = document.createElement("script");

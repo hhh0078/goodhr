@@ -54,7 +54,8 @@ export async function getBrowserExtensionRelease(): Promise<BrowserExtensionRele
 export async function getFirefoxTemporaryRelease(): Promise<FirefoxTemporaryRelease | null> {
   if (process.env.GOODHR_STATIC_EXPORT === "1") return null;
   try {
-    const response = await fetch(new URL("/zip/goodhr-resume-firefox-latest.json", SITE_URL), {
+    const source = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "private" ? cloudBaseURL() : SITE_URL;
+    const response = await fetch(new URL("/zip/goodhr-resume-firefox-latest.json", source), {
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(3000),

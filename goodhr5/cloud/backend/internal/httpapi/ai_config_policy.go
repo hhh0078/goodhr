@@ -80,5 +80,8 @@ func isCurrentSiteAIURL(baseURL string) bool {
 	if err != nil || endpoint.User != nil || (endpoint.Scheme != "https" && endpoint.Scheme != "http") || endpoint.Hostname() == "" {
 		return false
 	}
+	if privateDeployment() {
+		return endpoint.Scheme == publicURL.Scheme && strings.EqualFold(endpoint.Host, publicURL.Host) && strings.HasPrefix(endpoint.Path, "/api/ai-compatible/")
+	}
 	return strings.EqualFold(endpoint.Hostname(), publicURL.Hostname())
 }

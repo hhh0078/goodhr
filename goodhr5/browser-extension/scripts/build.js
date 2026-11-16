@@ -47,6 +47,7 @@ function manifest(browser, local = false) {
     description: "识别可见简历后自动展开，补号、查重并一键添加或更新；只读招聘页面。",
     permissions: ["storage", "scripting"],
     host_permissions: ["https://goodhr.58it.cn/*", "http://127.0.0.1/*", "https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://www.zhipin.com/*", "https://*.lietou-static.com/*", "https://mypics.zhaopin.cn/*", "https://img.bosszhipin.com/*"],
+    optional_host_permissions: ["http://*/*", "https://*/*"],
     icons: { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "64": "icons/64.png", "128": "icons/128.png" },
     action: { default_title: "GoodHR 简历助手", default_popup: "src/ui.html", default_icon: { "16": "icons/16.png", "32": "icons/32.png" } },
     content_scripts: [{ matches: ["https://lpt.liepin.com/*", "https://h.liepin.com/*", "https://rd6.zhaopin.com/*", "https://ehire.51job.com/*", "https://www.zhipin.com/*"], js: ["src/shared.js", "src/boss-attachment.js", "src/extraction.js", "src/floating.js", "src/content.js"], run_at: "document_idle", all_frames: false }],
@@ -76,8 +77,10 @@ function prepareLocalOutput(directory) {
   /** write 将本地地址和提示写入本次测试产物。 */
   const write = (name, content) => fs.writeFileSync(path.join(directory, "src", name), content);
   write("shared.js", replaceRequired(read("shared.js"), 'const CLOUD_BASE = "https://goodhr.58it.cn";', `const CLOUD_BASE = ${JSON.stringify(LOCAL.api)};`, "shared.js"));
-  write("ui.js", replaceRequired(read("ui.js"), "shared.CLOUD_BASE", JSON.stringify(LOCAL.web), "ui.js"));
-  write("candidate-ui.js", replaceRequired(read("candidate-ui.js"), "shared.CLOUD_BASE", JSON.stringify(LOCAL.web), "candidate-ui.js"));
+  write("ui.js", replaceRequired(read("ui.js"), "shared.CLOUD_BASE", JSON.stringify(LOCAL.web), "ui.js").replace('cloudBase + "/download#browser-extension"', JSON.stringify(LOCAL.web)+' + "/download#browser-extension"'));
+  let candidateUI = replaceRequired(read("candidate-ui.js"), "shared.CLOUD_BASE", JSON.stringify(LOCAL.web), "candidate-ui.js");
+  candidateUI = replaceRequired(candidateUI, 'return `${configuredCloudBase}/admin/resumes/detail?candidate_id=${encodeURIComponent(id)}`;', `return ${JSON.stringify(LOCAL.web)} + "/admin/resumes/detail?candidate_id=" + encodeURIComponent(id);`, "candidate-ui.js");
+  write("candidate-ui.js", candidateUI);
   let background = replaceRequired(read("background.js"), '[shared.CLOUD_BASE, "http://127.0.0.1:5173"]', `[${JSON.stringify(LOCAL.web)}]`, "background.js");
   background = replaceRequired(background, 'shared.CLOUD_BASE + "/download#browser-extension"', `${JSON.stringify(LOCAL.web)} + "/download#browser-extension"`, "background.js");
   background = replaceRequired(background, "43129", String(LOCAL.agentPort), "background.js").replaceAll("GoodHR 简历助手", LOCAL.name);
@@ -93,13 +96,14 @@ function prepareLocalOutput(directory) {
   write("privacy.html", privacy);
 }
 
-/** parseBuildOptions 只允许标准、Chrome单独和固定本地模式，不接受自定义地址或环境覆盖。 */
+/** parseBuildOptions 识别标准、单浏览器、本地测试和私有部署构建模式。 */
 function parseBuildOptions(argv) {
   if (!argv.length) return { local: false };
+  if (argv.length === 1 && argv[0] === "--private") return { private: true };
   if (argv.length === 1 && argv[0] === "--local") return { local: true };
   if (argv.length === 1 && argv[0] === "--chrome") return { local: false, chromeOnly: true };
   if (argv.length === 1 && argv[0] === "--firefox") return { local: false, firefoxOnly: true };
-  throw new Error("仅支持 npm run build、build:chrome、build:firefox:unsigned 或 build:local；本地 API 与网页地址固定，不接受自定义 URL");
+  throw new Error("仅支持 npm run build、build:chrome、build:firefox:unsigned 、build:private 或 build:local；本地 API 与网页地址固定，不接受自定义 URL");
 }
 
 /** installDocument 为正式 Firefox 选择临时加载说明，Chrome 和本地测试继续使用各自原文档。 */
@@ -122,10 +126,10 @@ function preparePackageDirectory(directory, browser, local = false) {
 
 /** build 清理已确认的插件 dist 或 dist-local 目录，分别输出正式开发包与本地测试包。 */
 function build(options = {}) {
-  if (Object.keys(options).some((key) => !["local", "chromeOnly", "firefoxOnly", "test"].includes(key)) || Object.values(options).some((value) => typeof value !== "boolean")) throw new Error("构建参数仅支持布尔值 local/chromeOnly/firefoxOnly/test");
+  if (Object.keys(options).some((key) => !["local", "chromeOnly", "firefoxOnly", "test", "private"].includes(key)) || Object.values(options).some((value) => typeof value !== "boolean")) throw new Error("构建参数仅支持布尔值 local/chromeOnly/firefoxOnly/test");
   if (options.test && !options.local) throw new Error("隔离测试输出仅用于固定本地模式");
   if (options.chromeOnly && options.firefoxOnly) throw new Error("不能同时选择 Chrome 和 Firefox 单独构建");
-  const local = options.local === true, outputName = options.test ? path.join("artifacts", "build-local-test") : local ? "dist-local" : options.firefoxOnly ? "dist-firefox-unsigned" : "dist", OUT = path.join(ROOT, outputName);
+  const local = options.local === true, outputName = options.test ? path.join("artifacts", "build-local-test") : options.private ? "dist-private" : local ? "dist-local" : options.firefoxOnly ? "dist-firefox-unsigned" : "dist", OUT = path.join(ROOT, outputName);
   if (path.resolve(OUT) !== path.join(ROOT, outputName) || !OUT.startsWith(ROOT + path.sep)) throw new Error("构建目录超出插件范围，停止清理");
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("版本号必须是三段数字");
   if (!options.chromeOnly) fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
@@ -133,6 +137,17 @@ function build(options = {}) {
   const browsers = options.chromeOnly ? ["chrome"] : options.firefoxOnly ? ["firefox"] : ["chrome", "firefox"];
   for (const browser of browsers) {
     const directory = path.join(OUT, browser); if (options.chromeOnly) fs.rmSync(directory, { recursive: true, force: true }); preparePackageDirectory(directory, browser, local);
+    if (options.private) {
+      const shared = require("../src/shared.js"), base = shared.normalizeServerBase(process.env.GOODHR_PUBLIC_BASE_URL || "");
+      if (!base.startsWith("https://")) throw new Error("私有部署构建需要 HTTPS 服务地址");
+      if (!process.env.GOODHR_PUBLIC_BASE_URL) throw new Error("私有构建需要 GOODHR_PUBLIC_BASE_URL");
+      const sharedPath = path.join(directory, "src", "shared.js");
+      fs.writeFileSync(sharedPath, fs.readFileSync(sharedPath, "utf8").replace('const CLOUD_BASE = "https://goodhr.58it.cn";', `const CLOUD_BASE = ${JSON.stringify(base)};`));
+      const manifestPath = path.join(directory, "manifest.json"), published = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+      published.host_permissions = published.host_permissions.filter(host => host !== "https://goodhr.58it.cn/*").concat(base+"/*");
+      fs.writeFileSync(manifestPath, JSON.stringify(published, null, 2)+"\n");
+      for (const file of ["ui.html", "floating.html", "privacy.html"]) { const target = path.join(directory, "src", file); fs.writeFileSync(target, fs.readFileSync(target, "utf8").replaceAll("https://goodhr.58it.cn", base)); }
+    }
     const archive = zipBuffer(filesUnder(directory)), name = browser === "firefox" ? `goodhr-resume-firefox-${local ? "local-" : ""}unsigned-${version}.zip` : `goodhr-resume-chrome-${local ? "local-" : ""}${version}.zip`; fs.writeFileSync(path.join(OUT, name), archive);
     const checksum = crypto.createHash("sha256").update(archive).digest("hex"), metadata = browser === "firefox" ? { signed: false, publishable: false, installation: "temporary-only" } : { signed: false };
     packages.push({ browser, file: name, bytes: archive.length, sha256: checksum, ...metadata });

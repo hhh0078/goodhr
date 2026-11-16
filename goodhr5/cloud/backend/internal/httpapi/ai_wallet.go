@@ -517,6 +517,9 @@ func (s *AIWalletService) ConfigureUserBuiltinAI(email string) (AIConfig, error)
 
 // EnsureUserDefaultAI 确保用户有默认内置 AI 配置，并在首次初始化时赠送余额。
 func (s *AIWalletService) EnsureUserDefaultAI(email string) error {
+	if privateDeployment() {
+		return nil
+	}
 	if s == nil || s.aiConfigs == nil || s.wallet == nil {
 		return nil
 	}

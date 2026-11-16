@@ -3,6 +3,29 @@
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), vm = require("node:vm"), crypto = require("node:crypto");
 const src = path.join(__dirname, "..", "src");
 
+test("服务地址接受内网IP和域名端口，拒绝凭证、路径、查询参数和脚本协议", () => {
+  const shared = require("../src/shared.js");
+  assert.equal(shared.normalizeServerBase("192.168.1.20:8443"), "https://192.168.1.20:8443");
+  assert.equal(shared.normalizeServerBase("https://hr.company.local:8443/"), "https://hr.company.local:8443");
+  for (const value of ["https://user:pass@company.local", "https://company.local/admin", "https://company.local?token=secret", "https://company.local#hash", "javascript://company.local", "https://company.local:99999"]) assert.throws(() => shared.normalizeServerBase(value));
+});
+
+test("切换服务只向旧站撤销授权，清除账号和草稿，新站登录不携带旧凭证", async () => {
+  const value = backgroundFixture();
+  value.extension.permissions = { contains: async () => true };
+  value.values.ui_drafts = { old: { fields: { phone: "synthetic" } } };
+  const result = await value.message({ type: "SAVE_SERVER", payload: { cloud_base: "https://192.168.1.20:8443" } }, uiSender);
+  assert.equal(result.ok, true);
+  assert.equal(value.values.cloud_base, "https://192.168.1.20:8443");
+  assert.equal(value.values.session, undefined); assert.equal(value.values.ui_drafts, undefined);
+  assert.equal(value.requests.length, 1); assert.equal(new URL(value.requests[0].url).origin, "https://goodhr.58it.cn");
+  await value.message({ type: "LOGIN", payload: { email: "private@example.test", password: "synthetic", agreement_accepted: true } }, uiSender);
+  assert.equal(new URL(value.requests.at(-1).url).origin, "https://192.168.1.20:8443");
+  assert.equal(value.requests.at(-1).options.headers.Authorization, undefined);
+  const denied = await value.message({ type: "SAVE_SERVER", payload: { cloud_base: "https://other.invalid" } }, floatingSender);
+  assert.equal(denied, undefined);
+});
+
 /** backgroundFixture 构造后台执行环境和无真实网络的受限会话。 */
 function backgroundFixture(fetchReply, clock = null) {
   const values = { session: { token: "private-background-token", user: { email: "fixture@example.test", id: "fixture" }, expires_at: "2030-01-01" } }, requests = [], versionRequests = []; let listener, connectListener;

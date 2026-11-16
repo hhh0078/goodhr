@@ -4,6 +4,7 @@
 <body class="settings">
   <header><div class="brand"><img src="../icons/32.png" width="28" height="28" alt="GoodHR"><strong>GoodHR</strong><small id="version"></small></div></header>
   <main>
+    <form id="server-form"><label>GoodHR 服务地址<div class="inline"><input id="server-address" type="text" autocomplete="url" placeholder="IP 或域名，例如 https://192.168.1.100:8443"><button id="server-save" type="submit">保存地址</button></div></label><small>切换地址会退出旧账号，请重新登录并授权。</small></form>
     <section id="update-notice" class="update-notice" hidden><strong id="update-title"></strong><p id="update-versions"></p><a id="update-link" class="button primary" href="https://goodhr.58it.cn/download#browser-extension" target="_blank" rel="noreferrer">立即更新</a></section>
     <p id="status" role="status" aria-live="polite" hidden></p>
     <section id="revocation-panel" hidden><p id="revocation-message" class="error"></p><button id="revoke-retry" type="button">重试撤销旧授权</button></section>
@@ -14,7 +15,7 @@
         <label>GoodHR 邮箱<input id="email" type="email" autocomplete="username" required></label>
         <label id="password-row">密码<input id="password" type="password" autocomplete="current-password"></label>
         <label id="code-row" hidden>邮箱验证码<div class="inline"><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="12"><button id="send-code" type="button">获取验证码</button></div></label>
-        <label class="check"><input id="agreement" type="checkbox" required>同意 <a href="https://goodhr.58it.cn/login" target="_blank" rel="noreferrer">使用协议与隐私说明</a></label>
+        <label class="check"><input id="agreement" type="checkbox" required>同意 <a id="agreement-link" href="https://goodhr.58it.cn/login" target="_blank" rel="noreferrer">使用协议与隐私说明</a></label>
         <button class="primary" type="submit">登录</button>
       </form>
     </section>

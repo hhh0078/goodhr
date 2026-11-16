@@ -10,17 +10,25 @@ build_mode=${2:-}
 case "${build_mode}" in
   build) build_environment=production ;;
   dev) build_environment=test ;;
-  *) print -u2 "请在版本号后指定 dev（测试）或 build（正式）"; exit 1 ;;
+  private) build_environment=private ;;
+  *) print -u2 "请在版本号后指定 dev（测试）、build（正式）或 private（私有）"; exit 1 ;;
 esac
 if [[ ! "${version}" =~ '^[0-9]+([.][0-9]+)*$' ]]; then
   print -u2 "macOS 安装包版本号只能包含数字和点"
   exit 1
 fi
-environment_file="${project_dir}/../environments/${build_environment}.env"
+environment_file="${GOODHR_ENV_FILE:-${project_dir}/../environments/${build_environment}.env}"
 [[ -f "${environment_file}" ]] || { print -u2 "缺少环境配置：${environment_file}"; exit 1; }
 public_base_url=$(sed -n 's/^GOODHR_PUBLIC_BASE_URL=//p' "${environment_file}" | tr -d '\r')
-[[ "${public_base_url}" =~ '^https://[a-z0-9.-]+$' ]] || { print -u2 "环境主域名格式不正确"; exit 1; }
+deployment_mode=public
+if [[ "${build_environment}" == "private" ]]; then
+  deployment_mode=private
+  [[ "${public_base_url}" =~ '^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$' ]] || { print -u2 "私有地址需包含 https://，可带端口"; exit 1; }
+else
+  [[ "${public_base_url}" =~ '^https://[a-z0-9.-]+$' ]] || { print -u2 "环境主域名格式不正确"; exit 1; }
+fi
 environment_suffix=""
+[[ "${build_environment}" != "private" ]] || environment_suffix="-private"
 [[ "${build_environment}" != "test" ]] || environment_suffix="-test"
 npm_registry=${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}
 go_proxy=${GOPROXY:-https://goproxy.cn,direct}
@@ -61,7 +69,7 @@ cp -R node_modules/impit-darwin-x64 "${worker_dir}/node_modules/"
 node --check "${worker_dir}/dist/main.js"
 
 cd "${project_dir}"
-build_flags="-s -w -X goodhr5/local-agent-go-new/internal/version.Value=${version} -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=${public_base_url} -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=${public_base_url}"
+build_flags="-s -w -X goodhr5/local-agent-go-new/internal/version.Value=${version} -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=${public_base_url} -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=${public_base_url} -X goodhr5/local-agent-go-new/internal/config.DefaultDeploymentMode=${deployment_mode}"
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 GOPROXY="${go_proxy}" go build -trimpath -ldflags="${build_flags}" -o "${stage_dir}/agent-arm64" ./cmd/goodhr-local-agent
 CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 GOPROXY="${go_proxy}" go build -trimpath -ldflags="${build_flags}" -o "${stage_dir}/agent-x64" ./cmd/goodhr-local-agent
 lipo -create -output "${macos_dir}/goodhr-local-agent" "${stage_dir}/agent-arm64" "${stage_dir}/agent-x64"

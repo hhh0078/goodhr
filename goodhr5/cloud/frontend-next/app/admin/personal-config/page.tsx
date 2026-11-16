@@ -70,7 +70,8 @@ const mouseSpeedOptions = [
 ];
 /** PersonalConfigPage 管理 AI 接口和模拟人工操作参数。 */
 export default function PersonalConfigPage() {
-  const { notify } = useAdmin();
+  const { notify, appConfig } = useAdmin();
+  const isPrivate = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "private" || appConfig?.deployment?.private === true;
   const [form, setForm] = useState({ ...defaults });
   const [switchRequired, setSwitchRequired] = useState(false);
   const switchInFlight = useRef(false);
@@ -91,7 +92,7 @@ export default function PersonalConfigPage() {
     confirm_password: "",
   });
   const [passwordSaving, setPasswordSaving] = useState(false);
-  const builtinModelSelection = usesBuiltinAIModels(form.base_url, hostname);
+  const builtinModelSelection = !isPrivate && usesBuiltinAIModels(form.base_url, hostname);
   const modelUnavailable =
     builtinModelSelection &&
     (modelsLoading || modelsError || !builtinModels?.length);
@@ -99,7 +100,7 @@ export default function PersonalConfigPage() {
     form.base_url,
     form.model,
     hostname,
-    builtinModels,
+    isPrivate ? null : builtinModels,
   );
   /** loadBuiltinModels 独立读取内置模型列表，失败时保留现有模型且不使用猜测值。 */
   async function loadBuiltinModels() {
@@ -146,8 +147,8 @@ export default function PersonalConfigPage() {
         mouse_speed: mouseSpeedOptions.some((option) => option.value === preference.mouse_speed)
           ? preference.mouse_speed
           : defaults.mouse_speed,
-        base_url: ai.base_url || defaults.base_url,
-        model: ai.model || preference.ai_model || defaults.model,
+        base_url: ai.base_url || (isPrivate ? "" : defaults.base_url),
+        model: ai.model || preference.ai_model || (isPrivate ? "" : defaults.model),
         api_key: ai.api_key || "",
       });
       setConfigLoaded(true);
@@ -170,7 +171,7 @@ export default function PersonalConfigPage() {
     };
   }, []);
   useEffect(() => {
-    if (!configLoaded || modelsLoading || modelsError) return;
+    if (isPrivate || !configLoaded || modelsLoading || modelsError) return;
     setForm((current) => {
       const nextModel = resolvePersonalAIModel(
         current.base_url,
@@ -180,7 +181,7 @@ export default function PersonalConfigPage() {
       );
       return nextModel === current.model ? current : { ...current, model: nextModel };
     });
-  }, [configLoaded, modelsLoading, modelsError, builtinModels, hostname, form.base_url]);
+  }, [isPrivate, configLoaded, modelsLoading, modelsError, builtinModels, hostname, form.base_url]);
   /** changeAIBaseURL 切换地址时立即套用同域模型列表，外部地址保留自由输入。 */
   function changeAIBaseURL(baseURL: string) {
     setForm((current) => ({
@@ -190,7 +191,7 @@ export default function PersonalConfigPage() {
         baseURL,
         current.model,
         hostname,
-        modelsLoading || modelsError ? null : builtinModels,
+        isPrivate || modelsLoading || modelsError ? null : builtinModels,
       ),
     }));
   }
@@ -350,7 +351,7 @@ export default function PersonalConfigPage() {
   return (
     <>
       <NotificationProfileDialog openSignal={profileOpenSignal} />
-      <AdminDialog open={switchRequired && configLoaded} title="作者来小声求个支持" hideClose showCancel={false}
+      <AdminDialog open={!isPrivate && switchRequired && configLoaded} title="作者来小声求个支持" hideClose showCancel={false}
         onClose={() => undefined} onConfirm={() => void useBuiltinAI()} confirmText="好吧，那就使用内置 AI 吧" loading={loading} loadingText="正在切换" maxWidth="sm">
         <Typography.Paragraph>GoodHR 目前的收入还撑不起日常开发和维护，作者正在“继续写代码”和“进厂拧螺丝”之间努力挣扎。</Typography.Paragraph>
         <Typography.Paragraph>为了让软件继续运营，自定义接口暂时关闭，改用内置 AI。我们也接入了价格更友好的多种模型，名称和价格都在列表里，按需选择就好。等收入能撑住维护，我会再次开放自定义接口。</Typography.Paragraph>
@@ -405,17 +406,17 @@ export default function PersonalConfigPage() {
             <div className={pageStyles.aiHeader}>
               <SectionTitle
                 icon={<ApiOutlined aria-hidden="true" />}
-                title="内置 AI"
-                description="选择适合岗位的模型，按实际用量扣余额，无需额外购买会员。"
+                title={isPrivate ? "AI 配置" : "内置 AI"}
+                description={isPrivate ? "填写内网模型地址、模型名称和 Key，费用由你配置的服务提供方结算。" : "选择适合岗位的模型，按实际用量扣余额，无需额外购买会员。"}
               />
-              <Button
+              {!isPrivate && <Button
                 disabled={loading || !configLoaded}
                 onClick={() => void useBuiltinAI()}
                 type="primary"
                 icon={<ThunderboltOutlined aria-hidden="true" />}
               >
                 使用内置 AI
-              </Button>
+              </Button>}
             </div>
             <Alert
               icon={<ApiOutlined aria-hidden="true" />}
@@ -424,12 +425,12 @@ export default function PersonalConfigPage() {
               description={
                 <>
                   {" "}
-                  暂不支持自定义接口，请使用内置 AI。详情分析需要选择支持图片输入的模型，模型说明和价格以列表为准。
+                  {isPrivate ? "可使用内网 OpenAI 兼容接口。BOSS 详情分析需要支持图片输入的模型；无需本站充值余额。" : "暂不支持自定义接口，请使用内置 AI。详情分析需要选择支持图片输入的模型，模型说明和价格以列表为准。"}
                 </>
               }
               className={styles.s216}
             />
-            {modelsError || (builtinModels !== null && !builtinModels.length) ? (
+            {!isPrivate && (modelsError || (builtinModels !== null && !builtinModels.length)) ? (
               <Alert
                 type="warning"
                 showIcon
@@ -446,13 +447,13 @@ export default function PersonalConfigPage() {
                 htmlFor="personal-config-field-1"
                 label={"API 地址"}
                 extra={
-                  <>当前仅支持内置 AI，接口地址由系统提供。</>
+                  <>{isPrivate ? "例如 http://192.168.1.20:8000/v1，保存时补全接口路径。" : "当前仅支持内置 AI，接口地址由系统提供。"}</>
                 }
                 style={{ marginBottom: 0 }}
               >
                 <Input
                   value={form.base_url}
-                  readOnly
+                  readOnly={!isPrivate}
                   disabled={loading || !configLoaded}
                   onChange={(event) =>
                     changeAIBaseURL(event.target.value)
@@ -461,20 +462,20 @@ export default function PersonalConfigPage() {
                   className={styles.s219}
                 />
               </Form.Item>
-              <BuiltinAIModelSelect models={builtinModels} value={model} onChange={value => setForm(current => ({ ...current, model: value }))} loading={modelsLoading} disabled={loading || !configLoaded || modelUnavailable || !builtinModelSelection} />
+              {isPrivate ? <Form.Item layout="vertical" label="模型名称" htmlFor="private-ai-model" style={{ marginBottom: 0 }}><Input id="private-ai-model" value={form.model} disabled={loading || !configLoaded} onChange={event => setForm(current => ({ ...current, model: event.target.value }))} placeholder="填写内网服务提供的模型名称" /></Form.Item> : <BuiltinAIModelSelect models={builtinModels} value={model} onChange={value => setForm(current => ({ ...current, model: value }))} loading={modelsLoading} disabled={loading || !configLoaded || modelUnavailable || !builtinModelSelection} />}
               <Form.Item
                 layout="vertical"
                 htmlFor="personal-config-field-3"
                 label={"API Key"}
                 extra={
-                  <> {"系统提供的内置 AI Key，可复制，不需要手动修改。"} </>
+                  <> {isPrivate ? "填写模型服务的 Key；不鉴权的内网模型可填写任意非空占位值。留空保存时保留已有 Key。" : "系统提供的内置 AI Key，可复制，不需要手动修改。"} </>
                 }
                 className={styles.s222}
                 style={{ marginBottom: 0 }}
               >
                 <Input
                   value={form.api_key}
-                  readOnly
+                  readOnly={!isPrivate}
                   disabled={loading || !configLoaded}
                   onChange={(event) =>
                     setForm({ ...form, api_key: event.target.value })

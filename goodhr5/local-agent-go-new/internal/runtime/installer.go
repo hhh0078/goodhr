@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"goodhr5/local-agent-go-new/internal/config"
 	"io"
 	"log"
 	"net/http"
@@ -215,7 +216,7 @@ func (m *Manager) downloadAsset(ctx context.Context, component string, label str
 	if err != nil {
 		return fmt.Errorf("创建%s下载请求失败：%w", label, err)
 	}
-	client := &http.Client{Timeout: 30 * time.Minute}
+	client := &http.Client{Timeout: 30 * time.Minute, CheckRedirect: config.CheckDownloadRedirect}
 	response, err := client.Do(request)
 	if err != nil {
 		return fmt.Errorf("下载%s失败：%w", label, err)
@@ -301,11 +302,7 @@ func platformKey() string {
 
 // validateAssetURL 校验组件下载地址必须使用 HTTPS。
 func validateAssetURL(value string) error {
-	parsed, err := url.Parse(strings.TrimSpace(value))
-	if err != nil || parsed.Host == "" || parsed.Scheme != "https" || parsed.User != nil {
-		return fmt.Errorf("只支持 HTTPS 地址")
-	}
-	return nil
+	return config.ValidateDownloadURL(value)
 }
 
 // archiveName 根据下载地址保留支持的压缩包后缀。

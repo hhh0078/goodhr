@@ -2,6 +2,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -89,7 +90,7 @@ func Load(host string, port int, dataDir string) (Config, error) {
 	if goruntime.GOOS == "windows" {
 		cfg.DownloadsDir = filepath.Join(resolvedDataDir, "downloads")
 	}
-	if goruntime.GOOS == "windows" && strings.TrimSpace(dataDir) == "" && strings.TrimSpace(os.Getenv("GOODHR_DATA_DIR")) == "" {
+	if !PrivateDeployment() && goruntime.GOOS == "windows" && strings.TrimSpace(dataDir) == "" && strings.TrimSpace(os.Getenv("GOODHR_DATA_DIR")) == "" {
 		if base, legacyErr := os.UserConfigDir(); legacyErr == nil {
 			cfg.LegacyDataDir = filepath.Join(base, "GoodHR", "local-agent-new")
 		}
@@ -235,6 +236,14 @@ func resolveDataDir(value string) (string, error) {
 	}
 	if resolved := strings.TrimSpace(os.Getenv("GOODHR_DATA_DIR")); resolved != "" {
 		return filepath.Clean(resolved), nil
+	}
+	if PrivateDeployment() {
+		base, err := os.UserConfigDir()
+		if err != nil {
+			return "", fmt.Errorf("读取私有部署数据目录失败：%w", err)
+		}
+		identity := sha256.Sum256([]byte(ServiceOrigin()))
+		return filepath.Join(base, "GoodHR", fmt.Sprintf("private-%x", identity[:8])), nil
 	}
 	if goruntime.GOOS == "windows" {
 		executable, err := os.Executable()

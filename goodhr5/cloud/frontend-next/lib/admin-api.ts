@@ -8,7 +8,7 @@ const DEFAULT_CLOUD_API_BASE =
     ? "https://goodhr.58it.cn"
     : "http://127.0.0.1:8084";
 
-export const CLOUD_API_BASE = (
+export const CLOUD_API_BASE = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "private" ? "" : (
   process.env.NEXT_PUBLIC_CLOUD_API_BASE || DEFAULT_CLOUD_API_BASE
 ).replace(/\/$/, "");
 export const LOCAL_AGENT_PORTS = [43129];

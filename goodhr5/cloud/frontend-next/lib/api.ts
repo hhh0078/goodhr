@@ -6,6 +6,7 @@ export const INVITE_CACHE_KEY = "goodhr5_invite_id";
 
 /** cloudAPIBase 返回浏览器应访问的云端 API 地址。 */
 export function cloudAPIBase() {
+  if (process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "private") return typeof window === "undefined" ? (process.env.CLOUD_API_BASE || "http://backend:8084") : "";
   const fallback = process.env.NODE_ENV === "production"
     ? "https://goodhr.58it.cn"
     : "http://127.0.0.1:8084";

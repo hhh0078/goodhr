@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"goodhr5/local-agent-go-new/internal/config"
 	"io"
 	"net/http"
 	"net/url"
@@ -59,7 +60,7 @@ func New(dataDir string, currentVersion string, requestShutdown func()) *Manager
 		dataDir:         dataDir,
 		currentVersion:  strings.TrimSpace(currentVersion),
 		requestShutdown: requestShutdown,
-		http:            &http.Client{Timeout: 30 * time.Minute},
+		http:            &http.Client{Timeout: 30 * time.Minute, CheckRedirect: config.CheckDownloadRedirect},
 		progress: Progress{
 			Stage:          "idle",
 			Message:        "等待更新",
@@ -239,7 +240,7 @@ func (r *progressReader) Read(buffer []byte) (int, error) {
 // validateDownloadURL 只允许从 HTTPS 地址下载更新包。
 func validateDownloadURL(value string) error {
 	parsed, err := url.Parse(strings.TrimSpace(value))
-	if err != nil || parsed.Host == "" || parsed.Scheme != "https" || parsed.User != nil {
+	if err != nil || config.ValidateDownloadURL(value) != nil {
 		return fmt.Errorf("本地程序更新包下载地址不正确")
 	}
 	if goruntime.GOOS == "darwin" && !strings.EqualFold(filepath.Ext(parsed.Path), ".pkg") {

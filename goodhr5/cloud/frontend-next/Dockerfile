@@ -11,6 +11,8 @@ FROM node:22-alpine AS builder
 LABEL goodhr.project="goodhr" goodhr.build.stage="frontend-builder"
 WORKDIR /app
 # 允许部署时限制构建堆内存和 Next.js 构建核数，参数不进入生产运行阶段。
+ARG NEXT_PUBLIC_DEPLOYMENT_MODE=""
+ENV NEXT_PUBLIC_DEPLOYMENT_MODE=$NEXT_PUBLIC_DEPLOYMENT_MODE
 ARG NODE_OPTIONS
 ARG CIRCLE_NODE_TOTAL
 ARG NEXT_PUBLIC_CLOUD_API_BASE=https://goodhr.58it.cn
@@ -27,7 +29,8 @@ ENV NEXT_PUBLIC_ONBOARDING_PREVIEW_MODE=$NEXT_PUBLIC_ONBOARDING_PREVIEW_MODE
 ENV CLOUD_API_BASE=$CLOUD_API_BASE
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+# 私有环境构建时后端容器尚未启动，使用快速失败的本机地址生成公开页面，运行时仍读取真实容器地址。
+RUN if [ "$NEXT_PUBLIC_DEPLOYMENT_MODE" = "private" ]; then CLOUD_API_BASE=http://127.0.0.1:9 npm run build; else npm run build; fi
 LABEL goodhr.build.finished="true"
 
 FROM node:22-alpine AS runner

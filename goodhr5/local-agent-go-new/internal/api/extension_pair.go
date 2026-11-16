@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"goodhr5/local-agent-go-new/internal/config"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 )
 
@@ -68,6 +69,9 @@ func (s *Server) handleExtensionPairStart(w http.ResponseWriter, r *http.Request
 	consoleURL := "https://goodhr.58it.cn/admin/resumes"
 	if base, err := url.Parse(s.cfg.CloudURL); err == nil && (base.Hostname() == "127.0.0.1" || base.Hostname() == "localhost") {
 		consoleURL = "http://127.0.0.1:5173/admin/resumes"
+	}
+	if config.PrivateDeployment() {
+		consoleURL = strings.TrimRight(s.cfg.ConsoleURL, "/") + "/admin/resumes"
 	}
 	approveURL := consoleURL + "?extension_pair=" + url.QueryEscape(id) + fmt.Sprintf("&agent_port=%d", s.cfg.Port)
 	writeSuccess(w, 200, struct {

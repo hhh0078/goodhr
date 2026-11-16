@@ -1,0 +1,121 @@
+# 本文件通过 Docker Desktop 在 Windows/macOS 部署私有系统，数据和组件均持久保存，仅发布统一网页端口。
+name: goodhr-private
+services:
+  extension-builder:
+    image: node:22-alpine
+    profiles: ["prepare"]
+    working_dir: /extension
+    command: ["node", "scripts/build.js", "--private"]
+    environment:
+      GOODHR_PUBLIC_BASE_URL: ${GOODHR_PUBLIC_BASE_URL}
+    volumes:
+      - ./browser-extension:/extension
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: goodhr
+      POSTGRES_PASSWORD: ${GOODHR_DB_PASSWORD:?请配置数据库密码}
+      POSTGRES_DB: goodhr
+    volumes:
+      - private_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goodhr -d goodhr"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - private_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  backend:
+    image: goodhr-private-backend:local
+    build:
+      context: .
+      dockerfile: deployment/private/Dockerfile
+      args:
+        GOODHR_PUBLIC_BASE_URL: ${GOODHR_PUBLIC_BASE_URL:?请配置内网服务地址}
+      labels:
+        goodhr.dockerfile_sha256: ${GOODHR_PRIVATE_BACKEND_DOCKERFILE_SHA256:-}
+    environment:
+      GOODHR_CLOUD_ADDR: ":8084"
+      GOODHR_PG_DSN: "postgres://goodhr:${GOODHR_DB_PASSWORD}@postgres:5432/goodhr?sslmode=disable"
+      GOODHR_REDIS_ADDR: redis:6379
+      GOODHR_PUBLIC_BASE_URL: ${GOODHR_PUBLIC_BASE_URL}
+      GOODHR_SUPER_ADMINS: ${GOODHR_SUPER_ADMINS:?请配置管理员邮箱}
+      GOODHR_PRIVATE_ADMIN_PASSWORD: ${GOODHR_PRIVATE_ADMIN_PASSWORD:?请配置初始管理员密码}
+      GOODHR_DEPLOYMENT_MODE: private
+      GOODHR_PRIVATE_ASSETS_DIR: /data/assets
+      GOODHR_PRIVATE_EXTENSION_DIR: /opt/goodhr-extension
+      GOODHR_PRIVATE_ASSET_SOURCE: ${GOODHR_PRIVATE_ASSET_SOURCE:-https://goodhr.58it.cn}
+      GOODHR_PRIVATE_REFRESH_ASSETS: ${GOODHR_PRIVATE_REFRESH_ASSETS:-0}
+      GOODHR_AUTO_REPLY_FILES_DIR: /data/reply-files
+      TZ: Asia/Shanghai
+    volumes:
+      - ./private-data/assets:/data/assets
+      - private_uploads:/app/uploads
+      - private_reply_files:/data/reply-files
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8084/health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 45m
+      retries: 6
+    restart: unless-stopped
+  frontend:
+    image: goodhr-private-frontend:local
+    build:
+      context: ./cloud/frontend-next
+      args:
+        NEXT_PUBLIC_DEPLOYMENT_MODE: private
+        NEXT_PUBLIC_CLOUD_API_BASE: ${GOODHR_PUBLIC_BASE_URL}
+        NEXT_PUBLIC_SITE_URL: ${GOODHR_PUBLIC_BASE_URL}
+        CLOUD_API_BASE: http://backend:8084
+      labels:
+        goodhr.dockerfile_sha256: ${GOODHR_PRIVATE_FRONTEND_DOCKERFILE_SHA256:-}
+    environment:
+      HOSTNAME: 0.0.0.0
+      CLOUD_API_BASE: http://backend:8084
+      NEXT_PUBLIC_DEPLOYMENT_MODE: private
+      TZ: Asia/Shanghai
+    restart: unless-stopped
+  gateway:
+    image: caddy:2-alpine
+    command: ["sh", "/etc/caddy/start-private.sh"]
+    environment:
+      GOODHR_PUBLIC_BASE_URL: ${GOODHR_PUBLIC_BASE_URL}
+      GOODHR_HTTPS_PORT: ${GOODHR_HTTPS_PORT:-8443}
+    ports:
+      - "${GOODHR_HTTPS_PORT:-8443}:${GOODHR_HTTPS_PORT:-8443}"
+    volumes:
+      - ./deployment/private/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deployment/private/start-gateway.sh:/etc/caddy/start-private.sh:ro
+      - ./private-data/caddy:/data
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /data/caddy/pki/authorities/local/root.crt"]
+      interval: 5s
+      timeout: 2s
+      retries: 30
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    restart: unless-stopped
+volumes:
+  private_postgres:
+  private_redis:
+  private_uploads:
+  private_reply_files:
