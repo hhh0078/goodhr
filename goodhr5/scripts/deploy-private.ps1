@@ -7,17 +7,19 @@ Push-Location $ProjectDir
 try {
   $env:GOODHR_PRIVATE_BACKEND_DOCKERFILE_SHA256 = (Get-FileHash -Algorithm SHA256 deployment/private/Dockerfile).Hash.ToLowerInvariant()
   $env:GOODHR_PRIVATE_FRONTEND_DOCKERFILE_SHA256 = (Get-FileHash -Algorithm SHA256 cloud/frontend-next/Dockerfile).Hash.ToLowerInvariant()
-  & python scripts/release_guard.py dockerfiles --backend deployment/private/Dockerfile
-  if ($LASTEXITCODE -ne 0) { throw "镜像来源检查没有通过" }
   & docker compose --env-file $EnvironmentFile -f docker-compose.private.yml config --quiet
   if ($LASTEXITCODE -ne 0) { throw "私有部署配置检查没有通过" }
+  & docker compose --env-file $EnvironmentFile -f docker-compose.private.yml build release-guard
+  if ($LASTEXITCODE -ne 0) { throw "镜像检查容器准备没有完成" }
+  & docker compose --env-file $EnvironmentFile -f docker-compose.private.yml run --rm --no-deps release-guard dockerfiles --backend deployment/private/Dockerfile
+  if ($LASTEXITCODE -ne 0) { throw "镜像来源检查没有通过" }
   & docker compose --env-file $EnvironmentFile -f docker-compose.private.yml run --rm extension-builder
   if ($LASTEXITCODE -ne 0) { throw "内网插件准备没有完成" }
   & docker compose --env-file $EnvironmentFile -f docker-compose.private.yml build backend frontend
   if ($LASTEXITCODE -ne 0) { throw "私有镜像构建没有完成" }
-  & python scripts/release_guard.py image --kind backend --image goodhr-private-backend:local --dockerfile deployment/private/Dockerfile
+  & docker compose --env-file $EnvironmentFile -f docker-compose.private.yml run --rm --no-deps release-guard image --kind backend --image goodhr-private-backend:local --dockerfile deployment/private/Dockerfile
   if ($LASTEXITCODE -ne 0) { throw "后端镜像来源检查没有通过" }
-  & python scripts/release_guard.py image --kind frontend --image goodhr-private-frontend:local --dockerfile cloud/frontend-next/Dockerfile
+  & docker compose --env-file $EnvironmentFile -f docker-compose.private.yml run --rm --no-deps release-guard image --kind frontend --image goodhr-private-frontend:local --dockerfile cloud/frontend-next/Dockerfile
   if ($LASTEXITCODE -ne 0) { throw "前端镜像来源检查没有通过" }
   & docker compose --env-file $EnvironmentFile -f docker-compose.private.yml up -d --no-build --wait --wait-timeout 3000
   if ($LASTEXITCODE -ne 0) { throw "启动尚未完成，请检查 backend 日志后重试" }

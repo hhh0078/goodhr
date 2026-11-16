@@ -7,8 +7,7 @@
 
 - 建议使用 Windows 11 x64、至少16GB内存、至少30GB空闲磁盘，并为这台电脑保留固定内网 IP。这是本项目部署建议，不是 Docker 最低配置。
 - 安装并启动 [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)，使用 WSL 2 和 Linux 容器。首次安装按提示启用虚拟化、WSL并重启。
-- 安装 [Python 3](https://www.python.org/downloads/windows/)，安装时勾选加入 PATH。它用于运行已有镜像检查脚本。
-- 当前用户应能在 PowerShell 中运行 `docker version`、`docker compose version` 和 `python --version`。
+- 当前用户应能在系统自带的 PowerShell 中运行 `docker version` 和 `docker compose version`。部署电脑不需要安装 Python、Node 或 Go，检查、构建和安装包登记都在容器中执行。
 
 Docker Desktop 需要保持运行；主机需要保持开机，使用期间不要休眠。这里的 Docker Desktop 方案适用于其支持的 Windows 桌面系统，不直接用于 Windows Server。
 
@@ -39,7 +38,7 @@ GOODHR_DB_PASSWORD=至少24位随机英文字母和数字
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-private.ps1
 ```
 
-脚本会构建前后端和私有插件、启动数据库，下载并校验兼容组件到 `private-data\assets`，生成内网 HTTPS 证书。首次需要下载较多文件，等待脚本报告启动完成，不要中途关闭 Docker Desktop。
+脚本会先准备临时镜像检查容器，再构建并检查前后端镜像、构建私有插件、启动数据库，下载并校验兼容组件到 `private-data\assets`，生成内网 HTTPS 证书。原有镜像来源检查规则保留，检查不通过就停止启动。首次需要下载较多文件，等待脚本报告启动完成，不要中途关闭 Docker Desktop。
 
 如果提示没完成，查看后端日志，按具体错误修好后重试原命令：
 
@@ -75,18 +74,26 @@ certutil -user -addstore Root .\GoodHR-private-root.crt
 
 浏览器插件和系统网页准备好后，实际运行招聘任务还需要一个绑定同一内网地址的 Windows 客户端安装器。官网通用版的默认服务地址不同，不能直接当成本企业私有包。
 
-在一台 Windows 打包电脑准备 Go、Node.js 22+、Inno Setup 6，使用部署包内相同的 `environments\private.env`，然后执行：
+这一步由开发/交付人员在单独的 Windows 打包电脑完成；客户部署电脑不需要这些工具。打包电脑准备 Go、Node.js 22+、Inno Setup 6，使用部署包内相同的 `environments\private.env`，然后执行：
 
 ```powershell
 .\local-agent-go-new\scripts\package-windows.ps1 -Version 6.4.0 private
 ```
 
-将生成的私有 `.exe` 安装器和该次发布目录中的 `build-info.json` 放到部署电脑。部署电脑安装 Node.js 后可运行一次登记命令（或由打包人员准备好 `private-data\assets` 和 `clients.json` 一起交付）：
+将生成的私有 `.exe` 安装器和该次发布目录中的 `build-info.json` 放到部署电脑的 `goodhr5\private-data\installers\win`，安装器重命名为 `GoodHR-private.exe`。先创建目录，再用资源管理器复制文件：
 
 ```powershell
-node .\scripts\register-private-client.mjs .\environments\private.env D:\包路径\安装器.exe D:\包路径\build-info.json win 6.4.0
+New-Item -ItemType Directory -Force .\private-data\installers\win
+```
+
+然后通过 Docker 登记；版本号必须和本次安装包一致：
+
+```powershell
+docker compose --env-file .\environments\private.env -f .\docker-compose.private.yml run --rm --no-deps client-register environments/private.env private-data/installers/win/GoodHR-private.exe private-data/installers/win/build-info.json win 6.4.0
 docker compose --env-file .\environments\private.env -f .\docker-compose.private.yml restart backend
 ```
+
+登记工具会核对地址、版本并计算安装器摘要，再复制到内网下载目录。打包人员也可以提前准备好 `private-data\assets` 和 `clients.json` 一起交付。
 
 普通员工只安装这个私有 `.exe`，不需要安装 Go、Node 或 Inno Setup。让本地程序运行，再在内网后台连接，安装内网提供的运行组件，登录招聘网站并开始任务。
 

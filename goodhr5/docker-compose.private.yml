@@ -1,6 +1,33 @@
 # 本文件通过 Docker Desktop 在 Windows/macOS 部署私有系统，数据和组件均持久保存，仅发布统一网页端口。
 name: goodhr-private
 services:
+  release-guard:
+    image: goodhr-private-release-guard:local
+    profiles: ["prepare"]
+    build:
+      context: ./deployment/private
+      dockerfile: Dockerfile.guard
+    working_dir: /workspace
+    # 仅临时检查容器连接 Docker Desktop 的 Linux 引擎；业务容器不挂载此 socket。
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts/release_guard.py:/workspace/scripts/release_guard.py:ro
+      - ./scripts/release-policy.json:/workspace/scripts/release-policy.json:ro
+      - ./deployment/private/Dockerfile:/workspace/deployment/private/Dockerfile:ro
+      - ./cloud/frontend-next/Dockerfile:/workspace/cloud/frontend-next/Dockerfile:ro
+  client-register:
+    image: node:22-alpine
+    profiles: ["prepare"]
+    working_dir: /workspace
+    entrypoint: ["node", "scripts/register-private-client.mjs"]
+    volumes:
+      - ./scripts/register-private-client.mjs:/workspace/scripts/register-private-client.mjs:ro
+      - type: bind
+        source: ${GOODHR_ENV_FILE:-./environments/private.env}
+        target: /workspace/environments/private.env
+        read_only: true
+      - ./private-data/installers:/workspace/private-data/installers:ro
+      - ./private-data/assets:/workspace/private-data/assets
   extension-builder:
     image: node:22-alpine
     profiles: ["prepare"]

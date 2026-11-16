@@ -1,0 +1,9 @@
+# 文件作用说明：在临时容器中提供镜像来源检查需要的 Python 和 Docker CLI，部署电脑只需 Docker Desktop。
+FROM alpine:3.22
+
+# 使用国内软件源；不安装业务依赖，不运行 Docker daemon。
+RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.tuna.tsinghua.edu.cn/alpine|g' /etc/apk/repositories \
+    && apk add --no-cache python3 docker-cli
+
+WORKDIR /workspace
+ENTRYPOINT ["python3", "/workspace/scripts/release_guard.py"]
