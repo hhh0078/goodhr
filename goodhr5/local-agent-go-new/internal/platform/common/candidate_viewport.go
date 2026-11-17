@@ -10,8 +10,11 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// StartCandidateViewport 用标准元素边界二分定位纵向名单的首个完整显示的卡片，仅保存当前行号；动作时在该行内核对身份，不读取前方同名者。
+// StartCandidateViewport 在一次Worker只读请求中定位纵向名单的首个完整显示的卡片，仅保存当前行号；动作时在该行内核对身份，不读取前方同名者。
 func StartCandidateViewport(ctx context.Context, browser model.Browser, cfg model.Config, cursor *model.CandidateListCursor) error {
+	if cursor == nil {
+		return fmt.Errorf("候选人读取位置还没准备好")
+	}
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	selector, err := RequiredSelector(cfg, "candidate.item")
@@ -19,55 +22,24 @@ func StartCandidateViewport(ctx context.Context, browser model.Browser, cfg mode
 		return err
 	}
 	selector.TimeoutMS = 1500
-	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true})
+	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
+		Selector: selector, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true,
+		ViewportStart: &contract.ViewportStartOptions{TopInset: cfg.Behavior.CandidateViewportTopInset, BottomInset: cfg.Behavior.CandidateViewportBottomInset},
+	})
 	if err != nil {
-		return fmt.Errorf("检查当前候选人列表失败：%w", err)
+		return fmt.Errorf("读取当前候选人位置失败：%w", err)
 	}
-	if len(items) == 0 || items[0].TotalMatches <= 0 {
-		return fmt.Errorf("当前屏幕还没读到候选人，请等列表加载好后再开始")
-	}
-	count := items[0].TotalMatches
-	first, last := 0, count
-	for first < last {
-		middle := first + (last-first)/2
-		view, err := CandidateViewport(ctx, browser, cfg, middle)
-		if err != nil {
-			return err
-		}
-		if view.Box.Y < float64(cfg.Behavior.CandidateViewportTopInset) {
-			first = middle + 1
-		} else {
-			last = middle
-		}
-	}
-	var view contract.ElementView
-	for first < count {
-		view, err = CandidateViewport(ctx, browser, cfg, first)
-		if err != nil {
-			return err
-		}
-		if CandidateFullyVisible(view, cfg) {
-			break
-		}
-		// 同一行网格卡片可能高度不同，只在当前屏幕内继续找完整卡片，不向下滚动或扫描屏幕外名单。
-		if view.Box.Y >= view.Viewport.Height-float64(cfg.Behavior.CandidateViewportBottomInset) {
-			first = count
-			break
-		}
-		first++
-	}
-	if first == count {
+	if len(items) == 0 {
 		return fmt.Errorf("当前没有完整显示的候选人卡片，请拉宽或拉高窗口、调整列表位置后再开始")
 	}
-	// 名单异步刷新或用户移动滚动条时，不把过期的屏幕位置当作新起点。
-	after, err := CandidateViewport(ctx, browser, cfg, first)
-	if err != nil {
-		return err
+	item := items[0]
+	if item.View == nil {
+		return fmt.Errorf("本地运行组件还没同步好，请完整退出并更新本地程序后再开始")
 	}
-	if !CandidateFullyVisible(after, cfg) || after.Box.Y != view.Box.Y || after.Box.Height != view.Box.Height {
-		return fmt.Errorf("当前候选人位置刚发生变化，请等页面稳定后再开始")
+	if item.Index < 0 || item.Index >= item.TotalMatches || !CandidateFullyVisible(*item.View, cfg) {
+		return fmt.Errorf("当前候选人位置还没读完整，请等页面稳定后再开始")
 	}
-	*cursor = model.CandidateListCursor{StartIndex: first, IdentityByIndex: true}
+	*cursor = model.CandidateListCursor{StartIndex: item.Index, IdentityByIndex: true}
 	return nil
 }
 

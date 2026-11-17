@@ -97,8 +97,12 @@ export interface ElementFindRequest {
   selector: SelectorSpec;
 }
 
+/** ViewportStartOptions 指定当前视口的上下避让区域，仅用于纵向列表只读定位。 */
+export interface ViewportStartOptions { top_inset: number; bottom_inset: number; }
+
 /** ElementFindAllRequest 表示查找多个元素并读取字段的参数。 */
 export interface ElementFindAllRequest {
+  viewport_start?: ViewportStartOptions;
   selector: SelectorSpec;
   max_items?: number;
   start_index?: number;

@@ -62,6 +62,11 @@ func (b *resumeFlowBrowser) Find(_ context.Context, req contract.ElementFindRequ
 
 // FindAll 在重启恢复时返回合成人选，保留全局序号。
 func (b *resumeFlowBrowser) FindAll(_ context.Context, req contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if req.ViewportStart != nil {
+		view := contract.ElementView{Visible: true, Box: contract.ElementBox{X: 10, Y: 250, Width: 800, Height: 220}, Viewport: contract.ViewportSize{Width: 1200, Height: 1000}}
+		return []contract.FindAllItem{{Index: 1, TotalMatches: len(b.rows), View: &view}}, nil
+	}
+
 	rows := []contract.FindAllItem{}
 	for i := req.StartIndex; i < min(len(b.rows), req.StartIndex+req.MaxItems); i++ {
 		rows = append(rows, contract.FindAllItem{Index: i, TotalMatches: len(b.rows), Text: b.rows[i].Fields["name"] + " " + b.rows[i].Fields["basic_info"], Fields: b.rows[i].Fields})

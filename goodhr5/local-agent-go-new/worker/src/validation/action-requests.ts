@@ -265,6 +265,24 @@ export function parseElementFindAllRequest(
   assignBoolean(request, "diagnostic", optionalBoolean(record, "diagnostic"));
   assignBoolean(request, "probe_only", optionalBoolean(record, "probe_only"));
   assignNumber(request, "diagnostic_attempt", optionalNumber(record, "diagnostic_attempt", { min: 1, max: 100 }));
+  if (record.viewport_start !== undefined) {
+    const viewport = asRecord(record.viewport_start, traceId, action);
+    for (const key of ["top_inset", "bottom_inset"]) {
+      const value = viewport[key];
+      if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 10000)) {
+        throw invalidRequest(traceId, action, "视口避让范围不正确");
+      }
+    }
+
+    request.viewport_start = {
+      top_inset: optionalNumber(viewport, "top_inset", { min: 0, max: 10000 }) ?? 0,
+      bottom_inset: optionalNumber(viewport, "bottom_inset", { min: 0, max: 10000 }) ?? 0,
+    };
+    if (!request.probe_only || request.max_items !== 1 || request.from_end || startIndex || request.selector.target.index !== undefined || Object.keys(fields).length) {
+      throw invalidRequest(traceId, action, "视口起点只能用于无字段的单项只读探测");
+    }
+  }
+
   return request;
 }
 
@@ -342,6 +360,8 @@ export function parseElementClickRequest(
   }
   assignBoolean(request, "diagnostic", optionalBoolean(record, "diagnostic"));
   assignNumber(request, "diagnostic_attempt", optionalNumber(record, "diagnostic_attempt", { min: 1, max: 100 }));
+
+
   assignBoolean(request, "watch_download_viewer", optionalBoolean(record, "watch_download_viewer"));
   return request;
 }
