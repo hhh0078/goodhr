@@ -142,14 +142,14 @@ a.goodhr-admin-banner-text:hover {
   padding: 6px 8px;
   min-height: 0;
 }
-/* 岗位表单的平台选项统一限宽，长标题和说明省略，原生title保留完整文字。 */
+/* 岗位表单的平台卡片统一180px，说明最多两行，窄容器允许收缩并自然换行。 */
 .goodhr-choice-grid.goodhr-choice-platforms.ant-radio-group { display: flex; flex-wrap: wrap; gap: 8px; }
-.goodhr-choice-platforms .goodhr-choice.ant-radio-wrapper { box-sizing: border-box; flex: 0 1 120px; width: 120px; min-width: 96px; max-width: 120px; }
+.goodhr-choice-platforms .goodhr-choice.ant-radio-wrapper { box-sizing: border-box; flex: 0 1 180px; width: 180px; min-width: min(180px, 100%); max-width: 180px; min-height: 76px; padding: 8px 10px; }
 .goodhr-choice-platforms .goodhr-choice.ant-radio-wrapper > span:last-child { padding-inline-start: 4px; padding-inline-end: 0; }
 .goodhr-choice-platforms .goodhr-choice-heading { min-width: 0; }
 .goodhr-choice-platforms .goodhr-choice-heading .ant-image { flex-shrink: 0; }
 .goodhr-choice-platforms .goodhr-choice-label { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.goodhr-choice-platforms .goodhr-choice-description { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.goodhr-choice-platforms .goodhr-choice-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-height: 36px; line-height: 18px; overflow: hidden; white-space: normal; }
 .goodhr-choice.ant-radio-wrapper:hover,
 .goodhr-choice-selected.ant-radio-wrapper {
   border-color: var(--goodhr-primary);
