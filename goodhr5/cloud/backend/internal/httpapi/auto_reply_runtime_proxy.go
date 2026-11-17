@@ -1,4 +1,4 @@
-// 本文件校验操作账号与绑定设备，再将有限的自动回复指令转给服务器的专用执行进程。
+// 本文件校验操作账号与绑定设备，再将有限的自动回复指令交给服务器编排模块。
 package httpapi
 
 import (
@@ -85,6 +85,10 @@ func (s *AutoReplyService) runtimeProxy(w http.ResponseWriter, r *http.Request) 
 	req.Header.Set("X-GoodHR-Runtime-Service", secret)
 	req.Header.Set("X-GoodHR-Runtime-Tenant", access.Tenant.ID)
 	req.Header.Set("X-GoodHR-Runtime-User", uid)
+	if s.runtime != nil {
+		s.runtime.ServeHTTP(w, req)
+		return
+	}
 	client := http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {

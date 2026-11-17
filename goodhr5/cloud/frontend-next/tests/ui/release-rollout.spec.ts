@@ -118,3 +118,25 @@ for(const width of [1366,390]) test(`共享后台菜单 ${width}px 保持可见�
   mkdirSync(output,{recursive:true});await page.screenshot({path:resolve(output,`menus-${path.split('/').at(-1)}-${width}.png`),fullPage:true,animations:"disabled"});
  }
 });
+
+// 云端执行故障显示真实原因；恢复状态后允许开启，避免要求用户反复安装客户端。
+for (const width of [1366, 390]) test(`自动回复 ${width}px 显示云端错误并在恢复后允许开启`, async ({ page }) => {
+ const { state } = await rolloutFixture(page);
+ let unavailable = true;
+ await page.route("**/api/v1/local/auto-reply/status", async route => {
+  const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
+  if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+  await route.fulfill({ status: unavailable ? 502 : 200, headers, json: unavailable ? { ok: false, error: { code: "CLOUD_STATUS_UNAVAILABLE", message: "云端执行程序尚未配置好" } } : { ok: true, data: { status: "stopped" } } });
+ });
+ await page.setViewportSize({ width, height: 960 }); await page.goto("/admin/positions");
+ await page.getByTestId("auto-reply-global").click();
+ const workspace = page.getByRole("dialog", { name: "自动回复", exact: true });
+ await expect(workspace.getByText("云端执行程序尚未配置好", { exact: true })).toBeVisible();
+ await expect(workspace.getByRole("button", { name: "开始自动回复", exact: true })).toBeDisabled();
+ mkdirSync(output, { recursive: true }); await workspace.screenshot({ path: resolve(output, `auto-reply-cloud-error-${width}.png`), animations: "disabled" });
+ unavailable = false;
+ await expect(workspace.getByRole("button", { name: "开始自动回复", exact: true })).toBeEnabled();
+ await expect(workspace.getByText("云端执行程序尚未配置好", { exact: true })).toHaveCount(0);
+ await workspace.screenshot({ path: resolve(output, `auto-reply-recovered-${width}.png`), animations: "disabled" });
+ expect(state.writes).toEqual([]);
+});

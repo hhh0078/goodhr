@@ -60,7 +60,9 @@ production_check_source() {
   if [[ "$production_tool_commit" != "$GOODHR_SOURCE_COMMIT" ]]; then
     # 只允许激活既有候选时更新发布工具；应用全部构建输入必须与原提交逐字节相同。
     [[ "$action" == --activate-only ]] && git diff --quiet "$GOODHR_SOURCE_COMMIT" "$production_tool_commit" -- \
-      cloud/backend cloud/frontend-next docker-compose.build.yml environments/production.env ||
+      cloud/backend cloud/frontend-next .dockerignore local-agent-go-new/go.mod local-agent-go-new/go.sum \
+      local-agent-go-new/cloudruntime local-agent-go-new/internal local-agent-go-new/migrations \
+      docker-compose.build.yml environments/production.env ||
       { echo "候选应用输入已改变，必须重新构建和验收" >&2; return 1; }
   fi
 }
