@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,8 @@ type greetingSettingRuntime struct {
 	readErr, closeErr                        error
 	keepConversationOpen                     bool
 	infoRequest                              model.CandidateInfoRequest
+	conversationErr, requestErr, messageErr  error
+	followupOrder                            []string
 }
 
 // OpenCandidateDetail 记录正常详情打开。
@@ -59,20 +62,58 @@ func (r *greetingSettingRuntime) GreetCandidate(_ context.Context, _ model.Brows
 // EnsureCandidateConversation 记录聊天入口调用。
 func (r *greetingSettingRuntime) EnsureCandidateConversation(context.Context, model.Browser, model.Config, model.Candidate) error {
 	r.conversations++
-	return nil
+	r.followupOrder = append(r.followupOrder, "conversation")
+	return r.conversationErr
 }
 
 // RequestCandidateInfo 记录资料索要调用。
 func (r *greetingSettingRuntime) RequestCandidateInfo(_ context.Context, _ model.Browser, _ model.Config, _ model.Candidate, request model.CandidateInfoRequest) error {
 	r.infoRequest = request
 	r.requests++
-	return nil
+	r.followupOrder = append(r.followupOrder, "request")
+	return r.requestErr
 }
 
 // SendCandidateMessage 记录消息发送调用。
 func (r *greetingSettingRuntime) SendCandidateMessage(context.Context, model.Browser, model.Config, model.Candidate, string) error {
 	r.messages++
-	return nil
+	r.followupOrder = append(r.followupOrder, "message")
+	return r.messageErr
+}
+
+// TestGreetingMessagePrecedesInfoRequests 验证先核对聊天并只发一次招呼语，邀投递失败不会吞掉招呼语，聊天或发送失败时不继续外发。
+func TestGreetingMessagePrecedesInfoRequests(t *testing.T) {
+	for _, test := range []struct {
+		name                                    string
+		conversationErr, requestErr, messageErr error
+		noMessage, noRequest                    bool
+		wantOrder                               []string
+	}{
+		{name: "正常先发招呼语", wantOrder: []string{"conversation", "message", "request"}},
+		{name: "邀投递未确认不吞招呼语", requestErr: errors.New("邀投递结果未确认"), wantOrder: []string{"conversation", "message", "request"}},
+		{name: "聊天对象未确认不发送", conversationErr: errors.New("聊天对象不一致"), wantOrder: []string{"conversation"}},
+		{name: "消息未确认不追加动作", messageErr: errors.New("消息发送结果未确认"), wantOrder: []string{"conversation", "message"}},
+		{name: "空招呼语仍可索要资料", noMessage: true, wantOrder: []string{"conversation", "request"}},
+		{name: "未勾索要仍发送招呼语", noRequest: true, wantOrder: []string{"conversation", "message"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			flow, prepared := newFavoriteTestFlow(t, 99)
+			prepared.Platform.ID = "51job"
+			prepared.Position.AIOptions.FavoriteScoreThreshold = 0
+			prepared.Position.RequestResume = !test.noRequest
+			if !test.noMessage {
+				prepared.Position.GreetMessage = "合成招呼语"
+			}
+			runtime := &greetingSettingRuntime{conversationErr: test.conversationErr, requestErr: test.requestErr, messageErr: test.messageErr}
+			stats := shared.Stats{}
+			if err := flow.processCandidate(context.Background(), prepared, runtime, model.Candidate{Fingerprint: "followup-order"}, &stats); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(runtime.followupOrder, test.wantOrder) || stats.Succeeded != 1 || stats.Failed != 0 {
+				t.Fatalf("招呼语与索要资料顺序错误，且后续失败不能回滚已确认招呼：order=%v stats=%+v", runtime.followupOrder, stats)
+			}
+		})
+	}
 }
 
 // TestGreetingSettingControlsAllOutboundActions 验证默认和开启保留原发送流程，关闭时在发送等待前结束且详情仍正常关闭。
