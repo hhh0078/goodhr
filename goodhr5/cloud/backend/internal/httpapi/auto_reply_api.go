@@ -208,8 +208,8 @@ func (s *AutoReplyService) savePositionConfig(w http.ResponseWriter, r *http.Req
 	item.PositionID = position.ID
 	item.TenantID = requestContext.Tenant.ID
 	if item.Enabled /* 会员限制暂停：&& !requestContext.Access.AllowAutoReply */ {
-		// 未开放时先说明灰度限制，不把一次新开启误导成升级会员即可使用。
-		if !autoReplyPublicRolloutOpen {
+		// 未开放平台先说明测试范围，不把一次新开启误导成升级会员即可使用。
+		if !autoReplyPlatformOpen(position.PlatformID) {
 			current, loadErr := s.store.GetPositionAutoReplyConfig(r.Context(), requestContext.Tenant.ID, position.ID)
 			if errors.Is(loadErr, ErrNotFound) || loadErr == nil && !current.Enabled {
 				writeAutoReplyError(w, http.StatusForbidden, autoReplyRolloutCode, autoReplyRolloutMessage)
@@ -248,7 +248,7 @@ func (s *AutoReplyService) getPositionStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "enabled": autoReplyPublicRolloutOpen && config.Enabled && requestContext.Access.AllowAutoReply,
+		"ok": true, "enabled": autoReplyPlatformOpen(position.PlatformID) && config.Enabled, /* 会员限制暂停：&& requestContext.Access.AllowAutoReply */
 		"configured_enabled": config.Enabled, "version": config.Version,
 		"subscription": publicSubscriptionAccess(requestContext.Access),
 	})

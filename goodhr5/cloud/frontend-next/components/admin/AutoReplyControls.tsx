@@ -10,8 +10,9 @@ import AutoReplyInbox from "./AutoReplyInbox";
 import AdminDialog from "./AdminDialog";
 import PositionFloatingStatus, { openPositionFloatingWindow, type PositionAnalysisStatus, type PositionFloatingStatusValue } from "./PositionFloatingStatus";
 import { ensureLocalAgentReady, getToken, localRequest } from "@/lib/admin-api";
+import AutoReplyTestNotice from "./AutoReplyTestNotice";
 import { canUseAutoReply } from "@/lib/subscription";
-import { AUTO_REPLY_ROLLOUT_CLOSED, AUTO_REPLY_ROLLOUT_MESSAGE } from "@/lib/auto-reply-rollout";
+import { AUTO_REPLY_ROLLOUT_CLOSED, AUTO_REPLY_ROLLOUT_MESSAGE, isAutoReplyPlatformSupported } from "@/lib/auto-reply-rollout";
 import { loadReplyInboxSummary, type ReplyInboxSummary } from "@/lib/auto-reply-inbox";
 import { loadPositionAutoReplyConfig, loadPositionAutoReplyStatus, savePositionAutoReplyConfig, type PositionAutoReplyStatus } from "@/lib/auto-reply";
 import styles from "./auto-reply-inbox.module.css";
@@ -194,6 +195,7 @@ export function AutoReplyGlobalControl() {
       style={{ overflowWrap: "anywhere" }} />}
     </Flex>
     <AdminDialog open={inboxOpen} title="自动回复" cancelText="关闭" maxWidth="lg" loading={busy} onClose={() => setInboxOpen(false)}>
+      <AutoReplyTestNotice />
       <div className={styles.runBar}>
         <div className={styles.runInfo}>
           <div><Typography.Text strong>消息接待</Typography.Text> <Tag color={running ? "success" : task?.status === "failed" ? "error" : undefined}>{running ? "运行中" : task?.status === "failed" ? "已停止" : agentBase ? "未启动" : "本机未连接"}</Tag></div>
@@ -222,7 +224,7 @@ export function AutoReplyGlobalControl() {
 }
 
 /** PositionAutoReplyControl 展示本人岗位的开关和配置，失败时保留配置入口供修正。 */
-export function PositionAutoReplyControl({ position }: { position: { id: string; name: string; requirement?: string } }) {
+export function PositionAutoReplyControl({ position }: { position: { id: string; name: string; requirement?: string; platform_id?: string } }) {
   const { subscription, notify, confirm } = useAdmin();
   const router = useRouter();
   const [status, setStatus] = useState<PositionAutoReplyStatus | null>(null);
@@ -230,6 +232,7 @@ export function PositionAutoReplyControl({ position }: { position: { id: string;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const operation = useRef(false);
+  const platformSupported = isAutoReplyPlatformSupported(position.platform_id);
   const allowAutoReply = canUseAutoReply(subscription);
   useEffect(() => {
     let disposed = false;
@@ -245,7 +248,7 @@ export function PositionAutoReplyControl({ position }: { position: { id: string;
   /** toggle 先读完整配置再切换，缺少公司资料时打开配置表单。 */
   async function toggle(enabled: boolean) {
     if (operation.current) return;
-    if (AUTO_REPLY_ROLLOUT_CLOSED && enabled) { notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info"); return; }
+    if (!platformSupported && enabled) { notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info"); return; }
     if (enabled && !allowAutoReply) { await requireMembership(); return; }
     operation.current = true; setBusy(true);
     try {
@@ -259,16 +262,16 @@ export function PositionAutoReplyControl({ position }: { position: { id: string;
   }
   return <>
     <Flex align="center" gap={8} wrap style={{ marginTop: 8 }} data-testid="position-auto-reply">
-      <Tooltip title={error || "关闭后，当前会话处理完就不再接新消息"}>
+      <Tooltip title={error || (!platformSupported ? AUTO_REPLY_ROLLOUT_MESSAGE : "关闭后，当前会话处理完就不再接新消息")}>
         <Switch aria-label={`${position.name}自动回复开关`} checked={Boolean(status?.configured_enabled)} loading={busy}
-          disabled={!AUTO_REPLY_ROLLOUT_CLOSED && !status} onChange={(enabled) => void toggle(enabled)} />
+          disabled={!status || (!platformSupported && !status.configured_enabled)} onChange={(enabled) => void toggle(enabled)} />
       </Tooltip>
-      <Typography.Text type="secondary"><CommentOutlined aria-hidden="true" /> 自动回复</Typography.Text>
+      <Typography.Text type="secondary"><CommentOutlined aria-hidden="true" /> {platformSupported ? "自动回复" : "自动回复暂未开放"}</Typography.Text>
       <Button type="text" icon={<SettingOutlined aria-hidden="true" />} onClick={() => setOpen(true)} aria-label={`${position.name}自动回复设置`}>设置</Button>
     </Flex>
     <AutoReplyPositionDialog open={open} position={position} allowAutoReply={allowAutoReply} notify={notify} confirm={confirm}
       onRequireMax={() => void requireMembership()} onClose={() => setOpen(false)} onSaved={(enabled) => {
-        setStatus({ configured_enabled: enabled, enabled: enabled && allowAutoReply && !AUTO_REPLY_ROLLOUT_CLOSED, allow_auto_reply: allowAutoReply, version: 0 }); setError("");
+        setStatus({ configured_enabled: enabled, enabled: enabled && allowAutoReply && platformSupported, allow_auto_reply: allowAutoReply, version: 0 }); setError("");
       }} />
   </>;
 }

@@ -141,6 +141,9 @@ func TestPositionStartKeepsAutoReplyGrayGate(t *testing.T) {
 	token := loginForTest(t, routes, email)
 	bindPositionDeviceForTest(t, routes, token)
 	positionID := createPositionWithConfigForTest(t, routes, token, "自动回复岗位", `{"mode_default":"keyword"}`)
+	position, _ := server.positionExecution.store.PositionByID("", email, positionID, true)
+	position.PlatformID = "hliepin"
+	_, _ = server.positionExecution.store.SavePosition(position)
 	if _, err := server.positionExecution.subscriptions.AdjustSubscriptionDays(email, memberTypePlus, 30); err != nil {
 		t.Fatal(err)
 	}

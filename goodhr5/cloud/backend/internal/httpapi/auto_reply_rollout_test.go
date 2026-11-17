@@ -27,32 +27,61 @@ func assertAutoReplyRolloutResponse(t *testing.T, w *httptest.ResponseRecorder) 
 	}
 }
 
-// TestAutoReplyRolloutBlocksExecutionBeforeUpstream 验证所有账号的开始、恢复与快照读取都在代理前被拦住。
-func TestAutoReplyRolloutBlocksExecutionBeforeUpstream(t *testing.T) {
+// TestAutoReplyRolloutPlatformPolicy 验证只开放三个平台，空值、未知平台及其余平台均拒绝。
+func TestAutoReplyRolloutPlatformPolicy(t *testing.T) {
+	for _, id := range []string{"boss", "liepin", "zhaopin", " BOSS "} {
+		if !autoReplyPlatformOpen(id) {
+			t.Fatalf("应开放的平台被拦截：%q", id)
+		}
+	}
+	for _, id := range []string{"", "hliepin", "51job", "unknown", "boss.example"} {
+		w := httptest.NewRecorder()
+		if !rejectAutoReplyRollout(w, id) {
+			t.Fatalf("未开放平台被放行：%q", id)
+		}
+		assertAutoReplyRolloutResponse(t, w)
+	}
+}
+
+// TestAutoReplyRolloutRuntimeUsesOwnedPosition 验证启动核对本人岗位平台，伪造平台名称不能转发执行。
+func TestAutoReplyRolloutRuntimeUsesOwnedPosition(t *testing.T) {
+	f, s, machine := newRolloutHTTPFixture(t)
 	var forwarded atomic.Int32
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { forwarded.Add(1) }))
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { forwarded.Add(1); w.WriteHeader(http.StatusAccepted) }))
 	defer upstream.Close()
 	t.Setenv("GOODHR_AUTO_REPLY_RUNTIME_URL", upstream.URL)
 	t.Setenv("GOODHR_AUTO_REPLY_SERVICE_TOKEN", "synthetic-runtime-service")
-	// 故意不给存储或登录校验依赖；关闭的公开执行入口不应读取这些数据，更不能触发模型或上游任务。
-	s := &AutoReplyService{auth: &AuthService{superAdmins: map[string]struct{}{"admin@example.test": {}}}}
-	for _, account := range []string{"free@example.test", "max@example.test", "admin@example.test"} {
-		for _, action := range []string{"start", "next", "retry-reports"} {
-			r := httptest.NewRequest(http.MethodPost, "/api/auto-reply/runtime/"+action, strings.NewReader(`{"run_id":"old-run"}`))
-			r.Header.Set("Authorization", "Bearer "+account)
-			w := httptest.NewRecorder()
-			s.runtimeProxy(w, r)
+	for _, id := range []string{"boss", "liepin", "zhaopin", "hliepin", "51job", ""} {
+		p := s.positions.(*MemoryPositionStore).positions[f.pos]
+		p.PlatformID = id
+		s.positions.(*MemoryPositionStore).positions[f.pos] = p
+		body, _ := json.Marshal(map[string]string{"position_id": f.pos, "platform_id": id})
+		r := httptest.NewRequest(http.MethodPost, "/api/auto-reply/runtime/start", strings.NewReader(string(body)))
+		r.Header.Set("Authorization", "Bearer rollout-web-token")
+		r.Header.Set("X-GoodHR-Machine-ID", machine)
+		w := httptest.NewRecorder()
+		previous := forwarded.Load()
+		s.runtimeProxy(w, r)
+		if autoReplyPlatformOpen(id) {
+			if w.Code != http.StatusAccepted || forwarded.Load() != previous+1 {
+				t.Fatalf("开放平台未转发：%q %d %s", id, w.Code, w.Body.String())
+			}
+		} else {
 			assertAutoReplyRolloutResponse(t, w)
+			if forwarded.Load() != previous {
+				t.Fatal("未开放平台触发上游")
+			}
 		}
 	}
-	for _, path := range []string{"positions?platform_id=liepin", "positions/00000000-0000-0000-0000-000000000001/snapshot"} {
-		w := httptest.NewRecorder()
-		s.Agent(w, httptest.NewRequest(http.MethodGet, "/api/auto-reply/agent/"+path, nil))
-		assertAutoReplyRolloutResponse(t, w)
-	}
-	if forwarded.Load() != 0 {
-		t.Fatal("灰度关闭仍然触发了运行服务", forwarded.Load())
-	}
+	p := s.positions.(*MemoryPositionStore).positions[f.pos]
+	p.PlatformID = "hliepin"
+	s.positions.(*MemoryPositionStore).positions[f.pos] = p
+	r := httptest.NewRequest(http.MethodPost, "/api/auto-reply/runtime/start", strings.NewReader(`{"position_id":"`+f.pos+`","platform_id":"boss"}`))
+	r.Header.Set("Authorization", "Bearer rollout-web-token")
+	r.Header.Set("X-GoodHR-Machine-ID", machine)
+	w := httptest.NewRecorder()
+	s.runtimeProxy(w, r)
+	assertAutoReplyRolloutResponse(t, w)
 }
 
 // newRolloutHTTPFixture 复用真实隔离资料构造已登录并绑定设备的账号，不改变测试库之外的数据。
@@ -125,8 +154,14 @@ func TestAutoReplyRolloutKeepsAuthenticatedDrain(t *testing.T) {
 }
 
 // TestAutoReplyRolloutConfigKeepsExistingEdits 验证历史开启配置可编辑和关闭，任何账号不能从关闭重新开启。
-func TestAutoReplyRolloutConfigKeepsExistingEdits(t *testing.T) {
+func TestAutoReplyRolloutUnsupportedConfigKeepsExistingEdits(t *testing.T) {
 	f, s, _ := newRolloutHTTPFixture(t)
+	if _, err := f.db.Exec("UPDATE positions SET platform_id='hliepin' WHERE id=$1", f.pos); err != nil {
+		t.Fatal(err)
+	}
+	p := s.positions.(*MemoryPositionStore).positions[f.pos]
+	p.PlatformID = "hliepin"
+	s.positions.(*MemoryPositionStore).positions[f.pos] = p
 	const email = "fact-hr@example.test"
 	s.subscriptions.(*MemorySubscriptionStore).items[email] = Subscription{MemberType: memberTypeMax, ExpiresAt: time.Now().Add(time.Hour)}
 	cfg, err := f.store.GetPositionAutoReplyConfig(context.Background(), f.tenant, f.pos)
@@ -174,7 +209,7 @@ func TestAutoReplyRolloutConfigKeepsExistingEdits(t *testing.T) {
 		t.Fatal("被拒绝的开启请求改变了配置", current, err)
 	}
 	var fresh string
-	if err = f.db.QueryRow("INSERT INTO positions(user_id,name) VALUES($1,'未配置岗位') RETURNING id", f.user).Scan(&fresh); err != nil {
+	if err = f.db.QueryRow("INSERT INTO positions(user_id,name,platform_id) VALUES($1,'未配置岗位','51job') RETURNING id", f.user).Scan(&fresh); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = f.store.SavePositionAutoReplyConfig(context.Background(), email, PositionAutoReplyConfig{TenantID: f.tenant, PositionID: fresh, CompanyProfileID: f.company, Enabled: true}, 0); !errors.Is(err, errAutoReplyRolloutClosed) {
@@ -188,6 +223,9 @@ func TestAutoReplyRolloutConfigKeepsExistingEdits(t *testing.T) {
 // TestAutoReplyRolloutLegacyEnableChecksLockedRow 验证旧页面等待保存时，行锁内读取到关闭状态就不能重新开启。
 func TestAutoReplyRolloutLegacyEnableChecksLockedRow(t *testing.T) {
 	f := newEditableFactFixture(t)
+	if _, err := f.db.Exec("UPDATE positions SET platform_id='hliepin' WHERE id=$1", f.pos); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cfg, err := f.store.GetPositionAutoReplyConfig(ctx, f.tenant, f.pos)
@@ -229,5 +267,72 @@ func TestAutoReplyRolloutDoesNotChangeSubscriptionPolicy(t *testing.T) {
 		if err != nil || access.AllowAutoReply != test.allow {
 			t.Fatal("灰度限制改变了套餐能力", test.member, access, err)
 		}
+	}
+}
+
+// TestAutoReplyRolloutConfigAndSnapshots 按真实岗位平台验证保存、状态及执行快照，未开放平台不能借历史开启配置执行。
+func TestAutoReplyRolloutConfigAndSnapshots(t *testing.T) {
+	for _, id := range []string{"boss", "liepin", "zhaopin", "hliepin", "51job"} {
+		t.Run(id, func(t *testing.T) {
+			f, s, machine := newRolloutHTTPFixture(t)
+			s.subscriptions.(*MemorySubscriptionStore).items["fact-hr@example.test"] = Subscription{MemberType: memberTypePlus, ExpiresAt: time.Now().Add(time.Hour)}
+			if _, err := f.db.Exec("UPDATE positions SET platform_id=$1 WHERE id=$2", id, f.pos); err != nil {
+				t.Fatal(err)
+			}
+			p := s.positions.(*MemoryPositionStore).positions[f.pos]
+			p.PlatformID = id
+			s.positions.(*MemoryPositionStore).positions[f.pos] = p
+			cfg, err := f.store.GetPositionAutoReplyConfig(context.Background(), f.tenant, f.pos)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.Enabled = false
+			cfg, err = f.store.SavePositionAutoReplyConfig(context.Background(), "fact-hr@example.test", cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.Enabled = true
+			raw, _ := json.Marshal(cfg)
+			req := httptest.NewRequest(http.MethodPut, "/api/auto-reply/positions/"+f.pos+"/config", strings.NewReader(string(raw)))
+			req.Header.Set("Authorization", "Bearer rollout-web-token")
+			w := httptest.NewRecorder()
+			s.Position(w, req)
+			if autoReplyPlatformOpen(id) {
+				if w.Code != 200 {
+					t.Fatalf("允许平台无法保存：%d %s", w.Code, w.Body.String())
+				}
+			} else {
+				assertAutoReplyRolloutResponse(t, w)
+			}
+			// 注入历史 enabled=true，仅用于证明快照和状态仍独立检查平台。
+			if _, err = f.db.Exec("UPDATE position_auto_reply_configs SET enabled=true WHERE position_id=$1", f.pos); err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range []string{"positions?platform_id=" + id, "positions/" + f.pos + "/snapshot"} {
+				req = httptest.NewRequest(http.MethodGet, "/api/auto-reply/agent/"+path, nil)
+				req.Header.Set("Authorization", "Bearer rollout-web-token")
+				req.Header.Set("X-GoodHR-Machine-ID", machine)
+				w = httptest.NewRecorder()
+				s.Agent(w, req)
+				if autoReplyPlatformOpen(id) {
+					if w.Code != 200 {
+						t.Fatalf("允许平台没有快照：%s %d %s", path, w.Code, w.Body.String())
+					}
+				} else {
+					assertAutoReplyRolloutResponse(t, w)
+				}
+			}
+			req = httptest.NewRequest(http.MethodGet, "/api/auto-reply/positions/"+f.pos+"/status", nil)
+			req.Header.Set("Authorization", "Bearer rollout-web-token")
+			w = httptest.NewRecorder()
+			s.Position(w, req)
+			var state struct {
+				Enabled    bool `json:"enabled"`
+				Configured bool `json:"configured_enabled"`
+			}
+			if err = json.Unmarshal(w.Body.Bytes(), &state); err != nil || !state.Configured || state.Enabled != autoReplyPlatformOpen(id) {
+				t.Fatalf("运行状态未按平台开放：%d %s", w.Code, w.Body.String())
+			}
+		})
 	}
 }

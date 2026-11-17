@@ -94,10 +94,10 @@ export function canUseAI(subscription: SubscriptionStatus) {
   return true;
 }
 
-/** canUseAutoReply 暂停套餐拦截，独立灰度开关仍决定是否可以启用。 */
+/** canUseAutoReply 暂停套餐拦截，平台测试范围仍决定是否可以启用。 */
 export function canUseAutoReply(subscription: SubscriptionStatus) {
   // 会员限制暂停，恢复时启用：return subscription.active && subscription.allow_auto_reply;
-  // 是否公开启用自动回复，继续由独立灰度开关控制。
+  // 是否可以启用自动回复，由岗位所属平台的测试开放范围控制。
   return true;
 }
 

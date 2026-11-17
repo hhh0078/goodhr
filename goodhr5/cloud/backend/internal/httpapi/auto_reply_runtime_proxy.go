@@ -4,6 +4,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -24,13 +25,35 @@ func (s *AutoReplyService) runtimeProxy(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	needsExecution := action == "start" || action == "next" || action == "retry-reports"
-	if needsExecution && rejectAutoReplyRollout(w) {
-		return
-	}
 	// 停止、查状态和交回执不新开执行能力；会员到期后也必须能结束旧任务并保存已发生的结果。
 	access, ok := s.currentRequestContext(w, r, needsExecution, true)
 	if !ok {
 		return
+	}
+	if action == "start" {
+		// 平台必须来自本人岗位，不能只相信客户端传入的平台名称。
+		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 96<<20))
+		var input struct {
+			PositionID string `json:"position_id"`
+			PlatformID string `json:"platform_id"`
+		}
+		if err != nil || json.Unmarshal(raw, &input) != nil || strings.TrimSpace(input.PositionID) == "" {
+			writeAutoReplyError(w, 400, "POSITION_REQUIRED", "开始前请先选择自动回复岗位")
+			return
+		}
+		position, err := s.positions.PositionByID(access.Tenant.ID, access.Session.Email, input.PositionID, false)
+		if err != nil {
+			writeAutoReplyStoreError(w, err, "自动回复岗位暂时无法核对")
+			return
+		}
+		if rejectAutoReplyRollout(w, position.PlatformID) {
+			return
+		}
+		if input.PlatformID != position.PlatformID {
+			writeAutoReplyError(w, 409, "PLATFORM_MISMATCH", "当前招聘页面和岗位的平台没对上，请核对后重试")
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(raw))
 	}
 	uid, err := s.store.activeTenantUserID(r.Context(), access.Tenant.ID, access.Session.Email)
 	if err != nil {
