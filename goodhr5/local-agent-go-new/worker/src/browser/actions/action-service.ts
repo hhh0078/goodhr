@@ -171,6 +171,7 @@ export class ActionService {
       request.start_index ?? 0,
       { diagnostic: request.diagnostic ?? false, attempt: request.diagnostic_attempt ?? 0, probe_only: request.probe_only ?? false },
       request.from_end ?? false,
+      request.viewport_start,
     ), context);
   }
 

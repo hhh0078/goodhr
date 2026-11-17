@@ -599,7 +599,7 @@ func TestAllPlatformsSupportCandidateResume(t *testing.T) {
 		}
 	}
 	cfg, err := LoadConfig("51job")
-	if err != nil || cfg.CandidateBatchSize != 20 || cfg.MaxItems != 100 {
+	if err != nil || cfg.CandidateBatchSize != 5 || cfg.MaxItems != 100 {
 		t.Fatalf("前程无忧小批上限错误：%d %v", cfg.CandidateBatchSize, err)
 	}
 }

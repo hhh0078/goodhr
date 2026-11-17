@@ -1,5 +1,8 @@
 // 文件作用说明：提供只供封装能力调用的最小选择器解析、Locator 查询和元素状态读取能力。
 
+import type { ViewportStartOptions } from "../../contracts/actions.js";
+import { findViewportStart } from "./locator-viewport.js";
+
 import type {
   Locator,
   Page,
@@ -71,6 +74,7 @@ export class LocatorPrimitive {
     startIndex = 0,
     fromEnd = false,
     pinUniqueId = false,
+    viewportStart?: ViewportStartOptions,
   ): Promise<ResolvedElement[]> {
     return this.resolveWithPolling(
       page,
@@ -86,6 +90,7 @@ export class LocatorPrimitive {
           startIndex,
           fromEnd,
           pinUniqueId,
+          viewportStart,
         ),
     );
   }
@@ -105,6 +110,7 @@ export class LocatorPrimitive {
     startIndex: number,
     fromEnd: boolean,
     pinUniqueId: boolean,
+    viewportStart?: ViewportStartOptions,
   ): Promise<ResolvedElement[]> {
     const scope = await this.resolveScope(page, spec, attempts, context);
     for (const candidate of spec.target.selectors) {
@@ -131,6 +137,13 @@ export class LocatorPrimitive {
       attempts.push(attempt);
       if (count === 0) {
         continue;
+      }
+      if (viewportStart) {
+        const found = await findViewportStart(page, locator, count, viewportStart, this.viewport, context.trace_id);
+        if (!found) return [];
+        if (!(await this.matchesState(locator.nth(found.index), spec, found.view))) throw this.notFound(page, spec, attempts, context);
+        return [{ page, locator: locator.nth(found.index), matched_selector: candidate, attempts,
+          view: found.view, list_index: found.index, list_total: count, resolved_spec: spec }];
       }
       const start = spec.target.index ?? (fromEnd ? Math.max(0, count - Math.max(1, maxItems)) : Math.max(0, startIndex));
       const end =

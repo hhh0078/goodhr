@@ -30,7 +30,11 @@ func (b *prefixForbiddenBrowser) FindAll(_ context.Context, r contract.ElementFi
 	if !r.ProbeOnly || len(r.Fields) > 0 {
 		return nil, errors.New("禁止读取上方候选人文字")
 	}
-	return []contract.FindAllItem{{Index: 0, TotalMatches: 5000}}, nil
+	if r.ViewportStart == nil {
+		return nil, errors.New("必须一次查询当前视口")
+	}
+	view := contract.ElementView{Visible: true, Box: contract.ElementBox{X: 10, Y: float64(b.top + 150), Width: 800, Height: 180}, Viewport: contract.ViewportSize{Width: 1200, Height: 900}}
+	return []contract.FindAllItem{{Index: 1251, TotalMatches: 5000, View: &view}}, nil
 }
 
 // TestViewportStartNeverReadsOldNames 验证BOSS、智联和无忧从大名单中部启动只查询少量几何，且动作按真实行号再核对身份。
@@ -46,7 +50,7 @@ func TestViewportStartNeverReadsOldNames(t *testing.T) {
 			if err = common.StartCandidateViewport(context.Background(), b, cfg, cursor); err != nil {
 				t.Fatal(err)
 			}
-			if cursor.StartIndex != 1251 || !cursor.IdentityByIndex || len(cursor.IdentityOccurrences) != 0 || b.geometryCalls > 18 {
+			if cursor.StartIndex != 1251 || !cursor.IdentityByIndex || len(cursor.IdentityOccurrences) != 0 || b.geometryCalls != 0 {
 				t.Fatalf("启动仍依赖名字统计或位置有误：%+v calls=%d", cursor, b.geometryCalls)
 			}
 			c := model.Candidate{Index: 1251, IdentityByIndex: true, IdentityTexts: []string{"合成人选", "30岁"}, IdentityOccurrence: 999}

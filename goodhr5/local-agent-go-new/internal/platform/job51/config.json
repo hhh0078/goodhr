@@ -41,8 +41,8 @@
   "_comment_scroll_distance": "候选人列表每次真实滚轮的基础距离。",
   "max_items": 100,
   "_comment_max_items": "通用列表上限，保留联系人和会话的既有数量。",
-  "candidate_batch_size": 20,
-  "_comment_candidate_batch_size": "仅候选人按20人小批读取；加载更多和重启恢复复用同一上限，避免整批50至100人读取超过Worker时限。",
+  "candidate_batch_size": 5,
+  "_comment_candidate_batch_size": "仅候选人按5人小批读取；1000张真实名单中20人读取约36秒、5人约9秒，缩小单次工作量以留出43秒执行预算；加载更多和重启恢复复用同一上限。",
   "behavior": {
     "candidate_viewport_top_inset": 200,
     "_comment_candidate_viewport_top_inset": "推荐页顶部导航、岗位条与人才推荐筛选占200 CSS像素；仅用于完整卡片起点，不覆盖原216/288的后续操作避让。",
