@@ -177,8 +177,15 @@ type ElementFindRequest struct {
 	Selector SelectorSpec `json:"selector"`
 }
 
+// ViewportStartOptions 指定纵向列表当前视口的上下避让区域，只供一次只读定位使用。
+type ViewportStartOptions struct {
+	TopInset    int `json:"top_inset"`
+	BottomInset int `json:"bottom_inset"`
+}
+
 // ElementFindAllRequest 表示查找元素列表和字段请求。
 type ElementFindAllRequest struct {
+	ViewportStart     *ViewportStartOptions   `json:"viewport_start,omitempty"`
 	Selector          SelectorSpec            `json:"selector"`
 	MaxItems          int                     `json:"max_items,omitempty"`
 	StartIndex        int                     `json:"start_index,omitempty"`
@@ -193,6 +200,7 @@ type ElementFindAllRequest struct {
 
 // FindAllItem 表示列表查找中的一个元素。
 type FindAllItem struct {
+	View         *ElementView      `json:"view,omitempty"`
 	TotalMatches int               `json:"total_matches,omitempty"` // 当前选择器的全部匹配数量。
 	Index        int               `json:"index"`
 	ElementRef   string            `json:"element_ref"`

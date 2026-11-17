@@ -41,6 +41,21 @@ func (b *viewportBrowser) Find(_ context.Context, req contract.ElementFindReques
 
 // FindAll 返回原序号及合成姓名；前方和当前的同名者必须被区分。
 func (b *viewportBrowser) FindAll(_ context.Context, req contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if req.ViewportStart != nil {
+		if b.findErr != nil {
+			return nil, b.findErr
+		}
+		if b.refreshed {
+			return nil, errors.New("当前候选人位置刚发生变化")
+		}
+		index := b.start + 1
+		if index >= b.count {
+			return nil, nil
+		}
+		view := contract.ElementView{Visible: true, Box: contract.ElementBox{X: 10, Y: float64(b.inset + 150), Width: 800, Height: 200}, Viewport: contract.ViewportSize{Width: 1200, Height: 900}}
+		return []contract.FindAllItem{{Index: index, TotalMatches: b.count, View: &view}}, nil
+	}
+
 	if len(req.Fields) > 1 {
 		b.fullStarts = append(b.fullStarts, req.StartIndex)
 	}

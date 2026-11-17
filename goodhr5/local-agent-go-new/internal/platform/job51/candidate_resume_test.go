@@ -99,7 +99,7 @@ func (b *job51BulkResumeBrowser) FindAll(_ context.Context, req contract.Element
 	return rows, nil
 }
 
-// TestJob51LoadedHundredReadsAllInSmallBatches 验证100张已加载卡片完整读完且每批20人，重建运行时仍从下一个编号继续，不重复滚轮或漏掉后半批。
+// TestJob51LoadedHundredReadsAllInSmallBatches 验证100张已加载卡片完整读完且每批5人，重建运行时仍从下一个编号继续，不重复滚轮或漏掉后半批。
 func TestJob51LoadedHundredReadsAllInSmallBatches(t *testing.T) {
 	cfg := loadPositionConfig(t)
 	browser := &job51BulkResumeBrowser{ids: make([]string, 100)}
@@ -111,9 +111,9 @@ func TestJob51LoadedHundredReadsAllInSmallBatches(t *testing.T) {
 	runtime := NewRuntime()
 	_, _ = runtime.RestoreCandidateList(context.Background(), browser, cfg, model.CandidateResumePoint{}, cursor)
 	read := 0
-	for batch := 0; batch < 5; batch++ {
+	for batch := 0; batch < 20; batch++ {
 		rows, err := runtime.FindCandidates(context.Background(), browser, cfg, model.CandidateListOptions{Cursor: cursor, ReadConcurrency: 5})
-		if err != nil || len(rows) != 20 || rows[0].Index != read {
+		if err != nil || len(rows) != 5 || rows[0].Index != read {
 			t.Fatalf("窗口错误：batch%d rows%d cursor%+v err%v", batch, len(rows), cursor, err)
 		}
 		for _, row := range rows {
@@ -129,17 +129,17 @@ func TestJob51LoadedHundredReadsAllInSmallBatches(t *testing.T) {
 			}
 			runtime = NewRuntime()
 			found, err := runtime.RestoreCandidateList(context.Background(), browser, cfg, point, cursor)
-			if err != nil || !found || cursor.StartIndex != 20 {
+			if err != nil || !found || cursor.StartIndex != 5 {
 				t.Fatalf("重启没有从下一人继续：%v %v %+v", found, err, cursor)
 			}
-		} else if batch < 4 {
+		} else if batch < 19 {
 			advanced, err := runtime.AdvanceCandidateList(context.Background(), browser, cfg, rows, model.CandidateListOptions{Cursor: cursor, ReadConcurrency: 5})
 			if err != nil || !advanced {
 				t.Fatalf("后半批推进失败：%v %v", advanced, err)
 			}
 		}
 	}
-	if read != 100 || browser.maxRead > 20 || len(browser.scrolls) > 0 {
+	if read != 100 || browser.maxRead > 5 || len(browser.scrolls) > 0 {
 		t.Fatalf("读取量或滚轮错误：已读%d 单次%d 滚轮%d", read, browser.maxRead, len(browser.scrolls))
 	}
 }

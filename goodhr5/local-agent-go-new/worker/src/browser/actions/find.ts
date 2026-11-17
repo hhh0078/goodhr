@@ -1,6 +1,7 @@
 // 文件作用说明：实现 Go 可调用的封装查找能力，并统一生成元素引用、状态和详细查找日志。
 
 import type { Locator } from "playwright-core";
+import type { ViewportStartOptions } from "../../contracts/actions.js";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import type { FindResult, SelectorSpec } from "../../contracts/selector.js";
 import { normalizeWorkerError, WorkerError } from "../../errors/worker-error.js";
@@ -25,6 +26,7 @@ export interface FoundElement {
 /** FindAllItem 表示列表查找中的一个元素和字段。 */
 export interface FindAllItem extends JsonObject {
   index: number;
+  view?: JsonObject;
   total_matches?: number;
   element_ref: string;
   text: string;
@@ -122,6 +124,7 @@ export class FindAction {
     startIndex = 0,
     diagnostic = { diagnostic: false, attempt: 0, probe_only: false },
     fromEnd = false,
+    viewportStart?: ViewportStartOptions,
   ): Promise<FindAllItem[]> {
     const step = "find_all";
     const diagnosticInput: JsonObject = diagnostic.diagnostic ? { selector: selectorDiagnostic(spec), attempt: diagnostic.attempt,
@@ -154,6 +157,7 @@ export class FindAction {
         startIndex,
         fromEnd,
         !diagnostic.probe_only && Object.keys(fields).length > 0,
+        viewportStart,
       );
       assertRequestActive(actionContext);
       if (diagnostic.diagnostic) this.logger.info(actionContext, "selector_probe", "success", {
@@ -163,6 +167,7 @@ export class FindAction {
       markRequestProgress(actionContext, "list_resolved", undefined, undefined, resolvedItems.length);
       if (diagnostic.probe_only) return resolvedItems.map((resolved, index) => ({
         index: resolved.list_index ?? index + startIndex, total_matches: resolved.list_total ?? resolvedItems.length, element_ref: "", text: "", fields: {},
+        ...(viewportStart ? { view: { ...resolved.view, box: { ...resolved.view.box }, viewport: { ...resolved.view.viewport } } } : {}),
       }));
       const diagnoseNames = report && Object.hasOwn(fields, "name");
       // 限制整批同时进行的页面读取，避免每张卡片的多个字段把浏览器命令队列挤满。
