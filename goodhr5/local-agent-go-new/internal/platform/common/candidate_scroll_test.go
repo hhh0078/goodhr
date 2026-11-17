@@ -42,6 +42,10 @@ func (b *scrollingCandidateBrowser) FindAll(ctx context.Context, request contrac
 	}
 	items := []contract.FindAllItem{}
 	for index := request.StartIndex; index < min(b.count, request.StartIndex+request.MaxItems); index++ {
+		if request.ProbeOnly {
+			items = append(items, contract.FindAllItem{Index: index, TotalMatches: b.count})
+			continue
+		}
 		name := fmt.Sprintf("候选人%d", index+b.generation)
 		if b.duplicateNames && index%100 == 5 {
 			name = "同名候选人"
@@ -51,6 +55,61 @@ func (b *scrollingCandidateBrowser) FindAll(ctx context.Context, request contrac
 		}})
 	}
 	return items, nil
+}
+
+// probeOnlyNextBrowser 模拟下一批完整读取需要等待，但存在性探测能立即返回的慢页面。
+type probeOnlyNextBrowser struct {
+	*scrollingCandidateBrowser
+	probes, fullReads int
+}
+
+// FindAll 拒绝在滚动阶段读取下一批资料，确保该阶段只复用无字段的单卡探测。
+func (b *probeOnlyNextBrowser) FindAll(ctx context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if request.StartIndex >= 20 {
+		if !request.ProbeOnly {
+			b.fullReads++
+			return nil, context.DeadlineExceeded
+		}
+		if request.MaxItems != 1 || len(request.Fields) != 0 || !request.ExpectedMissing {
+			return nil, fmt.Errorf("新人探测读取了整批或候选资料：%+v", request)
+		}
+		b.probes++
+	}
+	return b.scrollingCandidateBrowser.FindAll(ctx, request)
+}
+
+// TestCandidateScrollProbesNextWithoutReadingBatch 验证新人已加载或滚动后追加时，剩余预算很少也不重复读取整批资料。
+func TestCandidateScrollProbesNextWithoutReadingBatch(t *testing.T) {
+	for _, afterScroll := range []bool{false, true} {
+		t.Run(fmt.Sprintf("滚动后追加=%t", afterScroll), func(t *testing.T) {
+			inner := &scrollingCandidateBrowser{count: 20, appendAt: 2}
+			if !afterScroll {
+				inner.count, inner.appendAt = 40, 0
+			}
+			browser := &probeOnlyNextBrowser{scrollingCandidateBrowser: inner}
+			cfg := scrollCandidateConfig()
+			cfg.MaxItems = 20
+			options := model.CandidateListOptions{Cursor: &model.CandidateListCursor{}}
+			before, err := FindCandidates(context.Background(), browser, cfg, "test", options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			advanced, err := AdvanceCandidateList(ctx, browser, cfg, "test", before, options)
+			if err != nil || !advanced || options.Cursor.StartIndex != 20 || browser.fullReads != 0 || browser.probes == 0 {
+				t.Fatalf("轻量探测失败：advanced=%v cursor=%d full=%d probes=%d err=%v", advanced, options.Cursor.StartIndex, browser.fullReads, browser.probes, err)
+			}
+			if !afterScroll && inner.scrolls != 0 {
+				t.Fatal("已有新人时不应额外滚动")
+			}
+			// 下一批用原有完整读取路径，字段和行号保持完整，探测结果不能代替候选人资料。
+			next, err := FindCandidates(context.Background(), inner, cfg, "test", options)
+			if err != nil || len(next) != 20 || next[0].Index != 20 || next[0].Name == "" || next[0].Fields["platform_candidate_id"] == "" {
+				t.Fatalf("下一批资料读取不完整：len=%d err=%v", len(next), err)
+			}
+		})
+	}
 }
 
 // Scroll 记录真实滚轮请求，按场景模拟列表移动、到底、追加内容或浏览器错误。

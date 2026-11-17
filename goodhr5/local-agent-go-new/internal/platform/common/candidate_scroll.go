@@ -230,7 +230,7 @@ func advanceCandidateCursor(cursor *model.CandidateListCursor, startIndex int, b
 	cursor.StartIndex = startIndex
 }
 
-// readNextCandidateWindow 读取下一批追加内容，并识别虚拟列表替换旧行后需要从零重新读取的情况。
+// readNextCandidateWindow 轻量探测下一批是否出现，并识别虚拟列表替换旧行后需要从零重新读取的情况。
 func readNextCandidateWindow(ctx context.Context, browser model.Browser, cfg model.Config, platformID string, options model.CandidateListOptions, nextIndex int, headBefore map[string]struct{}, afterScroll bool) (candidateWindowState, error) {
 	headCfg := cfg
 	headCfg.MaxItems = 1
@@ -269,20 +269,27 @@ func readNextCandidateWindow(ctx context.Context, browser model.Browser, cfg mod
 	if trace != nil {
 		trace.Facts.HeadChanged = observed(false)
 		if afterScroll {
-			trace.readRole = "读取滚动后的下一批卡片"
+			trace.readRole = "探测滚动后的下一批卡片"
 		} else {
 			trace.readRole = "滚动前检查下一批是否已加载"
 		}
 	}
-	nextOptions := options
-	nextOptions.Cursor = &model.CandidateListCursor{StartIndex: nextIndex}
-	next, err := FindCandidates(ctx, browser, cfg, platformID, nextOptions)
+	selector, err := RequiredSelector(cfg, "candidate.item")
+	if err != nil {
+		return candidateWindowState{}, err
+	}
+	// 此处只确认下一张是否存在；完整资料由主流程进入下一批后读取，避免重复读整批耗尽滚动时限。
+	request := contract.ElementFindAllRequest{Selector: selector, StartIndex: nextIndex, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true}
+	trace.readStage(request, 1)
+	next, err := browser.FindAll(ctx, request)
 	if IsElementMissing(err) {
 		return candidateWindowState{}, nil
 	}
 	if err != nil {
 		return candidateWindowState{}, err
 	}
+	trace.RecordMatches(next)
+	trace.Done()
 	if trace != nil {
 		trace.Facts.NewCards = observed(len(next))
 	}

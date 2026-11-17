@@ -84,12 +84,16 @@ type job51BulkResumeBrowser struct {
 
 // FindAll 按实际全局行号和配置批量返回卡片，加载标记为空，不允许把100人拼成一次读取。
 func (b *job51BulkResumeBrowser) FindAll(_ context.Context, req contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
-	if len(req.Fields) == 0 {
+	if len(req.Fields) == 0 && (!req.ProbeOnly || req.StartIndex == 0) {
 		return nil, nil
 	}
 	b.maxRead = max(b.maxRead, req.MaxItems)
 	rows := []contract.FindAllItem{}
 	for i := req.StartIndex; i < min(len(b.ids), req.StartIndex+req.MaxItems); i++ {
+		if req.ProbeOnly {
+			rows = append(rows, contract.FindAllItem{Index: i, TotalMatches: len(b.ids)})
+			continue
+		}
 		rows = append(rows, contract.FindAllItem{Index: i, TotalMatches: len(b.ids), Text: fmt.Sprintf("合成人选%d 30岁 本科", i), Fields: map[string]string{"name": fmt.Sprintf("合成人选%d", i), "basic_info": "30岁 本科", "platform_candidate_id": fmt.Sprintf("RESUME_CARD_%s%d", b.ids[i], i)}})
 	}
 	return rows, nil
