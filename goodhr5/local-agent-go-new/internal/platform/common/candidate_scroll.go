@@ -4,6 +4,7 @@ package common
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -14,6 +15,10 @@ import (
 const (
 	candidateScrollMaxAttempts  = 120
 	candidateBottomStableRounds = 3
+	// candidateTailCatchUpDistance 为追赶本批末尾时单次滚轮上限，参考猎聘回到最新消息的大步长，看到末尾即停。
+	candidateTailCatchUpDistance = 2400
+	// candidateTailCatchUpMaxAttempts 限制追赶轮数，约可覆盖数万像素，同时让单次请求留在浏览器工具时限内。
+	candidateTailCatchUpMaxAttempts = 40
 )
 
 // candidateWindowState 表示下一批读取结果和当前列表是否已经能够稳定读取。
@@ -74,6 +79,7 @@ func advanceCandidateScroll(ctx context.Context, browser model.Browser, cfg mode
 	}
 	headSet := candidateFingerprintSet(headBefore)
 	bottomRounds, blockedRounds := 0, 0
+	tailCaughtUp := false
 	for attempt := 0; attempt < candidateScrollMaxAttempts; attempt++ {
 		trace.Begin("检查本轮滚动的时限", "")
 		trace.startScrollRound(attempt+1, bottomRounds, blockedRounds)
@@ -87,6 +93,13 @@ func advanceCandidateScroll(ctx context.Context, browser model.Browser, cfg mode
 		if state.changed {
 			advanceCandidateCursor(options.Cursor, state.startIndex, before)
 			return true, nil
+		}
+		// 下一批尚未加载才需要滚动；跳过的候选人不会滚动，页面可能停在本批上方，先一次追到本批末尾再逐轮加载。
+		if !tailCaughtUp {
+			tailCaughtUp = true
+			if err := scrollToCandidateTail(ctx, browser, anchor, tail); err != nil {
+				return false, err
+			}
 		}
 		trace.Begin("向列表末尾执行真实滚轮", "candidate.list")
 		result, err := browser.Scroll(ctx, contract.ScrollRequest{
@@ -167,6 +180,35 @@ func advanceCandidateScroll(ctx context.Context, browser model.Browser, cfg mode
 		trace.Facts.BottomRounds = observed(bottomRounds)
 	}
 	return false, fmt.Errorf("滚动加载仍未确认到底或出现下一批候选人，已记录当前步骤，请稍后重试")
+}
+
+// scrollToCandidateTail 用真实滚轮把本批最后一张卡片的底边带进列表可见区域，看到即停。
+// 跳过的候选人不会触发滚动，连续跳过后页面可能远离本批末尾；先追上末尾，后续逐轮加载才不会耗尽两分钟时限。
+// 追赶失败不终止任务，记录日志后交给原有逐轮滚动和到底判断继续处理；只有上下文结束时返回错误。
+// @param ctx 本次加载下一批的上下文，带两分钟总时限
+// @param browser 浏览器能力
+// @param anchor 候选人列表滚动区域，作为滚轮落点
+// @param tail 本批最后一张卡片的序号选择器
+// @returns error 仅在上下文已取消或超时时返回
+func scrollToCandidateTail(ctx context.Context, browser model.Browser, anchor, tail contract.SelectorSpec) error {
+	trace := CandidateTrace(ctx)
+	trace.Begin("追赶本批列表末尾", "candidate.list")
+	result, err := browser.Scroll(ctx, contract.ScrollRequest{
+		WheelAnchor: &anchor, ProgressTarget: &tail, StopWhenProgressVisible: true,
+		Distance: candidateTailCatchUpDistance, MaxAttempts: candidateTailCatchUpMaxAttempts,
+		WaitMS: int(candidateListPollInterval / time.Millisecond),
+	})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("追赶本批候选人列表末尾未完成：%w", ctxErr)
+	}
+	if err != nil {
+		log.Printf("event=candidate_tail_catch_up status=failed attempts=%d err=%q", result.Attempts, err.Error())
+		return nil
+	}
+	visible := result.ProgressTargetVisible != nil && *result.ProgressTargetVisible
+	log.Printf("event=candidate_tail_catch_up status=success attempts=%d tail_visible=%t", result.Attempts, visible)
+	trace.Done()
+	return nil
 }
 
 // advanceCandidateCursor 在追加窗口时累计身份顺序，虚拟列表替换时清空旧行的定位信息。
