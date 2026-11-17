@@ -82,11 +82,12 @@ func TestAdvanceCandidatesReportsScrollAndParentCancel(t *testing.T) {
 	cause := &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE"}}
 	cfg := loadPositionConfig(t)
 	before := []model.Candidate{{Index: 0, Fields: map[string]string{"platform_candidate_id": "987654321"}}}
-	browser := &listDiagnosticBrowser{failScroll: 3, cause: cause}
+	// 第一次滚轮为追赶本批末尾，第四次才是第三轮的逐轮滚动。
+	browser := &listDiagnosticBrowser{failScroll: 4, cause: cause}
 	_, err := NewRuntime().AdvanceCandidateList(context.Background(), browser, cfg, before, model.CandidateListOptions{})
 	facts := listFailureFacts(t, err, cause)
 	if facts.Stage != "向列表末尾执行真实滚轮" || facts.ScrollRound == nil || *facts.ScrollRound != 3 || facts.TailMoved != nil ||
-		facts.WindowPhase != "before_scroll" || facts.BeforeTotalMatches == nil || *facts.BeforeTotalMatches != 22 || facts.AfterTotalMatches != nil || facts.NextIndex == nil || *facts.NextIndex != 1 || facts.NewCards == nil || *facts.NewCards != 0 || facts.ScopeBudgetMS == nil || *facts.ScopeBudgetMS != 120000 {
+		facts.WindowPhase != "before_scroll" || facts.BeforeTotalMatches == nil || *facts.BeforeTotalMatches != 23 || facts.AfterTotalMatches != nil || facts.NextIndex == nil || *facts.NextIndex != 1 || facts.NewCards == nil || *facts.NewCards != 0 || facts.ScopeBudgetMS == nil || *facts.ScopeBudgetMS != 120000 {
 		t.Fatalf("滚动失败现场不符：%+v", facts)
 	}
 	// 第四次读取为滚动后的下一窗口，首卡已返回当前页总量；同轮滚前、滚后不能混淆。
@@ -94,7 +95,7 @@ func TestAdvanceCandidatesReportsScrollAndParentCancel(t *testing.T) {
 	_, err = NewRuntime().AdvanceCandidateList(context.Background(), browser, cfg, before, model.CandidateListOptions{})
 	facts = listFailureFacts(t, err, cause)
 	if facts.WindowPhase != "after_scroll" || facts.Stage != "读取滚动后的下一批卡片" ||
-		facts.BeforeTotalMatches == nil || *facts.BeforeTotalMatches != 20 || facts.AfterTotalMatches == nil || *facts.AfterTotalMatches != 21 ||
+		facts.BeforeTotalMatches == nil || *facts.BeforeTotalMatches != 20 || facts.AfterTotalMatches == nil || *facts.AfterTotalMatches != 22 ||
 		facts.NewCards != nil || facts.TailMoved == nil || !*facts.TailMoved {
 		t.Fatalf("本轮滚动前后采样不符：%+v", facts)
 	}
