@@ -99,7 +99,7 @@ fi
 umask 077
 mkdir -p "$backup"
 [[ ! -e "$backup/database.dump" ]] || { echo "本次备份已存在，请核对发布状态，避免覆盖" >&2; exit 1; }
-cp "$GOODHR_BACKEND_ENV" "$backup/backend.env"
+# 仅导出数据库；应用切换所需配置由当轮激活记录负责，不再额外复制环境文件。
 "${compose[@]}" images --format json > "$backup/images.json"
 docker exec "${GOODHR_POSTGRES_CONTAINER:-postgres}" sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc "$1"' sh "$GOODHR_DATABASE" > "$backup/database.dump"
 [[ -s "$backup/database.dump" ]] || { echo "数据库备份为空，部署已停止" >&2; exit 1; }

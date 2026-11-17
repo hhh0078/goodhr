@@ -77,8 +77,11 @@ def save_json(path, value):
 
 
 def policy_values(policy):
-    """policy_values 限定只保留最近一套完整兼容回退，运行基础始终保留。"""
-    require(policy.get("schema_version") == 1 and policy.get("rollback_keep_per_service") == 1 and policy.get("minimum_compatible_rollback_per_service") == 1, "回收策略必须明确只保留1套兼容历史镜像")
+    """policy_values 核对是否保留应用回退；零份仅用于成功发布后的回收，不跳过切换前验收。"""
+    keep = policy.get("rollback_keep_per_service")
+    require(policy.get("schema_version") == 1 and type(keep) is int and keep in (0, 1)
+            and policy.get("minimum_compatible_rollback_per_service") == keep,
+            "回收策略必须明确保留0或1套应用回退")
     require(policy.get("delete_original_database_backups") is False, "策略必须禁止删除原始数据库备份")
     runtimes = policy.get("trusted_runtime_images")
     require(isinstance(runtimes, dict) and all(isinstance(runtimes.get(role), list) and runtimes[role] and all(isinstance(ref, str) and IMAGE_ID.fullmatch(ref) for ref in runtimes[role]) for role in ROLES), "策略缺少可信运行基础")
@@ -282,9 +285,9 @@ def make_plan(snapshot, registry, policy, known_names=(), evidence_hash=digest_f
         require(len(matches) == 1, "当前正式" + role + "运行容器不唯一，禁止回收")
         current[role] = matches[0]["Image"]
     records, excluded = verified_records(registry, host, evidence_hash, evidence_reader)
-    if cache_only:
+    if cache_only or policy["rollback_keep_per_service"] == 0:
         require(any(all(row[role + "_image"] == current[role] for role in ROLES) for row in records),
-                "当前完整生产组合没有同账本有效证据，禁止缓存维护")
+                "当前完整生产组合没有同账本有效证据，禁止回收")
         selected, historical = [], {role: set() for role in ROLES}
     else:
         selected, historical = select_rollbacks(records, current, images)

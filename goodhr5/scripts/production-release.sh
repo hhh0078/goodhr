@@ -166,4 +166,21 @@ PY
   python3 "$root/scripts/release_archive_retention.py" apply \
     --registry "${GOODHR_RETENTION_REGISTRY:-/opt/goodhr-release/retention-registry.json}" \
     --plan "$plan" --sha256 "$plan_sha" || return
+  # 线上健康且收尾成功后不再长期保存本轮应用配置副本；数据库及验收记录保持原样。
+  python3 - "$production_release_dir" <<'PY' || return
+from pathlib import Path
+import json
+import socket
+import sys
+root = Path(sys.argv[1])
+result = json.loads((root / "production-result.json").read_text())
+if result.get("success") is not True or result.get("host") != socket.gethostname():
+    raise SystemExit("正式成功记录不匹配，保留应用恢复资料")
+for name in ("backend.env", "activation-originals.private.json"):
+    path = root / name
+    if path.is_symlink() or root.resolve() != root:
+        raise SystemExit("应用配置副本路径异常，停止清理")
+    if path.exists():
+        path.unlink()
+PY
 }

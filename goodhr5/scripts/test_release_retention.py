@@ -98,6 +98,21 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual({row["id"] for row in plan["images_to_remove"]}, {iid(7), iid(8)})
         self.assertTrue({iid(1), iid(2), iid(3), iid(4), iid(5), iid(6)} <= set(plan["protected_image_ids"]))
 
+    def test_database_only_policy_removes_old_applications_after_current_pair_is_verified(self):
+        """只保留数据库备份时回收旧应用，但运行服务、数据库、外部项目及可信基础始终保护。"""
+        self.policy.update(rollback_keep_per_service=0, minimum_compatible_rollback_per_service=0)
+        with self.assertRaises(retention.GuardError):
+            self.plan()
+        self.registry["verified_releases"].append(self.record("current", 3, 4, "2026-10-15T08:00:00+08:00"))
+        plan = self.plan()
+        self.assertEqual(plan["compatible_rollback_records"], [])
+        self.assertEqual({row["id"] for row in plan["images_to_remove"]}, {iid(5), iid(6), iid(7), iid(8)})
+        self.assertTrue({iid(1), iid(2), iid(3), iid(4)} <= set(plan["protected_image_ids"]))
+        self.assertNotIn(container(5, "postgres", 1, True, role="database"), plan["containers_to_remove"])
+        reader = FakeDocker(self.snapshot)
+        retention.execute_plan(plan, self.registry, self.policy, reader, self.root / "database-only-audit.json")
+        self.assertTrue(next(row for row in reader.state["containers"] if row["Name"].lstrip("/") == "postgres")["Running"])
+
     def test_cache_only_preserves_every_application_without_claiming_missing_rollback(self):
         """更老镜像缺失时只允许有当前组合证据的构建缓存维护，不能删除或伪造历史应用回退。"""
         self.registry["verified_releases"] = [self.record("current", 3, 4, "2026-10-15T08:00:00+08:00")]
@@ -414,6 +429,8 @@ class RetentionTests(unittest.TestCase):
         for changed in (dict(evidence, rollback_verified=False), dict(evidence, after_migration_fingerprint="0" * 64), dict(evidence, backend_image=iid(99))):
             with self.assertRaises(retention.GuardError):
                 retention.check_activation(self.registry, changed, reader, self.policy)
+        self.policy.update(rollback_keep_per_service=0, minimum_compatible_rollback_per_service=0)
+        self.assertTrue(retention.check_activation(self.registry, evidence, reader, self.policy)["compatible_rollback_records"])
         self.registry["verified_releases"] = []
         with self.assertRaises(retention.GuardError):
             retention.check_activation(self.registry, evidence, reader, self.policy)

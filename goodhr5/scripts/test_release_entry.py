@@ -42,7 +42,13 @@ with open(os.environ['FIXTURE_LOG'],'a',encoding='utf-8') as stream:stream.write
 if tool=='python3':
  if args and args[0].endswith('auto_release.py'):sys.exit(0)
  if args and args[0].endswith('release_guard.py'):sys.exit(21 if os.environ.get('FIXTURE_GUARD_FAIL')=='1' else 0)
- if args and args[0].endswith('release_activate.py'):sys.exit(35 if os.environ.get('FIXTURE_ACTIVATION_FAIL')=='1' else 0)
+ if args and args[0].endswith('release_activate.py'):
+  if os.environ.get('FIXTURE_ACTIVATION_FAIL')=='1':sys.exit(35)
+  import socket
+  release=Path(args[args.index('--release-dir')+1])
+  (release/'production-result.json').write_text(json.dumps({'success':True,'host':socket.gethostname()}))
+  (release/'activation-originals.private.json').write_text('{"fixture":"application configuration"}')
+  sys.exit(0)
  if args and args[0].endswith(('release_hygiene.py','release_retention.py','release_archive_retention.py')):
   retention=args[0].endswith('release_retention.py')
   if retention and 'check' in args:
@@ -243,6 +249,9 @@ class EntryTests(unittest.TestCase):
         self.assertEqual(call[call.index("--backend-image") + 1], BACKEND_ID)
         self.assertEqual(call[call.index("--frontend-image") + 1], FRONTEND_ID)
         self.assertEqual(call[call.index("--source-commit") + 1], "a" * 40)
+        self.assertFalse((self.home / "release/backend.env").exists())
+        self.assertFalse((self.home / "release/activation-originals.private.json").exists())
+        self.assertTrue((self.home / "release/database.dump").is_file())
 
     def test_existing_either_image_tag_never_rebuilds(self):
         """任意一端版本标签已存在时拒绝覆盖，不能先重建另一端。"""
