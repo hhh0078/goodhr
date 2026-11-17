@@ -210,7 +210,9 @@ def verify_application_source(source, application_commit, tool_commit):
             and not results[1].stdout.strip(), "激活前发布工具提交或工作区发生变化")
     if application_commit != tool_commit:
         result = subprocess.run(["git", "diff", "--quiet", application_commit, tool_commit, "--", "cloud/backend",
-                                 "cloud/frontend-next", "docker-compose.build.yml", "environments/production.env"],
+                                 "cloud/frontend-next", ".dockerignore", "local-agent-go-new/go.mod", "local-agent-go-new/go.sum",
+                                 "local-agent-go-new/cloudruntime", "local-agent-go-new/internal", "local-agent-go-new/migrations",
+                                 "docker-compose.build.yml", "environments/production.env"],
                                 cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
         require(result.returncode == 0, "候选应用输入已经改变，不能沿用旧验收")
 

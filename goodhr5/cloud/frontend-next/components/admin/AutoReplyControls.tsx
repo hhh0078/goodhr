@@ -117,7 +117,7 @@ export function AutoReplyGlobalControl() {
           const response = await localRequest(agentBase, "/api/v1/local/auto-reply/status");
           if (!disposed && !operation.current) { setTask({ ...response, status: taskStatus(response?.status) }); setStatusError(""); }
         }
-      } catch { if (!disposed) setStatusError("本地状态暂时没读到，请检查本地程序版本和连接。"); }
+      } catch (cause) { if (!disposed) setStatusError(cause instanceof Error ? cause.message : "自动回复状态暂时没读到，请稍后重试。"); }
       finally { if (!disposed) timer = setTimeout(() => void poll(), 3000); }
     }
     void poll();

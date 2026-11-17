@@ -24,7 +24,9 @@ import release_hygiene as hygiene
 ROLES = ("backend", "frontend")
 RELEASE_ROOT = Path("/opt/goodhr-release")
 STATE_ROOT = RELEASE_ROOT / "auto-deploy"
-CLOUD_PATHS = ("cloud/backend", "cloud/frontend-next", "docker-compose.build.yml", "environments/production.env")
+CLOUD_PATHS = ("cloud/backend", "cloud/frontend-next", ".dockerignore", "local-agent-go-new/go.mod",
+               "local-agent-go-new/go.sum", "local-agent-go-new/cloudruntime", "local-agent-go-new/internal",
+               "local-agent-go-new/migrations", "docker-compose.build.yml", "environments/production.env")
 
 
 def cloud_changes(source, containers, commit):

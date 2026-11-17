@@ -257,6 +257,13 @@ class AutomaticReleaseTests(unittest.TestCase):
             (source / "cloud/backend/app.go").write_text("程序发生变化")
             changed = commit()
             self.assertEqual(cloud_changes(source, live_pair(old), changed), (old, True))
+            for name in (".dockerignore", "local-agent-go-new/cloudruntime/service.go", "local-agent-go-new/internal/cloudserver/handler.go", "local-agent-go-new/go.mod", "local-agent-go-new/go.sum", "local-agent-go-new/migrations/0001.sql"):
+                path = source / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("编排构建输入变化")
+                previous = changed
+                changed = commit()
+                self.assertEqual(cloud_changes(source, live_pair(previous), changed), (previous, True))
 
     def test_same_head_retries_failed_deployment_after_backoff(self):
         """发布失败后同一个提交仍会重试；等待期间不会每分钟重复构建，旧服务不受改动。"""

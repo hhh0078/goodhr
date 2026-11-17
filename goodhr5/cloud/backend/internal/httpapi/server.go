@@ -516,6 +516,9 @@ func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
 	s.positions.Detail(w, r)
 }
 
+// SetAutoReplyRuntime 在HTTP服务开放前注册同进程编排模块，不增加公开路由或额外监听端口。
+func (s *Server) SetAutoReplyRuntime(runtime http.Handler) { s.autoReply.runtime = runtime }
+
 // health 返回云端 API 的健康状态。
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

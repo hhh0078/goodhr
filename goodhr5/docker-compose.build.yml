@@ -5,8 +5,8 @@ services:
     image: ${COMPOSE_PROJECT_NAME}-backend:${GOODHR_RELEASE_IMAGE_TAG:?必须由发布脚本生成版本标签}
     pull_policy: never
     build:
-      context: ./cloud/backend
-      dockerfile: Dockerfile.release
+      context: .
+      dockerfile: cloud/backend/Dockerfile.release
       labels:
         goodhr.release.id: ${GOODHR_RELEASE_IMAGE_TAG}
         goodhr.source_commit: ${GOODHR_SOURCE_COMMIT:?必须指定源码提交}
