@@ -5,15 +5,16 @@ import { Alert, Button, Form, Input, Skeleton, Switch } from "antd";
 import { useEffect, useId, useRef, useState } from "react";
 import { duplicateConditionContent, emptyPositionAutoReplyConfig, loadCompanyProfiles, loadPositionAutoReplyConfig, savePositionAutoReplyConfig,
   type CompanyProfile, type PositionAutoReplyConfig } from "@/lib/auto-reply";
+import AutoReplyTestNotice from "./AutoReplyTestNotice";
 import AdminDialog from "./AdminDialog";
-import { AUTO_REPLY_ROLLOUT_CLOSED, AUTO_REPLY_ROLLOUT_MESSAGE } from "@/lib/auto-reply-rollout";
+import { AUTO_REPLY_ROLLOUT_MESSAGE, isAutoReplyPlatformSupported } from "@/lib/auto-reply-rollout";
 
 import PositionReplyCompanies from "./PositionReplyCompanies";
 import PositionReplyConditions from "./PositionReplyConditions";
 import PositionReplyPhrases from "./PositionReplyPhrases";
 import styles from "./position-auto-reply.module.css";
 
-type Position = { id: string; name: string; requirement?: string };
+type Position = { id: string; name: string; requirement?: string; platform_id?: string };
 type Props = {
   open: boolean;
   position: Position | null;
@@ -42,6 +43,7 @@ function PositionForm({ position, allowAutoReply, notify, confirm, onRequireMax,
   const savingRef = useRef(false);
   const loadedEnabled = useRef(false);
   const id = useId();
+  const platformSupported = isAutoReplyPlatformSupported(position.platform_id);
   useEffect(() => {
     let active = true;
     setLoading(true); setLoadError("");
@@ -58,7 +60,7 @@ function PositionForm({ position, allowAutoReply, notify, confirm, onRequireMax,
   /** save 校验岗位选择并按加载时的配置版本提交；重复点击只产生一个请求。 */
   async function save() {
     if (loading || loadError || savingRef.current) return;
-    if (AUTO_REPLY_ROLLOUT_CLOSED && config.enabled && !loadedEnabled.current) { notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info"); return; }
+    if (!platformSupported && config.enabled && !loadedEnabled.current) { notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info"); return; }
     if (config.enabled && !allowAutoReply) { onRequireMax(); return; }
     if (config.enabled && !profiles.some(row => row.id === config.company_profile_id)) { notify("先给这个岗位选一家公司，再开启自动回复。", "warning"); return; }
     if (duplicateConditionContent(config.conditions)) { notify("有重复条件，请重新检查选择。", "warning"); return; }
@@ -76,14 +78,15 @@ function PositionForm({ position, allowAutoReply, notify, confirm, onRequireMax,
     {loading ? <Skeleton active paragraph={{ rows: 6 }} /> : loadError ? <Alert type="warning" showIcon title={loadError}
       action={<Button onClick={() => setRetry(retry + 1)}>重试</Button>} /> :
       <Form layout="vertical" component="div" disabled={saving} className={styles.form}>
-        {AUTO_REPLY_ROLLOUT_CLOSED ? <Alert type="info" showIcon title={AUTO_REPLY_ROLLOUT_MESSAGE} description="待确认补充、资料编辑与关闭配置仍可使用。" />
+        <AutoReplyTestNotice />
+        {!platformSupported ? <Alert type="warning" showIcon title={AUTO_REPLY_ROLLOUT_MESSAGE} description="仍可查看、修改和关闭已有配置。" />
           : !allowAutoReply && <Alert type="warning" showIcon title="自动回复需要 Max 或全功能体验会员。您仍可查看、修改和关闭已有配置。" />}
         {conflict && <Alert type="warning" showIcon title="配置已更新，可以放弃当前草稿并重新载入。"
           action={<Button onClick={() => setRetry(retry + 1)}>载入最新配置</Button>} />}
         <section className={styles.section}>
           <div className={styles.heading}><h3>岗位自动回复</h3>
-            <Switch checked={config.enabled} aria-label="开启岗位自动回复" onChange={enabled => {
-              if (AUTO_REPLY_ROLLOUT_CLOSED && enabled) notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info");
+            <Switch checked={config.enabled} disabled={!platformSupported && !config.enabled} aria-label="开启岗位自动回复" onChange={enabled => {
+              if (!platformSupported && enabled) notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info");
               else if (enabled && !allowAutoReply) onRequireMax();
               else setConfig({ ...config, enabled });
             }} />

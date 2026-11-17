@@ -12,7 +12,7 @@ import (
 func TestResolvedQuestionsLeaveWorkspaceWithoutRemovingDelivery(t *testing.T) {
 	f := newEditableFactFixture(t)
 	ctx := context.Background()
-	if _, err := f.db.Exec("ALTER TABLE positions ADD COLUMN platform_id text NOT NULL DEFAULT 'liepin'"); err != nil {
+	if _, err := f.db.Exec("ALTER TABLE positions ADD COLUMN IF NOT EXISTS platform_id text NOT NULL DEFAULT 'liepin'"); err != nil {
 		t.Fatal(err)
 	}
 	f.archive(t, "company", "公司办公地址为成都A座。")

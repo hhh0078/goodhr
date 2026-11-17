@@ -260,7 +260,7 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 		return &positionStartError{status: http.StatusConflict, code: "POSITION_CLOSED", message: "这个岗位已经关闭，先开启岗位再开始任务"}
 	}
 	autoReply := strings.EqualFold(strings.TrimSpace(taskType), "auto_reply")
-	if autoReply && !autoReplyPublicRolloutOpen {
+	if autoReply && !autoReplyPlatformOpen(position.PlatformID) {
 		return &positionStartError{status: http.StatusForbidden, code: autoReplyRolloutCode, message: autoReplyRolloutMessage}
 	}
 	if positionRequiresRecreate(position) {

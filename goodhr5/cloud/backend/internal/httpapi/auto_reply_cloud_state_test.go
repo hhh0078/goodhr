@@ -18,7 +18,7 @@ import (
 func autoReplyStateTestDB(t *testing.T, stopBefore ...string) *sql.DB {
 	t.Helper()
 	db := candidatePostgresTestDB(t)
-	if _, err := db.Exec("ALTER TABLE users ADD COLUMN status text NOT NULL DEFAULT 'active'; ALTER TABLE positions ADD COLUMN user_id uuid REFERENCES users(id)"); err != nil {
+	if _, err := db.Exec("ALTER TABLE users ADD COLUMN status text NOT NULL DEFAULT 'active'; ALTER TABLE positions ADD COLUMN user_id uuid REFERENCES users(id); ALTER TABLE positions ADD COLUMN platform_id text NOT NULL DEFAULT 'liepin'; COMMENT ON COLUMN positions.platform_id IS '岗位所属招聘平台'"); err != nil {
 		t.Fatal(err)
 	}
 	applyAutoReplyTestMigrations(t, db)

@@ -14,7 +14,7 @@ import (
 // TestQuestionInboxScopesAndPagination 验证关闭岗位、同题多来源、跨成员及跨团队都保持正确数量和原话范围。
 func TestQuestionInboxScopesAndPagination(t *testing.T) {
 	db := autoReplyStateTestDB(t)
-	if _, err := db.Exec("ALTER TABLE positions ADD COLUMN platform_id text NOT NULL DEFAULT 'liepin'"); err != nil {
+	if _, err := db.Exec("ALTER TABLE positions ADD COLUMN IF NOT EXISTS platform_id text NOT NULL DEFAULT 'liepin'"); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()

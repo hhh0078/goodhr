@@ -5,7 +5,6 @@ import { resolve } from "node:path";
 import type { ReplyPhrase, ReplyPhraseOverride } from "../../lib/auto-reply-phrases";
 import type { PositionReplyCondition } from "../../lib/auto-reply";
 import type { ReplyQuestion } from "../../lib/auto-reply-inbox";
-import { AUTO_REPLY_ROLLOUT_MESSAGE } from "../../lib/auto-reply-rollout";
 import { mockUniformAdmin, uniformOrigin } from "./admin-uniform-fixture";
 
 const output = resolve(process.env.UI_TEST_SCREENSHOT_DIR || "output/auto-reply-20261030");
@@ -230,9 +229,7 @@ test("待确认汇总失败显示未知，离线仍可回复，处理最后一�
   await page.route(/http:\/\/127\.0\.0\.1:43999\//,route=>route.abort());
   await page.goto("/admin/positions");await page.addLocatorHandler(page.getByRole("dialog",{name:"请先安装本地程序"}),async()=>{await page.keyboard.press("Escape");});
   const dialog=await openReplyWorkspace(page);await expect(dialog.getByText("数量暂未读到",{exact:true})).toBeVisible();await expect(dialog.getByText("0 项待处理",{exact:true})).toHaveCount(0);
-  await expect(dialog.getByRole("button",{name:"开始自动回复",exact:true})).toBeEnabled();
-  await dialog.getByRole("button",{name:"开始自动回复",exact:true}).click();
-  await expect(page.locator(".ant-notification").getByText(AUTO_REPLY_ROLLOUT_MESSAGE,{exact:true}).first()).toBeVisible();
+  await expect(dialog.getByRole("button",{name:"开始自动回复",exact:true})).toBeVisible();
   inbox.summaryFailure=false;await dialog.getByRole("button",{name:"重试",exact:true}).click();
   await dialog.getByRole("textbox",{name:"回复可以确认事项1吗？",exact:true}).fill("已核实的信息");await dialog.getByRole("button",{name:"保存回复",exact:true}).click();
   await expect(dialog.getByText("这个岗位暂时没有需要补充的问题。",{exact:true})).toBeVisible();
@@ -484,7 +481,7 @@ for (const width of [1366, 390]) {
     ]));
   });
 
-  test(`自动回复失败 ${width}px 持续显示原因且灰度拦截重新开始`, async ({ page }) => {
+  test(`自动回复失败 ${width}px 持续显示原因且重新开始需确认账号`, async ({ page }) => {
     const { reports, state } = await fixture(page);
     reports.failure = "当前平台还不能核对单会话稳定身份，本次限制任务没有启动";
     await page.setViewportSize({ width, height: 960 });
@@ -493,7 +490,7 @@ for (const width of [1366, 390]) {
     await expect(alert).toBeVisible();
     await expect(alert).toContainText(reports.failure);
     await expect(alert).not.toContainText("finished");
-    await expect(alert).toContainText("仍可查看待确认问题和配置");
+    await expect(alert).toContainText("处理后点击“开始自动回复”重试");
     await page.reload();
     await expect(alert).toBeVisible();
     const bounds = await alert.boundingBox();
@@ -502,12 +499,11 @@ for (const width of [1366, 390]) {
     await page.screenshot({ path: resolve(output, `failure-${width}.png`), fullPage: true, animations: "disabled" });
     const workspace = await openReplyWorkspace(page);
     await workspace.getByRole("button", { name: "开始自动回复", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "确认当前招聘账号", exact: true })).toHaveCount(0);
-    await expect(page.locator(".ant-notification").getByText(AUTO_REPLY_ROLLOUT_MESSAGE,{exact:true}).first()).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "确认当前招聘账号", exact: true })).toBeVisible();
     await expect(alert).toBeVisible();expect(state.starts).toBe(0);
   });
 
-  test(`自动回复 ${width}px 灰度保留岗位配置、关闭和既有运行停止`, async ({ page }) => {
+  test(`自动回复 ${width}px 保留岗位配置、关闭和既有运行停止`, async ({ page }) => {
     const { state, base } = await fixture(page);
     await page.setViewportSize({ width, height: 960 });
     await page.goto("/admin/positions");
@@ -517,16 +513,17 @@ for (const width of [1366, 390]) {
     await expect(dialog.getByRole("textbox", { name: "自动回复岗位描述", exact: true })).toHaveValue("合成岗位说明");
     await dialog.getByRole("textbox", { name: "自动回复岗位描述", exact: true }).fill("合成新说明，绝不提交真实资料");
     await dialog.getByRole("switch", { name: "开启岗位自动回复", exact: true }).click();
-    await expect(dialog.getByRole("switch", { name: "开启岗位自动回复", exact: true })).not.toBeChecked();
+    await expect(dialog.getByRole("switch", { name: "开启岗位自动回复", exact: true })).toBeChecked();
     await expect(dialog.getByText("岗位里将“是否生成简历”选为“需要”，资料和推荐报告才会进简历库。")).toBeVisible();
     mkdirSync(output, { recursive: true });
     await page.screenshot({ path: resolve(output, `config-${width}.png`), fullPage: true, animations: "disabled" });
     await dialog.getByRole("button", { name: "保存配置", exact: true }).click();
     await expect(dialog).not.toBeVisible();
-    expect(state.config.position_description).toContain("合成新说明"); expect(state.config.enabled).toBe(false);
+    expect(state.config.position_description).toContain("合成新说明"); expect(state.config.enabled).toBe(true);
+    await card.getByRole("switch").click();await expect(card.getByRole("switch")).not.toBeChecked();expect(state.config.enabled).toBe(false);
     const workspace = await openReplyWorkspace(page);
     await workspace.getByRole("button", { name: "开始自动回复", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "确认当前招聘账号", exact: true })).toHaveCount(0);expect(state.starts).toBe(0);
+    await expect(page.getByRole("dialog", { name: "确认当前招聘账号", exact: true })).toBeVisible();expect(state.starts).toBe(0);
     state.running=true;
     await page.reload();
     const restoredWorkspace = await openReplyWorkspace(page);
@@ -539,15 +536,16 @@ for (const width of [1366, 390]) {
     expect(base.errors).toEqual([]); expect(base.writes).toEqual([]); expect(base.unknown).toEqual([]);
   });
 
-  test(`失败待办 ${width}px 灰度保留数量且不安排付费重试`, async ({ page }) => {
+  test(`失败待办 ${width}px 取消重试时保留待办数量`, async ({ page }) => {
     const { reports, state } = await fixture(page);
     reports.blocked = 1; reports.resumeBlocked = 1;
     await page.setViewportSize({ width, height: 960 });
     await page.goto("/admin/positions");
     await openReplyWorkspace(page);
     await page.getByRole("button", { name: "重试待办（2）", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "重试待办", exact: true })).toHaveCount(0);
-    await expect(page.locator(".ant-notification").getByText(AUTO_REPLY_ROLLOUT_MESSAGE,{exact:true}).first()).toBeVisible();
+    const confirmation = page.getByRole("dialog", { name: "重试待办", exact: true });
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "取消", exact: true }).click();
     expect(reports.retries).toBe(0);
     mkdirSync(output, { recursive: true });
     await page.screenshot({ path: resolve(output, `retry-report-${width}.png`), fullPage: true, animations: "disabled" });
@@ -707,7 +705,7 @@ test("主动退出先撤销本机内存凭证再返回登录页", async ({ page 
   expect(unbound).toBe(true);
 });
 
-test("本地程序重启时，灰度先拦截自动回复且不进入重新绑定和启动检查", async ({ page }) => {
+test("本地程序重启时，重新绑定和运行组件检查通过前不能启动", async ({ page }) => {
   const { state } = await fixture(page);
   await page.goto("/admin/positions");
   const workspace = await openReplyWorkspace(page);
@@ -726,7 +724,11 @@ test("本地程序重启时，灰度先拦截自动回复且不进入重新绑�
     return route.fulfill({ headers, json: { ok: true, data: { camoufox_ready: false, worker_ready: false, camoufox_installed: false, camoufox_version: "", install_progress: { running: true, stage: "queued" }, native_input_safety: { ready: true } } } });
   });
   await workspace.getByRole("button", { name: "开始自动回复", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "确认当前招聘账号", exact: true })).toHaveCount(0);
-  await expect(page.locator(".ant-notification").getByText(AUTO_REPLY_ROLLOUT_MESSAGE,{exact:true}).first()).toBeVisible();
-  expect(bound).toBe(false);expect(checks).toBe(0);expect(state.starts).toBe(0);
+  const account = page.getByRole("dialog", { name: "确认当前招聘账号", exact: true });
+  await expect(account).toBeVisible();
+  await account.getByRole("textbox", { name: "当前招聘账号", exact: true }).fill("合成招聘账号");
+  await account.getByRole("button", { name: "确认账号并开始", exact: true }).click();
+  await expect.poll(() => bound).toBe(true);
+  await expect.poll(() => checks).toBeGreaterThan(0);
+  expect(state.starts).toBe(0);
 });

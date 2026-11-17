@@ -47,7 +47,7 @@ func TestAutoReplyNoticeSeparatesConversations(t *testing.T) {
 // TestAutoReplyPostgresStableConditions 验证编辑和交换条件正文保留身份，旧版本和外部条件编号不能覆盖当前岗位。
 func TestAutoReplyPostgresStableConditions(t *testing.T) {
 	db := candidatePostgresTestDB(t)
-	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'; ALTER TABLE positions ADD COLUMN user_id UUID REFERENCES users(id);`); err != nil {
+	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'; ALTER TABLE positions ADD COLUMN user_id UUID REFERENCES users(id); ALTER TABLE positions ADD COLUMN platform_id TEXT NOT NULL DEFAULT 'liepin'; COMMENT ON COLUMN positions.platform_id IS '岗位所属招聘平台';`); err != nil {
 		t.Fatal(err)
 	}
 	applyAutoReplyTestMigrations(t, db)

@@ -161,8 +161,8 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 		return PositionAutoReplyConfig{}, err
 	}
 	// 同一岗位串行保存；配置尚不存在时也由岗位行锁保护首次写入。
-	var lockedID string
-	if err = tx.QueryRowContext(ctx, `SELECT id::text FROM positions WHERE id=$1 FOR UPDATE`, item.PositionID).Scan(&lockedID); err != nil {
+	var lockedID, platformID string
+	if err = tx.QueryRowContext(ctx, `SELECT id::text,platform_id FROM positions WHERE id=$1 FOR UPDATE`, item.PositionID).Scan(&lockedID, &platformID); err != nil {
 		return PositionAutoReplyConfig{}, err
 	}
 	var currentVersion int
@@ -175,7 +175,7 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 		return PositionAutoReplyConfig{}, err
 	}
 	// 在同一行锁内判定真正的开启变化，旧客户端省略版本也不能竞态开启；已有开启配置仍可编辑或关闭。
-	if !autoReplyPublicRolloutOpen && item.Enabled && !previouslyEnabled {
+	if !autoReplyPlatformOpen(platformID) && item.Enabled && !previouslyEnabled {
 		return PositionAutoReplyConfig{}, errAutoReplyRolloutClosed
 	}
 	version, compareVersion := item.Version, item.Version > 0

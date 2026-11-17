@@ -1709,7 +1709,7 @@ export default function PositionsPage() {
                     </>
                   ) : null}
                 </Typography.Paragraph>
-                {isCurrentUserPosition(item, user?.email) ? <PositionAutoReplyControl position={{ id: String(item.id), name: String(item.name || "当前岗位"), requirement: String(item.ai_config?.position_requirement || "") }} /> : null}
+                {isCurrentUserPosition(item, user?.email) ? <PositionAutoReplyControl position={{ id: String(item.id), name: String(item.name || "当前岗位"), platform_id: String(item.platform_id || ""), requirement: String(item.ai_config?.position_requirement || "") }} /> : null}
                 <Typography.Paragraph
                   className={`${styles.text} ${styles.s12}`}
                 >

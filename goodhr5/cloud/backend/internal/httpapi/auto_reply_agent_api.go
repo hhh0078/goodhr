@@ -79,9 +79,6 @@ func (s *AutoReplyService) agentPositionSnapshots(w http.ResponseWriter, r *http
 		writeAutoReplyError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "岗位快照列表这里只支持读取")
 		return
 	}
-	if rejectAutoReplyRollout(w) {
-		return
-	}
 	requestContext, ok := s.currentRequestContext(w, r, true, true)
 	if !ok {
 		return
@@ -89,6 +86,9 @@ func (s *AutoReplyService) agentPositionSnapshots(w http.ResponseWriter, r *http
 	platformID := strings.TrimSpace(r.URL.Query().Get("platform_id"))
 	if platformID == "" {
 		writeAutoReplyError(w, http.StatusBadRequest, "PLATFORM_REQUIRED", "读取自动回复岗位需要招聘平台")
+		return
+	}
+	if rejectAutoReplyRollout(w, platformID) {
 		return
 	}
 	positions, err := s.positions.ListPositions(requestContext.Tenant.ID, requestContext.Session.Email, false)
@@ -140,11 +140,11 @@ func (s *AutoReplyService) agentPositionSnapshot(w http.ResponseWriter, r *http.
 		writeAutoReplyError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "岗位快照这里只支持读取")
 		return
 	}
-	if rejectAutoReplyRollout(w) {
-		return
-	}
 	requestContext, position, ok := s.positionRequestContext(w, r, positionID, true, true)
 	if !ok {
+		return
+	}
+	if rejectAutoReplyRollout(w, position.PlatformID) {
 		return
 	}
 	config, err := s.store.GetPositionAutoReplyConfig(r.Context(), requestContext.Tenant.ID, position.ID)

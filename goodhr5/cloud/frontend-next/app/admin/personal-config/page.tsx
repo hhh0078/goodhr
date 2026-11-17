@@ -355,7 +355,7 @@ export default function PersonalConfigPage() {
         <Typography.Paragraph>GoodHR 目前的收入还撑不起日常开发和维护，作者正在“继续写代码”和“进厂拧螺丝”之间努力挣扎。</Typography.Paragraph>
         <Typography.Paragraph>为了让软件继续运营，自定义接口暂时关闭，改用内置 AI。我们也接入了价格更友好的多种模型，名称和价格都在列表里，按需选择就好。等收入能撑住维护，我会再次开放自定义接口。</Typography.Paragraph>
         {builtinModels?.length ? <Typography.Paragraph type="secondary">当前可选：{builtinModels.slice(0, 3).map(item => item.name).join("、")}等，实际价格以模型列表为准。</Typography.Paragraph> : null}
-        <Typography.Paragraph><Typography.Text strong>会员限制也一起取消了：只要 AI 余额充足，就能使用全部已开放功能，不需要额外购买会员。</Typography.Text>启动任务至少需要 0.10 元；自动回复仍在灰度测试，暂不开放。</Typography.Paragraph>
+        <Typography.Paragraph><Typography.Text strong>会员限制也一起取消了：只要 AI 余额充足，就能使用全部已开放功能，不需要额外购买会员。</Typography.Text>启动任务至少需要 0.10 元；自动回复正在测试中，目前仅支持 BOSS直聘、猎聘企业端和智联招聘。</Typography.Paragraph>
         <Typography.Paragraph style={{ marginBottom: 0 }}>拜托支持一下，让作者还有机会坐在电脑前修 Bug。谢谢理解，也谢谢你愿意继续用 GoodHR。</Typography.Paragraph>
       </AdminDialog>
       <Flex className="goodhr-toolbar-actions" justify="flex-end" gap={8} style={{ marginBottom: 12 }}>
