@@ -21,7 +21,7 @@ type listDiagnosticBrowser struct {
 
 // FindAll 返回模拟的列表卡片、读空窗口，或在指定的一次卡片读取时中断。
 func (s *listDiagnosticBrowser) FindAll(ctx context.Context, req contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
-	if len(req.Fields) == 0 {
+	if len(req.Fields) == 0 && (!req.ProbeOnly || req.StartIndex == 0) {
 		return s.positionBrowserStub.FindAll(ctx, req)
 	}
 	s.reads++
@@ -94,7 +94,7 @@ func TestAdvanceCandidatesReportsScrollAndParentCancel(t *testing.T) {
 	browser = &listDiagnosticBrowser{failRead: 4, cause: cause}
 	_, err = NewRuntime().AdvanceCandidateList(context.Background(), browser, cfg, before, model.CandidateListOptions{})
 	facts = listFailureFacts(t, err, cause)
-	if facts.WindowPhase != "after_scroll" || facts.Stage != "读取滚动后的下一批卡片" ||
+	if facts.WindowPhase != "after_scroll" || facts.Stage != "探测滚动后的下一批卡片" ||
 		facts.BeforeTotalMatches == nil || *facts.BeforeTotalMatches != 20 || facts.AfterTotalMatches == nil || *facts.AfterTotalMatches != 22 ||
 		facts.NewCards != nil || facts.TailMoved == nil || !*facts.TailMoved {
 		t.Fatalf("本轮滚动前后采样不符：%+v", facts)
