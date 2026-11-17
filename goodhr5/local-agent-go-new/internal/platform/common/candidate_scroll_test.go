@@ -42,6 +42,10 @@ func (b *scrollingCandidateBrowser) FindAll(ctx context.Context, request contrac
 	}
 	items := []contract.FindAllItem{}
 	for index := request.StartIndex; index < min(b.count, request.StartIndex+request.MaxItems); index++ {
+		if request.ProbeOnly {
+			items = append(items, contract.FindAllItem{Index: index, TotalMatches: b.count})
+			continue
+		}
 		name := fmt.Sprintf("候选人%d", index+b.generation)
 		if b.duplicateNames && index%100 == 5 {
 			name = "同名候选人"
@@ -51,6 +55,61 @@ func (b *scrollingCandidateBrowser) FindAll(ctx context.Context, request contrac
 		}})
 	}
 	return items, nil
+}
+
+// probeOnlyNextBrowser 模拟下一批完整读取需要等待，但存在性探测能立即返回的慢页面。
+type probeOnlyNextBrowser struct {
+	*scrollingCandidateBrowser
+	probes, fullReads int
+}
+
+// FindAll 拒绝在滚动阶段读取下一批资料，确保该阶段只复用无字段的单卡探测。
+func (b *probeOnlyNextBrowser) FindAll(ctx context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if request.StartIndex >= 20 {
+		if !request.ProbeOnly {
+			b.fullReads++
+			return nil, context.DeadlineExceeded
+		}
+		if request.MaxItems != 1 || len(request.Fields) != 0 || !request.ExpectedMissing {
+			return nil, fmt.Errorf("新人探测读取了整批或候选资料：%+v", request)
+		}
+		b.probes++
+	}
+	return b.scrollingCandidateBrowser.FindAll(ctx, request)
+}
+
+// TestCandidateScrollProbesNextWithoutReadingBatch 验证新人已加载或滚动后追加时，剩余预算很少也不重复读取整批资料。
+func TestCandidateScrollProbesNextWithoutReadingBatch(t *testing.T) {
+	for _, afterScroll := range []bool{false, true} {
+		t.Run(fmt.Sprintf("滚动后追加=%t", afterScroll), func(t *testing.T) {
+			inner := &scrollingCandidateBrowser{count: 20, appendAt: 2}
+			if !afterScroll {
+				inner.count, inner.appendAt = 40, 0
+			}
+			browser := &probeOnlyNextBrowser{scrollingCandidateBrowser: inner}
+			cfg := scrollCandidateConfig()
+			cfg.MaxItems = 20
+			options := model.CandidateListOptions{Cursor: &model.CandidateListCursor{}}
+			before, err := FindCandidates(context.Background(), browser, cfg, "test", options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			advanced, err := AdvanceCandidateList(ctx, browser, cfg, "test", before, options)
+			if err != nil || !advanced || options.Cursor.StartIndex != 20 || browser.fullReads != 0 || browser.probes == 0 {
+				t.Fatalf("轻量探测失败：advanced=%v cursor=%d full=%d probes=%d err=%v", advanced, options.Cursor.StartIndex, browser.fullReads, browser.probes, err)
+			}
+			if !afterScroll && inner.scrolls != 0 {
+				t.Fatal("已有新人时不应额外滚动")
+			}
+			// 下一批用原有完整读取路径，字段和行号保持完整，探测结果不能代替候选人资料。
+			next, err := FindCandidates(context.Background(), inner, cfg, "test", options)
+			if err != nil || len(next) != 20 || next[0].Index != 20 || next[0].Name == "" || next[0].Fields["platform_candidate_id"] == "" {
+				t.Fatalf("下一批资料读取不完整：len=%d err=%v", len(next), err)
+			}
+		})
+	}
 }
 
 // Scroll 记录真实滚轮请求，按场景模拟列表移动、到底、追加内容或浏览器错误。
@@ -189,7 +248,8 @@ func TestCandidateScrollConfirmsStableBottom(t *testing.T) {
 	before, _ := FindCandidates(context.Background(), browser, cfg, "test", options)
 	started := time.Now()
 	advanced, err := AdvanceCandidateList(context.Background(), browser, cfg, "test", before, options)
-	if err != nil || advanced || browser.scrolls != candidateBottomStableRounds {
+	// 首轮滚动前会先追赶一次本批末尾，因此总滚轮次数为稳定轮数加一。
+	if err != nil || advanced || browser.scrolls != candidateBottomStableRounds+1 {
 		t.Fatalf("advanced=%v scrolls=%d err=%v", advanced, browser.scrolls, err)
 	}
 	if time.Since(started) < 15*time.Second {
@@ -250,5 +310,80 @@ func TestCandidateScrollCancellationAndMissingList(t *testing.T) {
 	advanced, err := AdvanceCandidateList(ctx, browser, cfg, "test", before, model.CandidateListOptions{})
 	if advanced || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("advanced=%v err=%v", advanced, err)
+	}
+}
+
+// TestAdvanceCandidateScrollCatchesUpTailOnce 验证连续跳过后首轮滚动前先一次追到本批末尾，且只追赶一次。
+func TestAdvanceCandidateScrollCatchesUpTailOnce(t *testing.T) {
+	browser := &scrollingCandidateBrowser{count: 20, moveThrough: 8, visibleAfter: 7, appendAt: 8}
+	cfg := scrollCandidateConfig()
+	options := model.CandidateListOptions{ReadConcurrency: 10, Cursor: &model.CandidateListCursor{}}
+	before, err := FindCandidates(context.Background(), browser, cfg, "test", options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanced, err := AdvanceCandidateList(context.Background(), browser, cfg, "test", before, options)
+	if err != nil || !advanced {
+		t.Fatalf("advanced=%v err=%v", advanced, err)
+	}
+	catchUps := 0
+	for index, request := range browser.requests {
+		if !request.StopWhenProgressVisible {
+			continue
+		}
+		catchUps++
+		if index != 0 || request.Distance != candidateTailCatchUpDistance || request.MaxAttempts != candidateTailCatchUpMaxAttempts ||
+			request.ProgressTarget == nil || request.ProgressTarget.Target.Index == nil || *request.ProgressTarget.Target.Index != 19 || request.WheelAnchor == nil {
+			t.Fatalf("追赶请求不符合预期：第%d次 %+v", index+1, request)
+		}
+	}
+	if catchUps != 1 {
+		t.Fatalf("追赶本批末尾次数=%d，预期1", catchUps)
+	}
+}
+
+// TestAdvanceCandidateScrollSkipsCatchUpWhenNextLoaded 验证下一批已在页面中时不追赶也不滚动，直接进入下一批。
+func TestAdvanceCandidateScrollSkipsCatchUpWhenNextLoaded(t *testing.T) {
+	browser := &scrollingCandidateBrowser{count: 60}
+	cfg := scrollCandidateConfig()
+	cfg.MaxItems = 20
+	options := model.CandidateListOptions{Cursor: &model.CandidateListCursor{}}
+	before, err := FindCandidates(context.Background(), browser, cfg, "test", options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanced, err := AdvanceCandidateList(context.Background(), browser, cfg, "test", before, options)
+	if err != nil || !advanced || browser.scrolls != 0 || options.Cursor.StartIndex != 20 {
+		t.Fatalf("advanced=%v scrolls=%d start=%d err=%v", advanced, browser.scrolls, options.Cursor.StartIndex, err)
+	}
+}
+
+// catchUpFailingBrowser 只让追赶本批末尾的滚轮失败，其余滚轮沿用原模拟。
+type catchUpFailingBrowser struct {
+	*scrollingCandidateBrowser
+}
+
+// Scroll 追赶请求返回浏览器错误，用于验证追赶失败不会终止加载。
+func (b catchUpFailingBrowser) Scroll(ctx context.Context, request contract.ScrollRequest) (contract.ScrollResult, error) {
+	if request.StopWhenProgressVisible {
+		b.requests = append(b.requests, request)
+		return contract.ScrollResult{}, errors.New("合成追赶失败")
+	}
+	return b.scrollingCandidateBrowser.Scroll(ctx, request)
+}
+
+// TestAdvanceCandidateScrollContinuesWhenCatchUpFails 验证追赶失败只记日志，仍按原逐轮滚动加载出下一批。
+func TestAdvanceCandidateScrollContinuesWhenCatchUpFails(t *testing.T) {
+	inner := &scrollingCandidateBrowser{count: 20, moveThrough: 3, visibleAfter: 2, appendAt: 3}
+	browser := catchUpFailingBrowser{inner}
+	cfg := scrollCandidateConfig()
+	options := model.CandidateListOptions{Cursor: &model.CandidateListCursor{}}
+	before, err := FindCandidates(context.Background(), browser, cfg, "test", options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanced, err := AdvanceCandidateList(context.Background(), browser, cfg, "test", before, options)
+	if err != nil || !advanced || inner.scrolls != 3 {
+		t.Fatalf("追赶失败后没有继续加载：advanced=%v scrolls=%d err=%v", advanced, inner.scrolls, err)
 	}
 }

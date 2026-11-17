@@ -84,7 +84,8 @@ func TestRecommendResumeDistinguishesEmptyLoadingAndMissing(t *testing.T) {
 	browser := &recommendResumeBrowser{rows: recommendResumeRows(3), loaded: 3}
 	cursor := &model.CandidateListCursor{StartIndex: 99}
 	found, err := recommendResumeRuntime(t, "zhaopin").RestoreCandidateList(ctx, browser, cfg, point, cursor)
-	if err != nil || found || cursor.StartIndex != 0 || browser.scrolls != 3 {
+	// 三轮稳定底部加首轮前一次追赶本批末尾。
+	if err != nil || found || cursor.StartIndex != 0 || browser.scrolls != 4 {
 		t.Fatalf("没有等稳定底部或没有安全从头：%v %v %+v scrolls=%d", found, err, cursor, browser.scrolls)
 	}
 }
