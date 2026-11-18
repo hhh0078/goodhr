@@ -19,7 +19,7 @@ import {
 import {
   SafetyOutlined as AdminPanelSettingsRoundedIcon,
   FileTextOutlined as ArticleRoundedIcon,
-  CreditCardOutlined as CreditCardRoundedIcon,
+  // CreditCardOutlined as CreditCardRoundedIcon, // 订阅会员菜单恢复时一并启用。
   DashboardOutlined as DashboardRoundedIcon,
   DownloadOutlined as DownloadRoundedIcon,
   MailOutlined as EmailRoundedIcon,
@@ -140,7 +140,7 @@ const menuGroups: MenuGroup[] = [
       ["/admin/team", "团队管理", GroupRoundedIcon],
       ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
       ["/admin/personal-config", "个人配置", SettingsRoundedIcon],
-      ["/admin/subscription", "订阅会员", CreditCardRoundedIcon],
+      // ["/admin/subscription", "订阅会员", CreditCardRoundedIcon], // 暂时隐藏入口，保留订阅页面及功能。
     ],
   },
   {
