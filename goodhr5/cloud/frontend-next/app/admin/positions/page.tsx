@@ -31,6 +31,7 @@ import {
   PlayCircleOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
   StopOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
@@ -162,6 +163,8 @@ export default function PositionsPage() {
   const screeningAccount = `${user?.tenant_id || ""}:${user?.id || user?.email || ""}`;
   const [items, setItems] = useState<any[]>([]);
   const [positionScope, setPositionScope] = useState("true");
+  const [positionSearch, setPositionSearch] = useState("");
+  const visibleItems = items.filter((item) => String(item?.name || "").toLocaleLowerCase().includes(positionSearch.trim().toLocaleLowerCase()));
   const loadGeneration = useRef(0);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -271,6 +274,7 @@ export default function PositionsPage() {
       setOnboardingResult(null);
       setBusyPositionID("");
       setItems([]);
+      setPositionSearch("");
       setLatestTaskStats({});
       setLogs({});
       setAllLogPosition(null); setAllLogs([]);
@@ -619,12 +623,12 @@ export default function PositionsPage() {
       if (!value.trim()) publishOnboardingEvent({ type: "form-field-completed", field, completed: false, platformId: next.platform_id });
     }
   }
-  /** openEdit 复用岗位完整配置与会员校验，当前教程岗位复核保留ID并通知真实编辑弹框已经打开。 */
-  async function openEdit(item: any) {
+  /** openEdit 复用岗位配置表单；复制时清空编号并开启新岗位，保存后归当前账号，不携带运行历史。 */
+  async function openEdit(item: any, copying = false) {
     const context = getOnboardingGuideContext();
-    const reviewing = Boolean(context.active && context.reviewPosition && context.positionId === String(item.id));
+    const reviewing = Boolean(!copying && context.active && context.reviewPosition && context.positionId === String(item.id));
     const actual = formFromItem(item, defaults);
-    const next = reviewing ? reviewFormFromItem(item) : actual;
+    const next = copying ? { ...actual, id: "", is_open: true } : reviewing ? reviewFormFromItem(item) : actual;
     const epoch = ++positionFormEpoch.current;
     const ownerIdentity = draftIdentity;
     const ownerToken = getToken();
@@ -1541,6 +1545,8 @@ export default function PositionsPage() {
         }}
       />
       <Flex gap={8} className="goodhr-compact-toolbar" data-testid="positions-toolbar">
+        <Input aria-label="搜索岗位名称" placeholder="搜索岗位名称" allowClear prefix={<SearchOutlined aria-hidden="true" />}
+          value={positionSearch} onChange={(event) => setPositionSearch(event.target.value)} style={{ width: 220, maxWidth: "100%" }} />
         <Radio.Group aria-label="岗位状态筛选" optionType="button" buttonStyle="solid" value={positionScope}
           onChange={(event) => setPositionScope(event.target.value)} options={[{ value: "true", label: "开启" }, { value: "false", label: "关闭" }]} />
         <Flex gap={8} className="goodhr-toolbar-actions">
@@ -1557,9 +1563,9 @@ export default function PositionsPage() {
         </Flex>
       </Flex>
       {loadError ? <Alert type="warning" showIcon title={loadError} action={<Button loading={loading} onClick={() => void load()}>重试</Button>} style={{ marginBottom: 12 }} /> : null}
-      {items.length ? (
+      {visibleItems.length ? (
         <Flex className={styles.s1}>
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <Card
               key={item.id}
               data-position-id={String(item.id)}
@@ -1665,6 +1671,7 @@ export default function PositionsPage() {
                             icon={<EditOutlined aria-hidden="true" />}
                           />
                         </Tooltip>
+                        <Tooltip title="复制到我的岗位"><Button className={styles.positionCardActionIcon} type="text" aria-label="复制到我的岗位" onClick={() => void openEdit(item, true)} icon={<CopyOutlined aria-hidden="true" />} /></Tooltip>
                         <Tooltip title="候选人及推荐记录">
                           <Button
                             className={styles.positionCardActionIcon}
@@ -1687,11 +1694,11 @@ export default function PositionsPage() {
                       </Flex>
                     </Flex>
                   ) : (
-                    <Typography.Paragraph
-                      className={`${styles.text} ${styles.s9}`}
-                    >
-                      团队岗位，仅查看
-                    </Typography.Paragraph>
+                    <Flex align="center" gap={8}>
+                      <Typography.Text type="secondary">团队岗位</Typography.Text>
+                      {item.can_edit === true ? <Tooltip title="编辑团队岗位"><Button className={styles.positionCardActionIcon} type="text" aria-label="编辑团队岗位" onClick={() => void openEdit(item)} icon={<EditOutlined aria-hidden="true" />} /></Tooltip> : null}
+                      <Tooltip title="复制到我的岗位"><Button className={styles.positionCardActionIcon} type="text" aria-label="复制到我的岗位" onClick={() => void openEdit(item, true)} icon={<CopyOutlined aria-hidden="true" />} /></Tooltip>
+                    </Flex>
                   )}
                 </Flex>
               </Flex>
@@ -1751,7 +1758,7 @@ export default function PositionsPage() {
         </Flex>
       ) : (
         <SectionPanel>
-          <EmptyState text={loading ? "岗位读取中" : positionScope === "false" ? "暂时没有关闭的岗位" : "暂时没有开启的岗位，可以先新建一个。"} />
+          <EmptyState text={loading ? "岗位读取中" : positionSearch.trim() ? "没找到这个岗位，换个关键词，或清空搜索再看看。" : positionScope === "false" ? "暂时没有关闭的岗位" : "暂时没有开启的岗位，可以先新建一个。"} />
         </SectionPanel>
       )}
       <AdminDialog

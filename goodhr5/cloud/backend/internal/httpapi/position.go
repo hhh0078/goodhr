@@ -91,17 +91,7 @@ func (s *PositionService) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := ""
-	if s.auth != nil && s.auth.tenantStore != nil {
-		tenant, tenantErr := s.auth.tenantStore.GetOrCreateTenant(session.Email)
-		if tenantErr != nil {
-			writeError(w, http.StatusInternalServerError, "failed to get tenant")
-			return
-		}
-		tenantID = tenant.ID
-	}
-	// 调用岗位存储读取团队岗位，当前账号创建的岗位优先，其余岗位仅供查看。
-	items, err := s.store.ListPositions(tenantID, session.Email, false)
+	items, admin, err := s.teamPositions(session.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list positions")
 		return
@@ -115,9 +105,13 @@ func (s *PositionService) List(w http.ResponseWriter, r *http.Request) {
 		visibility = "true"
 	}
 	items = filterOpenPositions(items, visibility)
+	positions := publicPositionsForUser(items, session.Email)
+	for index, item := range items {
+		positions[index]["can_edit"] = strings.EqualFold(item.UserEmail, session.Email) || (admin && session.Kind != extensionSessionKind)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,
-		"positions": publicPositionsForUser(items, session.Email),
+		"positions": positions,
 	})
 }
 
@@ -191,6 +185,30 @@ func (s *PositionService) Save(w http.ResponseWriter, r *http.Request) {
 	position, ok := req.toPosition(w, session.Email)
 	if !ok {
 		return
+	}
+	if position.ID != "" {
+		items, admin, err := s.teamPositions(session.Email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "岗位权限暂时没查清楚，请稍后再试")
+			return
+		}
+		found := false
+		for _, existing := range items {
+			if existing.ID != position.ID {
+				continue
+			}
+			if !strings.EqualFold(existing.UserEmail, session.Email) && (!admin || session.Kind == extensionSessionKind) {
+				writeError(w, http.StatusForbidden, "这个岗位需要原创建人或团队管理员修改，你也可以先复制一份")
+				return
+			}
+			position.UserEmail = existing.UserEmail
+			found = true
+			break
+		}
+		if !found {
+			writeError(w, http.StatusNotFound, "这个岗位暂时找不到了，请刷新后再试")
+			return
+		}
 	}
 	if positionUsesAI(position) && !s.requireAIMembership(w, session.Email) {
 		return
