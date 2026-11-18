@@ -337,13 +337,14 @@ type ScreenshotResult struct {
 
 // LongScreenshotRequest 表示使用真实鼠标滚轮分段截取长元素的请求。
 type LongScreenshotRequest struct {
-	Target      SelectorSpec  `json:"target"`
-	WheelAnchor *SelectorSpec `json:"wheel_anchor,omitempty"`
-	Directory   string        `json:"directory"`
-	Filename    string        `json:"filename"`
-	Distance    int           `json:"distance,omitempty"`
-	MaxParts    int           `json:"max_parts,omitempty"`
-	WaitMS      int           `json:"wait_ms,omitempty"`
+	ViewportOnly bool          `json:"viewport_only,omitempty"` // 仅截图可见视口交集，不允许元素截图隐式调整滚动。
+	Target       SelectorSpec  `json:"target"`
+	WheelAnchor  *SelectorSpec `json:"wheel_anchor,omitempty"`
+	Directory    string        `json:"directory"`
+	Filename     string        `json:"filename"`
+	Distance     int           `json:"distance,omitempty"`
+	MaxParts     int           `json:"max_parts,omitempty"`
+	WaitMS       int           `json:"wait_ms,omitempty"`
 }
 
 // ScreenshotPart 表示长截图中的一个本地 PNG 分段。

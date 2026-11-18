@@ -83,6 +83,7 @@ type Behavior struct {
 	CandidateViewportBottomInset int    `json:"candidate_viewport_bottom_inset"` // 推荐页完整卡片起点的固定底部遮挡，默认不额外扣减。
 	CandidateSearchFromViewport  bool   `json:"candidate_search_from_viewport"`  // 显式启用的搜索页也从当前完整卡片开始，后续翻页仍正常进行。
 	CandidateStartFromViewport   bool   `json:"candidate_start_from_viewport"`   // 推荐页从当前首张完整卡片起跑，搜索页由独立配置决定。
+	CandidateUniqueIdentity      bool   `json:"candidate_unique_identity"`       // 名单可换序的平台按完整身份唯一定位，不把启动行号永久绑定给后续动作。
 	CandidateResumeByIdentity    bool   `json:"candidate_resume_by_identity"`    // 推荐列表按唯一身份寻找断点，允许真实滚轮分批加载；零值保留严格前缀核对。
 	SkipGreetingPhoneRequest     bool   `json:"skip_greeting_phone_request"`     // 主动打招呼忽略电话索要勾选；零值保留其他平台行为。
 	SkipGreetingInfoRequests     bool   `json:"skip_greeting_info_requests"`     // 仅主动打招呼跳过电话、微信和简历索要；零值保留原行为，不影响自动回复。
@@ -106,6 +107,8 @@ type Behavior struct {
 	SelectFirstPositionResult    bool   `json:"select_first_position_result"`
 	NeedsDetail                  bool   `json:"needs_detail"`
 	StitchDetailScreenshots      bool   `json:"stitch_detail_screenshots"`
+	DetailScreenshotMaxParts     int    `json:"detail_screenshot_max_parts"`     // 平台详情截图分段上限；零保持20段，不能把达到上限当作完整。
+	DetailScreenshotViewportOnly bool   `json:"detail_screenshot_viewport_only"` // 截取可见视口交集，避免元素截图隐式滚动或展开整个长元素。
 	DetailCloseEscapeFirst       bool   `json:"detail_close_escape_first"`       // 先按 Escape 并确认详情消失，未关闭时才点击备用关闭按钮。
 	AutoReplySendEnterFirst      bool   `json:"auto_reply_send_enter_first"`     // 自动回复优先用焦点已核验的回车发送。
 	AutoReplySingleLineMessages  bool   `json:"auto_reply_single_line_messages"` // 出站正文先把CRLF/LF换成普通空格，避免单行平台发送时直接连词。

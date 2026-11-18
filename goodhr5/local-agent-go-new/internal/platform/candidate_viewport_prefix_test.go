@@ -53,12 +53,19 @@ func TestViewportStartNeverReadsOldNames(t *testing.T) {
 			if cursor.StartIndex != 1251 || !cursor.IdentityByIndex || len(cursor.IdentityOccurrences) != 0 || b.geometryCalls != 0 {
 				t.Fatalf("启动仍依赖名字统计或位置有误：%+v calls=%d", cursor, b.geometryCalls)
 			}
-			c := model.Candidate{Index: 1251, IdentityByIndex: true, IdentityTexts: []string{"合成人选", "30岁"}, IdentityOccurrence: 999}
+			c := model.Candidate{Index: 1251, IdentityByIndex: true, IdentityTexts: []string{"合成人选", "30岁"}, IdentityOccurrence: 999,
+				Fields: map[string]string{"name": "合成人选", "basic_info": "30岁 5年经验", "education": "合成学校 本科"}}
 			spec, err := common.CandidateSelector(cfg, c)
 			if err != nil {
 				t.Fatal(err)
 			}
 			for _, v := range spec.Variants() {
+				if cfg.Behavior.CandidateUniqueIdentity {
+					if v.Target.Index != nil || len(v.Target.Texts) != 3 {
+						t.Fatal("换位名单必须按完整身份唯一核对，不默认选第一个同名者")
+					}
+					continue
+				}
 				if len(v.Parents) == 0 || v.Parents[len(v.Parents)-1].Index == nil || *v.Parents[len(v.Parents)-1].Index != 1251 || v.Target.Index != nil || len(v.Target.Texts) != 2 {
 					t.Fatal("按真实行号核对身份的约束丢失")
 				}
