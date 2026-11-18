@@ -518,11 +518,15 @@ export function parseLongScreenshotRequest(
   action: string,
 ): LongScreenshotRequest {
   const record = asRecord(value, traceId, action);
+  if (record.viewport_only !== undefined && typeof record.viewport_only !== "boolean") {
+    throw invalidRequest(traceId, action, "长截图视口参数不正确");
+  }
   const request: LongScreenshotRequest = {
     target: parseSelectorSpec(record.target, traceId, action),
     directory: requiredString(record, "directory", traceId, action),
     filename: requiredString(record, "filename", traceId, action),
   };
+  assignBoolean(request, "viewport_only", optionalBoolean(record, "viewport_only"));
   if (record.wheel_anchor !== undefined) {
     request.wheel_anchor = parseSelectorSpec(
       record.wheel_anchor,

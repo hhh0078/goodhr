@@ -15,6 +15,25 @@ import (
 	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 )
 
+// TestLongScreenshotProgressReachesSharedLogs 验证40段进度、裁剪范围和失败原因能进入既有可分享岗位日志。
+func TestLongScreenshotProgressReachesSharedLogs(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err = store.SaveTask(ctx, storage.TaskRun{TaskID: "screenshot-task", PositionID: "screenshot-position", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := NewTaskLogger(store, nil)
+	logger.WorkerLine([]byte(`{"trace_id":"screenshot-task","request_id":"capture-1","action":"element.screenshot_long","step":"screenshot_diagnostic","status":"checked","level":"info","diagnostic":true,"input":{"stage":"incomplete"},"output":{"max_parts":40,"captured_parts":40,"completion_reason":"part_limit","complete":false,"clip":{"x":100,"y":120,"width":800,"height":600}}}`))
+	logs, err := store.ListPositionLogs(ctx, "screenshot-position", 10)
+	if err != nil || len(logs) != 1 || logs[0].IsError || !strings.Contains(logs[0].Message, "检查长截图进度") || !bytes.Contains(logs[0].Input, []byte(`"stage":"incomplete"`)) || !bytes.Contains(logs[0].Output, []byte(`"max_parts":40`)) || !bytes.Contains(logs[0].Output, []byte(`"completion_reason":"part_limit"`)) {
+		t.Fatalf("可分享的截图诊断丢失：%+v %v", logs, err)
+	}
+}
+
 // TestScriptWarningsAndStepDurationsRemainVisible 验证脚本提示保留原始证据及未知结果，真实点击失败不降级，关键后续步骤耗时可分享。
 func TestScriptWarningsAndStepDurationsRemainVisible(t *testing.T) {
 	ctx := context.Background()

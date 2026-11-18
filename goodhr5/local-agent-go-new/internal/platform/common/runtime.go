@@ -557,6 +557,9 @@ func CandidateSelector(cfg model.Config, candidate model.Candidate) (contract.Se
 	if err != nil {
 		return contract.SelectorSpec{}, err
 	}
+	if candidate.IdentityByIndex && cfg.Behavior.CandidateUniqueIdentity {
+		return uniqueCandidateSelector(cfg, candidate, selector)
+	}
 	identityTexts := make([]string, 0, len(candidate.IdentityTexts))
 	for _, text := range candidate.IdentityTexts {
 		if text = strings.TrimSpace(text); text != "" {

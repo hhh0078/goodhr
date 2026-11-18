@@ -149,6 +149,30 @@ func TestOCRKeepsOriginalScreenshotSegments(t *testing.T) {
 	}
 }
 
+// TestDetailScreenshotLimitAndCompleteness 验证平台40段及视口参数通过正式Go客户端发送，未完整结果不能进入AI。
+func TestDetailScreenshotLimitAndCompleteness(t *testing.T) {
+	for _, complete := range []bool{true, false} {
+		t.Run(fmt.Sprint(complete), func(t *testing.T) {
+			var received contract.LongScreenshotRequest
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+					t.Error(err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"ok":true,"data":{"parts":[{"path":"first.png","filename":"first.png"}],"complete":%t}}`, complete)
+			}))
+			defer server.Close()
+			prepared := shared.PreparedTask{Platform: model.Config{Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}},
+				Behavior: model.Behavior{DetailScreenshotMaxParts: 40, DetailScreenshotViewportOnly: true}}}
+			flow := Flow{Browser: client.New(server.URL), ScreenshotsDir: t.TempDir()}
+			parts, err := flow.captureDetailScreenshots(context.Background(), prepared, model.Candidate{})
+			if received.MaxParts != 40 || !received.ViewportOnly || (err == nil) != complete || (!complete && len(parts) != 0) {
+				t.Fatalf("长截图参数或完整性未保留：request=%+v parts=%v err=%v", received, parts, err)
+			}
+		})
+	}
+}
+
 // TestVisionKeywordReadsDetailBeforeMatching 验证 AI 图片中的关键词先转录再做 AND/排除词判断，后续评分复用原截图。
 func TestVisionKeywordReadsDetailBeforeMatching(t *testing.T) {
 	for _, excluded := range []bool{false, true} {
@@ -175,7 +199,7 @@ func TestVisionKeywordReadsDetailBeforeMatching(t *testing.T) {
 				}
 				if request.URL.Path == "/api/v1/element/screenshot-long" {
 					captures.Add(1)
-					_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": map[string]any{"parts": []contract.ScreenshotPart{{Path: imagePath, Filename: "detail.png"}}}})
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": map[string]any{"parts": []contract.ScreenshotPart{{Path: imagePath, Filename: "detail.png"}}, "complete": true}})
 					return
 				}
 				call := aiCalls.Add(1)
