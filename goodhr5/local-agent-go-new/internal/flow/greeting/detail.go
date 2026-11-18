@@ -80,12 +80,20 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 			anchor = &configuredAnchor
 		}
 		began := time.Now()
+		maxParts := prepared.Platform.Behavior.DetailScreenshotMaxParts
+		if maxParts <= 0 {
+			maxParts = 20
+		}
 		result, err := f.Browser.LongScreenshot(ctx, contract.LongScreenshotRequest{
 			Target: target, WheelAnchor: anchor, Directory: directory,
-			Filename: filename, Distance: 520, MaxParts: 20, WaitMS: 300,
+			Filename: filename, Distance: 520, MaxParts: maxParts, WaitMS: 300,
+			ViewportOnly: prepared.Platform.Behavior.DetailScreenshotViewportOnly,
 		})
 		if err != nil {
 			return nil, failurediag.Wrap(err, failurediag.Detail{Source: "截图", Operation: "候选人详情长截图", Phase: "获取分段画面", Reason: "未取得完整的长截图", ElapsedMS: time.Since(began).Milliseconds()})
+		}
+		if !result.Complete {
+			return nil, fmt.Errorf("详情长截图还没确认到底，本次不采用不完整画面")
 		}
 		if len(result.Parts) == 0 {
 			return nil, fmt.Errorf("候选人详情长截图没有生成分段")

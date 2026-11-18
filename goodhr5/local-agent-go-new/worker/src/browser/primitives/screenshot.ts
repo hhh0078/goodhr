@@ -28,6 +28,16 @@ async function captureFrame<T>(capture: () => Promise<T>): Promise<T> {
 
 /** ScreenshotPrimitive 封装页面和元素截图最小操作。 */
 export class ScreenshotPrimitive {
+  /**
+   * clippedPageBuffer 截取当前可见交集，不自动滚动元素。
+   * @param page 当前页面。
+   * @param clip 已核对的CSS像素区域。
+   * @returns PNG截图内容，仅在本机内存中使用。
+   */
+  async clippedPageBuffer(page: Page, clip: { x: number; y: number; width: number; height: number }): Promise<Buffer> {
+    return captureFrame(() => page.screenshot({ clip, fullPage: false, type: "png", timeout: screenshotTimeoutMS }));
+  }
+
   /** clippedPage 只裁剪当前页面视口，不调用会自动滚动的元素截图。 */
   async clippedPage(page: Page, filePath: string, clip: { x: number; y: number; width: number; height: number }): Promise<number> {
     await fs.mkdir(path.dirname(filePath), { recursive: true });

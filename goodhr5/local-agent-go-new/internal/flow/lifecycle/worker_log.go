@@ -267,7 +267,7 @@ func workerLogMessage(item workerLogLine) string {
 func workerStepLabel(item workerLogLine) string {
 	if item.Diagnostic {
 		if label := map[string]string{"mouse_move": "移动鼠标", "mouse_down": "按下鼠标", "mouse_up": "松开鼠标", "mouse_wheel": "滚动鼠标",
-			"selector_probe": "检查详情位置", "click_target": "检查点击位置", "click_landing": "记录点击落点"}[item.Step]; label != "" {
+			"selector_probe": "检查详情位置", "click_target": "检查点击位置", "click_landing": "记录点击落点", "screenshot_diagnostic": "检查长截图进度"}[item.Step]; label != "" {
 			return label
 		}
 	}
