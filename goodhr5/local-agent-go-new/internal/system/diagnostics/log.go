@@ -358,6 +358,9 @@ func browserStartupOutputFamily(message string) string {
 	}
 	stream, payload := match[1], strings.TrimSpace(match[2])
 	if stream == "out" {
+		if strings.HasPrefix(payload, "console.warn: WindowsJumpLists:") && strings.Contains(payload, "Failed to fetch favicon for") {
+			return "windows_jump_list_favicon"
+		}
 		switch payload {
 		case `console.error: "Warning: unrecognized command line flag" "-foreground"`:
 			return "foreground_flag"

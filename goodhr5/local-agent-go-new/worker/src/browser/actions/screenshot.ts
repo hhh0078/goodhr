@@ -10,7 +10,7 @@ import type {
   ScreenshotRequest,
   ScreenshotResult,
 } from "../../contracts/actions.js";
-import type { ActionContext } from "../../contracts/common.js";
+import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { normalizeWorkerError, WorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { markRequestProgress } from "../../logging/request-progress.js";
@@ -21,6 +21,7 @@ import { BrowserSession } from "../session/browser-session.js";
 import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
 import { variedDistance, wheelGesture, readingPause } from "./wheel-gesture.js";
+import { longScreenshotViewport, logLongScreenshotProgress } from "./long-screenshot-viewport.js";
 
 /** ScreenshotAction 实现页面和元素截图封装能力。 */
 export class ScreenshotAction {
@@ -128,6 +129,9 @@ export class ScreenshotAction {
     const maxParts = Math.max(1, request.max_parts ?? 20);
     const waitMS = Math.max(50, request.wait_ms ?? 300);
     const parts: ScreenshotPart[] = [];
+    const started = Date.now();
+    let completionReason = "capture_failed", scrollPosition = 0, topStable = 0;
+    let lastCapture: JsonObject = {};
     this.logger.info(actionContext, step, "start", {
       target_description: request.target.description,
       max_parts: maxParts,
@@ -148,47 +152,63 @@ export class ScreenshotAction {
       assertRequestActive(actionContext);
       const box = target.resolved.view.box;
       const viewportHeight = target.resolved.view.viewport.height;
-      const visibleHeight = Math.min(viewportHeight, box.y + box.height) - Math.max(0, box.y);
+      const viewportCapture = request.viewport_only ? await longScreenshotViewport(page, target.resolved, this.find, this.primitive, actionContext) : undefined;
+      const visibleHeight = viewportCapture?.height ?? Math.min(viewportHeight, box.y + box.height) - Math.max(0, box.y);
       if (visibleHeight < 80) throw new Error("详情截图区域太小，无法保证相邻画面完整重叠");
       // 每段最多跨过可见高度的 65%，为变速滚动和长图拼接保留重叠。
       const distance = Math.max(40, Math.min(request.distance ?? 520, Math.floor(visibleHeight * 0.65)));
+      logLongScreenshotProgress(this.logger, actionContext, "prepare", { max_parts: maxParts, distance, wait_ms: waitMS, viewport_only: Boolean(request.viewport_only), viewport: { ...target.resolved.view.viewport }, target_box: { ...box } });
       /** captureActive 等待原生截图后再次核对ALS执行预算，迟到结果不能进入判重或写文件。 */
       const captureActive = async (): Promise<Buffer> => {
         assertRequestActive(actionContext);
-        const buffer = await this.primitive.elementBuffer(target.resolved.locator);
+        const began = Date.now();
+        const frame = viewportCapture ? await viewportCapture.capture() : { buffer: await this.primitive.elementBuffer(target.resolved.locator), details: { capture_mode: "element" } };
+        const buffer = frame.buffer;
+        lastCapture = { ...frame.details, capture_ms: Date.now() - began, image_bytes: buffer.length,
+          ...(buffer.length >= 24 && buffer.subarray(1, 4).toString("ascii") === "PNG" ? { image_width: buffer.readUInt32BE(16), image_height: buffer.readUInt32BE(20) } : {}) };
         assertRequestActive(actionContext);
         return buffer;
       };
       let topBuffer = await captureActive();
-      let topStable = 0;
       for (let attempt = 0; attempt < maxParts + 2 && topStable < 2; attempt++) {
         assertRequestActive(actionContext);
         markRequestProgress(actionContext, "screenshot_top");
-        await wheelGesture(this.mouse, page, 0, -variedDistance(distance), actionContext, this.logger);
+        const wheelDistance = -variedDistance(distance);
+        await wheelGesture(this.mouse, page, 0, wheelDistance, actionContext, this.logger);
         await readingPause(waitMS, actionContext);
         const next = await captureActive();
         const duplicate = screenshotsAreDuplicate(topBuffer, next);
         assertRequestActive(actionContext);
         topStable = duplicate ? topStable + 1 : 0;
+        logLongScreenshotProgress(this.logger, actionContext, "seek_top", { attempt: attempt + 1, wheel_distance: wheelDistance, duplicate, stable_rounds: topStable, ...lastCapture });
+        if (topStable >= 2 && request.viewport_only && lastCapture.top_edge_visible !== true) {
+          completionReason = "scroll_stalled_before_top";
+          throw new Error("画面停止变化，但简历开头还没进入截图区域，暂不截取不完整内容");
+        }
         topBuffer = next;
       }
-      if (topStable < 2) throw new Error("详情截图前未能确认已回到顶部，避免漏掉开头内容");
+      if (topStable < 2) { completionReason = "top_unconfirmed"; throw new Error("详情截图前未能确认已回到顶部，避免漏掉开头内容"); }
       this.logger.info(actionContext, "screenshot_top", "success");
       let complete = false;
       let previousBuffer: Buffer | null = null;
-      let scrollPosition = 0;
       let duplicateFrames = 0;
       for (let attempt = 0; attempt < maxParts + 2; attempt += 1) {
         assertRequestActive(actionContext);
         const currentBuffer = await captureActive();
-        const duplicate = previousBuffer && screenshotsAreDuplicate(previousBuffer, currentBuffer);
+        const duplicate = Boolean(previousBuffer && screenshotsAreDuplicate(previousBuffer, currentBuffer));
         assertRequestActive(actionContext);
         if (duplicate) {
           duplicateFrames++;
-          if (duplicateFrames >= 2) { complete = true; break; }
+          if (duplicateFrames >= 2) {
+            if (request.viewport_only && lastCapture.bottom_edge_visible !== true) {
+              completionReason = "scroll_stalled_before_bottom";
+              throw new Error("画面停止变化，但简历末尾还没进入截图区域，暂不把滚动受阻当成到底");
+            }
+            complete = true; completionReason = "bottom_confirmed"; break;
+          }
         } else {
           duplicateFrames = 0;
-          if (parts.length >= maxParts) break;
+          if (parts.length >= maxParts) { completionReason = "part_limit"; break; }
           const index = parts.length;
           const filename = `${baseFilename}.part-${String(index + 1).padStart(3, "0")}.png`;
           const filePath = path.join(request.directory, filename);
@@ -203,6 +223,7 @@ export class ScreenshotAction {
           parts.push({ path: filePath, filename, size, index, scroll_position: scrollPosition });
           this.logger.info(actionContext, "capture_part", "success", { index: index + 1, scroll_position: scrollPosition });
         }
+        logLongScreenshotProgress(this.logger, actionContext, "capture", { attempt: attempt + 1, captured_parts: parts.length, max_parts: maxParts, duplicate, duplicate_rounds: duplicateFrames, requested_wheel_total: scrollPosition, ...lastCapture });
         previousBuffer = currentBuffer;
         const stepDistance = variedDistance(distance);
         markRequestProgress(actionContext, "screenshot_advance");
@@ -220,14 +241,17 @@ export class ScreenshotAction {
         throw new Error("长截图没有生成任何分段");
       }
       if (!result.complete) {
+        if (completionReason === "capture_failed") completionReason = "iteration_limit";
         throw new Error(`长截图在 ${result.count} 个分段后仍未滚动到底`);
       }
+      logLongScreenshotProgress(this.logger, actionContext, "complete", { complete: true, completion_reason: completionReason, captured_parts: parts.length, max_parts: maxParts, duplicate_rounds: duplicateFrames, elapsed_ms: Date.now() - started, requested_wheel_total: scrollPosition, ...lastCapture });
       this.logger.info(actionContext, step, "success", {
         count: result.count,
         complete: result.complete,
       });
       return result;
     } catch (error) {
+      logLongScreenshotProgress(this.logger, actionContext, "incomplete", { complete: false, completion_reason: completionReason, captured_parts: parts.length, max_parts: maxParts, top_stable_rounds: topStable, elapsed_ms: Date.now() - started, requested_wheel_total: scrollPosition, ...lastCapture });
       const normalized = normalizeWorkerError(error, {
         code: "SCREENSHOT_FAILED",
         message: "长截图没保存完整，我已经把分段进度记下来了",
@@ -235,7 +259,7 @@ export class ScreenshotAction {
         step,
         trace_id: actionContext.trace_id,
         retryable: true,
-        details: { captured_parts: parts.length, ...(screenshotTimedOut(error) ? { capture_timeout_ms: screenshotTimeoutMS } : {}) },
+        details: { captured_parts: parts.length, max_parts: maxParts, completion_reason: completionReason, ...(screenshotTimedOut(error) ? { capture_timeout_ms: screenshotTimeoutMS } : {}) },
       });
       this.logger.failure(actionContext, normalized);
       throw normalized;

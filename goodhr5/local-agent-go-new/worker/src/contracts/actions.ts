@@ -203,6 +203,7 @@ export interface ScreenshotResult extends JsonObject {
 
 /** LongScreenshotRequest 表示使用真实鼠标滚轮分段截取长元素的参数。 */
 export interface LongScreenshotRequest {
+  viewport_only?: boolean;
   target: SelectorSpec;
   wheel_anchor?: SelectorSpec;
   directory: string;

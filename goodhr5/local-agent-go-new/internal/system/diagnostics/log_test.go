@@ -330,6 +330,7 @@ func TestWorkerBrowserStartupOutputs(t *testing.T) {
 		payload   string
 		family    string
 	}{
+		{"2026-11-18T02:45:16.245Z", "out", `console.warn: WindowsJumpLists: "Failed to fetch favicon for " "https://example.test/" [Exception... "Failure" nsresult: "0x80004005 (NS_ERROR_FAILURE)"]`, "windows_jump_list_favicon"},
 		{"2026-10-08T17:22:37.206Z", "out", `console.error: "Warning: unrecognized command line flag" "-foreground"`, "foreground_flag"},
 		{"2026-10-08T17:22:37.667Z", "out", "console.error: CustomizableUI:", "customizable_ui_header"},
 		{"2026-10-08T17:22:37.924Z", "out", `console.error: SearchService: "#init: failure initializing search:" (new Error("` + recordFailure + `", "` + rustSource + `", 2681))`, "search_init_record_type"},
@@ -398,6 +399,8 @@ func TestWorkerUnknownBrowserStartupErrorsStayFailed(t *testing.T) {
 	const rustError = "JavaScript error: moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustSearch.sys.mjs, line 2681: Error: reason: JSON error: missing field `recordType` at line 1 column 114"
 	const listener = "JavaScript error: chrome://juggler/content/Helper.js, line 82: NS_ERROR_FAILURE: Component returned failure code: 0x80004005 (NS_ERROR_FAILURE) [nsIWebProgress.removeProgressListener]"
 	for index, line := range []string{
+		out + `console.error: WindowsJumpLists: "Unexpected failure"`,
+		out + `console.warn: WindowsJumpLists: "Failed to fetch favicon for" "fatal error"`,
 		"Error: Worker startup failed",
 		"console.error: WebExtensions:",
 		out + `console.error: "Warning: unrecognized command line flag" "-unsafe-launch"`,
