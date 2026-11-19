@@ -37,7 +37,15 @@ export default function SiteFooter() {
               </Link>
             ))}
           </nav>
-          <p className="public-text public-sitefooter-10">联系：17607080935</p>
+          <div>
+            <p className="public-text public-sitefooter-10">联系：17607080935</p>
+            <p className="public-text public-sitefooter-9" style={{ marginTop: 8 }}>
+              友情链接：
+              <a href="https://goodchat.58it.cn/zh-CN" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>
+                GoodChat AI 客服
+              </a>
+            </p>
+          </div>
         </div>
       </div>
     </footer>
