@@ -1346,12 +1346,13 @@
       "description": "智联候选人基本信息"
     },
     "education": {
-      "_comment": "候选人教育和经历字段。",
+      "_comment": "推荐页只读工作和教育经历正文，排除外层隐藏提示、活跃标签及操作按钮；搜索页保持原读取范围。",
       "parents": [],
       "target": {
         "_comment": "经历目标。",
         "selectors": [
-          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".resume-item__content.resume-card-exp" }
+          { "_comment": "推荐卡片的实际经历区域，不把整个卡片外层当成经历。", "type": "css", "value": ":scope.recommend-resume-item__inner .resume-item__experience" },
+          { "_comment": "仅搜索卡片沿用旧经历区域，推荐页不得回退到受界面文字污染的外层。", "type": "css", "value": ":scope.search-resume-item__inner .resume-item__content.resume-card-exp" }
         ]
       },
       "state": "attached",
