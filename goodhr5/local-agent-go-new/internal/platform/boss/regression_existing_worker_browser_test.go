@@ -153,5 +153,5 @@ func regressionFixtureServer() *httptest.Server {
 
 // syntheticIdentityCard 生成姓名、基础信息和经历都可核对的合成卡片，不包含真实账号资料。
 func syntheticIdentityCard(id int) string {
-	return fmt.Sprintf(`<div class="recommend-item__inner recommend-resume-item__inner"><span class="talent-basic-info__name--inner">合成人选%d</span><div class="talent-basic-info__basic">30岁 5年经验</div><div class="resume-item__content resume-card-exp">合成学校%d 本科</div></div>`, id, id)
+	return fmt.Sprintf(`<div class="recommend-item__inner recommend-resume-item__inner"><span class="talent-basic-info__name--inner">合成人选%d</span><div class="talent-basic-info__basic">30岁 5年经验</div><div class="resume-item__content resume-card-exp"><div class="resume-item__experience">合成学校%d 本科</div></div></div>`, id, id)
 }

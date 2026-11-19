@@ -105,7 +105,7 @@ func layoutFixture(w http.ResponseWriter, r *http.Request) {
 	mode := r.URL.Query().Get("mode")
 	style := ""
 	if mode == "flex" {
-		style = ".talent-basic-info__basic,.resume-card-exp{display:flex;gap:12px}"
+		style = ".talent-basic-info__basic,.resume-item__experience{display:flex;gap:12px}"
 	}
 	_, _ = fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><style>body{margin:0;padding-top:130px}.recommend-item__inner{height:130px;border:1px solid #999}%s</style><div class="recommend-list"><div role="group">`, style)
 	ids := []int{0, 1, 2, 3, 4, 5}
@@ -129,7 +129,15 @@ func layoutFixture(w http.ResponseWriter, r *http.Request) {
 			basic = "<div>30岁</div><div>5年经验</div>"
 			education = "<div>" + school + "</div><div>本科</div>"
 		}
-		_, _ = fmt.Fprintf(w, `<div class="recommend-item__inner recommend-resume-item__inner"><div class="talent-basic-info__name--inner">合成人选%d</div><div class="talent-basic-info__basic">%s</div><div class="resume-item__content resume-card-exp">%s</div></div>`, person, basic, education)
+		_, _ = fmt.Fprintf(w, `<div class="recommend-item__inner recommend-resume-item__inner"><div class="talent-basic-info__name--inner">合成人选%d</div><div class="talent-basic-info__basic">%s</div><div class="resume-item__content resume-card-exp"><div class="resume-item__experience">%s</div>%s</div></div>`, person, basic, education, layoutNoise(r))
 	}
 	_, _ = fmt.Fprint(w, "</div></div>")
+}
+
+// layoutNoise 模拟现场经历外层混入的隐藏提示和响应式重复按钮，避免测试只覆盖纯正文。
+func layoutNoise(r *http.Request) string {
+	if r.URL.Query().Get("noise") != "1" {
+		return ""
+	}
+	return `<span style="display:none">隐藏提示</span><button>打招呼</button><button style="display:none">打招呼</button>`
 }
