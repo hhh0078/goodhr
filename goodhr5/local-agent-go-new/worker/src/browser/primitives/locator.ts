@@ -648,7 +648,7 @@ export class LocatorPrimitive {
         break;
     }
     for (const text of group.texts ?? []) {
-      locator = locator.filter({ hasText: text });
+      locator = locator.filter({ hasText: group.text_layout_whitespace ? layoutTextPattern(text) : text });
     }
     return locator;
   }
@@ -728,6 +728,12 @@ function selectorVariants(spec: SelectorSpec): SelectorSpec[] {
 function exactTextPattern(value: string): RegExp {
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`^\\s*${escaped}\\s*$`, "u");
+}
+
+/** layoutTextPattern 只允许完整文字之间的排版空白出现或消失，转义正文并保持片段顺序；不作为页面脚本执行。 */
+function layoutTextPattern(value: string): RegExp {
+  const escaped = value.trim().split(/\s+/u).map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*");
+  return new RegExp(escaped, "iu");
 }
 
 /** attributeFilter 把属性等值条件编码为标准 CSS，转义名称、引号、反斜线和控制字符，防止正文扩展选择范围。 */

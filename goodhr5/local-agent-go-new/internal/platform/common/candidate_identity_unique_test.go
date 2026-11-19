@@ -32,7 +32,7 @@ func TestUniqueCandidateIdentityDoesNotBindOldIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selector.Target.Index != nil || len(selector.Parents) != 0 || selector.Target.Selectors[0].Value != ".row" {
+	if selector.Target.Index != nil || !selector.Target.TextLayoutWhitespace || len(selector.Parents) != 0 || selector.Target.Selectors[0].Value != ".row" {
 		t.Fatalf("候选人仍绑定旧行号：%+v", selector)
 	}
 	if got := strings.Join(selector.Target.Texts, "|"); !strings.Contains(got, "30岁 5年经验") || !strings.Contains(got, "合成学校 本科") {
@@ -58,13 +58,13 @@ func TestUniqueCandidateIdentityOnlyChangesEnabledViewport(t *testing.T) {
 		t.Fatal(err)
 	}
 	selector, err := CandidateSelector(cfg, candidate)
-	if err != nil || len(selector.Parents) != 1 || selector.Parents[0].Index == nil || *selector.Parents[0].Index != 12 {
+	if err != nil || selector.Target.TextLayoutWhitespace || len(selector.Parents) != 1 || selector.Parents[0].Index == nil || *selector.Parents[0].Index != 12 {
 		t.Fatalf("其他平台的行内核对被改变：%+v %v", selector, err)
 	}
 	cfg, candidate = uniqueIdentityFixture(t)
 	candidate.IdentityByIndex, candidate.IdentityOccurrence = false, 2
 	selector, err = CandidateSelector(cfg, candidate)
-	if err != nil || selector.Target.Index == nil || *selector.Target.Index != 2 {
+	if err != nil || selector.Target.TextLayoutWhitespace || selector.Target.Index == nil || *selector.Target.Index != 2 {
 		t.Fatalf("搜索页原同名顺序被改变：%+v %v", selector, err)
 	}
 }

@@ -192,6 +192,12 @@ function parseSelectorGroup(
   if (typeof record.exact_text === "boolean") {
     group.exact_text = record.exact_text;
   }
+  if (record.text_layout_whitespace !== undefined) {
+    if (typeof record.text_layout_whitespace !== "boolean") {
+      throw invalidRequest(traceId, action, `${field}.text_layout_whitespace 必须是布尔值`);
+    }
+    group.text_layout_whitespace = record.text_layout_whitespace;
+  }
   const attributes = parseAttributes(record.attributes);
   if (Object.keys(attributes).length > 0) {
     group.attributes = attributes;
