@@ -31,6 +31,7 @@ func uniqueCandidateSelector(cfg model.Config, candidate model.Candidate, select
 	}
 	return selector.MapVariants(func(variant contract.SelectorSpec) contract.SelectorSpec {
 		variant.Target.Index = nil // 让所有动作的requireUnique生效，重名同经历不能默认选第一位。
+		variant.Target.TextLayoutWhitespace = true // innerText的排版换行不一定存在于hasText使用的节点文字中。
 		variant.Target.Texts = append(append([]string(nil), variant.Target.Texts...), texts...)
 		variant.Description = firstNonEmpty(candidate.Name, variant.Description)
 		return variant

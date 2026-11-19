@@ -16,6 +16,7 @@ export interface SelectorGroup {
   index?: number;
   text?: string;
   texts?: string[];
+  text_layout_whitespace?: boolean; // 显式兼容innerText排版空白，其他选择器继续使用原匹配规则。
   exact_text?: boolean;
   attributes?: Record<string, string>;
 }

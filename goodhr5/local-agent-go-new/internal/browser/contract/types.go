@@ -10,12 +10,13 @@ type SelectorCandidate struct {
 
 // SelectorGroup 表示一个层级的候选选择器和匹配约束。
 type SelectorGroup struct {
-	Selectors  []SelectorCandidate `json:"selectors"`
-	Index      *int                `json:"index,omitempty"`
-	Text       string              `json:"text,omitempty"`
-	Texts      []string            `json:"texts,omitempty"`
-	ExactText  *bool               `json:"exact_text,omitempty"`
-	Attributes map[string]string   `json:"attributes,omitempty"`
+	Selectors            []SelectorCandidate `json:"selectors"`
+	Index                *int                `json:"index,omitempty"`
+	Text                 string              `json:"text,omitempty"`
+	Texts                []string            `json:"texts,omitempty"`
+	TextLayoutWhitespace bool                `json:"text_layout_whitespace,omitempty"` // 仅显式开启时兼容展示换行与节点间零空白，仍保留完整文字顺序。
+	ExactText            *bool               `json:"exact_text,omitempty"`
+	Attributes           map[string]string   `json:"attributes,omitempty"`
 }
 
 // SelectorSpec 表示 iframe、父级和目标组成的统一定位方案。
