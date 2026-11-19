@@ -10,6 +10,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import RecruitmentPlatformOverview from "@/components/RecruitmentPlatformOverview";
 import SiteFooter from "@/components/SiteFooter";
+import HomeCustomerSupport from "@/components/HomeCustomerSupport";
 import SiteHeader from "@/components/SiteHeader";
 import StructuredData from "@/components/StructuredData";
 import WorkflowBand from "@/components/WorkflowBand";
@@ -336,6 +337,7 @@ export default function HomePage() {
         </section>
       </main>
       <SiteFooter />
+      <HomeCustomerSupport />
     </div>
   );
 }
