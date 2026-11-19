@@ -1,8 +1,8 @@
 /** 文件作用说明：仅在确认客服知识库就绪并明确启用后，为公开首页加载GoodHR专用GoodChat客服悬浮窗。 */
 import Script from "next/script";
 
-// 知识库和机器人尚待确认，当前发布仅放友链；确认后再显式启用并发布。
-const CUSTOMER_SUPPORT_READY = false;
+// 知识库、机器人、表单及转人工已在生产验收，并于2026-11-20获准公开。
+const CUSTOMER_SUPPORT_READY = true;
 
 /** HomeCustomerSupport 在服务端按发布开关加载专用脚本；默认不向访客加载尚未验收的客服。 */
 export default function HomeCustomerSupport() {
