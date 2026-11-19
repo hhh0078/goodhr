@@ -2298,6 +2298,10 @@
   padding-top: 40px;
   padding-bottom: 40px;
 }
+/* 首页页脚为客服浮钮留出空间，避免挡住联系方式和友情链接。 */
+.public-home-1 .public-sitefooter-1 {
+  padding-bottom: 104px;
+}
 .public-sitefooter-1 {
   border-top: 1px solid;
 }
