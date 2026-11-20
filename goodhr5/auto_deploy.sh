@@ -14,6 +14,19 @@ log() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"
 }
 
+# refresh_sitemap 每分钟独立刷新公开XML，不因长时间构建或Git同步失败而冻结新文章。
+refresh_sitemap() {
+  if [ -f "$PROJECT_DIR/scripts/refresh_public_sitemap.py" ]; then
+    if python3 "$PROJECT_DIR/scripts/refresh_public_sitemap.py" >> "$LOG_FILE" 2>&1; then
+      if ! python3 "$PROJECT_DIR/scripts/install_static_sitemap.py" >> "$LOG_FILE" 2>&1; then
+        log "静态地图Nginx规则未通过，已停止本轮规则更新；详情见本日志"
+      fi
+    else
+      log "站点地图刷新未通过，保留上次完整静态文件；详情见本日志"
+    fi
+  fi
+}
+
 if [ "${DEPLOY_PRUNE:-0}" != 0 ]; then
   log "已禁止全局prune，请使用scripts/release_retention.py的本项目精确计划"
   exit 1
@@ -22,6 +35,7 @@ if [ -n "${DEPLOY_COMPOSE_FILE:-}" ] && [ "$DEPLOY_COMPOSE_FILE" != docker-compo
   log "正式发布统一使用docker-compose.build.yml，不再走旧源码挂载部署"
   exit 1
 fi
+refresh_sitemap
 mkdir -p "$STATE_DIR"
 # 文件锁由内核随进程退出释放，不再把历史遗留目录误判成仍在部署。
 exec 5>>"$STATE_DIR/job.lock"

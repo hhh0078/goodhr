@@ -385,6 +385,7 @@ class AutomaticReleaseTests(unittest.TestCase):
             tools.mkdir()
             (source / "scripts").mkdir()
             counter = base / "calls"
+            sitemap_counter = base / "sitemap-calls"
             (repo / ".gitignore").write_text("/goodhr5/.release-source.lock\n/goodhr5/deploy.log\n")
             script = (ROOT / "auto_deploy.sh").read_text().replace(
                 "STATE_DIR=/opt/goodhr-release/auto-deploy", "STATE_DIR=" + shlex.quote(str(base / "state")))
@@ -392,6 +393,10 @@ class AutomaticReleaseTests(unittest.TestCase):
             (source / "scripts/auto_release.py").write_text(
                 '"""文件作用：仅记录临时入口调用，不触发构建。"""\nfrom pathlib import Path\n'
                 + "p=Path(" + repr(str(counter)) + ")\np.write_text(p.read_text()+'x' if p.exists() else 'x')\n")
+            (source / "scripts/refresh_public_sitemap.py").write_text(
+                '"""文件作用：仅记录临时地图刷新，不写生产文件。"""\nfrom pathlib import Path\n'
+                + "p=Path(" + repr(str(sitemap_counter)) + ")\np.write_text(p.read_text()+'x' if p.exists() else 'x')\n")
+            (source / "scripts/install_static_sitemap.py").write_text('"""文件作用：地图入口测试不操作真实Nginx。"""\n')
             (tools / "flock").write_text("#!/bin/sh\n# 文件作用：本地入口测试不使用服务器全局锁。\nexit 0\n")
             (tools / "flock").chmod(0o755)
             git = shutil.which("git")
@@ -402,6 +407,15 @@ class AutomaticReleaseTests(unittest.TestCase):
             environment = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"])
             for _ in range(2):
                 subprocess.run(["sh", str(source / "auto_deploy.sh")], env=environment, check=True, stderr=subprocess.PIPE)
+            self.assertEqual(counter.read_text(), "xx")
+            self.assertEqual(sitemap_counter.read_text(), "xx")
+            subprocess.run([git, "remote", "set-url", "origin", str(base / "missing-remote")], cwd=repo, check=True)
+            failed = subprocess.run(["sh", str(source / "auto_deploy.sh")], env=environment, stderr=subprocess.PIPE)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertEqual(sitemap_counter.read_text(), "xxx")
+            (tools / "flock").write_text("#!/bin/sh\n# 文件作用：模拟已有发布占用任务锁。\nexit 1\n")
+            subprocess.run(["sh", str(source / "auto_deploy.sh")], env=environment, check=True, stderr=subprocess.PIPE)
+            self.assertEqual(sitemap_counter.read_text(), "xxxx")
             self.assertEqual(counter.read_text(), "xx")
 
     def test_cleanup_refuses_a_running_rehearsal_container(self):
