@@ -115,6 +115,8 @@ type Behavior struct {
 	MessageSendEnterFallback     bool   `json:"message_send_enter_fallback"`     // 发送按钮明确尚未点击时，允许聚焦输入框后按回车兜底。
 	MessageSendVerifyEmpty       bool   `json:"message_send_verify_empty"`       // 发送后确认输入框清空，避免把按键成功当成消息发送成功。
 
+	CandidateViewportFallbackFirst bool `json:"candidate_viewport_fallback_first"` // 没有完整可见卡片时回到当前页首行作为备用起点，读取失败不兜底。
+
 	AutoReplyOnlineProfileFragment          string `json:"auto_reply_online_profile_fragment"`           // 在线弹层允许的唯一URL片段；仅同源同路径同查询的空片段和此值可切换，空值保持原URL严格校验。
 	AutoReplyOnlineProfileHidesConversation bool   `json:"auto_reply_online_profile_hides_conversation"` // 已实证的DOM在线弹层会隐藏原聊天；仅本次从原生核身入口打开后允许临时缺少聊天，关闭后仍须重新核身。
 	AutoReplyMessageIdentityVersion         int    `json:"auto_reply_message_identity_version"`          // 平台消息键算法版本；零值不启用旧会话的一次性完整重采。

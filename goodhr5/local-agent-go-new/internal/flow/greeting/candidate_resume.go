@@ -60,7 +60,11 @@ func (f *Flow) prepareCandidateResume(ctx context.Context, browser model.Browser
 		if err := common.StartCandidateViewport(ctx, browser, prepared.Platform, cursor); err != nil {
 			return nil, err
 		}
-		shared.ReportProgress(f.Logger, prepared.Request.TaskID, fmt.Sprintf("从当前屏幕第一张完整候选人卡片开始（列表第%d位）", cursor.StartIndex+1))
+		message := fmt.Sprintf("从当前屏幕第一张完整候选人卡片开始（列表第%d位）", cursor.StartIndex+1)
+		if prepared.Platform.Behavior.CandidateViewportFallbackFirst && cursor.StartIndex == 0 {
+			message = "从当前页第一位候选人开始"
+		}
+		shared.ReportProgress(f.Logger, prepared.Request.TaskID, message)
 		return nil, nil
 	}
 	if !canResume {

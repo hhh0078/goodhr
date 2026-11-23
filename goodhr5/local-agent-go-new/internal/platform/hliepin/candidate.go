@@ -65,10 +65,24 @@ func stableCandidateName(value string) string {
 	return ""
 }
 
-// ScrollToCandidate 先清理晚出现的开聊推广弹框，再通过真实滚轮定位候选人。
+// ScrollToCandidate 先清理推广弹框，再通过真实滚轮定位；首行备用起点使用页面区域，兼容表格已完全离开视口的情况。
 func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
 	if err := closePostGreetPromotion(ctx, browser, cfg, 1); err != nil {
 		return err
+	}
+	if cfg.Behavior.CandidateViewportFallbackFirst && candidate.IdentityByIndex && candidate.Index == 0 {
+		anchor, err := common.RequiredSelector(cfg, "candidate.pagination_scroll")
+		if err != nil {
+			return err
+		}
+		selector, err := common.CandidateSelector(cfg, candidate)
+		if err != nil {
+			return err
+		}
+		// 先把首行带回屏幕，再按原表格边界核对完整可见，不能给贴边表格强加页面横向留白。
+		if _, err := browser.Scroll(ctx, contract.ScrollRequest{Target: &selector, WheelAnchor: &anchor, Distance: 620, MaxAttempts: 30, WaitMS: 120}); err != nil {
+			return err
+		}
 	}
 	return common.ScrollToCandidate(ctx, browser, cfg, candidate)
 }
