@@ -38,6 +38,8 @@
   "_comment_max_items": "单次最多读取的候选人或会话数量。",
   "behavior": {
     "_comment": "猎聘猎头端页面行为开关。",
+    "candidate_start_from_viewport": true,
+    "_comment_candidate_start_from_viewport": "找人页每次启动只读定位当前屏幕首位完整候选人，不查旧断点、不预先滚动；后续翻页仍从新页开头处理。",
     "supports_paging": true,
     "_comment_supports_paging": "候选人列表支持数字页码翻页。",
     "candidate_list_mode": "number_page",
@@ -87,6 +89,16 @@
       "state": "visible",
       "timeout_ms": 5000,
       "description": "猎聘猎头端候选人列表"
+    },
+    "candidate.identity_check": {
+      "_comment": "先按当前屏幕的真实行号定位，再仅在这一行内核对姓名和年龄，避免重新查找上方同名候选人。",
+      "target": {
+        "_comment": "已定位的当前候选人表格行自身。",
+        "selectors": [{ "_comment": "标准相对选择器仅指向当前行。", "type": "css", "value": ":scope" }]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘猎头端当前候选人身份核对"
     },
     "candidate.item": {
       "_comment": "候选人表格行。",
@@ -444,6 +456,16 @@
       "state": "enabled",
       "timeout_ms": 600,
       "description": "猎聘猎头端关闭开聊后推广弹框"
+    },
+    "candidate.pagination_scroll": {
+      "_comment": "分页栏位于候选人表格外，翻页定位必须滚动页面，不能把表格主体当作分页按钮的可见范围。",
+      "target": {
+        "_comment": "分页栏所属的页面滚动区域。",
+        "selectors": [{ "_comment": "标准页面根节点，滚轮沿真实页面推进。", "type": "css", "value": "body" }]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘猎头端分页滚动区域"
     },
     "candidate.next_page": {
       "_comment": "候选人分页栏中可用的下一页按钮，排除末页禁用状态。",

@@ -266,9 +266,9 @@ func TestCandidateResumeMigrationAndFailedWrites(t *testing.T) {
 	}
 }
 
-// TestRecommendationViewportSkipsHistoricalStorage 验证推荐及无忧搜索不会读取故障或旧断点库，智联搜索仍走原断点；无存储及无恢复接口也执行视口起点。
+// TestRecommendationViewportSkipsHistoricalStorage 验证推荐、无忧搜索及猎聘猎头端不读取故障断点库，其他页面沿用原起点；无存储及无恢复接口也执行视口起点。
 func TestRecommendationViewportSkipsHistoricalStorage(t *testing.T) {
-	for _, id := range []string{"boss", "zhaopin", "51job"} {
+	for _, id := range []string{"boss", "zhaopin", "51job", "hliepin"} {
 		t.Run(id, func(t *testing.T) {
 			cfg, err := platform.LoadConfig(id)
 			if err != nil {
@@ -282,9 +282,10 @@ func TestRecommendationViewportSkipsHistoricalStorage(t *testing.T) {
 			}
 			_ = store.Close()
 			b.url = cfg.EntryURL
-			session, err := (&Flow{Store: store}).prepareCandidateResume(context.Background(), b, p, &resumeFlowRuntime{}, &model.CandidateListCursor{})
-			if err != nil || session != nil {
-				t.Fatal("推荐页仍尝试读取历史断点", err)
+			cursor := &model.CandidateListCursor{}
+			session, err := (&Flow{Store: store}).prepareCandidateResume(context.Background(), b, p, &resumeFlowRuntime{}, cursor)
+			if err != nil || session != nil || cursor.StartIndex != 1 || !cursor.IdentityByIndex {
+				t.Fatalf("当前页仍读取历史断点或未按当前卡片起跑：session=%+v cursor=%+v err=%v", session, cursor, err)
 			}
 			if cfg.ManualSearchURL != "" {
 				b.url = cfg.ManualSearchURL
@@ -294,10 +295,51 @@ func TestRecommendationViewportSkipsHistoricalStorage(t *testing.T) {
 				}
 			}
 			b.url = cfg.EntryURL
-			cursor := &model.CandidateListCursor{}
+			cursor = &model.CandidateListCursor{}
 			if _, err := (&Flow{}).prepareCandidateResume(context.Background(), b, p, &resumeProviderRuntime{}, cursor); err != nil || cursor.StartIndex != 1 {
 				t.Fatal("无断点接口或存储时仍应选当前完整卡片", err)
 			}
 		})
+	}
+}
+
+// TestHLiepinViewportIgnoresStoredProgress 验证猎聘猎头端保留旧断点但不查找旧人，仅从当前分页的完整卡片起跑。
+func TestHLiepinViewportIgnoresStoredProgress(t *testing.T) {
+	ctx := context.Background()
+	cfg, err := platform.LoadConfig("hliepin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, browser := resumeFlowFixture()
+	prepared.Platform = cfg
+	browser.url = cfg.EntryURL + "?page=7"
+	store, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	key, scope, err := candidateResumeScope(prepared, browser.url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := json.Marshal(candidateResumeRecord{Version: 2, ScopeHash: scope, Point: model.CandidateResumePoint{CandidateID: "已离开当前页的旧候选人", PrefixHash: "旧名单摘要"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(ctx, key, string(old)); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := platform.RuntimeFor("hliepin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := &model.CandidateListCursor{}
+	session, err := (&Flow{Store: store}).prepareCandidateResume(ctx, browser, prepared, runtime, cursor)
+	if err != nil || session != nil || cursor.StartIndex != 1 || !cursor.IdentityByIndex {
+		t.Fatalf("猎聘猎头端未从当前分页卡片开始：session=%+v cursor=%+v err=%v", session, cursor, err)
+	}
+	saved, err := store.GetSetting(ctx, key)
+	if err != nil || saved != string(old) {
+		t.Fatalf("从当前屏幕起跑不应改写旧断点：saved=%q err=%v", saved, err)
 	}
 }

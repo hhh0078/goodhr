@@ -119,7 +119,8 @@ func TestAdvanceCandidatesUsesLivePage(t *testing.T) {
 			}
 			for _, page := range []string{"2", "7"} {
 				b.page = page
-				ok, err := r.AdvanceCandidateList(context.Background(), b, cfg, nil, model.CandidateListOptions{ReadConcurrency: 10})
+				cursor := &model.CandidateListCursor{StartIndex: 8, IdentityByIndex: true}
+				ok, err := r.AdvanceCandidateList(context.Background(), b, cfg, nil, model.CandidateListOptions{ReadConcurrency: 10, Cursor: cursor})
 				if err != nil || !ok {
 					t.Fatalf("从实际第%s页翻页失败: %v", page, err)
 				}
@@ -129,6 +130,13 @@ func TestAdvanceCandidatesUsesLivePage(t *testing.T) {
 				}
 				if b.readConcurrency != 10 {
 					t.Fatal("翻页未沿用读取并发配置")
+				}
+				if cursor.StartIndex != 0 || cursor.IdentityByIndex {
+					t.Fatalf("翻页后仍沿用上一页屏幕起点：%+v", cursor)
+				}
+				anchor := b.scrolls[len(b.scrolls)-1].WheelAnchor
+				if anchor == nil || anchor.Description != cfg.Selectors["candidate.pagination_scroll"].Description {
+					t.Fatal("定位分页栏仍使用候选人表格内部区域")
 				}
 			}
 		})
