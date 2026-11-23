@@ -25,12 +25,9 @@ type pagingBrowser struct {
 	readConcurrency                                 int
 }
 
-// PressKey 模拟长列表通过真实快捷键定位到底部分页区域。
+// PressKey 拒绝翻页依赖系统页尾快捷键，确保Windows与Mac统一使用真实滚轮。
 func (b *pagingBrowser) PressKey(_ context.Context, r contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
-	if r.Key != "Control+End" {
-		return contract.KeyboardPressResult{}, errors.New("未使用预期的分页定位按键")
-	}
-	return contract.KeyboardPressResult{Pressed: true}, nil
+	return contract.KeyboardPressResult{}, errors.New("分页不应依赖页尾快捷键：" + r.Key)
 }
 
 // Read 每次返回页面此刻的页码，允许模拟用户手动翻页和读取失败。
@@ -137,6 +134,10 @@ func TestAdvanceCandidatesUsesLivePage(t *testing.T) {
 				anchor := b.scrolls[len(b.scrolls)-1].WheelAnchor
 				if anchor == nil || anchor.Description != cfg.Selectors["candidate.pagination_scroll"].Description {
 					t.Fatal("定位分页栏仍使用候选人表格内部区域")
+				}
+				scroll := b.scrolls[len(b.scrolls)-1]
+				if scroll.Distance < 2000 || scroll.MaxAttempts < 30 || scroll.ViewportMargin != 8 || click.ViewportMargin != scroll.ViewportMargin {
+					t.Fatalf("长列表或贴底分页仍沿用短列表预算：scroll=%+v click=%+v", scroll, click)
 				}
 			}
 		})

@@ -166,6 +166,9 @@ func TestAdvanceCandidateNumberPageScrollsBeforeClick(t *testing.T) {
 		browser.scrollRequest.MaxAttempts < 20 {
 		t.Fatalf("数字页码没有使用足够的真实滚轮定位：%+v", browser.scrollRequest)
 	}
+	if browser.scrollRequest.Distance != 320 || browser.scrollRequest.MaxAttempts != 24 || browser.scrollRequest.ViewportMargin != 24 || browser.clickRequest.ViewportMargin != 24 {
+		t.Fatal("未配置分页页面区域的平台不应改变原滚动和点击预算")
+	}
 	if browser.clickRequest.Verify == nil || browser.clickRequest.Verify.TargetVisible == nil ||
 		browser.clickRequest.Verify.TargetVisible.Target.Text != "2" {
 		t.Fatalf("数字翻页点击后没有确认当前页码：%+v", browser.clickRequest.Verify)

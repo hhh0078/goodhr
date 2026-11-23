@@ -551,11 +551,14 @@ func IndexedSelector(cfg model.Config, key string, index int) (contract.Selector
 	return selector, nil
 }
 
-// CandidateSelector 使用候选人稳定文本重新定位卡片，缺少身份文本时才回退到原序号。
+// CandidateSelector 优先按平台配置在原行核对稳定字段；其余平台保留既有姓名年龄定位。
 func CandidateSelector(cfg model.Config, candidate model.Candidate) (contract.SelectorSpec, error) {
 	selector, err := RequiredSelector(cfg, "candidate.item")
 	if err != nil {
 		return contract.SelectorSpec{}, err
+	}
+	if field := strings.TrimSpace(cfg.Behavior.CandidateIdentityField); field != "" {
+		return candidateFieldIdentitySelector(cfg, candidate, selector, field)
 	}
 	if candidate.IdentityByIndex && cfg.Behavior.CandidateUniqueIdentity {
 		return uniqueCandidateSelector(cfg, candidate, selector)

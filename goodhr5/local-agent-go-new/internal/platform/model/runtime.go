@@ -84,6 +84,7 @@ type Behavior struct {
 	CandidateSearchFromViewport  bool   `json:"candidate_search_from_viewport"`  // 显式启用的搜索页也从当前完整卡片开始，后续翻页仍正常进行。
 	CandidateStartFromViewport   bool   `json:"candidate_start_from_viewport"`   // 推荐页从当前首张完整卡片起跑，搜索页由独立配置决定。
 	CandidateUniqueIdentity      bool   `json:"candidate_unique_identity"`       // 名单可换序的平台按完整身份唯一定位，不把启动行号永久绑定给后续动作。
+	CandidateIdentityField       string `json:"candidate_identity_field"`        // 显式指定的稳定属性字段仅在原行内核对，缺少或变化时拒绝动作，不改用姓名年龄。
 	CandidateResumeByIdentity    bool   `json:"candidate_resume_by_identity"`    // 推荐列表按唯一身份寻找断点，允许真实滚轮分批加载；零值保留严格前缀核对。
 	SkipGreetingPhoneRequest     bool   `json:"skip_greeting_phone_request"`     // 主动打招呼忽略电话索要勾选；零值保留其他平台行为。
 	SkipGreetingInfoRequests     bool   `json:"skip_greeting_info_requests"`     // 仅主动打招呼跳过电话、微信和简历索要；零值保留原行为，不影响自动回复。

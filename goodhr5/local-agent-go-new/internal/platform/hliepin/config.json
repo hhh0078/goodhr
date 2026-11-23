@@ -40,6 +40,8 @@
     "_comment": "猎聘猎头端页面行为开关。",
     "candidate_start_from_viewport": true,
     "_comment_candidate_start_from_viewport": "找人页每次启动只读定位当前屏幕首位完整候选人，不查旧断点、不预先滚动；后续翻页仍从新页开头处理。",
+    "candidate_identity_field": "platform_candidate_id",
+    "_comment_candidate_identity_field": "所有页的候选人动作仅在原行核对已读简历编号，不按显示姓名年龄重复查找；编号缺失或原行换人时拒绝操作。",
     "candidate_viewport_fallback_first": true,
     "_comment_candidate_viewport_fallback_first": "当前屏幕没有完整可见候选人时，以当前页第一位为备用起点；页面读取失败仍停止并保留错误。",
     "supports_paging": true,
@@ -93,10 +95,10 @@
       "description": "猎聘猎头端候选人列表"
     },
     "candidate.identity_check": {
-      "_comment": "先按当前屏幕的真实行号定位，再仅在这一行内核对姓名和年龄，避免重新查找上方同名候选人。",
+      "_comment": "原行内的简历编号核对通过后，通过标准Locator祖先轴返回同一表格行，不读取姓名年龄或搜索其他行。",
       "target": {
-        "_comment": "已定位的当前候选人表格行自身。",
-        "selectors": [{ "_comment": "标准相对选择器仅指向当前行。", "type": "css", "value": ":scope" }]
+        "_comment": "已核对编号输入框所属的最近表格行。",
+        "selectors": [{ "_comment": "复用标准Locator的显式XPath表达式，只返回该输入框的原行。", "type": "css", "value": "xpath=ancestor::tr[1]" }]
       },
       "state": "visible",
       "timeout_ms": 1500,

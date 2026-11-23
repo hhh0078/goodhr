@@ -80,7 +80,7 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 			return err
 		}
 		// 先把首行带回屏幕，再按原表格边界核对完整可见，不能给贴边表格强加页面横向留白。
-		if _, err := browser.Scroll(ctx, contract.ScrollRequest{Target: &selector, WheelAnchor: &anchor, Distance: 620, MaxAttempts: 30, WaitMS: 120}); err != nil {
+		if _, err := browser.Scroll(ctx, contract.ScrollRequest{Target: &selector, WheelAnchor: &anchor, Distance: 2400, MaxAttempts: 40, WaitMS: 120}); err != nil {
 			return err
 		}
 	}
@@ -92,10 +92,7 @@ func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browse
 	if err := closeCandidatePanels(ctx, browser, cfg); err != nil {
 		return false, err
 	}
-	// 长列表逐段滚轮可能耗尽 Worker 等待时间，先用真实按键到页面底部，再由滚轮精确定位。
-	if _, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Control+End", DelayMS: 200}); err != nil {
-		return false, fmt.Errorf("定位猎聘分页栏失败：%w", err)
-	}
+	// Windows和两种Mac均用同一套真实滚轮找分页，不依赖系统含义不同的页尾快捷键。
 	currentText, found, err := common.ReadOptional(ctx, browser, cfg, "candidate.current_page")
 	if err != nil {
 		return false, fmt.Errorf("读取猎聘当前页码失败：%w", err)
