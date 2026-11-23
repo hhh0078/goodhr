@@ -40,6 +40,8 @@
     "_comment": "猎聘猎头端页面行为开关。",
     "candidate_start_from_viewport": true,
     "_comment_candidate_start_from_viewport": "找人页每次启动只读定位当前屏幕首位完整候选人，不查旧断点、不预先滚动；后续翻页仍从新页开头处理。",
+    "candidate_viewport_fallback_first": true,
+    "_comment_candidate_viewport_fallback_first": "当前屏幕没有完整可见候选人时，以当前页第一位为备用起点；页面读取失败仍停止并保留错误。",
     "supports_paging": true,
     "_comment_supports_paging": "候选人列表支持数字页码翻页。",
     "candidate_list_mode": "number_page",

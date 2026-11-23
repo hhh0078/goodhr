@@ -68,7 +68,11 @@ func serveViewportTable(w http.ResponseWriter, req *http.Request) {
 	} else {
 		fmt.Fprint(w, `<li class="ant-pagination-next ant-pagination-disabled" aria-disabled="true"><button disabled>下一页</button></li>`)
 	}
-	fmt.Fprint(w, `</ul><footer>本机合成名单结束</footer></html>`)
+	if req.URL.Query().Get("offscreen") == "1" {
+		fmt.Fprint(w, `</ul><footer style="height:2000px;padding-top:1800px;box-sizing:border-box"><p id="empty-viewport-position">候选人全部在屏幕上方</p></footer></html>`)
+	} else {
+		fmt.Fprint(w, `</ul><footer>本机合成名单结束</footer></html>`)
+	}
 }
 
 // TestCandidateViewportIsolatedBrowser 显式连接独立Worker，在全新Profile验证中部只读起跑、同名行核对、翻页归零和明确末页。
@@ -162,4 +166,29 @@ func TestCandidateViewportIsolatedBrowser(t *testing.T) {
 		t.Fatalf("明确末页没有正常结束：advanced=%t err=%v", advanced, err)
 	}
 	t.Log("表格主体外分页成功，第二页从行0读取，明确禁用下一页后正常结束")
+	if _, err := browser.OpenPage(ctx, contract.PageOpenRequest{URL: server.URL + "?page=2&offscreen=1", WaitUntil: "load"}); err != nil {
+		t.Fatal(err)
+	}
+	emptyPosition := contract.SelectorSpec{Target: contract.SelectorGroup{Selectors: []contract.SelectorCandidate{{Type: "css", Value: "#empty-viewport-position"}}}, State: "visible", Description: "空视口测试位置"}
+	pageAnchor := cfg.Selectors["candidate.pagination_scroll"]
+	if _, err := browser.Scroll(ctx, contract.ScrollRequest{Target: &emptyPosition, WheelAnchor: &pageAnchor, Distance: 2400, MaxAttempts: 12, WaitMS: 120}); err != nil {
+		t.Fatal(err)
+	}
+	strict := cfg
+	strict.Behavior.CandidateViewportFallbackFirst = false
+	if err := common.StartCandidateViewport(ctx, readOnly, strict, &model.CandidateListCursor{}); err == nil {
+		t.Fatal("备用场景仍有完整卡片，没有正确布置空视口")
+	}
+	cursor.StartIndex = 8
+	if err := common.StartCandidateViewport(ctx, readOnly, cfg, cursor); err != nil || cursor.StartIndex != 0 || !cursor.IdentityByIndex {
+		t.Fatalf("空视口没有使用当前页首行备用起点：cursor=%+v err=%v", cursor, err)
+	}
+	first, err := runtime.FindCandidates(ctx, readOnly, cfg, options)
+	if err != nil || len(first) == 0 || first[0].Fields["platform_candidate_id"] != "page-2-row-00" {
+		t.Fatalf("备用起点没有读到当前页第一位：candidates=%+v err=%v", first, err)
+	}
+	if err := runtime.ScrollToCandidate(ctx, browser, cfg, first[0]); err != nil {
+		t.Fatal("备用首位候选人无法通过真实滚轮定位", err)
+	}
+	t.Log("当前屏幕没有可见候选人时，备用起点为当前页第一位，随后真实滚轮可正常定位")
 }

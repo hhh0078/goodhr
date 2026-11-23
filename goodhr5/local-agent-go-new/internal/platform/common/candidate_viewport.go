@@ -1,4 +1,4 @@
-// Package common 文件作用：按平台配置从当前屏幕首张完整卡片起跑，标准只读几何定位，不回读屏幕上方人选，不追旧断点或预先滚动。
+// Package common 文件作用：按平台配置只读定位当前屏幕起点，支持无完整卡片时以首行为备用，不追旧断点或预先滚动。
 package common
 
 import (
@@ -10,7 +10,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// StartCandidateViewport 在一次Worker只读请求中定位纵向名单的首个完整显示的卡片，仅保存当前行号；动作时在该行内核对身份，不读取前方同名者。
+// StartCandidateViewport 在一次Worker只读请求中定位首张完整卡片；明确开启备用且无完整卡片时使用首行，动作时仍在原行核对身份。
 func StartCandidateViewport(ctx context.Context, browser model.Browser, cfg model.Config, cursor *model.CandidateListCursor) error {
 	if cursor == nil {
 		return fmt.Errorf("候选人读取位置还没准备好")
@@ -30,6 +30,10 @@ func StartCandidateViewport(ctx context.Context, browser model.Browser, cfg mode
 		return fmt.Errorf("读取当前候选人位置失败：%w", err)
 	}
 	if len(items) == 0 {
+		if cfg.Behavior.CandidateViewportFallbackFirst {
+			*cursor = model.CandidateListCursor{IdentityByIndex: true}
+			return nil
+		}
 		return fmt.Errorf("当前没有完整显示的候选人卡片，请拉宽或拉高窗口、调整列表位置后再开始")
 	}
 	item := items[0]
