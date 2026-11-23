@@ -83,7 +83,12 @@ func AdvanceCandidatePageTarget(
 		WaitMS:         120,
 		ViewportMargin: 24,
 	}
-	if anchor, ok := cfg.Selectors["candidate.list"]; ok && len(anchor.Target.Selectors) > 0 {
+	// 分页栏可能在列表容器外，优先使用平台配置的分页滚动区域，避免在表格内反复寻找外部按钮。
+	anchor, ok := cfg.Selectors["candidate.pagination_scroll"]
+	if !ok {
+		anchor, ok = cfg.Selectors["candidate.list"]
+	}
+	if ok && len(anchor.Target.Selectors) > 0 {
 		scrollRequest.WheelAnchor = &anchor
 	}
 	if _, err = browser.Scroll(ctx, scrollRequest); err != nil {

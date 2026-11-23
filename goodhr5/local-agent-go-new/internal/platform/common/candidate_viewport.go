@@ -1,4 +1,4 @@
-// Package common 文件作用：推荐名单从当前屏幕首张完整卡片起跑，标准只读几何定位，不回读屏幕上方人选，不追旧断点或预先滚动。
+// Package common 文件作用：按平台配置从当前屏幕首张完整卡片起跑，标准只读几何定位，不回读屏幕上方人选，不追旧断点或预先滚动。
 package common
 
 import (
@@ -68,7 +68,7 @@ func CandidateFullyVisible(view contract.ElementView, cfg model.Config) bool {
 		view.Box.Y >= float64(cfg.Behavior.CandidateViewportTopInset) && view.Box.Y+view.Box.Height <= view.Viewport.Height-float64(cfg.Behavior.CandidateViewportBottomInset)
 }
 
-// CandidatePageUsesViewport 按平台配置选择推荐或搜索起点，仅在任务启动一次，后续批次与翻页不重新定位。
+// CandidatePageUsesViewport 按平台配置选择推荐、分页或搜索起点，仅在任务启动一次，后续批次与翻页不重新定位。
 func CandidatePageUsesViewport(cfg model.Config, pageURL string) bool {
 	if !cfg.Behavior.CandidateStartFromViewport {
 		return false
@@ -76,5 +76,5 @@ func CandidatePageUsesViewport(cfg model.Config, pageURL string) bool {
 	if cfg.ManualSearchURL != "" && PageURLMatches(pageURL, cfg.ManualSearchURL) {
 		return cfg.Behavior.CandidateSearchFromViewport
 	}
-	return cfg.Behavior.CandidateListMode == "infinite_scroll" && PageURLMatches(pageURL, cfg.EntryURL)
+	return (cfg.Behavior.CandidateListMode == "infinite_scroll" || cfg.Behavior.SupportsPaging) && PageURLMatches(pageURL, cfg.EntryURL)
 }

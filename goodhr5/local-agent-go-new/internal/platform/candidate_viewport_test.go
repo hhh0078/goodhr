@@ -1,4 +1,4 @@
-// Package platform_test 文件作用：验证推荐页与无忧搜索从完整卡片起跑，智联搜索和暂缓的猎聘配置不受影响。
+// Package platform_test 文件作用：验证推荐页、无忧搜索及猎聘猎头端从完整卡片起跑，其他平台配置不受影响。
 package platform_test
 
 import (
@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// TestViewportModeMatchesPageConfiguration 验证配置与真实页面类型共同决定起点方式，不把翻页搜索或其他平台误当成推荐页。
+// TestViewportModeMatchesPageConfiguration 验证显式开启的分页与滚动页面均可从视口起跑，其他平台沿用原配置。
 func TestViewportModeMatchesPageConfiguration(t *testing.T) {
-	for _, id := range []string{"boss", "zhaopin", "51job", "liepin"} {
+	for _, id := range []string{"boss", "zhaopin", "51job", "liepin", "hliepin"} {
 		cfg, err := platform.LoadConfig(id)
 		if err != nil {
 			t.Fatal(err)
@@ -21,8 +21,12 @@ func TestViewportModeMatchesPageConfiguration(t *testing.T) {
 			t.Fatalf("%s搜索页起点不符合配置", id)
 		}
 		cfg.Behavior.CandidateListMode = "next_page"
+		if got := common.CandidatePageUsesViewport(cfg, cfg.EntryURL); got != (id == "hliepin") {
+			t.Fatalf("%s分页页起点不符合显式配置", id)
+		}
+		cfg.Behavior.CandidateStartFromViewport = false
 		if common.CandidatePageUsesViewport(cfg, cfg.EntryURL) {
-			t.Fatal("翻页模式不应按视口重置")
+			t.Fatalf("%s关闭视口起点后仍然启用", id)
 		}
 	}
 }
