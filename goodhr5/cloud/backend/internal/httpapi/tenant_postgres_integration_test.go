@@ -1,8 +1,11 @@
-// 本文件使用临时 PostgreSQL 验证团队邀请迁移、简历合并、岗位排序和安全移出成员。
+// 本文件使用临时 PostgreSQL 验证团队邀请迁移、筛选记录保留、简历合并、岗位排序和安全移出成员。
 package httpapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -93,6 +96,18 @@ func TestPostgresTenantInvitationMigrationFlow(t *testing.T) {
 	if _, err = db.ExecContext(ctx, `INSERT INTO cookie_data (tenant_id,user_id,platform_id,display_name,cookie_type,encrypted_data) VALUES ($1,$2,'boss','测试账号','folder',$3)`, sourceTenant.ID, memberID, []byte("encrypted")); err != nil {
 		t.Fatal(err)
 	}
+	// 有过招聘筛选的个人账号加入团队时，历史快照必须一起迁移，不能阻止删除旧团队或被清空。
+	screeningStore := NewPostgresScreeningRecordStore(db)
+	screeningScope := ScreeningScope{TenantID: sourceTenant.ID, PositionID: memberPosition.ID, UserEmail: memberEmail}
+	snapshot := screeningTestSnapshot(0)
+	savedScreening, err := screeningStore.Save(ctx, screeningScope, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedScreeningJSON, err := json.Marshal(savedScreening)
+	if err != nil {
+		t.Fatal(err)
+	}
 	invitation, _, err := tenantStore.InviteMember(targetTenant.ID, memberEmail, "user", ownerEmail)
 	if err != nil {
 		t.Fatal(err)
@@ -122,6 +137,30 @@ func TestPostgresTenantInvitationMigrationFlow(t *testing.T) {
 	}
 	if sourceTenantCount != 0 || candidateCount != 1 || eventCount != 1 || targetCookieCount != 1 {
 		t.Fatalf("migration counts source=%d candidate=%d event=%d cookie=%d", sourceTenantCount, candidateCount, eventCount, targetCookieCount)
+	}
+	var screeningTenantID, screeningOwnerID string
+	if err = db.QueryRow(`SELECT tenant_id::text,owner_user_id::text FROM position_screening_records WHERE id=$1`, savedScreening.ID).Scan(&screeningTenantID, &screeningOwnerID); err != nil {
+		t.Fatal(err)
+	}
+	if screeningTenantID != targetTenant.ID || screeningOwnerID != memberID {
+		t.Fatalf("筛选记录归属错误 tenant=%s owner=%s", screeningTenantID, screeningOwnerID)
+	}
+	if _, err = screeningStore.List(ctx, screeningScope, ScreeningRecordQuery{}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("旧团队仍可读取筛选记录: %v", err)
+	}
+	screeningScope.TenantID = targetTenant.ID
+	migratedScreenings, err := screeningStore.List(ctx, screeningScope, ScreeningRecordQuery{})
+	if err != nil || migratedScreenings.Total != 1 || len(migratedScreenings.Records) != 1 {
+		t.Fatalf("迁移后筛选记录=%+v err=%v", migratedScreenings, err)
+	}
+	migratedScreeningJSON, err := json.Marshal(migratedScreenings.Records[0])
+	if err != nil || !bytes.Equal(savedScreeningJSON, migratedScreeningJSON) {
+		t.Fatalf("筛选快照、编号或时间发生变化 before=%s after=%s err=%v", savedScreeningJSON, migratedScreeningJSON, err)
+	}
+	colleagueScope := screeningScope
+	colleagueScope.UserEmail = ownerEmail
+	if _, err = screeningStore.List(ctx, colleagueScope, ScreeningRecordQuery{}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("团队管理员越权读取成员筛选记录: %v", err)
 	}
 	var migratedLinks int
 	if err = db.QueryRow(`SELECT count(*) FROM candidate_tag_links WHERE tenant_id=$1 AND candidate_id=$2 AND tag_id IN ($3,$4)`, targetTenant.ID, targetCandidate.ID, sourcePersonal.ID, targetTeamTag.ID).Scan(&migratedLinks); err != nil || migratedLinks != 2 {

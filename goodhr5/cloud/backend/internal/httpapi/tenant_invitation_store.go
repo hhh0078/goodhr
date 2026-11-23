@@ -275,6 +275,10 @@ func (s *PostgresTenantStore) AcceptInvitation(invitationID, email string) error
 		if _, err = tx.ExecContext(ctx, `UPDATE cookie_data SET tenant_id=$1 WHERE tenant_id=$2`, targetTenantID, sourceTenantID); err != nil {
 			return err
 		}
+		// 历史筛选记录随岗位归属一起迁移，保留原快照，避免删除旧团队时被外键拦截。
+		if _, err = tx.ExecContext(ctx, `UPDATE position_screening_records SET tenant_id=$1 WHERE tenant_id=$2`, targetTenantID, sourceTenantID); err != nil {
+			return err
+		}
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE users SET tenant_id=$1, role=$2, status='active', invited_by=$3, tenant_joined_at=now() WHERE id=$4`, targetTenantID, normalizeTenantRole(role), invitedByEmail, userID); err != nil {
 		return err
