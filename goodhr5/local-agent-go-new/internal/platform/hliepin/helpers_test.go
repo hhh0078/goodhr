@@ -236,22 +236,22 @@ func TestCandidateNamesMatch(t *testing.T) {
 	}
 }
 
-// TestViewportCandidateChecksCurrentRowIdentity 验证当前屏幕起跑后只核对原行姓名年龄，详情入口保持在同一行内。
+// TestViewportCandidateChecksCurrentRowIdentity 验证当前屏幕起跑后只在原行核对简历编号，显示姓名年龄不再作为动作条件，详情入口保持在同一行内。
 func TestViewportCandidateChecksCurrentRowIdentity(t *testing.T) {
 	cfg := pagingConfig(t)
-	candidate := model.Candidate{Index: 8, Name: "张三", IdentityByIndex: true, IdentityTexts: []string{"张三", "30岁"}}
+	candidate := model.Candidate{Index: 8, Name: "张三", IdentityByIndex: true, IdentityTexts: []string{"张三", "30岁"}, Fields: map[string]string{"platform_candidate_id": "fixture-resume-8"}}
 	selector, err := common.CandidateSelector(cfg, candidate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selector.Parents) == 0 || selector.Parents[len(selector.Parents)-1].Index == nil || *selector.Parents[len(selector.Parents)-1].Index != 8 {
+	if len(selector.Parents) != 2 || selector.Parents[0].Index == nil || *selector.Parents[0].Index != 8 {
 		t.Fatalf("未先按当前行号定位：%+v", selector)
 	}
-	if len(selector.Target.Selectors) != 1 || selector.Target.Selectors[0].Value != ":scope" || strings.Join(selector.Target.Texts, ",") != "张三,30岁" {
+	if len(selector.Target.Selectors) != 1 || selector.Target.Selectors[0].Value != "xpath=ancestor::tr[1]" || len(selector.Target.Texts) != 0 || selector.Parents[1].Attributes["value"] != "fixture-resume-8" {
 		t.Fatalf("没有在当前行内核对身份：%+v", selector.Target)
 	}
 	entry, err := common.CandidateActionSelector(cfg, "candidate.open_target", candidate)
-	if err != nil || len(entry.Parents) != len(selector.Parents)+1 || strings.Join(entry.Parents[len(entry.Parents)-1].Texts, ",") != "张三,30岁" {
+	if err != nil || len(entry.Parents) != len(selector.Parents)+1 || entry.Parents[1].Attributes["value"] != "fixture-resume-8" || entry.Parents[len(entry.Parents)-1].Selectors[0].Value != "xpath=ancestor::tr[1]" {
 		t.Fatalf("详情入口未保留当前行身份：%+v err=%v", entry, err)
 	}
 }

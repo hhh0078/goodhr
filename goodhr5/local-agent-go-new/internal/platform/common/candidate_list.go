@@ -85,7 +85,13 @@ func AdvanceCandidatePageTarget(
 	}
 	// 分页栏可能在列表容器外，优先使用平台配置的分页滚动区域，避免在表格内反复寻找外部按钮。
 	anchor, ok := cfg.Selectors["candidate.pagination_scroll"]
-	if !ok {
+	if ok && len(anchor.Target.Selectors) > 0 {
+		// 整页长列表复用已有末尾追赶预算；每轮仍按真实位置缩短距离并验证进展。
+		scrollRequest.Distance = candidateTailCatchUpDistance
+		scrollRequest.MaxAttempts = candidateTailCatchUpMaxAttempts
+		// 贴底的24px按钮无法满足24px留白，保留8px边距供真实鼠标安全落点。
+		scrollRequest.ViewportMargin = 8
+	} else {
 		anchor, ok = cfg.Selectors["candidate.list"]
 	}
 	if ok && len(anchor.Target.Selectors) > 0 {
@@ -103,7 +109,7 @@ func AdvanceCandidatePageTarget(
 		verification = &contract.ClickVerification{TargetVisible: &currentPage, TimeoutMS: 5000}
 	}
 	if _, err = browser.Click(ctx, contract.ElementClickRequest{
-		Selector: selector, ViewportMargin: 24, Verify: verification,
+		Selector: selector, ViewportMargin: scrollRequest.ViewportMargin, Verify: verification,
 	}); err != nil {
 		return false, err
 	}
