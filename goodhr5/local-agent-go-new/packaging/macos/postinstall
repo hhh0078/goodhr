@@ -6,7 +6,10 @@ set -eu
 target_volume=${3:-/}
 [ "$target_volume" = / ] || exit 0
 app_path='/Applications/GoodHR Local Agent.app'
-[ -x "$app_path/Contents/MacOS/goodhr-local-agent" ] || exit 1
+if [ ! -x "$app_path/Contents/MacOS/goodhr-local-agent" ]; then
+  echo 'GoodHR 未安装到“应用程序”目录，本次安装没有完成，请重新下载最新安装包再试。' >&2
+  exit 1
+fi
 console_user=$(/usr/bin/stat -f %Su /dev/console)
 case "$console_user" in
   ''|root|loginwindow) exit 0 ;;

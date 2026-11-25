@@ -93,8 +93,10 @@ plutil -lint "${app_path}/Contents/Info.plist"
 package_name="GoodHR-Local-Agent-Setup-v${version}${environment_suffix}-mac-universal.pkg"
 archive_name="goodhr-local-agent-v${version}${environment_suffix}-darwin-universal.zip"
 pkgbuild --root "${stage_dir}/payload" --install-location / \
+  --component-plist "${project_dir}/packaging/macos/components.plist" \
   --identifier cn.58it.goodhr.localagent --version "${version}" \
   --scripts "${project_dir}/packaging/macos" "${stage_dir}/${package_name}"
+bash "${script_dir}/verify-macos-package.sh" "${stage_dir}/${package_name}"
 ditto -c -k --sequesterRsrc --keepParent "${app_path}" "${stage_dir}/${archive_name}"
 
 rm -rf -- "${release_root}/${app_name}"
