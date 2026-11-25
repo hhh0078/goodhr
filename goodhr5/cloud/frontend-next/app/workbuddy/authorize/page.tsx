@@ -14,8 +14,15 @@ import Spin from "antd/es/spin";
 import CheckCircleRoundedIcon from "@ant-design/icons/lib/icons/CheckCircleOutlined";
 import DownloadOutlined from "@ant-design/icons/lib/icons/DownloadOutlined";
 import BrandMark from "@/components/BrandMark";
-import { TOKEN_KEY, cloudAPIBase } from "@/lib/api";
-import { detectLocalAgent } from "@/lib/admin-api";
+import { TOKEN_KEY } from "@/lib/api";
+import {
+  APIRequestError,
+  bindDetectedLocalAgent,
+  clearLocalAgentDetectCache,
+  cloudRequest,
+  detectLocalAgent,
+  syncCloudSessionToLocalAgent,
+} from "@/lib/admin-api";
 
 /** AuthorizeParams 表示 OAuth 授权请求里页面需要透传的参数。 */
 type AuthorizeParams = {
@@ -28,7 +35,7 @@ type AuthorizeParams = {
 };
 
 /** AgentState 表示本地程序的连接情况。 */
-type AgentState = "checking" | "online" | "offline";
+type AgentState = "checking" | "online" | "offline" | "error";
 
 const grantedItems = [
   "读取你的岗位清单、订阅状态和筛选结果",
@@ -36,32 +43,34 @@ const grantedItems = [
   "只在你同意授权的期间生效，随时可以在控制台解除",
 ];
 
+/** readAgentConnection 有界读取真实命令通道状态，沿用旧浏览器支持的 AbortController。 */
+async function readAgentConnection() {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const status = await cloudRequest("/api/agents/ws-status", { signal: controller.signal });
+    if (typeof status.connected !== "boolean") throw new Error("连接状态没读完整，请重新检查。");
+    return status.connected;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 /** AuthorizePage 展示授权确认卡片和本地程序引导。 */
 export default function AuthorizePage() {
   const [phase, setPhase] = useState<"loading" | "error" | "ready">("loading");
   const [errorText, setErrorText] = useState("");
   const [params, setParams] = useState<AuthorizeParams | null>(null);
   const [agent, setAgent] = useState<AgentState>("checking");
+  const [agentError, setAgentError] = useState("");
   const [submitting, setSubmitting] = useState<"approve" | "deny" | null>(null);
   const startedRef = useRef(false);
+  const checkingRef = useRef(false);
+  const activeRef = useRef(true);
 
-  /** cloudPost 调用云端带登录态的接口。 */
-  const cloudPost = useCallback(async (path: string, body: unknown) => {
-    const token = window.localStorage.getItem(TOKEN_KEY) || "";
-    const response = await fetch(`${cloudAPIBase()}${path}`, {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.ok === false) {
-      throw new Error(String(data.error || "云端没有处理成功，请稍后再试"));
-    }
-    return data;
+  useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
   }, []);
 
   /** redirectLogin 未登录时跳登录页，登录后回到本授权页。 */
@@ -76,9 +85,9 @@ export default function AuthorizePage() {
       if (!params) return;
       setSubmitting(decision);
       try {
-        const data = await cloudPost("/api/workbuddy/authorize", {
-          ...params,
-          decision,
+        const data = await cloudRequest("/api/workbuddy/authorize", {
+          method: "POST",
+          body: { ...params, decision },
         });
         const redirect = String(data.redirect_url || "");
         if (!redirect) throw new Error("回调地址没有返回，请回到 WorkBuddy 重新连接");
@@ -88,8 +97,58 @@ export default function AuthorizePage() {
         setSubmitting(null);
       }
     },
-    [cloudPost, params],
+    [params],
   );
+
+  /** checkAgent 复用账号绑定与登录同步，再以云端命令通道的真实连接状态判断在线。 */
+  const checkAgent = useCallback(async () => {
+    if (checkingRef.current) return;
+    checkingRef.current = true;
+    setAgent("checking");
+    setAgentError("");
+    const token = window.localStorage.getItem(TOKEN_KEY) || "";
+    /** currentCheck 防止离开授权页或切换账号后回写旧检查结果。 */
+    const currentCheck = () => activeRef.current && token === window.localStorage.getItem(TOKEN_KEY);
+    try {
+      // 先校验云端登录，再向本机同步；失效凭证由共享请求保留完整 OAuth next 后转到登录页。
+      let connected = await readAgentConnection();
+      if (!currentCheck()) return;
+      if (!connected) {
+        clearLocalAgentDetectCache();
+        const baseURL = await detectLocalAgent();
+        if (!currentCheck()) return;
+        if (baseURL) {
+          await bindDetectedLocalAgent(baseURL);
+          if (!currentCheck()) return;
+          await syncCloudSessionToLocalAgent(baseURL);
+          // 本地通道最多每五秒取一次新凭证；短暂等待实际回执，不把同步受理当成在线。
+          for (let attempt = 0; attempt < 6; attempt++) {
+            if (!currentCheck()) return;
+            connected = await readAgentConnection();
+            if (connected || attempt === 5) break;
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 1000));
+          }
+        }
+      }
+      if (currentCheck()) setAgent(connected ? "online" : "offline");
+    } catch (error) {
+      if (!currentCheck()) return;
+      if (error instanceof APIRequestError && error.status === 401) {
+        window.localStorage.removeItem(TOKEN_KEY);
+        redirectLogin(window.location.search);
+        return;
+      }
+      setAgent("error");
+      setAgentError(error instanceof Error ? error.message : "暂时没查到连接状态，请重新检查。");
+    } finally {
+      checkingRef.current = false;
+      // 安装时另开控制台登录可能更换令牌；旧检查退出后必须让用户能用新账号重查。
+      if (activeRef.current && token !== window.localStorage.getItem(TOKEN_KEY)) {
+        setAgent("error");
+        setAgentError("登录状态已经更新，点“安装后重新检查”，我再确认一次连接。");
+      }
+    }
+  }, [redirectLogin]);
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -118,41 +177,11 @@ export default function AuthorizePage() {
     setPhase("ready");
   }, [redirectLogin]);
 
-  // 登录后检查本地程序：先探测本机端口并同步云端令牌，再查云端绑定状态。
+  // 安装包和控制台在新标签打开，授权页保留原始回调参数，回来后可以重新检查。
   useEffect(() => {
     if (phase !== "ready" || !params) return;
-    let active = true;
-    (async () => {
-      try {
-        const baseURL = await detectLocalAgent();
-        if (baseURL) {
-          const token = window.localStorage.getItem(TOKEN_KEY) || "";
-          // 把云端令牌同步给本地程序，供它连云端命令通道；失败不阻塞授权。
-          void fetch(`${baseURL}/api/v1/cloud/session`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token }),
-          }).catch(() => {});
-        }
-      } catch {
-        // 本机探测失败不阻塞，交给云端状态判断。
-      }
-      const token = window.localStorage.getItem(TOKEN_KEY) || "";
-      try {
-        const response = await fetch(`${cloudAPIBase()}/api/agents/current`, {
-          cache: "no-store",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await response.json().catch(() => ({}));
-        if (active) setAgent(data?.ok && data?.data?.machine_id ? "online" : "offline");
-      } catch {
-        if (active) setAgent("offline");
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [phase, params]);
+    void checkAgent();
+  }, [phase, params, checkAgent]);
 
   return (
     <div className="public-login-1">
@@ -163,7 +192,7 @@ export default function AuthorizePage() {
       </div>
       <div className="public-container public-login-7">
         <div style={{ maxWidth: 520, margin: "0 auto" }}>
-          <div className="public-panel public-login-17" style={{ padding: 28 }}>
+          <div className="public-panel public-login-17">
             <Title
               level={2}
               className="public-text public-login-18"
@@ -187,7 +216,7 @@ export default function AuthorizePage() {
             )}
 
             {phase === "error" && (
-              <Alert type="warning" showIcon message={errorText} />
+              <Alert type="warning" showIcon title={errorText} />
             )}
 
             {phase === "ready" && params && (
@@ -212,31 +241,29 @@ export default function AuthorizePage() {
                   <Alert
                     type="success"
                     showIcon
-                    message="本地程序已连接，任务可以直接下发到你电脑上运行。"
+                    title="本地程序已连接 WorkBuddy 任务通道"
+                    description="首次使用还要在控制台完成组件安装、创建岗位，并在招聘浏览器里登录和设置筛选条件。准备好后再回 WorkBuddy 启动任务。"
                     style={{ marginBottom: 12 }}
                   />
                 )}
-                {agent === "offline" && (
+                {(agent === "offline" || agent === "error") && (
                   <Alert
-                    type="info"
+                    type={agent === "error" ? "warning" : "info"}
                     showIcon
-                    message="本地程序还没连接"
-                    description="不用现在处理，授权完成后第一次启动任务前装好就行。没安装的话，先去下载页装一个。"
-                    action={
-                      <Button
-                        size="small"
-                        href="/download"
-                        icon={<DownloadOutlined aria-hidden="true" />}
-                      >
-                        去下载
-                      </Button>
-                    }
+                    title={agent === "error" ? "连接状态暂时没查到" : "本地程序还没连接"}
+                    description={agent === "error" ? agentError : "只有 WorkBuddy 也可以先授权。请下载安装 GoodHR，启动后在控制台登录同一账号，完成组件安装、创建岗位和招聘平台登录。"}
                     style={{ marginBottom: 12 }}
                   />
                 )}
 
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                  {agent !== "online" && <Button href="/download" target="_blank" rel="noopener noreferrer" icon={<DownloadOutlined aria-hidden="true" />}>下载安装 GoodHR</Button>}
+                  <Button href="/admin/" target="_blank" rel="noopener noreferrer">打开控制台准备</Button>
+                  <Button loading={agent === "checking"} disabled={submitting !== null} onClick={() => { void checkAgent(); }}>安装后重新检查</Button>
+                </div>
+
                 {errorText && (
-                  <Alert type="error" showIcon message={errorText} style={{ marginBottom: 12 }} />
+                  <Alert type="error" showIcon title={errorText} style={{ marginBottom: 12 }} />
                 )}
 
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>

@@ -54,10 +54,10 @@ type mcpRequest struct {
 }
 
 type mcpResponse struct {
-	JSONRPC string        `json:"jsonrpc"`
+	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
-	Result  any           `json:"result,omitempty"`
-	Error   *mcpRPCError  `json:"error,omitempty"`
+	Result  any             `json:"result,omitempty"`
+	Error   *mcpRPCError    `json:"error,omitempty"`
 }
 
 type mcpRPCError struct {
@@ -135,7 +135,7 @@ func (s *WorkBuddyMCPService) toolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "check_setup",
-			"description": "检查 GoodHR 本地程序安装和在线状态。返回是否绑定、是否在线、版本号和下载地址。第一次使用或任务启动失败时先调用这个工具。",
+			"description": "检查 GoodHR 本地程序的绑定和云端连接状态，返回下载地址、控制台地址及首次使用步骤。离线不能证明是否安装；local_program.ready 只表示命令通道就绪，运行组件和招聘平台登录需在控制台完成。第一次使用或任务启动失败时先调用这个工具。",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 		},
 		{
@@ -196,7 +196,7 @@ func (s *WorkBuddyMCPService) callTool(w http.ResponseWriter, r *http.Request, r
 	case "check_setup":
 		result, err = s.toolCheckSetup(r, session)
 	case "get_quota":
-		result, err = s.toolGetQuota(session)
+		result, err = s.toolGetQuota(r, session)
 	case "create_task":
 		result, err = s.toolCreateTask(session, stringArg(args, "position_id"), stringArg(args, "task_type"))
 	case "get_task_status":
@@ -210,8 +210,8 @@ func (s *WorkBuddyMCPService) callTool(w http.ResponseWriter, r *http.Request, r
 	if err != nil {
 		// 工具业务错误按 MCP 规范放在 result.isError，方便 AI 读取并提示用户。
 		s.writeRPC(w, mcpResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
-			"content":  []map[string]any{{"type": "text", "text": err.Message}},
-			"isError":  true,
+			"content":    []map[string]any{{"type": "text", "text": err.Message}},
+			"isError":    true,
 			"error_code": err.Code,
 		}})
 		return
@@ -258,13 +258,21 @@ func (s *WorkBuddyMCPService) toolCheckSetup(r *http.Request, session Session) (
 	binding, bindErr := s.agents.CurrentBinding(session.Email)
 	bound := bindErr == nil
 	result := map[string]any{
+		"console_url": workBuddyBaseURL(r) + "/admin/positions",
 		"local_program": map[string]any{
 			"bound":    bound,
 			"online":   online,
 			"ready":    bound && online,
 			"platform": "desktop",
 		},
-		"next_step": "本地程序已就绪，可以直接用 get_quota 查看岗位，再 create_task 启动筛选。",
+		"setup_steps": []string{
+			"按电脑系统下载安装 GoodHR 本地程序并打开；WorkBuddy 连接器本身不包含任务运行程序。",
+			"在自动打开的 GoodHR 控制台登录，使用与 WorkBuddy 授权时相同的 GoodHR 账号，并保持本地程序运行。",
+			"按控制台提示完成浏览器、Node 等运行组件准备，再登录要使用的招聘平台；招聘平台登录状态保存在这台电脑上。",
+			"没有岗位时，在控制台创建并开启岗位，完成筛选条件和平台配置；已有岗位可以继续使用。",
+			"回到 WorkBuddy 再调用 check_setup；local_program.ready 为 true 后，用 get_quota 选择岗位，再启动任务。",
+		},
+		"next_step": "本地程序的云端命令通道已连接。先确认控制台里的运行组件、招聘平台登录和岗位配置已完成，再用 get_quota 查看岗位；没有岗位就先在控制台创建并开启一个。",
 	}
 	if bound {
 		result["local_program"].(map[string]any)["machine_id"] = binding.MachineID
@@ -275,9 +283,9 @@ func (s *WorkBuddyMCPService) toolCheckSetup(r *http.Request, session Session) (
 		result["downloads"] = s.localAgentDownloads()
 		result["download_page"] = workBuddyBaseURL(r) + "/download"
 		if !bound {
-			result["next_step"] = "还没绑定本地程序：先在 GoodHR 下载页安装本地程序并登录，之后本工具会显示在线。"
+			result["next_step"] = "这个 GoodHR 账号还没绑定本地程序。请先下载安装并打开 GoodHR，在控制台登录与本次 WorkBuddy 授权相同的账号，按 setup_steps 完成准备后再检查。"
 		} else {
-			result["next_step"] = "本地程序已安装但没连上云端：请打开电脑上的 GoodHR 本地程序，确认它在运行。"
+			result["next_step"] = "这个账号曾绑定过本地程序，但现在没有云端连接，可能未打开、已卸载或登录了不同账号。请安装或打开 GoodHR，在控制台登录与 WorkBuddy 授权相同的账号；保持程序运行后再检查。"
 		}
 	}
 	return result, nil
@@ -299,24 +307,30 @@ func (s *WorkBuddyMCPService) localAgentDownloads() map[string]string {
 	if json.Unmarshal([]byte(cfg.ConfigValue), &value) != nil {
 		return downloads
 	}
+	// 与官网相同：发布记录按新到旧排列，每个平台取第一条可用地址，不能被旧版覆盖。
 	for _, item := range value.LocalAgent {
-		platform, _ := item["platform"].(string)
-		url, _ := item["url"].(string)
-		if url == "" {
-			continue
+		for platform, field := range map[string]string{"windows": "url_win", "macos": "url_mac"} {
+			if downloads[platform] == "" {
+				downloads[platform] = safeExtensionDownloadURL(stringArg(item, field))
+			}
 		}
-		if strings.EqualFold(platform, "windows") || strings.EqualFold(platform, "win") {
-			downloads["windows"] = url
+		// 兼容早期连接器使用的 platform/url 配置，但不能把某一系统的包给另一个系统。
+		platform := strings.ToLower(stringArg(item, "platform"))
+		switch platform {
+		case "win":
+			platform = "windows"
+		case "mac", "darwin":
+			platform = "macos"
 		}
-		if strings.EqualFold(platform, "macos") || strings.EqualFold(platform, "mac") || strings.EqualFold(platform, "darwin") {
-			downloads["macos"] = url
+		if _, supported := downloads[platform]; supported && downloads[platform] == "" {
+			downloads[platform] = safeExtensionDownloadURL(stringArg(item, "url"))
 		}
 	}
 	return downloads
 }
 
 // toolGetQuota 返回订阅状态、岗位额度和岗位清单。
-func (s *WorkBuddyMCPService) toolGetQuota(session Session) (map[string]any, *mcpToolError) {
+func (s *WorkBuddyMCPService) toolGetQuota(r *http.Request, session Session) (map[string]any, *mcpToolError) {
 	tenantID, isAdmin := s.tenantInfo(session.Email)
 	positions, err := s.positions.ListPositions(tenantID, session.Email, isAdmin)
 	if err != nil {
@@ -345,16 +359,21 @@ func (s *WorkBuddyMCPService) toolGetQuota(session Session) (map[string]any, *mc
 	if subscribed {
 		positionLimit = 0 // 0 表示不限
 	}
-	return map[string]any{
+	result := map[string]any{
 		"subscription": map[string]any{
-			"active":     subscribed,
+			"active":      subscribed,
 			"member_type": subscription.MemberType,
-			"expires_at": subscription.ExpiresAt.Format(time.RFC3339),
+			"expires_at":  subscription.ExpiresAt.Format(time.RFC3339),
 		},
 		"position_limit": positionLimit,
 		"position_count": len(positions),
 		"positions":      list,
-	}, nil
+	}
+	if len(positions) == 0 {
+		result["console_url"] = workBuddyBaseURL(r) + "/admin/positions"
+		result["next_step"] = "还没有岗位。请先打开 GoodHR 控制台，按新手引导准备运行组件、登录招聘平台，再创建并开启岗位。完成后回到 WorkBuddy，用 get_quota 重新查看；连接器不能直接创建岗位。"
+	}
+	return result, nil
 }
 
 // toolCreateTask 校验岗位状态后把启动命令下发给本地程序，立即返回任务编号。
@@ -511,13 +530,13 @@ func (s *WorkBuddyMCPService) toolGetResults(session Session, positionID string,
 	items := make([]map[string]any, 0, len(result.Items))
 	for _, item := range result.Items {
 		candidate := map[string]any{
-			"candidate_id":     item.ID,
-			"name":             item.CandidateName,
-			"platform":         item.PlatformID,
+			"candidate_id":      item.ID,
+			"name":              item.CandidateName,
+			"platform":          item.PlatformID,
 			"engagement_status": item.EngagementStatus,
-			"work_years":       item.WorkYears,
-			"education":        item.EducationLevel,
-			"created_at":       item.CreatedAt.Format(time.RFC3339),
+			"work_years":        item.WorkYears,
+			"education":         item.EducationLevel,
+			"created_at":        item.CreatedAt.Format(time.RFC3339),
 		}
 		if item.AIDetailScore != nil {
 			candidate["ai_score"] = *item.AIDetailScore
