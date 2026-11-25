@@ -1,4 +1,4 @@
-/** 本文件负责登录页的邮箱、登录方式偏好、密码或验证码登录及首次协议确认。 */
+/** 本文件共用邮箱/微信认证、协议确认、登录偏好与授权页的认证续接回调。 */
 "use client";
 
 import {
@@ -89,13 +89,24 @@ GoodHR 提供了模拟休息、打开概率、操作间隔等配置，但这些�
 const LOGIN_MODE_CACHE_KEY = "goodhr.login.mode";
 const AGREEMENT_CACHE_KEY = "goodhr.login.agreement";
 
+type LoginFormProps = {
+  /** 授权页区分已有账号与严格注册；普通登录页保持原流程。 */
+  intent?: "login" | "register";
+  /** 授权页接回认证结果，继续原OAuth流程，不跳转到控制台。 */
+  onAuthenticated?: (data: Record<string, unknown>) => void | Promise<void>;
+  /** 认证处理中禁止切换账号入口，避免旧请求在新表单上继续。 */
+  onBusyChange?: (busy: boolean) => void;
+  /** 补密码期间如果其他标签切换账号，授权页须重新选择身份。 */
+  onSessionChanged?: () => void;
+};
+
 /** LoginForm 提供验证码发送、倒计时、协议确认和登录状态保存。 */
-export default function LoginForm() {
+export default function LoginForm({ intent, onAuthenticated, onBusyChange, onSessionChanged }: LoginFormProps = {}) {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
-  const [loginMode, setLoginMode] = useState<"wechat" | "code" | "password">("wechat");
+  const [loginMode, setLoginMode] = useState<"wechat" | "code" | "password">(intent === "register" ? "code" : intent === "login" ? "password" : "wechat");
   const [isNewAccount, setIsNewAccount] = useState<boolean | null>(null);
   const [passwordSetupRequired, setPasswordSetupRequired] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -115,31 +126,46 @@ export default function LoginForm() {
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
   const loginBusy = useRef(false);
+  const activeRef = useRef(true);
+  const authenticatedDataRef = useRef<Record<string, unknown> | null>(null);
 
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
   const agreementAcceptedForEmail = Boolean(
     normalizedEmail && acceptedEmail === normalizedEmail,
   );
   const agreementReady = agreementAcceptedForEmail || agreementChecked;
+  const registering = intent === "register" || Boolean(loginMode === "code" && isNewAccount);
   const authFlow = loginMode === "password" ? "existing_account" : isNewAccount === null ? "unknown" : isNewAccount ? "new_account" : "existing_account";
 
   useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    onBusyChange?.(loading || passwordSetupRequired);
+  }, [loading, passwordSetupRequired, onBusyChange]);
+
+  useEffect(() => {
     captureLocalAgentPortFromURL();
-    try { setAgreementChecked(localStorage.getItem(AGREEMENT_CACHE_KEY) === "accepted"); } catch { /* 缓存不可用时由本人重新勾选。 */ }
-    const cachedMode = localStorage.getItem(LOGIN_MODE_CACHE_KEY);
-    if (cachedMode === "wechat" || cachedMode === "code" || cachedMode === "password") setLoginMode(cachedMode);
+    // 授权页按本次账号选择和本人确认继续，不能沿用普通登录页的方式与协议缓存。
+    if (!intent) {
+      try { setAgreementChecked(localStorage.getItem(AGREEMENT_CACHE_KEY) === "accepted"); } catch { /* 缓存不可用时由本人重新勾选。 */ }
+      const cachedMode = localStorage.getItem(LOGIN_MODE_CACHE_KEY);
+      if (cachedMode === "wechat" || cachedMode === "code" || cachedMode === "password") setLoginMode(cachedMode);
+    }
     const cachedEmail = (localStorage.getItem(SESSION_EMAIL_KEY) || "")
       .trim()
       .toLowerCase();
     if (cachedEmail && !cachedEmail.endsWith("@wechat.goodhr.invalid")) setEmail(cachedEmail);
     setLoginPreferencesLoaded(true);
     const token = localStorage.getItem(TOKEN_KEY) || "";
-    if (token) window.location.replace(resolveNextPath());
+    if (token && !onAuthenticated) window.location.replace(resolveNextPath());
   }, []);
 
   useEffect(() => {
     if (!loginPreferencesLoaded) return;
-    localStorage.setItem(LOGIN_MODE_CACHE_KEY, loginMode);
+    if (!intent) localStorage.setItem(LOGIN_MODE_CACHE_KEY, loginMode);
     if (normalizedEmail) {
       localStorage.setItem(SESSION_EMAIL_KEY, normalizedEmail);
     } else {
@@ -190,10 +216,19 @@ export default function LoginForm() {
         method: "POST",
         body: JSON.stringify({ email: normalizedEmail }),
       });
+      if (!activeRef.current) return;
       setIsNewAccount(Boolean(data.is_new_account));
       trackConversion("code_sent", { method: "code", flow: data.is_new_account ? "new_account" : "existing_account" });
       if (data.debug_code) setCode(String(data.debug_code));
       setCooldown(60);
+      if (intent === "register" && !data.is_new_account) {
+        setError("这个邮箱已经有账号了，请返回选择“我有账号”登录。");
+        return;
+      }
+      if (intent === "login" && data.is_new_account) {
+        setError("这个邮箱还没有账号，请返回选择“我还没有账号”注册。");
+        return;
+      }
       setMessage(
         data.debug_code
           ? "本地开发验证码已自动填好"
@@ -291,8 +326,9 @@ export default function LoginForm() {
     return false;
   }
 
-  /** finishLogin 保存登录凭证，并在需要时先要求历史账号设置密码。 */
-  function finishLogin(data: any) {
+  /** finishLogin 保存本次凭证，补齐旧账号密码，再回调授权页或进入控制台。 */
+  async function finishLogin(data: any) {
+    if (!activeRef.current) return;
     const token = String(data.access_token || "");
     if (!token) throw new Error("登录成功但未返回登录凭证");
     localStorage.setItem(TOKEN_KEY, token);
@@ -300,10 +336,18 @@ export default function LoginForm() {
     localStorage.removeItem(INVITE_CACHE_KEY);
     trackConversion(loginMode === "code" && isNewAccount ? "register_success" : "login_success", { flow: authFlow, method: loginMode });
     markPendingAdminArrival(authFlow);
+    authenticatedDataRef.current = data;
     if (data.requires_password_setup) {
       trackConversion("password_setup_required", { flow: authFlow, method: loginMode });
       setPasswordSetupRequired(true);
       setMessage("验证码通过了，再补一个密码就能继续");
+      return;
+    }
+    if (onAuthenticated) {
+      setPassword("");
+      setPasswordConfirmation("");
+      setMessage("账号已确认，正在继续绑定");
+      await onAuthenticated(data);
       return;
     }
     setMessage("登录成功，正在进入控制台");
@@ -321,11 +365,15 @@ export default function LoginForm() {
       return validationError("请输入 4 位验证码", "code");
     if (loginMode === "code" && isNewAccount === null)
       return validationError("请先发送验证码", "send_code_first");
-    if (loginMode === "code" && isNewAccount && [...password].length < 2)
+    if (intent === "register" && isNewAccount === false)
+      return validationError("这个邮箱已经有账号了，请返回选择“我有账号”登录。", "email");
+    if (intent === "login" && loginMode === "code" && isNewAccount)
+      return validationError("这个邮箱还没有账号，请返回选择“我还没有账号”注册。", "email");
+    if (loginMode === "code" && registering && [...password].length < 2)
       return validationError("首次注册需要设置至少 2 个字符的密码", "password");
     if (
       loginMode === "code" &&
-      isNewAccount &&
+      registering &&
       password !== passwordConfirmation
     )
       return validationError("两次密码不一样，我先不敢注册", "password_confirmation");
@@ -334,6 +382,8 @@ export default function LoginForm() {
     if (!confirmed) trackConversion("login_submit", { flow: authFlow, method: loginMode });
     try {
       if (!(await ensureAgreementAccepted(confirmed))) return;
+      // 协议查询期间离开表单时，不再发起后续登录或注册请求。
+      if (!activeRef.current) return;
       const inviterID = localStorage.getItem(INVITE_CACHE_KEY) || "";
       const data = await apiRequest(
         loginMode === "password"
@@ -351,14 +401,15 @@ export default function LoginForm() {
               : {
                   email: normalizedEmail,
                   code: code.trim(),
-                  password: isNewAccount ? password : "",
+                  password: registering ? password : "",
                   inviter_id: inviterID,
                   agreement_accepted: confirmed || agreementChecked,
+                  ...(intent === "register" ? { register_only: true } : {}),
                 },
           ),
         },
       );
-      finishLogin(data);
+      await finishLogin(data);
     } catch (requestError) {
       trackConversion("login_failed", { flow: authFlow, method: loginMode, reason: classifyAuthFailure(requestError) });
       setError(errorMessage(requestError));
@@ -378,10 +429,12 @@ export default function LoginForm() {
   function changeAgreement(checked: boolean) {
     setAgreementChecked(checked);
     if (!checked) setAcceptedEmail("");
-    try {
-      if (checked) localStorage.setItem(AGREEMENT_CACHE_KEY, "accepted");
-      else localStorage.removeItem(AGREEMENT_CACHE_KEY);
-    } catch { /* 浏览器禁用存储时仅保留当前页面勾选，不阻断登录。 */ }
+    if (!intent) {
+      try {
+        if (checked) localStorage.setItem(AGREEMENT_CACHE_KEY, "accepted");
+        else localStorage.removeItem(AGREEMENT_CACHE_KEY);
+      } catch { /* 浏览器禁用存储时仅保留当前页面勾选，不阻断登录。 */ }
+    }
     if (checked) trackConversion("agreement_accepted", { flow: authFlow, method: loginMode });
   }
 
@@ -417,7 +470,7 @@ export default function LoginForm() {
         onFinish={() => void login()}
         className="public-login-form"
       >
-        <div className="public-login-tabs" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+        {intent !== "register" && <div className="public-login-tabs" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
           <Button block type={loginMode === "wechat" ? "primary" : "default"} onClick={() => setLoginMode("wechat")} disabled={loading}>微信扫码</Button>
           <Button
             block
@@ -435,8 +488,8 @@ export default function LoginForm() {
           >
             邮箱密码
           </Button>
-        </div>
-        {!loginPreferencesLoaded ? null : loginMode === "wechat" ? <WechatLogin agreementAccepted={agreementChecked} onAgreementChange={changeAgreement} onAgreement={openAgreement} onSuccess={finishLogin} /> : <>
+        </div>}
+        {!loginPreferencesLoaded ? null : loginMode === "wechat" ? <WechatLogin agreementAccepted={agreementChecked} onAgreementChange={changeAgreement} onAgreement={openAgreement} onSuccess={(data) => { void finishLogin(data).catch((cause) => setError(errorMessage(cause))); }} /> : <>
         <Form.Item label="邮箱" htmlFor="login-email">
           <Input
             id="login-email"
@@ -475,21 +528,21 @@ export default function LoginForm() {
             />
           </Form.Item>
         ) : null}
-        {loginMode === "password" || isNewAccount ? (
+        {loginMode === "password" || registering ? (
           <Form.Item
             label={
-              isNewAccount && loginMode === "code" ? "设置登录密码" : "密码"
+              registering && loginMode === "code" ? "设置登录密码" : "密码"
             }
             htmlFor="login-password"
             extra={
-              isNewAccount && loginMode === "code"
+              registering && loginMode === "code"
                 ? "首次注册必须设置至少 2 个字符的密码"
                 : undefined
             }
           >
             <Input.Password
               id="login-password"
-              autoComplete={isNewAccount ? "new-password" : "current-password"}
+              autoComplete={registering ? "new-password" : "current-password"}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               disabled={loading}
@@ -497,7 +550,7 @@ export default function LoginForm() {
             />
           </Form.Item>
         ) : null}
-        {loginMode === "code" && isNewAccount ? (
+        {loginMode === "code" && registering ? (
           <Form.Item
             label="再输入一次密码"
             htmlFor="login-password-confirmation"
@@ -534,9 +587,9 @@ export default function LoginForm() {
             《使用协议与隐私说明》
           </Button>
           </div>
-          <Button type="text" size="small" className="public-login-forgot" onClick={openReset} disabled={loading}>
+          {intent !== "register" && <Button type="text" size="small" className="public-login-forgot" onClick={openReset} disabled={loading}>
             忘记密码
-          </Button>
+          </Button>}
         </div>
         {error ? (
           <Alert
@@ -570,7 +623,9 @@ export default function LoginForm() {
         >
           {loading
             ? "正在处理"
-            : loginMode === "password"
+            : onAuthenticated
+              ? intent === "register" ? "注册并绑定" : "登录并绑定"
+              : loginMode === "password"
               ? "密码登录"
               : isNewAccount
                 ? "注册并进入控制台"
@@ -587,7 +642,7 @@ export default function LoginForm() {
           color: "var(--goodhr-text-secondary, #637069)",
         }}
       >
-        {loginMode === "wechat" ? "登录即将使用当前微信对应的 GoodHR 账号。请只发送自己页面上的验证码。" : "新邮箱注册需要验证码和密码。老账号没有密码也别慌，先用验证码登录，我会带你补上。"}
+        {intent === "register" ? "新邮箱需要验证码和密码。注册成功后会按上方权限说明继续绑定当前应用。" : onAuthenticated ? "登录成功后会按上方权限说明继续绑定当前应用。老账号没有密码，可以先用验证码登录。" : loginMode === "wechat" ? "登录即将使用当前微信对应的 GoodHR 账号。请只发送自己页面上的验证码。" : "新邮箱注册需要验证码和密码。老账号没有密码也别慌，先用验证码登录，我会带你补上。"}
       </Typography.Paragraph>
       <Modal
         rootClassName="public-theme-portal"
@@ -717,15 +772,25 @@ export default function LoginForm() {
         open={passwordSetupRequired}
         email={normalizedEmail}
         onSubmit={async (nextPassword) => {
-          const token = localStorage.getItem(TOKEN_KEY) || "";
+          const token = String(authenticatedDataRef.current?.access_token || "");
+          if (!token || localStorage.getItem(TOKEN_KEY) !== token) {
+            onSessionChanged?.();
+            throw new Error("登录账号已经变化，请重新登录后再设置密码。");
+          }
           await apiRequest("/api/auth/password/setup", {
             method: "POST",
             headers: { Authorization: "Bearer " + token },
             body: JSON.stringify({ password: nextPassword }),
           });
+          if (!activeRef.current) return;
+          if (localStorage.getItem(TOKEN_KEY) !== token) {
+            onSessionChanged?.();
+            throw new Error("登录账号已经变化，请重新登录后继续。");
+          }
           setPasswordSetupRequired(false);
           trackConversion("password_setup_completed", { flow: authFlow, method: loginMode });
-          window.location.assign(resolveNextPath());
+          if (onAuthenticated && authenticatedDataRef.current) await onAuthenticated(authenticatedDataRef.current);
+          else window.location.assign(resolveNextPath());
         }}
       />
     </>

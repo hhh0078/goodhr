@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -113,8 +114,7 @@ func (s *WorkBuddyOAuthService) Register(w http.ResponseWriter, r *http.Request)
 		if uri == "" {
 			continue
 		}
-		parsed, err := url.Parse(uri)
-		if err != nil || parsed.Host == "" && parsed.Scheme != "http" && parsed.Scheme != "https" {
+		if _, safe := workBuddySafeRedirectURI(uri); !safe {
 			writeError(w, http.StatusBadRequest, "回调地址格式没认出来，请检查 redirect_uris")
 			return
 		}
@@ -177,8 +177,90 @@ type workBuddyAuthorizeRequest struct {
 	Decision            string `json:"decision"`
 }
 
-// AuthorizeConsent 由前端授权确认页调用：校验登录会话和授权参数，同意后下发一次性授权码。
+// workBuddySafeRedirectURI 仅接受无身份信息和片段的 HTTPS，或本机回环 HTTP 回调。
+func workBuddySafeRedirectURI(raw string) (*url.URL, bool) {
+	parsed, err := url.Parse(raw)
+	if err != nil || raw != strings.TrimSpace(raw) || parsed.Hostname() == "" || parsed.User != nil || strings.Contains(raw, "#") || parsed.Opaque != "" {
+		return nil, false
+	}
+	switch parsed.Scheme {
+	case "https":
+		return parsed, true
+	case "http":
+		address := net.ParseIP(parsed.Hostname())
+		if strings.EqualFold(parsed.Hostname(), "localhost") || address != nil && address.IsLoopback() {
+			return parsed, true
+		}
+	}
+	return nil, false
+}
+
+// workBuddyClientRedirectsSafe 重查全部历史回调，阻止旧的不安全注册绕过新校验。
+func workBuddyClientRedirectsSafe(client WorkBuddyOAuthClient) bool {
+	if len(client.RedirectURI) == 0 {
+		return false
+	}
+	for _, uri := range client.RedirectURI {
+		if _, safe := workBuddySafeRedirectURI(uri); !safe {
+			return false
+		}
+	}
+	return true
+}
+
+// workBuddyS256ChallengeValid 校验 S256 摘要必须是规范的 32 字节无填充 base64url。
+func workBuddyS256ChallengeValid(challenge, method string) bool {
+	if method != "S256" || len(challenge) != 43 {
+		return false
+	}
+	digest, err := base64.RawURLEncoding.Strict().DecodeString(challenge)
+	return err == nil && len(digest) == sha256.Size
+}
+
+// authorizeClient 复用授权预检与授权提交的客户端、回调和 PKCE 校验，不信任动态注册名称。
+func (s *WorkBuddyOAuthService) authorizeClient(w http.ResponseWriter, payload workBuddyAuthorizeRequest) (WorkBuddyOAuthClient, bool) {
+	client, err := s.store.ClientByID(strings.TrimSpace(payload.ClientID))
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusBadRequest, "这个客户端没有注册过，请重新发起连接")
+		return WorkBuddyOAuthClient{}, false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "客户端信息暂时没读出来，请重试")
+		return WorkBuddyOAuthClient{}, false
+	}
+	if !workBuddyRedirectURIsAllowed(client, payload.RedirectURI) {
+		writeError(w, http.StatusBadRequest, "回调地址不安全或和注册时不一致，我这边不能放行")
+		return WorkBuddyOAuthClient{}, false
+	}
+	if !workBuddyS256ChallengeValid(payload.CodeChallenge, payload.CodeChallengeMethod) {
+		writeError(w, http.StatusBadRequest, "授权请求必须使用完整的 PKCE S256 校验")
+		return WorkBuddyOAuthClient{}, false
+	}
+	return client, true
+}
+
+// AuthorizePreview 在登录注册前公开核对授权参数，仅返回客户端自报名称与已核验的回调信息。
+func (s *WorkBuddyOAuthService) AuthorizePreview(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	payload := workBuddyAuthorizeRequest{ClientID: query.Get("client_id"), RedirectURI: query.Get("redirect_uri"), CodeChallenge: query.Get("code_challenge"), CodeChallengeMethod: query.Get("code_challenge_method")}
+	client, ok := s.authorizeClient(w, payload)
+	if !ok {
+		return
+	}
+	redirect, _ := workBuddySafeRedirectURI(payload.RedirectURI)
+	name := strings.TrimSpace(client.ClientName)
+	if name == "" {
+		name = "未命名客户端"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "client_name": name, "redirect_uri": payload.RedirectURI, "callback_origin": redirect.Scheme + "://" + redirect.Host})
+}
+
+// AuthorizeConsent 由授权页调用：GET 在认证前预检，POST 校验网页登录及明确决定后签发一次性授权码。
 func (s *WorkBuddyOAuthService) AuthorizeConsent(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		s.AuthorizePreview(w, r)
+		return
+	}
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -199,24 +281,15 @@ func (s *WorkBuddyOAuthService) AuthorizeConsent(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusBadRequest, "授权参数没有读完整，请重试")
 		return
 	}
-	client, err := s.store.ClientByID(strings.TrimSpace(payload.ClientID))
-	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusBadRequest, "这个客户端没有注册过，请在 WorkBuddy 重新连接")
+	if payload.Decision != "approve" && payload.Decision != "deny" {
+		writeError(w, http.StatusBadRequest, "请明确选择同意或暂不授权")
 		return
 	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "客户端信息暂时没读出来，请重试")
+	client, ok := s.authorizeClient(w, payload)
+	if !ok {
 		return
 	}
-	if !workBuddyRedirectURIsAllowed(client, payload.RedirectURI) {
-		writeError(w, http.StatusBadRequest, "回调地址和注册时不一致，我这边不能放行")
-		return
-	}
-	if strings.TrimSpace(payload.CodeChallenge) == "" || strings.EqualFold(payload.CodeChallengeMethod, "plain") {
-		writeError(w, http.StatusBadRequest, "授权请求必须使用 PKCE S256")
-		return
-	}
-	if strings.EqualFold(strings.TrimSpace(payload.Decision), "deny") {
+	if payload.Decision == "deny" {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "redirect_url": workBuddyRedirectWith(payload.RedirectURI, url.Values{"error": []string{"access_denied"}, "state": []string{payload.State}})})
 		return
 	}
@@ -229,9 +302,9 @@ func (s *WorkBuddyOAuthService) AuthorizeConsent(w http.ResponseWriter, r *http.
 		Code:          code,
 		ClientID:      client.ClientID,
 		UserEmail:     session.Email,
-		RedirectURI:   strings.TrimSpace(payload.RedirectURI),
+		RedirectURI:   payload.RedirectURI,
 		Scope:         strings.TrimSpace(payload.Scope),
-		CodeChallenge: strings.TrimSpace(payload.CodeChallenge),
+		CodeChallenge: payload.CodeChallenge,
 		ExpiresAt:     time.Now().Add(workbuddyAuthCodeTTL),
 	}
 	if err := s.store.SaveCode(record); err != nil {
@@ -294,8 +367,21 @@ func (s *WorkBuddyOAuthService) Token(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "令牌请求没有读完整，请重试")
 		return
 	}
+	client, err := s.store.ClientByID(strings.TrimSpace(payload.ClientID))
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusInternalServerError, "客户端信息暂时没读出来，请重试")
+		return
+	}
+	if errors.Is(err, ErrNotFound) || !workBuddyClientRedirectsSafe(client) {
+		writeError(w, http.StatusBadRequest, "客户端不存在或回调地址不安全，请重新发起连接")
+		return
+	}
 	switch strings.TrimSpace(payload.GrantType) {
 	case "authorization_code":
+		if !workBuddyRedirectURIsAllowed(client, payload.RedirectURI) {
+			writeError(w, http.StatusBadRequest, "回调地址和注册时不一致，请重新发起授权")
+			return
+		}
 		s.tokenByAuthorizationCode(w, payload)
 	case "refresh_token":
 		s.tokenByRefreshToken(w, payload)
@@ -323,7 +409,7 @@ func (s *WorkBuddyOAuthService) tokenByAuthorizationCode(w http.ResponseWriter, 
 		writeError(w, http.StatusInternalServerError, "授权码校验暂时没完成，请重试")
 		return
 	}
-	if record.ClientID != strings.TrimSpace(payload.ClientID) || record.RedirectURI != strings.TrimSpace(payload.RedirectURI) {
+	if record.ClientID != strings.TrimSpace(payload.ClientID) || record.RedirectURI != payload.RedirectURI {
 		writeError(w, http.StatusBadRequest, "令牌请求参数和授权时不一致，请重新发起授权")
 		return
 	}
@@ -362,13 +448,17 @@ func (s *WorkBuddyOAuthService) tokenByRefreshToken(w http.ResponseWriter, paylo
 
 // workBuddyVerifyPKCE 校验 PKCE S256 的 code_verifier。
 func workBuddyVerifyPKCE(challenge, verifier string) bool {
-	verifier = strings.TrimSpace(verifier)
-	if challenge == "" || verifier == "" || len(verifier) < 43 || len(verifier) > 128 {
+	if !workBuddyS256ChallengeValid(challenge, "S256") || len(verifier) < 43 || len(verifier) > 128 {
 		return false
+	}
+	for _, character := range verifier {
+		if !(character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || strings.ContainsRune("-._~", character)) {
+			return false
+		}
 	}
 	digest := sha256.Sum256([]byte(verifier))
 	computed := base64.RawURLEncoding.EncodeToString(digest[:])
-	return computed == strings.TrimSpace(challenge)
+	return computed == challenge
 }
 
 // issueWorkBuddyTokens 签发连接器访问令牌（复用云端会话存储）和刷新令牌。
