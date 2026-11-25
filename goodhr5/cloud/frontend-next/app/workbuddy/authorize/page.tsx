@@ -45,7 +45,6 @@ type AuthorizationTarget = { clientName: string; redirectURI: string; callbackOr
 const grantedItems = [
   "读取你的岗位清单、订阅状态和筛选结果",
   "在你确认后启动岗位筛选任务",
-  "只在你同意授权的期间生效，随时可以在控制台解除",
 ];
 
 /**
