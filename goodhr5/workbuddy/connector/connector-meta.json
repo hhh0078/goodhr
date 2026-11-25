@@ -2,16 +2,34 @@
   "type": "mcp",
   "source": "goodhr-connector",
   "name": "GoodHR 招聘助手",
-  "description": "查看 GoodHR 岗位和额度，一键启动候选人筛选任务并取回结果。招聘平台的登录状态和数据只保存在用户电脑本地。",
-  "version": "1.0.0",
+  "name_zh": "GoodHR 招聘助手",
+  "name_en": "GoodHR Recruiting Assistant",
+  "description": "HR 和猎头的招聘自动化工具：在多个招聘平台上自动筛选候选人并取回结果，数据只保存在用户电脑本地。",
+  "description_zh": "HR 和猎头的招聘自动化工具：在多个招聘平台上自动筛选候选人并取回结果，数据只保存在用户电脑本地。",
+  "description_en": "Recruiting automation for HR professionals and headhunters: screen candidates across multiple job platforms and fetch the results, with data kept on the user's own computer.",
+  "version": "1.0.4",
   "minWorkbuddyVersion": "4.24.0",
   "auth_mode": "server-side",
+  "examples_zh": [
+    "看看我的 GoodHR 岗位",
+    "帮我跑一遍「Java 高级工程师」岗位的筛选",
+    "筛选任务跑到哪了？",
+    "把这次筛选出的候选人结果给我",
+    "我的本地程序在线吗？"
+  ],
+  "examples_en": [
+    "Show my GoodHR job positions",
+    "Start a screening run for the Senior Java Engineer position",
+    "How is the screening task going?",
+    "Send me the screening results",
+    "Is my local agent online?"
+  ],
   "server_auth": {
     "auth_type": "mcp_oauth",
     "data": {
       "mcp_oauth": {
         "server_url": "https://goodhr.58it.cn/mcp",
-        "scopes": ["mcp"]
+        "scopes": "mcp"
       }
     }
   }
