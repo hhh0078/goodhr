@@ -17,6 +17,30 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
+// TestCloudSessionDiagnostic 验证本机只公开凭证存在性、连接状态和固定错误码，不返回实际凭证。
+func TestCloudSessionDiagnostic(t *testing.T) {
+	server := &Server{}
+	server.cloudSession.token = "private-cloud-token"
+	server.SetCloudWSStatus(func() bool { return false })
+	server.SetCloudWSDiagnostic(func() (string, int) { return "WS_UPGRADE_CONNECTION_MISSING", 400 })
+	response := httptest.NewRecorder()
+	server.handleCloudSessionGet(response, httptest.NewRequest(http.MethodGet, "/api/v1/cloud/session", nil))
+	var payload struct {
+		Data struct {
+			HasToken   bool   `json:"has_token"`
+			Connected  bool   `json:"ws_connected"`
+			Code       string `json:"ws_error_code"`
+			HTTPStatus int    `json:"ws_http_status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Data.HasToken || payload.Data.Connected || payload.Data.Code != "WS_UPGRADE_CONNECTION_MISSING" || payload.Data.HTTPStatus != 400 || strings.Contains(response.Body.String(), "private-cloud-token") {
+		t.Fatalf("本机连接诊断不符合预期：%s", response.Body.String())
+	}
+}
+
 // TestPageOpenAcceptsLegacyViewportFields 验证严格请求校验仍接受旧宽高字段，但不要求成对提供。
 func TestPageOpenAcceptsLegacyViewportFields(t *testing.T) {
 	for _, body := range []string{

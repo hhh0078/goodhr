@@ -48,10 +48,18 @@ func (s *Server) handleCloudSessionGet(w http.ResponseWriter, r *http.Request) {
 	s.cloudSession.mu.RLock()
 	hasToken := s.cloudSession.token != ""
 	s.cloudSession.mu.RUnlock()
+	s.cloudWSStatusMu.RLock()
+	errorCode, httpStatus := "", 0
+	if s.cloudWSDiagnostic != nil {
+		errorCode, httpStatus = s.cloudWSDiagnostic()
+	}
+	s.cloudWSStatusMu.RUnlock()
 	writeSuccess(w, http.StatusOK, map[string]any{
-		"ok":           true,
-		"has_token":    hasToken,
-		"ws_connected": s.cloudWSConnected(),
+		"ok":             true,
+		"has_token":      hasToken,
+		"ws_connected":   s.cloudWSConnected(),
+		"ws_error_code":  errorCode,
+		"ws_http_status": httpStatus,
 	})
 }
 
@@ -81,6 +89,13 @@ func (s *Server) cloudWSConnected() bool {
 func (s *Server) SetCloudWSStatus(provider func() bool) {
 	s.cloudWSStatusMu.Lock()
 	s.cloudWSStatus = provider
+	s.cloudWSStatusMu.Unlock()
+}
+
+// SetCloudWSDiagnostic 注入仅包含稳定错误码和 HTTP 状态的连接诊断，不暴露登录凭证或响应原文。
+func (s *Server) SetCloudWSDiagnostic(provider func() (string, int)) {
+	s.cloudWSStatusMu.Lock()
+	s.cloudWSDiagnostic = provider
 	s.cloudWSStatusMu.Unlock()
 }
 

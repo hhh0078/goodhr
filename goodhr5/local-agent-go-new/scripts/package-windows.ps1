@@ -81,6 +81,9 @@ $DomainLine = Get-Content -LiteralPath $EnvironmentFile | Where-Object { $_ -mat
 if (-not $DomainLine) { throw "环境配置缺少 GOODHR_PUBLIC_BASE_URL" }
 $PublicBaseURL = ($DomainLine -split '=', 2)[1].Trim().TrimEnd('/')
 if ($PublicBaseURL -notmatch '^https://[a-z0-9.-]+$') { throw "环境主域名格式不正确" }
+$CloudWSBaseURL = if ($env:GOODHR_CLOUD_WS_BASE) { $env:GOODHR_CLOUD_WS_BASE.Trim().TrimEnd('/') } elseif ($PublicBaseURL -eq "https://goodhr.58it.cn") { "https://goodhr5.58it.cn" } else { $PublicBaseURL }
+# 官方任务通道使用已确认同后端的直连域名，私有环境不做官方域名映射。
+if ($CloudWSBaseURL -notmatch '^(https?|wss?)://[a-z0-9.-]+(:[0-9]+)?$') { throw "命令通道域名格式不正确" }
 
 $Npm = Find-CommandPath @("npm.cmd", "npm")
 $Node = Find-CommandPath @("node.exe", "node")
@@ -158,7 +161,7 @@ try {
   $env:GOOS = "windows"
   $env:GOARCH = "amd64"
   $env:GOPROXY = $GoProxy
-  $Ldflags = "-H windowsgui -s -w -X goodhr5/local-agent-go-new/internal/version.Value=$Version -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=$PublicBaseURL -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=$PublicBaseURL"
+  $Ldflags = "-H windowsgui -s -w -X goodhr5/local-agent-go-new/internal/version.Value=$Version -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=$PublicBaseURL -X goodhr5/local-agent-go-new/internal/config.DefaultCloudWSURL=$CloudWSBaseURL -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=$PublicBaseURL"
   & $Go build -trimpath -ldflags $Ldflags -o (Join-Path $PackageDir "goodhr-local-agent.exe") .\cmd\goodhr-local-agent
   if ($LASTEXITCODE -ne 0) {
     throw "Windows Go 主程序编译失败，退出码：$LASTEXITCODE"
@@ -174,7 +177,7 @@ finally {
 
 Copy-Item -Force (Join-Path $ProjectDir "README.md") (Join-Path $PackageDir "README.md")
 Copy-Item -Recurse -Force (Join-Path $ProjectDir "licenses") (Join-Path $PackageDir "licenses")
-@{ version = $Version; environment = $Environment; public_base_url = $PublicBaseURL } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PackageDir "build-info.json") -Encoding UTF8
+@{ version = $Version; environment = $Environment; public_base_url = $PublicBaseURL; cloud_ws_base_url = $CloudWSBaseURL } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PackageDir "build-info.json") -Encoding UTF8
 
 Write-Step "生成 Inno Setup 安装器"
 & $InnoSetup "/Q" "/DMyAppVersion=$Version" "/DMyEnvironmentSuffix=$EnvironmentSuffix" $InstallerScript
