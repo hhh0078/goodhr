@@ -664,7 +664,7 @@ test("教程等首轮结果时掉线，去组件页下载后仍续读原岗位",
 });
 
 test("必要组件缺失时不能用遮罩或 Escape 关闭弹窗", async ({ page }) => {
-  await mockSession(page, { missingRuntime: true });
+  await mockSession(page, { missingRuntime: true, tutorialState: "completed" });
   await page.goto("/admin/accounts");
   const dialog = page.getByRole("dialog", { name: "准备必要组件" });
   await expect(dialog).toBeVisible();
@@ -674,6 +674,49 @@ test("必要组件缺失时不能用遮罩或 Escape 关闭弹窗", async ({ pag
   await expect(dialog).toBeVisible();
   await expect(dialog.locator(".ant-modal-close")).toHaveCount(0);
 });
+
+for (const width of [1366, 390]) {
+  test(`浏览器补丁完成仍缺Node时准确提示并继续安装 ${width}px`, async ({ page }, testInfo) => {
+    await mockSession(page, { missingRuntime: true, tutorialState: "completed" });
+    await page.setViewportSize({ width, height: 960 });
+    let nodeInstalled = false;
+    let attempts = 0;
+    const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
+    const asset = { version: "synthetic", url: "https://example.invalid/synthetic-runtime.zip", sha256: "a".repeat(64) };
+    await page.route("**/api/runtime/config", (route) => route.fulfill({ headers, json: { config: { runtime_components: { node_runtime: { "darwin-arm64": asset }, camoufox: { "darwin-arm64": asset } } } } }));
+    await page.route("**/api/v1/runtime/status", (route) => route.fulfill({ headers, json: {
+      platform: "darwin-arm64", node_installed: nodeInstalled, camoufox_installed: true,
+      system_runtime: { required: false, ready: true },
+      install_progress: { running: false, component: nodeInstalled ? "" : "camoufox", stage: "installed", percent: 100, message: nodeInstalled ? "运行组件安装完成" : "浏览器修补包已就绪，可以继续搬砖了" },
+    } }));
+    await page.route("**/api/v1/runtime/install", async (route) => {
+      if (route.request().method() === "OPTIONS") return route.fallback();
+      attempts++;
+      expect(route.request().postDataJSON().manifest.node_runtime["darwin-arm64"]).toEqual({ ...asset, note: "" });
+      // 桌面先模拟终态仍缺项，验证能立即重试；手机直接验证正常安装完成。
+      nodeInstalled = width === 390 || attempts > 1;
+      await route.fulfill({ headers, json: { ok: true, data: {} } });
+    });
+    await page.goto("/admin/accounts");
+    const dialog = page.getByRole("dialog", { name: "准备必要组件", exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("还差Node 运行环境", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("progressbar")).toHaveCount(0);
+    await expect(dialog.getByText("安装完成", { exact: true })).toHaveCount(0);
+    await expect(dialog).toHaveCSS("transform", "none");
+    await expect(dialog).toHaveCSS("opacity", "1");
+    await page.screenshot({ path: testInfo.outputPath(`runtime-partial-${width}.png`), fullPage: true });
+    const install = dialog.locator('[data-onboarding="runtime-install"]');
+    await install.click();
+    if (width === 1366) {
+      await expect(dialog.getByText("还差Node 运行环境，点击“安装必要组件”继续。", { exact: true })).toBeVisible();
+      await expect(install).toBeEnabled();
+      await install.click();
+    }
+    await expect(dialog).toBeHidden();
+    expect(attempts).toBe(width === 390 ? 1 : 2);
+  });
+}
 
 test("必要组件状态没返回时保持关闭，确认缺失后才显示弹窗", async ({
   page,
@@ -688,6 +731,7 @@ test("必要组件状态没返回时保持关闭，确认缺失后才显示弹�
   });
   await mockSession(page, {
     missingRuntime: true,
+    tutorialState: "completed",
     runtimeStatusGate,
     onRuntimeStatusRequest: markRuntimeStatusRequested,
   });
