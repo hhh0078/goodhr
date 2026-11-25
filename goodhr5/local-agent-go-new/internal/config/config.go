@@ -26,6 +26,9 @@ const (
 // DefaultCloudURL 是开发环境默认云端地址，正式打包时通过 ldflags 固定为线上地址。
 var DefaultCloudURL = "http://127.0.0.1:8084"
 
+// DefaultCloudWSURL 是可独立编译指定的命令通道地址，留空时沿用当前云端 API 地址。
+var DefaultCloudWSURL = ""
+
 // DefaultConsoleURL 是开发环境默认前端地址，正式打包时通过 ldflags 固定为线上地址。
 var DefaultConsoleURL = "http://localhost:5173"
 
@@ -36,6 +39,7 @@ type Config struct {
 	WorkerHost      string
 	WorkerPort      int
 	CloudURL        string
+	CloudWSURL      string
 	ConsoleURL      string
 	DataDir         string
 	ProfilesDir     string
@@ -66,12 +70,14 @@ func Load(host string, port int, dataDir string) (Config, error) {
 	}
 	workerPort := envInt("GOODHR_WORKER_PORT", DefaultWorkerPort)
 	runtimeDir := filepath.Join(resolvedDataDir, "runtime")
+	cloudURL := envString("GOODHR_CLOUD_API_BASE", DefaultCloudURL)
 	cfg := Config{
 		Host:            host,
 		Port:            port,
 		WorkerHost:      DefaultHost,
 		WorkerPort:      workerPort,
-		CloudURL:        envString("GOODHR_CLOUD_API_BASE", DefaultCloudURL),
+		CloudURL:        cloudURL,
+		CloudWSURL:      resolveCloudWSURL(cloudURL),
 		ConsoleURL:      envString("GOODHR_CONSOLE_URL", DefaultConsoleURL),
 		DataDir:         resolvedDataDir,
 		ProfilesDir:     filepath.Join(resolvedDataDir, "profiles"),
@@ -98,6 +104,18 @@ func Load(host string, port int, dataDir string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// resolveCloudWSURL 优先使用显式命令通道地址；私有 API 覆盖不能误连官方编译默认通道。
+// cloudURL 为当前有效 API 地址，未独立配置时使用与该环境匹配的默认地址。
+func resolveCloudWSURL(cloudURL string) string {
+	if value := strings.TrimSpace(os.Getenv("GOODHR_CLOUD_WS_BASE")); value != "" {
+		return value
+	}
+	if DefaultCloudWSURL == "" || strings.TrimRight(cloudURL, "/") != strings.TrimRight(DefaultCloudURL, "/") {
+		return cloudURL
+	}
+	return DefaultCloudWSURL
 }
 
 // defaultWorkerEntry 按环境变量、安装目录和源码目录查找 Worker 编译入口。

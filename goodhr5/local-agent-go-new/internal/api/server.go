@@ -74,6 +74,7 @@ type Server struct {
 	cloudSession             cloudSessionState
 	cloudWSStatusMu          sync.RWMutex
 	cloudWSStatus            func() bool
+	cloudWSDiagnostic        func() (string, int)
 }
 
 // Dependencies 保存本地 HTTP 接口调用的应用服务。

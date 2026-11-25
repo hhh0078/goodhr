@@ -136,8 +136,9 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnos
 	})
 	application.server = server
 	// 云端命令通道客户端：接收 WorkBuddy 连接器下发的岗位启动命令。
-	cloudWS := cloudws.NewClient(cfg.CloudURL, server.CurrentCloudToken, server.CloudStartFromWS)
+	cloudWS := cloudws.NewClient(cfg.CloudWSURL, server.CurrentCloudToken, server.CloudStartFromWS)
 	server.SetCloudWSStatus(cloudWS.Connected)
+	server.SetCloudWSDiagnostic(cloudWS.Diagnostic)
 	application.cloudWS = cloudWS
 	return application, nil
 }

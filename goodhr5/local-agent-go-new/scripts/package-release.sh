@@ -20,6 +20,12 @@ environment_file="${project_dir}/../environments/${build_environment}.env"
 [[ -f "${environment_file}" ]] || { print -u2 "缺少环境配置：${environment_file}"; exit 1; }
 public_base_url=$(sed -n 's/^GOODHR_PUBLIC_BASE_URL=//p' "${environment_file}" | tr -d '\r')
 [[ "${public_base_url}" =~ '^https://[a-z0-9.-]+$' ]] || { print -u2 "环境主域名格式不正确"; exit 1; }
+cloud_ws_base_url=${GOODHR_CLOUD_WS_BASE:-${public_base_url}}
+# 官方 API 经过静态 CDN，只有任务长连接使用已确认同后端的官方直连域名。
+if [[ -z "${GOODHR_CLOUD_WS_BASE:-}" && "${public_base_url}" == "https://goodhr.58it.cn" ]]; then
+  cloud_ws_base_url="https://goodhr5.58it.cn"
+fi
+[[ "${cloud_ws_base_url}" =~ '^(https?|wss?)://[a-z0-9.-]+(:[0-9]+)?$' ]] || { print -u2 "命令通道域名格式不正确"; exit 1; }
 environment_suffix=""
 [[ "${build_environment}" != "test" ]] || environment_suffix="-test"
 npm_registry=${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}
@@ -61,7 +67,7 @@ cp -R node_modules/impit-darwin-x64 "${worker_dir}/node_modules/"
 node --check "${worker_dir}/dist/main.js"
 
 cd "${project_dir}"
-build_flags="-s -w -X goodhr5/local-agent-go-new/internal/version.Value=${version} -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=${public_base_url} -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=${public_base_url}"
+build_flags="-s -w -X goodhr5/local-agent-go-new/internal/version.Value=${version} -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=${public_base_url} -X goodhr5/local-agent-go-new/internal/config.DefaultCloudWSURL=${cloud_ws_base_url} -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=${public_base_url}"
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 GOPROXY="${go_proxy}" go build -trimpath -ldflags="${build_flags}" -o "${stage_dir}/agent-arm64" ./cmd/goodhr-local-agent
 CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 GOPROXY="${go_proxy}" go build -trimpath -ldflags="${build_flags}" -o "${stage_dir}/agent-x64" ./cmd/goodhr-local-agent
 lipo -create -output "${macos_dir}/goodhr-local-agent" "${stage_dir}/agent-arm64" "${stage_dir}/agent-x64"
@@ -78,7 +84,7 @@ cp packaging/macos/Info.plist "${app_path}/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${version}" "${app_path}/Contents/Info.plist"
 cp README.md "${app_path}/Contents/Resources/README.md"
 cp -R licenses "${macos_dir}/licenses"
-printf '{"version":"%s","environment":"%s","public_base_url":"%s"}\n' "${version}" "${build_environment}" "${public_base_url}" > "${macos_dir}/build-info.json"
+printf '{"version":"%s","environment":"%s","public_base_url":"%s","cloud_ws_base_url":"%s"}\n' "${version}" "${build_environment}" "${public_base_url}" "${cloud_ws_base_url}" > "${macos_dir}/build-info.json"
 
 iconset="${stage_dir}/GoodHR.iconset"
 mkdir -p "${iconset}"
