@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 文件作用说明：将 GoodHR 安装位置固定在应用程序目录，禁止安装器追随源码或废纸篓中的同标识应用。 -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+    <dict>
+        <key>RootRelativeBundlePath</key><string>Applications/GoodHR Local Agent.app</string>
+        <key>BundleIsRelocatable</key><false/>
+        <key>BundleIsVersionChecked</key><true/>
+        <key>BundleHasStrictIdentifier</key><true/>
+        <key>BundleOverwriteAction</key><string>upgrade</string>
+    </dict>
+</array>
+</plist>
