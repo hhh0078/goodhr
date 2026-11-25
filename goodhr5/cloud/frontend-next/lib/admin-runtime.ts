@@ -93,7 +93,11 @@ export async function waitForRuntimeInstall(
 			? status.install_progress as Record<string, unknown> : {};
 		if (!progress.running) {
 			if (progress.stage === "failed") throw new Error(String(progress.message || "组件安装没成功，请重试一次"));
-			if (progress.stage === "installed" && !hasMissingDownloadableRuntime(status)) return status;
+			if (progress.stage === "installed" || progress.stage === "skipped") {
+				const missing = requiredRuntimeComponents(status).filter((item) => item.key !== "system_runtime" && !item.installed);
+				if (missing.length) throw new Error(`还差${missing.map((item) => item.name).join("、")}，点击“安装必要组件”继续。`);
+				return status;
+			}
 		}
 		await new Promise<void>((resolve) => setTimeout(resolve, 1000));
 	}

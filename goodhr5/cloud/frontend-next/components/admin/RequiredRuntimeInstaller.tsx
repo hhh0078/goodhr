@@ -55,6 +55,14 @@ export default function RequiredRuntimeInstaller({
     systemRuntime?.required && !systemRuntime?.ready,
   );
   const missingDownloadable = hasMissingDownloadableRuntime(runtime);
+  const missingComponentNames = components
+    .filter((item) => item.key !== "system_runtime" && !item.installed)
+    .map((item) => item.name)
+    .join("、");
+  const partialInstall = Boolean(
+    missingDownloadable &&
+      ["installed", "skipped"].includes(String(progress?.stage || "")),
+  );
   const visible = Boolean(
     !deferred && agentBase &&
       loadedAgentBase === agentBase &&
@@ -296,7 +304,15 @@ export default function RequiredRuntimeInstaller({
         />
         </div>
       ) : null}
-      {running || progress?.message ? (
+      {partialInstall ? (
+        <Alert
+          type="info"
+          showIcon
+          title={`还差${missingComponentNames}`}
+          description={running ? "已装好的组件会保留，我还在准备其余组件，全部装好后再放行。" : "已装好的组件会保留。点击下方“安装必要组件”继续，全部准备好后我再放行。"}
+          style={{ marginTop: 16 }}
+        />
+      ) : running || progress?.message ? (
         <Card size="small" style={{ marginTop: 16 }}>
           <Typography.Text strong>
             {runtimeProgressTitle(progress?.stage)}
