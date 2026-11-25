@@ -11,16 +11,19 @@ type Fixture = {
   consentStatus: number; requiresPasswordSetup: boolean; wechatApproved: boolean; requests: Array<{ path: string; body: Record<string, unknown>; authorization: string }>;
   preflightStatus: number; preflightError: string; clientName: string; malformedMetadata: boolean; preflights: Array<Record<string, string>>;
   wsStatus: number; syncStatus: number; syncGate?: Promise<void>; onSyncStarted?: () => void;
+  cachedMode?: "wechat" | "code" | "password"; cachedAgreement?: boolean;
 };
 
 /** mockFlow 完全隔离认证、验证码、本机连接与OAuth请求，旧缓存只属于当前合成页面。 */
 async function mockFlow(page: Page, patch: Partial<Fixture> = {}) {
   const fixture: Fixture = { cached: true, installed: false, online: false, newAccount: true, authStatus: 200, authError: "合成注册暂未完成，请重试", consentStatus: 200, requiresPasswordSetup: false, wechatApproved: false, requests: [], preflightStatus: 200, preflightError: "这个客户端没有注册过，请重新发起连接。", clientName: "合成招聘助手", malformedMetadata: false, preflights: [], wsStatus: 200, syncStatus: 200, ...patch };
-  await page.addInitScript((cached) => {
+  await page.addInitScript(({ cached, cachedMode, cachedAgreement }) => {
     if (cached) localStorage.setItem("goodhr5_access_token", "synthetic-old-token");
     else localStorage.removeItem("goodhr5_access_token");
     localStorage.setItem("goodhr5_invite_id", "synthetic-inviter");
-  }, fixture.cached);
+    if (cachedMode) localStorage.setItem("goodhr.login.mode", cachedMode);
+    if (cachedAgreement) localStorage.setItem("goodhr.login.agreement", "accepted");
+  }, { cached: fixture.cached, cachedMode: fixture.cachedMode, cachedAgreement: fixture.cachedAgreement });
   await page.route("**/*", async (route) => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
@@ -226,15 +229,44 @@ test("微信登录沿用扫码确认和协议确认，成功后接回同一绑�
   await confirmAuthorization(page);
   await page.getByRole("button", { name: "我有账号", exact: true }).click();
   await page.getByRole("button", { name: "微信扫码", exact: true }).click();
-  await expect(page.getByText("验证码 12345678", { exact: true })).toBeVisible();
-  fixture.wechatApproved = true;
-  const agreement = page.getByRole("button", { name: "微信已确认，读完并同意协议就能进入", exact: true });
-  await expect(agreement).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "我已阅读并同意", exact: true })).not.toBeChecked();
+  expect(fixture.requests.some((item) => item.path === "/api/auth/wechat/create")).toBe(false);
   expect(fixture.requests.some((item) => item.path === "/api/workbuddy/authorize")).toBe(false);
-  await agreement.click();
+  await page.getByRole("button", { name: "查看二维码蒙板协议", exact: true }).click();
   await page.getByRole("dialog", { name: "GoodHR 使用协议与隐私说明", exact: true }).getByRole("button", { name: "我已阅读", exact: true }).click();
+  await expect(page.getByLabel("微信登录码", { exact: true })).toHaveText("12345678");
+  fixture.wechatApproved = true;
   await expect(page.getByText("合成 WorkBuddy 回调", { exact: true })).toBeVisible();
   expect(fixture.requests.filter((item) => item.path === "/api/workbuddy/authorize")).toHaveLength(1);
+});
+
+for (const intent of ["login", "register"] as const) {
+  test(`授权页${intent}入口忽略旧登录方式和协议缓存，普通偏好不被覆盖`, async ({ page }) => {
+    const cachedMode = intent === "register" ? "wechat" : "code";
+    const fixture = await mockFlow(page, { cachedMode, cachedAgreement: true });
+    await page.goto(authorizePath);
+    await expect(page.getByRole("checkbox", { name: "我确认上方应用和回调地址，并同意以上权限", exact: true })).not.toBeChecked();
+    await confirmAuthorization(page);
+    await page.getByRole("button", { name: intent === "register" ? "我还没有账号" : "我有账号", exact: true }).click();
+    await expect(page.getByLabel(intent === "register" ? "设置登录密码" : "密码", { exact: true })).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: "我已阅读并同意", exact: true })).not.toBeChecked();
+    expect(fixture.requests.some((item) => item.path === "/api/auth/wechat/create")).toBe(false);
+    await page.getByRole("checkbox", { name: "我已阅读并同意", exact: true }).check();
+    await page.getByRole("checkbox", { name: "我已阅读并同意", exact: true }).uncheck();
+    expect(await page.evaluate(() => ({ mode: localStorage.getItem("goodhr.login.mode"), agreement: localStorage.getItem("goodhr.login.agreement") }))).toEqual({ mode: cachedMode, agreement: "accepted" });
+  });
+}
+
+test("普通登录页继续恢复并保存main的方式与协议偏好，缓存邮箱入口不请求微信码", async ({ page }) => {
+  const fixture = await mockFlow(page, { cached: false, cachedMode: "code", cachedAgreement: true, newAccount: false });
+  await page.goto("/login");
+  await expect(page.getByLabel("验证码", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "我已阅读并同意", exact: true })).toBeChecked();
+  expect(fixture.requests.some((item) => item.path === "/api/auth/wechat/create")).toBe(false);
+  await page.getByRole("button", { name: "邮箱密码", exact: true }).click();
+  await expect(page.getByLabel("密码", { exact: true })).toBeVisible();
+  await page.getByRole("checkbox", { name: "我已阅读并同意", exact: true }).uncheck();
+  expect(await page.evaluate(() => ({ mode: localStorage.getItem("goodhr.login.mode"), agreement: localStorage.getItem("goodhr.login.agreement") }))).toEqual({ mode: "password", agreement: null });
 });
 
 test("新账号验证码注册成功后自动绑定，保留邀请码并使用register_only", async ({ page }) => {
