@@ -4,7 +4,9 @@ package cloudws
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -91,10 +93,18 @@ func (c *Client) Run(ctx context.Context) {
 
 // serve 建立一次连接并处理消息，连接关闭或出错时返回。
 func (c *Client) serve(ctx context.Context, token string) error {
-	wsURL := c.cloudBaseURL + "/api/agents/ws?token=" + url.QueryEscape(token)
-	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
-	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
+	wsURL, err := cloudWebSocketURL(c.cloudBaseURL)
 	if err != nil {
+		return err
+	}
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer "+token)
+	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+	conn, response, err := dialer.DialContext(ctx, wsURL, headers)
+	if err != nil {
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
 		return err
 	}
 	c.mu.Lock()
@@ -122,6 +132,28 @@ func (c *Client) serve(ctx context.Context, token string) error {
 		}
 		c.handle(ctx, conn, msg)
 	}
+}
+
+// cloudWebSocketURL 将云端 HTTP 地址转换为对应的 WS 地址，不把登录凭证放入查询参数。
+// baseURL 为云端服务地址；返回命令通道地址，格式或协议不支持时返回不含原始地址的错误。
+func cloudWebSocketURL(baseURL string) (string, error) {
+	endpoint, err := url.Parse(baseURL)
+	if err != nil || endpoint.Host == "" || endpoint.User != nil {
+		return "", errors.New("云端命令通道地址不正确")
+	}
+	switch endpoint.Scheme {
+	case "http":
+		endpoint.Scheme = "ws"
+	case "https":
+		endpoint.Scheme = "wss"
+	case "ws", "wss":
+	default:
+		return "", errors.New("云端命令通道地址协议不支持")
+	}
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/api/agents/ws"
+	endpoint.RawPath, endpoint.RawQuery, endpoint.Fragment = "", "", ""
+	endpoint.ForceQuery = false
+	return endpoint.String(), nil
 }
 
 // pingLoop 周期发送 ping 保持连接活跃，ctx 取消后退出。
