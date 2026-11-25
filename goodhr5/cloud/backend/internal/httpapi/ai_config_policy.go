@@ -53,7 +53,7 @@ func (s *modelRestrictedAIConfigStore) RepairUserModel(userEmail string, previou
 	return s.store.RepairUserModel(userEmail, previous, normalized.Model)
 }
 
-// normalizeUserAIConfig 仅为域名与当前网站完全一致的接口纠正模型，保留外部接口的模型输入。
+// normalizeUserAIConfig 为当前网站和固定 AI 中转域名纠正模型，保留外部接口的模型输入。
 func normalizeUserAIConfig(config AIConfig, systemConfigs SystemConfigStore) (AIConfig, error) {
 	if !isCurrentSiteAIURL(config.BaseURL) {
 		return config, nil
@@ -70,14 +70,17 @@ func normalizeUserAIConfig(config AIConfig, systemConfigs SystemConfigStore) (AI
 	return config, nil
 }
 
-// isCurrentSiteAIURL 按当前部署的公开域名判断是否需要限制 AI 模型，域名比较忽略大小写。
+// isCurrentSiteAIURL 识别当前部署和固定 HTTPS 中转域名，域名比较忽略大小写。
 func isCurrentSiteAIURL(baseURL string) bool {
-	publicURL, err := url.Parse(deploymentPublicBaseURL())
-	if err != nil || publicURL.Hostname() == "" || publicURL.User != nil {
-		return false
-	}
 	endpoint, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || endpoint.User != nil || (endpoint.Scheme != "https" && endpoint.Scheme != "http") || endpoint.Hostname() == "" {
+		return false
+	}
+	if strings.EqualFold(endpoint.Hostname(), "goodhr.transit.ai.58it.cn") {
+		return endpoint.Scheme == "https" && strings.EqualFold(endpoint.Host, "goodhr.transit.ai.58it.cn")
+	}
+	publicURL, err := url.Parse(deploymentPublicBaseURL())
+	if err != nil || publicURL.Hostname() == "" || publicURL.User != nil {
 		return false
 	}
 	return strings.EqualFold(endpoint.Hostname(), publicURL.Hostname())

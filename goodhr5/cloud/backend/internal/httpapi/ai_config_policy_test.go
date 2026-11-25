@@ -115,6 +115,8 @@ func TestUserAIConfigStoreRepairsOnlyCurrentSiteModels(t *testing.T) {
 		{name: "site_empty", baseURL: "https://goodhr.example.com/api/ai", want: "first-model"},
 		{name: "site_valid", baseURL: "https://goodhr.example.com/api/ai", model: "second-model", want: "second-model"},
 		{name: "site_trimmed", baseURL: "https://goodhr.example.com/api/ai", model: " second-model ", want: "second-model"},
+		{name: "transit_old", baseURL: "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions", model: "removed-model", want: "first-model"},
+		{name: "transit_valid", baseURL: "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions", model: "second-model", want: "second-model"},
 		{name: "contains_site", baseURL: "https://proxy.example.com/goodhr.example.com/api/ai", model: "custom-model", want: "custom-model"},
 		{name: "suffix_attack", baseURL: "https://goodhr.example.com.evil.test/api/ai", model: "custom-model", want: "custom-model"},
 		{name: "subdomain", baseURL: "https://sub.goodhr.example.com/api/ai", model: "custom-model", want: "custom-model"},
@@ -160,6 +162,56 @@ func TestUserAIConfigStoreRepairsOnlyCurrentSiteModels(t *testing.T) {
 				t.Fatalf("saved model = %q, want %q", saved.Model, wantSaved)
 			}
 		})
+	}
+}
+
+// TestCurrentSiteAIURLRecognizesTransit 验证固定中转域名属于站内接口，且相似域名和错误来源不能借用其身份。
+func TestCurrentSiteAIURLRecognizesTransit(t *testing.T) {
+	for _, publicURL := range []string{"https://goodhr.example.com:8443", "https://goodhr.transit.ai.58it.cn"} {
+		t.Setenv("GOODHR_PUBLIC_BASE_URL", publicURL)
+		for _, test := range []struct {
+			address string
+			want    bool
+		}{
+			{address: "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions", want: true},
+			{address: " https://GOODHR.TRANSIT.AI.58IT.CN/api/ai-compatible/v1 ", want: true},
+			{address: "http://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
+			{address: "https://goodhr.transit.ai.58it.cn:8443/api/ai-compatible/v1/chat/completions"},
+			{address: "https://goodhr.transit.ai.58it.cn:/api/ai-compatible/v1/chat/completions"},
+			{address: "https://user:secret@goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
+			{address: "https://goodhr.transit.ai.58it.cn.external.test/api/ai-compatible/v1/chat/completions"},
+			{address: "https://sub.goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
+			{address: "https://external.test/?next=https://goodhr.transit.ai.58it.cn"},
+			{address: "https://goodhr.transit.ai.58it.cn@external.test/api/ai-compatible/v1/chat/completions"},
+			{address: "//goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
+			{address: "not a URL"},
+		} {
+			if got := isCurrentSiteAIURL(test.address); got != test.want {
+				t.Errorf("公开域名 %q 的地址 %q：got %t, want %t", publicURL, test.address, got, test.want)
+			}
+		}
+	}
+}
+
+// TestTransitAIRequestDoesNotNestRetries 验证中转代理已负责上游重试，外层不会额外重试。
+func TestTransitAIRequestDoesNotNestRetries(t *testing.T) {
+	t.Setenv("GOODHR_PUBLIC_BASE_URL", "https://goodhr.example.com")
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":"upstream failure"}`))}, nil
+	})}
+	request, err := http.NewRequest(http.MethodPost, "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions", strings.NewReader(`{"model":"first-model"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := doServerAIRequest(client, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusBadGateway || calls != 1 {
+		t.Fatalf("中转代理被额外重试：status=%d calls=%d", response.StatusCode, calls)
 	}
 }
 

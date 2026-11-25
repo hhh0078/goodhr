@@ -85,10 +85,13 @@ func startAIAttempt(ctx context.Context, req *http.Request, apiKey, operation st
 	return t, req.WithContext(httptrace.WithClientTrace(ctx, trace))
 }
 
-// trustedAIProxy 仅认可部署自身的精确来源与兼容路由，不采用外部接口发送的诊断信号。
+// trustedAIProxy 仅认可部署自身及固定 HTTPS 中转来源与兼容路由，Windows 和 Mac 共用相同规则。
 func trustedAIProxy(endpoint *url.URL) bool {
 	if endpoint == nil || endpoint.User != nil || endpoint.Path != "/api/ai-compatible/v1/chat/completions" {
 		return false
+	}
+	if strings.EqualFold(endpoint.Hostname(), "goodhr.transit.ai.58it.cn") {
+		return endpoint.Scheme == "https" && strings.EqualFold(endpoint.Host, "goodhr.transit.ai.58it.cn")
 	}
 	for _, base := range []string{os.Getenv("GOODHR_PUBLIC_BASE_URL"), os.Getenv("GOODHR_CLOUD_API_BASE"), config.DefaultCloudURL, "https://goodhr.58it.cn"} {
 		u, err := url.Parse(strings.TrimSpace(base))

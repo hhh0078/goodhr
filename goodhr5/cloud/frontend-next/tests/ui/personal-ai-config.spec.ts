@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 const previewOrigin = new URL(
   process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190",
 ).origin;
-const builtinAddress = "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions";
+const builtinAddress = "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions";
 const models = [
   {
     id: "qwen3.8-flash",

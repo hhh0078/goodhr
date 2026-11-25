@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +19,49 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
+
+// TestTransitAIProxyDiagnosticsOrigin 验证中转接口可协商内置诊断，HTTP、端口及相似域名不能伪造代理来源。
+func TestTransitAIProxyDiagnosticsOrigin(t *testing.T) {
+	for _, publicURL := range []string{"https://unrelated.example.test", "https://goodhr.transit.ai.58it.cn"} {
+		t.Setenv("GOODHR_PUBLIC_BASE_URL", publicURL)
+		for _, test := range []struct {
+			address string
+			want    bool
+		}{
+			{address: "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions", want: true},
+			{address: "https://GOODHR.TRANSIT.AI.58IT.CN/api/ai-compatible/v1/chat/completions", want: true},
+			{address: "http://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
+			{address: "https://goodhr.transit.ai.58it.cn:8443/api/ai-compatible/v1/chat/completions"},
+			{address: "https://goodhr.transit.ai.58it.cn:/api/ai-compatible/v1/chat/completions"},
+			{address: "https://user:secret@goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
+			{address: "https://goodhr.transit.ai.58it.cn.external.test/api/ai-compatible/v1/chat/completions"},
+			{address: "https://sub.goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
+			{address: "https://external.test/api/ai-compatible/v1/chat/completions?next=https://goodhr.transit.ai.58it.cn"},
+			{address: "https://goodhr.transit.ai.58it.cn@external.test/api/ai-compatible/v1/chat/completions"},
+			{address: "https://goodhr.transit.ai.58it.cn/v1/chat/completions"},
+			{address: "//goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
+		} {
+			endpoint, err := url.Parse(test.address)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := trustedAIProxy(endpoint); got != test.want {
+				t.Errorf("公开域名 %q 的地址 %q：got %t, want %t", publicURL, test.address, got, test.want)
+			}
+			request := httptest.NewRequest(http.MethodPost, test.address, nil)
+			for _, apiKey := range []string{"custom", "ghai_synthetic"} {
+				attempt, observed := startAIAttempt(context.Background(), request.Clone(context.Background()), apiKey, "合成测试", 1, time.Second)
+				want := test.want && apiKey == "ghai_synthetic"
+				if attempt.builtin != want || (observed.Header.Get("X-GoodHR-Diagnostics") == "1") != want {
+					t.Errorf("地址 %q 的诊断协商错误：builtin=%t header=%q want=%t", test.address, attempt.builtin, observed.Header.Get("X-GoodHR-Diagnostics"), want)
+				}
+			}
+		}
+	}
+	if trustedAIProxy(nil) {
+		t.Fatal("空地址不能获得代理信任")
+	}
+}
 
 // TestAIDiagnosticBeforeHeaders 验证已经发出的请求被上层时限中断时，能与 AI 自身时限区分。
 func TestAIDiagnosticBeforeHeaders(t *testing.T) {

@@ -1,5 +1,7 @@
 """文件作用：自动发现并隔离验收本次镜像的新迁移，逐字段保护旧数据并验证完整旧应用回退。"""
 
+import copy
+from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
@@ -12,7 +14,7 @@ import uuid
 from release_activate import save_json
 from release_cutover import CutoverError, require
 from release_rehearse import Rehearsal, assert_preserved, command, main, migration_fingerprint
-from release_rehearse_platforms import in_window
+from release_rehearse_platforms import in_window, keyed_rows
 from release_rehearse_screening import ScreeningRehearsal
 from release_retention import digest_file
 
@@ -22,6 +24,59 @@ APPROVED = POLICY["bootstrap_migrations"]
 LIBRARY = "system.auto_reply_library"
 FACT_RETIREMENT = "0126_retire_system_stat_facts.sql"
 FACT_TABLE = "public.system_stat_facts"
+AI_URL_MIGRATION = "0127_builtin_ai_transit_url.sql"
+AI_URL_MIGRATION_SHA256 = "89484d91af193f0da282c60c59ec0ca4935e50547a723e8bd0d1cd5390db26d8"
+AI_URL = "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"
+OLD_AI_URLS = {"https://" + host + "/api/ai-compatible/v1/chat/completions"
+               for host in ("goodhr.58it.cn", "goodhr5.58it.cn", "goodhr.ai.58it.cn")}
+
+
+def same_ai_config_value(before, after):
+    """same_ai_config_value 精确比较完整配置JSON，避免Python把布尔值与数字或大精度小数误认成相同。"""
+    if type(before) is not type(after):
+        return False
+    if isinstance(before, dict):
+        return set(before) == set(after) and all(same_ai_config_value(value, after[key]) for key, value in before.items())
+    if isinstance(before, list):
+        return len(before) == len(after) and all(same_ai_config_value(left, right) for left, right in zip(before, after))
+    return before == after
+
+
+def verify_ai_url_upgrade(before, after):
+    """verify_ai_url_upgrade 逐行核对两表，只允许已批准的个人地址和内置公开地址替换，不输出配置正文。"""
+    tables = {"user_ai_configs", "system_configs"}
+    require(isinstance(before, dict) and isinstance(after, dict) and set(before) == set(after) == tables,
+            "AI地址迁移缺少两张完整配置表")
+    counts = {}
+    for table in sorted(tables):
+        require(isinstance(before[table], list) and isinstance(after[table], list), "AI配置完整行快照格式异常")
+        old = keyed_rows(before[table], "id") if before[table] else {}
+        new = keyed_rows(after[table], "id") if after[table] else {}
+        require(set(old) == set(new), "AI地址迁移增删了原配置行")
+        changed = 0
+        for key, row in old.items():
+            expected = copy.deepcopy(row)
+            if table == "user_ai_configs":
+                require("base_url" in row, "个人AI配置缺少原接口字段")
+                value = row["base_url"]
+                if isinstance(value, str) and value.strip(" ").lower() in OLD_AI_URLS:
+                    expected["base_url"] = AI_URL
+            elif row.get("config_key") == "system.app_config" and isinstance(row.get("config_value"), dict):
+                value = row["config_value"]
+                builtin = value.get("builtin_ai")
+                if builtin is None or isinstance(builtin, dict):
+                    address = builtin.get("public_base_url") if builtin is not None else None
+                    if address is None or isinstance(address, str) and (
+                            address.strip(" ") == "" or address.strip(" ").lower() in OLD_AI_URLS):
+                        expected["config_value"]["builtin_ai"] = dict(builtin or {}, public_base_url=AI_URL)
+            require(same_ai_config_value(new[key], expected), "AI地址迁移改动了未批准的地址、密钥、模型、时间或其他配置字段")
+            changed += not same_ai_config_value(expected, row)
+        counts[table] = changed
+    return {"filename": AI_URL_MIGRATION, "sha256": AI_URL_MIGRATION_SHA256,
+            "exact_url_data_change_verified": True, "changed_rows": counts, "target_url": AI_URL,
+            "legacy_data_scope": "all_original_rows_and_fields_except_verified_builtin_ai_public_urls",
+            "allowed_data_changes": ["user_ai_configs.base_url",
+                                     "system_configs[system.app_config].config_value.builtin_ai.public_base_url"]}
 
 
 def without_retired_fact_data(toc):
@@ -159,10 +214,20 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
             "SELECT row_to_json(t)::text FROM public.system_configs t "
             "WHERE config_key='system.auto_reply_library';").decode().splitlines()]
 
+    def ai_url_rows(self, preserve_default_library=False):
+        """ai_url_rows 仅在内存读取两张完整配置表，精确保留JSON小数且不记录密钥或配置正文。"""
+        result = {}
+        for table in ("user_ai_configs", "system_configs"):
+            condition = " WHERE config_key<>'system.auto_reply_library'" if table == "system_configs" and preserve_default_library else ""
+            result[table] = [json.loads(row, parse_float=Decimal) for row in self.psql(
+                "SELECT row_to_json(t)::text FROM public." + table + " t" + condition + " ORDER BY id;").decode().splitlines()]
+        return result
+
     def restore(self):
         """restore 在内部PG自动试跑本次新SQL，保护旧字段和账本，历史默认话术种子继续按原摘要单独核验。"""
         require(self.additive is None, "自动升级不得混用其他迁移例外")
         self.retired_projections = []
+        self.builtin_ai_url_change = None
         Rehearsal.restore(self)
         self.before_filenames, self.before_fingerprint = list(self.filenames), self.fingerprint
         self.before_ledger, self.before_schema = self.ledger_records(), self.database_schema()
@@ -184,6 +249,14 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         library_upgrade = library_migration in self.migrations and self.approved[library_migration] == APPROVED[library_migration]
         columns = {name.replace(".", "\t", 1): [col["name"] for col in value["columns"]]
                    for name, value in self.before_schema["tables"].items() if name != "public.schema_migrations"}
+        ai_url_upgrade = AI_URL_MIGRATION in self.migrations
+        if ai_url_upgrade:
+            require(self.approved.get(AI_URL_MIGRATION) == AI_URL_MIGRATION_SHA256,
+                    "AI地址迁移SQL不是已批准的精确版本，禁止使用数据变更例外")
+            for table in ("public\tuser_ai_configs", "public\tsystem_configs"):
+                require(table in columns, "AI地址迁移缺少完整旧配置表")
+                columns.pop(table)
+        before_ai_urls = self.ai_url_rows(library_upgrade) if ai_url_upgrade else None
         retirement = FACT_RETIREMENT in self.migrations
         if retirement:
             require(FACT_TABLE in self.before_schema["tables"] and FACT_TABLE.replace(".", "\t", 1) in self.baseline,
@@ -204,6 +277,8 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         self.psql("\n".join(statements))
         end = self.psql("SELECT clock_timestamp()::text;").decode().strip()
         assert_preserved(baseline, self.database_snapshot(columns, preserve_default_library=library_upgrade))
+        if ai_url_upgrade:
+            self.builtin_ai_url_change = verify_ai_url_upgrade(before_ai_urls, self.ai_url_rows(library_upgrade))
         ledger, schema = self.ledger_records(), self.database_schema()
         check_ledger(self.before_ledger, ledger, start, end, self.migrations)
         if library_upgrade:
@@ -221,6 +296,9 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         self.filenames, self.baseline = self.ledger(), self.database_snapshot()
         self.fingerprint = migration_fingerprint(self.filenames)
         self.migrated_schema, self.migrated_ledger = schema, ledger
+        legacy_scope = "all_business_data_except_explicitly_retired_statistics_projection" if retired_projections else "all_original_data"
+        if self.builtin_ai_url_change:
+            legacy_scope = self.builtin_ai_url_change["legacy_data_scope"] + ("_and_explicitly_retired_statistics_projection" if retired_projections else "")
         save_json(self.directory / "automatic-upgrade.json", {
             "approved_sha256": self.approved, "old_projected_data_preserved": not bool(retired_projections),
             "all_business_data_preserved": True,
@@ -229,6 +307,9 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
             "application_read_only": True, "before_fingerprint": self.before_fingerprint,
             "after_fingerprint": self.fingerprint,
             "retired_non_business_projections": retired_projections,
+            "builtin_ai_url_change": self.builtin_ai_url_change,
+            "legacy_data_scope": legacy_scope,
+            "allowed_data_changes": self.builtin_ai_url_change["allowed_data_changes"] if self.builtin_ai_url_change else [],
         }, exclusive=True)
 
     def pair(self, label, images):
@@ -236,16 +317,24 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         super().pair(label, images)
         if self.retired_projections:
             self.reports[label]["retired_non_business_projections"] = self.retired_projections
+        if self.builtin_ai_url_change:
+            self.reports[label]["builtin_ai_url_change"] = self.builtin_ai_url_change
+        if self.retired_projections or self.builtin_ai_url_change:
             save_json(self.directory / (label + "-pair-summary.json"), self.reports[label])
 
     def finish(self):
         """finish 保留原发布证据和回退登记，并显式披露用户授权移除的统计投影，不能冒充保留该表数据。"""
         super().finish()
-        if self.retired_projections:
+        if self.retired_projections or self.builtin_ai_url_change:
             path = self.root / "isolated-validation.json"
             evidence = json.loads(path.read_text())
-            evidence["retired_non_business_projections"] = self.retired_projections
-            evidence["legacy_data_scope"] = "all_business_data_except_explicitly_retired_statistics_projection"
+            if self.retired_projections:
+                evidence["retired_non_business_projections"] = self.retired_projections
+                evidence["legacy_data_scope"] = "all_business_data_except_explicitly_retired_statistics_projection"
+            if self.builtin_ai_url_change:
+                evidence["builtin_ai_url_change"] = self.builtin_ai_url_change
+                evidence["legacy_data_scope"] = self.builtin_ai_url_change["legacy_data_scope"] + ("_and_explicitly_retired_statistics_projection" if self.retired_projections else "")
+                evidence["allowed_data_changes"] = self.builtin_ai_url_change["allowed_data_changes"]
             save_json(path, evidence)
 
 

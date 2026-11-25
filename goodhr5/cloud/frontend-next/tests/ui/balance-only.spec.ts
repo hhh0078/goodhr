@@ -11,7 +11,7 @@ for (const width of [1366, 390]) {
   test(`余额入口${width}px无会员天数，直接充值并保存动态模型`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 900 });
     const state = await mockUniformAdmin(page);
-    let config = { base_url: "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions", api_key: "ghai_synthetic", api_key_set: true, model: models[0].id };
+    let config = { base_url: "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions", api_key: "ghai_synthetic", api_key_set: true, model: models[0].id };
     const writes: unknown[] = [];
     await page.route("**/api/config/user-ai", async route => {
       if (route.request().method() === "PUT") { writes.push(route.request().postDataJSON()); config = { ...config, ...route.request().postDataJSON() }; }
@@ -51,7 +51,7 @@ for (const width of [1366, 390]) {
     await page.route("**/api/ai-wallet/use-builtin", route => {
       attempts++;
       if (attempts === 1) return route.fulfill({ headers, status: 503, json: { error: "模拟切换失败，请重试" } });
-      config = { ...config, base_url: "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions", api_key: "ghai_synthetic", model: models[0].id };
+      config = { ...config, base_url: "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions", api_key: "ghai_synthetic", model: models[0].id };
       return route.fulfill({ headers, json: { config, models } });
     });
     await page.goto("/admin/personal-config");

@@ -1,6 +1,7 @@
 """文件作用：验证未人工登记的新迁移实际经过副本执行、旧数据核对和绑定证据，零迁移不重复执行SQL。"""
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +11,9 @@ from unittest.mock import Mock, patch
 
 from release_cutover import CutoverError
 from release_rehearse import Rehearsal, migration_fingerprint
-from release_rehearse_auto import AutomaticUpgradeRehearsal, verify_fact_retirement, without_retired_fact_data
+from release_rehearse_auto import (AI_URL, AI_URL_MIGRATION, AI_URL_MIGRATION_SHA256,
+                                   AutomaticUpgradeRehearsal, verify_ai_url_upgrade,
+                                   verify_fact_retirement, without_retired_fact_data)
 
 
 class AutomaticMigrationTests(unittest.TestCase):
@@ -161,6 +164,165 @@ class AutomaticMigrationTests(unittest.TestCase):
                         self.assertTrue(evidence["all_business_data_preserved"])
                         self.assertEqual(evidence["retired_non_business_projections"][0]["table"], "public.system_stat_facts")
                 self.assertEqual(set(job.database_snapshot.call_args_list[0].args[0]), {"public\tusers"})
+
+
+class AIURLUpgradeTests(unittest.TestCase):
+    """验证唯一批准的AI域名替换，其他完整行、JSON字段及表数据仍严格保护。"""
+
+    def rows(self):
+        """构造带自定义接口、密钥、模型和系统额外字段的合成完整行。"""
+        old = "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions"
+        return {"user_ai_configs": [
+            {"id": "user-config", "user_id": "user", "base_url": old,
+             "model": "keep-model", "api_key_encrypted": "synthetic-secret", "temperature": 0.35,
+             "enabled": False, "updated_at": "2020-01-01T00:00:00Z"},
+            {"id": "custom-config", "base_url": "https://custom.example/v1", "model": "custom-model"},
+        ], "system_configs": [
+            {"id": "app", "config_key": "system.app_config", "config_value": {
+                "builtin_ai": {"public_base_url": old, "upstream_api_key": "synthetic-upstream",
+                               "default_model": "keep-model", "models": [{"id": "keep-model"}]},
+                "keep": {"value": 1}}, "updated_at": "2020-01-01T00:00:00Z"},
+            {"id": "other", "config_key": "system.other", "config_value": {"keep": True}},
+        ]}
+
+    def upgraded_rows(self):
+        """独立构造只更新两个获准URL字段的迁移结果。"""
+        rows = self.rows()
+        rows["user_ai_configs"][0]["base_url"] = AI_URL
+        rows["system_configs"][0]["config_value"]["builtin_ai"]["public_base_url"] = AI_URL
+        return rows
+
+    def test_only_approved_urls_change_and_evidence_has_no_secrets(self):
+        """合法改动保留密钥模型和时间，证据仅含数量、迁移身份与核对结论。"""
+        report = verify_ai_url_upgrade(self.rows(), self.upgraded_rows())
+        self.assertTrue(report["exact_url_data_change_verified"])
+        self.assertEqual(report["changed_rows"], {"user_ai_configs": 1, "system_configs": 1})
+        self.assertIn("except_verified_builtin_ai_public_urls", report["legacy_data_scope"])
+        self.assertEqual(len(report["allowed_data_changes"]), 2)
+        self.assertNotIn("synthetic-secret", json.dumps(report))
+        sql = Path(__file__).resolve().parents[1] / "cloud/backend/db/migrations" / AI_URL_MIGRATION
+        self.assertEqual(hashlib.sha256(sql.read_bytes()).hexdigest(), AI_URL_MIGRATION_SHA256)
+
+    def test_other_fields_or_unapproved_addresses_cannot_change(self):
+        """拒绝改密钥模型、漏字段、时间、第三方地址、其他系统JSON及新增删除配置行。"""
+        changes = [
+            (("user_ai_configs", 0, "api_key_encrypted"), "changed-secret"),
+            (("user_ai_configs", 0, "model"), "changed-model"),
+            (("user_ai_configs", 0, "temperature"), 0.9),
+            (("user_ai_configs", 0, "enabled"), True),
+            (("user_ai_configs", 0, "enabled"), 0),
+            (("user_ai_configs", 0, "updated_at"), "2026-11-25T00:00:00Z"),
+            (("user_ai_configs", 0, "base_url"), AI_URL + "?unapproved=1"),
+            (("user_ai_configs", 1, "base_url"), AI_URL),
+            (("system_configs", 0, "config_value", "keep", "value"), 2),
+            (("system_configs", 0, "config_value", "builtin_ai", "upstream_api_key"), "changed"),
+            (("system_configs", 0, "config_value", "builtin_ai", "default_model"), "changed"),
+            (("system_configs", 0, "updated_at"), "2026-11-25T00:00:00Z"),
+            (("system_configs", 1, "config_value", "keep"), False),
+            (("system_configs", 1, "config_value", "keep"), 1),
+        ]
+        for path, value in changes:
+            with self.subTest(path=path):
+                after = self.upgraded_rows()
+                target = after
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+                with self.assertRaises(CutoverError):
+                    verify_ai_url_upgrade(self.rows(), after)
+        for table in ("user_ai_configs", "system_configs"):
+            for operation in ("remove", "duplicate", "insert", "remove-field"):
+                with self.subTest(table=table, operation=operation):
+                    after = self.upgraded_rows()
+                    if operation == "remove":
+                        after[table].pop()
+                    elif operation == "duplicate":
+                        after[table].append(copy.deepcopy(after[table][0]))
+                    elif operation == "insert":
+                        after[table].append(dict(after[table][0], id="new-row"))
+                    else:
+                        after[table][0].pop("updated_at")
+                    with self.assertRaises(CutoverError):
+                        verify_ai_url_upgrade(self.rows(), after)
+
+    def test_empty_and_legacy_system_values_follow_fixed_sql(self):
+        """缺失或null内置配置可以补URL，无效JSON结构和非空外部地址仍保留。"""
+        for before_value, expected in (
+                ({}, {"builtin_ai": {"public_base_url": AI_URL}}),
+                ({"builtin_ai": None}, {"builtin_ai": {"public_base_url": AI_URL}}),
+                ({"builtin_ai": {"public_base_url": None, "keep": 1}}, {"builtin_ai": {"public_base_url": AI_URL, "keep": 1}}),
+                ({"builtin_ai": {"public_base_url": "  "}}, {"builtin_ai": {"public_base_url": AI_URL}}),
+                ({"builtin_ai": {"public_base_url": " HTTPS://GOODHR5.58IT.CN/api/ai-compatible/v1/chat/completions "}}, {"builtin_ai": {"public_base_url": AI_URL}}),
+                ({"builtin_ai": []}, {"builtin_ai": []}),
+                ({"builtin_ai": {"public_base_url": "\t"}}, {"builtin_ai": {"public_base_url": "\t"}}),
+                ({"builtin_ai": {"public_base_url": 42}}, {"builtin_ai": {"public_base_url": 42}}),
+                (None, None)):
+            with self.subTest(before_value=before_value):
+                before = self.rows()
+                before["system_configs"][0]["config_value"] = before_value
+                after = self.upgraded_rows()
+                after["system_configs"][0]["config_value"] = expected
+                verify_ai_url_upgrade(before, after)
+        empty = {"user_ai_configs": [], "system_configs": []}
+        self.assertEqual(verify_ai_url_upgrade(empty, empty)["changed_rows"], {"user_ai_configs": 0, "system_configs": 0})
+
+    def test_personal_urls_match_only_fixed_complete_routes(self):
+        """只接受三个旧完整HTTPS地址，空格大小写兼容且不误改相似域名、查询参数和其他路由。"""
+        for value, changes in (
+                ("  HTTPS://GOODHR.AI.58IT.CN/api/ai-compatible/v1/chat/completions ", True),
+                ("https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions", True),
+                ("https://goodhr.58it.cn.evil.invalid/api/ai-compatible/v1/chat/completions", False),
+                ("https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions?x=1", False),
+                ("https://goodhr.58it.cn/other-route", False),
+                ("\thttps://goodhr.58it.cn/api/ai-compatible/v1/chat/completions\t", False),
+                ("", False), (AI_URL, False)):
+            with self.subTest(value=value):
+                before = self.rows()
+                before["user_ai_configs"][0]["base_url"] = value
+                after = self.upgraded_rows()
+                after["user_ai_configs"][0]["base_url"] = AI_URL if changes else value
+                verify_ai_url_upgrade(before, after)
+
+    def test_restore_uses_exact_rows_only_for_frozen_migration(self):
+        """固定SQL才启用两表逐行校验，其他旧表仍走摘要，变更SQL或配置内容则停止。"""
+        sql = (Path(__file__).resolve().parents[1] / "cloud/backend/db/migrations" / AI_URL_MIGRATION).read_bytes()
+        for failure in (None, "sql", "config"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                job = AutomaticMigrationTests().rehearsal(root)
+                source = root / "cloud/backend/db/migrations"
+                (source / AI_URL_MIGRATION).write_bytes(sql + (b"\n" if failure == "sql" else b""))
+                packaged = {path.name: path.read_bytes() for path in source.glob("*.sql")}
+                job.migration_archive = Mock(side_effect=[packaged, {"0001_base.sql": packaged["0001_base.sql"]}])
+                before_schema = {"tables": {"public.users": {"columns": [{"name": "email"}]},
+                    "public.user_ai_configs": {"columns": [{"name": "id"}, {"name": "base_url"}]},
+                    "public.system_configs": {"columns": [{"name": "id"}, {"name": "config_value"}]}}}
+                after_schema = copy.deepcopy(before_schema)
+                after_schema["tables"]["public.identities"] = {"columns": [{"name": "email"}]}
+                job.database_schema = Mock(side_effect=[before_schema, after_schema])
+                job.reference_schema = Mock(return_value=after_schema)
+                before_ledger = [{"filename": "0001_base.sql", "applied_at": "2020-01-01T00:00:00Z"}]
+                after_ledger = before_ledger + [{"filename": name, "applied_at": "2026-11-12T14:00:00.5Z"}
+                    for name in ("0125_identity.sql", AI_URL_MIGRATION)]
+                job.ledger_records = Mock(side_effect=[before_ledger, after_ledger])
+                job.ledger = Mock(return_value=list(packaged))
+                after_rows = self.upgraded_rows()
+                if failure == "config":
+                    after_rows["user_ai_configs"][0]["api_key_encrypted"] = "changed"
+                job.ai_url_rows = Mock(side_effect=[self.rows(), after_rows])
+                with patch.object(Rehearsal, "restore"):
+                    if failure:
+                        with self.assertRaises(CutoverError):
+                            job.restore()
+                        self.assertFalse((job.directory / "automatic-upgrade.json").exists())
+                    else:
+                        job.restore()
+                        evidence = json.loads((job.directory / "automatic-upgrade.json").read_text())
+                        self.assertTrue(evidence["builtin_ai_url_change"]["exact_url_data_change_verified"])
+                        self.assertIn("except_verified_builtin_ai_public_urls", evidence["legacy_data_scope"])
+                        self.assertEqual(len(evidence["allowed_data_changes"]), 2)
+                        self.assertEqual(set(job.database_snapshot.call_args_list[0].args[0]), {"public\tusers"})
+                        self.assertEqual(job.ai_url_rows.call_count, 2)
 
 
 if __name__ == "__main__":
