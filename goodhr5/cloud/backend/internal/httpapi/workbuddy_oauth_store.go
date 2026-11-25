@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"strings"
 	"sync"
 	"time"
 )
@@ -32,12 +31,12 @@ type WorkBuddyOAuthCode struct {
 
 // WorkBuddyRefreshToken 表示一条刷新令牌记录，RotatedAt 非空代表已被轮换消费。
 type WorkBuddyRefreshToken struct {
-	Token      string
-	ClientID   string
-	UserEmail  string
-	Scope      string
-	ExpiresAt  time.Time
-	RotatedAt  *time.Time
+	Token     string
+	ClientID  string
+	UserEmail string
+	Scope     string
+	ExpiresAt time.Time
+	RotatedAt *time.Time
 }
 
 // WorkBuddyOAuthStore 定义连接器 OAuth 客户端、授权码和刷新令牌的持久化能力。
@@ -272,9 +271,11 @@ func (s *PostgresWorkBuddyOAuthStore) ConsumeRefreshToken(token string) (WorkBud
 
 // workBuddyRedirectURIsAllowed 校验请求的回调地址是否在客户端注册列表内。
 func workBuddyRedirectURIsAllowed(client WorkBuddyOAuthClient, redirectURI string) bool {
-	uri := strings.TrimSpace(redirectURI)
+	if !workBuddyClientRedirectsSafe(client) {
+		return false
+	}
 	for _, item := range client.RedirectURI {
-		if strings.TrimSpace(item) == uri {
+		if item == redirectURI {
 			return true
 		}
 	}

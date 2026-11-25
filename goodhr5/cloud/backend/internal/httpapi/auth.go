@@ -49,6 +49,7 @@ type loginRequest struct {
 	Password          string `json:"password"`
 	InviterID         string `json:"inviter_id"`
 	AgreementAccepted bool   `json:"agreement_accepted"`
+	RegisterOnly      bool   `json:"register_only"`
 }
 
 type passwordLoginRequest struct {
@@ -166,6 +167,10 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "读取账号状态失败")
 		return
 	}
+	if req.RegisterOnly && accountExists {
+		writeError(w, http.StatusConflict, "这个邮箱已经有账号了，请选择“已有账号”登录。")
+		return
+	}
 
 	code := strings.TrimSpace(req.Code)
 	if len(code) != 4 {
@@ -213,9 +218,15 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")
 			return
 		}
-		if err := s.passwords.SavePasswordHash(email, string(passwordHash)); err != nil {
-			if errors.Is(err, ErrPasswordAlreadySet) {
-				writeError(w, http.StatusConflict, "账号刚刚已经注册，请直接登录")
+		if req.RegisterOnly {
+			// 注册必须原子创建，不能给并发出现的老账号补设或覆盖密码。
+			err = s.passwords.CreateAccount(email, string(passwordHash))
+		} else {
+			err = s.passwords.SavePasswordHash(email, string(passwordHash))
+		}
+		if err != nil {
+			if errors.Is(err, ErrPasswordAlreadySet) || errors.Is(err, ErrAccountAlreadyExists) {
+				writeError(w, http.StatusConflict, "这个邮箱已经有账号了，请选择“已有账号”登录。")
 				return
 			}
 			writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")

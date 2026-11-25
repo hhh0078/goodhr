@@ -201,23 +201,25 @@ export function captureLocalAgentPortFromURL(search?: string) {
   return port;
 }
 
-/** bindDetectedLocalAgent 把浏览器 Token 交给本地程序，由本地程序读取设备编号并请求云端绑定。 */
-export async function bindDetectedLocalAgent(baseURL: string) {
-  const token = getToken();
+/** bindDetectedLocalAgent 完成设备绑定；timeoutMS限制等待，sessionToken可固定本次身份以防标签页串号。 */
+export async function bindDetectedLocalAgent(baseURL: string, timeoutMS = 45000, sessionToken?: string) {
+  const token = sessionToken ?? getToken();
   if (!token) throw new Error("登录状态已经失效，请重新登录");
   return localRequest(baseURL, "/api/v1/session/bind", {
     method: "POST",
     body: { token },
+    timeoutMS,
   });
 }
 
-/** syncCloudSessionToLocalAgent 把浏览器云端登录令牌同步给本地程序，供云端命令通道（WorkBuddy 连接器）建连使用。 */
-export async function syncCloudSessionToLocalAgent(baseURL: string) {
-  const token = getToken();
+/** syncCloudSessionToLocalAgent 同步云端凭证；timeoutMS限制等待，sessionToken可固定本次身份。 */
+export async function syncCloudSessionToLocalAgent(baseURL: string, timeoutMS = 45000, sessionToken?: string) {
+  const token = sessionToken ?? getToken();
   if (!token) return;
   return localRequest(baseURL, "/api/v1/cloud/session", {
     method: "POST",
     body: { token },
+    timeoutMS,
   });
 }
 

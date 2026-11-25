@@ -11,10 +11,15 @@ import (
 
 var ErrPasswordAlreadySet = errors.New("password already set")
 
+// ErrAccountAlreadyExists 表示仅注册流程遇到已有账号，不能补设或覆盖其密码。
+var ErrAccountAlreadyExists = errors.New("account already exists")
+
 // PasswordStore 定义用户账号存在性和密码摘要的持久化能力。
 type PasswordStore interface {
 	AccountStatus(email string) (exists bool, passwordSet bool, err error)
 	PasswordHash(email string) (string, error)
+	// CreateAccount 仅创建新账号；已有账号即使无密码也必须拒绝。
+	CreateAccount(email string, passwordHash string) error
 	SavePasswordHash(email string, passwordHash string) error
 	UpdatePasswordHash(email string, passwordHash string) error
 }
@@ -47,6 +52,17 @@ func (s *MemoryPasswordStore) PasswordHash(email string) (string, error) {
 		return "", ErrNotFound
 	}
 	return hash, nil
+}
+
+// CreateAccount 在同一把锁内创建新账号，拒绝覆盖已有账号和无密码老账号。
+func (s *MemoryPasswordStore) CreateAccount(email string, passwordHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.accounts[email]; exists {
+		return ErrAccountAlreadyExists
+	}
+	s.accounts[email] = passwordHash
+	return nil
 }
 
 // SavePasswordHash 保存内存账号的密码摘要，同时创建尚不存在的账号。
@@ -119,6 +135,27 @@ func (s *PostgresPasswordStore) PasswordHash(email string) (string, error) {
 		return "", ErrNotFound
 	}
 	return passwordHash.String, nil
+}
+
+// CreateAccount 依靠邮箱唯一约束原子创建新账号，冲突时不更新已有密码或老账号。
+func (s *PostgresPasswordStore) CreateAccount(email string, passwordHash string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO users (email, password_hash)
+		VALUES ($1, $2)
+		ON CONFLICT (email) DO NOTHING`, email, passwordHash)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrAccountAlreadyExists
+	}
+	return nil
 }
 
 // SavePasswordHash 保存 PostgreSQL 账号的密码摘要，同时创建尚不存在的账号。

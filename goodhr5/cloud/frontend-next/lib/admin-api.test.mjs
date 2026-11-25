@@ -1,4 +1,4 @@
-/** 文件作用说明：执行实际本地Agent探测代码，验证测试构建固定端口及缓存隔离，全程替换fetch避免请求真实程序。 */
+/** 文件作用说明：验证实际Agent探测、端口与账号隔离及固定凭证同步，全程替换fetch避免请求真实程序。 */
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
@@ -82,6 +82,20 @@ test("未配置固定端口时保留原默认、preferred和端口缓存顺序",
   await withFakeAgent(undefined, { storage: { [detectCacheKey]: JSON.stringify(cached) } }, async (api, calls) => {
     assert.equal(await api.detectLocalAgent(), cached.baseURL);
     assert.deepEqual(calls, []);
+  });
+});
+
+test("授权页固定A会话同步时，其他标签的B令牌不会混入本地绑定请求", async () => {
+  await withFakeAgent("43139", { storage: { goodhr5_access_token: "synthetic-account-b-token" } }, async (api, _calls, values) => {
+    const payloads = [];
+    globalThis.fetch = async (_url, options) => {
+      payloads.push(JSON.parse(options.body));
+      return { ok: true, status: 200, text: async () => '{"ok":true,"data":{}}' };
+    };
+    await api.bindDetectedLocalAgent("http://127.0.0.1:43139", 8000, "synthetic-account-a-token");
+    await api.syncCloudSessionToLocalAgent("http://127.0.0.1:43139", 8000, "synthetic-account-a-token");
+    assert.deepEqual(payloads, [{ token: "synthetic-account-a-token" }, { token: "synthetic-account-a-token" }]);
+    assert.equal(values.get("goodhr5_access_token"), "synthetic-account-b-token");
   });
 });
 
