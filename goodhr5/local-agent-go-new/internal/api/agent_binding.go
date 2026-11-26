@@ -17,6 +17,9 @@ type agentBindRequest struct {
 
 // handleAgentUnbind 在网页主动退出时清理匹配的内存凭证；延迟到达的旧账号请求不能清掉新账号。
 func (s *Server) handleAgentUnbind(w http.ResponseWriter, r *http.Request) {
+	if !sessionWriteAllowed(w, r) {
+		return
+	}
 	var request agentBindRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
@@ -27,21 +30,35 @@ func (s *Server) handleAgentUnbind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.extensionMu.Lock()
-	matched := s.extensionToken == "" || extensionSecretsEqual(request.Token, s.extensionToken)
-	if matched {
-		// 即使首次绑定仍在云端等待，退出也让该次绑定失效。
-		s.extensionGeneration++
-		s.bindExtensionSessionLocked("", "")
-		if s.incidents != nil {
-			s.incidents.Bind("", "")
+	cloudToken := s.currentCloudToken()
+	pendingMatch := s.sessionPendingToken != "" && extensionSecretsEqual(request.Token, s.sessionPendingToken)
+	empty := cloudToken == "" && s.extensionToken == "" && s.sessionPendingToken == ""
+	currentMatch := (cloudToken != "" || s.extensionToken != "") && (s.extensionToken == "" || extensionSecretsEqual(request.Token, s.extensionToken)) && (cloudToken == "" || extensionSecretsEqual(request.Token, cloudToken))
+	if pendingMatch {
+		s.sessionGeneration++
+		s.sessionPendingToken = ""
+	}
+	matched := pendingMatch || currentMatch || empty
+	var clearErr error
+	if currentMatch || empty {
+		if !pendingMatch && s.sessionPendingToken == "" {
+			s.sessionGeneration++
 		}
+		clearErr = s.clearCloudSessionLocked()
 	}
 	s.extensionMu.Unlock()
+	if clearErr != nil {
+		writeError(w, http.StatusInternalServerError, "CLOUD_SESSION_CLEAR_FAILED", fmt.Errorf("本地退出没有保存好，请关闭本地程序后重试"))
+		return
+	}
 	writeSuccess(w, http.StatusOK, map[string]bool{"unbound": matched})
 }
 
 // handleAgentBind 读取本机设备编号并使用当前浏览器 Token 请求云端绑定。
 func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
+	if !sessionWriteAllowed(w, r) {
+		return
+	}
 	var request agentBindRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
@@ -55,10 +72,8 @@ func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "DEVICE_BINDING_UNAVAILABLE", fmt.Errorf("设备绑定能力还没准备好，请重启本地程序后再试"))
 		return
 	}
-	s.extensionMu.Lock()
-	s.extensionGeneration++
-	generation := s.extensionGeneration
-	s.extensionMu.Unlock()
+	generation := s.beginCloudSessionRequest(request.Token)
+	defer s.endCloudSessionRequest(generation)
 	machineID, err := s.deviceID()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DEVICE_ID_UNAVAILABLE", fmt.Errorf("这台电脑的设备编号暂时没读出来：%w", err))
@@ -93,20 +108,30 @@ func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, code, err)
 		return
 	}
+	if session.SessionKind != "" {
+		writeError(w, http.StatusForbidden, "CLOUD_SESSION_RESTRICTED", fmt.Errorf("请使用 GoodHR 网页账号连接本地程序"))
+		return
+	}
 	s.extensionMu.Lock()
-	current := generation == s.extensionGeneration
+	current := generation == s.sessionGeneration
+	var boundGeneration uint64
 	if current {
-		s.bindExtensionSessionLocked(request.Token, session.UserID)
+		err = s.saveCloudSessionLocked(request.Token, session.UserID)
 		// 首次绑定及换号会更新会话代际，后台迁移必须使用成功绑定后的值。
-		generation = s.extensionGeneration
+		boundGeneration = s.extensionGeneration
 	}
 	s.extensionMu.Unlock()
-	if current && s.incidents != nil {
-		s.incidents.Bind(session.UserID, request.Token)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "CLOUD_SESSION_SAVE_FAILED", err)
+		return
+	}
+	if !current {
+		writeError(w, http.StatusConflict, "CLOUD_SESSION_CHANGED", fmt.Errorf("登录账号已经变化，请重新连接"))
+		return
 	}
 	if current {
 		s.startupSync.start(request.Token)
-		go s.migrateAfterBind(cloud.AgentCredentials{Token: request.Token, MachineID: machineID}, session.UserID, generation)
+		go s.migrateAfterBind(cloud.AgentCredentials{Token: request.Token, MachineID: machineID}, session.UserID, boundGeneration)
 	}
 	writeSuccess(w, http.StatusOK, binding)
 }

@@ -15,6 +15,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/config"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/sessionfile"
 )
 
 // newExtensionPairTestServer 创建隔离的本地数据库和模拟云端，不使用真实账号。
@@ -52,6 +53,7 @@ func TestExtensionPairSingleUseAndRevoke(t *testing.T) {
 			w.WriteHeader(404)
 		}
 	}))
+	s.cfg.DataDir = t.TempDir()
 	installation, challenge := strings.Repeat("i", 32), strings.Repeat("c", 64)
 	start := extensionPairTestRequest(s, "/api/v1/extensions/pair/start", extensionPairRequest{InstallationID: installation, Challenge: challenge})
 	var started struct {
@@ -65,6 +67,9 @@ func TestExtensionPairSingleUseAndRevoke(t *testing.T) {
 	approve := extensionPairTestRequest(s, "/api/v1/extensions/pair/approve", extensionPairRequest{PairingID: started.Data.PairingID, Token: "web-private"})
 	if approve.Code != 200 || strings.Contains(approve.Body.String(), "web-private") {
 		t.Fatal("授权失败或泄露网页凭证")
+	}
+	if saved, err := sessionfile.Load(s.cfg.DataDir, s.cfg.CloudURL, ""); err != nil || saved != "web-private" || s.CurrentCloudToken() != "web-private" {
+		t.Fatal("配对确认没有保存普通网页身份，或错误保存了插件凭证", err)
 	}
 	req := extensionPairRequest{PairingID: started.Data.PairingID, InstallationID: installation, Challenge: strings.Repeat("x", 64)}
 	if extensionPairTestRequest(s, "/api/v1/extensions/pair/status", req).Code != 404 {

@@ -54,6 +54,8 @@ type Client struct {
 	connected    bool
 	errorCode    string
 	httpStatus   int
+	onConnected  func(context.Context, string)
+	onRejected   func(string)
 }
 
 // NewClient 创建云端 WS 客户端。cloudBaseURL 形如 https://goodhr.58it.cn。
@@ -63,6 +65,11 @@ func NewClient(cloudBaseURL string, token TokenProvider, launch StartLauncher) *
 		token:        token,
 		launch:       launch,
 	}
+}
+
+// SetSessionHandlers 在 Run 前配置已认证恢复和明确 401 撤销入口；回调凭证仅用于当前身份比对，不写日志。
+func (c *Client) SetSessionHandlers(connected func(context.Context, string), rejected func(string)) {
+	c.onConnected, c.onRejected = connected, rejected
 }
 
 // Connected 返回当前是否已连接云端。
@@ -154,6 +161,9 @@ func (c *Client) serve(ctx context.Context, token string) (bool, error) {
 	conn, response, err := dialer.DialContext(ctx, wsURL, headers)
 	if err != nil {
 		c.recordDialFailure(response, "WS_CONNECTION_FAILED")
+		if response != nil && response.StatusCode == http.StatusUnauthorized && c.onRejected != nil {
+			c.onRejected(token)
+		}
 		if response != nil && response.Body != nil {
 			_ = response.Body.Close()
 		}
@@ -176,6 +186,9 @@ func (c *Client) serve(ctx context.Context, token string) (bool, error) {
 	connectionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go c.pingLoop(connectionCtx, conn, token)
+	if c.onConnected != nil {
+		c.onConnected(connectionCtx, token)
+	}
 	for {
 		var msg Message
 		if err := conn.ReadJSON(&msg); err != nil {
