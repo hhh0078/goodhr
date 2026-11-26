@@ -42,7 +42,7 @@ func (p *ConsecutiveErrorPolicy) Record(err error) error {
 		p.count = 1
 	}
 	if p.count >= consecutiveOperationErrorLimit {
-		return fmt.Errorf("同一操作连续 3 次出现相同错误，岗位先停一下：%w", err)
+		return fmt.Errorf("同一操作连续 3 次出现相同错误：%w", err)
 	}
 	return nil
 }

@@ -22,8 +22,12 @@ test('单次滚轮卡住时提前隔离队列，迟到的原生拒绝不会重�
   const first = actionContextStorage.run(context, () => queue.run(() => new MousePrimitive(80).wheel(page, 0, 300), context));
   const second = queue.run(async () => { subsequent++; }, { ...context, request_id: 'next-input' });
   await Promise.all([assert.rejects(first, error => {
+    assert.equal(error.message, '鼠标操作超时');
     assert.equal(error.code, 'WORKER_UNRESPONSIVE'); assert.equal(error.step, 'mouse_wheel');
+    assert.equal(error.retryable, false);
     assert.equal(error.details.recovery_required, true);
+    assert.equal(error.details.browser_retained, true);
+    assert.equal(error.details.reason, 'native_input_deadline');
     assert.equal(error.details.output.input_wait.origin, 'worker');
     assert.equal(error.details.output.input_wait.status, 'timed_out');
     assert.equal(error.details.output.input_wait.timeout_ms, 80);

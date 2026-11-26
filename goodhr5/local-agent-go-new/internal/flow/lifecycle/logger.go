@@ -517,7 +517,7 @@ func taskLogMessage(step string, status string, err error) string {
 		if err != nil {
 			return label + "：没处理成功，" + err.Error()
 		}
-		return label + "：没处理成功，可以直接重试"
+		return label + "：未返回具体错误信息"
 	case "panic":
 		if err != nil {
 			return label + "：发生未捕获异常，" + err.Error()
