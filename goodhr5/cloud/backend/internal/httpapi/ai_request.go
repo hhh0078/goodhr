@@ -297,6 +297,10 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 			operation = "chat_completions"
 		}
 		event := serverAIAttemptEvent{Layer: "server", Operation: operation, Event: "start", ClientRequestID: safeAITraceID(option.ClientRequestID), AnalysisGroupID: safeAITraceID(option.AnalysisGroupID), ServerAttempt: attempt, MaxAttempts: serverAIMaxAttempts, Provider: provider, Model: safeAIModelName(actualModel), StartedAt: started.UTC().Format(time.RFC3339Nano)}
+		if chat {
+			stream := aiRequestWantsStream(payload)
+			event.UpstreamStream = &stream
+		}
 		observeServerAIAttempt(option, event)
 		var completed time.Time
 		var raw []byte

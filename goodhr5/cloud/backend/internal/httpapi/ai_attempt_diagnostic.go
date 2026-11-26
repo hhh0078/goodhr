@@ -20,6 +20,7 @@ var aiProviderRequestIDHeaders = []string{"X-Request-ID", "Request-ID", "X-Amzn-
 
 // serverAIAttemptEvent 只保存实际请求的固定枚举与数字，不保存模型输入、响应正文、地址或凭据。
 type serverAIAttemptEvent struct {
+	UpstreamStream       *bool               `json:"upstream_stream,omitempty"`
 	Timeline             *aiResponseTimeline `json:"timeline,omitempty"`
 	Layer                string              `json:"layer"`
 	Operation            string              `json:"operation"`

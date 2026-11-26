@@ -291,9 +291,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	}
 	body = rewriteAIModel(body, model.ID)
 	streamRequest := aiRequestWantsStream(body)
-	if streamRequest {
-		body = ensureAIStreamUsage(body)
-	}
+	body = disableAIUpstreamStream(body)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, normalizeAIChatCompletionsURL(cfg.UpstreamBaseURL), bytes.NewReader(body))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "AI 接口地址无效")
@@ -384,8 +382,26 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	}
 	omitCredentialRequestIDHeaders(resp.Header, knownCredentials...)
 	var upstream io.Reader = resp.Body
+	// 上游已经完整返回后才适配旧 SSE 客户端，所有主备请求仍统一是非流式。
+	if streamRequest && resp.StatusCode >= 200 && resp.StatusCode < 300 && strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json") {
+		raw, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			writeError(w, http.StatusBadGateway, "failed read ai response")
+			return
+		}
+		converted, convertErr := completedAIJSONStream(raw)
+		if convertErr != nil {
+			writeError(w, http.StatusBadGateway, "AI 完整结果转换失败")
+			return
+		}
+		upstream = bytes.NewReader(converted)
+		resp.Header.Set("Content-Type", "text/event-stream; charset=utf-8")
+		for _, key := range []string{"Content-Length", "ETag", "Content-MD5", "Digest"} {
+			resp.Header.Del(key)
+		}
+	}
 	if obs != nil {
-		upstream = io.TeeReader(resp.Body, obs)
+		upstream = io.TeeReader(upstream, obs)
 	}
 	wantsBilling := r.Header.Get("X-GoodHR-Billing") == "1"
 	if streamRequest && !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json") && resp.StatusCode >= 200 && resp.StatusCode < 300 {

@@ -66,7 +66,7 @@ func TestCompatibleChatBillingMatchesWallet(t *testing.T) {
 			var payload struct {
 				Billing aiBillingReceipt `json:"goodhr_billing"`
 			}
-			if tc.contentType == "text/event-stream" {
+			if tc.stream {
 				if strings.Count(body, "data: [DONE]") != 1 || strings.Index(body, "goodhr_billing") > strings.Index(body, "data: [DONE]") {
 					t.Fatal("扣费回执必须在唯一结束标记之前返回")
 				}
