@@ -30,6 +30,43 @@ type runtimeAILogItem struct {
 	Event positionDiagnosticEvent `json:"event"`
 }
 
+// TestRuntimeAIRequestErrorDetailProjection 验证投影只保留新的安全错误字段，正文显示一次具体原因，旧账本兼容且非法字节计数被隔离。
+func TestRuntimeAIRequestErrorDetailProjection(t *testing.T) {
+	at := time.Now().UTC().Format(time.RFC3339Nano)
+	base := cloudruntime.AIRequestAttempt{Layer: "client", Phase: "end", ClientRequestID: "airq_detail", AnalysisGroupID: "aigr_detail", ClientAttempt: 1, MaxAttempts: 3, Operation: "AI 请求", Provider: "external", StartedAt: at, FinishedAt: at, Result: "failed", Reason: "http_status", HTTPStatus: 503, ErrorDetail: "模型容量暂不足", ErrorCode: "ServiceUnavailable", ErrorDetailTruncated: true, ResponseBytes: 5678}
+	for _, mode := range []string{"detail", "legacy", "unsafe_text", "negative_bytes"} {
+		t.Run(mode, func(t *testing.T) {
+			event := base
+			switch mode {
+			case "legacy":
+				event.ErrorDetail, event.ErrorCode, event.ErrorDetailTruncated, event.ResponseBytes = "", "", false, 0
+			case "unsafe_text":
+				event.ErrorDetail += ` api_key="PRIVATE_KEY"`
+			case "negative_bytes":
+				event.ResponseBytes = -1
+			}
+			raw, _ := json.Marshal(map[string]any{"title": "ai_request_attempt", "task_id": "task", "position_id": runtimeAIPositionForTest, "occurred_at": at, "description": "PRIVATE_DESCRIPTION", "ai_request_attempt": event})
+			item, ok := aiRequestPositionLog("event", runtimeAIEmailForTest, runtimeAIPositionForTest, raw)
+			if mode == "negative_bytes" {
+				if ok {
+					t.Fatal("非法响应字节没有被隔离")
+				}
+				return
+			}
+			var record positionDiagnosticEvent
+			var output struct {
+				Attempt cloudruntime.AIRequestAttempt `json:"ai_request_attempt"`
+			}
+			if !ok || json.Unmarshal([]byte(item.Message), &record) != nil || json.Unmarshal(record.Output, &output) != nil || !reflect.DeepEqual(output.Attempt, cloudruntime.NormalizeAIRequestAttempt(event)) {
+				t.Fatal("投影丢失安全错误详情字段或不兼容旧事件")
+			}
+			if strings.Contains(item.Message, "PRIVATE_") || record.ErrorMessage != record.Message || mode != "legacy" && strings.Count(record.ErrorMessage, "模型容量暂不足") != 1 {
+				t.Fatal("投影泄露附加正文或没有显示一次具体原因")
+			}
+		})
+	}
+}
+
 // runtimeAIChangesForTest 优先消费真实runLogger导出的四条回执，未显式指定时使用明确标注的合成样本。
 func runtimeAIChangesForTest(t *testing.T) []AutoReplyStateChange {
 	t.Helper()
@@ -64,6 +101,7 @@ func runtimeAIChangesForTest(t *testing.T) []AutoReplyStateChange {
 				a.WillRetry = true
 				a.RetryReason = "http_status"
 				a.BackoffMS = 500
+				a.ErrorDetail, a.ErrorCode, a.ErrorDetailTruncated, a.ResponseBytes = "模型容量暂不足", "ServiceUnavailable", true, 5678
 			}
 		}
 		p, _ := json.Marshal(map[string]any{"title": "ai_request_attempt", "task_id": "runtime-task", "position_id": runtimeAIPositionForTest, "run_id": "synthetic-run", "occurred_at": at.Format(time.RFC3339Nano), "ai_request_attempt": a})

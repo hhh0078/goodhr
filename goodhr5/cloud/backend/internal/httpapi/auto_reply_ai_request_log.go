@@ -129,7 +129,7 @@ func aiRequestPositionLog(id, owner, positionID string, raw json.RawMessage) (Po
 		return PositionLog{}, false
 	}
 	at, err := time.Parse(time.RFC3339Nano, value.OccurredAt)
-	event := value.Attempt
+	event := cloudruntime.NormalizeAIRequestAttempt(value.Attempt)
 	if err != nil || value.Title != "ai_request_attempt" || value.PositionID != positionID || value.TaskID != "" && safeAITraceID(value.TaskID) != value.TaskID || !validRuntimeAIAttempt(event) {
 		return PositionLog{}, false
 	}
@@ -152,7 +152,7 @@ func validRuntimeAIAttempt(v cloudruntime.AIRequestAttempt) bool {
 	if strings.ContainsAny(v.Operation+v.Reason+v.StopReason, "|") {
 		return false
 	}
-	if v.Layer != "client" && v.Layer != "server" || v.Phase != "start" && v.Phase != "end" && v.Phase != "retry_wait_stopped" || v.ClientRequestID == "" || safeAITraceID(v.ClientRequestID) != v.ClientRequestID || v.AnalysisGroupID == "" || safeAITraceID(v.AnalysisGroupID) != v.AnalysisGroupID || v.ClientAttempt < 1 || v.ClientAttempt > 3 || v.MaxAttempts < 1 || v.MaxAttempts > 4 || v.ServerAttempt < 0 || v.ServerAttempt > 4 || v.ElapsedMS < 0 || v.BackoffMS < 0 || v.HTTPStatus != 0 && (v.HTTPStatus < 100 || v.HTTPStatus > 599) || safeAIModelName(v.Model) != v.Model || safeAITraceID(v.ProviderRequestID) != v.ProviderRequestID {
+	if v.Layer != "client" && v.Layer != "server" || v.Phase != "start" && v.Phase != "end" && v.Phase != "retry_wait_stopped" || v.ClientRequestID == "" || safeAITraceID(v.ClientRequestID) != v.ClientRequestID || v.AnalysisGroupID == "" || safeAITraceID(v.AnalysisGroupID) != v.AnalysisGroupID || v.ClientAttempt < 1 || v.ClientAttempt > 3 || v.MaxAttempts < 1 || v.MaxAttempts > 4 || v.ServerAttempt < 0 || v.ServerAttempt > 4 || v.ElapsedMS < 0 || v.BackoffMS < 0 || v.ResponseBytes < 0 || v.HTTPStatus != 0 && (v.HTTPStatus < 100 || v.HTTPStatus > 599) || safeAIModelName(v.Model) != v.Model || safeAITraceID(v.ProviderRequestID) != v.ProviderRequestID {
 		return false
 	}
 	if !strings.Contains("|AI 请求|候选人详情评分|候选人基础预分析|候选人图片评分|生成聊天回复|AI 工具调用|AI 推荐分析|AI 在线简历识别|AI 简历摘要|AI 图片转录|AI 简历解析|", "|"+v.Operation+"|") || v.Operation == "" {

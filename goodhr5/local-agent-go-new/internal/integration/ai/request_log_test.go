@@ -117,11 +117,17 @@ func TestAIRequestLogRetryOutcomes(t *testing.T) {
 			if !ends[0].IsError || ends[0].Output.Attempt.HTTPStatus != 503 || !ends[0].Output.Attempt.WillRetry || ends[0].Output.Attempt.BackoffMS != 500 {
 				t.Fatal("首个失败或重试退避没有保留")
 			}
+			if ends[0].Output.Attempt.ErrorDetail != "temporary" || ends[0].Output.Attempt.ResponseBytes != int64(len("temporary")) || strings.Count(ends[0].ErrorMessage, "temporary") != 1 {
+				t.Fatal("失败具体说明或响应字节未保留，或正文重复说明")
+			}
 			if mode == "recover" && ends[1].Output.Attempt.Result != "success" {
 				t.Fatal("成功回执未保留")
 			}
 			if mode == "exhaust" && (ends[2].Output.Attempt.WillRetry || ends[2].Output.Attempt.StopReason != "attempts_exhausted") {
 				t.Fatal("耗尽次数后仍声称重试")
+			}
+			if mode == "exhaust" && !strings.Contains(ends[2].ErrorMessage, "temporary") {
+				t.Fatal("耗尽后只剩笼统提示，最后一次具体原因丢失")
 			}
 			if mode == "cancel_wait" && lines[len(lines)-1].Output.Attempt.Phase != "retry_wait_stopped" {
 				t.Fatal("计划重试被取消的事实丢失")
@@ -206,6 +212,9 @@ func TestAIRequestLogTrustedUpstreamHistory(t *testing.T) {
 				id, group := r.Header.Get("X-GoodHR-Client-Request-ID"), r.Header.Get("X-GoodHR-Analysis-Group-ID")
 				if trusted && (id == "" || group == "") {
 					t.Error("可信请求没有关联编号")
+				}
+				if trusted && r.Header.Get("X-GoodHR-AI-Error-Details") != "1" || !trusted && r.Header.Get("X-GoodHR-AI-Error-Details") != "" {
+					t.Error("错误详情能力没有限定在可信内置请求协商")
 				}
 				now := time.Now().UTC()
 				entries := []RequestAttempt{{Layer: "server", ClientRequestID: id, AnalysisGroupID: group, ServerAttempt: 1, MaxAttempts: 4, Operation: "候选人基础预分析", Model: "primary-model", Provider: "primary", StartedAt: now.Add(-20 * time.Millisecond).Format(time.RFC3339Nano), FinishedAt: now.Add(-10 * time.Millisecond).Format(time.RFC3339Nano), ElapsedMS: 10, HTTPStatus: 502, Result: "failed", Reason: "http_status", WillRetry: true, BackoffMS: 500}, {Layer: "server", ClientRequestID: id, AnalysisGroupID: group, ServerAttempt: 2, MaxAttempts: 4, Operation: "候选人基础预分析", Model: "fallback-model", Provider: "fallback", StartedAt: now.Add(-9 * time.Millisecond).Format(time.RFC3339Nano), FinishedAt: now.Format(time.RFC3339Nano), ElapsedMS: 9, HTTPStatus: 200, Result: "success", Reason: "success", ProviderRequestID: "provider-123"}}

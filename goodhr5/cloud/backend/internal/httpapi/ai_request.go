@@ -31,10 +31,14 @@ type serverAIRequestError struct {
 	Attempts, Status int
 	Reason           string
 	Cause            error
+	Detail           string
 }
 
 // Error 返回适合交给调用方的固定中文说明。
 func (e *serverAIRequestError) Error() string {
+	if e.Detail != "" {
+		return fmt.Sprintf("AI 请求失败（实际请求%d次）：%s", e.Attempts, e.Detail)
+	}
 	return fmt.Sprintf("AI 已尝试%d次，还是没拿到可用结果，请稍后再试", e.Attempts)
 }
 
@@ -292,6 +296,8 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 		event := serverAIAttemptEvent{Layer: "server", Operation: operation, Event: "start", ClientRequestID: safeAITraceID(option.ClientRequestID), AnalysisGroupID: safeAITraceID(option.AnalysisGroupID), ServerAttempt: attempt, MaxAttempts: serverAIMaxAttempts, Provider: provider, Model: safeAIModelName(actualModel), StartedAt: started.UTC().Format(time.RFC3339Nano)}
 		observeServerAIAttempt(option, event)
 		var completed time.Time
+		var raw []byte
+		var callErr error
 		finish := func(response *http.Response, reason, stop string, retry bool, backoff time.Duration) {
 			if completed.IsZero() {
 				completed = time.Now()
@@ -304,17 +310,17 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 			if retry {
 				event.BackoffMS = backoff.Milliseconds()
 			}
+			credentials := []string{bearerToken(cloned.Header.Get("Authorization")), bearerToken(request.Header.Get("Authorization"))}
+			if option.Fallback != nil {
+				credentials = append(credentials, option.Fallback.APIKey)
+			}
 			if response != nil {
-				credentials := []string{bearerToken(cloned.Header.Get("Authorization")), bearerToken(request.Header.Get("Authorization"))}
-				if option.Fallback != nil {
-					credentials = append(credentials, option.Fallback.APIKey)
-				}
 				event.HTTPStatus, event.ProviderRequestID = response.StatusCode, aiProviderRequestID(response.Header, credentials...)
 			}
+			fillAIErrorDetail(&event, response, raw, payload, reason, mode, callErr, credentials...)
 			observeServerAIAttempt(option, event)
 		}
 		response, callErr := client.Do(cloned)
-		var raw []byte
 		status := 0
 		reason := "transport_error"
 		delay := time.Duration(attempt) * 500 * time.Millisecond
@@ -385,7 +391,7 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 		}
 		if attempt == serverAIMaxAttempts {
 			finish(response, observedReason, "", false, 0)
-			return nil, &serverAIRequestError{Attempts: attempt, Status: status, Reason: reason, Cause: callErr}
+			return nil, &serverAIRequestError{Attempts: attempt, Status: status, Reason: reason, Cause: callErr, Detail: event.ErrorDetail}
 		}
 		finish(response, observedReason, "", true, delay)
 		timer := time.NewTimer(delay)

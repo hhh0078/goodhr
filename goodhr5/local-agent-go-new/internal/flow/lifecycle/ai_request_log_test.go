@@ -42,12 +42,13 @@ func TestAIRequestAttemptsPersistAndUpload(t *testing.T) {
 			modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if calls.Add(1) == 1 {
 					w.WriteHeader(503)
-					fmt.Fprint(w, "temporary")
+					fmt.Fprint(w, strings.Repeat("服务暂忙", 275))
 					return
 				}
 				id, group := r.Header.Get("X-GoodHR-Client-Request-ID"), r.Header.Get("X-GoodHR-Analysis-Group-ID")
 				now := time.Now().UTC()
 				events := []ai.RequestAttempt{{Layer: "server", ClientRequestID: id, AnalysisGroupID: group, ServerAttempt: 1, MaxAttempts: 4, Operation: "候选人基础预分析", Model: "primary-model", Provider: "primary", StartedAt: now.Add(-20 * time.Millisecond).Format(time.RFC3339Nano), FinishedAt: now.Add(-10 * time.Millisecond).Format(time.RFC3339Nano), ElapsedMS: 10, HTTPStatus: 502, Result: "failed", Reason: "http_status", WillRetry: true, BackoffMS: 500}, {Layer: "server", ClientRequestID: id, AnalysisGroupID: group, ServerAttempt: 2, MaxAttempts: 4, Operation: "候选人基础预分析", Model: "fallback-model", Provider: "fallback", StartedAt: now.Add(-9 * time.Millisecond).Format(time.RFC3339Nano), FinishedAt: now.Format(time.RFC3339Nano), ElapsedMS: 9, HTTPStatus: 200, Result: "success", Reason: "success", ProviderRequestID: "safe-provider-id"}}
+				events[0].ErrorDetail, events[0].ErrorCode, events[0].ErrorDetailTruncated, events[0].ResponseBytes = "主用模型容量暂不足", "ServiceUnavailable", true, 5678
 				encoded, _ := json.Marshal(events)
 				w.Header().Set("X-GoodHR-Diagnostics", "1")
 				w.Header().Set("X-GoodHR-AI-Attempt-Details", string(encoded))
@@ -81,6 +82,12 @@ func TestAIRequestAttemptsPersistAndUpload(t *testing.T) {
 				local[key] = event
 				if row.IsError {
 					failures++
+					if event.ErrorDetail == "" || row.ErrorMessage != ai.RequestAttemptMessage(event) || len(row.ErrorMessage) > 2000 {
+						t.Fatal("具体失败原因没有写入本机岗位正文")
+					}
+					if event.Layer == "client" && (len(event.ErrorDetail) <= 1024 || event.ErrorDetailTruncated) {
+						t.Fatal("本地4KiB内具体错误在入库时被静默裁成短响应头长度")
+					}
 				}
 				if row.TaskID != taskID || row.PositionID != positionID || row.Flow != "ai" || strings.Contains(row.Message, "PRIVATE_") || strings.Contains(string(row.Output), "PRIVATE_RESUME_PROMPT") || strings.Contains(string(row.Output), "PRIVATE_CANDIDATE_NAME") || strings.Contains(string(row.Output), "ghai_PRIVATE_KEY") {
 					t.Fatal("归属被当前任务覆盖或新记录泄露请求资料")
@@ -123,8 +130,14 @@ func TestAIRequestAttemptsPersistAndUpload(t *testing.T) {
 				}
 				event := output.Attempt
 				key := event.Layer + "/" + event.ClientRequestID + "/" + fmt.Sprint(event.ServerAttempt) + "/" + event.Phase
-				if !reflect.DeepEqual(event, local[key]) || entry.Action != "ai" || entry.Message != ai.RequestAttemptMessage(event) || strings.Contains(entry.Message, "PRIVATE_") {
+				if !reflect.DeepEqual(event, local[key]) || entry.Action != "ai" || entry.Message != ai.RequestAttemptMessage(event) || len(entry.Message) > 2000 || len(entry.ErrorMessage) > 2000 || strings.Contains(entry.Message, "PRIVATE_") {
 					t.Fatalf("上传后层级、重试或字段改变：%s", entry.Output)
+				}
+				if event.Layer == "client" && event.Result == "failed" && (len(event.ErrorDetail) <= 3000 || event.ErrorDetailTruncated || !strings.Contains(entry.ErrorMessage, "详见错误详情")) {
+					t.Fatal("3KiB完整详情未保留在上传DTO，或用户摘要没有给详情入口")
+				}
+				if event.Layer == "server" && event.Result == "failed" && (event.ErrorCode != "ServiceUnavailable" || !event.ErrorDetailTruncated || event.ResponseBytes != 5678 || !strings.Contains(entry.ErrorMessage, "主用模型容量暂不足")) {
+					t.Fatal("自动回复隐私裁剪或上传丢失错误详情字段")
 				}
 			}
 			if len(actual) != 8 {

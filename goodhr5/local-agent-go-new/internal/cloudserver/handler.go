@@ -357,10 +357,14 @@ func (r *activeRun) execute(ctx context.Context, prepared shared.PreparedTask, a
 		}
 	}()
 	stats, err = flow.RunServer(jobCtx, prepared, platformRuntime)
-	if details := failurediag.Details(err); len(details) > 0 && ctx.Err() == nil {
+	safeAI := ai.SafeRequestErrorSummary(err)
+	if details := failurediag.Details(err); (len(details) > 0 || safeAI != "") && ctx.Err() == nil {
 		r.mu.Lock()
 		if r.errorMessage == "" {
 			r.errorMessage = failurediag.Summary(details)
+			if safeAI != "" {
+				r.errorMessage = safeAI
+			}
 		}
 		r.mu.Unlock()
 		// 只有源头核验过的岗位才会收到终止记录。全局扫描故障仅进入本次运行审计。

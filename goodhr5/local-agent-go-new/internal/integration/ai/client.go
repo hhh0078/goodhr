@@ -54,6 +54,11 @@ type ServiceError struct {
 	Fatal      bool
 	RetryAfter time.Duration
 	Cause      error
+	// requestErrorSummary 仅由真实请求结束时写入，已清理当前请求密钥，供云端最终失败使用。
+	requestErrorSummary string
+	// responseErrorDetail/Code 在旧500字摘要截断前提取固定错误字段，工具调用也能保留服务的明确原因。
+	responseErrorDetail, responseErrorCode string
+	responseErrorBody                      string
 }
 
 // Error 返回适合任务日志展示的 AI 错误。
@@ -349,12 +354,12 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 	}
 	if response.StatusCode >= 400 {
 		body, readErr := io.ReadAll(response.Body)
-		serviceErr := newHTTPServiceError(response.StatusCode, string(body), response.Header.Get("Retry-After"))
+		serviceErr := newHTTPServiceError(response.StatusCode, string(body), response.Header.Get("Retry-After"), requestLog.credential)
 		if readErr != nil {
 			serviceErr.Cause = readErr
 			serviceErr.Message += "，响应读取中断：" + readErr.Error()
 		}
-		return "", newResponseError(serviceErr, string(body), "http_body", readErr == nil)
+		return "", newResponseError(serviceErr, serviceErr.responseErrorBody, "http_body", readErr == nil)
 	}
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/event-stream") {
@@ -484,7 +489,31 @@ func readChatStream(reader io.Reader, threshold float64, earlyDecision func(Deci
 }
 
 // newHTTPServiceError 根据状态码和响应摘要生成错误策略。
-func newHTTPServiceError(statusCode int, body string, retryAfter string) *ServiceError {
+func newHTTPServiceError(statusCode int, body string, retryAfter string, credentials ...string) *ServiceError {
+	credential := ""
+	if len(credentials) > 0 {
+		credential = credentials[0]
+	}
+	safeBody := redactRequestHTTPErrorBody(body, credential)
+	detail, code := providerErrorDetail(safeBody)
+	var structured struct {
+		Code  string          `json:"code"`
+		Error json.RawMessage `json:"error"`
+	}
+	// 内置代理已完成上游重试；422仍沿旧策略交给候选人流程，不因具体说明里的model或quota误停岗位。
+	retryExhausted := false
+	if statusCode == http.StatusUnprocessableEntity && json.Unmarshal([]byte(body), &structured) == nil {
+		code := structured.Code
+		if code == "" {
+			var nested struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal(structured.Error, &nested) == nil {
+				code = nested.Code
+			}
+		}
+		retryExhausted = code == "AI_RETRY_EXHAUSTED"
+	}
 	body = strings.TrimSpace(body)
 	if len([]rune(body)) > 500 {
 		body = string([]rune(body)[:500])
@@ -495,6 +524,14 @@ func newHTTPServiceError(statusCode int, body string, retryAfter string) *Servic
 	if statusCode == 400 || statusCode == 422 {
 		fatal = containsAny(lower, "quota", "balance", "余额", "额度", "api key", "model", "模型", "not found")
 	}
+	if retryExhausted {
+		retryable, fatal = false, false
+	}
+	// 兼容判断使用上面的原响应；日志与完整失败诊断共用同一清理结果，不保存认证回显。
+	body = strings.TrimSpace(safeBody)
+	if len([]rune(body)) > 500 {
+		body = string([]rune(body)[:500])
+	}
 	message := fmt.Sprintf("AI 请求失败，状态码 %d", statusCode)
 	if body != "" {
 		message += "，响应：" + body
@@ -502,6 +539,8 @@ func newHTTPServiceError(statusCode int, body string, retryAfter string) *Servic
 	return &ServiceError{
 		StatusCode: statusCode, Message: message, Retryable: retryable,
 		Fatal: fatal, RetryAfter: parseRetryAfter(retryAfter),
+		responseErrorDetail: detail, responseErrorCode: code,
+		responseErrorBody: safeBody,
 	}
 }
 

@@ -20,29 +20,33 @@ import (
 	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 )
 
-// RequestAttempt 只包含请求关联、计时与有限结果分类，不能添加提示词、候选人或聊天正文。
+// RequestAttempt 只包含请求关联、计时、结果分类及安全错误说明，不能添加提示词、候选人或聊天正文。
 type RequestAttempt struct {
-	Layer             string `json:"layer"`
-	Phase             string `json:"phase"`
-	ClientRequestID   string `json:"client_request_id"`
-	AnalysisGroupID   string `json:"analysis_group_id"`
-	ClientAttempt     int64  `json:"client_attempt"`
-	ServerAttempt     int64  `json:"server_attempt,omitempty"`
-	MaxAttempts       int64  `json:"max_attempts"`
-	Operation         string `json:"operation"`
-	Model             string `json:"model"`
-	Provider          string `json:"provider"`
-	StartedAt         string `json:"started_at"`
-	FinishedAt        string `json:"finished_at,omitempty"`
-	ElapsedMS         int64  `json:"elapsed_ms"`
-	HTTPStatus        int    `json:"http_status"`
-	Result            string `json:"result"`
-	Reason            string `json:"reason"`
-	RetryReason       string `json:"retry_reason,omitempty"`
-	WillRetry         bool   `json:"will_retry"`
-	BackoffMS         int64  `json:"backoff_ms"`
-	StopReason        string `json:"stop_reason,omitempty"`
-	ProviderRequestID string `json:"provider_request_id,omitempty"`
+	Layer                string `json:"layer"`
+	Phase                string `json:"phase"`
+	ClientRequestID      string `json:"client_request_id"`
+	AnalysisGroupID      string `json:"analysis_group_id"`
+	ClientAttempt        int64  `json:"client_attempt"`
+	ServerAttempt        int64  `json:"server_attempt,omitempty"`
+	MaxAttempts          int64  `json:"max_attempts"`
+	Operation            string `json:"operation"`
+	Model                string `json:"model"`
+	Provider             string `json:"provider"`
+	StartedAt            string `json:"started_at"`
+	FinishedAt           string `json:"finished_at,omitempty"`
+	ElapsedMS            int64  `json:"elapsed_ms"`
+	HTTPStatus           int    `json:"http_status"`
+	Result               string `json:"result"`
+	Reason               string `json:"reason"`
+	RetryReason          string `json:"retry_reason,omitempty"`
+	WillRetry            bool   `json:"will_retry"`
+	BackoffMS            int64  `json:"backoff_ms"`
+	StopReason           string `json:"stop_reason,omitempty"`
+	ProviderRequestID    string `json:"provider_request_id,omitempty"`
+	ErrorDetail          string `json:"error_detail,omitempty"`
+	ErrorCode            string `json:"error_code,omitempty"`
+	ErrorDetailTruncated bool   `json:"error_detail_truncated,omitempty"`
+	ResponseBytes        int64  `json:"response_bytes,omitempty"`
 }
 
 // RequestLogLine 使用与其他任务日志相同的结构，stdout和岗位回调共用这一条已归一化日志。
@@ -76,9 +80,10 @@ type requestLogGroup struct {
 type requestLogGroupKey struct{}
 type requestLogAttemptKey struct{}
 type requestLogAttempt struct {
-	ctx     context.Context
-	event   RequestAttempt
-	started time.Time
+	ctx        context.Context
+	event      RequestAttempt
+	started    time.Time
+	credential string
 }
 
 var requestLogSequence atomic.Uint64
@@ -157,10 +162,13 @@ func startRequestLog(ctx context.Context, req *http.Request, payload []byte, ope
 		provider = "builtin"
 	}
 	record.ctx, record.started = ctx, time.Now()
+	record.credential = strings.TrimSpace(strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer "))
 	record.event = RequestAttempt{Layer: "client", Phase: "start", ClientRequestID: newAIRequestID("airq_"), AnalysisGroupID: group.id, ClientAttempt: max(1, attempt), MaxAttempts: group.maxAttempts, Operation: operation, Model: safeModelLabel(model.Model), Provider: provider, StartedAt: record.started.UTC().Format(time.RFC3339Nano), Result: "started", Reason: "request_started"}
 	if builtin {
 		req.Header.Set("X-GoodHR-Client-Request-ID", record.event.ClientRequestID)
 		req.Header.Set("X-GoodHR-Analysis-Group-ID", record.event.AnalysisGroupID)
+		// 单独协商具体错误兼容能力，旧diagnostics头并不表示客户端已识别新的422策略。
+		req.Header.Set("X-GoodHR-AI-Error-Details", "1")
 	}
 	record.emit(record.event, nil)
 	return record
@@ -215,10 +223,23 @@ func (r *requestLogAttempt) finish(observation *aiAttempt, err error) {
 	event.ElapsedMS = time.Since(r.started).Milliseconds()
 	if observation != nil {
 		event.HTTPStatus = observation.detail.HTTPStatus
+		event.ResponseBytes = observation.detail.ReceivedBytes
 	}
 	event.Result = "success"
 	if err != nil {
 		event.Result = "failed"
+		event.ErrorDetail, event.ErrorCode = requestErrorDetail(err)
+		if r.credential != "" {
+			event.ErrorDetail = strings.ReplaceAll(event.ErrorDetail, r.credential, "[已隐藏]")
+			if strings.Contains(event.ErrorCode, r.credential) {
+				event.ErrorCode = ""
+			}
+		}
+	}
+	event = NormalizeRequestAttempt(event)
+	var service *ServiceError
+	if errors.As(err, &service) && (event.ErrorDetail != "" || event.ErrorCode != "") {
+		service.requestErrorSummary = "AI 请求失败：" + RequestAttemptReason(event)
 	}
 	event.Reason = requestFailureReason(err, event.HTTPStatus)
 	if err != nil && event.Reason == "response_invalid" && observation != nil && observation.readErr != nil {
@@ -291,7 +312,7 @@ func RequestAttemptMessage(event RequestAttempt) string {
 	return message
 }
 
-// RequestAttemptReason 将有限分类翻成中文，原始完整错误仍由既有诊断详情保存。
+// RequestAttemptReason 优先显示已脱敏的具体说明，旧事件仍按有限分类展示，完整原文保留在既有诊断详情。
 func RequestAttemptReason(event RequestAttempt) string {
 	if event.Phase == "retry_wait_stopped" {
 		if event.StopReason == "cancelled" {
@@ -300,6 +321,17 @@ func RequestAttemptReason(event RequestAttempt) string {
 		if event.StopReason == "timeout" {
 			return "重试等待超时"
 		}
+	}
+	safe := NormalizeRequestAttempt(event)
+	detail := safe.ErrorDetail
+	if detail == "" {
+		detail = safe.ErrorCode
+	}
+	if detail != "" {
+		if event.HTTPStatus >= 400 {
+			return shortRequestErrorReason(fmt.Sprintf("HTTP %d：%s", event.HTTPStatus, detail))
+		}
+		return shortRequestErrorReason(detail)
 	}
 	if event.HTTPStatus >= 400 {
 		return fmt.Sprintf("HTTP %d", event.HTTPStatus)
@@ -313,6 +345,7 @@ func RequestAttemptReason(event RequestAttempt) string {
 
 // emit 将同一条结构化日志送入标准输出和固定岗位回调，回调不再依赖当前任务指针。
 func (r *requestLogAttempt) emit(event RequestAttempt, cause error) {
+	event = NormalizeRequestAttempt(event)
 	scope, _ := r.ctx.Value(requestLogScopeKey{}).(requestLogScope)
 	line := RequestLogLine{Timestamp: event.StartedAt, TaskID: scope.taskID, TraceID: scope.taskID, PositionID: scope.positionID, Action: "ai.request", Step: "ai_request_attempt", Status: event.Result, Message: RequestAttemptMessage(event), Category: "运行", DurationMS: event.ElapsedMS}
 	if event.Phase != "start" {
@@ -354,7 +387,7 @@ func (r *requestLogAttempt) serverAttempts(header string, trusted bool) {
 	for _, event := range entries {
 		start, e1 := time.Parse(time.RFC3339Nano, event.StartedAt)
 		finish, e2 := time.Parse(time.RFC3339Nano, event.FinishedAt)
-		if event.Layer != "server" || event.ClientRequestID != r.event.ClientRequestID || event.AnalysisGroupID != "" && event.AnalysisGroupID != r.event.AnalysisGroupID || event.ClientAttempt != 0 && event.ClientAttempt != r.event.ClientAttempt || event.ServerAttempt <= previous || event.ServerAttempt < 1 || event.MaxAttempts > 4 || event.MaxAttempts < event.ServerAttempt || event.ElapsedMS < 0 || event.BackoffMS < 0 || event.HTTPStatus != 0 && (event.HTTPStatus < 100 || event.HTTPStatus > 599) || !allowed[event.Reason] || !allowedStop[event.StopReason] || event.Result != "success" && event.Result != "failed" || event.Provider != "primary" && event.Provider != "fallback" || e1 != nil || e2 != nil || finish.Before(start) {
+		if event.Layer != "server" || event.ClientRequestID != r.event.ClientRequestID || event.AnalysisGroupID != "" && event.AnalysisGroupID != r.event.AnalysisGroupID || event.ClientAttempt != 0 && event.ClientAttempt != r.event.ClientAttempt || event.ServerAttempt <= previous || event.ServerAttempt < 1 || event.MaxAttempts > 4 || event.MaxAttempts < event.ServerAttempt || event.ElapsedMS < 0 || event.BackoffMS < 0 || event.ResponseBytes < 0 || event.HTTPStatus != 0 && (event.HTTPStatus < 100 || event.HTTPStatus > 599) || !allowed[event.Reason] || !allowedStop[event.StopReason] || event.Result != "success" && event.Result != "failed" || event.Provider != "primary" && event.Provider != "fallback" || e1 != nil || e2 != nil || finish.Before(start) {
 			return
 		}
 		previous = event.ServerAttempt
@@ -364,6 +397,13 @@ func (r *requestLogAttempt) serverAttempts(header string, trusted bool) {
 		event.AnalysisGroupID = r.event.AnalysisGroupID
 		event.Model = safeModelLabel(event.Model)
 		event.ProviderRequestID = safeRequestLabel(event.ProviderRequestID)
+		if r.credential != "" {
+			event.ErrorDetail = strings.ReplaceAll(event.ErrorDetail, r.credential, "[已隐藏]")
+			if strings.Contains(event.ErrorCode, r.credential) {
+				event.ErrorCode = ""
+			}
+		}
+		event = normalizeRequestAttempt(event, maxHeaderRequestErrorDetailBytes)
 		// 业务操作来自本机调用现场，代理通用chat_completions标签不能覆盖它。
 		event.Operation = r.event.Operation
 		event.RetryReason = ""

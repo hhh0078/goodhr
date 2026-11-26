@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"goodhr5/local-agent-go-new/cloudruntime"
 )
 
 var diagnosticSensitiveKey = regexp.MustCompile(`(?i)cookie|authorization|token|password|secret|api[_-]?key|resume|candidate[_-]?name|phone|wechat|email|id[_-]?card|address|message[_-]?text|input[_-]?text`)
@@ -147,6 +149,12 @@ func sanitizeDiagnosticValue(value any) any {
 		for key, child := range item {
 			if key == "ai_response_diagnostic" {
 				item[key] = sanitizeAIResponseDiagnostic(child)
+			} else if key == "ai_request_attempt" {
+				if safe, valid := sanitizeAIRequestAttemptDetail(child); valid {
+					item[key] = safe
+				} else {
+					item[key] = sanitizeDiagnosticValue(child)
+				}
 			} else if diagnosticSensitiveKey.MatchString(key) {
 				item[key] = "[已隐藏]"
 			} else {
@@ -165,6 +173,48 @@ func sanitizeDiagnosticValue(value any) any {
 		return sanitizeDiagnosticText(item)
 	}
 	return value
+}
+
+// sanitizeAIRequestAttemptDetail 只为合法逐次请求保留最多4KiB安全错误说明；其它字段继续普通脱敏，整体16KiB限制不变。
+func sanitizeAIRequestAttemptDetail(value any) (any, bool) {
+	fields, ok := value.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	detail, ok := fields["error_detail"].(string)
+	if !ok || detail == "" {
+		return nil, false
+	}
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return nil, false
+	}
+	var attempt cloudruntime.AIRequestAttempt
+	if json.Unmarshal(raw, &attempt) != nil {
+		return nil, false
+	}
+	// 只验证请求合同；待保留的自由文本在下面单独脱敏及限长，不能借长文本跳过截断标记。
+	core := attempt
+	core.ErrorDetail = ""
+	core.ErrorCode = ""
+	core.ErrorDetailTruncated = false
+	if !validRuntimeAIAttempt(core) {
+		return nil, false
+	}
+	ordinary := make(map[string]any, len(fields))
+	for key, child := range fields {
+		if key != "error_detail" {
+			ordinary[key] = child
+		}
+	}
+	safe := sanitizeDiagnosticValue(ordinary).(map[string]any)
+	detail = redactAIErrorText(detail, nil)
+	detail, clipped := clipAIErrorText(detail, maxAIErrorDetailBytes)
+	safe["error_detail"] = detail
+	if clipped {
+		safe["error_detail_truncated"] = true
+	}
+	return safe, true
 }
 
 // sanitizeAIResponseDiagnostic 完整保留已授权的 AI 失败诊断，分享时也只脱敏凭据，不截断原文。

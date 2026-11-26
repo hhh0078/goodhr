@@ -361,8 +361,11 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		obs.report(w, phase, reason, upstreamStatus, false)
-		// 422 表示上游预算已结束，旧客户端也不会按 5xx/429 再重试一轮。
-		writeJSON(w, status, map[string]any{"error": "AI 已在服务器完成重试，仍没拿到可用结果，请稍后再试", "code": "AI_RETRY_EXHAUSTED"})
+		// 旧版会把422正文里的model/额度等词误判为致命错误；424同属不可重试4xx，保留实际明文也不改变旧暂停保护。
+		if status == http.StatusUnprocessableEntity && r.Header.Get("X-GoodHR-AI-Error-Details") != "1" {
+			status = http.StatusFailedDependency
+		}
+		writeJSON(w, status, aiFinalFailureBody(err, attemptDetails.attempts))
 		return
 	}
 	w.Header().Set("X-GoodHR-AI-Attempts", resp.Header.Get("X-GoodHR-Upstream-Attempts"))

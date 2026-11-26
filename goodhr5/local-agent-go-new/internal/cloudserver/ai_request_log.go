@@ -14,7 +14,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
-// AIRequestAttempt 只保留归一化的请求元数据，不保存错误正文、候选人或密钥，也不借用当前岗位和会话游标。
+// AIRequestAttempt 保留请求元数据和已脱敏的服务错误说明，不保存模型正文、候选人或密钥，也不借用当前岗位和会话游标。
 func (l *runLogger) AIRequestAttempt(line []byte, _ error) {
 	if l == nil || l.run == nil || l.run.client == nil {
 		return
@@ -27,7 +27,7 @@ func (l *runLogger) AIRequestAttempt(line []byte, _ error) {
 	if err != nil {
 		return
 	}
-	attempt := record.Output.Attempt
+	attempt := ai.NormalizeRequestAttempt(record.Output.Attempt)
 	if (attempt.Layer != "client" && attempt.Layer != "server") || (attempt.Phase != "start" && attempt.Phase != "end" && attempt.Phase != "retry_wait_stopped") {
 		return
 	}

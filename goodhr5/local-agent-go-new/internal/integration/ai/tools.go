@@ -201,7 +201,7 @@ func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey 
 				Fatal:      true,
 			}
 		}
-		return ToolChatResult{}, newHTTPServiceError(response.StatusCode, string(body), response.Header.Get("Retry-After"))
+		return ToolChatResult{}, newHTTPServiceError(response.StatusCode, string(body), response.Header.Get("Retry-After"), requestLog.credential)
 	}
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/event-stream") {
