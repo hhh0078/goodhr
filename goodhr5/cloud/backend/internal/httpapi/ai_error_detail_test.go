@@ -47,6 +47,13 @@ func TestAIErrorDetailHTTPFailureBudget(t *testing.T) {
 			if !strings.Contains(body.Error, "failure 4") || !strings.Contains(body.Error, "503") || strings.Contains(response.Body.String(), "upstream-secret") || strings.Contains(response.Body.String(), "PRIVATE_REQUEST") {
 				t.Fatal("实际末次原因丢失或泄露私有内容")
 			}
+			preview := []rune(response.Body.String())
+			if len(preview) > 500 {
+				preview = preview[:500]
+			}
+			if !strings.HasPrefix(response.Body.String(), `{"error":`) || !strings.Contains(string(preview), "failure 4") || !strings.Contains(string(preview), "503") {
+				t.Fatal("旧版前500字摘要没有首先显示实际终止原因")
+			}
 			for i, attempt := range body.Attempts {
 				if attempt.ServerAttempt != i+1 || attempt.ErrorCode != "CHANNEL_UNAVAILABLE" || !strings.Contains(attempt.ErrorDetail, fmt.Sprintf("failure %d", i+1)) || attempt.ResponseBytes == 0 || attempt.WillRetry != (i < 3) {
 					t.Fatalf("第%d次详情不完整", i+1)
