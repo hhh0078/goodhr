@@ -1118,7 +1118,12 @@ test("岗位保存迟到响应遇到实际退出换号，不得把旧账号岗�
     const newUserProgress = cache.find((entry) => entry.name === `goodhr_onboarding_v2_${encodeURIComponent(otherUser.id)}`);
     expect(newUserProgress).toBeTruthy();
     expect(JSON.parse(newUserProgress!.value).positionId).toBe("");
-    const originalPositions = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${user.token}` } });
+    const revoked = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${user.token}` } });
+    expect(revoked.status()).toBe(401);
+    const originalLogin = await request.post(`${CLOUD_URL}/api/auth/password-login`, { data: { email: user.email, password: user.password } });
+    expect(originalLogin.ok(), await originalLogin.text()).toBe(true);
+    const originalToken = (await originalLogin.json()).access_token;
+    const originalPositions = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${originalToken}` } });
     const newUserPositions = await request.get(`${CLOUD_URL}/api/positions`, { headers: { authorization: `Bearer ${otherUser.token}` } });
     expect(originalPositions.ok()).toBe(true);
     expect(newUserPositions.ok()).toBe(true);

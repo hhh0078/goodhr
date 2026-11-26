@@ -50,6 +50,18 @@ func verifyExtensionSessionReplacement(t *testing.T, stores []AuthStore) {
 		t.Cleanup(func() { _ = store.SaveSession(token, Session{}, -time.Second) })
 		return token
 	}
+	t.Run("web-session-logout", func(t *testing.T) {
+		token := newToken()
+		if err := store.SaveSession(token, Session{Email: email}, time.Hour); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := stores[len(stores)-1].ReplaceSession(token, "", 0, ""); err != nil {
+			t.Fatal("普通网页会话没有原子撤销", err)
+		}
+		if _, err := store.GetSession(token); !errors.Is(err, ErrNotFound) {
+			t.Fatal("独立存储客户端仍能恢复已退出凭证", err)
+		}
+	})
 	t.Run("scope-and-collision", func(t *testing.T) {
 		old, collision, fresh := newToken(), newToken(), newToken()
 		web := Session{Email: email}

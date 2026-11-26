@@ -89,6 +89,22 @@ export async function cloudRequest(path: string, options: RequestOptions = {}) {
   return parseResponse(response, "云端请求失败", token);
 }
 
+/** logoutCloudSession 撤销本次点击时的网页登录；失效凭证视为已退出，暂时故障交由页面保留账号并重试。 */
+export async function logoutCloudSession(token: string) {
+  if (!token) return;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 10000);
+  try {
+    await cloudRequest("/api/auth/logout", {
+      method: "POST", auth: false, headers: { Authorization: `Bearer ${token}` }, signal: controller.signal,
+    });
+  } catch (error) {
+    if (!(error instanceof APIRequestError && error.status === 401)) throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 /** fetchCandidateReplyAttachment 使用网页登录凭据读取已核实的候选人附件，不把令牌或服务器目录放进地址栏。 */
 export async function fetchCandidateReplyAttachment(candidateID: string, threadID: string, attachmentID: string, preview: boolean, signal: AbortSignal) {
   const token = getToken();

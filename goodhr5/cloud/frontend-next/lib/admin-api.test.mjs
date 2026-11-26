@@ -99,6 +99,24 @@ test("授权页固定A会话同步时，其他标签的B令牌不会混入本地
   });
 });
 
+/** 验证退出只撤销点击时的凭证，暂时故障不提前清理浏览器状态。 */
+test("云端退出固定本次凭证，401可结束退出但暂时故障必须保留浏览器账号", async () => {
+  await withFakeAgent("43139", { storage: { goodhr5_access_token: "synthetic-new-account" } }, async (api, _calls, values) => {
+    for (const status of [200, 401, 503]) {
+      globalThis.fetch = async (url, options) => {
+        assert.equal(new URL(url).pathname, "/api/auth/logout");
+        assert.equal(options.method, "POST");
+        assert.equal(options.headers.Authorization, "Bearer synthetic-logout-account");
+        assert.ok(options.signal instanceof AbortSignal);
+        return { ok: status === 200, status, text: async () => JSON.stringify(status === 200 ? { ok: true } : { error: "合成退出失败" }) };
+      };
+      if (status === 503) await assert.rejects(api.logoutCloudSession("synthetic-logout-account"));
+      else await api.logoutCloudSession("synthetic-logout-account");
+      assert.equal(values.get("goodhr5_access_token"), "synthetic-new-account");
+    }
+  });
+});
+
 /** 验证切换账号后才返回的旧请求不会把新账号退出，教程等待期间也保持身份隔离。 */
 test("旧账号延迟返回401不会清掉新账号Token或跳转登录页", async () => {
   await withFakeAgent("43139", { storage: { goodhr5_access_token: "old-local-test-token" } }, async (api, _calls, values) => {
