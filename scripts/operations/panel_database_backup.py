@@ -1,4 +1,4 @@
-"""文件作用：只用标准库在线备份宝塔 SQLite；默认预览，全部验证后发布当日私有目录，不删除历史备份。"""
+"""文件作用：在线备份宝塔 SQLite，默认预览；当日验证成功后仅轮换本脚本最近七份快照，保护其它数据库备份。"""
 
 import argparse
 import contextlib
@@ -14,6 +14,8 @@ import stat
 import tempfile
 import time
 
+from panel_backup_retention import container_mount_sources
+
 
 SOURCE_ROOT = Path('/www/server/panel/data')
 BACKUP_ROOT = Path('/www/backup/database/baota-panel')
@@ -22,6 +24,7 @@ EXCLUDED = {'agent', 'hids_data'}
 EXTENSIONS = {'.db', '.sqlite', '.sqlite3'}
 OWNER = 'baota-panel-sqlite-backup'
 DATABASE_TIMEOUT = 120
+KEEP_COUNT = 7
 
 
 def require(condition, message):
@@ -209,8 +212,89 @@ def verify_snapshot(directory, day):
     return len(records)
 
 
+def snapshot_identity(directory):
+    """记录已验证目录的精确文件身份，不含读取引起的访问时间，也不跟随链接。"""
+    result = {}
+    for current, directories, files in os.walk(str(directory), followlinks=False):
+        for path in [Path(current)] + [Path(current) / name for name in directories + files]:
+            value = checked_path(path, directory=path.is_dir())
+            require(value.st_uid == os.geteuid(), '快照文件所有者不符')
+            result[path.relative_to(directory).as_posix()] = [value.st_dev, value.st_ino, value.st_mode,
+                value.st_uid, value.st_gid, value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns]
+    return result
+
+
+def verified_snapshot_record(directory):
+    """完整复核本脚本日期快照，并绑定所有文件身份及 manifest SHA，验证期间变化即拒绝。"""
+    before = snapshot_identity(directory)
+    verify_snapshot(directory, directory.name)
+    digest = hashlib.sha256((directory / 'verified.json').read_bytes()).hexdigest()
+    require(snapshot_identity(directory) == before, '快照验证期间发生变化')
+    return {'path': str(directory), 'identity': before, 'manifest_sha256': digest}
+
+
+def mount_references(directory):
+    """复用已有只读容器挂载检查，任一运行或停止容器引用快照、子文件或父目录均保护。"""
+    return any(directory == path or directory in path.parents or path in directory.parents
+               for path in container_mount_sources())
+
+
+def rotate_snapshots(current):
+    """当日快照完整验证后，仅逐文件轮换本 owner 的七份以外旧快照；未知、损坏及被挂载对象保留。"""
+    checked_path(BACKUP_ROOT, directory=True)
+    directories = [path for path in sorted(BACKUP_ROOT.iterdir())
+                   if re.fullmatch(r'\d{4}-\d{2}-\d{2}', path.name) and not path.is_symlink()]
+    # 调用方已核验当天成品；总目录尚不足八份时不可能删除，避免每15分钟重读全部历史大库。
+    if len(directories) <= KEEP_COUNT:
+        return {'removed_snapshot_count': 0, 'skipped_mounted_count': 0}
+    current_record = verified_snapshot_record(current)
+    snapshots = []
+    for directory in directories:
+        try:
+            require(datetime.date.fromisoformat(directory.name).isoformat() == directory.name, '快照日期不符')
+            snapshots.append(verified_snapshot_record(directory))
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError, sqlite3.Error):
+            continue
+    retained = snapshots[-KEEP_COUNT:]
+    require(any(record['path'] == str(current) for record in retained), '当日快照早于保留范围，旧备份全部保留')
+    candidates = snapshots[:-KEEP_COUNT]
+    if not candidates:
+        return {'removed_snapshot_count': 0, 'skipped_mounted_count': 0}
+    # 删除前留存精确白名单，记录身份及清单摘要，不保存数据库正文。
+    audit = BACKUP_ROOT / ('.retention-' + str(time.time_ns()) + '.json')
+    write_private_json(audit, {'owner': OWNER, 'keep_count': KEEP_COUNT, 'current': current_record, 'candidates': candidates})
+    fsync_directory(BACKUP_ROOT)
+    removed, mounted = 0, 0
+    for record in candidates:
+        directory = Path(record['path'])
+        if mount_references(directory):
+            mounted += 1
+            continue
+        require(verified_snapshot_record(current) == current_record, '当日成功快照发生变化，停止轮换')
+        require(verified_snapshot_record(directory) == record, '旧快照身份或摘要发生变化')
+        if mount_references(directory):
+            mounted += 1
+            continue
+        files = [name for name, value in record['identity'].items() if stat.S_ISREG(value[2])]
+        for name in sorted(files, key=lambda value: (value == 'verified.json', value)):
+            path = directory / name
+            require(not mount_references(directory), '删除期间新增容器引用，停止轮换')
+            require(snapshot_identity(directory).get(name) == record['identity'][name], '删除前文件身份发生变化')
+            path.unlink()
+        directories = [name for name, value in record['identity'].items() if stat.S_ISDIR(value[2])]
+        for name in sorted(directories, key=lambda value: len(PurePosixPath(value).parts), reverse=True):
+            path = directory / name
+            value = checked_path(path, directory=True)
+            require([value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid]
+                    == record['identity'][name][:5], '删除前目录身份发生变化')
+            path.rmdir()
+        fsync_directory(BACKUP_ROOT)
+        removed += 1
+    return {'removed_snapshot_count': removed, 'skipped_mounted_count': mounted}
+
+
 def backup(apply=False):
-    """默认只列数量；执行时全部校验后才改名发布，任何失败均保留临时目录，不删除历史数据库。"""
+    """默认只列数量；全部校验后发布并轮换本脚本快照，失败保留现场且同日不重复堆积。"""
     with maintenance_lock(), private_creation():
         sources = discover_databases()
         if not apply:
@@ -224,7 +308,8 @@ def backup(apply=False):
         final = BACKUP_ROOT / day
         if final.exists() or final.is_symlink():
             count = verify_snapshot(final, day)
-            return {'success': True, 'applied': True, 'skipped_verified': True, 'database_count': count}
+            return dict(rotate_snapshots(final), success=True, applied=True, skipped_verified=True, database_count=count)
+        require(not any(BACKUP_ROOT.glob('.incomplete-' + day + '-*')), '当日失败现场尚未核查，停止重复备份')
         temporary = Path(tempfile.mkdtemp(prefix='.incomplete-' + day + '-', dir=str(BACKUP_ROOT)))
         records = []
         try:
@@ -249,7 +334,7 @@ def backup(apply=False):
                                                               'completed_count': len(records)})
                 fsync_directory(temporary)
             raise
-        return {'success': True, 'applied': True, 'skipped_verified': False, 'database_count': len(records)}
+        return dict(rotate_snapshots(final), success=True, applied=True, skipped_verified=False, database_count=len(records))
 
 
 def main():
