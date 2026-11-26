@@ -78,12 +78,13 @@ type AIWalletStore interface {
 
 // builtinAIConfig 表示 system.app_config 中的内置 AI 配置。
 type builtinAIConfig struct {
-	PublicBaseURL    string           `json:"public_base_url"`
-	UpstreamBaseURL  string           `json:"upstream_base_url"`
-	UpstreamAPIKey   string           `json:"upstream_api_key"`
-	DefaultModel     string           `json:"default_model"`
-	SignupBonusCents int              `json:"signup_bonus_cents"`
-	Models           []builtinAIModel `json:"models"`
+	Fallback         *BuiltinAIFallbackConfig `json:"fallback,omitempty"`
+	PublicBaseURL    string                   `json:"public_base_url"`
+	UpstreamBaseURL  string                   `json:"upstream_base_url"`
+	UpstreamAPIKey   string                   `json:"upstream_api_key"`
+	DefaultModel     string                   `json:"default_model"`
+	SignupBonusCents int                      `json:"signup_bonus_cents"`
+	Models           []builtinAIModel         `json:"models"`
 }
 
 // builtinAIModel 表示一个可用的内置 AI 模型和计费价格。
@@ -301,9 +302,11 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.UpstreamAPIKey))
 	obs, req := observeAIProxy(w, r, req, s.httpClient.Timeout)
+	attemptDetails := newAIAttemptDetailsWriter(w, r)
 	var retryCost int64
 	retryUnknown := false
 	resp, err := doServerAIRequest(s.httpClient, req, serverAIRequestOptions{
+		Fallback: cfg.Fallback, Model: model.ID, ClientRequestID: r.Header.Get(aiClientRequestIDHeader), AnalysisGroupID: r.Header.Get(aiAnalysisGroupIDHeader), Observe: attemptDetails.observe,
 		Before: func(attempt int) error {
 			balance, balanceErr := s.wallet.BalanceUnits(email)
 			if balanceErr != nil {
@@ -340,6 +343,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 		},
 	})
 	if err != nil {
+		attemptDetails.stop(err)
 		status, phase, reason, upstreamStatus := http.StatusUnprocessableEntity, "", aiProxyReason(err, "transport_error"), 0
 		var failure *serverAIRequestError
 		if errors.As(err, &failure) {
@@ -368,6 +372,14 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	// 上游不能代替本代理声明 GoodHR 诊断协议或覆盖故障分类。
 	resp.Header.Del(aiDiagnosticHeader)
 	resp.Header.Del(aiUpstreamFailureHeader)
+	resp.Header.Del(aiAttemptDetailsHeader)
+	resp.Header.Del(aiClientRequestIDHeader)
+	resp.Header.Del(aiAnalysisGroupIDHeader)
+	knownCredentials := []string{cfg.UpstreamAPIKey}
+	if cfg.Fallback != nil {
+		knownCredentials = append(knownCredentials, cfg.Fallback.APIKey)
+	}
+	omitCredentialRequestIDHeaders(resp.Header, knownCredentials...)
 	var upstream io.Reader = resp.Body
 	if obs != nil {
 		upstream = io.TeeReader(resp.Body, obs)
@@ -613,8 +625,21 @@ func loadBuiltinAIConfig(systemConfigs SystemConfigStore) (builtinAIConfig, erro
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return builtinAIConfig{}, fmt.Errorf("%w: 内置 AI 配置必须是对象", ErrBuiltinAIConfigUnavailable)
 	}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+	// 备用字段独立容错，旧配置手写坏备用时不能拖垮原主用模型与计费配置。
+	type primaryConfig builtinAIConfig
+	wire := struct {
+		*primaryConfig
+		Fallback json.RawMessage `json:"fallback"`
+	}{primaryConfig: (*primaryConfig)(&cfg)}
+	if err := json.Unmarshal(raw, &wire); err != nil {
 		return builtinAIConfig{}, fmt.Errorf("%w: %v", ErrBuiltinAIConfigUnavailable, err)
+	}
+	cfg.Fallback = nil
+	if len(wire.Fallback) > 0 {
+		var fallback BuiltinAIFallbackConfig
+		if json.Unmarshal(wire.Fallback, &fallback) == nil {
+			cfg.Fallback = &fallback
+		}
 	}
 	cfg.PublicBaseURL = builtinAIPublicURL(cfg.PublicBaseURL)
 	if strings.TrimSpace(cfg.PublicBaseURL) == "" {

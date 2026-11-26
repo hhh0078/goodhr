@@ -47,7 +47,7 @@ func (s *PositionLogService) Share(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "share store unavailable")
 		return
 	}
-	logs, _, err := s.logStore.ListPositionLogs(tenantID, ownerEmail, positionID, isAdmin, PositionLogQuery{Limit: maxPositionLogsPerPosition})
+	logs, _, err := s.listPositionLogs(tenantID, ownerEmail, positionID, isAdmin, PositionLogQuery{Limit: maxPositionLogsPerPosition})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load position logs")
 		return

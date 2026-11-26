@@ -140,7 +140,7 @@ func (f *Flow) candidatePreviewsWithDone(ctx context.Context, prepared shared.Pr
 func (f *Flow) finishPreviewOutput(taskID string, final <-chan ai.EvaluationResult, cancel context.CancelFunc) {
 	defer cancel()
 	if result := <-final; result.Err != nil {
-		f.log(taskID, "complete_ai_preview_output", "warning", time.Now(), result.Err)
+		f.log(taskID, "complete_ai_preview_output", "warning", time.Now(), ai.WrapOutputCompletionError(result.Err))
 	}
 }
 

@@ -399,6 +399,7 @@ func (r *Runner) StopAll(ctx context.Context, reason string) {
 func (r *Runner) run(ctx context.Context, active *activeTask) {
 	prepared := active.prepared
 	ctx = client.WithTraceID(ctx, prepared.Request.TaskID)
+	ctx = shared.WithAIRequestLog(ctx, r.logger, prepared.Request.TaskID, prepared.Position.ID)
 	ctx = shared.WithGracefulStop(ctx, active.stop)
 	stats := shared.Stats{}
 	runtime, err := platform.RuntimeFor(prepared.Position.PlatformID)

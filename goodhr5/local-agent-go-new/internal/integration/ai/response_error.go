@@ -4,6 +4,7 @@ package ai
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 )
@@ -76,6 +77,22 @@ func ResponseDiagnosticFromError(err error) (ResponseDiagnostic, bool) {
 		return ResponseDiagnostic{}, false
 	}
 	return responseErr.Diagnostic, true
+}
+
+// WrapOutputCompletionError 按实际响应完整性生成收尾说明，保留原错误链及完整诊断，不从旧请求正文推断最终请求结果。
+func WrapOutputCompletionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := "AI 输出收尾失败"
+	if diagnostic, ok := ResponseDiagnosticFromError(err); ok && strings.TrimSpace(diagnostic.ResponseKind) != "" && !diagnostic.ResponseCompletionUnknown && strings.TrimSpace(diagnostic.FinalRequestError) == "" {
+		if diagnostic.ResponseComplete {
+			message = "AI 输出已接收完成，但处理失败"
+		} else {
+			message = "AI 完整输出没有接收完"
+		}
+	}
+	return fmt.Errorf("%s：%w", message, err)
 }
 
 // newResponseError 包装实际收到的响应，并提取 JSON 出错字段和从一开始计算的字节位置。

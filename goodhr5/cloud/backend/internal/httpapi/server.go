@@ -140,6 +140,7 @@ func NewServer() (*Server, error) {
 	}
 	candidates := NewCandidateService(auth, candidateStore, tenantStore, positionStore)
 	autoReplyStore := config.AutoReplyStore(db)
+	positionLogs.runtimeStore = autoReplyStore
 	if db != nil {
 		startReplyFilePurge(context.Background(), db, os.Getenv("GOODHR_AUTO_REPLY_FILES_DIR"))
 	}
@@ -409,6 +410,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/system/local-agent-console-url", s.GetLocalAgentConsoleURL)
 	mux.HandleFunc("/api/system/default-prompts", s.GetDefaultPrompts)
 	mux.HandleFunc("/api/admin/system/configs/", s.adminSystemConfigs)
+	mux.HandleFunc("/api/admin/system/ai-fallback", s.adminAIFallbackConfig)
 	mux.HandleFunc("/api/admin/platforms/config/", s.adminPlatformConfigs)
 	// 注册租户管理接口，用于管理员邀请成员和管理租户。
 	mux.HandleFunc("/api/tenants/members", s.tenants.Members)

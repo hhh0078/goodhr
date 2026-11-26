@@ -162,6 +162,7 @@ const menuGroups: MenuGroup[] = [
       ["/admin/mail", "邮件群发", EmailRoundedIcon],
       ["/admin/activation-codes", "激活码管理", AdminPanelSettingsRoundedIcon],
       ["/admin/payment-records", "支付记录", PaidRoundedIcon],
+      ["/admin/ai-fallback", "备用AI", SensorsRoundedIcon],
       ["/admin/system-config", "系统配置", SettingsRoundedIcon],
     ],
   },

@@ -12,10 +12,11 @@ import (
 
 // PositionLogService 处理岗位日志写入和读取请求。
 type PositionLogService struct {
-	auth        *AuthService
-	positions   PositionStore
-	logStore    PositionLogStore
-	tenantStore TenantStore
+	auth         *AuthService
+	positions    PositionStore
+	logStore     PositionLogStore
+	runtimeStore *PostgresAutoReplyStore
+	tenantStore  TenantStore
 }
 
 type addPositionLogRequest struct {
@@ -152,7 +153,7 @@ func (s *PositionLogService) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logs, hasMore, err := s.logStore.ListPositionLogs(tenantID, session.Email, positionID, isAdmin, logQuery)
+	logs, hasMore, err := s.listPositionLogs(tenantID, session.Email, positionID, isAdmin, logQuery)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list position logs")
 		return
@@ -186,7 +187,8 @@ func (s *PositionLogService) Clear(w http.ResponseWriter, r *http.Request) {
 	}
 	tenantID, isAdmin := s.getTenantInfo(session.Email)
 
-	if _, err := s.positions.PositionByID(tenantID, session.Email, positionID, isAdmin); errors.Is(err, ErrNotFound) {
+	position, err := s.positions.PositionByID(tenantID, session.Email, positionID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "position not found")
 		return
 	} else if err != nil {
@@ -194,6 +196,16 @@ func (s *PositionLogService) Clear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.runtimeStore != nil && s.runtimeStore.db != nil {
+		owner := strings.TrimSpace(position.UserEmail)
+		if owner == "" {
+			owner = session.Email
+		}
+		if err := s.runtimeStore.clearAIRequestPositionLogs(tenantID, owner, positionID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to clear AI request logs")
+			return
+		}
+	}
 	if err := s.logStore.ClearPositionLogs(tenantID, session.Email, positionID, isAdmin); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to clear position logs")
 		return

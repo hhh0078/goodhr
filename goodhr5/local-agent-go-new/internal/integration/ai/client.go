@@ -266,6 +266,7 @@ func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMe
 		return "", fmt.Errorf("编码 AI 请求失败：%w", err)
 	}
 	endpoint := chatCompletionsURL(cfg.BaseURL)
+	ctx = withRequestLogGroup(ctx, 3)
 	var lastErr error
 	var receivedDiagnostic *ResponseDiagnostic
 	var previous []failurediag.Detail
@@ -274,7 +275,8 @@ func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMe
 	}
 	for attempt := 1; attempt <= 3; attempt++ {
 		options.Attempt = int64(attempt)
-		content, requestErr := c.doChatRequest(ctx, endpoint, cfg.APIKey, encoded, options)
+		requestCtx, requestLog := withRequestLogAttempt(ctx)
+		content, requestErr := c.doChatRequest(requestCtx, endpoint, cfg.APIKey, encoded, options)
 		if requestErr == nil {
 			return content, nil
 		}
@@ -291,12 +293,13 @@ func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMe
 		}
 		lastErr = requestErr
 		var serviceErr *ServiceError
-		if !errors.As(requestErr, &serviceErr) || !serviceErr.Retryable || attempt == 3 {
+		if !errors.As(requestErr, &serviceErr) || !serviceErr.Retryable || attempt == 3 || options.PriorEarly {
 			return "", withAIHistory(requestErr, previous)
 		}
 		retryStarted := time.Now()
 		delay := max(serviceErr.RetryAfter, time.Duration(attempt)*500*time.Millisecond)
 		if err = waitRetry(ctx, delay); err != nil {
+			requestLog.retryStopped(err, retryStarted, delay)
 			err = retryWaitError(ctx, err, requestErr, options.Operation, attempt, retryStarted, delay)
 			err = withAIHistory(err, previous)
 			if diagnostic, ok := ResponseDiagnosticFromError(lastErr); ok {
@@ -325,7 +328,8 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 		options.Completion.unmarkedEOF = nil
 	}
 	observation.early = options.PriorEarly
-	defer func() { runErr = observation.failure(runErr) }()
+	requestLog := startRequestLog(ctx, request, payload, options.Operation, options.Attempt, observation.builtin)
+	defer func() { runErr = observation.failure(runErr); requestLog.finish(observation, runErr) }()
 	billing := newBillingObserver(ctx, apiKey)
 	billing.diagnostic = observation
 	defer billing.finish()
@@ -337,6 +341,7 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 		return "", &ServiceError{Message: "连接 AI 失败：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
 	}
 	observation.headers(response)
+	requestLog.serverAttempts(response.Header.Get("X-GoodHR-AI-Attempt-Details"), observation.trustedResponse)
 	defer response.Body.Close()
 	billing.enabled = response.Header.Get("X-GoodHR-Billing") == "1"
 	if billing.enabled {
