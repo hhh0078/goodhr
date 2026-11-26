@@ -146,6 +146,13 @@ func TestUserAIConfigStoreRepairsOnlyCurrentSiteModels(t *testing.T) {
 			if got.Model != test.want || persisted.Model != test.want {
 				t.Fatalf("returned model = %q, saved model = %q, want %q", got.Model, persisted.Model, test.want)
 			}
+			wantAddress := config.BaseURL
+			if strings.EqualFold(strings.TrimSpace(wantAddress), legacyBuiltinAIBaseURL) {
+				wantAddress = "https://goodhr.example.com:8443/api/ai-compatible/v1/chat/completions"
+			}
+			if got.BaseURL != wantAddress {
+				t.Fatalf("读取返回的地址没有按当前环境归一化")
+			}
 			if persisted.BaseURL != config.BaseURL || persisted.APIKey != config.APIKey || persisted.Temperature != config.Temperature || persisted.PromptTemplate != config.PromptTemplate || persisted.Enabled != config.Enabled {
 				t.Fatalf("repair changed other fields: %+v", persisted)
 			}
@@ -161,7 +168,59 @@ func TestUserAIConfigStoreRepairsOnlyCurrentSiteModels(t *testing.T) {
 			if saved.Model != wantSaved {
 				t.Fatalf("saved model = %q, want %q", saved.Model, wantSaved)
 			}
+			if saved.BaseURL != wantAddress {
+				t.Fatal("旧表单保存未归一化接口地址")
+			}
 		})
+	}
+}
+
+// TestUserAIConfigStoreNormalizesOldTransitURL 验证旧表单读存只归一化完整直连地址，保持有效模型、密钥及其他参数。
+func TestUserAIConfigStoreNormalizesOldTransitURL(t *testing.T) {
+	for _, environment := range []string{"https://goodhr.58it.cn", "https://goodhr-test.ai.58it.cn", "http://127.0.0.1:8084"} {
+		t.Setenv("GOODHR_PUBLIC_BASE_URL", environment)
+		systemConfigs := NewMemorySystemConfigStore()
+		saveBuiltinAIConfigForTest(t, systemConfigs, builtinAIPolicyConfigForTest())
+		for _, address := range []string{
+			"https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions",
+			"  HTTPS://GOODHR.TRANSIT.AI.58IT.CN/api/ai-compatible/v1/chat/completions  ",
+			"https://custom.example.com/v1/chat/completions",
+			"https://goodhr.transit.ai.58it.cn.external.test/api/ai-compatible/v1/chat/completions",
+		} {
+			raw := NewMemoryAIConfigStore()
+			before, err := raw.SaveUserConfig("domain-return@example.test", AIConfig{BaseURL: address, Model: "second-model", APIKey: "ghai_synthetic-preserved", Temperature: 0.35, PromptTemplate: "保留合成提示词", Enabled: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := newModelRestrictedAIConfigStore(raw, systemConfigs)
+			got, err := store.UserConfig("domain-return@example.test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := before
+			if strings.EqualFold(strings.TrimSpace(address), legacyBuiltinAIBaseURL) {
+				want.BaseURL = environment + "/api/ai-compatible/v1/chat/completions"
+			}
+			if got != want {
+				t.Fatal("读取配置未按当前环境归一化，或改动了模型、密钥、其他参数")
+			}
+			persisted, err := raw.UserConfig("domain-return@example.test")
+			if err != nil || persisted != before {
+				t.Fatal("仅地址归一化的读取不应写回数据库")
+			}
+			saved, err := store.SaveUserConfig("domain-return@example.test", before)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want.UpdatedAt = saved.UpdatedAt
+			if saved != want {
+				t.Fatal("旧表单保存未归一化地址，或改动了模型、密钥、其他参数")
+			}
+			persisted, err = raw.UserConfig("domain-return@example.test")
+			if err != nil || persisted != saved {
+				t.Fatal("保存后的官网接口地址未落库")
+			}
+		}
 	}
 }
 
@@ -291,11 +350,13 @@ func TestAIConfigHTTPUsesCurrentSiteModelPolicy(t *testing.T) {
 		}
 	}
 	for _, test := range []struct {
-		baseURL string
-		want    string
+		baseURL  string
+		want     string
+		wantHost string
 	}{
-		{baseURL: "https://GOODHR.EXAMPLE.COM/api/ai", want: "first-model"},
-		{baseURL: "https://custom.example.com/v1", want: "custom-model"},
+		{baseURL: "https://GOODHR.EXAMPLE.COM/api/ai", want: "first-model", wantHost: "GOODHR.EXAMPLE.COM"},
+		{baseURL: legacyBuiltinAIBaseURL, want: "first-model", wantHost: "goodhr.example.com"},
+		{baseURL: "https://custom.example.com/v1", want: "custom-model", wantHost: "custom.example.com"},
 	} {
 		body, _ := json.Marshal(aiConfigRequest{BaseURL: test.baseURL, Model: "custom-model", APIKey: "test-key", Enabled: true})
 		req := httptest.NewRequest(http.MethodPut, "/api/config/user-ai", bytes.NewReader(body))
@@ -306,6 +367,9 @@ func TestAIConfigHTTPUsesCurrentSiteModelPolicy(t *testing.T) {
 			t.Fatalf("save status = %d, body = %s", resp.Code, resp.Body.String())
 		}
 		server.ai.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Host != test.wantHost {
+				t.Fatalf("测试入口请求主机=%q，期望=%q", req.URL.Host, test.wantHost)
+			}
 			var payload struct {
 				Model string `json:"model"`
 			}

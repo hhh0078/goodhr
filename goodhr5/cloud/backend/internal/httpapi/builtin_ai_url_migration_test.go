@@ -7,13 +7,13 @@ import (
 	"time"
 )
 
-// TestBuiltinAIFallbackUsesProductionURL 验证正式环境默认直连 AI，测试和私有部署仍使用自身接口。
+// TestBuiltinAIFallbackUsesProductionURL 验证正式环境默认使用官网 AI，测试和私有部署仍使用自身接口。
 func TestBuiltinAIFallbackUsesProductionURL(t *testing.T) {
 	for _, item := range []struct {
 		environment string
 		want        string
 	}{
-		{"", "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
+		{"", "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions"},
 		{"https://goodhr.58it.cn", defaultBuiltinAIBaseURL},
 		{"https://goodhr-test.ai.58it.cn", "https://goodhr-test.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
 		{"http://127.0.0.1:8084", "http://127.0.0.1:8084/api/ai-compatible/v1/chat/completions"},
@@ -31,26 +31,31 @@ func TestBuiltinAIFallbackUsesProductionURL(t *testing.T) {
 	}
 }
 
-// TestBuiltinAIStoredTransitURLRespectsEnvironment 验证已迁移的配置不会让测试部署访问正式 AI，外部地址仍按原值读取。
+// TestBuiltinAIStoredTransitURLRespectsEnvironment 验证旧直连配置回到所属环境，第三方、其他路径和相似域名保持原值。
 func TestBuiltinAIStoredTransitURLRespectsEnvironment(t *testing.T) {
-	t.Setenv("GOODHR_PUBLIC_BASE_URL", "https://goodhr-test.ai.58it.cn")
-	for _, item := range []struct {
-		address string
-		want    string
-	}{
-		{defaultBuiltinAIBaseURL, "https://goodhr-test.ai.58it.cn/api/ai-compatible/v1/chat/completions"},
-		{"https://custom.example.com/v1/chat/completions", "https://custom.example.com/v1/chat/completions"},
-	} {
-		store := NewMemorySystemConfigStore()
-		config := builtinAIPolicyConfigForTest()
-		config.PublicBaseURL = item.address
-		saveBuiltinAIConfigForTest(t, store, config)
-		got, err := loadBuiltinAIConfig(store)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got.PublicBaseURL != item.want {
-			t.Fatalf("已保存 AI 地址=%q，期望=%q", got.PublicBaseURL, item.want)
+	for _, environment := range []string{"https://goodhr.58it.cn", "https://goodhr-test.ai.58it.cn", "http://127.0.0.1:8084"} {
+		t.Setenv("GOODHR_PUBLIC_BASE_URL", environment)
+		for _, item := range []struct {
+			address string
+			want    string
+		}{
+			{"https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions", environment + "/api/ai-compatible/v1/chat/completions"},
+			{"  HTTPS://GOODHR.TRANSIT.AI.58IT.CN/api/ai-compatible/v1/chat/completions  ", environment + "/api/ai-compatible/v1/chat/completions"},
+			{"https://custom.example.com/v1/chat/completions", "https://custom.example.com/v1/chat/completions"},
+			{"https://goodhr.transit.ai.58it.cn/other-route", "https://goodhr.transit.ai.58it.cn/other-route"},
+			{"https://goodhr.transit.ai.58it.cn.external.test/api/ai-compatible/v1/chat/completions", "https://goodhr.transit.ai.58it.cn.external.test/api/ai-compatible/v1/chat/completions"},
+		} {
+			store := NewMemorySystemConfigStore()
+			config := builtinAIPolicyConfigForTest()
+			config.PublicBaseURL = item.address
+			saveBuiltinAIConfigForTest(t, store, config)
+			got, err := loadBuiltinAIConfig(store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.PublicBaseURL != item.want {
+				t.Fatalf("环境=%q，已保存 AI 地址=%q，期望=%q", environment, got.PublicBaseURL, item.want)
+			}
 		}
 	}
 }

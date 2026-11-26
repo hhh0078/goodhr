@@ -11,7 +11,8 @@ from unittest.mock import Mock, patch
 
 from release_cutover import CutoverError
 from release_rehearse import Rehearsal, migration_fingerprint
-from release_rehearse_auto import (AI_URL, AI_URL_MIGRATION, AI_URL_MIGRATION_SHA256,
+from release_rehearse_auto import (AI_MAIN_URL, AI_MAIN_URL_MIGRATION, AI_MAIN_URL_MIGRATION_SHA256,
+                                   AI_URL, AI_URL_MIGRATION, AI_URL_MIGRATION_SHA256,
                                    AutomaticUpgradeRehearsal, verify_ai_url_upgrade,
                                    verify_fact_retirement, without_retired_fact_data)
 
@@ -284,14 +285,19 @@ class AIURLUpgradeTests(unittest.TestCase):
                 verify_ai_url_upgrade(before, after)
 
     def test_restore_uses_exact_rows_only_for_frozen_migration(self):
-        """固定SQL才启用两表逐行校验，其他旧表仍走摘要，变更SQL或配置内容则停止。"""
-        sql = (Path(__file__).resolve().parents[1] / "cloud/backend/db/migrations" / AI_URL_MIGRATION).read_bytes()
-        for failure in (None, "sql", "config"):
-            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+        """两个方向均绑定固定SQL，其他旧表仍走摘要，篡改SQL或配置及同轮双向迁移均停止。"""
+        migrations = Path(__file__).resolve().parents[1] / "cloud/backend/db/migrations"
+        cases = [(AI_URL_MIGRATION, failure) for failure in (None, "sql", "config")]
+        cases += [(AI_MAIN_URL_MIGRATION, failure) for failure in (None, "sql", "config", "both")]
+        for migration, failure in cases:
+            sql = (migrations / migration).read_bytes()
+            with self.subTest(migration=migration, failure=failure), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory).resolve()
                 job = AutomaticMigrationTests().rehearsal(root)
                 source = root / "cloud/backend/db/migrations"
-                (source / AI_URL_MIGRATION).write_bytes(sql + (b"\n" if failure == "sql" else b""))
+                (source / migration).write_bytes(sql + (b"\n" if failure == "sql" else b""))
+                if failure == "both":
+                    (source / AI_URL_MIGRATION).write_bytes((migrations / AI_URL_MIGRATION).read_bytes())
                 packaged = {path.name: path.read_bytes() for path in source.glob("*.sql")}
                 job.migration_archive = Mock(side_effect=[packaged, {"0001_base.sql": packaged["0001_base.sql"]}])
                 before_schema = {"tables": {"public.users": {"columns": [{"name": "email"}]},
@@ -303,13 +309,14 @@ class AIURLUpgradeTests(unittest.TestCase):
                 job.reference_schema = Mock(return_value=after_schema)
                 before_ledger = [{"filename": "0001_base.sql", "applied_at": "2020-01-01T00:00:00Z"}]
                 after_ledger = before_ledger + [{"filename": name, "applied_at": "2026-11-12T14:00:00.5Z"}
-                    for name in ("0125_identity.sql", AI_URL_MIGRATION)]
+                    for name in ("0125_identity.sql", migration)]
                 job.ledger_records = Mock(side_effect=[before_ledger, after_ledger])
                 job.ledger = Mock(return_value=list(packaged))
-                after_rows = self.upgraded_rows()
+                before_rows = self.rows() if migration == AI_URL_MIGRATION else self.upgraded_rows()
+                after_rows = self.upgraded_rows() if migration == AI_URL_MIGRATION else self.rows()
                 if failure == "config":
                     after_rows["user_ai_configs"][0]["api_key_encrypted"] = "changed"
-                job.ai_url_rows = Mock(side_effect=[self.rows(), after_rows])
+                job.ai_url_rows = Mock(side_effect=[before_rows, after_rows])
                 with patch.object(Rehearsal, "restore"):
                     if failure:
                         with self.assertRaises(CutoverError):
@@ -319,10 +326,57 @@ class AIURLUpgradeTests(unittest.TestCase):
                         job.restore()
                         evidence = json.loads((job.directory / "automatic-upgrade.json").read_text())
                         self.assertTrue(evidence["builtin_ai_url_change"]["exact_url_data_change_verified"])
+                        self.assertEqual(evidence["builtin_ai_url_change"]["filename"], migration)
                         self.assertIn("except_verified_builtin_ai_public_urls", evidence["legacy_data_scope"])
                         self.assertEqual(len(evidence["allowed_data_changes"]), 2)
                         self.assertEqual(set(job.database_snapshot.call_args_list[0].args[0]), {"public\tusers"})
                         self.assertEqual(job.ai_url_rows.call_count, 2)
+
+    def test_restore_main_changes_only_exact_transit_url(self):
+        """反向迁移只恢复中转完整路由，旧历史站点、第三方、带参数和其他路由均原样保留。"""
+        for address, replace in (
+                (AI_URL, True), ("  HTTPS://GOODHR.TRANSIT.AI.58IT.CN/api/ai-compatible/v1/chat/completions  ", True),
+                (AI_MAIN_URL, False), ("https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions", False),
+                (AI_URL + "?x=1", False), (AI_URL + "/", False),
+                ("https://goodhr.transit.ai.58it.cn.evil.invalid/api/ai-compatible/v1/chat/completions", False),
+                ("https://custom.example/v1", False), ("", False)):
+            with self.subTest(address=address):
+                before = self.upgraded_rows()
+                before["user_ai_configs"][0]["base_url"] = address
+                after = self.rows()
+                after["user_ai_configs"][0]["base_url"] = AI_MAIN_URL if replace else address
+                report = verify_ai_url_upgrade(before, after, AI_MAIN_URL_MIGRATION)
+                self.assertEqual(report["filename"], AI_MAIN_URL_MIGRATION)
+                self.assertEqual(report["target_url"], AI_MAIN_URL)
+                self.assertEqual(report["changed_rows"]["user_ai_configs"], int(replace))
+        sql = Path(__file__).resolve().parents[1] / "cloud/backend/db/migrations" / AI_MAIN_URL_MIGRATION
+        self.assertEqual(hashlib.sha256(sql.read_bytes()).hexdigest(), AI_MAIN_URL_MIGRATION_SHA256)
+
+    def test_restore_main_default_and_non_url_fields_stay_strict(self):
+        """恢复空系统默认值时继续保护密钥模型时间和额外JSON，不给未知迁移开放例外。"""
+        for value, expected in (
+                ({}, {"builtin_ai": {"public_base_url": AI_MAIN_URL}}),
+                ({"builtin_ai": None}, {"builtin_ai": {"public_base_url": AI_MAIN_URL}}),
+                ({"builtin_ai": {"public_base_url": "  ", "keep": 1}}, {"builtin_ai": {"public_base_url": AI_MAIN_URL, "keep": 1}}),
+                ({"builtin_ai": {"public_base_url": "https://custom.example/v1"}}, {"builtin_ai": {"public_base_url": "https://custom.example/v1"}}),
+                ({"builtin_ai": []}, {"builtin_ai": []}), (None, None)):
+            with self.subTest(value=value):
+                before, after = self.upgraded_rows(), self.rows()
+                before["system_configs"][0]["config_value"] = value
+                after["system_configs"][0]["config_value"] = expected
+                verify_ai_url_upgrade(before, after, AI_MAIN_URL_MIGRATION)
+        for field in ("api_key_encrypted", "model", "updated_at"):
+            with self.subTest(field=field):
+                after = self.rows()
+                after["user_ai_configs"][0][field] = "unapproved"
+                with self.assertRaises(CutoverError):
+                    verify_ai_url_upgrade(self.upgraded_rows(), after, AI_MAIN_URL_MIGRATION)
+        after = self.rows()
+        after["system_configs"][0]["config_value"]["keep"]["value"] = 2
+        with self.assertRaises(CutoverError):
+            verify_ai_url_upgrade(self.upgraded_rows(), after, AI_MAIN_URL_MIGRATION)
+        with self.assertRaises(CutoverError):
+            verify_ai_url_upgrade(self.upgraded_rows(), self.rows(), "0129_arbitrary.sql")
 
 
 if __name__ == "__main__":
