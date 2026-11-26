@@ -133,10 +133,12 @@ func (c *Client) ChatWithTools(ctx context.Context, cfg cloud.AIConfig, request 
 		return ToolChatResult{}, fmt.Errorf("编码 AI 工具请求失败：%w", err)
 	}
 	endpoint := chatCompletionsURL(cfg.BaseURL)
+	ctx = withRequestLogGroup(ctx, 3)
 	var lastErr error
 	var previous []failurediag.Detail
 	for attempt := 1; attempt <= 3; attempt++ {
-		result, requestErr := c.doToolChatRequest(ctx, endpoint, cfg.APIKey, encoded, int64(attempt))
+		requestCtx, requestLog := withRequestLogAttempt(ctx)
+		result, requestErr := c.doToolChatRequest(requestCtx, endpoint, cfg.APIKey, encoded, int64(attempt))
 		if requestErr == nil {
 			return result, nil
 		}
@@ -148,6 +150,7 @@ func (c *Client) ChatWithTools(ctx context.Context, cfg cloud.AIConfig, request 
 		retryStarted := time.Now()
 		delay := max(serviceErr.RetryAfter, time.Duration(attempt)*500*time.Millisecond)
 		if err = waitRetry(ctx, delay); err != nil {
+			requestLog.retryStopped(err, retryStarted, delay)
 			return ToolChatResult{}, withAIHistory(retryWaitError(ctx, err, requestErr, "AI 工具调用", attempt, retryStarted, delay), previous)
 		}
 		previous = append(previous, failurediag.Details(requestErr)...)
@@ -170,7 +173,8 @@ func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey 
 		attempt = attempts[0]
 	}
 	observation, request := startAIAttempt(ctx, request, apiKey, "AI 工具调用", attempt, c.http.Timeout)
-	defer func() { runErr = observation.failure(runErr) }()
+	requestLog := startRequestLog(ctx, request, payload, "AI 工具调用", attempt, observation.builtin)
+	defer func() { runErr = observation.failure(runErr); requestLog.finish(observation, runErr) }()
 	billing := newBillingObserver(ctx, apiKey)
 	billing.diagnostic = observation
 	defer billing.finish()
@@ -182,6 +186,7 @@ func (c *Client) doToolChatRequest(ctx context.Context, endpoint string, apiKey 
 		return ToolChatResult{}, &ServiceError{Message: "连接 AI 失败：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
 	}
 	observation.headers(response)
+	requestLog.serverAttempts(response.Header.Get("X-GoodHR-AI-Attempt-Details"), observation.trustedResponse)
 	defer response.Body.Close()
 	billing.enabled = response.Header.Get("X-GoodHR-Billing") == "1"
 	if billing.enabled {

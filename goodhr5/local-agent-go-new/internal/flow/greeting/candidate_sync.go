@@ -39,7 +39,7 @@ func (f *Flow) finishCandidateEvaluationAsync(
 				"complete_ai_output",
 				"warning",
 				time.Now(),
-				fmt.Errorf("AI 完整输出没有接收完：%w", result.Err),
+				ai.WrapOutputCompletionError(result.Err),
 			)
 			return
 		}

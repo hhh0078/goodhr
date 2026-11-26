@@ -61,6 +61,22 @@ func (r *Runner) UploadPositionLogs(ctx context.Context, token, positionID strin
 			message = "浏览器步骤已记录，正文已隐藏"
 			input = uploadPrivateDiagnostic(input)
 			output = uploadPrivateDiagnostic(output)
+			if item.Flow == "ai" && item.Step == "ai_request_attempt" {
+				var requestLog struct {
+					Attempt *ai.RequestAttempt `json:"ai_request_attempt"`
+				}
+				if json.Unmarshal(item.Output, &requestLog) == nil && requestLog.Attempt != nil && requestLog.Attempt.ClientRequestID != "" {
+					// 该类型没有候选人或对话正文，只放行同一请求的固定元数据。
+					message = ai.RequestAttemptMessage(*requestLog.Attempt)
+					var safe map[string]json.RawMessage
+					_ = json.Unmarshal(output, &safe)
+					if safe == nil {
+						safe = map[string]json.RawMessage{}
+					}
+					safe["ai_request_attempt"], _ = json.Marshal(requestLog.Attempt)
+					output, _ = json.Marshal(safe)
+				}
+			}
 		}
 		if item.Flow == "ai" && item.Step == "ai_billing" {
 			var billing ai.Billing

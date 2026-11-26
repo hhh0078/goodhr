@@ -43,8 +43,13 @@ func (e *serverAIRequestError) Unwrap() error { return e.Cause }
 
 // serverAIRequestOptions 只为服务器原计费与预算能力提供单次尝试回调，不包含业务动作。
 type serverAIRequestOptions struct {
-	Before func(int) error
-	Failed func(int, *http.Response, []byte) error
+	Before          func(int) error
+	Failed          func(int, *http.Response, []byte) error
+	Fallback        *BuiltinAIFallbackConfig
+	ClientRequestID string
+	AnalysisGroupID string
+	Model           string
+	Observe         func(serverAIAttemptEvent)
 }
 
 // aiWireResult 汇总一次模型响应中的内容、工具参数和真实用量，仅在本次请求内存中使用。
@@ -249,6 +254,9 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 	if len(options) > 0 {
 		option = options[0]
 	}
+	if option.Model == "" {
+		option.Model = aiModelFromBody(payload, "")
+	}
 	for attempt := 1; attempt <= serverAIMaxAttempts; attempt++ {
 		if err = request.Context().Err(); err != nil {
 			return nil, err
@@ -267,6 +275,43 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 		cloned.Body, err = request.GetBody()
 		if err != nil {
 			return nil, err
+		}
+		provider, actualModel := "primary", option.Model
+		if attempt > 1 && usableAIFallback(option.Fallback) {
+			cloned, err = prepareAIFallbackRequest(cloned, payload, option.Fallback)
+			if err != nil {
+				return nil, err
+			}
+			provider, actualModel = "fallback", option.Fallback.Model
+		}
+		started := time.Now()
+		operation := "ai_request"
+		if chat {
+			operation = "chat_completions"
+		}
+		event := serverAIAttemptEvent{Layer: "server", Operation: operation, Event: "start", ClientRequestID: safeAITraceID(option.ClientRequestID), AnalysisGroupID: safeAITraceID(option.AnalysisGroupID), ServerAttempt: attempt, MaxAttempts: serverAIMaxAttempts, Provider: provider, Model: safeAIModelName(actualModel), StartedAt: started.UTC().Format(time.RFC3339Nano)}
+		observeServerAIAttempt(option, event)
+		var completed time.Time
+		finish := func(response *http.Response, reason, stop string, retry bool, backoff time.Duration) {
+			if completed.IsZero() {
+				completed = time.Now()
+			}
+			event.Event, event.FinishedAt, event.ElapsedMS = "end", completed.UTC().Format(time.RFC3339Nano), completed.Sub(started).Milliseconds()
+			event.Result, event.Reason, event.StopReason, event.WillRetry = "failed", reason, stop, retry
+			if reason == "success" {
+				event.Result = "success"
+			}
+			if retry {
+				event.BackoffMS = backoff.Milliseconds()
+			}
+			if response != nil {
+				credentials := []string{bearerToken(cloned.Header.Get("Authorization")), bearerToken(request.Header.Get("Authorization"))}
+				if option.Fallback != nil {
+					credentials = append(credentials, option.Fallback.APIKey)
+				}
+				event.HTTPStatus, event.ProviderRequestID = response.StatusCode, aiProviderRequestID(response.Header, credentials...)
+			}
+			observeServerAIAttempt(option, event)
 		}
 		response, callErr := client.Do(cloned)
 		var raw []byte
@@ -297,6 +342,7 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 			if callErr == nil && (status < 200 || status >= 300) {
 				if status != 408 && status != 429 && status < 500 {
 					response.Header.Set("X-GoodHR-Upstream-Attempts", strconv.Itoa(attempt))
+					finish(response, "http_status", "", false, 0)
 					return response, nil
 				}
 				callErr = errors.New("upstream_status")
@@ -314,22 +360,34 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 				delay = max(delay, time.Until(until))
 			}
 		}
+		completed = time.Now()
 		if callErr == nil {
 			response.Header.Set("X-GoodHR-Upstream-Attempts", strconv.Itoa(attempt))
+			finish(response, "success", "", false, 0)
 			return response, nil
 		}
+		observedReason := aiProxyReason(callErr, reason)
 		if option.Failed != nil {
 			if err = option.Failed(attempt, response, raw); err != nil {
+				stop := "retry_stopped"
+				var failure *serverAIRequestError
+				if errors.As(err, &failure) && (failure.Reason == "billing_failed" || failure.Reason == "billing_total_invalid") {
+					stop = failure.Reason
+				}
+				finish(response, observedReason, stop, false, 0)
 				return nil, err
 			}
 		}
 		log.Printf("[AI服务器重试] attempt=%d max_attempts=%d http_status=%d reason=%s", attempt, serverAIMaxAttempts, status, reason)
 		if request.Context().Err() != nil {
+			finish(response, observedReason, aiProxyReason(request.Context().Err(), "cancelled"), false, 0)
 			return nil, request.Context().Err()
 		}
 		if attempt == serverAIMaxAttempts {
+			finish(response, observedReason, "", false, 0)
 			return nil, &serverAIRequestError{Attempts: attempt, Status: status, Reason: reason, Cause: callErr}
 		}
+		finish(response, observedReason, "", true, delay)
 		timer := time.NewTimer(delay)
 		select {
 		case <-request.Context().Done():

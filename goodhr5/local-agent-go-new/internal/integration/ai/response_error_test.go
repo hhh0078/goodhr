@@ -9,13 +9,120 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
+
+// TestWrapOutputCompletionErrorKeepsFacts 验证收尾文案区分已完整、实际中断和未知，原响应、JSON位置、错误分类及诊断编号均保持不变。
+func TestWrapOutputCompletionErrorKeepsFacts(t *testing.T) {
+	content := `{"score":{"bad":1},"code":"ORIGINAL_CODE","stack":"original\\nstack"}`
+	var parsed struct {
+		Score float64 `json:"score"`
+	}
+	typeCause := json.Unmarshal([]byte(content), &parsed)
+	completeType := newParsedResponseError(typeCause, content, content, "model_content")
+	truncated := `{"score":88,"reason":"unfinished`
+	syntaxCause := json.Unmarshal([]byte(truncated), &parsed)
+	completeSyntax := newParsedResponseError(syntaxCause, truncated, truncated, "model_content")
+	unknown := (&streamCompletion{unmarkedEOF: &failurediag.Detail{Source: "AI 客户端", Phase: "解析 AI 输出", Reason: "未见流结束标记，完整性未知"}}).parseError(completeSyntax)
+	streamBody := streamEnvelopeForTest(`{"score":88,"reason":"已收到的部分`)
+	_, interrupted := readChatStream(io.MultiReader(strings.NewReader(streamBody), failingAIReader{}), 70, nil)
+	cancelCause := &ServiceError{StatusCode: 499, Message: "请求被取消", Fatal: true, Cause: context.Canceled}
+	cancelled := streamResponseError(cancelCause, "收到的部分", "原始事件流", false)
+	previous := newResponseError(&ServiceError{StatusCode: 502, Message: "最初服务错误", Retryable: true}, "先前已完整的HTTP错误正文", "http_body", true)
+	finalCause := &ServiceError{Message: "最终连接失败", Fatal: true, Cause: io.ErrClosedPipe}
+	finalDiagnostic := previous.Diagnostic
+	finalDiagnostic.FinalRequestError = finalCause.Error()
+	finalFailure := &ResponseError{Cause: finalCause, Diagnostic: finalDiagnostic}
+	for _, tc := range []struct {
+		name, prefix string
+		cause        error
+	}{
+		{"完整JSON类型错误", "AI 输出已接收完成，但处理失败", completeType},
+		{"已完整响应内的截断JSON", "AI 输出已接收完成，但处理失败", completeSyntax},
+		{"无结束标记的截断JSON", "AI 输出收尾失败", unknown},
+		{"实际流中断", "AI 完整输出没有接收完", interrupted},
+		{"实际取消", "AI 完整输出没有接收完", cancelled},
+		{"旧完整正文不能代表最终连接", "AI 输出收尾失败", finalFailure},
+		{"没有完整性证据", "AI 输出收尾失败", io.ErrUnexpectedEOF},
+		{"旧错误没有响应观测字段", "AI 输出收尾失败", &ResponseError{Cause: errors.New("旧版收尾错误")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before, hasDiagnostic := ResponseDiagnosticFromError(tc.cause)
+			beforeFailures := failurediag.Details(tc.cause)
+			var originalResponse *ResponseError
+			errors.As(tc.cause, &originalResponse)
+			var diagnosticID uint64
+			if originalResponse != nil {
+				diagnosticID = originalResponse.DiagnosticID()
+			}
+			wrapped := WrapOutputCompletionError(tc.cause)
+			if !strings.HasPrefix(wrapped.Error(), tc.prefix+"：") || !errors.Is(wrapped, tc.cause) || !strings.HasSuffix(wrapped.Error(), tc.cause.Error()) {
+				t.Fatalf("收尾文案或原错误链不正确：%v", wrapped)
+			}
+			after, exists := ResponseDiagnosticFromError(wrapped)
+			if exists != hasDiagnostic || !reflect.DeepEqual(after, before) || !reflect.DeepEqual(failurediag.Details(wrapped), beforeFailures) {
+				t.Fatal("文案包装改写了原始响应、解析位置或故障详情")
+			}
+			var response *ResponseError
+			if originalResponse != nil && (!errors.As(wrapped, &response) || response != originalResponse || response.DiagnosticID() != diagnosticID) {
+				t.Fatal("收尾包装破坏响应对象或诊断去重编号")
+			}
+			var originalService, service *ServiceError
+			if errors.As(tc.cause, &originalService) && (!errors.As(wrapped, &service) || service != originalService || IsPositionStoppingError(wrapped) != IsPositionStoppingError(tc.cause)) {
+				t.Fatal("收尾文案改变了网络错误状态码、重试或停止策略")
+			}
+			if tc.cause == completeType {
+				var typeError *json.UnmarshalTypeError
+				if !errors.As(wrapped, &typeError) || typeError != typeCause || after.ParseField != "score" || after.ParseOffset <= 0 {
+					t.Fatal("完整JSON类型错误的原始字段与位置丢失")
+				}
+			}
+		})
+	}
+	if WrapOutputCompletionError(nil) != nil {
+		t.Fatal("没有错误时不应新增收尾错误")
+	}
+}
+
+// TestWrapOutputCompletionErrorFromStream 验证真实流式入口的结束标记只改变完整性文案，不增加请求或修改实际返回。
+func TestWrapOutputCompletionErrorFromStream(t *testing.T) {
+	content := `{"score":{"bad":1},"reason":"无法转换的评分"}`
+	for _, marked := range []bool{false, true} {
+		t.Run(fmt.Sprintf("marked=%t", marked), func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, streamEnvelopeForTest(content))
+				if marked {
+					fmt.Fprint(w, "data: [DONE]\n\n")
+				}
+			}))
+			defer server.Close()
+			_, err := New().EvaluateCandidatePreview(context.Background(), cloud.AIConfig{BaseURL: server.URL, APIKey: "fixture", Model: "completion-test"}, cloud.PositionSnapshot{}, model.Candidate{})
+			wrapped := WrapOutputCompletionError(err)
+			diagnostic, ok := ResponseDiagnosticFromError(wrapped)
+			if !ok || diagnostic.Response != content || diagnostic.ResponseComplete != marked || diagnostic.ResponseCompletionUnknown == marked || requests.Load() != 1 {
+				t.Fatalf("真实流完整性、原文或请求次数不正确：%+v requests=%d", diagnostic, requests.Load())
+			}
+			prefix := "AI 输出收尾失败"
+			if marked {
+				prefix = "AI 输出已接收完成，但处理失败"
+			}
+			if !strings.HasPrefix(wrapped.Error(), prefix+"：") || strings.Contains(wrapped.Error(), "没有接收完") {
+				t.Fatalf("解析失败误报未接收完：%v", wrapped)
+			}
+		})
+	}
+}
 
 // TestResponseErrorKeepsOriginalTextAndOffset 验证 Markdown 外包装和长正文不会丢失，位置对应原始字节。
 func TestResponseErrorKeepsOriginalTextAndOffset(t *testing.T) {

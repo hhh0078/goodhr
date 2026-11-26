@@ -4,6 +4,7 @@ package ai
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
@@ -49,46 +50,57 @@ func applyStructuredCandidatePrompt(prompt string, enabled bool) string {
 	if enabled && !strings.Contains(prompt, "candidate_name") {
 		prompt += "\n请严格按照下面的 JSON 结构返回。analysis 必须放在最前面，后续简历字段可以继续流式输出：\n" + format
 	}
+	if enabled {
+		prompt += "\n结构化简历字段类型：expected_salary_min、expected_salary_max只能为有限JSON数字，未提供薪资时返回null，不能用空字符串、面议、带单位文字或0代替未知；其它文字字段使用字符串，日期保留原文明确的年月，不推算缺失月份；经历、教育、证书、荣誉、项目和沟通记录必须使用数组，没有记录时返回[]。"
+	}
 	return prompt
 }
 
 // parseDecisionWithStructured 从完整 AI 响应中解析评分和可选结构化简历。
 func parseDecisionWithStructured(content string, threshold float64, includeResume bool) (Decision, error) {
-	var parsed struct {
-		Score    *float64 `json:"score"`
-		Reason   string   `json:"reason"`
-		Analysis *struct {
-			Score  *float64 `json:"score"`
-			Reason string   `json:"reason"`
-		} `json:"analysis"`
-		cloud.StructuredCandidate
-		Resume *cloud.StructuredCandidate `json:"resume"`
-	}
 	object := extractJSONObject(content)
-	if err := json.Unmarshal([]byte(object), &parsed); err != nil {
+	fields, err := candidateObject([]byte(object), 0)
+	if err != nil {
 		return Decision{}, newParsedResponseError(fmt.Errorf("AI 判断格式不正确：%w", err), content, object, "model_content")
 	}
-	score := parsed.Score
-	reason := parsed.Reason
-	if parsed.Analysis != nil {
-		score = parsed.Analysis.Score
-		reason = parsed.Analysis.Reason
-	}
-	if score == nil {
-		responseErr := newResponseError(fmt.Errorf("AI 判断没有返回 score，当前岗位提示词格式可能需要兼容"), content, "model_content", true)
-		responseErr.Diagnostic.ParseField = "score"
-		if parsed.Analysis != nil {
-			responseErr.Diagnostic.ParseField = "analysis.score"
+	decisionFields, prefix := fields, ""
+	if analysis, exists := fields["analysis"]; exists && string(analysis.Raw) != "null" {
+		decisionFields, err = candidateObject(analysis.Raw, analysis.Offset)
+		if err != nil {
+			return Decision{}, newParsedResponseError(fmt.Errorf("AI 判断格式不正确：%w", candidateFieldError(analysis, "analysis", reflect.TypeOf(map[string]json.RawMessage{}))), content, object, "model_content")
 		}
+		prefix = "analysis."
+	}
+	scoreField, exists := decisionFields["score"]
+	if !exists || string(scoreField.Raw) == "null" {
+		responseErr := newResponseError(fmt.Errorf("AI 判断没有返回 score，当前岗位提示词格式可能需要兼容"), content, "model_content", true)
+		responseErr.Diagnostic.ParseField = prefix + "score"
 		return Decision{}, responseErr
 	}
-	decision := normalizedDecision(*score, reason, threshold)
+	score, err := candidateNumber(scoreField, prefix+"score")
+	if err != nil {
+		return Decision{}, newParsedResponseError(fmt.Errorf("AI 判断格式不正确：%w", err), content, object, "model_content")
+	}
+	var reason string
+	if field, exists := decisionFields["reason"]; exists && json.Unmarshal(field.Raw, &reason) != nil {
+		return Decision{}, newParsedResponseError(fmt.Errorf("AI 判断格式不正确：%w", candidateFieldError(field, prefix+"reason", reflect.TypeOf(""))), content, object, "model_content")
+	}
+	decision := normalizedDecision(score, reason, threshold)
 	if !includeResume {
 		return decision, nil
 	}
-	resume := parsed.StructuredCandidate
-	if parsed.Resume != nil {
-		resume = *parsed.Resume
+	resumeField := candidateJSONField{Raw: json.RawMessage(object)}
+	path := ""
+	if nested, exists := fields["resume"]; exists && string(nested.Raw) != "null" {
+		resumeField, path = nested, "resume"
+	}
+	normalized, err := normalizeCandidateField(resumeField, reflect.TypeOf(cloud.StructuredCandidate{}), path)
+	if err != nil {
+		return Decision{}, newParsedResponseError(fmt.Errorf("AI 简历字段格式不正确：%w", err), content, object, "model_content")
+	}
+	var resume cloud.StructuredCandidate
+	if err := json.Unmarshal(normalized, &resume); err != nil {
+		return Decision{}, newResponseError(fmt.Errorf("AI 简历字段格式不正确：%w", err), content, "model_content", true)
 	}
 	if hasStructuredCandidate(resume) {
 		decision.Resume = &resume

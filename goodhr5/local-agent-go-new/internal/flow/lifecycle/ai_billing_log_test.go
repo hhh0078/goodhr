@@ -61,10 +61,16 @@ func TestAIBillingLogsKeepConcurrentOwners(t *testing.T) {
 	for index := 0; index < 5; index++ {
 		position, name := fmt.Sprintf("position-%d", index), fmt.Sprintf("候选人%d", index)
 		items, err := store.ListPositionLogs(context.Background(), position, 20)
-		if err != nil || len(items) != 1 {
+		var billings []storage.TaskLog
+		for _, item := range items {
+			if item.Step == "ai_billing" {
+				billings = append(billings, item)
+			}
+		}
+		if err != nil || len(billings) != 1 || len(items) != 3 {
 			t.Fatalf("岗位费用日志缺失：%s %+v %v", position, items, err)
 		}
-		item := items[0]
+		item := billings[0]
 		if !strings.Contains(item.Message, "本次消耗 ¥0.0023") || !strings.Contains(item.Message, name) || strings.Contains(item.Message, "其他候选人") || item.Step != "ai_billing" || item.IsError {
 			t.Fatalf("费用日志显示或归属错误：%+v", item)
 		}
