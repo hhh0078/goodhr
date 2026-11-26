@@ -1,6 +1,7 @@
 """文件作用：用临时真实 SQLite 验证在线 WAL 备份、幂等校验、路径边界和失败现场，不接触生产数据。"""
 
 import datetime
+import contextlib
 import fcntl
 import json
 import os
@@ -61,7 +62,7 @@ class PanelDatabaseBackupTests(unittest.TestCase):
         result = backup.backup(True)
         self.assertEqual(result['database_count'], 2)
         target = self.destination / self.day
-        with sqlite3.connect(str(target / 'db/site.db')) as copied:
+        with contextlib.closing(sqlite3.connect(str(target / 'db/site.db'))) as copied, copied:
             self.assertEqual(copied.execute('SELECT value FROM sample').fetchall(), [('committed-in-wal',)])
         self.assertEqual({path: path.read_bytes() for path in (source, wal)}, before)
         self.assertEqual(connection.execute('SELECT COUNT(*) FROM sample').fetchone(), (1,))
@@ -80,7 +81,7 @@ class PanelDatabaseBackupTests(unittest.TestCase):
         with mock.patch.object(backup, 'copy_database', side_effect=AssertionError('不应重复备份')):
             self.assertTrue(backup.backup(True)['skipped_verified'])
         self.assertEqual(manifest.read_bytes(), before)
-        with sqlite3.connect(str(target / 'default.db')) as changed:
+        with contextlib.closing(sqlite3.connect(str(target / 'default.db'))) as changed, changed:
             changed.execute("INSERT INTO sample VALUES ('tampered')")
         with self.assertRaises(RuntimeError):
             backup.backup(True)
@@ -148,12 +149,16 @@ class PanelDatabaseBackupTests(unittest.TestCase):
         self.assertTrue((failures[0] / 'failed.json').is_file())
         self.assertFalse((failures[0] / 'verified.json').exists())
         self.assertEqual(old.read_bytes(), b'protected-old-backup')
+        with self.assertRaises(RuntimeError):
+            backup.backup(True)
+        self.assertEqual(len(list(self.destination.glob('.incomplete-*'))), 1)
         (self.source / 'z-broken.db').unlink()
-        with mock.patch.object(backup, 'DATABASE_TIMEOUT', -1):
+        timeout_root = self.root / 'timeout-backups'
+        with mock.patch.object(backup, 'BACKUP_ROOT', timeout_root), mock.patch.object(backup, 'DATABASE_TIMEOUT', -1):
             with self.assertRaises(TimeoutError):
                 backup.backup(True)
-        self.assertFalse((self.destination / self.day).exists())
-        self.assertEqual(len(list(self.destination.glob('.incomplete-*'))), 2)
+        self.assertFalse((timeout_root / self.day).exists())
+        self.assertEqual(len(list(timeout_root.glob('.incomplete-*'))), 1)
 
     def test_existing_maintenance_lock_prevents_concurrent_backup(self):
         """已有维护锁被占用时立即退出，不创建目标或启动第二轮数据库备份。"""
@@ -163,6 +168,59 @@ class PanelDatabaseBackupTests(unittest.TestCase):
             with self.assertRaises(BlockingIOError):
                 backup.backup(True)
         self.assertFalse(self.destination.exists())
+
+    def snapshot(self, days_ago):
+        """创建包含真实小 SQLite 的本 owner 日期快照，用于轮换边界验证。"""
+        day = (datetime.date.today() - datetime.timedelta(days=days_ago)).isoformat()
+        directory = self.destination / day
+        with backup.private_creation():
+            directory.mkdir(mode=0o700, parents=True)
+            record = backup.copy_database(self.source / 'default.db', directory / 'db/default.db')
+            backup.write_private_json(directory / 'verified.json', {'schema_version': 1, 'owner': backup.OWNER,
+                'source_root': str(self.source), 'verified': True, 'date': day,
+                'databases': [dict(record, path='db/default.db')]})
+        return directory
+
+    def test_rotation_removes_only_the_oldest_of_eight_verified_owned_snapshots(self):
+        """八份真实有效自有快照只删除最旧一份，保留最新七份和删除前精确审计。"""
+        self.database('default.db')
+        snapshots = [self.snapshot(days) for days in range(8)]
+        with mock.patch.object(backup, 'container_mount_sources', return_value=set()):
+            result = backup.backup(True)
+        self.assertEqual(result['removed_snapshot_count'], 1)
+        self.assertFalse(snapshots[-1].exists())
+        self.assertTrue(all(path.is_dir() for path in snapshots[:-1]))
+        audit = list(self.destination.glob('.retention-*.json'))
+        self.assertEqual(len(audit), 1)
+        record = json.loads(audit[0].read_text())['candidates'][0]
+        self.assertIn('db/default.db', record['identity'])
+        self.assertEqual(len(record['manifest_sha256']), 64)
+
+    def test_rotation_preserves_unknown_failed_mounted_and_damaged_backups(self):
+        """未知归属、恢复来源、失败现场、受挂载引用和损坏快照全部保留。"""
+        self.database('default.db')
+        snapshots = [self.snapshot(days) for days in range(11)]
+        unknown = snapshots[-1] / 'verified.json'
+        value = json.loads(unknown.read_text())
+        value['owner'] = 'another-backup-task'
+        unknown.write_text(json.dumps(value))
+        damaged = snapshots[-2] / 'db/default.db'
+        with contextlib.closing(sqlite3.connect(str(damaged))) as connection, connection:
+            connection.execute("INSERT INTO sample VALUES ('hash-changed')")
+        from_full = self.destination / 'from-full-2026-11-01'
+        from_full.mkdir(mode=0o700)
+        failed = self.destination / ('.incomplete-' + self.day + '-protected')
+        failed.mkdir(mode=0o700)
+        mounted = snapshots[-3]
+        with mock.patch.object(backup, 'container_mount_sources', return_value={mounted / 'db/default.db'}):
+            result = backup.backup(True)
+        self.assertEqual(result['removed_snapshot_count'], 1)
+        self.assertEqual(result['skipped_mounted_count'], 1)
+        removed = snapshots[-4]
+        self.assertFalse(removed.exists())
+        self.assertTrue(all(path.is_dir() for path in snapshots if path != removed))
+        self.assertTrue(from_full.is_dir())
+        self.assertTrue(failed.is_dir())
 
 
 if __name__ == '__main__':
