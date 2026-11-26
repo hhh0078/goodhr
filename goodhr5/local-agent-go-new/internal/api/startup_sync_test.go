@@ -495,3 +495,59 @@ func TestStartupSyncStatusInstalledWithoutWorker(t *testing.T) {
 		}
 	}
 }
+
+// TestWSCommandRetriesStartupSyncAfterAPIRecovery 验证首次 API 故障后，WS 命令重试原有检查，完成前不接受任务也不另建轮询。
+func TestWSCommandRetriesStartupSyncAfterAPIRecovery(t *testing.T) {
+	fakeRuntime := &startupRuntimeFixture{pending: true}
+	var available atomic.Bool
+	entered, release := make(chan struct{}), make(chan struct{})
+	fakeCloud := &startupCloudFixture{read: func(ctx context.Context, token string) (runtime.Manifest, error) {
+		if token != "synthetic-recovered-session" {
+			t.Error("重试没有使用已恢复的云端身份")
+		}
+		if !available.Load() {
+			return runtime.Manifest{}, errors.New("合成 API 暂时离线")
+		}
+		close(entered)
+		select {
+		case <-release:
+			return runtime.Manifest{}, nil
+		case <-ctx.Done():
+			return runtime.Manifest{}, ctx.Err()
+		}
+	}}
+	s := &Server{startupSync: &startupCamoufoxSync{runtime: fakeRuntime, cloud: fakeCloud}}
+	s.cloudSession.token = "synthetic-recovered-session"
+	t.Cleanup(func() { _ = s.CancelStartupSync(context.Background()) })
+	s.startupSync.start(s.CurrentCloudToken())
+	waitStartupFixture(t, s.startupSync)
+	if !fakeRuntime.StartupCamoufoxSyncPending() || fakeCloud.calls.Load() != 1 {
+		t.Fatal("初次 API 故障没有保留待重试门闩")
+	}
+	if accepted, _ := s.CloudStartFromWS("", "greeting"); accepted || fakeCloud.calls.Load() != 1 {
+		t.Fatal("无效岗位触发了组件检查或被接受")
+	}
+	available.Store(true)
+	if accepted, message := s.CloudStartFromWS("synthetic-position", "greeting"); accepted || message != "正在检查浏览器组件，请稍后再试" {
+		t.Fatal("检查未完成时接受了必然失败的任务")
+	}
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("API 恢复后 WS 命令没有触发现有检查")
+	}
+	if accepted, _ := s.CloudStartFromWS("synthetic-position", "greeting"); accepted || fakeCloud.calls.Load() != 2 {
+		t.Fatal("检查中的重复命令创建了新轮询或接受了任务")
+	}
+	close(release)
+	waitStartupFixture(t, s.startupSync)
+	if fakeRuntime.StartupCamoufoxSyncPending() {
+		t.Fatal("API 恢复后未完成浏览器组件检查")
+	}
+	// 占住现有操作锁，只验证门闩已放行到下一道检查，不发真实招聘任务。
+	s.browserOperationMu.Lock()
+	defer s.browserOperationMu.Unlock()
+	if accepted, message := s.CloudStartFromWS("synthetic-position", "greeting"); accepted || message != "本地程序正在执行其他浏览器操作，请稍后再试" || fakeCloud.calls.Load() != 2 {
+		t.Fatal("检查完成后没有继续到既有任务入口，或重复检查了已就绪组件")
+	}
+}

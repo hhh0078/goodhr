@@ -190,6 +190,11 @@ func (s *Server) CloudStartFromWS(positionID, taskType string) (bool, string) {
 	if positionID == "" {
 		return false, "岗位编号为空，我这边没法启动"
 	}
+	// API 曾暂时离线时，新的命令复用现有可重试检查；门闩通过前不接受必然失败的任务。
+	s.startupSync.start(token)
+	if s.startupSync != nil && s.startupSync.runtime.StartupCamoufoxSyncPending() {
+		return false, "正在检查浏览器组件，请稍后再试"
+	}
 	// 浏览器操作互斥：桌面端同一时间只允许一个浏览器操作。
 	if !s.browserOperationMu.TryLock() {
 		return false, "本地程序正在执行其他浏览器操作，请稍后再试"
