@@ -27,6 +27,16 @@ export interface SuccessResponse<T extends JsonValue> {
   ok: true;
   data: T;
   trace_id: string;
+  read_stats?: ReadStats;
+}
+
+/** ReadStats 只记录本次列表字段读取的数量与请求总耗时，不包含字段值。 */
+export interface ReadStats extends JsonObject {
+  request_id: string;
+  planned_count?: number;
+  raw_completed_count?: number;
+  returned_count?: number;
+  elapsed_ms: number;
 }
 
 /** ErrorBody 表示可安全返回给 Go 的错误内容。 */

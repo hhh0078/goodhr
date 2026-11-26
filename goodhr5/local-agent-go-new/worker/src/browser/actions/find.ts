@@ -5,7 +5,7 @@ import type { ViewportStartOptions } from "../../contracts/actions.js";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import type { FindResult, SelectorSpec } from "../../contracts/selector.js";
 import { normalizeWorkerError, WorkerError } from "../../errors/worker-error.js";
-import { beginRequestRead, markRequestProgress, observeRequestPage } from "../../logging/request-progress.js";
+import { beginRequestRead, completeReadItem, markRequestProgress, observeRequestPage, planReadStats, returnReadStats } from "../../logging/request-progress.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import {
   LocatorPrimitive,
@@ -165,6 +165,7 @@ export class FindAction {
           selector_attempts: this.logger.fromUnknown(resolvedItems[0]?.attempts ?? []).value ?? [], page_state: pageDiagnostic(page) },
       });
       markRequestProgress(actionContext, "list_resolved", undefined, undefined, resolvedItems.length);
+      planReadStats(actionContext, resolvedItems.length);
       if (diagnostic.probe_only) return resolvedItems.map((resolved, index) => ({
         index: resolved.list_index ?? index + startIndex, total_matches: resolved.list_total ?? resolvedItems.length, element_ref: "", text: "", fields: {},
         ...(viewportStart ? { view: { ...resolved.view, box: { ...resolved.view.box }, viewport: { ...resolved.view.viewport } } } : {}),
@@ -216,7 +217,7 @@ export class FindAction {
           });
           return null;
         }
-        return {
+        const item: FindAllItem = {
           index: resolved.list_index ?? index + startIndex,
           total_matches: resolved.list_total ?? resolvedItems.length,
           element_ref: this.session.elements.remember(
@@ -226,6 +227,8 @@ export class FindAction {
           text: afterText,
           fields: values,
         };
+        completeReadItem(actionContext, index);
+        return item;
       };
       const items = await mapWithConcurrency(resolvedItems, readConcurrency, readItem);
       for (const [index, item] of items.entries()) {
@@ -263,7 +266,9 @@ export class FindAction {
           total_matches: returned[0]?.total_matches ?? 0,
         });
       }
-      return items.filter((item): item is FindAllItem => item !== null);
+      const returned = items.filter((item): item is FindAllItem => item !== null);
+      returnReadStats(actionContext, returned.length);
+      return returned;
     } catch (error) {
       const normalized = normalizeWorkerError(error, {
         code: "ELEMENT_NOT_FOUND",

@@ -182,6 +182,7 @@ func (o *requestObservation) mergeProgress(p contract.RequestDiagnostic) {
 	if p.RequestID == "" || p.RequestID != d.RequestID {
 		return
 	}
+	d.ReadStats = validatedListReadStats(p.ReadStats, d.RequestID)
 	switch p.WorkerPhase {
 	case "received", "queued", "executing", "locate_read_target", "read_value", "require_page", "resolve_list", "list_resolved", "read_card", "locate_field", "read_field", "scroll_target", "scroll_anchor", "scroll_move", "scroll_wheel", "scroll_verify", "screenshot_prepare", "screenshot_capture", "screenshot_top", "screenshot_save", "screenshot_advance":
 		d.WorkerPhase = p.WorkerPhase

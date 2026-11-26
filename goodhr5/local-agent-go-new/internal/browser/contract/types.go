@@ -186,6 +186,8 @@ type ViewportStartOptions struct {
 
 // ElementFindAllRequest 表示查找元素列表和字段请求。
 type ElementFindAllRequest struct {
+	ReadStats         bool                    `json:"read_stats,omitempty"` // 仅显式标记的正式字段批次收集数量和耗时，探测不启用。
+	RequestTimeoutMS  int                     `json:"-"`                    // Go 本地请求预算；通过既有请求头传递，零值保持普通预算。
 	ViewportStart     *ViewportStartOptions   `json:"viewport_start,omitempty"`
 	Selector          SelectorSpec            `json:"selector"`
 	MaxItems          int                     `json:"max_items,omitempty"`

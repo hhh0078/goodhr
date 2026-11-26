@@ -102,6 +102,8 @@ export interface ViewportStartOptions { top_inset: number; bottom_inset: number;
 
 /** ElementFindAllRequest 表示查找多个元素并读取字段的参数。 */
 export interface ElementFindAllRequest {
+  /** 显式启用正式字段读取统计；只读探测和无字段请求始终不统计。 */
+  read_stats?: boolean;
   viewport_start?: ViewportStartOptions;
   selector: SelectorSpec;
   max_items?: number;

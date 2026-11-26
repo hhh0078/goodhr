@@ -212,6 +212,7 @@ func waitForCandidateListChange(
 	before []model.Candidate,
 	options model.CandidateListOptions,
 ) (bool, error) {
+	options.CollectReadStats = false
 	beforeSet := candidateFingerprintSet(before)
 	var lastMissingErr error
 	foundCandidates := false

@@ -34,6 +34,16 @@ Worker 只监听 `127.0.0.1`。请求和响应字段统一使用 `snake_case`，
 
 Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动生成。
 
+正式字段名单读取可在 `element/find-all` 中显式传入 `read_stats: true`；默认关闭，`probe_only`、`viewport_start` 和无字段请求不启用。成功响应保留原 `data` 数组，另附可选顶层 `read_stats`；失败时同一统计放在 `error.details.request_progress.read_stats`。统计格式为：
+
+```json
+{"request_id":"对应请求编号","planned_count":43,"raw_completed_count":41,"returned_count":41,"elapsed_ms":46000}
+```
+
+`planned_count` 是当前窗口实际准备读取的人数；`raw_completed_count` 只在整卡读取完成后去重增加；`returned_count` 仅在整个请求成功且最终数组确定后提供；`elapsed_ms` 从请求入队前开始计时。未确认的计数省略，已确认空名单记零；截止或取消后冻结统计。失败时的当前 `item_index` 仍是原列表索引，不能当作完成人数。旧响应没有统计仍正常解析，坏统计也不得破坏原业务数据或详细诊断。
+
+Go 只对平台明确配置的正式读取延长请求时限，通过已有 `X-Worker-Timeout-Ms` 传入剩余预算，预留两秒回传；Worker 仍沿用 180 秒封顶和父请求取消保护，不识别平台业务名称。当前只有 BOSS 正式读取设为 120 秒，其余操作保持原预算。
+
 ## 路由
 
 | 方法 | 路径 | 封装能力 |

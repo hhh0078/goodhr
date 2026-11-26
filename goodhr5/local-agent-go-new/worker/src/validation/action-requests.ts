@@ -264,6 +264,7 @@ export function parseElementFindAllRequest(
   );
   assignBoolean(request, "diagnostic", optionalBoolean(record, "diagnostic"));
   assignBoolean(request, "probe_only", optionalBoolean(record, "probe_only"));
+  assignBoolean(request, "read_stats", optionalBoolean(record, "read_stats"));
   assignNumber(request, "diagnostic_attempt", optionalNumber(record, "diagnostic_attempt", { min: 1, max: 100 }));
   if (record.viewport_start !== undefined) {
     const viewport = asRecord(record.viewport_start, traceId, action);
