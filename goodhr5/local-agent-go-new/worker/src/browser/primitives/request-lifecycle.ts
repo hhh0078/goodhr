@@ -9,7 +9,7 @@ export function assertRequestActive(context: ActionContext | undefined = actionC
   for (const current of execution === context ? [context] : [execution, context]) {
     if (!current || (!current.signal?.aborted && Date.now() < (current.deadline_at ?? Infinity))) continue;
     if (current.signal?.reason instanceof WorkerError) throw current.signal.reason;
-    throw new WorkerError({ code: "ACTION_CANCELLED", message: "这次操作已停止，浏览器窗口保留着，请检查页面后重新开始",
+    throw new WorkerError({ code: "ACTION_CANCELLED", message: current.signal?.aborted ? "浏览器请求已取消" : "浏览器请求超时",
       action: current.action, step, trace_id: current.trace_id, retryable: false,
       details: { request_id: current.request_id ?? "", reason: current.signal?.aborted ? "request_cancelled" : "deadline_exceeded" } });
   }

@@ -29,6 +29,7 @@ import AIResponseDiagnosticDetails, {
 } from "@/components/admin/AIResponseDiagnosticDetails";
 import TaskFailureDetails from "@/components/admin/TaskFailureDetails";
 import BrowserDiagnosticDetails from "@/components/admin/BrowserDiagnosticDetails";
+import { diagnosticMessages } from "@/lib/diagnostic-messages";
 
 type LogEvent = {
   message?: string;
@@ -109,8 +110,8 @@ function logEvent(item: LogItem): LogEvent | undefined {
 function readableMessage(item: LogItem, event?: LogEvent): string {
   const error = logText(event?.error_message);
   const message = logText(event?.message);
-  if (item.category !== "运行" && error) return error;
-  if (message) return message;
+  if (item.category !== "运行" && error) return diagnosticMessages(error, message)[0];
+  if (message) return diagnosticMessages(message, error)[0];
   if (error || logText(event?.exit_reason))
     return error || logText(event?.exit_reason);
   const action =
@@ -144,16 +145,17 @@ function formatLogTime(value: string): string {
 function LogDetails({ item }: { item: LogItem }) {
   const event = logEvent(item);
   const message = readableMessage(item, event);
+  const messages = diagnosticMessages(message, item.category !== "运行" ? event?.message : event?.error_message);
   return (
     <Flex vertical gap={10} style={{ overflowWrap: "anywhere" }}>
-      <Typography.Text style={{ whiteSpace: "pre-wrap" }}>
+      <Typography.Text type={item.category !== "运行" ? "danger" : undefined} style={{ whiteSpace: "pre-wrap" }}>
         日志内容：{message}
       </Typography.Text>
       <Typography.Text type="secondary">
         账号：{item.account || "--"}　岗位：{item.position_name || "无岗位"}
       </Typography.Text>
-      {logText(event?.error_message) && (
-        <Alert type="error" showIcon title={logText(event?.error_message)} />
+      {messages[1] && (
+        <Alert type="error" showIcon title={messages[1]} />
       )}
       {(
         ["exit_reason", "last_action", "page_url", "action", "step"] as const
@@ -248,6 +250,7 @@ export default function LogsPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [expandedLogIDs, setExpandedLogIDs] = useState<string[]>([]);
   /** load 从云端读取指定页的全账号日志。 */
   async function load(nextPage: number, nextFilters: Filters) {
     setLoading(true);
@@ -450,6 +453,8 @@ export default function LogsPage() {
             scroll={{ x: 960 }}
             expandable={{
               expandRowByClick: true,
+              expandedRowKeys: expandedLogIDs,
+              onExpandedRowsChange: (keys) => setExpandedLogIDs(keys.map(String)),
               expandedRowRender: (item) => <LogDetails item={item} />,
               columnTitle: "详情",
               columnWidth: 54,
@@ -493,7 +498,7 @@ export default function LogsPage() {
                   <Typography.Text
                     type={item.category !== "运行" ? "danger" : undefined}
                   >
-                    {readableMessage(item, logEvent(item))}
+                    {expandedLogIDs.includes(item.id) ? "详情已展开" : readableMessage(item, logEvent(item))}
                   </Typography.Text>
                 ),
               },

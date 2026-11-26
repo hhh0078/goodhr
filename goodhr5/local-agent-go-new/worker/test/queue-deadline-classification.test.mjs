@@ -28,7 +28,17 @@ test("操作先于定时器发现整份预算过期，仍返回队列超时并�
   const clock = controlledClock(t), queue = new ActionQueue();
   let sends = 0;
   const operation = queue.run(async () => { clock.advance(60_001); assertRequestActive(); sends++; }, context("element.click"));
-  await assert.rejects(operation, error => error.code === "WORKER_UNRESPONSIVE" && error.details.reason === "deadline_exceeded");
+  await assert.rejects(operation, error => {
+    assert.equal(error.message, "浏览器操作超时");
+    assert.equal(error.code, "WORKER_UNRESPONSIVE");
+    assert.equal(error.retryable, false);
+    assert.equal(error.details.reason, "deadline_exceeded");
+    assert.equal(error.details.timeout_ms, 60_000);
+    assert.equal(error.details.elapsed_ms, 60_001);
+    assert.equal(error.details.recovery_required, true);
+    assert.equal(error.details.browser_retained, true);
+    return true;
+  });
   await nextTurn();
   assert.equal(sends, 0);
   assert.equal(queue.status().blocked, true);
@@ -63,7 +73,15 @@ test("进行中用户取消滚轮必须保留隔离，不能按纯预算滚轮�
   const operation = queue.runScroll(async () => { entered.resolve(); await release.promise; assertRequestActive(); actions++; }, context("element.scroll", controller.signal));
   await entered.promise;
   controller.abort();
-  await assert.rejects(operation, error => error.code === "WORKER_UNRESPONSIVE" && error.details.reason === "client_disconnected");
+  await assert.rejects(operation, error => {
+    assert.equal(error.message, "浏览器操作连接已中断");
+    assert.equal(error.code, "WORKER_UNRESPONSIVE");
+    assert.equal(error.retryable, false);
+    assert.equal(error.details.reason, "client_disconnected");
+    assert.equal(error.details.recovery_required, true);
+    assert.equal(error.details.browser_retained, true);
+    return true;
+  });
   release.resolve(); await nextTurn();
   assert.equal(actions, 0); assert.equal(queue.status().blocked, true); assert.equal(queue.status().recoverable, true);
 });

@@ -82,6 +82,9 @@ func TestRequestEvidence(t *testing.T) {
 				if !errors.As(err, &workerErr) {
 					t.Fatalf("丢失 Worker 结构化错误 %v", err)
 				}
+				if phase == "wait_response_headers" && err.Error() != "浏览器请求已取消" {
+					t.Fatalf("主动取消被模糊描述为超时：%v", err)
+				}
 				var details struct {
 					Diagnostic contract.RequestDiagnostic `json:"request_diagnostic"`
 				}
@@ -112,6 +115,36 @@ func TestRequestEvidence(t *testing.T) {
 				t.Fatalf("遗漏探测 %+v", d)
 			}
 		})
+	}
+}
+
+// TestHeaderDeadlineKeepsSpecificError 验证等待响应头超时只报超时，同时保留请求预算及原始原因。
+func TestHeaderDeadlineKeepsSpecificError(t *testing.T) {
+	done := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = fmt.Fprint(w, `{"ok":true,"data":{"status":"ok"}}`)
+			return
+		}
+		<-done
+	}))
+	defer server.Close()
+	defer close(done)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_, err := New(server.URL).FindAll(ctx, contract.ElementFindAllRequest{})
+	var workerErr *contract.WorkerError
+	if !errors.As(err, &workerErr) || err.Error() != "浏览器操作超时" || !contract.IsSessionUnavailable(err) {
+		t.Fatalf("超时原因或暂停判定丢失：%v", err)
+	}
+	var details struct {
+		Request contract.RequestDiagnostic `json:"request_diagnostic"`
+	}
+	if err := json.Unmarshal(workerErr.Body.Details, &details); err != nil {
+		t.Fatal(err)
+	}
+	if details.Request.Reason != "parent_deadline" || details.Request.OriginalError == "" || details.Request.WorkerTimeoutMS <= 0 {
+		t.Fatalf("具体超时证据丢失：%s", workerErr.Body.Details)
 	}
 }
 

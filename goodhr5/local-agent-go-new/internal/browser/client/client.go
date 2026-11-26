@@ -332,7 +332,11 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 			if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 				return observation.transportFailure(client, fmt.Errorf("连接 Browser Worker 失败：%w", err), "WORKER_CONNECTION_FAILED", "wait_response_headers", reason, original, started, 0)
 			}
-			failure := &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE", Message: "浏览器操作超时或中断，岗位先停一下；窗口保留着，请检查页面后重新开始", Action: path, Step: "http_request", TraceID: traceIDFromContext(ctx)}}
+			message := "浏览器操作超时"
+			if errors.Is(err, context.Canceled) {
+				message = "浏览器请求已取消"
+			}
+			failure := &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE", Message: message, Action: path, Step: "http_request", TraceID: traceIDFromContext(ctx)}}
 			observation.recordError(client, &failure.Body, "wait_response_headers", reason, original, started, 0)
 			return failure
 		}

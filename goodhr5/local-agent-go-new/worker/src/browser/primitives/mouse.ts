@@ -75,7 +75,7 @@ export class MousePrimitive {
       const timeoutError = (): WorkerError => {
         wait.status = "timed_out";
         wait.elapsed_ms = Date.now() - startedAt;
-        return new WorkerError({ code: "WORKER_UNRESPONSIVE", message: "浏览器输入等太久了，岗位先停一下；窗口保留着，请检查页面后重新开始",
+        return new WorkerError({ code: "WORKER_UNRESPONSIVE", message: "鼠标操作超时",
           action: context?.action ?? "interaction", step, trace_id: context?.trace_id ?? "", retryable: false,
           details: { reason: "native_input_deadline", recovery_required: true, browser_retained: true, request_id: context?.request_id ?? "",
             input: fields.input ?? {}, output: { input_wait: wait, page_state_after: pageDiagnostic(page) } } });

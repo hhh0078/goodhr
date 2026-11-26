@@ -57,8 +57,8 @@ func TestStartRetainsAliveUnhealthyWorker(t *testing.T) {
 	defer func() { _ = command.Process.Kill(); <-done }()
 	manager := &Manager{health: unavailableHealth{}, command: command, done: done}
 	err = manager.Start(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "窗口保留") {
-		t.Fatalf("健康检查失败没有说明保留窗口：%v", err)
+	if err == nil || err.Error() != "浏览器操作组件没有响应：not ready" {
+		t.Fatalf("健康检查失败没有保留具体原因：%v", err)
 	}
 	if manager.command != command {
 		t.Fatal("存活 Worker 被替换了")

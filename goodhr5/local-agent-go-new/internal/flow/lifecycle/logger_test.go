@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -157,6 +158,71 @@ func TestWorkerLogMessageUsesChinese(t *testing.T) {
 	}
 	if !strings.Contains(message, "每 300 毫秒找了 20 次") {
 		t.Fatalf("错误日志缺少查找次数：%s", message)
+	}
+	for _, suffix := range []string{"可以直接重试", "页面可能还没加载好"} {
+		if strings.Contains(message, suffix) {
+			t.Fatalf("仍在追加固定话术：%s", message)
+		}
+	}
+}
+
+// TestWorkerFailureKeepsFullDiagnostics 验证精简正文后，原始错误、堆栈和暂停证据仍完整落库并上传。
+func TestWorkerFailureKeepsFullDiagnostics(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SaveTask(ctx, storage.TaskRun{TaskID: "full-error-task", PositionID: "full-error-position", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := NewTaskLogger(store, nil)
+	logger.WorkerLine([]byte(`{"trace_id":"full-error-task","request_id":"full-error-request","action":"element.find_all","step":"queue","status":"failed","level":"error","duration_ms":43051,"timeout_ms":43000,"error_code":"WORKER_UNRESPONSIVE","error_message":"浏览器操作超时","original_error":"TimeoutError: field read\n  at readValue","input":{"max_items":30},"output":{"stack":"Error: field read\n  at readValue","reason":"deadline_exceeded","recovery_required":true,"browser_retained":true,"request_progress":{"worker_phase":"read_field","item_index":4,"field_key":"name"}}}`))
+	logs, err := store.ListPositionLogs(ctx, "full-error-position", 10)
+	if err != nil || len(logs) != 1 {
+		t.Fatalf("错误未落库：%+v，%v", logs, err)
+	}
+	entry := logs[0]
+	if entry.ErrorMessage != "浏览器操作超时" || strings.Contains(entry.Message, "可以直接重试") || entry.DurationMS != 43051 {
+		t.Fatalf("正文或耗时不正确：%+v", entry)
+	}
+	for _, detail := range []string{"full-error-request", "WORKER_UNRESPONSIVE", "TimeoutError: field read", "readValue", "stack", "deadline_exceeded", "recovery_required", "browser_retained", "read_field"} {
+		if !strings.Contains(string(entry.Output), detail) {
+			t.Fatalf("详细错误丢失 %s：%s", detail, entry.Output)
+		}
+	}
+	if !strings.Contains(string(entry.Input), `"max_items":30`) || !strings.Contains(string(entry.Input), `"timeout_ms":43000`) {
+		t.Fatalf("排查入参丢失：%s", entry.Input)
+	}
+	var captured struct {
+		Logs []cloud.PositionDiagnosticLog `json:"logs"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Error(err)
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	runner := &Runner{store: store, cloud: cloud.New(server.URL)}
+	if err := runner.UploadPositionLogs(ctx, "test-token", "full-error-position"); err != nil {
+		t.Fatal(err)
+	}
+	if len(captured.Logs) != 1 || captured.Logs[0].ErrorMessage != entry.ErrorMessage {
+		t.Fatalf("上传过程修改了错误原因：%+v", captured.Logs)
+	}
+	for _, pair := range [][2]json.RawMessage{{entry.Input, captured.Logs[0].Input}, {entry.Output, captured.Logs[0].Output}} {
+		var before, after any
+		if err := json.Unmarshal(pair[0], &before); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(pair[1], &after); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(before, after) {
+			t.Fatalf("上传过程修改了详细字段：原始=%s，上传=%s", pair[0], pair[1])
+		}
 	}
 }
 

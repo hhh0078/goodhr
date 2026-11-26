@@ -91,7 +91,7 @@ func (m *Manager) Start(ctx context.Context) error {
 				return nil
 			}
 			log.Printf("event=worker_unhealthy pid=%d action=retain_browser error=%v", m.command.Process.Pid, healthErr)
-			return fmt.Errorf("浏览器窗口保留着，操作组件暂时没有回应，请稍后再开始：%w", healthErr)
+			return fmt.Errorf("浏览器操作组件没有响应：%w", healthErr)
 		}
 	}
 	if _, err := os.Stat(m.entryPath); err != nil {

@@ -34,7 +34,7 @@ export class ActionQueue {
     }
     if (this.fault) {
       if (this.active || this.pending > 0) return Promise.reject(new WorkerError({
-        code: "WORKER_UNRESPONSIVE", message: "上一次浏览器操作还没结束，窗口已经保留，请稍后再开始",
+        code: "WORKER_UNRESPONSIVE", message: "上一次浏览器操作尚未结束",
         action: context.action, step: "queue_recovery_wait", trace_id: context.trace_id, retryable: false,
         details: { browser_retained: true, output: { queue: this.status() } },
       }));
@@ -185,7 +185,7 @@ export class ActionQueue {
   private cancelError(context: ActionContext, started: boolean): WorkerError {
     return new WorkerError({
       code: started ? "WORKER_UNRESPONSIVE" : "ACTION_CANCELLED",
-      message: started ? "浏览器操作没按时结束，岗位先停一下；窗口保留着，请检查页面后重新开始" : "这次操作已取消，还没有执行页面动作",
+      message: started ? (context.signal?.aborted ? "浏览器操作连接已中断" : "浏览器操作超时") : "这次操作已取消，还没有执行页面动作",
       action: context.action, step: "queue", trace_id: context.trace_id, retryable: false,
       details: { request_id: context.request_id ?? "", elapsed_ms: Date.now() - context.started_at,
         timeout_ms: context.deadline_at ? context.deadline_at - context.started_at : 40_000,

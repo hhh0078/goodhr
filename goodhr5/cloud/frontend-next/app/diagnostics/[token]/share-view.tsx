@@ -21,6 +21,7 @@ import AIResponseDiagnosticDetails, {
 
 import TaskFailureDetails, { taskFailureText } from "@/components/admin/TaskFailureDetails";
 import BrowserDiagnosticDetails, { browserDiagnosticText } from "@/components/admin/BrowserDiagnosticDetails";
+import { diagnosticMessages } from "@/lib/diagnostic-messages";
 
 type DiagnosticEvent = {
   timestamp: string;
@@ -185,20 +186,6 @@ export default function DiagnosticShareView() {
                 />
               </Flex>
             </Card>
-            {errors.length > 0 && !onlyErrors && !query ? (
-              <Alert
-                type="error"
-                title={
-                  <>
-                    最近一条错误：
-                    {errors[0].event?.error_message ||
-                      errors[0].event?.message ||
-                      errors[0].message}
-                  </>
-                }
-                showIcon
-              />
-            ) : null}
             <Flex vertical gap={12}>
               {filtered.slice(0, visibleCount).map((item, index) => (
                 <DiagnosticLine
@@ -228,6 +215,8 @@ export default function DiagnosticShareView() {
 function DiagnosticLine({ item }: { item: SharedLog }) {
   const event = item.event;
   const isError = Boolean(event?.is_error || item.level === "error");
+  const body = typeof event?.message === "string" ? event.message.trim() : "";
+  const messages = diagnosticMessages(body || item.message, event?.error_message);
   return (
     <Card
       className="public-diagnostic-panel"
@@ -261,12 +250,11 @@ function DiagnosticLine({ item }: { item: SharedLog }) {
             fontWeight: isError ? 650 : 400,
           }}
         >
-          {event?.message || item.message}
+          {messages[0] || "运行记录"}
         </Typography.Paragraph>
         {isError &&
-        event?.error_message &&
-        event.error_message !== event.message ? (
-          <Alert type="error" title={event.error_message} showIcon />
+        messages[1] ? (
+          <Alert type="error" title={messages[1]} showIcon />
         ) : null}
         {event ? <TaskFailureDetails output={event.output} /> : null}
         {event ? <BrowserDiagnosticDetails output={event.output} /> : null}
@@ -296,6 +284,7 @@ function DiagnosticLine({ item }: { item: SharedLog }) {
                       label="出参"
                       value={ordinaryDiagnosticOutput(event.output)}
                     />
+                    <DataBlock label="原始日志" value={event} />
                     {event.task_id ? (
                       <Typography.Paragraph
                         type="secondary"

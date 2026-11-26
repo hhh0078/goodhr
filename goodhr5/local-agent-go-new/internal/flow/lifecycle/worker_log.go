@@ -254,7 +254,6 @@ func workerLogMessage(item workerLogLine) string {
 		if item.PollAttempts > 0 {
 			parts = append(parts, "已经每 300 毫秒找了 "+strconv.Itoa(item.PollAttempts)+" 次")
 		}
-		parts = append(parts, workerLogSuggestion(item.ErrorCode))
 		return strings.Join(parts, "；")
 	}
 	if strings.EqualFold(item.Status, "start") {
@@ -302,18 +301,4 @@ func workerActionLabel(action string) string {
 		return label
 	}
 	return "执行浏览器操作"
-}
-
-// workerLogSuggestion 根据 Worker 稳定错误码返回下一步提示。
-func workerLogSuggestion(code string) string {
-	switch strings.TrimSpace(code) {
-	case "VIEWPORT_TOO_SMALL", "MOUSE_TARGET_OUTSIDE_VIEWPORT":
-		return "请把浏览器窗口放大后再试"
-	case "ELEMENT_NOT_FOUND":
-		return "页面可能还没加载好，或平台页面结构有变化"
-	case "SCROLL_NO_PROGRESS":
-		return "列表可能已经到底，或当前区域不能继续滚动"
-	default:
-		return "我已经记下具体步骤，可以直接重试"
-	}
 }
