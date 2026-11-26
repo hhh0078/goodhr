@@ -183,7 +183,10 @@ func readAIWire(body []byte) (aiWireResult, error) {
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
+		if data == "[DONE]" {
+			break
+		}
+		if data == "" {
 			continue
 		}
 		if err := accept([]byte(data), true); err != nil {
@@ -298,6 +301,7 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 		var completed time.Time
 		var raw []byte
 		var callErr error
+		timing := &aiTimedReader{}
 		finish := func(response *http.Response, reason, stop string, retry bool, backoff time.Duration) {
 			if completed.IsZero() {
 				completed = time.Now()
@@ -318,9 +322,18 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 				event.HTTPStatus, event.ProviderRequestID = response.StatusCode, aiProviderRequestID(response.Header, credentials...)
 			}
 			fillAIErrorDetail(&event, response, raw, payload, reason, mode, callErr, credentials...)
+			timing.mu.Lock()
+			timing.timeline.EndAt = event.FinishedAt
+			timing.timeline.EndReason = reason
+			if reason != "success" && timing.timeline.ErrorAt == "" {
+				timing.timeline.ErrorAt = event.FinishedAt
+			}
+			snapshot := timing.timeline
+			timing.mu.Unlock()
+			event.Timeline = &snapshot
 			observeServerAIAttempt(option, event)
 		}
-		response, callErr := client.Do(cloned)
+		response, callErr := client.Do(timing.trace(cloned))
 		status := 0
 		reason := "transport_error"
 		delay := time.Duration(attempt) * 500 * time.Millisecond
@@ -329,7 +342,11 @@ func doServerAIRequest(client *http.Client, request *http.Request, options ...se
 				response.Header = make(http.Header)
 			}
 			status = response.StatusCode
-			raw, err = io.ReadAll(io.LimitReader(response.Body, maxAICompatibleBodyBytes+1))
+			timing.mu.Lock()
+			timing.stamp(&timing.timeline.HeadersAt)
+			timing.mu.Unlock()
+			timing.source = response.Body
+			raw, err = readAIResponse(timing, chat && strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream"))
 			response.Body.Close()
 			response.Body = io.NopCloser(bytes.NewReader(raw))
 			if callErr == nil {

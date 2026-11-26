@@ -20,29 +20,30 @@ var aiProviderRequestIDHeaders = []string{"X-Request-ID", "Request-ID", "X-Amzn-
 
 // serverAIAttemptEvent 只保存实际请求的固定枚举与数字，不保存模型输入、响应正文、地址或凭据。
 type serverAIAttemptEvent struct {
-	Layer                string `json:"layer"`
-	Operation            string `json:"operation"`
-	Event                string `json:"event,omitempty"`
-	ClientRequestID      string `json:"client_request_id,omitempty"`
-	AnalysisGroupID      string `json:"analysis_group_id,omitempty"`
-	ServerAttempt        int    `json:"server_attempt"`
-	MaxAttempts          int    `json:"max_attempts"`
-	Provider             string `json:"provider"`
-	Model                string `json:"model,omitempty"`
-	StartedAt            string `json:"started_at"`
-	FinishedAt           string `json:"finished_at,omitempty"`
-	ElapsedMS            int64  `json:"elapsed_ms"`
-	HTTPStatus           int    `json:"http_status"`
-	Result               string `json:"result,omitempty"`
-	Reason               string `json:"reason,omitempty"`
-	StopReason           string `json:"stop_reason,omitempty"`
-	WillRetry            bool   `json:"will_retry"`
-	BackoffMS            int64  `json:"backoff_ms"`
-	ProviderRequestID    string `json:"provider_request_id,omitempty"`
-	ErrorDetail          string `json:"error_detail,omitempty"`
-	ErrorCode            string `json:"error_code,omitempty"`
-	ErrorDetailTruncated bool   `json:"error_detail_truncated,omitempty"`
-	ResponseBytes        int64  `json:"response_bytes,omitempty"`
+	Timeline             *aiResponseTimeline `json:"timeline,omitempty"`
+	Layer                string              `json:"layer"`
+	Operation            string              `json:"operation"`
+	Event                string              `json:"event,omitempty"`
+	ClientRequestID      string              `json:"client_request_id,omitempty"`
+	AnalysisGroupID      string              `json:"analysis_group_id,omitempty"`
+	ServerAttempt        int                 `json:"server_attempt"`
+	MaxAttempts          int                 `json:"max_attempts"`
+	Provider             string              `json:"provider"`
+	Model                string              `json:"model,omitempty"`
+	StartedAt            string              `json:"started_at"`
+	FinishedAt           string              `json:"finished_at,omitempty"`
+	ElapsedMS            int64               `json:"elapsed_ms"`
+	HTTPStatus           int                 `json:"http_status"`
+	Result               string              `json:"result,omitempty"`
+	Reason               string              `json:"reason,omitempty"`
+	StopReason           string              `json:"stop_reason,omitempty"`
+	WillRetry            bool                `json:"will_retry"`
+	BackoffMS            int64               `json:"backoff_ms"`
+	ProviderRequestID    string              `json:"provider_request_id,omitempty"`
+	ErrorDetail          string              `json:"error_detail,omitempty"`
+	ErrorCode            string              `json:"error_code,omitempty"`
+	ErrorDetailTruncated bool                `json:"error_detail_truncated,omitempty"`
+	ResponseBytes        int64               `json:"response_bytes,omitempty"`
 }
 
 // safeAITraceID 仅接受短 ASCII 标识，拒绝正文、控制符和凭据格式；不截取可能有歧义的标识。
