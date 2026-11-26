@@ -269,6 +269,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/send-code", s.auth.SendCode)
 	mux.HandleFunc("/api/auth/login", s.auth.Login)
 	mux.HandleFunc("/api/auth/password-login", s.auth.PasswordLogin)
+	mux.HandleFunc("/api/auth/logout", s.auth.Logout)
 	mux.HandleFunc("/api/auth/password/setup", s.auth.SetupPassword)
 	mux.HandleFunc("/api/auth/password/change", s.auth.ChangePassword)
 	mux.HandleFunc("/api/auth/password/reset-code", s.auth.SendPasswordResetCode)

@@ -66,6 +66,7 @@ import {
   detectLocalAgent,
   formatDate,
   localRequest,
+  logoutCloudSession,
   syncCloudSessionToLocalAgent,
 } from "@/lib/admin-api";
 import { requiredRuntimeComponents } from "@/lib/admin-runtime";
@@ -217,6 +218,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { themePreset, setThemePreset, setThemeAccount } = useUserTheme();
   const sessionActiveRef = useRef(true);
+  const logoutPendingRef = useRef(false);
+  const [logoutPending, setLogoutPending] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -639,22 +642,34 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     (group) => !group.superOnly || user?.role === "super_admin",
   );
 
-  /** logout 先撤销本地内存会话再退出网页，避免后台使用旧凭证继续收费处理。 */
+  /** logout 先撤销云端凭证再通知本地退出；本地离线也不能在重启后恢复已退出账号。 */
   async function logout() {
-    wechatStatusRequestRef.current?.abort();
-    wechatStatusRequestRef.current = null;
-    setWechatOfficialStatus(null);
+    if (logoutPendingRef.current) return;
+    logoutPendingRef.current = true;
+    setLogoutPending(true);
     const token = localStorage.getItem(TOKEN_KEY);
-    if (agentBase && token) {
-      try { await localRequest(agentBase, "/api/v1/session/unbind", { method: "POST", body: { token }, timeoutMS: 3000 }); }
-      catch { notify("本地程序暂未收到退出通知。如需停止后台处理，请关闭本地程序。", "warning"); }
+    try {
+      await logoutCloudSession(token || "");
+      // 等待期间其他标签页若已切号，不通知或清除新账号。
+      if (localStorage.getItem(TOKEN_KEY) !== token) return;
+      if (agentBase && token) {
+        try { await localRequest(agentBase, "/api/v1/session/unbind", { method: "POST", body: { token }, timeoutMS: 3000 }); }
+        catch { notify("云端已退出。本地程序暂未收到通知，如需立即停止，请关闭本地程序。", "warning"); }
+      }
+      if (localStorage.getItem(TOKEN_KEY) !== token) return;
+      wechatStatusRequestRef.current?.abort();
+      wechatStatusRequestRef.current = null;
+      setWechatOfficialStatus(null);
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(SESSION_EMAIL_KEY);
+      setThemeAccount("");
+      router.replace("/login");
+    } catch {
+      notify("云端退出还没确认好，账号先保留着，请再点一次退出。", "error");
+    } finally {
+      logoutPendingRef.current = false;
+      setLogoutPending(false);
     }
-    // 退出请求等待期间若其他标签页已切号，不清除新账号的登录状态。
-    if (localStorage.getItem(TOKEN_KEY) !== token) return;
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(SESSION_EMAIL_KEY);
-    setThemeAccount("");
-    router.replace("/login");
   }
 
   useEffect(() => {
@@ -702,6 +717,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         type="text"
         icon={<LogoutRoundedIcon aria-hidden="true" />}
         onClick={logout}
+        loading={logoutPending}
         block
         style={{ marginBlock: 12 }}
       >
