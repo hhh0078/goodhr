@@ -66,6 +66,8 @@ type Server struct {
 	extensionUserID          string
 	extensionGeneration      uint64
 	extensionOwnerGeneration uint64
+	sessionGeneration        uint64
+	sessionPendingToken      string
 	extensionPairs           map[string]*extensionPair
 	resumeImports            *resumeflow.Manager
 	resumeSummaries          *summaryflow.Manager
@@ -111,6 +113,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	server.initResumeDownloads()
 	server.runner.ConfigureCandidatePurge(server.resumeImports, server.resumeSummaries, server.resumeDownloads)
 	server.startupSync = newStartupCamoufoxSync(server)
+	server.restoreCloudSession()
 	mux := http.NewServeMux()
 	server.registerResumeImportRoutes(mux)
 	server.registerResumeSummaryRoutes(mux)

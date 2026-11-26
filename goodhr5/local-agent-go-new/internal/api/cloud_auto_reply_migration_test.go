@@ -200,7 +200,10 @@ func TestFirstAgentBindMigratesLegacyState(t *testing.T) {
 	until := time.Now().Add(3 * time.Second)
 	for time.Now().Before(until) {
 		if s.cloudMigrationProgress().Status == "completed" {
-			return
+			// 业务迁移完成后还会清理旧诊断；等事务标记落定再关闭测试库，避免后台仍在写文件。
+			if cleaned, err := db.GetSetting(context.Background(), "privacy:auto_reply_task_logs:v1"); err == nil && cleaned != "" {
+				return
+			}
 		}
 		time.Sleep(time.Millisecond * 5)
 	}

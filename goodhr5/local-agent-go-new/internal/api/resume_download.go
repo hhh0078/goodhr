@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // initResumeDownloads 复用同一个浏览器下载监控与导入管理器，不增加第二条浏览器链路。
@@ -40,6 +41,16 @@ func (s *Server) privateDownloadPath(path string) bool {
 
 // handleResumeDownloadSettingsRefresh 验证当前网页登录后重新读云端设置，客户端不能绕过云端开关。
 func (s *Server) handleResumeDownloadSettingsRefresh(w http.ResponseWriter, r *http.Request) {
+	if !sessionWriteAllowed(w, r) {
+		return
+	}
+	// 此入口也会更新网页登录身份；在云端校验前登记，确保在途退出可以取消本次恢复。
+	header := strings.Fields(r.Header.Get("Authorization"))
+	var generation uint64
+	if len(header) == 2 && strings.EqualFold(header[0], "Bearer") {
+		generation = s.beginCloudSessionRequest(header[1])
+		defer s.endCloudSessionRequest(generation)
+	}
 	owner, token, ok := s.resumeImportOwner(w, r)
 	if !ok {
 		return
@@ -49,8 +60,17 @@ func (s *Server) handleResumeDownloadSettingsRefresh(w http.ResponseWriter, r *h
 		return
 	}
 	s.extensionMu.Lock()
-	s.bindExtensionSessionLocked(token, owner)
+	if generation != s.sessionGeneration {
+		s.extensionMu.Unlock()
+		writeError(w, 409, "CLOUD_SESSION_CHANGED", fmt.Errorf("登录账号已经变化，请重新连接"))
+		return
+	}
+	err := s.saveCloudSessionLocked(token, owner)
 	s.extensionMu.Unlock()
+	if err != nil {
+		writeError(w, 500, "CLOUD_SESSION_SAVE_FAILED", err)
+		return
+	}
 	if err := s.resumeDownloads.RefreshSettings(r.Context()); err != nil {
 		writeError(w, 502, "DOWNLOAD_SETTINGS_SYNC_FAILED", err)
 		return

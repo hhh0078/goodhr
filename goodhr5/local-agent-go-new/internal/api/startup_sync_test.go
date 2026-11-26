@@ -1,4 +1,4 @@
-// Package api 文件作用：用本机 HTTP 和可控依赖验证绑定后浏览器同步、失败重试、任务保护、退出取消及凭证不落盘。
+// Package api 文件作用：用本机 HTTP 和可控依赖验证绑定后浏览器同步、失败重试、任务保护、退出取消及凭证私有存储。
 package api
 
 import (
@@ -185,9 +185,9 @@ func startupBindingCloudFixture(t *testing.T, token string, manifest http.Handle
 	return remote
 }
 
-// TestStartupSyncBindingDoesNotPersistToken 验证正式绑定自动读取清单，凭证只保留内存，不进入 SQLite 或其他文件。
-func TestStartupSyncBindingDoesNotPersistToken(t *testing.T) {
-	const token = "fixture-startup-token-must-stay-in-memory-20261026"
+// TestStartupSyncBindingPersistsOnlyPrivateSession 验证正式绑定自动读取清单，凭证仅存于私有会话文件，不进入 SQLite 或其他文件。
+func TestStartupSyncBindingPersistsOnlyPrivateSession(t *testing.T) {
+	const token = "fixture-startup-private-session-20261126"
 	var requests atomic.Int32
 	remote := startupBindingCloudFixture(t, token, func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
@@ -199,7 +199,7 @@ func TestStartupSyncBindingDoesNotPersistToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	server := NewServer(config.Config{DataDir: root}, Dependencies{Store: store, Cloud: cloud.New(remote.URL), DeviceID: func() (string, error) { return "fixture-device", nil }})
+	server := NewServer(config.Config{DataDir: root, CloudURL: remote.URL}, Dependencies{Store: store, Cloud: cloud.New(remote.URL), DeviceID: func() (string, error) { return "fixture-device", nil }})
 	fakeRuntime := &startupRuntimeFixture{pending: true}
 	server.startupSync = &startupCamoufoxSync{runtime: fakeRuntime, cloud: server.cloud}
 	startupBindFixture(t, server, token)
@@ -217,9 +217,12 @@ func TestStartupSyncBindingDoesNotPersistToken(t *testing.T) {
 		if walkErr != nil || entry.IsDir() {
 			return walkErr
 		}
+		if path == filepath.Join(root, "cloud-session", "session.json") {
+			return nil
+		}
 		content, err := os.ReadFile(path)
 		if err == nil && bytes.Contains(content, []byte(token)) {
-			return errors.New("登录凭证被保存到了本地文件")
+			return errors.New("登录凭证被保存到了私有会话以外的文件")
 		}
 		return err
 	}); err != nil {

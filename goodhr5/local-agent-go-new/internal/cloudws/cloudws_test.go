@@ -125,6 +125,26 @@ func TestClientHandshakeDiagnostic(t *testing.T) {
 	}
 }
 
+// TestSessionRejectionOnlyOnUnauthorized 验证真实握手仅在明确 401 时撤销该次凭证，权限或服务器故障保留重试。
+func TestSessionRejectionOnlyOnUnauthorized(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusServiceUnavailable} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
+		client := NewClient(server.URL, nil, nil)
+		var rejected string
+		client.SetSessionHandlers(func(context.Context, string) { t.Error("拒绝握手不能恢复运行账号") }, func(token string) { rejected = token })
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		connected, err := client.serve(ctx, "synthetic-session")
+		cancel()
+		server.Close()
+		if connected || err == nil || (rejected != "") != (status == http.StatusUnauthorized) {
+			t.Fatal("握手失败错误地撤销了可重试会话，或未清理明确失效凭证")
+		}
+		if rejected != "" && rejected != "synthetic-session" {
+			t.Fatal("撤销回调没有固定本次握手的身份")
+		}
+	}
+}
+
 // TestReconnectBackoff 验证连续失败严格封顶，成功握手或新凭证会恢复五秒重试。
 func TestReconnectBackoff(t *testing.T) {
 	backoff := initialBackoff

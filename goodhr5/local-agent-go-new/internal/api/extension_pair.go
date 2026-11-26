@@ -1,4 +1,4 @@
-// 本文件负责插件首次配对与已授权安装的登录恢复；原网页凭证仅保存在本地内存，不对插件开放。
+// 本文件负责插件首次配对与已授权安装的登录恢复；原网页凭证不对插件开放。
 package api
 
 import (
@@ -100,6 +100,10 @@ func (s *Server) handleExtensionPairApprove(w http.ResponseWriter, r *http.Reque
 		writeError(w, 401, "SESSION_INVALID", err)
 		return
 	}
+	if user.SessionKind != "" {
+		writeError(w, 403, "WEB_SESSION_REQUIRED", fmt.Errorf("请从 GoodHR 网页账号确认连接"))
+		return
+	}
 	session, err := s.cloud.ExchangeExtensionSession(r.Context(), req.Token)
 	if err != nil || session.Token == "" {
 		writeError(w, 502, "PAIR_EXCHANGE_FAILED", fmt.Errorf("插件授权暂时没完成，请再试一次"))
@@ -120,7 +124,11 @@ func (s *Server) handleExtensionPairApprove(w http.ResponseWriter, r *http.Reque
 		writeError(w, 500, "PAIR_SAVE_FAILED", err)
 		return
 	}
-	s.bindExtensionSessionLocked(req.Token, user.UserID)
+	if err = s.saveCloudSessionLocked(req.Token, user.UserID); err != nil {
+		writeError(w, 500, "CLOUD_SESSION_SAVE_FAILED", err)
+		return
+	}
+	s.sessionGeneration++
 	pair.Approved, pair.PairingToken, pair.Generation = &session, secret, s.extensionGeneration
 	s.extensionPairs[req.PairingID] = pair
 	writeSuccess(w, 200, struct {

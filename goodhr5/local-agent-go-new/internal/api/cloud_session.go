@@ -3,16 +3,19 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/integration/cloud"
 )
 
-// cloudSessionState 保存在内存里的云端会话令牌，只存最新一份，程序重启后失效。
+// cloudSessionState 保存当前命令通道凭证；已验证凭证另存于当前用户私有文件，重启后仍由云端鉴权。
 type cloudSessionState struct {
 	mu    sync.RWMutex
 	token string
@@ -20,6 +23,9 @@ type cloudSessionState struct {
 
 // handleCloudSessionSet 接收控制台页面同步过来的云端登录令牌，供 WS 客户端建连使用。
 func (s *Server) handleCloudSessionSet(w http.ResponseWriter, r *http.Request) {
+	if !sessionWriteAllowed(w, r) {
+		return
+	}
 	var request struct {
 		Token string `json:"token"`
 	}
@@ -32,15 +38,82 @@ func (s *Server) handleCloudSessionSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", fmt.Errorf("token 不能为空"))
 		return
 	}
-	// 先验证令牌有效，再保存，避免本地 WS 客户端拿失效令牌反复重连。
-	if _, err := s.cloud.ValidateSession(r.Context(), token); err != nil {
-		writeError(w, http.StatusUnauthorized, "CLOUD_SESSION_INVALID", err)
+	if s.cloud == nil {
+		writeError(w, http.StatusServiceUnavailable, "CLOUD_SESSION_UNAVAILABLE", fmt.Errorf("云端连接还没准备好，请重启后再试"))
 		return
 	}
-	s.cloudSession.mu.Lock()
-	s.cloudSession.token = token
-	s.cloudSession.mu.Unlock()
+	generation := s.beginCloudSessionRequest(token)
+	defer s.endCloudSessionRequest(generation)
+	// 网络等待不持锁；较早的校验不能覆盖后来的换号或退出。
+	session, err := s.cloud.ValidateSession(r.Context(), token)
+	if err != nil {
+		status := http.StatusBadGateway
+		var apiErr *cloud.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
+			status = http.StatusUnauthorized
+			s.CloudSessionRejected(token)
+		}
+		writeError(w, status, "CLOUD_SESSION_INVALID", fmt.Errorf("云端登录状态暂时没确认好，请重试"))
+		return
+	}
+	if session.SessionKind != "" {
+		writeError(w, http.StatusForbidden, "CLOUD_SESSION_RESTRICTED", fmt.Errorf("请使用 GoodHR 网页账号连接本地程序"))
+		return
+	}
+	s.extensionMu.Lock()
+	defer s.extensionMu.Unlock()
+	if generation != s.sessionGeneration {
+		writeError(w, http.StatusConflict, "CLOUD_SESSION_CHANGED", fmt.Errorf("登录账号已经变化，请重新连接"))
+		return
+	}
+	if err = s.saveCloudSessionLocked(token, session.UserID); err != nil {
+		writeError(w, http.StatusInternalServerError, "CLOUD_SESSION_SAVE_FAILED", err)
+		return
+	}
+	s.startupSync.start(token)
 	writeSuccess(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// sessionWriteAllowed 显式拒绝非信任网页写入或清理会话；CORS 响应头不能阻止简单跨域请求。
+func sessionWriteAllowed(w http.ResponseWriter, r *http.Request) bool {
+	if origin := r.Header.Get("Origin"); origin != "" && !allowedOrigin(origin) {
+		writeError(w, http.StatusForbidden, "SESSION_ORIGIN_DENIED", fmt.Errorf("请从 GoodHR 页面连接本地程序"))
+		return false
+	}
+	return true
+}
+
+// CloudSessionConnected 在握手成功后有界恢复现有账号绑定；离线重试沿用 WS 循环，不新增后台轮询。
+func (s *Server) CloudSessionConnected(ctx context.Context, token string) {
+	if s.cloud == nil {
+		return
+	}
+	s.extensionMu.Lock()
+	current := extensionSecretsEqual(token, s.currentCloudToken())
+	s.extensionMu.Unlock()
+	if !current {
+		return
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	session, err := s.cloud.ValidateSession(checkCtx, token)
+	if err != nil {
+		var apiErr *cloud.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
+			s.CloudSessionRejected(token)
+		}
+		return
+	}
+	s.extensionMu.Lock()
+	defer s.extensionMu.Unlock()
+	if !extensionSecretsEqual(token, s.currentCloudToken()) || session.SessionKind != "" {
+		return
+	}
+	s.bindExtensionSessionLocked(token, session.UserID)
+	if s.incidents != nil {
+		s.incidents.Bind(session.UserID, token)
+	}
+	s.startupSync.start(token)
 }
 
 // handleCloudSessionGet 返回本地程序当前的云端登录态同步情况。
