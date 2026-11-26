@@ -64,6 +64,7 @@ func advanceCandidateScroll(ctx context.Context, browser model.Browser, cfg mode
 		headCfg := cfg
 		headCfg.MaxItems = 1
 		headOptions := options
+		headOptions.CollectReadStats = false
 		headOptions.Cursor = &model.CandidateListCursor{}
 		if trace != nil {
 			trace.readRole = "读取滚动前列表首张卡片"
@@ -235,6 +236,7 @@ func readNextCandidateWindow(ctx context.Context, browser model.Browser, cfg mod
 	headCfg := cfg
 	headCfg.MaxItems = 1
 	headOptions := options
+	headOptions.CollectReadStats = false
 	headOptions.Cursor = &model.CandidateListCursor{}
 	trace := CandidateTrace(ctx)
 	if trace != nil {

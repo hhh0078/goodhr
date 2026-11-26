@@ -1,11 +1,12 @@
 // 文件作用说明：在 Worker 内存中按请求编号保留有限的操作进度，只保存步骤和数量。
 import { createRequire } from "node:module";
 import type { Page } from "playwright-core";
-import type { ActionContext, JsonObject } from "../contracts/common.js";
+import type { ActionContext, JsonObject, ReadStats } from "../contracts/common.js";
 
 type ReadPhase = "read_card" | "locate_field" | "read_field";
 type PendingRead = { worker_phase: ReadPhase; item_index: number; field_key?: string; started: number };
-type Entry = { at: number; data: JsonObject; reads: Set<PendingRead>; finishedAt?: number; page?: WeakRef<Page> };
+type ReadCounts = { completed: Set<number>; planned?: number; returned?: number };
+type Entry = { at: number; startedAt: number; data: JsonObject; reads: Set<PendingRead>; readStats?: ReadCounts; finishedAt?: number; page?: WeakRef<Page> };
 const recent = new Map<string, Entry>();
 const safeFields = new Set(["name", "card_text", "basic_info", "education", "university", "description", "platform_candidate_id"]);
 /** installedWorkerVersion 读取随包版本；旧安装缺少清单时仍可继续浏览器操作。 */
@@ -25,9 +26,50 @@ export function requestID(value: unknown): string | undefined {
 /** startRequestProgress 为一次收到的浏览器请求建立进度槽，保留最近的 64 个请求。 */
 export function startRequestProgress(context: ActionContext): void {
   if (!context.request_id) return;
-  recent.set(context.request_id, { at: context.started_at, reads: new Set(), data: { request_id: context.request_id,
+  recent.set(context.request_id, { at: context.started_at, startedAt: context.started_at, reads: new Set(), data: { request_id: context.request_id,
     worker_phase: "received", ...(workerVersion ? { worker_version: workerVersion } : {}), node_version: process.version } });
   if (recent.size > 64) recent.delete(recent.keys().next().value!);
+}
+
+/** startReadStats 在正式字段请求入队前启用统计，解析列表前不猜测任何数量。 */
+export function startReadStats(context: ActionContext): void {
+  const entry = recent.get(context.request_id ?? "");
+  if (entry && entry.finishedAt === undefined && !entry.readStats) entry.readStats = { completed: new Set() };
+}
+
+/** activeReadCounts 仅允许有效请求更新数量，取消、截止或冻结后保持原现场。 */
+function activeReadCounts(context: ActionContext): ReadCounts | undefined {
+  const entry = recent.get(context.request_id ?? "");
+  if (!entry || entry.finishedAt !== undefined || context.signal?.aborted || Date.now() >= (context.deadline_at ?? Infinity)) return;
+  return entry.readStats;
+}
+
+/** planReadStats 只在列表实际解析成功后记录本次待读取数量。 */
+export function planReadStats(context: ActionContext, count: number): void {
+  const stats = activeReadCounts(context);
+  if (stats) stats.planned = count;
+}
+
+/** completeReadItem 按列表槽位去重，只登记完整读完的卡片，字段或卡片补读不重复计数。 */
+export function completeReadItem(context: ActionContext, index: number): void {
+  const stats = activeReadCounts(context);
+  if (stats?.planned !== undefined && Number.isInteger(index) && index >= 0 && index < stats.planned) stats.completed.add(index);
+}
+
+/** returnReadStats 仅在完整列表成功返回时记录返回数量，失败不假装返回空列表。 */
+export function returnReadStats(context: ActionContext, count: number): void {
+  const stats = activeReadCounts(context);
+  if (stats) stats.returned = count;
+}
+
+/** requestReadStats 返回独立数量快照，未知字段省略，耗时包含排队与整次请求。 */
+export function requestReadStats(id?: string): ReadStats | undefined {
+  const entry = recent.get(id ?? "");
+  if (!id || !entry?.readStats) return;
+  const stats = entry.readStats;
+  return { request_id: id, elapsed_ms: Math.max(0, (entry.finishedAt ?? Date.now()) - entry.startedAt),
+    ...(stats.planned === undefined ? {} : { planned_count: stats.planned, raw_completed_count: stats.completed.size }),
+    ...(stats.returned === undefined ? {} : { returned_count: stats.returned }) };
 }
 
 /** markRequestProgress 更新最近一次实际进入的步骤，字段名必须来自固定清单，绝不读字段值。 */
@@ -97,8 +139,9 @@ export function requestProgress(id: string | undefined, queue: JsonObject): Json
     } catch { /* 页面已销毁时仍保留此前记下的进度。 */ }
   }
   const now = entry.finishedAt ?? Date.now();
+  const stats = requestReadStats(id);
   const pendingReads = Array.from(entry.reads, ({ started, ...operation }) => ({ ...operation, elapsed_ms: Math.max(0, now - started) }));
-  return { ...entry.data, ...state, progress_age_ms: Math.max(0, now - entry.at), pending_reads: pendingReads,
+  return { ...entry.data, ...state, ...(stats ? { read_stats: stats } : {}), progress_age_ms: Math.max(0, now - entry.at), pending_reads: pendingReads,
     queue_pending: queue.pending ?? 0, queue_blocked: queue.blocked ?? false,
     active_action: queue.active_action ?? "", active_request_id: queue.active_request_id ?? "" };
 }

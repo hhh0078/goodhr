@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"goodhr5/local-agent-go-new/internal/browser/client"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
@@ -171,9 +172,36 @@ func (l *loggedRuntime) ApplyBasicFilters(ctx context.Context, browser model.Bro
 	return l.Runtime.ApplyBasicFilters(ctx, browser, config, position)
 }
 
-// FindCandidates 记录候选人列表查找结果。
+// FindCandidates 为一次正式名单读取收集真实请求，预算只作用于当前批次，保留父级取消和更短时限。
 func (l *loggedRuntime) FindCandidates(ctx context.Context, browser model.Browser, config model.Config, options model.CandidateListOptions) (items []model.Candidate, err error) {
-	defer l.record("find_candidates", time.Now(), &err)
+	startedAt := time.Now()
+	ctx, collection := client.WithListReadCollection(ctx)
+	options.CollectReadStats = true
+	if config.CandidateReadTimeoutMS > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(min(config.CandidateReadTimeoutMS, 180_000))*time.Millisecond)
+		defer cancel()
+	}
+	if reporter, ok := l.logger.(candidateListReadReporter); ok {
+		defer func() {
+			recovered := recover()
+			cause := err
+			if recovered != nil {
+				cause = fmt.Errorf("平台方法异常：%v", recovered)
+			}
+			usable := len(items)
+			if cause != nil {
+				usable = 0
+			}
+			reporter.CandidateListReadBatch(l.taskID, config.ID, startedAt, usable, collection.Records(), cause)
+			if recovered != nil {
+				panic(recovered)
+			}
+		}()
+	} else {
+		// 旧日志器仍接收原有步骤通知，不要求所有 shared.Logger 实现新增方法。
+		defer l.record("find_candidates", startedAt, &err)
+	}
 	return l.Runtime.FindCandidates(ctx, browser, config, options)
 }
 

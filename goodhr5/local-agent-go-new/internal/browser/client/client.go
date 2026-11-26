@@ -30,10 +30,11 @@ type Client struct {
 
 // envelope 表示 Worker 统一响应边界。
 type envelope struct {
-	OK      bool                     `json:"ok"`
-	Data    json.RawMessage          `json:"data"`
-	Error   contract.WorkerErrorBody `json:"error"`
-	TraceID string                   `json:"trace_id"`
+	ReadStats json.RawMessage          `json:"read_stats,omitempty"`
+	OK        bool                     `json:"ok"`
+	Data      json.RawMessage          `json:"data"`
+	Error     contract.WorkerErrorBody `json:"error"`
+	TraceID   string                   `json:"trace_id"`
 }
 
 // New 创建 Browser Worker 客户端。
@@ -47,6 +48,9 @@ func New(baseURL string) *Client {
 // requestTimeout 根据逐字输入和长截图的实际工作量安排预算，普通请求仍为 45 秒。
 func requestTimeout(payload any) time.Duration {
 	timeout := 45 * time.Second
+	if request, ok := formalListReadRequest(payload); ok && request.RequestTimeoutMS > 0 {
+		timeout = time.Duration(min(180000, max(45000, request.RequestTimeoutMS))) * time.Millisecond
+	}
 	if input, ok := payload.(contract.ElementInputRequest); ok {
 		estimate := 30*time.Second + time.Duration(utf8.RuneCountInString(input.Text))*150*time.Millisecond
 		if estimate > timeout {
@@ -261,6 +265,14 @@ func callValue[T any](ctx context.Context, client *Client, path string, request 
 // call 执行 Worker HTTP 请求并在边界解析统一响应。
 func call(ctx context.Context, client *Client, method string, path string, payload any, result any) (callErr error) {
 	started := time.Now()
+	var observation *requestObservation
+	var readStats *contract.ListReadStats
+	if request, formal := formalListReadRequest(payload); formal && path == "/api/v1/element/find-all" {
+		if collection, _ := ctx.Value(listReadCollectionKey{}).(*ListReadCollection); collection != nil {
+			parent := ctx
+			defer func() { collectListRead(collection, request, parent, started, observation, readStats, result, callErr) }()
+		}
+	}
 	responseStatus := 0
 	responseBytes := 0
 	expectedMissing := false
@@ -287,7 +299,7 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 	limit := requestTimeout(payload)
 	if err := parent.Err(); err != nil {
 		if method == http.MethodPost && listDiagnosticPath(path) {
-			observation := newRequestObservation(parent, path, started, limit)
+			observation = newRequestObservation(parent, path, started, limit)
 			reason, original := transportReason(parent, err)
 			return observation.transportFailure(nil, err, "WORKER_REQUEST_NOT_SENT", "before_request", reason, original, started, 0)
 		}
@@ -318,7 +330,6 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 	if traceID := traceIDFromContext(ctx); traceID != "" {
 		request.Header.Set("X-Trace-ID", traceID)
 	}
-	var observation *requestObservation
 	if method == http.MethodPost {
 		request, observation = observeRequest(request, parent, started, limit, budget)
 	}
@@ -357,6 +368,9 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 		return fmt.Errorf("解析 Worker 响应失败：%w", err)
 	}
 	responseBytes = len(wrapped.Data)
+	if observation != nil {
+		readStats = decodeListReadStats(wrapped.ReadStats, observation.diagnostic.RequestID)
+	}
 	if !wrapped.OK {
 		// 明确声明可选的列表检查遇到元素缺失时返回空列表；浏览器故障等其他错误必须继续保留。
 		if optional, ok := payload.(contract.ElementFindAllRequest); ok && optional.ExpectedMissing && wrapped.Error.Code == "ELEMENT_NOT_FOUND" {

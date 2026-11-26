@@ -1,7 +1,7 @@
 // 文件作用说明：注册 Worker 通用封装能力路由，完成 unknown 校验、Trace ID 和统一响应。
 
 import { actionContextStorage } from "../logging/operation.js";
-import { finishRequestProgress, requestID, requestProgress, startRequestProgress } from "../logging/request-progress.js";
+import { finishRequestProgress, requestID, requestProgress, requestReadStats, startRequestProgress } from "../logging/request-progress.js";
 import { WorkerLogger } from "../logging/logger.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -107,12 +107,16 @@ export class WorkerRouter {
           ? await readJSONBody(request, traceID, route.action)
           : {};
       const result = await actionContextStorage.run(context, () => route.handler(body, context));
+      if (method === "POST") finishRequestProgress(context.request_id);
+      const stats = requestReadStats(context.request_id);
       this.writeJSON(response, 200, {
         ok: true,
         data: safeJsonValue(result),
         trace_id: traceID,
+        ...(stats ? { read_stats: stats } : {}),
       });
     } catch (error) {
+      if (method === "POST") finishRequestProgress(context.request_id);
       const normalized = normalizeWorkerError(error, {
         action: route.action,
         step: "handle_request",

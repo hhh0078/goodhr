@@ -1,6 +1,8 @@
 // Package contract 定义浏览器请求排障字段，允许日志链路只取无请求正文的观测结果。
 package contract
 
+import "encoding/json"
+
 // PendingBrowserRead 记录失败瞬间仍持有读取槽的操作；序号从零开始，耗时按该阶段开始计算。
 type PendingBrowserRead struct {
 	WorkerPhase string `json:"worker_phase"`
@@ -11,6 +13,7 @@ type PendingBrowserRead struct {
 
 // RequestDiagnostic 记录本机请求及与其编号匹配的 Worker 现场，可选数字与布尔值用指针区分零值和未观测。
 type RequestDiagnostic struct {
+	ReadStats          *ListReadStats       `json:"read_stats,omitempty"`
 	ReadValueTimeoutMS int64                `json:"read_value_timeout_ms,omitempty"`
 	RequestID          string               `json:"request_id"`
 	Action             string               `json:"action"`
@@ -45,4 +48,25 @@ type RequestDiagnostic struct {
 	PageClosed         *bool                `json:"page_closed,omitempty"`
 	BrowserConnected   *bool                `json:"browser_connected,omitempty"`
 	FrameCount         *int                 `json:"frame_count,omitempty"`
+}
+
+// UnmarshalJSON 单独容错可选统计，坏统计不能使原有浏览器阶段和错误现场丢失。
+func (d *RequestDiagnostic) UnmarshalJSON(data []byte) error {
+	type diagnosticFields RequestDiagnostic
+	var fields diagnosticFields
+	value := struct {
+		*diagnosticFields
+		Stats json.RawMessage `json:"read_stats"`
+	}{diagnosticFields: &fields}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*d = RequestDiagnostic(fields)
+	if len(value.Stats) > 0 && string(value.Stats) != "null" {
+		var stats ListReadStats
+		if json.Unmarshal(value.Stats, &stats) == nil {
+			d.ReadStats = &stats
+		}
+	}
+	return nil
 }

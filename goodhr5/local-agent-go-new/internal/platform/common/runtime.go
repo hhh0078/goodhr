@@ -168,6 +168,11 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 		Selector: selector, MaxItems: maxItems,
 		ReadConcurrency: candidateReadConcurrency(options.ReadConcurrency), Fields: cfg.CandidateFields,
 	}
+	if options.CollectReadStats && len(request.Fields) > 0 {
+		request.ReadStats = true
+		request.RequestTimeoutMS = cfg.CandidateReadTimeoutMS
+		request.DiagnosticAttempt = 1
+	}
 	if options.Cursor != nil {
 		request.StartIndex = max(0, options.Cursor.StartIndex)
 	}
@@ -204,6 +209,9 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 				return nil, fmt.Errorf("候选人列表有 %d 张卡片的姓名尚未读到，重新读取后仍不完整，暂不操作", missing)
 			}
 			readStarted = time.Now()
+			if request.ReadStats {
+				request.DiagnosticAttempt = 2
+			}
 			trace.readStage(request, 2)
 			items, err = browser.FindAll(ctx, request)
 			if err != nil {

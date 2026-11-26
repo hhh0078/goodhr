@@ -20,6 +20,7 @@ import type {
 } from "../../contracts/actions.js";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { WorkerLogger } from "../../logging/logger.js";
+import { startReadStats } from "../../logging/request-progress.js";
 import { KeyboardPrimitive } from "../primitives/keyboard.js";
 import { LocatorPrimitive } from "../primitives/locator.js";
 import { MousePrimitive } from "../primitives/mouse.js";
@@ -161,6 +162,7 @@ export class ActionService {
 
   /** findElements 查找元素列表并读取配置字段。 */
   findElements(request: ElementFindAllRequest, context: ActionContext) {
+    if (request.read_stats === true && !request.probe_only && !request.viewport_start && Object.keys(request.fields ?? {}).length > 0) startReadStats(context);
     return this.interactionQueue.runRead(() => this.findAction.all(
       request.selector,
       request.max_items ?? 100,

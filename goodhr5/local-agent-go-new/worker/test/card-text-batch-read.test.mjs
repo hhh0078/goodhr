@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FindAction } from "../dist/browser/actions/find.js";
+import { requestReadStats, startReadStats, startRequestProgress } from "../dist/logging/request-progress.js";
 
 const context = { trace_id: "card-text-batch", action: "element.find_all", request_id: "batch-300", started_at: Date.now() };
 const selector = { target: { selectors: [{ type: "css", value: ".card" }] }, description: "候选人卡片" };
@@ -53,6 +54,8 @@ function batchHarness() {
 
 test("并发 10 连续读取 300 张卡片，限流并补读超时文字，不误伤普通卡片", async () => {
   const harness = batchHarness();
+  startRequestProgress(context);
+  startReadStats(context);
   const items = await harness.action.all(selector, 300, harness.fields, context, true, 10);
   assert.equal(items.length, 300);
   assert.ok(harness.getMaxActive() <= 4);
@@ -63,4 +66,8 @@ test("并发 10 连续读取 300 张卡片，限流并补读超时文字，不�
   assert.ok(harness.logs.some(log => log.step === "read_field:card_text" && log.status === "retry_read"));
   assert.ok(harness.logs.some(log => log.step === "read_list_item" && log.status === "retry_read"));
   assert.deepEqual(harness.logs.find(log => log.status === "summary").fields.dropped_indices, []);
+  const stats = requestReadStats(context.request_id);
+  assert.equal(stats.planned_count, 300);
+  assert.equal(stats.raw_completed_count, 300);
+  assert.equal(stats.returned_count, 300);
 });

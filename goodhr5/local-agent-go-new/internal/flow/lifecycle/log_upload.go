@@ -114,6 +114,8 @@ func uploadLogObject(value json.RawMessage) json.RawMessage {
 	}
 	aiResponse := fields["ai_response_diagnostic"]
 	delete(fields, "ai_response_diagnostic")
+	batch := uploadCandidateListReadBatch(fields["candidate_list_read_batch"])
+	delete(fields, "candidate_list_read_batch")
 	ordinary, _ := json.Marshal(fields)
 	if len(ordinary) > 12<<10 {
 		failures := uploadFailureDetails(fields["failure_diagnostics"])
@@ -125,7 +127,25 @@ func uploadLogObject(value json.RawMessage) json.RawMessage {
 	if len(aiResponse) > 0 && aiResponse[0] == '{' {
 		fields["ai_response_diagnostic"] = aiResponse
 	}
+	if len(batch) > 0 {
+		fields["candidate_list_read_batch"] = batch
+	}
 	safe, _ = json.Marshal(fields)
+	return safe
+}
+
+// uploadCandidateListReadBatch 只保留本机批次摘要的强类型计数，避免完整请求数组被普通出参大小限制替换。
+func uploadCandidateListReadBatch(raw json.RawMessage) json.RawMessage {
+	var batch candidateListReadSummary
+	if json.Unmarshal(raw, &batch) != nil || batch.AttemptCount != len(batch.Requests) || batch.DurationMS < 0 || batch.UsableCount < 0 {
+		return nil
+	}
+	switch batch.Status {
+	case "success", "failed", "timeout", "cancelled":
+	default:
+		return nil
+	}
+	safe, _ := json.Marshal(batch)
 	return safe
 }
 
