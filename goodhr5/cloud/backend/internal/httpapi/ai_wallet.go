@@ -25,7 +25,8 @@ import (
 var ErrBuiltinAIConfigUnavailable = errors.New("AI 模型列表暂时没读出来，请稍后再试。")
 
 const (
-	defaultBuiltinAIBaseURL      = "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"
+	defaultBuiltinAIBaseURL      = "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions"
+	legacyBuiltinAIBaseURL       = "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"
 	defaultBuiltinAIModel        = "qwen3.7-plus"
 	defaultSignupBonusCents      = 70
 	defaultAIRechargeAmountCents = 1000
@@ -582,10 +583,10 @@ func (s *AIWalletService) loadBuiltinAIConfig() (builtinAIConfig, error) {
 	return loadBuiltinAIConfig(s.systemConfigs)
 }
 
-// builtinAIPublicURL 为正式环境保留直连 AI 域名，测试和私有部署继续使用自身接口，避免跨环境请求。
+// builtinAIPublicURL 将旧直连 AI 地址换回官网，测试和私有部署继续使用自身接口，避免跨环境请求。
 func builtinAIPublicURL(value string) string {
-	if value == defaultBuiltinAIBaseURL && deploymentPublicBaseURL() != "https://goodhr.58it.cn" {
-		return deploymentPublicBaseURL() + "/api/ai-compatible/v1/chat/completions"
+	if strings.EqualFold(strings.TrimSpace(value), legacyBuiltinAIBaseURL) {
+		value = defaultBuiltinAIBaseURL
 	}
 	return environmentPublicURL(value)
 }

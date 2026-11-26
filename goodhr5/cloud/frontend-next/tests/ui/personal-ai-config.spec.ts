@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 const previewOrigin = new URL(
   process.env.UI_TEST_BASE_URL || "http://127.0.0.1:5190",
 ).origin;
-const builtinAddress = "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions";
+const builtinAddress = "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions";
 const models = [
   {
     id: "qwen3.8-flash",
@@ -110,10 +110,11 @@ async function mockPersonalAI(
   return calls;
 }
 
-test("鼠标速度默认快速档，五档范围齐全并保存选择且保留其他配置", async ({ page }) => {
-  const screenshotDirectory = resolve(process.env.UI_MOUSE_SPEED_ARTIFACT_DIR || "../../../output/mouse-speed");
-  mkdirSync(screenshotDirectory, { recursive: true });
-  for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+// 每种视口独立浏览器上下文，避免前一轮导航和本地程序探测缓存影响后一轮。
+for (const viewport of [{ width: 1600, height: 1000 }, { width: 390, height: 844 }]) {
+  test(`鼠标速度默认快速档，五档范围齐全并保存选择且保留其他配置（${viewport.width}px）`, async ({ page }) => {
+    const screenshotDirectory = resolve(process.env.UI_MOUSE_SPEED_ARTIFACT_DIR || "../../../output/mouse-speed");
+    mkdirSync(screenshotDirectory, { recursive: true });
     await page.setViewportSize(viewport);
     const calls = await mockPersonalAI(page);
     await page.getByRole("tab", { name: "随机时间", exact: true }).click();
@@ -137,8 +138,8 @@ test("鼠标速度默认快速档，五档范围齐全并保存选择且保留�
     expect(box).not.toBeNull();
     expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
     await page.screenshot({ path: resolve(screenshotDirectory, `mouse-speed-${viewport.width}.png`), fullPage: true });
-  }
-});
+  });
+}
 
 test("个人配置分类和内容同一白色面板，无顶部标题且通知保存及所有分类可用", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });

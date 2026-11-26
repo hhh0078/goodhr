@@ -28,9 +28,13 @@ func (s *modelRestrictedAIConfigStore) UserConfig(userEmail string) (AIConfig, e
 		return AIConfig{}, err
 	}
 	if normalized.Model != config.Model {
-		return s.store.RepairUserModel(userEmail, config, normalized.Model)
+		repaired, err := s.store.RepairUserModel(userEmail, config, normalized.Model)
+		if err == nil && repaired.BaseURL == config.BaseURL {
+			repaired.BaseURL = normalized.BaseURL
+		}
+		return repaired, err
 	}
-	return config, nil
+	return normalized, nil
 }
 
 // SaveUserConfig 保存用户 AI 配置，站内接口只能使用公共配置中列出的模型。
@@ -53,8 +57,11 @@ func (s *modelRestrictedAIConfigStore) RepairUserModel(userEmail string, previou
 	return s.store.RepairUserModel(userEmail, previous, normalized.Model)
 }
 
-// normalizeUserAIConfig 为当前网站和固定 AI 中转域名纠正模型，保留外部接口的模型输入。
+// normalizeUserAIConfig 将旧直连接口换回当前环境并纠正站内模型，保留密钥和外部接口的模型输入。
 func normalizeUserAIConfig(config AIConfig, systemConfigs SystemConfigStore) (AIConfig, error) {
+	if strings.EqualFold(strings.TrimSpace(config.BaseURL), legacyBuiltinAIBaseURL) {
+		config.BaseURL = builtinAIPublicURL(config.BaseURL)
+	}
 	if !isCurrentSiteAIURL(config.BaseURL) {
 		return config, nil
 	}

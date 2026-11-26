@@ -29,6 +29,13 @@ AI_URL_MIGRATION_SHA256 = "89484d91af193f0da282c60c59ec0ca4935e50547a723e8bd0d1c
 AI_URL = "https://goodhr.transit.ai.58it.cn/api/ai-compatible/v1/chat/completions"
 OLD_AI_URLS = {"https://" + host + "/api/ai-compatible/v1/chat/completions"
                for host in ("goodhr.58it.cn", "goodhr5.58it.cn", "goodhr.ai.58it.cn")}
+AI_MAIN_URL_MIGRATION = "0128_restore_builtin_ai_main_url.sql"
+AI_MAIN_URL_MIGRATION_SHA256 = "ee2cfc31afb6fa464ce8b907edd7a29e00388668c167466b179738b94f85edc4"
+AI_MAIN_URL = "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions"
+AI_URL_RULES = {
+    AI_URL_MIGRATION: (AI_URL_MIGRATION_SHA256, OLD_AI_URLS, AI_URL),
+    AI_MAIN_URL_MIGRATION: (AI_MAIN_URL_MIGRATION_SHA256, {AI_URL}, AI_MAIN_URL),
+}
 
 
 def same_ai_config_value(before, after):
@@ -42,8 +49,10 @@ def same_ai_config_value(before, after):
     return before == after
 
 
-def verify_ai_url_upgrade(before, after):
-    """verify_ai_url_upgrade 逐行核对两表，只允许已批准的个人地址和内置公开地址替换，不输出配置正文。"""
+def verify_ai_url_upgrade(before, after, migration=AI_URL_MIGRATION):
+    """verify_ai_url_upgrade 按固定迁移逐行核对两表，默认保留0127语义，不输出配置正文。"""
+    require(migration in AI_URL_RULES, "AI地址迁移不在已批准的两个固定版本中")
+    digest, old_urls, target_url = AI_URL_RULES[migration]
     tables = {"user_ai_configs", "system_configs"}
     require(isinstance(before, dict) and isinstance(after, dict) and set(before) == set(after) == tables,
             "AI地址迁移缺少两张完整配置表")
@@ -59,21 +68,21 @@ def verify_ai_url_upgrade(before, after):
             if table == "user_ai_configs":
                 require("base_url" in row, "个人AI配置缺少原接口字段")
                 value = row["base_url"]
-                if isinstance(value, str) and value.strip(" ").lower() in OLD_AI_URLS:
-                    expected["base_url"] = AI_URL
+                if isinstance(value, str) and value.strip(" ").lower() in old_urls:
+                    expected["base_url"] = target_url
             elif row.get("config_key") == "system.app_config" and isinstance(row.get("config_value"), dict):
                 value = row["config_value"]
                 builtin = value.get("builtin_ai")
                 if builtin is None or isinstance(builtin, dict):
                     address = builtin.get("public_base_url") if builtin is not None else None
                     if address is None or isinstance(address, str) and (
-                            address.strip(" ") == "" or address.strip(" ").lower() in OLD_AI_URLS):
-                        expected["config_value"]["builtin_ai"] = dict(builtin or {}, public_base_url=AI_URL)
+                            address.strip(" ") == "" or address.strip(" ").lower() in old_urls):
+                        expected["config_value"]["builtin_ai"] = dict(builtin or {}, public_base_url=target_url)
             require(same_ai_config_value(new[key], expected), "AI地址迁移改动了未批准的地址、密钥、模型、时间或其他配置字段")
             changed += not same_ai_config_value(expected, row)
         counts[table] = changed
-    return {"filename": AI_URL_MIGRATION, "sha256": AI_URL_MIGRATION_SHA256,
-            "exact_url_data_change_verified": True, "changed_rows": counts, "target_url": AI_URL,
+    return {"filename": migration, "sha256": digest,
+            "exact_url_data_change_verified": True, "changed_rows": counts, "target_url": target_url,
             "legacy_data_scope": "all_original_rows_and_fields_except_verified_builtin_ai_public_urls",
             "allowed_data_changes": ["user_ai_configs.base_url",
                                      "system_configs[system.app_config].config_value.builtin_ai.public_base_url"]}
@@ -249,9 +258,11 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         library_upgrade = library_migration in self.migrations and self.approved[library_migration] == APPROVED[library_migration]
         columns = {name.replace(".", "\t", 1): [col["name"] for col in value["columns"]]
                    for name, value in self.before_schema["tables"].items() if name != "public.schema_migrations"}
-        ai_url_upgrade = AI_URL_MIGRATION in self.migrations
+        ai_url_migrations = [name for name in self.migrations if name in AI_URL_RULES]
+        require(len(ai_url_migrations) <= 1, "0127和0128不能在同轮使用地址变更例外，需分别完成隔离验收")
+        ai_url_upgrade = ai_url_migrations[0] if ai_url_migrations else None
         if ai_url_upgrade:
-            require(self.approved.get(AI_URL_MIGRATION) == AI_URL_MIGRATION_SHA256,
+            require(self.approved.get(ai_url_upgrade) == AI_URL_RULES[ai_url_upgrade][0],
                     "AI地址迁移SQL不是已批准的精确版本，禁止使用数据变更例外")
             for table in ("public\tuser_ai_configs", "public\tsystem_configs"):
                 require(table in columns, "AI地址迁移缺少完整旧配置表")
@@ -278,7 +289,7 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         end = self.psql("SELECT clock_timestamp()::text;").decode().strip()
         assert_preserved(baseline, self.database_snapshot(columns, preserve_default_library=library_upgrade))
         if ai_url_upgrade:
-            self.builtin_ai_url_change = verify_ai_url_upgrade(before_ai_urls, self.ai_url_rows(library_upgrade))
+            self.builtin_ai_url_change = verify_ai_url_upgrade(before_ai_urls, self.ai_url_rows(library_upgrade), ai_url_upgrade)
         ledger, schema = self.ledger_records(), self.database_schema()
         check_ledger(self.before_ledger, ledger, start, end, self.migrations)
         if library_upgrade:

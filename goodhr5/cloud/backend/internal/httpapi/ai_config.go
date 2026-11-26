@@ -65,6 +65,7 @@ func (s *AIConfigService) Test(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, ErrBuiltinAIConfigUnavailable.Error())
 		return
 	}
+	req.BaseURL = normalized.BaseURL
 	req.Model = normalized.Model
 	if err := validateAIConfigTestRequest(req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
