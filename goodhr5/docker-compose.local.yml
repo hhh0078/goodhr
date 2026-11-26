@@ -4,8 +4,8 @@ name: goodhr5-local
 services:
   backend:
     build:
-      context: ./cloud/backend
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: cloud/backend/Dockerfile.dev
     environment:
       GOODHR_CLOUD_ADDR: ":8084"
       GOODHR_PG_DSN: "postgres://goodhr5_dev:goodhr5_dev@postgres:5432/goodhr5_dev?sslmode=disable"
@@ -13,6 +13,7 @@ services:
       - "8084:8084"
     volumes:
       - ./cloud/backend:/app
+      - ./local-agent-go-new:/local-agent-go-new:ro
       - backend_tmp:/app/tmp
       - backend_go_cache:/go/pkg/mod
       - backend_build_cache:/root/.cache/go-build

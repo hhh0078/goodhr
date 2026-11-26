@@ -32,8 +32,8 @@ services:
   backend:
     image: goodhr-resume-backend:local
     build:
-      context: ./cloud/backend
-      dockerfile: Dockerfile.release
+      context: .
+      dockerfile: cloud/backend/Dockerfile.release
     environment:
       GOODHR_CLOUD_ADDR: ":8084"
       GOODHR_PG_DSN: "postgres://goodhr_resume_test:goodhr_resume_local_only@postgres:5432/goodhr_resume_test?sslmode=disable"

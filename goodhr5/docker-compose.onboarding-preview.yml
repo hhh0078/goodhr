@@ -32,8 +32,8 @@ services:
   backend:
     image: goodhr-onboarding-backend:local
     build:
-      context: ./cloud/backend
-      dockerfile: Dockerfile.release
+      context: .
+      dockerfile: cloud/backend/Dockerfile.release
     environment:
       GOODHR_CLOUD_ADDR: ":8084"
       GOODHR_PG_DSN: "postgres://goodhr_onboarding_preview:onboarding_local_only@postgres:5432/goodhr_onboarding_preview?sslmode=disable"

@@ -19,7 +19,7 @@ DOCKERFILES = {
 }
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 OFFICIAL_BASES = {
-    "backend": {"golang:1.24-alpine", "alpine:3.22"},
+    "backend": {"golang:1.24-alpine", "golang:1.25-alpine", "alpine:3.22"},
     "frontend": {"node:22-alpine"},
     "auto-reply": {"golang:1.25-bookworm", "debian:bookworm-slim"},
 }

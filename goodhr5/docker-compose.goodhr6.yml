@@ -3,11 +3,14 @@ name: goodhr6
 
 services:
   backend:
-    build: ./cloud/backend
+    build:
+      context: .
+      dockerfile: cloud/backend/Dockerfile
     network_mode: host
     env_file: ./cloud/backend/.env
     volumes:
       - "./cloud/backend:/app"
+      - "./local-agent-go-new:/local-agent-go-new:ro"
       - "/app/tmp"
       - "/www/wwwroot/goodhr.ai.58it.cn/secrets/wechat:/run/secrets/wechat:ro"
     restart: unless-stopped

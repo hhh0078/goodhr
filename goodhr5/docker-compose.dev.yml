@@ -3,8 +3,8 @@ name: ${COMPOSE_PROJECT_NAME:?必须通过环境部署脚本执行}
 services:
   backend:
     build:
-      context: ./cloud/backend
-      dockerfile: Dockerfile.release
+      context: .
+      dockerfile: cloud/backend/Dockerfile.release
     network_mode: host
     env_file: ${GOODHR_BACKEND_ENV:-./cloud/backend/.env}
     environment:
