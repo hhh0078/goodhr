@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"unicode"
 )
@@ -155,4 +157,85 @@ func (s *Server) adminAIFallbackConfig(w http.ResponseWriter, r *http.Request) {
 		cfg, raw = next, encoded
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "config": aiFallbackView{Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, Model: cfg.Model, APIKeySet: strings.TrimSpace(cfg.APIKey) != ""}, "revision": aiFallbackRevision(raw)})
+}
+
+// appConfigFallbackParts 只拆出公共配置的备用原始字段，未修改的历史坏备用不影响其它公共选项保存。
+func appConfigFallbackParts(value string) (map[string]json.RawMessage, map[string]json.RawMessage, json.RawMessage, error) {
+	var app map[string]json.RawMessage
+	if json.Unmarshal([]byte(value), &app) != nil || app == nil {
+		return nil, nil, nil, fmt.Errorf("公共配置请使用JSON对象")
+	}
+	builtin := map[string]json.RawMessage{}
+	if raw := app["builtin_ai"]; len(raw) > 0 && string(raw) != "null" {
+		if json.Unmarshal(raw, &builtin) != nil || builtin == nil {
+			return nil, nil, nil, fmt.Errorf("主用AI配置格式需要先检查")
+		}
+	}
+	raw := builtin["fallback"]
+	if len(raw) == 0 {
+		raw = json.RawMessage("null")
+	}
+	return app, builtin, raw, nil
+}
+
+// sameAIFallbackJSON 忽略对象字段顺序和排版，防止公共配置编辑器格式化触发备用误变更。
+func sameAIFallbackJSON(first, second json.RawMessage) bool {
+	if bytes.Equal(bytes.TrimSpace(first), bytes.TrimSpace(second)) {
+		return true
+	}
+	var a, b any
+	return json.Unmarshal(first, &a) == nil && json.Unmarshal(second, &b) == nil && reflect.DeepEqual(a, b)
+}
+
+// preserveAppConfigFallback 校验手工修改的备用，留空密钥保留；返回是否真的改变备用，供旧客户端并发保护使用。
+func preserveAppConfigFallback(previous, incoming string) (string, bool, error) {
+	_, _, oldRaw, err := appConfigFallbackParts(previous)
+	if err != nil {
+		return incoming, false, err
+	}
+	app, builtin, newRaw, err := appConfigFallbackParts(incoming)
+	if err != nil {
+		return incoming, false, err
+	}
+	if sameAIFallbackJSON(oldRaw, newRaw) {
+		return incoming, false, nil
+	}
+	if string(newRaw) == "null" {
+		return incoming, true, nil
+	}
+	var next BuiltinAIFallbackConfig
+	if json.Unmarshal(newRaw, &next) != nil {
+		return incoming, true, fmt.Errorf("备用AI配置格式需要先检查")
+	}
+	var oldKey struct {
+		APIKey string `json:"api_key"`
+	}
+	_ = json.Unmarshal(oldRaw, &oldKey)
+	next.BaseURL, next.Model, next.APIKey = strings.TrimSpace(next.BaseURL), strings.TrimSpace(next.Model), strings.TrimSpace(next.APIKey)
+	if next.APIKey == "" {
+		next.APIKey = oldKey.APIKey
+	}
+	if err := validateAIFallbackConfig(next); err != nil {
+		return incoming, true, err
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(newRaw, &fields) != nil || fields == nil {
+		return incoming, true, fmt.Errorf("备用AI配置请使用JSON对象")
+	}
+	for key, value := range map[string]any{"enabled": next.Enabled, "base_url": next.BaseURL, "api_key": next.APIKey, "model": next.Model} {
+		fields[key], _ = json.Marshal(value)
+	}
+	normalized, _ := json.Marshal(fields)
+	if sameAIFallbackJSON(oldRaw, normalized) {
+		return incomingWithPreservedFallback(app, builtin, normalized), false, nil
+	}
+	return incomingWithPreservedFallback(app, builtin, normalized), true, nil
+}
+
+// incomingWithPreservedFallback 只更新备用字段，保留公共配置、主用模型价格和未识别的未来字段。
+func incomingWithPreservedFallback(app, builtin map[string]json.RawMessage, fallback json.RawMessage) string {
+	builtin["fallback"] = fallback
+	app["builtin_ai"], _ = json.Marshal(builtin)
+	result, _ := json.Marshal(app)
+	return string(result)
 }

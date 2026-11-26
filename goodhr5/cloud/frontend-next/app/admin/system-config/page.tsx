@@ -24,6 +24,7 @@ import {
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudRequest } from "@/lib/admin-api";
+import AIFallbackForm, { AI_FALLBACK_FORM_ID, type AIFallbackEditorState } from "@/components/admin/AIFallbackForm";
 const categories = [
   "全部",
   "AI 配置",
@@ -42,6 +43,9 @@ export default function SystemConfigPage() {
   const [draft, setDraft] = useState("{}");
   const [original, setOriginal] = useState("{}");
   const [loading, setLoading] = useState(false);
+  const [appSection, setAppSection] = useState("public");
+  const [fallbackEditor, setFallbackEditor] = useState<AIFallbackEditorState>({ dirty: false, loading: true, saving: false, ready: false });
+  const [fallbackReset, setFallbackReset] = useState(0);
   const [defaultPrompts, setDefaultPrompts] = useState<Record<string, string>>({});
   /** load 读取全部系统配置并保持当前选中项。 */
   async function load() {
@@ -61,8 +65,9 @@ export default function SystemConfigPage() {
         description: "按充值门槛赠送 AI 余额，支持多个活动；赠送余额最后使用且不可退款。",
       });
       setConfigs(nextConfigs);
+      const requestedKey = activeKey || new URLSearchParams(window.location.search).get("key");
       const selected =
-        nextConfigs.find((item: any) => configKey(item) === activeKey) ||
+        nextConfigs.find((item: any) => configKey(item) === requestedKey) ||
         nextConfigs[0];
       if (selected) selectDirect(selected);
     } catch (error) {
@@ -75,6 +80,9 @@ export default function SystemConfigPage() {
     }
   }
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("section") === "ai-fallback") setAppSection("ai-fallback");
+  }, []);
+  useEffect(() => {
     if (user?.role === "super_admin") void load();
   }, [user]);
   const filtered = useMemo(
@@ -86,7 +94,9 @@ export default function SystemConfigPage() {
     [configs, category],
   );
   const active = configs.find((item) => configKey(item) === activeKey) || null;
-  const dirty = draft !== original;
+  const editingFallback = activeKey === "system.app_config" && appSection === "ai-fallback";
+  const dirty = editingFallback ? fallbackEditor.dirty : draft !== original;
+  const busy = loading || (editingFallback && fallbackEditor.saving);
   const isWechatConfig = activeKey === "system.wechat_official_account";
   const isOnboardingConfig = activeKey === "system.onboarding_config";
   const isRechargeConfig = activeKey === AI_RECHARGE_CONFIG_KEY;
@@ -106,7 +116,7 @@ export default function SystemConfigPage() {
   }
   /** selectConfig 在存在未保存修改时确认是否放弃。 */
   async function selectConfig(item: any) {
-    if (configKey(item) === activeKey) return;
+    if (configKey(item) === activeKey || busy) return;
     if (
       dirty &&
       !(await confirm(
@@ -115,7 +125,16 @@ export default function SystemConfigPage() {
       ))
     )
       return;
+    setFallbackEditor({ dirty: false, loading: true, saving: false, ready: false });
     selectDirect(item);
+  }
+  /** chooseAppSection 切换公共配置分区前沿用未保存确认，避免保留旧JSON草稿覆盖刚保存的备用字段。 */
+  async function chooseAppSection(section: string) {
+    if (section === appSection || busy) return;
+    if (dirty && !(await confirm("放弃未保存修改", "当前配置有未保存修改，确认切换到其他配置吗？"))) return;
+    setDraft(original);
+    setFallbackEditor({ dirty: false, loading: true, saving: false, ready: false });
+    setAppSection(section);
   }
   /** chooseKey 让桌面菜单和手机选择框共用同一套切换与草稿确认逻辑。 */
   function chooseKey(key: string) {
@@ -131,9 +150,12 @@ export default function SystemConfigPage() {
       const formatted = isWechatConfig
         ? officialConfigForSave(draft)
         : prettyJSON(draft);
+      const originalValue = active.config_value ?? active.value;
+      const expected = typeof originalValue === "string" ? originalValue : JSON.stringify(originalValue ?? {});
+      const protectVersion = ["ai.default_prompts", AUTO_REPLY_LIBRARY_KEY, "system.app_config", AI_RECHARGE_CONFIG_KEY].includes(activeKey);
       await cloudRequest(
         `/api/admin/system/configs/${encodeURIComponent(isRechargeConfig ? "system.app_config" : activeKey)}`,
-        { method: "PUT", body: { config_value: formatted, ...(["ai.default_prompts", AUTO_REPLY_LIBRARY_KEY].includes(activeKey) ? { expected_config_value: active.config_value ?? active.value } : {}) } },
+        { method: "PUT", body: { config_value: formatted, ...(protectVersion ? { expected_config_value: expected } : {}) } },
       );
       setDraft(formatted);
       setOriginal(formatted);
@@ -149,6 +171,7 @@ export default function SystemConfigPage() {
   }
   /** resetDraft 恢复当前配置的服务端内容。 */
   function resetDraft() {
+    if (editingFallback) { setFallbackReset(value => value + 1); return; }
     setDraft(original);
   }
   if (user?.role !== "super_admin")
@@ -167,16 +190,20 @@ export default function SystemConfigPage() {
 
             <Button
               icon={<UndoOutlined aria-hidden="true" />}
-              disabled={!dirty || loading}
+              disabled={!dirty || busy}
               onClick={resetDraft}
             >
               撤销修改
             </Button>
             <Button
               type={"primary"}
+              aria-label="保存当前配置"
               icon={<SaveOutlined aria-hidden="true" />}
-              disabled={!active || !dirty || Boolean(jsonError) || loading}
-              onClick={() => void save()}
+              htmlType={editingFallback ? "submit" : "button"}
+              form={editingFallback ? AI_FALLBACK_FORM_ID : undefined}
+              loading={editingFallback ? fallbackEditor.saving : loading}
+              disabled={!active || !dirty || busy || (editingFallback ? !fallbackEditor.ready : Boolean(jsonError))}
+              onClick={editingFallback ? undefined : () => void save()}
             >
               保存当前配置
             </Button>
@@ -353,7 +380,8 @@ export default function SystemConfigPage() {
                     style={{ marginBottom: 16 }}
                   />
                 ) : null}
-                {jsonError ? (
+                {activeKey === "system.app_config" ? <Tabs activeKey={appSection} onChange={value => void chooseAppSection(value)} items={[{ key: "public", label: "公共配置" }, { key: "ai-fallback", label: "备用AI" }]} /> : null}
+                {!editingFallback && jsonError ? (
                   <Alert
                     type={"error"}
                     showIcon={true}
@@ -361,7 +389,9 @@ export default function SystemConfigPage() {
                     style={{ marginBottom: 16 }}
                   />
                 ) : null}
-                {activeKey === "ai.default_prompts" ? (
+                {editingFallback ? (
+                  <AIFallbackForm onStateChange={setFallbackEditor} onSaved={load} resetVersion={fallbackReset} />
+                ) : activeKey === "ai.default_prompts" ? (
                   <DefaultPromptsForm value={draft} defaults={defaultPrompts} onChange={setDraft} disabled={loading} />
                 ) : activeKey === AUTO_REPLY_LIBRARY_KEY ? (
                   <AutoReplyLibraryForm value={draft} onChange={setDraft} disabled={loading} />

@@ -66,7 +66,7 @@ func TestServerRetriesModelJSONBeforeReturning(t *testing.T) {
 	}
 }
 
-// TestServerRetryBudgetStopsLegacyClient 验证服务器耗尽预算后返回422，原客户端按5xx或429重试的规则不会叠加到十二次。
+// TestServerRetryBudgetStopsLegacyClient 验证旧版耗尽后收到424，既不因正文model字样误停，也不叠加到十二次请求。
 func TestServerRetryBudgetStopsLegacyClient(t *testing.T) {
 	var upstream atomic.Int32
 	service, _ := embeddingFixture(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -94,7 +94,7 @@ func TestServerRetryBudgetStopsLegacyClient(t *testing.T) {
 			break
 		}
 	}
-	if incoming != 1 || upstream.Load() != serverAIMaxAttempts || status != 422 {
+	if incoming != 1 || upstream.Load() != serverAIMaxAttempts || status != 424 {
 		t.Fatalf("incoming=%d upstream=%d status=%d", incoming, upstream.Load(), status)
 	}
 }

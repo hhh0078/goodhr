@@ -794,6 +794,8 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	saveExpected := req.ExpectedConfigValue
+	appOriginal := existing.ConfigValue
 	raw := strings.TrimSpace(req.ConfigValue)
 	if raw == "" {
 		writeError(w, http.StatusBadRequest, "config_value is required")
@@ -831,6 +833,29 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if configKey == "system.app_config" {
+		if saveExpected != nil {
+			if !json.Valid([]byte(*saveExpected)) {
+				writeError(w, http.StatusBadRequest, "原始配置格式不正确，请重新打开")
+				return
+			}
+			if *saveExpected != appOriginal {
+				writeError(w, http.StatusConflict, "公共配置刚有更新，请保留草稿并重新读取后保存")
+				return
+			}
+		}
+		merged, changed, mergeErr := preserveAppConfigFallback(appOriginal, raw)
+		if saveExpected == nil && changed {
+			writeError(w, http.StatusConflict, "备用AI配置有变化，请重新打开公共配置后再保存")
+			return
+		}
+		if mergeErr != nil {
+			writeError(w, http.StatusBadRequest, mergeErr.Error())
+			return
+		}
+		raw = merged
+		if saveExpected == nil {
+			saveExpected = &appOriginal
+		}
 		if _, err := parseAIRechargePromotions(raw); err != nil {
 			writeError(w, http.StatusBadRequest, "充值活动配置没保存："+err.Error())
 			return
@@ -859,14 +884,18 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 	}
 
 	existing.ConfigValue = raw
-	if (configKey == autoReplyLibraryKey || configKey == defaultPromptsConfigKey) && req.ExpectedConfigValue != nil {
-		if !json.Valid([]byte(*req.ExpectedConfigValue)) {
+	if configKey == "system.app_config" || (configKey == autoReplyLibraryKey || configKey == defaultPromptsConfigKey) && saveExpected != nil {
+		if !json.Valid([]byte(*saveExpected)) {
 			writeError(w, http.StatusBadRequest, "原始配置格式不正确，请重新打开")
 			return
 		}
 		var saved bool
-		saved, err = s.systemConfigs.SaveIfUnchanged(existing, *req.ExpectedConfigValue)
+		saved, err = s.systemConfigs.SaveIfUnchanged(existing, *saveExpected)
 		if err == nil && !saved {
+			if configKey == "system.app_config" {
+				writeError(w, http.StatusConflict, "公共配置刚有更新，请保留草稿并重新读取后保存")
+				return
+			}
 			writeError(w, http.StatusConflict, errAutoReplyLibraryConflict.Error())
 			return
 		}

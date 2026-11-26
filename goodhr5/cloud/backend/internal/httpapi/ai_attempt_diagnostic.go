@@ -20,25 +20,29 @@ var aiProviderRequestIDHeaders = []string{"X-Request-ID", "Request-ID", "X-Amzn-
 
 // serverAIAttemptEvent 只保存实际请求的固定枚举与数字，不保存模型输入、响应正文、地址或凭据。
 type serverAIAttemptEvent struct {
-	Layer             string `json:"layer"`
-	Operation         string `json:"operation"`
-	Event             string `json:"event,omitempty"`
-	ClientRequestID   string `json:"client_request_id,omitempty"`
-	AnalysisGroupID   string `json:"analysis_group_id,omitempty"`
-	ServerAttempt     int    `json:"server_attempt"`
-	MaxAttempts       int    `json:"max_attempts"`
-	Provider          string `json:"provider"`
-	Model             string `json:"model,omitempty"`
-	StartedAt         string `json:"started_at"`
-	FinishedAt        string `json:"finished_at,omitempty"`
-	ElapsedMS         int64  `json:"elapsed_ms"`
-	HTTPStatus        int    `json:"http_status"`
-	Result            string `json:"result,omitempty"`
-	Reason            string `json:"reason,omitempty"`
-	StopReason        string `json:"stop_reason,omitempty"`
-	WillRetry         bool   `json:"will_retry"`
-	BackoffMS         int64  `json:"backoff_ms"`
-	ProviderRequestID string `json:"provider_request_id,omitempty"`
+	Layer                string `json:"layer"`
+	Operation            string `json:"operation"`
+	Event                string `json:"event,omitempty"`
+	ClientRequestID      string `json:"client_request_id,omitempty"`
+	AnalysisGroupID      string `json:"analysis_group_id,omitempty"`
+	ServerAttempt        int    `json:"server_attempt"`
+	MaxAttempts          int    `json:"max_attempts"`
+	Provider             string `json:"provider"`
+	Model                string `json:"model,omitempty"`
+	StartedAt            string `json:"started_at"`
+	FinishedAt           string `json:"finished_at,omitempty"`
+	ElapsedMS            int64  `json:"elapsed_ms"`
+	HTTPStatus           int    `json:"http_status"`
+	Result               string `json:"result,omitempty"`
+	Reason               string `json:"reason,omitempty"`
+	StopReason           string `json:"stop_reason,omitempty"`
+	WillRetry            bool   `json:"will_retry"`
+	BackoffMS            int64  `json:"backoff_ms"`
+	ProviderRequestID    string `json:"provider_request_id,omitempty"`
+	ErrorDetail          string `json:"error_detail,omitempty"`
+	ErrorCode            string `json:"error_code,omitempty"`
+	ErrorDetailTruncated bool   `json:"error_detail_truncated,omitempty"`
+	ResponseBytes        int64  `json:"response_bytes,omitempty"`
 }
 
 // safeAITraceID 仅接受短 ASCII 标识，拒绝正文、控制符和凭据格式；不截取可能有歧义的标识。
@@ -148,18 +152,41 @@ func newAIAttemptDetailsWriter(w http.ResponseWriter, request *http.Request) *ai
 
 // observe 将结束记录附到响应头；后续成功也保留之前失败，原响应正文和收费回执不变。
 func (w *aiAttemptDetailsWriter) observe(event serverAIAttemptEvent) {
-	if !w.enabled || event.Event != "end" || len(w.attempts) >= serverAIMaxAttempts {
+	if event.Event != "end" || len(w.attempts) >= serverAIMaxAttempts {
 		return
 	}
 	w.attempts = append(w.attempts, event)
-	if encoded, err := json.Marshal(w.attempts); err == nil {
-		w.writer.Header().Set(aiAttemptDetailsHeader, string(encoded))
+	w.writeHeader()
+}
+
+// writeHeader 在原8KiB预算内保留全部尝试；压缩详情时标明截断，不让整批记录因响应头过大被丢弃。
+func (w *aiAttemptDetailsWriter) writeHeader() {
+	if !w.enabled {
+		return
+	}
+	compact := append([]serverAIAttemptEvent(nil), w.attempts...)
+	for limit := 1024; limit >= 0; limit /= 2 {
+		for index := range compact {
+			text, clipped := clipAIErrorText(compact[index].ErrorDetail, limit)
+			compact[index].ErrorDetail = text
+			compact[index].ErrorDetailTruncated = compact[index].ErrorDetailTruncated || clipped
+		}
+		var output bytes.Buffer
+		encoder := json.NewEncoder(&output)
+		encoder.SetEscapeHTML(false) // 响应头不是HTML；避免错误中的<>&无谓膨胀并挤掉其他尝试。
+		if err := encoder.Encode(compact); err == nil && output.Len()-1 <= 8<<10 {
+			w.writer.Header().Set(aiAttemptDetailsHeader, strings.TrimSuffix(output.String(), "\n"))
+			return
+		}
+		if limit == 0 {
+			break
+		}
 	}
 }
 
 // stop 标记退避或下一次开始前停止，避免把计划重试写成已经发起了下一次请求。
 func (w *aiAttemptDetailsWriter) stop(err error) {
-	if !w.enabled || err == nil || len(w.attempts) == 0 {
+	if err == nil || len(w.attempts) == 0 {
 		return
 	}
 	last := &w.attempts[len(w.attempts)-1]
@@ -167,7 +194,5 @@ func (w *aiAttemptDetailsWriter) stop(err error) {
 		return
 	}
 	last.WillRetry, last.StopReason = false, aiProxyReason(err, "retry_stopped")
-	if encoded, marshalErr := json.Marshal(w.attempts); marshalErr == nil {
-		w.writer.Header().Set(aiAttemptDetailsHeader, string(encoded))
-	}
+	w.writeHeader()
 }

@@ -61,7 +61,7 @@ func TestBuiltinProxyFailureBoundary(t *testing.T) {
 			if json.Unmarshal([]byte(rec.Header().Get(aiUpstreamFailureHeader)), &d) != nil || d.Phase != tc.phase || d.Reason != tc.reason || d.HTTPStatus != tc.upstream || d.LimitMS != 180000 {
 				t.Fatalf("unexpected failure: %+v HTTP %d", d, rec.Code)
 			}
-			if rec.Code != 422 || !strings.Contains(rec.Body.String(), "AI_RETRY_EXHAUSTED") || rec.Header().Get("X-GoodHR-AI-Attempts") != "4" {
+			if rec.Code != 424 || !strings.Contains(rec.Body.String(), "AI_RETRY_EXHAUSTED") || rec.Header().Get("X-GoodHR-AI-Attempts") != "4" {
 				t.Fatalf("服务器预算没有终止：%d %s", rec.Code, rec.Body.String())
 			}
 		})
@@ -95,7 +95,7 @@ func TestBuiltinProxyInterruptedStream(t *testing.T) {
 			service.CompatibleChat(rec, req)
 			body := rec.Body.String()
 			if mode != "clean-eof" {
-				if rec.Code != 422 || strings.Contains(body, "fixture") || !strings.Contains(body, "AI_RETRY_EXHAUSTED") {
+				if rec.Code != 424 || strings.Contains(body, "fixture") || !strings.Contains(body, "AI_RETRY_EXHAUSTED") {
 					t.Fatal("失败流被提前转给客户端", body)
 				}
 				if mode == "legacy" {

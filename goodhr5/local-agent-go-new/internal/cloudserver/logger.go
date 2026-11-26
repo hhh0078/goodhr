@@ -12,6 +12,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/flow/auto_reply"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"goodhr5/local-agent-go-new/internal/system/failurediag"
@@ -41,10 +42,14 @@ func (l *runLogger) Step(task, flow, step, status string, began time.Time, err e
 	l.run.mu.Unlock()
 	details := failurediag.Details(err)
 	description := ""
+	safeAI := ai.SafeRequestErrorSummary(err)
 	if err != nil {
 		description = safeRunFailure(step)
 		if len(details) > 0 {
 			description = failurediag.Summary(details)
+		}
+		if safeAI != "" {
+			description = safeAI
 		}
 	}
 	var scoped *auto_reply.ScopedFailure
@@ -52,7 +57,7 @@ func (l *runLogger) Step(task, flow, step, status string, began time.Time, err e
 	if errors.As(err, &scoped) {
 		position, conversation = scoped.Position, scoped.Conversation
 	}
-	l.logEvent(step, status, description, began, nil, position, conversation, details)
+	l.logEvent(step, status, description, began, nil, position, conversation, details, safeAI != "")
 }
 
 // ReportAnalysis 将现有工作流发出的简历整理、条件复核及送达阶段写入时间线。
@@ -69,7 +74,7 @@ func (l *runLogger) ReportAnalysis(task string, s shared.AnalysisStatus) {
 	l.analysis = s
 	l.mu.Unlock()
 	if !sameEvent {
-		l.logEvent(s.Stage, s.Phase, s.Reason, time.Time{}, s.DurationMS, s.PositionID, "", s.FailureDiagnostics)
+		l.logEvent(s.Stage, s.Phase, s.Reason, time.Time{}, s.DurationMS, s.PositionID, "", s.FailureDiagnostics, false)
 	}
 }
 
@@ -92,7 +97,7 @@ func (l *runLogger) ResetAnalysis(task string) {
 }
 
 // logEvent 用独立稳定编号记录一次真实事件，持久层失败则终止继续执行网页操作。
-func (l *runLogger) logEvent(title, status, description string, began time.Time, measured *int64, eventPosition, eventConversation string, details []failurediag.Detail) {
+func (l *runLogger) logEvent(title, status, description string, began time.Time, measured *int64, eventPosition, eventConversation string, details []failurediag.Detail, safeAI bool) {
 	l.mu.Lock()
 	conversation, position := l.conversation, l.position
 	l.mu.Unlock()
@@ -118,7 +123,9 @@ func (l *runLogger) logEvent(title, status, description string, began time.Time,
 	event := map[string]any{"run_id": l.run.id, "position_id": position, "conversation_id": conversation, "title": title, "status": status, "description": description, "occurred_at": now}
 	if len(details) > 0 {
 		event["failure_diagnostics"] = details
-		event["description"] = failurediag.Summary(details)
+		if !safeAI {
+			event["description"] = failurediag.Summary(details)
+		}
 	}
 	if measured != nil {
 		event["duration_ms"] = *measured
