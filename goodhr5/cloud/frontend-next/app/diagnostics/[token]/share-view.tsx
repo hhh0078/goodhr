@@ -215,8 +215,10 @@ export default function DiagnosticShareView() {
 function DiagnosticLine({ item }: { item: SharedLog }) {
   const event = item.event;
   const isError = Boolean(event?.is_error || item.level === "error");
-  const body = typeof event?.message === "string" ? event.message.trim() : "";
-  const messages = diagnosticMessages(body || item.message, event?.error_message);
+  const body = (typeof event?.message === "string" ? event.message.trim() : "") || item.message;
+  const error = typeof event?.error_message === "string" ? event.error_message.trim() : "";
+  const message = error || body;
+  const messages = diagnosticMessages(message, body);
   return (
     <Card
       className="public-diagnostic-panel"
@@ -250,7 +252,7 @@ function DiagnosticLine({ item }: { item: SharedLog }) {
             fontWeight: isError ? 650 : 400,
           }}
         >
-          {messages[0] || "运行记录"}
+          {message || "运行记录"}
         </Typography.Paragraph>
         {isError &&
         messages[1] ? (

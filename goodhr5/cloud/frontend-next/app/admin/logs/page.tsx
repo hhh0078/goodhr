@@ -110,10 +110,9 @@ function logEvent(item: LogItem): LogEvent | undefined {
 function readableMessage(item: LogItem, event?: LogEvent): string {
   const error = logText(event?.error_message);
   const message = logText(event?.message);
-  if (item.category !== "运行" && error) return diagnosticMessages(error, message)[0];
-  if (message) return diagnosticMessages(message, error)[0];
-  if (error || logText(event?.exit_reason))
-    return error || logText(event?.exit_reason);
+  if (error) return error;
+  if (message) return message;
+  if (logText(event?.exit_reason)) return logText(event?.exit_reason);
   const action =
     logActionLabels[logText(event?.action)] ||
     logActionLabels[logText(event?.step)];
@@ -145,7 +144,7 @@ function formatLogTime(value: string): string {
 function LogDetails({ item }: { item: LogItem }) {
   const event = logEvent(item);
   const message = readableMessage(item, event);
-  const messages = diagnosticMessages(message, item.category !== "运行" ? event?.message : event?.error_message);
+  const messages = diagnosticMessages(message, event?.message);
   return (
     <Flex vertical gap={10} style={{ overflowWrap: "anywhere" }}>
       <Typography.Text type={item.category !== "运行" ? "danger" : undefined} style={{ whiteSpace: "pre-wrap" }}>
