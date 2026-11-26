@@ -18,6 +18,21 @@ import (
 
 const maxAIErrorDetailBytes = 4096
 
+// aiFinalFailurePayload 保持现有字段合同，并让旧版截取正文前500字时首先读到具体终止原因。
+type aiFinalFailurePayload map[string]any
+
+// MarshalJSON 将错误摘要放在逐次详情之前，完整历史仍保留在后面的attempts字段。
+func (body aiFinalFailurePayload) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Error          any `json:"error"`
+		Code           any `json:"code"`
+		AttemptCount   any `json:"attempt_count,omitempty"`
+		UpstreamStatus any `json:"upstream_status,omitempty"`
+		StopReason     any `json:"stop_reason,omitempty"`
+		Attempts       any `json:"attempts"`
+	}{body["error"], body["code"], body["attempt_count"], body["upstream_status"], body["stop_reason"], body["attempts"]})
+}
+
 var aiErrorHeaderLine = regexp.MustCompile(`(?im)(?:proxy-authorization|authorization|set-cookie|cookie|x-api-key)\s*[:=]\s*[^\r\n]+`)
 var aiErrorURLUser = regexp.MustCompile(`(?i)(https?://)[^\s/<>"']+@`)
 var aiErrorToken = regexp.MustCompile(`\b(?:sk-[A-Za-z0-9_-]{8,}|ghai_[A-Za-z0-9_-]{8,})\b`)
@@ -324,7 +339,7 @@ func fillAIErrorDetail(event *serverAIAttemptEvent, response *http.Response, raw
 }
 
 // aiFinalFailureBody 给新旧客户端返回具体终止原因及逐次详情；保留原错误码并由调用方返回不可重试的4xx。
-func aiFinalFailureBody(err error, attempts []serverAIAttemptEvent) map[string]any {
+func aiFinalFailureBody(err error, attempts []serverAIAttemptEvent) aiFinalFailurePayload {
 	detail, stop, upstreamStatus := "", "", 0
 	var failure *serverAIRequestError
 	if errors.As(err, &failure) {
@@ -356,7 +371,7 @@ func aiFinalFailureBody(err error, attempts []serverAIAttemptEvent) map[string]a
 		summary += "…（完整原因见错误详情）"
 	}
 	message := "AI 请求失败：" + summary
-	body := map[string]any{"error": message, "code": "AI_RETRY_EXHAUSTED", "attempts": attempts}
+	body := aiFinalFailurePayload{"error": message, "code": "AI_RETRY_EXHAUSTED", "attempts": attempts}
 	if len(attempts) > 0 {
 		body["attempt_count"] = len(attempts)
 		body["error"] = fmt.Sprintf("AI 请求失败（共请求%d次）：%s", len(attempts), summary)
