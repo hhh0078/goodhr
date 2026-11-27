@@ -76,6 +76,7 @@ import {
   type SubscriptionStatus,
 } from "@/lib/subscription";
 import { reportUserFlow } from "@/lib/user-flow";
+import { INSUFFICIENT_START_BALANCE_MESSAGE, MINIMUM_POSITION_BALANCE_YUAN, walletBalanceYuan } from "@/lib/position-start-guard";
 import AdminDialog from "./AdminDialog";
 import AdminSystemDialogs from "./AdminSystemDialogs";
 import ChoiceCards from "./ChoiceCards";
@@ -98,6 +99,8 @@ type AdminContextValue = {
   agentBase: string;
   refreshAgent: () => Promise<boolean>;
   refreshSession: () => Promise<void>;
+  ensureStartBalance: () => Promise<boolean>;
+  showInsufficientBalance: () => void;
   wechatOfficialStatus: WechatOfficialStatus | null;
   refreshWechatOfficialStatus: () => Promise<void>;
   openWechatOfficial: () => void;
@@ -228,6 +231,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     useState<SubscriptionStatus>(EMPTY_SUBSCRIPTION);
   const [aiWallet, setAIWallet] = useState<any>({});
   const [rechargeOpen, setRechargeOpen] = useState(false);
+  const [insufficientBalanceOpen, setInsufficientBalanceOpen] = useState(false);
+  const startBalanceRequest = useRef<Promise<boolean> | null>(null);
+  const startBalanceController = useRef<AbortController | null>(null);
   const [appConfig, setAppConfig] = useState<any>({});
   const [onboardingConfig, setOnboardingConfig] = useState<any>({});
   const [wechatOfficialStatus, setWechatOfficialStatus] =
@@ -388,6 +394,43 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  /** showInsufficientBalance 统一显示启动余额提示，充值复用顶部余额入口的原有弹框。 */
+  const showInsufficientBalance = useCallback(() => setInsufficientBalanceOpen(true), []);
+
+  /** ensureStartBalance 在任何启动操作前读取云端最新余额；合并慢请求，换账号或离开页面后丢弃旧结果。 */
+  const ensureStartBalance = useCallback((): Promise<boolean> => {
+    if (startBalanceRequest.current) return startBalanceRequest.current;
+    const token = localStorage.getItem(TOKEN_KEY) || "";
+    if (!token || logoutPendingRef.current) return Promise.resolve(false);
+    const controller = new AbortController();
+    startBalanceController.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    const request = (async () => {
+      try {
+        const payload = await cloudRequest("/api/ai-wallet", { signal: controller.signal });
+        if (controller.signal.aborted || token !== localStorage.getItem(TOKEN_KEY) || logoutPendingRef.current) return false;
+        const wallet = payload?.wallet || payload;
+        const balance = walletBalanceYuan(wallet);
+        if (balance === null) throw new Error("余额暂时没读到，请稍后再试。");
+        setAIWallet(wallet);
+        if (balance < MINIMUM_POSITION_BALANCE_YUAN) { showInsufficientBalance(); return false; }
+        return true;
+      } catch (cause) {
+        if (token === localStorage.getItem(TOKEN_KEY) && !logoutPendingRef.current && startBalanceController.current === controller)
+          notify(controller.signal.aborted ? "余额检查超时了，请稍后再试。" : cause instanceof Error ? cause.message : "余额暂时没读到，请稍后再试。", "error");
+        return false;
+      } finally { window.clearTimeout(timeout); }
+    })();
+    startBalanceRequest.current = request;
+    void request.finally(() => { if (startBalanceRequest.current === request) startBalanceRequest.current = null; });
+    return request;
+  }, [notify, showInsufficientBalance]);
+
+  useEffect(() => {
+    setInsufficientBalanceOpen(false);
+    return () => { const controller = startBalanceController.current; startBalanceController.current = null; controller?.abort(); };
+  }, [user?.id, user?.email]);
 
   /** confirm 显示需要用户确认的中间弹框。 */
   const confirm = useCallback(
@@ -617,6 +660,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       agentBase,
       refreshAgent,
       refreshSession,
+      ensureStartBalance,
+      showInsufficientBalance,
       wechatOfficialStatus,
       refreshWechatOfficialStatus,
       openWechatOfficial,
@@ -631,6 +676,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       agentBase,
       refreshAgent,
       refreshSession,
+      ensureStartBalance,
+      showInsufficientBalance,
       wechatOfficialStatus,
       refreshWechatOfficialStatus,
       openWechatOfficial,
@@ -847,6 +894,10 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </Card>
           </Layout.Content>
           <AIRechargeFlow key={`recharge:${user?.id || user?.email || ""}`} open={rechargeOpen} wallet={aiWallet} agentBase={agentBase} onClose={() => setRechargeOpen(false)} onPaid={refreshSession} confirm={confirm} notify={notify} />
+          <AdminDialog open={insufficientBalanceOpen} title="余额不足" maxWidth="xs" cancelText="取消" confirmText="充值" onClose={() => setInsufficientBalanceOpen(false)}
+            onConfirm={() => { setInsufficientBalanceOpen(false); setRechargeOpen(true); }}>
+            <Typography.Paragraph style={{ marginBottom: 0 }}>{INSUFFICIENT_START_BALANCE_MESSAGE}</Typography.Paragraph>
+          </AdminDialog>
           <AdminDialog
             open={trialWelcomeOpen && teamInvitations.length === 0 && !onboardingActivity.engaged}
             title={`${subscription.member_name || "Max 全能体验版"}已到账`}

@@ -130,3 +130,14 @@ test("旧模式或云端重建标记任一命中即拦截，展示转换与缺�
     { common_config: { mode_default: "ai", detail_mode: "dom" } },
   ]) assert.equal(positionRequiresRecreate(position), false);
 });
+
+test("启动余额门槛按元及最小单位判断，边界0.1元允许且提示统一", async () => {
+  const { INSUFFICIENT_START_BALANCE_MESSAGE, isInsufficientStartBalance } = await import("./position-start-guard.ts");
+  for (const wallet of [{ balance: "0.0522" }, { balance_units: 999 }, { balance_cents: 9 }]) {
+    assert.equal(evaluatePositionStartGuard(wallet, "6.3", "6.3", true)?.message, INSUFFICIENT_START_BALANCE_MESSAGE);
+  }
+  for (const wallet of [{ balance: "0.1" }, { balance_units: 1000 }, { balance_cents: 10 }]) assert.equal(evaluatePositionStartGuard(wallet, "6.3", "6.3", true), null);
+  assert.equal(isInsufficientStartBalance({ code: "AI_BALANCE_INSUFFICIENT" }), true);
+  assert.equal(isInsufficientStartBalance(new Error("AI 余额不足 0.10 元")), true);
+  assert.equal(isInsufficientStartBalance(new Error("余额暂时没查出来")), false);
+});

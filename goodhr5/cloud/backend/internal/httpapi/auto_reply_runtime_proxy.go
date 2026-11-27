@@ -53,6 +53,10 @@ func (s *AutoReplyService) runtimeProxy(w http.ResponseWriter, r *http.Request) 
 			writeAutoReplyError(w, 409, "PLATFORM_MISMATCH", "当前招聘页面和岗位的平台没对上，请核对后重试")
 			return
 		}
+		if failure := validateStartAIBalance(s.aiWallet, access.Session.Email); failure != nil {
+			writeAutoReplyError(w, failure.status, failure.code, failure.message)
+			return
+		}
 		r.Body = io.NopCloser(bytes.NewReader(raw))
 	}
 	uid, err := s.store.activeTenantUserID(r.Context(), access.Tenant.ID, access.Session.Email)

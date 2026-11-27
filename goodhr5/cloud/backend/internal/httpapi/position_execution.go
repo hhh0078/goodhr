@@ -18,6 +18,21 @@ type positionStartError struct {
 	message string
 }
 
+// validateStartAIBalance 在创建岗位或自动回复任务前核对最新钱包余额，0.1元为共同门槛，不预扣或锁定资金。
+func validateStartAIBalance(wallet AIWalletStore, email string) *positionStartError {
+	if wallet == nil {
+		return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "余额暂时没查出来，请稍后再试。"}
+	}
+	balance, err := wallet.BalanceUnits(email)
+	if err != nil {
+		return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "余额暂时没查出来，请稍后再试。"}
+	}
+	if balance < minimumPositionAIBalanceUnits {
+		return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "余额不足0.1元，请充值后再试。"}
+	}
+	return nil
+}
+
 // PositionExecutionService 处理岗位运行状态、候选人同步和结束通知。
 type PositionExecutionService struct {
 	auth           *AuthService
@@ -296,15 +311,8 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 		if !isOfficialAIURL(config.BaseURL) {
 			return &positionStartError{status: http.StatusForbidden, code: "BUILTIN_AI_REQUIRED", message: builtinAIRequiredMessage}
 		}
-		if s.aiWallet == nil {
-			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
-		}
-		balance, err := s.aiWallet.BalanceUnits(email)
-		if err != nil {
-			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
-		}
-		if balance < minimumPositionAIBalanceUnits {
-			return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "AI 余额不足 0.10 元，岗位这次没有启动，请先充值"}
+		if failure := validateStartAIBalance(s.aiWallet, email); failure != nil {
+			return failure
 		}
 	}
 	if err := s.store.ClaimPositionStart(email, position.ID); err != nil {

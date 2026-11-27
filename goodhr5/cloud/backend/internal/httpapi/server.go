@@ -145,6 +145,7 @@ func NewServer() (*Server, error) {
 		startReplyFilePurge(context.Background(), db, os.Getenv("GOODHR_AUTO_REPLY_FILES_DIR"))
 	}
 	autoReplyService := NewAutoReplyService(auth, autoReplyStore, tenantStore, positionStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, agentStore, mailer)
+	autoReplyService.aiWallet = aiWalletStore
 	candidates.autoReply = autoReplyStore
 	recruitment := NewRecruitmentService(auth, recruitmentStore, tenantStore, candidateStore, positionStore)
 	recruitmentMail := NewRecruitmentMailService(auth, recruitmentMailStore, tenantStore, mailer, recruitment)

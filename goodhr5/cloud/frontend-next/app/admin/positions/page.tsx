@@ -94,6 +94,7 @@ import {
 } from "@/lib/platform-login";
 import {
   evaluatePositionStartGuard,
+  isInsufficientStartBalance,
   positionRequiresRecreate,
   POSITION_RECREATE_MESSAGE,
   latestLocalAgentRelease,
@@ -156,7 +157,7 @@ type FloatingPositionTask = {
 /** PositionsPage 管理岗位筛选、详情识别和 AI 提示词配置。 */
 export default function PositionsPage() {
   const router = useRouter();
-  const { user, subscription, notify, confirm, agentBase } =
+  const { user, subscription, notify, confirm, agentBase, ensureStartBalance, showInsufficientBalance } =
     useAdmin();
   const screeningAccount = `${user?.tenant_id || ""}:${user?.id || user?.email || ""}`;
   const [items, setItems] = useState<any[]>([]);
@@ -184,6 +185,7 @@ export default function PositionsPage() {
   const lastGuideActive = useRef(false);
   const lastDraftIdentity = useRef("");
   const pageMountedRef = useRef(true);
+  const checkingStartBalance = useRef(false);
   const queuedTutorialRecovery = useRef("");
   const recoveringTutorialPosition = useRef("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -769,33 +771,40 @@ export default function PositionsPage() {
       notify(error instanceof Error ? error.message : "删除失败", "error");
     }
   }
-  /** openStartPosition 展开岗位日志并打开启动确认弹框。 */
-  function openStartPosition(item: any) {
-    if (startOperationInFlight.current) return;
+  /** openStartPosition 先检查最新余额，符合启动门槛后再展开日志与准备弹框。 */
+  async function openStartPosition(item: any) {
+    if (startOperationInFlight.current || checkingStartBalance.current) return;
     if (positionRequiresRecreate(item)) {
       setLegacyPositionWarning(true);
       return;
     }
-    if (!agentBase) return notify("请先启动本地程序", "warning");
-    if (getOnboardingGuideContext().active && !isPlatformOpen(platformConfigs, item.platform_id)) {
-      publishOnboardingEvent({ type: "platform-unavailable", platformId: String(item.platform_id || ""), message: "这个岗位的平台暂未开放，请重新选择可用平台。岗位会保留，我不会替你换平台开跑。" });
-      return;
-    }
-    setExpandedLogPositionID(item.id);
-    void loadPositionLogs(item);
-    setStartStatus("");
-    setStartError("");
-    startDialogEpoch.current += 1;
-    startDialogPositionID.current = String(item.id);
-    setStartLoading(false);
-    setStartOpeningPlatform(false);
-    setStartPlatformOpened(false);
-    setStartRequiresUpdate(false);
-    setStartGuardFailure(null);
-    setStartGuardRechecking(false);
-    pendingStartDialogClose.current = false;
-    setStartPositionItem(item);
-    publishOnboardingEvent({ type: "start-dialog-opened", positionId: String(item.id), platformId: String(item.platform_id || "") });
+    const ownerToken = getToken();
+    const ownerIdentity = draftIdentity;
+    checkingStartBalance.current = true;
+    setBusyPositionID(item.id);
+    try {
+      if (!await ensureStartBalance() || !pageMountedRef.current || ownerToken !== getToken() || ownerIdentity !== lastDraftIdentity.current) return;
+      if (!agentBase) return notify("请先启动本地程序", "warning");
+      if (getOnboardingGuideContext().active && !isPlatformOpen(platformConfigs, item.platform_id)) {
+        publishOnboardingEvent({ type: "platform-unavailable", platformId: String(item.platform_id || ""), message: "这个岗位的平台暂未开放，请重新选择可用平台。岗位会保留，我不会替你换平台开跑。" });
+        return;
+      }
+      setExpandedLogPositionID(item.id);
+      void loadPositionLogs(item);
+      setStartStatus("");
+      setStartError("");
+      startDialogEpoch.current += 1;
+      startDialogPositionID.current = String(item.id);
+      setStartLoading(false);
+      setStartOpeningPlatform(false);
+      setStartPlatformOpened(false);
+      setStartRequiresUpdate(false);
+      setStartGuardFailure(null);
+      setStartGuardRechecking(false);
+      pendingStartDialogClose.current = false;
+      setStartPositionItem(item);
+      publishOnboardingEvent({ type: "start-dialog-opened", positionId: String(item.id), platformId: String(item.platform_id || "") });
+    } finally { checkingStartBalance.current = false; if (pageMountedRef.current) setBusyPositionID(current => current === item.id ? "" : current); }
   }
   /** closeStartDialog 等待正在进行的真实操作结束后关闭弹框，再通知教程回退，避免指向弹框背后。 */
   function closeStartDialog() {
@@ -881,6 +890,11 @@ export default function PositionsPage() {
         usesAI,
       );
       if (guardFailure) {
+        if (guardFailure.code === "ai_balance_insufficient") {
+          pendingStartDialogClose.current = true;
+          showInsufficientBalance();
+          return false;
+        }
         await reportUserFlow({
           step: "position_started",
           status: "blocked",
@@ -972,13 +986,15 @@ export default function PositionsPage() {
     /** canContinueStart 在真正运行前复查弹框归属及关闭请求，防止迟到检查启动已经取消的任务。 */
     const canContinueStart = () => isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id)) && !pendingStartDialogClose.current;
     startOperationInFlight.current = true;
-    const floatingWindowPromise = openPositionFloatingWindow();
+    let floatingWindowPromise: Promise<Window | null> = Promise.resolve(null);
     let started = false;
     setStartLoading(true);
     setBusyPositionID(item.id);
     setStartStatus("正在检查岗位启动条件...");
     setStartError("");
     try {
+      if (!(await checkPositionStartGuard(item, canContinueStart)) || !canContinueStart()) return;
+      floatingWindowPromise = openPositionFloatingWindow();
       const pipWindow = await floatingWindowPromise;
       if (!canContinueStart()) { pipWindow?.close(); return; }
       if (pipWindow) {
@@ -995,7 +1011,6 @@ export default function PositionsPage() {
           skippedCount: 0,
         });
       }
-      if (!(await checkPositionStartGuard(item, canContinueStart)) || !canContinueStart()) return;
       const subscriptionData = await cloudRequest("/api/subscription/status");
       if (!canContinueStart()) return;
       const currentSubscription = normalizeSubscription(
@@ -1103,6 +1118,7 @@ export default function PositionsPage() {
       await Promise.all([load(), loadPositionLogs(item)]);
     } catch (error) {
       if (!isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id)) || pendingStartDialogClose.current) return;
+      if (isInsufficientStartBalance(error)) { pendingStartDialogClose.current = true; showInsufficientBalance(); return; }
       const message = error instanceof Error ? error.message : "岗位启动失败";
       setStartStatus(message);
       setStartError(message);

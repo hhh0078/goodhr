@@ -76,3 +76,78 @@ for (const width of [1366, 390]) {
     expect(state.errors).toEqual([]);
   });
 }
+
+/** 余额启动回归：用页面已有12元、服务器最新0.0522元验证先读最新余额，充值只打开既有弹框。 */
+for (const width of [1366, 390]) for (const entry of ["岗位", "自动回复"]) test(`${entry}开始前余额不足直接充值 ${width}`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: 900 });
+  const state = await mockUniformAdmin(page);
+  let balance = "12.0000";
+  await page.route("**/api/ai-wallet", route => route.fulfill({ headers, json: { balance, balance_units: Math.round(Number(balance) * 10000), models, default_model: models[0].id } }));
+  await page.route("**/api/config/user-ai", route => route.fulfill({ headers, json: { config: { base_url: "https://goodhr.58it.cn/api/ai-compatible/v1/chat/completions", api_key_set: true, model: models[0].id } } }));
+  await page.route(/\/api\/(?:auto-reply\/|v1\/local\/auto-reply\/)/, async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    if (path.endsWith("/auto-reply/status")) return route.fulfill({ headers, json: { ok: true, data: { status: "stopped" } } });
+    if (path.endsWith("/questions/summary")) return route.fulfill({ headers, json: { pending_count: 0, positions: [] } });
+    if (path.endsWith("/logs")) return route.fulfill({ headers, json: { items: [], next_cursor: "" } });
+    if (/\/positions\/[^/]+\/status$/.test(path)) return route.fulfill({ headers, json: { configured_enabled: false, enabled: false, version: 1 } });
+    throw new Error(`余额不足不应调用 ${path}`);
+  });
+  await page.goto("/admin/positions");
+  await expect(page.getByRole("button", { name: "AI余额充值", exact: true })).toHaveText("AI余额 ￥12");
+  balance = "0.0522";
+  const before = state.calls.length;
+  if (entry === "岗位") await page.getByRole("button", { name: "开始", exact: true }).first().click();
+  else {
+    await page.getByTestId("auto-reply-global").click();
+    await page.getByRole("dialog", { name: "自动回复", exact: true }).getByRole("button", { name: "开始自动回复", exact: true }).click();
+  }
+  const insufficient = page.getByRole("dialog", { name: "余额不足", exact: true });
+  await expect(insufficient).toBeVisible();
+  await expect(insufficient).toHaveCSS("transform", "none");
+  await expect(insufficient).toContainText("余额不足0.1元，请充值后再试。");
+  await expect(page.getByRole("dialog", { name: "岗位还没启动成功", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "开始招聘岗位", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "确认当前招聘账号", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath(`start-balance-${entry}-${width}.png`), animations: "disabled" });
+  await insufficient.getByRole("button", { name: "充值", exact: true }).click();
+  const recharge = page.getByRole("dialog", { name: "充值 AI 余额", exact: true });
+  await expect(recharge).toBeVisible();
+  await expect(recharge.getByRole("button", { name: "去支付", exact: true })).toBeVisible();
+  expect(state.calls.slice(before).filter(call => /\/(?:run|start|page\/open)$/.test(call.path))).toEqual([]);
+  expect(state.calls.some(call => call.path === "/api/payment/ai-balance")).toBe(false);
+  expect(state.errors).toEqual([]);
+  await recharge.getByRole("button", { name: "先不充", exact: true }).click();
+  balance = "0.1000";
+  if (entry === "岗位") {
+    await page.getByRole("button", { name: "开始", exact: true }).first().click();
+    await expect(page.getByRole("dialog", { name: "开始招聘岗位", exact: true })).toBeVisible();
+  } else {
+    await page.getByRole("dialog", { name: "自动回复", exact: true }).getByRole("button", { name: "开始自动回复", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "确认当前招聘账号", exact: true })).toBeVisible();
+  }
+});
+
+test("余额不足仍可停止自动回复，不额外检查启动余额", async ({ page }) => {
+  await mockUniformAdmin(page);
+  let walletReads = 0, stopped = 0, running = true;
+  await page.route("**/api/ai-wallet", route => { walletReads++; return route.fulfill({ headers, json: { balance: "0.0522", balance_units: 522 } }); });
+  await page.route(/\/api\/(?:auto-reply\/|v1\/local\/auto-reply\/)/, async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    if (path.endsWith("/auto-reply/status")) return route.fulfill({ headers, json: { ok: true, data: { status: running ? "running" : "stopped" } } });
+    if (path.endsWith("/auto-reply/stop")) { stopped++; running = false; return route.fulfill({ headers, json: { ok: true, data: { status: "stopped" } } }); }
+    if (path.endsWith("/questions/summary")) return route.fulfill({ headers, json: { pending_count: 0, positions: [] } });
+    if (path.endsWith("/logs")) return route.fulfill({ headers, json: { items: [], next_cursor: "" } });
+    if (/\/positions\/[^/]+\/status$/.test(path)) return route.fulfill({ headers, json: { enabled: false, version: 1 } });
+    throw new Error(`停止不应调用 ${path}`);
+  });
+  await page.goto("/admin/positions");
+  await page.getByTestId("auto-reply-global").click();
+  const workspace = page.getByRole("dialog", { name: "自动回复", exact: true });
+  const readsBeforeStop = walletReads;
+  await workspace.getByRole("button", { name: "停止自动回复", exact: true }).click();
+  await expect.poll(() => stopped).toBe(1);
+  expect(walletReads).toBe(readsBeforeStop);
+  await expect(page.getByRole("dialog", { name: "余额不足", exact: true })).toHaveCount(0);
+});

@@ -2,6 +2,7 @@
 import { positionDetailMode } from "./position-detail-mode.ts";
 
 export const MINIMUM_POSITION_BALANCE_YUAN = 0.1;
+export const INSUFFICIENT_START_BALANCE_MESSAGE = "余额不足0.1元，请充值后再试。";
 export const POSITION_RECREATE_MESSAGE = "这个岗位还在使用旧版配置，暂时不能启动。请先复制岗位名称和要求，再删除该岗位并重新创建。";
 
 /** positionRequiresRecreate 根据云端原始配置标记判断是否必须重建，兼容旧接口的原始模式字段。 */
@@ -48,7 +49,7 @@ export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown,
       return {
         code: "ai_balance_insufficient",
         title: "AI 余额不足",
-        message: `当前 AI 余额为 ￥${balance.toFixed(4)}，低于岗位运行启动要求的 ￥${MINIMUM_POSITION_BALANCE_YUAN.toFixed(2)}。请先充值，本次岗位运行不会开始。`,
+        message: INSUFFICIENT_START_BALANCE_MESSAGE,
       };
     }
   }
@@ -76,6 +77,13 @@ export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown,
     };
   }
   return null;
+}
+
+/** isInsufficientStartBalance 识别服务端最终校验的余额不足结果，覆盖检查后余额又发生变化的情况。 */
+export function isInsufficientStartBalance(cause: unknown): boolean {
+  const value = cause as { code?: unknown; message?: unknown } | null;
+  return String(value?.code || "").toLowerCase() === "ai_balance_insufficient"
+    || /余额\s*不足/.test(typeof value?.message === "string" ? value.message : "");
 }
 
 /** positionUsesAI 判断岗位的基础筛选或详情筛选是否启用了 AI 模式。 */

@@ -18,6 +18,7 @@ const autoReplyJSONBodyLimit = 2 << 20
 
 // AutoReplyService 处理自动回复前端配置和本地 Agent 数据接口。
 type AutoReplyService struct {
+	aiWallet      AIWalletStore
 	runtime       http.Handler
 	ai            *AIConfigService
 	auth          *AuthService

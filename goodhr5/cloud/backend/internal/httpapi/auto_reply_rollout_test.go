@@ -103,8 +103,11 @@ func newRolloutHTTPFixture(t *testing.T) (editableFactFixture, *AutoReplyService
 	}
 	positions := NewMemoryPositionStore()
 	positions.positions[f.pos] = Position{ID: f.pos, UserEmail: email, PlatformID: "liepin", Name: "开发工程师"}
+	wallet := NewMemoryAIWalletStore()
+	wallet.balances[email] = minimumPositionAIBalanceUnits
 	s := &AutoReplyService{
-		auth: &AuthService{store: auth, superAdmins: map[string]struct{}{email: {}}}, store: f.store,
+		aiWallet: wallet,
+		auth:     &AuthService{store: auth, superAdmins: map[string]struct{}{email: {}}}, store: f.store,
 		tenants: tenants, agents: agents, positions: positions, subscriptions: NewMemorySubscriptionStore(), systemConfigs: NewMemorySystemConfigStore(),
 	}
 	return f, s, machine

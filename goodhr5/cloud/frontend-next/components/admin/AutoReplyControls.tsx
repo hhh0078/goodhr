@@ -15,6 +15,7 @@ import AutoReplyTestNotice from "./AutoReplyTestNotice";
 import { canUseAutoReply } from "@/lib/subscription";
 import { AUTO_REPLY_ROLLOUT_CLOSED, AUTO_REPLY_ROLLOUT_MESSAGE, isAutoReplyPlatformSupported } from "@/lib/auto-reply-rollout";
 import { loadReplyInboxSummary, type ReplyInboxSummary } from "@/lib/auto-reply-inbox";
+import { isInsufficientStartBalance } from "@/lib/position-start-guard";
 import { loadPositionAutoReplyConfig, loadPositionAutoReplyStatus, savePositionAutoReplyConfig, type PositionAutoReplyStatus } from "@/lib/auto-reply";
 import styles from "./auto-reply-inbox.module.css";
 
@@ -48,7 +49,7 @@ function replyAnalysis(task: ReplyTask | null): PositionAnalysisStatus | null {
 
 /** AutoReplyGlobalControl 串行读取服务器全局任务，刷新页面后仍能停止已在运行的自动回复。 */
 export function AutoReplyGlobalControl() {
-  const { agentBase, subscription, notify, confirm, user } = useAdmin();
+  const { agentBase, subscription, notify, confirm, user, ensureStartBalance, showInsufficientBalance } = useAdmin();
   const router = useRouter();
   const [task, setTask] = useState<ReplyTask | null>(null);
   const [busy, setBusy] = useState(false);
@@ -143,13 +144,15 @@ export function AutoReplyGlobalControl() {
       if (await confirm("自动回复需要 Max", "Max 或全功能体验会员可以自动回复。现在去看看套餐吗？")) router.push("/admin/subscription");
       return;
     }
-    if (!running && !account?.trim()) { setAccountOpen(true); return; }
     const base = agentBase;
     const stopping = running;
     operation.current = true; setBusy(true);
-    const floating = stopping ? Promise.resolve(null) : openPositionFloatingWindow();
+    let floating: Promise<Window | null> = Promise.resolve(null);
     try {
       if (!stopping) {
+        if (!await ensureStartBalance()) { setAccountOpen(false); return; }
+        if (!account?.trim()) { setAccountOpen(true); return; }
+        floating = openPositionFloatingWindow();
         await ensureLocalAgentReady(base);
         if (base !== currentAgent.current) throw new Error("本地连接已变化，请重新开始");
       }
@@ -165,7 +168,10 @@ export function AutoReplyGlobalControl() {
     } catch (cause) {
       const window = await floating;
       if (window) window.close();
-      if (base === currentAgent.current) notify(cause instanceof Error ? cause.message : "这次没跑顺，可以再试一次。", "error");
+      if (base === currentAgent.current) {
+        if (isInsufficientStartBalance(cause)) { setAccountOpen(false); showInsufficientBalance(); }
+        else notify(cause instanceof Error ? cause.message : "这次没跑顺，可以再试一次。", "error");
+      }
     } finally { operation.current = false; setBusy(false); }
   }
   /** retryReports 由HR确认后重试报告和简历待办，复用当前账号；不重新发送已处理的聊天。 */
