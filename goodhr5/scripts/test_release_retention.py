@@ -435,6 +435,29 @@ class RetentionTests(unittest.TestCase):
         with self.assertRaises(retention.GuardError):
             retention.check_activation(self.registry, evidence, reader, self.policy)
 
+    def test_activation_retry_accepts_only_verified_after_ledger(self):
+        """已升级后回退应用的重试只接纳同证据after账本；未知账本、权限和连接错误继续拒绝。"""
+        evidence = {"success": True, "legacy_data_preserved": True, "rollback_verified": True, "host": self.snapshot["host"], "source_commit": "a" * 40, "backend_image": iid(3), "frontend_image": iid(4), "before_migration_fingerprint": "a" * 64, "after_migration_fingerprint": self.fingerprint}
+        reader = FakeDocker(self.snapshot)
+        for actual in (self.fingerprint, "f" * 64):
+            def probe(registry, snapshot):
+                """模拟成功读取后的实际账本，保持真实探针的专用不匹配错误类型。"""
+                if registry["current_migration_fingerprint"] != actual:
+                    raise retention.MigrationFingerprintChanged("实际迁移账本已变化")
+                return actual
+            with patch.object(reader, "migration_fingerprint", side_effect=probe) as calls:
+                if actual == self.fingerprint:
+                    result = retention.check_activation(self.registry, evidence, reader, self.policy)
+                    self.assertEqual(result["observed_migration_fingerprint"], self.fingerprint)
+                    self.assertEqual(calls.call_count, 2)
+                else:
+                    with self.assertRaises(retention.MigrationFingerprintChanged):
+                        retention.check_activation(self.registry, evidence, reader, self.policy)
+        with patch.object(reader, "migration_fingerprint", side_effect=retention.GuardError("数据库连接失败")) as calls:
+            with self.assertRaises(retention.GuardError):
+                retention.check_activation(self.registry, evidence, reader, self.policy)
+            self.assertEqual(calls.call_count, 1)
+
     def test_snapshot_label_templates_are_nil_safe_and_never_request_env(self):
         """无标签基础镜像返回null而非模板失败，所有index均被if保护且不请求Env。"""
         reader = retention.DockerRetention()

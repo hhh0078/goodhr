@@ -19,6 +19,11 @@ guard = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(guard)
 require = guard.require
 GuardError = guard.GuardError
+
+
+class MigrationFingerprintChanged(GuardError):
+    """仅表示已成功读取真实账本但指纹不匹配，连接、权限及探针格式失败不能当作重试入口。"""
+
 POLICY_PATH = Path(__file__).with_name("release-policy.json")
 REGISTRY_PATH = "/opt/goodhr-release/retention-registry.json"
 ROLES = ("backend", "frontend")
@@ -338,11 +343,17 @@ def check_activation(registry, evidence, reader=None, policy=None):
     current = {role: evidence.get(role + "_image") for role in ROLES}
     require(all(isinstance(value, str) and IMAGE_ID.fullmatch(value) and value in snapshot["images"] for value in current.values()), "待激活镜像缺失或身份异常")
     probe_registry = dict(registry, current_migration_fingerprint=evidence["before_migration_fingerprint"])
-    reader.migration_fingerprint(probe_registry, snapshot)
+    observed = evidence["before_migration_fingerprint"]
+    try:
+        reader.migration_fingerprint(probe_registry, snapshot)
+    except MigrationFingerprintChanged:
+        # 自动回退只恢复应用，不撤销已成功的DDL；重试仍须是同一隔离证据已验证的升级后账本。
+        reader.migration_fingerprint(registry, snapshot)
+        observed = evidence["after_migration_fingerprint"]
     records, _ = verified_records(registry, snapshot["host"])
     selected, _ = select_rollbacks(records, current, snapshot["images"])
     require(reader.snapshot() == snapshot, "激活检查期间Docker快照发生变化")
-    return {"success": True, "host": snapshot["host"], "source_commit": evidence["source_commit"], "backend_image": current["backend"], "frontend_image": current["frontend"], "before_migration_fingerprint": evidence["before_migration_fingerprint"], "after_migration_fingerprint": evidence["after_migration_fingerprint"], "compatible_rollback_records": selected}
+    return {"success": True, "host": snapshot["host"], "source_commit": evidence["source_commit"], "backend_image": current["backend"], "frontend_image": current["frontend"], "before_migration_fingerprint": evidence["before_migration_fingerprint"], "after_migration_fingerprint": evidence["after_migration_fingerprint"], "observed_migration_fingerprint": observed, "compatible_rollback_records": selected}
 
 
 def safe_labels(fields):
@@ -401,7 +412,8 @@ class DockerRetention(guard.DockerReader):
         rows = self.query(["exec", probe["container"], "psql", "-X", "-v", "ON_ERROR_STOP=1", "-At", "-U", probe["user"], "-d", probe["database"], "-c", "SELECT filename FROM schema_migrations ORDER BY filename;"]).splitlines()
         require(rows and len(rows) == len(set(rows)) and all(re.fullmatch(r"[A-Za-z0-9_.-]+\.sql", row) for row in rows), "迁移探针结果缺失或格式异常")
         value = digest_bytes(json.dumps(sorted(rows), ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-        require(value == registry["current_migration_fingerprint"], "实际迁移账本已变化，兼容证据必须重新验证")
+        if value != registry["current_migration_fingerprint"]:
+            raise MigrationFingerprintChanged("实际迁移账本已变化，兼容证据必须重新验证")
         return value
 
     def remove_container(self, key):
