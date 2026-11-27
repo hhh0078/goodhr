@@ -281,7 +281,15 @@ func readBossHistoryWindow(ctx context.Context, browser model.Browser, cfg model
 		if progress.ProgressTargetVisible == nil || progress.ProgressTargetMoved == nil {
 			return bossConversationHistory{}, fmt.Errorf("浏览器未返回BOSS历史滚动位置，暂不判断已到顶部")
 		}
-		if unchanged && !*progress.ProgressTargetMoved && *progress.ProgressTargetVisible {
+		headAtTop := *progress.ProgressTargetVisible
+		if unchanged && !*progress.ProgressTargetMoved && !headAtTop {
+			// 小窗口会把整个聊天框上沿裁出屏幕；用原生几何复核容器顶部，不能把屏幕裁切误认为滚轮失效。
+			headAtTop, err = bossClippedHistoryHeadAtTop(ctx, browser, anchor, progressTarget)
+			if err != nil {
+				return bossConversationHistory{}, err
+			}
+		}
+		if unchanged && !*progress.ProgressTargetMoved && headAtTop {
 			stable++
 			if stable >= 2 {
 				result, _, err := bossHistoryBoundary(messages, knownSet, limit, after, 0, true)
@@ -290,13 +298,31 @@ func readBossHistoryWindow(ctx context.Context, browser model.Browser, cfg model
 			}
 		} else {
 			stable = 0
-			if unchanged && !*progress.ProgressTargetMoved && !*progress.ProgressTargetVisible {
+			if unchanged && !*progress.ProgressTargetMoved && !headAtTop {
 				return bossConversationHistory{}, fmt.Errorf("BOSS历史滚轮未到达消息区域，稍后再试")
 			}
 		}
 		needRead = !unchanged
 	}
 	return bossConversationHistory{}, fmt.Errorf("BOSS历史仍未核实完整，稍后继续")
+}
+
+// bossClippedHistoryHeadAtTop 只处理聊天容器上沿被屏幕裁切的情况；首条必须仍部分可见且顶边已在真实容器内。
+// 仅用标准Find读取边界框，继续要求两次真实向上滚轮和消息首尾不变；不读取scrollTop或注入脚本，三种系统共用。
+func bossClippedHistoryHeadAtTop(ctx context.Context, browser model.Browser, anchor, head contract.SelectorSpec) (bool, error) {
+	container, err := browser.Find(ctx, contract.ElementFindRequest{Selector: anchor})
+	if err != nil {
+		return false, err
+	}
+	first, err := browser.Find(ctx, contract.ElementFindRequest{Selector: head})
+	if err != nil {
+		return false, err
+	}
+	c, h := container.View, first.View
+	return c.Visible && h.Visible && c.Viewport.Width > 0 && c.Viewport.Height > 0 && c.Box.Width > 0 && h.Box.Width > 0 && c.Box.Height > 0 && h.Box.Height > 0 &&
+		c.Box.Y < 0 && c.Box.Y+c.Box.Height > 0 && h.Box.Y < 0 && h.Box.Y+h.Box.Height > 0 &&
+		h.Box.Y >= c.Box.Y-1 && h.Box.Y < c.Box.Y+c.Box.Height &&
+		h.Box.X+h.Box.Width > max(0, c.Box.X) && h.Box.X < min(float64(c.Viewport.Width), c.Box.X+c.Box.Width), nil
 }
 
 // bossHistoryBoundary 只发布完整时间组中的内部键，删除边界前与未知时间的资料不得重新入库。
