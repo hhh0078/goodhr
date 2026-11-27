@@ -37,6 +37,8 @@ const (
 
 // AIWalletRecord 表示一条内置 AI 余额流水。
 type AIWalletRecord struct {
+	FundingAccountID       string `json:"-"`
+	FundingBalance         bool   `json:"-"`
 	ID                     string
 	UserEmail              string
 	ChangeUnits            int64
@@ -143,7 +145,23 @@ func (s *AIWalletService) Summary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "充值活动暂时没查清楚，请稍后再试。")
 		return
 	}
+	timePackage, err := publicTimeAccount(s.wallet, session.Email)
+	if err != nil {
+		writeError(w, 503, "套餐状态暂时没查清楚")
+		return
+	}
+	if timePackage["active"] == true {
+		balance = timePackage["balance_units"].(int64)
+		bonusBalance = max(int64(0), balance)
+	} else {
+		balance, bonusBalance, err = regularWalletSnapshot(s.wallet, session.Email)
+		if err != nil {
+			writeError(w, 503, "按量余额暂时没查清楚")
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"time_package":           timePackage,
 		"ok":                     true,
 		"recharge_promotions":    promotions,
 		"bonus_balance_units":    bonusBalance,
@@ -262,13 +280,18 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusUnauthorized, "AI Key 不太对，我先不敢乱花钱。")
 		return
 	}
-	balance, err := s.wallet.BalanceUnits(email)
+	funding, err := captureAIUsageFunding(s.wallet, email)
+	if err != nil {
+		writeError(w, 503, "套餐额度暂时没查清楚，请稍后再试")
+		return
+	}
+	balance, err := balanceForFunding(s.wallet, email, funding)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed load ai balance")
 		return
 	}
 	if balance <= 0 {
-		writeError(w, http.StatusPaymentRequired, "余额有点紧张啦，先充一点我再继续干活。")
+		writeError(w, http.StatusPaymentRequired, timeAwareBalanceMessage(s.wallet, email, "余额有点紧张啦，先充一点我再继续干活。"))
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxAICompatibleBodyBytes))
@@ -307,7 +330,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	resp, err := doServerAIRequest(s.httpClient, req, serverAIRequestOptions{
 		Fallback: cfg.Fallback, Model: model.ID, ClientRequestID: r.Header.Get(aiClientRequestIDHeader), AnalysisGroupID: r.Header.Get(aiAnalysisGroupIDHeader), Observe: attemptDetails.observe,
 		Before: func(attempt int) error {
-			balance, balanceErr := s.wallet.BalanceUnits(email)
+			balance, balanceErr := balanceForFunding(s.wallet, email, funding)
 			if balanceErr != nil {
 				return &serverAIRequestError{Attempts: attempt - 1, Status: 422, Reason: "balance_unavailable"}
 			}
@@ -325,7 +348,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 				return nil
 			}
 			result, _ := readAIWire(raw)
-			receipt, settleErr := s.settleAIUsage(email, model, result.Prompt, result.Completion)
+			receipt, settleErr := s.settleAIUsage(email, model, result.Prompt, result.Completion, funding)
 			if settleErr != nil {
 				return &serverAIRequestError{Attempts: attempt, Status: 500, Reason: "billing_failed", Cause: settleErr}
 			}
@@ -435,7 +458,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 			}
 			return
 		}
-		receipt, err := s.settleAIUsage(email, model, promptTokens, completionTokens)
+		receipt, err := s.settleAIUsage(email, model, promptTokens, completionTokens, funding)
 		receipt = mergeAIRetryBilling(receipt, retryCost, retryUnknown)
 		if err != nil {
 			obs.report(w, "billing", "billing_failed", resp.StatusCode, true)
@@ -455,7 +478,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	var receipt aiBillingReceipt
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		promptTokens, completionTokens := aiUsageFromResponse(respBody)
-		receipt, err = s.settleAIUsage(email, model, promptTokens, completionTokens)
+		receipt, err = s.settleAIUsage(email, model, promptTokens, completionTokens, funding)
 		receipt = mergeAIRetryBilling(receipt, retryCost, retryUnknown)
 		if err != nil {
 			obs.report(w, "billing", "billing_failed", resp.StatusCode, false)
@@ -479,12 +502,12 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 
 // chargeAIUsage 根据 token 用量扣除用户内置 AI 余额。
 // email 为用户邮箱，model 为计费模型，promptTokens 和 completionTokens 为本次用量。
-func (s *AIWalletService) chargeAIUsage(email string, model builtinAIModel, promptTokens int, completionTokens int) error {
+func (s *AIWalletService) chargeAIUsage(email string, model builtinAIModel, promptTokens int, completionTokens int, funding ...aiUsageFunding) error {
 	cost := aiUsageCostUnits(model, promptTokens, completionTokens)
 	if cost <= 0 {
 		return nil
 	}
-	_, err := s.wallet.AdjustBalance(AIWalletRecord{
+	record := AIWalletRecord{
 		UserEmail:        email,
 		ChangeUnits:      -cost,
 		Category:         "ai_usage",
@@ -492,7 +515,11 @@ func (s *AIWalletService) chargeAIUsage(email string, model builtinAIModel, prom
 		ModelID:          model.ID,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
-	})
+	}
+	if len(funding) > 0 {
+		funding[0].bind(&record)
+	}
+	_, err := s.wallet.AdjustBalance(record)
 	return err
 }
 
@@ -729,6 +756,7 @@ type MemoryAIWalletStore struct {
 	ledgers      map[string]aiWalletLedger
 	usageDaily   map[string]aiUsageDaily
 	nextRecordID int64
+	timePackages AITimeStore
 }
 
 // NewMemoryAIWalletStore 创建内存 AI 钱包存储。
@@ -738,6 +766,14 @@ func NewMemoryAIWalletStore() *MemoryAIWalletStore {
 
 // BalanceUnits 读取内存中的 AI 余额。
 func (s *MemoryAIWalletStore) BalanceUnits(email string) (int64, error) {
+	if balance, active, err := timeBalanceSnapshot(s.timePackages, email); active || err != nil {
+		return balance, err
+	}
+	return s.regularBalanceUnits(email)
+}
+
+// regularBalanceUnits 仅检查按量资金，时间套餐在途请求不能借用这部分本金。
+func (s *MemoryAIWalletStore) regularBalanceUnits(email string) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.balances[email], nil
@@ -745,6 +781,9 @@ func (s *MemoryAIWalletStore) BalanceUnits(email string) (int64, error) {
 
 // AdjustBalance 调整内存中的 AI 余额并写流水。
 func (s *MemoryAIWalletStore) AdjustBalance(record AIWalletRecord) (int64, error) {
+	if balance, handled, err := routeTimeAdjustment(s.timePackages, record); handled {
+		return balance, err
+	}
 	return s.adjustLedgerBalance(record)
 }
 
@@ -828,7 +867,8 @@ func (s *MemoryAIWalletStore) BindAIKey(apiKey string, email string) {
 
 // PostgresAIWalletStore 使用 PostgreSQL 保存 AI 钱包数据。
 type PostgresAIWalletStore struct {
-	db *sql.DB
+	timePackages AITimeStore
+	db           *sql.DB
 }
 
 // NewPostgresAIWalletStore 创建 PostgreSQL AI 钱包存储。
@@ -838,6 +878,14 @@ func NewPostgresAIWalletStore(db *sql.DB) *PostgresAIWalletStore {
 
 // BalanceUnits 读取 PostgreSQL 中的 AI 余额。
 func (s *PostgresAIWalletStore) BalanceUnits(email string) (int64, error) {
+	if balance, active, err := timeBalanceSnapshot(s.timePackages, email); active || err != nil {
+		return balance, err
+	}
+	return s.regularBalanceUnits(email)
+}
+
+// regularBalanceUnits 仅检查按量资金，时间套餐在途请求不能借用这部分本金。
+func (s *PostgresAIWalletStore) regularBalanceUnits(email string) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if _, err := ensureUserID(ctx, s.db, email); err != nil {
@@ -850,6 +898,9 @@ func (s *PostgresAIWalletStore) BalanceUnits(email string) (int64, error) {
 
 // AdjustBalance 调整 PostgreSQL 中的 AI 余额并写流水。
 func (s *PostgresAIWalletStore) AdjustBalance(record AIWalletRecord) (int64, error) {
+	if balance, handled, err := routeTimeAdjustment(s.timePackages, record); handled {
+		return balance, err
+	}
 	return s.adjustLedgerBalance(record)
 }
 

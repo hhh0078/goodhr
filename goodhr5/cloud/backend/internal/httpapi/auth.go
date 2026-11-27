@@ -596,6 +596,14 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if showTrialWelcome && s.subscriptions != nil {
+		sub, subErr := s.subscriptions.UserSubscription(session.Email)
+		if subErr != nil {
+			writeError(w, 503, "会员状态暂时没查清楚")
+			return
+		}
+		showTrialWelcome = subscriptionActive(sub)
+	}
 	_, passwordSet, err := s.passwords.AccountStatus(session.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "读取账号状态失败")
@@ -697,7 +705,7 @@ func (s *AuthService) notifyInitialSubscription(email string, now time.Time) err
 	if err != nil {
 		return err
 	}
-	if !created {
+	if !created || subscription.ExpiresAt.Sub(now) < time.Minute {
 		return nil
 	}
 	return sendSubscriptionRewardNotice(s.mailer, s.systemConfigs, email, SubscriptionRewardNotice{

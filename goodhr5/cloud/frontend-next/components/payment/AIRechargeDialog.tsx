@@ -1,6 +1,6 @@
 /** 本文件提供控制台和会员页共用的 AI 余额充值及活动选择弹框。 */
 "use client";
-import { Form, InputNumber, Typography } from "antd";
+import { Alert, Form, InputNumber, Segmented, Typography } from "antd";
 import { useId, useState } from "react";
 import RechargeAIModel from "./RechargeAIModel";
 import AdminDialog from "@/components/admin/AdminDialog";
@@ -19,7 +19,16 @@ import {
 /** AIRechargeDialog 保留自定义充值金额，并展示最高达标活动及退款规则。 */
 export default function AIRechargeDialog({
   open, amount, promotions, loading, onAmountChange, onClose, onConfirm, onModelSaved,
+  mode = "balance", onModeChange, timePlans = [], selectedPlan = "", onPlanChange, plansError = "", plansLoading = false, activePackage = false,
 }: {
+  mode?: "balance" | "time";
+  onModeChange?: (mode: "balance" | "time") => void;
+  timePlans?: Array<{ id: string; name: string; duration_days: number; price_cents: number; balance_cents: number }>;
+  selectedPlan?: string;
+  onPlanChange?: (id: string) => void;
+  plansError?: string;
+  plansLoading?: boolean;
+  activePackage?: boolean;
   open: boolean;
   amount: string;
   promotions: unknown;
@@ -39,16 +48,24 @@ export default function AIRechargeDialog({
   return (
     <AdminDialog
       open={open}
-      title="充值 AI 余额"
+      title="购买套餐 / 充值"
       maxWidth="xs"
-      cancelText="先不充"
+      cancelText="先等等"
       confirmText="去支付"
       loadingText="下单中"
       loading={loading || modelSaving}
-      confirmDisabled={modelSaving || cents === null || cents < MIN_AI_RECHARGE_CENTS || cents > MAX_AI_RECHARGE_CENTS}
+      confirmDisabled={modelSaving || (mode === "time" ? plansLoading || !timePlans.some(plan => plan.id === selectedPlan) : cents === null || cents < MIN_AI_RECHARGE_CENTS || cents > MAX_AI_RECHARGE_CENTS)}
       onClose={onClose}
       onConfirm={onConfirm}
     >
+      {onModeChange ? <Segmented block aria-label="购买方式" style={{ marginBottom: 12 }} value={mode} disabled={loading} options={[{ label: "按量充值", value: "balance" }, { label: "时间套餐", value: "time" }]} onChange={value => onModeChange(value as "balance" | "time")} /> : null}
+      {mode === "time" ? <>
+        {plansError ? <Alert type="error" showIcon title={plansError} style={{ marginBottom: 12 }} /> : null}
+        {timePlans.length ? <ChoiceCards compact className="goodhr-time-plans" label="选择套餐" columns={1} value={selectedPlan} readOnly={loading} options={timePlans.map(plan => ({ value: plan.id, label: `${plan.name} · ￥${(plan.price_cents / 100).toFixed(2)} / ${plan.duration_days}天`, description: `可用额度 ￥${(plan.balance_cents / 100).toFixed(2)}` }))} onChange={value => onPlanChange?.(String(value))} /> : <Typography.Paragraph type="secondary">{plansLoading ? "正在读取套餐…" : "暂时没有可购买的套餐。"}</Typography.Paragraph>}
+        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 8 }}>AI 调用按实际用量扣额度。续费延长有效期，并把额度补足至所选套餐标准；现有额度更高时保留。</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">到期后套餐额度清零，按量充值余额保留。额度不足可联系作者补充；套餐退款请联系作者处理。</Typography.Paragraph>
+      </> : <>
+      {activePackage ? <Alert type="info" showIcon title="套餐有效期内优先使用套餐额度；这里充值的按量余额会保留，套餐到期后使用。套餐额度不足请联系作者补充。" style={{ marginBottom: 12 }} /> : null}
       <Form.Item layout="vertical" htmlFor={amountID} label="充值金额（元）" style={{ marginBottom: 8 }}>
         <InputNumber
           id={amountID}
@@ -92,13 +109,16 @@ export default function AIRechargeDialog({
           <Typography.Text type="secondary">按最高达标档赠送，不叠加；以支付订单为准。</Typography.Text>
         </Typography.Paragraph>
       ) : null}
+      </>}
       {open ? <RechargeAIModel onBusyChange={setModelSaving} onSaved={onModelSaved} /> : null}
+      {mode === "balance" ? <>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 4, marginTop: 12 }}>
         {AI_RECHARGE_POLICY}
       </Typography.Paragraph>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         {AI_RECHARGE_REFUND_POLICY}
       </Typography.Paragraph>
+      </> : null}
     </AdminDialog>
   );
 }

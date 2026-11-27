@@ -200,7 +200,7 @@ func (s *PaymentService) findRefundEligibility(email string, refundType string, 
 		if s.aiWallet == nil {
 			return paymentRefundEligibility{}, fmt.Errorf("AI 余额暂时没准备好，请稍后再试。")
 		}
-		units, balanceErr := s.aiWallet.BalanceUnits(email)
+		units, balanceErr := balanceForFunding(s.aiWallet, email, aiUsageFunding{})
 		if balanceErr != nil {
 			return paymentRefundEligibility{}, fmt.Errorf("AI 余额暂时没查清楚，请稍后再试。")
 		}

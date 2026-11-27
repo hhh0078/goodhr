@@ -127,6 +127,14 @@ func (s *PostgresAIWalletStore) BonusBalanceUnits(email string) (int64, error) {
 
 // BalanceSnapshot 通过同一 SQL 快照读取总余额和不可退款赠送缓存。
 func (s *PostgresAIWalletStore) BalanceSnapshot(email string) (int64, int64, error) {
+	if balance, active, err := timeBalanceSnapshot(s.timePackages, email); active || err != nil {
+		return balance, max(int64(0), balance), err
+	}
+	return s.regularBalanceSnapshot(email)
+}
+
+// regularBalanceSnapshot 只读取可退本金及原赠送余额，用于退款和到期后的精确显示。
+func (s *PostgresAIWalletStore) regularBalanceSnapshot(email string) (int64, int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if _, err := ensureUserID(ctx, s.db, email); err != nil {

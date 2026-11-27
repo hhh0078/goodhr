@@ -285,3 +285,6 @@ a.goodhr-admin-banner-text:hover {
   .goodhr-table-pagination { padding: 12px; }
   .goodhr-table-pagination .ant-pagination { max-width: 100%; }
 }
+
+/* 时间套餐按行展示价格、期限与额度，窄屏不挤成多列。 */
+.goodhr-choice-grid.goodhr-choice-compact.goodhr-time-plans.ant-radio-group { grid-template-columns: 1fr; }

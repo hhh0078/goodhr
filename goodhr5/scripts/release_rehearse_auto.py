@@ -38,6 +38,53 @@ AI_URL_RULES = {
 }
 
 
+TIME_CONFIG_MIGRATIONS = {'0129_ai_time_packages.sql': 'c8763619efe9a5567b9cfa0974af57a2388c97b2aa2bff3581c2189e08ab5cea', '0130_zero_registration_trial.sql': 'd877dfb0905bea1f535eb5c75fd89e5034c4c294e923776c943c5d9e36783858'}
+
+
+def verify_time_config_upgrade(before, after, migrations, start, end):
+    """逐行核对套餐种子和注册赠送归零，其他配置、旧会员、金额及更新时间全部保留。"""
+    old = keyed_rows(before, "config_key") if before else {}
+    new = keyed_rows(after, "config_key") if after else {}
+    seed = "0129_ai_time_packages.sql" in migrations
+    trial = "0130_zero_registration_trial.sql" in migrations
+    additions = {"system.ai_time_plans"} if seed and "system.ai_time_plans" not in old else set()
+    require(set(new) == set(old) | additions, "套餐迁移增删了未经批准的配置行")
+    for key, row in old.items():
+        expected = copy.deepcopy(row)
+        if trial and key == "system.onboarding_config" and isinstance(row.get("config_value"), dict):
+            expected["config_value"]["trial_days"] = 0
+        require(same_ai_config_value(new[key], expected), "套餐迁移改变了其他配置字段或原更新时间")
+    if additions:
+        from decimal import ROUND_HALF_UP
+        legacy = old.get("system.subscription_plans", {}).get("config_value", [])
+        require(isinstance(legacy, list), "历史套餐格式异常，不能猜测新价格")
+        def price(member, fallback):
+            """严格复现SQL中的历史套餐实付分数值计算。"""
+            selected = next((p for p in legacy if p.get("member_type") == member), None)
+            if selected is None:
+                return fallback
+            value = max(Decimal(0), Decimal(str(selected["original_price"])) - Decimal(str(selected.get("discount_amount") or 0)))
+            return int((value * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+        monthly, yearly = price("plus", 4000), price("max", 34000)
+        expected = [{"id": key, "name": name, "duration_days": days, "price_cents": amount,
+                     "balance_cents": 99900, "enabled": True}
+                    for key, name, days, amount in (("monthly", "包月套餐", 30, monthly),
+                                                   ("quarterly", "季度套餐", 90, monthly * 3),
+                                                   ("yearly", "包年套餐", 365, yearly))]
+        row = new["system.ai_time_plans"]
+        require(same_ai_config_value(row.get("config_value"), expected) and row.get("enabled") is True
+                and row.get("description") == "AI时间套餐：价格、天数和独立可用额度（金额单位分）",
+                "新增时间套餐价格或额度与固定迁移不一致")
+        require(set(row) == {"id", "config_key", "config_value", "description", "enabled", "created_at", "updated_at"}
+                and re.fullmatch(r"[0-9a-fA-F-]{36}", str(row.get("id", ""))),
+                "新增套餐行的标识或字段异常")
+        in_window(row["created_at"], start, end)
+        in_window(row["updated_at"], start, end)
+    return {"migrations": {name: TIME_CONFIG_MIGRATIONS[name] for name in migrations},
+            "exact_config_changes_verified": True, "legacy_member_and_wallet_data_preserved": True,
+            "allowed_data_changes": (["新增system.ai_time_plans"] if seed else []) + (["system.onboarding_config.trial_days=0"] if trial else [])}
+
+
 def same_ai_config_value(before, after):
     """same_ai_config_value 精确比较完整配置JSON，避免Python把布尔值与数字或大精度小数误认成相同。"""
     if type(before) is not type(after):
@@ -223,6 +270,11 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
             "SELECT row_to_json(t)::text FROM public.system_configs t "
             "WHERE config_key='system.auto_reply_library';").decode().splitlines()]
 
+    def time_config_rows(self):
+        """仅在内存比较完整配置表，不将密钥或配置正文写入发布记录。"""
+        return [json.loads(row, parse_float=Decimal) for row in self.psql(
+            "SELECT row_to_json(t)::text FROM public.system_configs t ORDER BY id;").decode().splitlines()]
+
     def ai_url_rows(self, preserve_default_library=False):
         """ai_url_rows 仅在内存读取两张完整配置表，精确保留JSON小数且不记录密钥或配置正文。"""
         result = {}
@@ -267,6 +319,15 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
             for table in ("public\tuser_ai_configs", "public\tsystem_configs"):
                 require(table in columns, "AI地址迁移缺少完整旧配置表")
                 columns.pop(table)
+        time_migrations = [name for name in self.migrations if name in TIME_CONFIG_MIGRATIONS]
+        self.time_package_config_change = None
+        if time_migrations:
+            require(not ai_url_upgrade and not library_upgrade, "套餐配置升级需在历史AI地址和话术升级完成后单独验收")
+            for name in time_migrations:
+                require(self.approved.get(name) == TIME_CONFIG_MIGRATIONS[name], "套餐迁移不是已批准的精确SQL")
+            require("public\tsystem_configs" in columns, "套餐升级缺少完整配置基线")
+            columns.pop("public\tsystem_configs")
+        before_time_configs = self.time_config_rows() if time_migrations else None
         before_ai_urls = self.ai_url_rows(library_upgrade) if ai_url_upgrade else None
         retirement = FACT_RETIREMENT in self.migrations
         if retirement:
@@ -288,6 +349,8 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         self.psql("\n".join(statements))
         end = self.psql("SELECT clock_timestamp()::text;").decode().strip()
         assert_preserved(baseline, self.database_snapshot(columns, preserve_default_library=library_upgrade))
+        if time_migrations:
+            self.time_package_config_change = verify_time_config_upgrade(before_time_configs, self.time_config_rows(), time_migrations, start, end)
         if ai_url_upgrade:
             self.builtin_ai_url_change = verify_ai_url_upgrade(before_ai_urls, self.ai_url_rows(library_upgrade), ai_url_upgrade)
         ledger, schema = self.ledger_records(), self.database_schema()
@@ -310,7 +373,10 @@ class AutomaticUpgradeRehearsal(ScreeningRehearsal):
         legacy_scope = "all_business_data_except_explicitly_retired_statistics_projection" if retired_projections else "all_original_data"
         if self.builtin_ai_url_change:
             legacy_scope = self.builtin_ai_url_change["legacy_data_scope"] + ("_and_explicitly_retired_statistics_projection" if retired_projections else "")
+        if self.time_package_config_change:
+            legacy_scope = "all_original_rows_except_exactly_verified_time_package_config_changes"
         save_json(self.directory / "automatic-upgrade.json", {
+            "time_package_config_change": self.time_package_config_change,
             "approved_sha256": self.approved, "old_projected_data_preserved": not bool(retired_projections),
             "all_business_data_preserved": True,
             "default_library_verified": library_upgrade, "old_ledger_preserved": True,

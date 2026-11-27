@@ -352,6 +352,7 @@ export default function SystemConfigPage() {
                     style={{ marginBottom: 16 }}
                   />
                 ) : null}
+                {activeKey === "system.ai_time_plans" ? <Alert type="info" showIcon style={{ marginBottom: 12 }} title="价格 price_cents、额度 balance_cents 均填分；天数 duration_days。默认额度99900分（999元），续费补足、到期清零。新价格只影响新订单。" /> : null}
                 {activeKey === "system.subscription_plans" ? (
                   <Alert
                     type={"info"}
@@ -434,6 +435,7 @@ function configKey(item: any) {
 }
 /** configCategory 根据配置键返回业务分类。 */
 function configCategory(key: string): (typeof categories)[number] {
+  if (key === "system.ai_time_plans") return "订阅支付";
   if (key === AI_RECHARGE_CONFIG_KEY) return "其他配置";
   if (key === AUTO_REPLY_LIBRARY_KEY) return "AI 配置";
   if (key === "system.wechat_official_account") return "其他配置";
@@ -460,7 +462,8 @@ function configTitle(key: string) {
         [AUTO_REPLY_LIBRARY_KEY]: "自动回复话术",
         "system.app_config": "公共系统配置",
         [AI_RECHARGE_CONFIG_KEY]: "充值活动配置",
-        "system.subscription_plans": "订阅套餐",
+        "system.ai_time_plans": "AI 时间套餐",
+        "system.subscription_plans": "历史会员套餐",
         "system.onboarding_config": "本地程序与组件",
         "system.browser_extension": "浏览器插件下载",
         "system.invite_config": "邀请奖励",

@@ -51,8 +51,8 @@ func TestRegisterOnlyNewAccount(t *testing.T) {
 		t.Fatal("registration did not preserve agreement acceptance")
 	}
 	subscription, err := server.auth.subscriptions.UserSubscription(email)
-	if err != nil || !subscription.ExpiresAt.After(time.Now()) {
-		t.Fatal("registration did not initialize trial subscription")
+	if err != nil || subscription.ExpiresAt.After(time.Now()) {
+		t.Fatal("registration with zero gift days must not create active trial")
 	}
 	inviter, err := server.auth.invitations.InviterEmailByInvitee(email)
 	if err != nil || inviter != "registration-inviter@example.com" {

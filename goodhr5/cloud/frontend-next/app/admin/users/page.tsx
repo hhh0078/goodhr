@@ -49,6 +49,7 @@ type AdminUserItem = {
   inviter_email?: string;
   created_at?: string;
   last_login_at?: string;
+  time_package?: { active?: boolean; balance_units?: number; expires_at?: string };
   ai_balance?: string;
   ai_balance_units?: number;
   ai_balance_cents?: number;
@@ -535,7 +536,7 @@ export default function UsersPage() {
       <AdminDialog
         open={balanceDialogOpen}
         title="调整AI余额"
-        description={`当前用户：${balanceForm.email || "--"}`}
+        description={`当前用户：${balanceForm.email || "--"}。有效套餐调整套餐额度；无有效套餐调整按量余额。`}
         confirmText="确认调整"
         loading={adjustingBalance}
         onClose={() => setBalanceDialogOpen(false)}
@@ -707,7 +708,7 @@ function UserCard({
         />
         <MobileInfoBlock
           title="AI余额"
-          lines={[`￥${item.ai_balance || "0.00"}`]}
+          lines={item.time_package?.active ? [`套餐额度 ￥${(Number(item.time_package.balance_units || 0) / 10000).toFixed(4)}`, `到期 ${formatDate(item.time_package.expires_at)}`, `按量余额 ￥${item.ai_balance || "0.00"}`] : [`￥${item.ai_balance || "0.00"}`]}
           strong={Number(item.ai_balance_units || 0) > 0}
         />
         <MobileInfoBlock
@@ -889,7 +890,7 @@ function BalanceInfo({ item }: { item: AdminUserItem }) {
       <Typography.Text
         style={{ display: "block", margin: 0, fontSize: 12, fontWeight: 720 }}
       >
-        AI余额
+        {item.time_package?.active ? "套餐额度 / 按量余额" : "AI余额"}
       </Typography.Text>
       <Typography.Text
         style={{
@@ -903,8 +904,9 @@ function BalanceInfo({ item }: { item: AdminUserItem }) {
           fontWeight: 780,
         }}
       >
-        ￥{item.ai_balance || "0.00"}
+        {item.time_package?.active ? `￥${(Number(item.time_package.balance_units || 0) / 10000).toFixed(4)} / ￥${item.ai_balance || "0.00"}` : `￥${item.ai_balance || "0.00"}`}
       </Typography.Text>
+      {item.time_package?.active ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>到期 {formatDate(item.time_package.expires_at)}</Typography.Text> : null}
     </Link>
   );
 }

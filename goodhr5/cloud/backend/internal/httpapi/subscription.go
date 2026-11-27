@@ -137,10 +137,11 @@ func subscriptionActive(subscription Subscription) bool {
 // ---------- 内存实现 ----------
 
 type MemorySubscriptionStore struct {
-	items   map[string]Subscription
-	now     func() time.Time
-	grantMu sync.Mutex
-	grants  map[string]struct{}
+	systemConfigs SystemConfigStore
+	items         map[string]Subscription
+	now           func() time.Time
+	grantMu       sync.Mutex
+	grants        map[string]struct{}
 }
 
 // NewMemorySubscriptionStore 创建内存订阅存储。
@@ -163,7 +164,21 @@ func (s *MemorySubscriptionStore) UserSubscriptionWithCreated(email string) (Sub
 	if item, ok := s.items[email]; ok {
 		return item, false, nil
 	}
-	item := Subscription{MemberType: defaultMemberType, ExpiresAt: s.now().Add(defaultTrialDuration)}
+	duration := defaultTrialDuration
+	if s.systemConfigs != nil {
+		cfg, err := s.systemConfigs.Get("system.onboarding_config")
+		if err != nil {
+			return Subscription{}, false, err
+		}
+		var value struct {
+			TrialDays int `json:"trial_days"`
+		}
+		if json.Unmarshal([]byte(cfg.ConfigValue), &value) != nil || value.TrialDays < 0 || value.TrialDays > 3650 {
+			return Subscription{}, false, errors.New("注册赠送天数配置不正确")
+		}
+		duration = time.Duration(value.TrialDays) * 24 * time.Hour
+	}
+	item := Subscription{MemberType: defaultMemberType, ExpiresAt: s.now().Add(duration)}
 	s.items[email] = item
 	return item, true, nil
 }

@@ -344,6 +344,16 @@ func TestAuthLoginSendsInitialSubscriptionRewardOnce(t *testing.T) {
 	server := mustNewServer(t)
 	mailer := &recordingMailer{}
 	server.auth.mailer = mailer
+	cfg, _ := server.systemConfigs.Get("system.onboarding_config")
+	var onboarding map[string]any
+	_ = json.Unmarshal([]byte(cfg.ConfigValue), &onboarding)
+	onboarding["trial_days"] = 3
+	raw, _ := json.Marshal(onboarding)
+	cfg.ConfigValue = string(raw)
+	if err := server.systemConfigs.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+
 	routes := server.Routes()
 
 	loginForTest(t, routes, "trial-reward@example.com")

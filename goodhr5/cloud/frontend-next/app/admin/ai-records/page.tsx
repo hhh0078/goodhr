@@ -193,6 +193,9 @@ function CategoryChip({ category }: { category: string }) {
   const labelMap: Record<string, string> = {
     ai_usage: "AI调用",
     recharge: "充值",
+    time_package_grant: "套餐发放",
+    time_package_expiry: "到期回收",
+    time_package_adjust: "套餐调额",
     refund: "退款",
     refund_release: "退款退回",
     signup_bonus: "注册赠送",

@@ -361,6 +361,14 @@ func (s *MemoryAIWalletStore) BonusBalanceUnits(email string) (int64, error) {
 
 // BalanceSnapshot 在同一内存锁内读取钱包总额与赠送缓存。
 func (s *MemoryAIWalletStore) BalanceSnapshot(email string) (int64, int64, error) {
+	if balance, active, err := timeBalanceSnapshot(s.timePackages, email); active || err != nil {
+		return balance, max(int64(0), balance), err
+	}
+	return s.regularBalanceSnapshot(email)
+}
+
+// regularBalanceSnapshot 只读取可退本金及原赠送余额，用于退款和到期后的精确显示。
+func (s *MemoryAIWalletStore) regularBalanceSnapshot(email string) (int64, int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ledger := s.memoryLedgerLocked(email)

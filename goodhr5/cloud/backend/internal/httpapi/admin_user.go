@@ -221,7 +221,14 @@ func (s *AdminUserService) list(w http.ResponseWriter, r *http.Request) {
 				user.Agent = &binding
 			}
 		}
-		users = append(users, publicAdminUser(user))
+		payload := publicAdminUser(user)
+		account, accountErr := publicTimeAccount(s.aiWallet, user.Email)
+		if accountErr != nil {
+			writeError(w, 503, "套餐额度暂时没查清楚，请稍后再试")
+			return
+		}
+		payload["time_package"] = account
+		users = append(users, payload)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,
@@ -753,7 +760,7 @@ func (s *MemoryAdminUserStore) Stats() (AdminUserStats, error) {
 		count++
 		stats.TotalUserCount++
 		if s.aiWallet != nil {
-			balance, err := s.aiWallet.BalanceUnits(email)
+			balance, err := balanceForFunding(s.aiWallet, email, aiUsageFunding{})
 			if err != nil {
 				return AdminUserStats{}, err
 			}

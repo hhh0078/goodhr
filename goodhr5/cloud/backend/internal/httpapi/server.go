@@ -118,6 +118,15 @@ func NewServer() (*Server, error) {
 	}
 	aiConfigStore := newModelRestrictedAIConfigStore(config.AIConfigStore(db), systemConfigStore)
 	aiWalletStore := config.AIWalletStore(db)
+	if wallet, ok := aiWalletStore.(*MemoryAIWalletStore); ok {
+		wallet.timePackages = NewMemoryAITimeStore(wallet)
+	}
+	if wallet, ok := aiWalletStore.(*PostgresAIWalletStore); ok {
+		wallet.timePackages = NewPostgresAITimeStore(db)
+	}
+	if memory, ok := subscriptionStore.(*MemorySubscriptionStore); ok {
+		memory.systemConfigs = systemConfigStore
+	}
 	aiWalletService := NewAIWalletService(nil, aiWalletStore, aiConfigStore, systemConfigStore)
 	auth := NewAuthService(authStore, config.PasswordStore(db), mailer, exposeDebugCode, tenantStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins, config.UniversalLoginCodeOffsetMin)
 	auth.wechatFollowStore = wechatFollowStore
@@ -136,6 +145,7 @@ func NewServer() (*Server, error) {
 	adminEmails.StartRecoveryScheduler()
 	if db != nil {
 		paymentService.StartRefundReconciliation(context.Background())
+		startAITimeExpiry(context.Background(), timeStoreOf(aiWalletStore))
 		NewWechatRewardNoticeService(NewPostgresWechatRewardNoticeStore(db), mailer, systemConfigStore).Start(context.Background())
 	}
 	candidates := NewCandidateService(auth, candidateStore, tenantStore, positionStore)
@@ -352,6 +362,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/subscription/plans", s.subscriptions.Plans)
 	mux.HandleFunc("/api/payment/orders", s.payments.Orders)
 	mux.HandleFunc("/api/payment/ai-balance", s.payments.AIBalanceOrder)
+	mux.HandleFunc("/api/payment/time-plans", s.payments.TimePlans)
+	mux.HandleFunc("/api/payment/time-plan", s.payments.CreateTimeOrder)
 	mux.HandleFunc("/api/payment/refund", s.payments.Refund)
 	mux.HandleFunc("/api/payment/orders/", s.payments.OrderDetail)
 	mux.HandleFunc("/api/payment/notify/wechat", s.payments.WechatNotify)
@@ -393,6 +405,7 @@ func (s *Server) Routes() http.Handler {
 	// 注册岗位配置接口，用于复用岗位关键词和问候语模板。
 	mux.HandleFunc("/api/positions", s.positions.Collection)
 	mux.HandleFunc("/api/positions/optimize-requirement", s.positions.OptimizeRequirement)
+	mux.HandleFunc("/api/positions/running", s.positionExecution.Running)
 	mux.HandleFunc("/api/positions/", s.positionRoute)
 	mux.HandleFunc("/api/fail-notice", s.positionExecution.FailNotice)
 	// 注册简历库接口，用于查看当前团队或指定岗位运行下的候选人。
@@ -885,6 +898,12 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 		raw, err = mergeWechatOfficialConfig(existing.ConfigValue, raw)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "公众号配置没保存："+err.Error())
+			return
+		}
+	}
+	if configKey == aiTimePlansKey {
+		if _, err := parseAITimePlans(string(raw)); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}

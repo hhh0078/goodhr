@@ -28,7 +28,7 @@ func validateStartAIBalance(wallet AIWalletStore, email string) *positionStartEr
 		return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "余额暂时没查出来，请稍后再试。"}
 	}
 	if balance < minimumPositionAIBalanceUnits {
-		return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "余额不足0.1元，请充值后再试。"}
+		return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: timeAwareBalanceMessage(wallet, email, "余额不足0.1元，请充值后再试。")}
 	}
 	return nil
 }

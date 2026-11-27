@@ -36,8 +36,8 @@ func TestSubscriptionStatusAndPlans(t *testing.T) {
 	}
 	if statusPayload.Subscription.MemberType != memberTypeMax ||
 		statusPayload.Subscription.MemberName != "Max 全能版" ||
-		!statusPayload.Subscription.Active ||
-		!statusPayload.Subscription.AllowAutoReply ||
+		statusPayload.Subscription.Active ||
+		statusPayload.Subscription.AllowAutoReply ||
 		statusPayload.Subscription.ExpiresAt == "" {
 		t.Fatalf("unexpected subscription payload: %+v", statusPayload.Subscription)
 	}

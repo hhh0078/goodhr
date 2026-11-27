@@ -202,6 +202,7 @@ export default function PositionsPage() {
   const [screeningPosition, setScreeningPosition] = useState<{ id: string; name: string; account: string } | null>(null);
   const [allLogLoading, setAllLogLoading] = useState(false);
   const [legacyPositionWarning, setLegacyPositionWarning] = useState(false);
+  const [runningPositionNotice, setRunningPositionNotice] = useState("");
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
   const [startLoading, setStartLoading] = useState(false);
   const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
@@ -259,6 +260,7 @@ export default function PositionsPage() {
     setStartLoading(false);
     setStartOpeningPlatform(false);
     setStartGuardFailure(null);
+    setRunningPositionNotice("");
     setStartGuardRechecking(false);
     draftOwnerIdentity.current = "";
     createdOnboardingPositionID.current = "";
@@ -771,6 +773,24 @@ export default function PositionsPage() {
       notify(error instanceof Error ? error.message : "删除失败", "error");
     }
   }
+  /** ensureNoRunningPosition 从后端读取当前账号的运行状态；查询失败也不继续开窗或启动。 */
+  async function ensureNoRunningPosition(isCurrent: () => boolean = () => true): Promise<boolean> {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const result = await cloudRequest("/api/positions/running", { signal: controller.signal });
+      if (!isCurrent()) return false;
+      if (typeof result.running !== "boolean") throw new Error("运行状态暂时没查清楚，请稍后再试。");
+      if (result.running) {
+        setRunningPositionNotice(`岗位“${String(result.position?.name || "当前岗位")}”还在运行，请先停止它，再开始新的岗位。`);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      if (isCurrent()) setRunningPositionNotice(controller.signal.aborted ? "运行状态检查超时，请稍后再试。" : error instanceof Error ? error.message : "运行状态暂时没查清楚，请稍后再试。");
+      return false;
+    } finally { window.clearTimeout(timeout); }
+  }
   /** openStartPosition 先检查最新余额，符合启动门槛后再展开日志与准备弹框。 */
   async function openStartPosition(item: any) {
     if (startOperationInFlight.current || checkingStartBalance.current) return;
@@ -783,6 +803,7 @@ export default function PositionsPage() {
     checkingStartBalance.current = true;
     setBusyPositionID(item.id);
     try {
+      if (!await ensureNoRunningPosition(() => pageMountedRef.current && ownerToken === getToken() && ownerIdentity === lastDraftIdentity.current)) return;
       if (!await ensureStartBalance() || !pageMountedRef.current || ownerToken !== getToken() || ownerIdentity !== lastDraftIdentity.current) return;
       if (!agentBase) return notify("请先启动本地程序", "warning");
       if (getOnboardingGuideContext().active && !isPlatformOpen(platformConfigs, item.platform_id)) {
@@ -1011,6 +1032,7 @@ export default function PositionsPage() {
           skippedCount: 0,
         });
       }
+      if (!await ensureNoRunningPosition(canContinueStart)) return;
       const subscriptionData = await cloudRequest("/api/subscription/status");
       if (!canContinueStart()) return;
       const currentSubscription = normalizeSubscription(
@@ -1120,6 +1142,7 @@ export default function PositionsPage() {
       if (!isCurrentStartDialog(epoch, ownerIdentity, ownerToken, String(item.id)) || pendingStartDialogClose.current) return;
       if (isInsufficientStartBalance(error)) { pendingStartDialogClose.current = true; showInsufficientBalance(); return; }
       const message = error instanceof Error ? error.message : "岗位启动失败";
+      if ((error instanceof APIRequestError && error.code === "POSITION_TASK_CONFLICT") || message.includes("这个账号已经有岗位在运行")) setRunningPositionNotice(message);
       setStartStatus(message);
       setStartError(message);
       await reportUserFlow({
@@ -1769,6 +1792,9 @@ export default function PositionsPage() {
           <EmptyState text={loading ? "岗位读取中" : positionScope === "false" ? "暂时没有关闭的岗位" : "暂时没有开启的岗位，可以先新建一个。"} />
         </SectionPanel>
       )}
+      <AdminDialog open={Boolean(runningPositionNotice)} title="开始前提醒一下" showCancel={false} confirmText="知道了" onClose={() => setRunningPositionNotice("")} onConfirm={() => setRunningPositionNotice("")}>
+        <Typography.Paragraph style={{ marginBottom: 0 }}>{runningPositionNotice}</Typography.Paragraph>
+      </AdminDialog>
       <AdminDialog
         open={legacyPositionWarning}
         title="这个岗位需要重新创建"

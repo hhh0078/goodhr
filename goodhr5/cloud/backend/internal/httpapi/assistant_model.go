@@ -103,7 +103,7 @@ func (s *AssistantService) builtinForScope(scope CandidateLibraryScope) (AIConfi
 	}
 	balance, err := s.wallet.wallet.BalanceUnits(scope.UserEmail)
 	if err != nil || balance <= 0 {
-		return AIConfig{}, assistantFatalError{"AI 余额不足，请充值后再试"}
+		return AIConfig{}, assistantFatalError{timeAwareBalanceMessage(s.wallet.wallet, scope.UserEmail, "AI 余额不足，请充值后再试")}
 	}
 	return cfg, nil
 }
@@ -113,6 +113,10 @@ func (s *AssistantService) callModel(ctx context.Context, scope CandidateLibrary
 	cfg, err := s.builtinForScope(scope)
 	if err != nil {
 		return err
+	}
+	funding, err := captureAIUsageFunding(s.wallet.wallet, scope.UserEmail)
+	if err != nil {
+		return assistantFatalError{"套餐额度暂时没查清楚"}
 	}
 	platform, err := s.wallet.loadBuiltinAIConfig()
 	if err != nil {
@@ -129,10 +133,23 @@ func (s *AssistantService) callModel(ctx context.Context, scope CandidateLibrary
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+platform.UpstreamAPIKey)
-	response, err := doServerAIRequest(s.wallet.httpClient, request, serverAIRequestOptions{Failed: func(_ int, response *http.Response, raw []byte) error {
-		return s.wallet.settleFailedAIResponse(scope.UserEmail, model, response, raw)
+	response, err := doServerAIRequest(s.wallet.httpClient, request, serverAIRequestOptions{Before: func(_ int) error {
+		balance, balanceErr := balanceForFunding(s.wallet.wallet, scope.UserEmail, funding)
+		if balanceErr != nil {
+			return assistantFatalError{"AI额度暂时没查清楚，请稍后再试"}
+		}
+		if balance <= 0 {
+			return assistantFatalError{timeAwareBalanceMessage(s.wallet.wallet, scope.UserEmail, "AI余额不足或原套餐已到期，请补充后再试")}
+		}
+		return nil
+	}, Failed: func(_ int, response *http.Response, raw []byte) error {
+		return s.wallet.settleFailedAIResponse(scope.UserEmail, model, response, raw, funding)
 	}})
 	if err != nil {
+		var fatal assistantFatalError
+		if errors.As(err, &fatal) {
+			return fatal
+		}
 		return assistantFatalError{"AI 连接中断，付费结果未确认；请核对后重试"}
 	}
 	defer response.Body.Close()
@@ -229,7 +246,7 @@ func (s *AssistantService) callModel(ctx context.Context, scope CandidateLibrary
 	if prompt < 0 || completion < 0 || prompt+completion <= 0 {
 		return assistantFatalError{"AI 没有返回可靠用量，结果暂不采用，请核对服务配置"}
 	}
-	if err = s.wallet.chargeAIUsage(scope.UserEmail, model, prompt, completion); err != nil {
+	if err = s.wallet.chargeAIUsage(scope.UserEmail, model, prompt, completion, funding); err != nil {
 		return assistantFatalError{"AI 已返回，但计费回执未保存，请核对后重试"}
 	}
 	if readError != nil {

@@ -15,12 +15,12 @@ type aiBillingReceipt struct {
 }
 
 // settleAIUsage 复用钱包扣费方法，只在真实扣费成功后生成含金额的回执。
-func (s *AIWalletService) settleAIUsage(email string, model builtinAIModel, prompt, completion int) (aiBillingReceipt, error) {
+func (s *AIWalletService) settleAIUsage(email string, model builtinAIModel, prompt, completion int, funding ...aiUsageFunding) (aiBillingReceipt, error) {
 	receipt := aiBillingReceipt{Status: "unavailable", Model: model.ID}
 	if prompt+completion == 0 {
 		return receipt, nil
 	}
-	if err := s.chargeAIUsage(email, model, prompt, completion); err != nil {
+	if err := s.chargeAIUsage(email, model, prompt, completion, funding...); err != nil {
 		receipt.Status = "failed"
 		return receipt, err
 	}
@@ -56,7 +56,7 @@ func withAIBillingJSON(body []byte, receipt aiBillingReceipt) []byte {
 }
 
 // settleFailedAIResponse 保留无效模型回复已经发生的真实费用；没有可靠 usage 时不伪造金额。
-func (s *AIWalletService) settleFailedAIResponse(email string, model builtinAIModel, response *http.Response, raw []byte) error {
+func (s *AIWalletService) settleFailedAIResponse(email string, model builtinAIModel, response *http.Response, raw []byte, funding ...aiUsageFunding) error {
 	if response == nil || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil
 	}
@@ -64,7 +64,7 @@ func (s *AIWalletService) settleFailedAIResponse(email string, model builtinAIMo
 	if result.Prompt < 0 || result.Completion < 0 {
 		return assistantFatalError{"AI用量不正确，已停止重试"}
 	}
-	if _, err := s.settleAIUsage(email, model, result.Prompt, result.Completion); err != nil {
+	if _, err := s.settleAIUsage(email, model, result.Prompt, result.Completion, funding...); err != nil {
 		return assistantFatalError{"AI扣费记录未保存，已停止重试，请先核对账本"}
 	}
 	return nil

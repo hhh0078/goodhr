@@ -63,6 +63,7 @@ import {
   bindDetectedLocalAgent,
   captureLocalAgentPortFromURL,
   cloudRequest,
+  getToken,
   detectLocalAgent,
   formatDate,
   localRequest,
@@ -397,6 +398,25 @@ export default function AdminApp({ children }: { children: ReactNode }) {
 
   /** showInsufficientBalance 统一显示启动余额提示，充值复用顶部余额入口的原有弹框。 */
   const showInsufficientBalance = useCallback(() => setInsufficientBalanceOpen(true), []);
+
+  useEffect(() => {
+    const expiry = Date.parse(String(aiWallet.time_package?.expires_at || ""));
+    if (!aiWallet.time_package?.active || !Number.isFinite(expiry)) return;
+    const owner = getToken();
+    let active = true;
+    let timer = 0;
+    /** refreshExpiry 在到期时刷新真实按量余额；网络失败后继续检查，不显示旧套餐余额。 */
+    async function refreshExpiry() {
+      try {
+        const data = await cloudRequest("/api/ai-wallet");
+        if (active && owner && owner === getToken()) setAIWallet(data.wallet || data);
+      } catch {
+        if (active && owner === getToken()) timer = window.setTimeout(() => void refreshExpiry(), 30000);
+      }
+    }
+    timer = window.setTimeout(() => void refreshExpiry(), Math.min(2147483647, Math.max(1000, expiry - Date.now() + 100)));
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [aiWallet]);
 
   /** ensureStartBalance 在任何启动操作前读取云端最新余额；合并慢请求，换账号或离开页面后丢弃旧结果。 */
   const ensureStartBalance = useCallback((): Promise<boolean> => {
@@ -845,13 +865,13 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 />
               </Tooltip>
               <Button
-                aria-label="AI余额充值"
+                aria-label={aiWallet.time_package?.active ? "查看套餐或充值" : "AI余额充值"}
                 onClick={() => setRechargeOpen(true)}
               >
                 {/* 会员限制暂停，天数展示保留以便恢复：subscription.active
                   ? `剩${subscription.remaining_days}天 · AI余额 ${formatAIBalance(aiWallet)}`
                   : `${subscription.expires_at ? `已过期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}` */}
-                {`AI余额 ${formatAIBalance(aiWallet)}`}
+                {aiWallet.time_package?.active ? `到期 ${formatDate(aiWallet.time_package.expires_at)}` : `AI余额 ${formatAIBalance(aiWallet)}`}
               </Button>
               <Button
                 data-testid="local-agent-status"
@@ -894,9 +914,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </Card>
           </Layout.Content>
           <AIRechargeFlow key={`recharge:${user?.id || user?.email || ""}`} open={rechargeOpen} wallet={aiWallet} agentBase={agentBase} onClose={() => setRechargeOpen(false)} onPaid={refreshSession} confirm={confirm} notify={notify} />
-          <AdminDialog open={insufficientBalanceOpen} title="余额不足" maxWidth="xs" cancelText="取消" confirmText="充值" onClose={() => setInsufficientBalanceOpen(false)}
+          <AdminDialog open={insufficientBalanceOpen} title="余额不足" maxWidth="xs" cancelText="取消" confirmText={aiWallet.time_package?.active ? "查看套餐" : "充值"} onClose={() => setInsufficientBalanceOpen(false)}
             onConfirm={() => { setInsufficientBalanceOpen(false); setRechargeOpen(true); }}>
-            <Typography.Paragraph style={{ marginBottom: 0 }}>{INSUFFICIENT_START_BALANCE_MESSAGE}</Typography.Paragraph>
+            <Typography.Paragraph style={{ marginBottom: 0 }}>{aiWallet.time_package?.active ? "套餐可用额度不足，请联系作者补充额度，或续费后再试。" : INSUFFICIENT_START_BALANCE_MESSAGE}</Typography.Paragraph>
           </AdminDialog>
           <AdminDialog
             open={trialWelcomeOpen && teamInvitations.length === 0 && !onboardingActivity.engaged}

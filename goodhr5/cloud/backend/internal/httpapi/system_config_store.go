@@ -50,6 +50,7 @@ func NewMemorySystemConfigStore() *MemorySystemConfigStore {
 func defaultMemorySystemConfigs() map[string]SystemConfig {
 	return map[string]SystemConfig{
 		defaultPromptsConfigKey: defaultPromptsRecord(),
+		aiTimePlansKey:          {ConfigKey: aiTimePlansKey, ConfigValue: `[]`, Description: "AI时间套餐：价格、天数和独立可用额度（金额单位分）", Enabled: true},
 		autoReplyLibraryKey:     {ConfigKey: autoReplyLibraryKey, ConfigValue: initialAutoReplyLibrary, Description: "岗位自动回复默认话术与可勾选的常用条件", Enabled: true},
 		wechatOfficialConfigKey: {
 			ConfigKey:   wechatOfficialConfigKey,
@@ -164,7 +165,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 						"darwin-x64": {"version": "goodhr-ocr-vision-v1.0.0", "url": "https://oss2.58it.cn/goodhr-ocr-vision-v1.0.0-darwin-universal.zip", "sha256": "6a1afd55ce506659b15dc2c88d601e8947a5a20f153959f1c81c8a2e063099e3", "note": "GoodHR OCR macOS Intel，通用安装包"}
 					}
 				},
-				"trial_days": 3,
+				"trial_days": 0,
 				"wechat_follow_reward_days": 2
 			}`,
 			Description: "新手教学配置，包含本地程序下载链接、运行组件下载链接、版本号、版本说明、注册赠送及关注赠送会员天数",

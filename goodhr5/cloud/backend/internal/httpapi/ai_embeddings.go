@@ -202,12 +202,16 @@ func (s *AIWalletService) embedForUser(ctx context.Context, email string, texts 
 	if err != nil || !strings.EqualFold(owner, email) {
 		return empty, &embeddingCallError{http.StatusForbidden, "内置 AI 配置和当前账号没有核对上"}
 	}
-	balance, err := s.wallet.BalanceUnits(email)
+	funding, err := captureAIUsageFunding(s.wallet, email)
+	if err != nil {
+		return empty, err
+	}
+	balance, err := balanceForFunding(s.wallet, email, funding)
 	if err != nil {
 		return empty, &embeddingCallError{http.StatusServiceUnavailable, "AI 余额暂时没查清楚，请稍后再试"}
 	}
 	if balance <= 0 {
-		return empty, &embeddingCallError{http.StatusPaymentRequired, "AI 余额有点紧张，请充值后再生成向量"}
+		return empty, &embeddingCallError{http.StatusPaymentRequired, timeAwareBalanceMessage(s.wallet, email, "AI 余额有点紧张，请充值后再生成向量")}
 	}
 	config, err := s.loadBuiltinAIConfig()
 	if err != nil || strings.TrimSpace(config.UpstreamAPIKey) == "" {
@@ -250,7 +254,9 @@ func (s *AIWalletService) embedForUser(ctx context.Context, email string, texts 
 	if err != nil {
 		return empty, err
 	}
-	if _, err = s.wallet.AdjustBalance(AIWalletRecord{UserEmail: email, ChangeUnits: -cost, Category: "ai_usage", Reason: "内置向量调用扣费", ModelID: builtinEmbeddingModel, PromptTokens: prompt, CompletionTokens: completion}); err != nil {
+	record := AIWalletRecord{UserEmail: email, ChangeUnits: -cost, Category: "ai_usage", Reason: "内置向量调用扣费", ModelID: builtinEmbeddingModel, PromptTokens: prompt, CompletionTokens: completion}
+	funding.bind(&record)
+	if _, err = s.wallet.AdjustBalance(record); err != nil {
 		return empty, errors.New("向量已返回，但扣费回执没有确认，请先核对账本后再试")
 	}
 	return result, nil

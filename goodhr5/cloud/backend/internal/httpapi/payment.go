@@ -422,6 +422,14 @@ func (s *PaymentService) completeProviderTransaction(providerName string, result
 	if paidOrder.Status != "paid" {
 		return fmt.Errorf("payment order is not pending")
 	}
+	if paidOrder.OrderType == "ai_time" {
+		store := timeStoreOf(s.aiWallet)
+		if store == nil {
+			return errors.New("套餐账本暂时不可用")
+		}
+		_, err := store.Grant(paidOrder, time.Now())
+		return err
+	}
 	if paidOrder.OrderType == "ai_balance" {
 		if s.aiWallet == nil {
 			return fmt.Errorf("ai wallet not configured")

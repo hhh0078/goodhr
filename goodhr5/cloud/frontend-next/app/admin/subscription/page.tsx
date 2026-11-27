@@ -35,7 +35,7 @@ import {
 import { useAdmin } from "@/components/admin/AdminApp";
 import { AUTO_REPLY_ROLLOUT_CLOSED, AUTO_REPLY_ROLLOUT_MESSAGE } from "@/lib/auto-reply-rollout";
 import AdminDialog from "@/components/admin/AdminDialog";
-import AIRechargeDialog from "@/components/payment/AIRechargeDialog";
+import AIRechargeFlow from "@/components/payment/AIRechargeFlow";
 import AIWalletChange from "@/components/payment/AIWalletChange";
 import { AI_RECHARGE_POLICY, AI_RECHARGE_REFUND_POLICY, MAX_AI_RECHARGE_CENTS, MIN_AI_RECHARGE_CENTS, defaultAIRechargeAmount, rechargeAmountCents } from "@/lib/ai-recharge";
 import {
@@ -70,7 +70,7 @@ type RefundQuote = Record<
 >;
 /** SubscriptionPage 展示会员状态、AI 余额和账务记录。 */
 export default function SubscriptionPage() {
-  const { agentBase, notify, subscription, refreshSession } = useAdmin();
+  const { agentBase, notify, subscription, refreshSession, confirm } = useAdmin();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [wallet, setWallet] = useState<any>({});
@@ -408,7 +408,7 @@ export default function SubscriptionPage() {
     <>
       <PageHeader
         title="订阅会员"
-        description="会员费就像您包月租了一个小汽车，AI余额 就是您小汽车油箱的余额。"
+        description="支持按量充值和时间套餐，AI 调用照常记账。历史会员及退款记录继续保留。"
         actions={
           <>
             <Button onClick={() => setActivationDialogOpen(true)}>
@@ -459,12 +459,12 @@ export default function SubscriptionPage() {
         </InfoCard>
         <InfoCard
           icon={<PayCircleOutlined aria-hidden="true" />}
-          title="AI 余额"
+          title={wallet.time_package?.active ? "套餐可用额度" : "AI 余额"}
           value={`￥${wallet.balance || "0.0000"}`}
           compact
           className={styles.s123}
         >
-          {Number(wallet.bonus_balance_units || 0) > 0 ? (
+          {!wallet.time_package?.active && Number(wallet.bonus_balance_units || 0) > 0 ? (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               含赠送 ￥{wallet.bonus_balance || "0.0000"}，赠送余额最后使用。
             </Typography.Text>
@@ -499,29 +499,7 @@ export default function SubscriptionPage() {
         </InfoCard>
       </div>
 
-      <div className={styles.s132}>
-        <Typography.Title
-          level={2}
-          className={`${styles.title} ${styles.s133}`}
-        >
-          选择会员套餐
-        </Typography.Title>
-        <Typography.Paragraph className={`${styles.text} ${styles.s134}`}>
-          未到期时购买会从当前到期时间继续增加天数。
-        </Typography.Paragraph>
-      </div>
-      <div className={styles.s135}>
-        {plans.map((plan, index) => (
-          <PlanCard
-            key={plan.id || index}
-            plan={plan}
-            featured={plan.member_type === "max" || Boolean(plan.recommended)}
-            paying={payingPlanID === plan.id}
-            quote={estimateSubscriptionQuote(subscription, plans, plan)}
-            onPay={() => requestPlanPayment(plan.id)}
-          />
-        ))}
-      </div>
+      <Button type="primary" onClick={() => setRechargeDialogOpen(true)} style={{ marginBottom: 12 }}>购买时间套餐 / 按量充值</Button>
 
       <SectionPanel className={styles.s136}>
         <Flex className={styles.s137}>
@@ -645,16 +623,7 @@ export default function SubscriptionPage() {
         </Form.Item>
       </AdminDialog>
 
-      <AIRechargeDialog
-        open={rechargeDialogOpen}
-        amount={rechargeAmount}
-        promotions={wallet.recharge_promotions}
-        loading={recharging}
-        onAmountChange={setRechargeAmount}
-        onClose={() => setRechargeDialogOpen(false)}
-        onConfirm={() => void requestAIRecharge()}
-        onModelSaved={config => { setAIConfig(config); setCurrentAIModel(String(config.model || "")); }}
-      />
+      <AIRechargeFlow open={rechargeDialogOpen} wallet={wallet} agentBase={agentBase} onClose={() => setRechargeDialogOpen(false)} onPaid={refreshAll} confirm={confirm} notify={notify} onModelSaved={config => { setAIConfig(config); setCurrentAIModel(String(config.model || "")); }} />
 
       <PaymentUnderstandingDialog
         open={pendingPayment !== null}
@@ -1126,6 +1095,9 @@ function CategoryChip({ category }: { category: string }) {
   const labelMap: Record<string, string> = {
     ai_usage: "AI调用",
     recharge: "充值",
+    time_package_grant: "套餐发放",
+    time_package_expiry: "到期回收",
+    time_package_adjust: "套餐调额",
     refund: "退款",
     refund_release: "退款退回",
     signup_bonus: "注册赠送",
