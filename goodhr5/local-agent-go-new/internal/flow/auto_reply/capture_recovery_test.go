@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
@@ -17,6 +18,38 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
+
+// TestAlternatingWindowAndCaptureErrorsStop 验证线上交替报错场景经过真实持久采集队列后有界停止，不清除待办或发送消息。
+func TestAlternatingWindowAndCaptureErrorsStop(t *testing.T) {
+	directory := t.TempDir()
+	store, err := storage.Open(filepath.Join(directory, "capture-loop.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	client := cloud.New("")
+	client.EnableLocalAutoReply(store, directory)
+	flow := &Flow{Browser: &autoReplyBrowserStub{}, Store: store, Cloud: client}
+	prepared := shared.PreparedTask{Request: shared.StartRequest{TaskID: "loop-test", Token: "synthetic", PositionID: "position", PlatformAccountID: "account"}, MachineID: "machine", Platform: model.Config{ID: "boss"}}
+	positions := []cloud.AutoReplyPositionSnapshot{{Position: cloud.AutoReplyPosition{ID: "position", Name: "工程师"}}}
+	conversation := model.Conversation{Key: "stuck-thread", PlatformThreadID: "stuck-thread", Name: "合成候选人"}
+	runtime := &captureRecoveryRuntime{autoReplyRuntimeStub: autoReplyRuntimeStub{openReadErr: fmt.Errorf("当前聊天暂时无法核实")}, openError: fmt.Errorf("历史读取失败")}
+	current := &openAutoReplyConversation{conversation: model.Conversation{Key: "previous-thread", Name: "上一个合成候选人"}, snapshot: model.AutoReplyConversationSnapshot{CandidateName: "上一个合成候选人", PlatformThreadID: "previous-thread"}}
+	policy := &shared.ConsecutiveErrorPolicy{}
+	for i := 0; i < 3; i++ {
+		_, _, err = flow.processCheckpoint(context.Background(), prepared, captureUnreadScanner{[]model.Conversation{conversation}}, runtime, positions, 3, &shared.Stats{}, policy, current)
+		if i < 2 && err != nil {
+			t.Fatal("尚未到上限便停止", err)
+		}
+	}
+	if err == nil || !strings.Contains(err.Error(), "连续 3 次") || runtime.opens > 3 || runtime.sent {
+		t.Fatalf("交替报错仍无限打开或发送：opens=%d sent=%v err=%v", runtime.opens, runtime.sent, err)
+	}
+	pending, err := client.ListPendingAutoReplyConversations(context.Background(), credentials(prepared), "boss", "account")
+	if err != nil || len(pending) != 1 || pending[0].CaptureIntent == nil {
+		t.Fatal("停止时丢失了持久采集待办", len(pending), err)
+	}
+}
 
 // captureRecoveryRuntime 模拟点击已清未读，但随后历史读取失败，禁止访问真实招聘页面。
 type captureRecoveryRuntime struct {

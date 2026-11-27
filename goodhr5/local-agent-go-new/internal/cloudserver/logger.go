@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,7 +15,9 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/replybridge"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
 
@@ -58,7 +61,7 @@ func (l *runLogger) Step(task, flow, step, status string, began time.Time, err e
 	if errors.As(err, &scoped) {
 		position, conversation = scoped.Position, scoped.Conversation
 	}
-	l.logEvent(step, status, description, began, nil, position, conversation, details, safeAI != "")
+	l.logEventWithError(step, status, description, began, nil, position, conversation, details, safeAI != "", err)
 }
 
 // ReportAnalysis 将现有工作流发出的简历整理、条件复核及送达阶段写入时间线。
@@ -100,6 +103,11 @@ func (l *runLogger) ResetAnalysis(task string) {
 
 // logEvent 用独立稳定编号记录一次真实事件，持久层失败则终止继续执行网页操作。
 func (l *runLogger) logEvent(title, status, description string, began time.Time, measured *int64, eventPosition, eventConversation string, details []failurediag.Detail, safeAI bool) {
+	l.logEventWithError(title, status, description, began, measured, eventPosition, eventConversation, details, safeAI, nil)
+}
+
+// logEventWithError 保留实际错误链用于排错，复用统一凭据脱敏并限制长度，不记录命令入参或聊天正文。
+func (l *runLogger) logEventWithError(title, status, description string, began time.Time, measured *int64, eventPosition, eventConversation string, details []failurediag.Detail, safeAI bool, cause error) {
 	l.mu.Lock()
 	conversation, position := l.conversation, l.position
 	l.mu.Unlock()
@@ -123,6 +131,24 @@ func (l *runLogger) logEvent(title, status, description string, began time.Time,
 		return
 	}
 	event := map[string]any{"run_id": l.run.id, "position_id": position, "conversation_id": conversation, "title": title, "status": status, "description": description, "occurred_at": now}
+	if cause != nil {
+		// AI和业务诊断已有明确安全证据；浏览器只保留真实设备返回的错误，未知业务错误仍不带出私人正文。
+		var remote *replybridge.RemoteError
+		message := ai.SafeRequestErrorSummary(cause)
+		if message == "" && len(details) > 0 {
+			message = failurediag.Summary(details)
+		}
+		if message == "" && errors.As(cause, &remote) {
+			message = remote.Error()
+		}
+		text := []rune(strings.TrimSpace(string(diagnostics.Redact([]byte(message)))))
+		if len(text) > 4000 {
+			text = append(text[:4000], []rune("…（详情过长，已截断）")...)
+		}
+		if len(text) > 0 {
+			event["error_detail"] = string(text)
+		}
+	}
 	if len(details) > 0 {
 		event["failure_diagnostics"] = details
 		if !safeAI {

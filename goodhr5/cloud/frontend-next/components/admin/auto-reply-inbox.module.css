@@ -1,8 +1,23 @@
 /* 文件作用说明：统一自动回复面板、待确认标题原话与手机回复卡片，沿用后台主题和紧凑尺寸。 */
-.runBar { display: flex; gap: 8px 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 12px; margin-bottom: 16px; background: var(--goodhr-bg); border: 1px solid var(--goodhr-border); border-radius: 8px; }
-.runInfo { min-width: 0; display: grid; gap: 4px; }
+.runBar { display: flex; gap: 8px 16px; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+.runInfo { min-width: 0; flex: 1; }
 .runInfo p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--goodhr-text-secondary); overflow-wrap: anywhere; }
-.runActions { display: flex; gap: 8px; flex-wrap: wrap; }
+.runActions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; flex-wrap: wrap; }
+.runActions :global(.ant-tag) { margin: 0; }
+.logs { min-height: 280px; height: min(48dvh, 480px); overflow: auto; border-block: 1px solid var(--goodhr-border); }
+.logRow { border-bottom: 1px solid var(--goodhr-border); font-size: 13px; }
+.logRow summary { cursor: pointer; display: flex; gap: 8px; align-items: center; padding: 8px 4px; min-height: 32px; }
+.logRow summary::before { content: "›"; color: var(--goodhr-text-secondary); }
+.logRow[open] summary::before { transform: rotate(90deg); }
+.logRow summary:focus-visible { outline: 2px solid var(--goodhr-primary); outline-offset: -2px; }
+.logRow time { flex-shrink: 0; font-size: 12px; color: var(--goodhr-text-secondary); font-variant-numeric: tabular-nums; }
+.logRow :global(.ant-tag) { margin: 0; flex-shrink: 0; }
+.logMessage { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.logDetail { padding: 8px 12px; background: var(--goodhr-bg); overflow-wrap: anywhere; }
+.logDetail pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; margin: 8px 0; }
+.logDetail p { margin: 0 0 8px; }
+.logError { color: var(--goodhr-error, #b42318); }
+.logEmpty { display: grid; place-items: center; height: 200px; }
 .heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
 .heading h3 { margin: 0; font-size: 14px; font-weight: 650; color: var(--goodhr-text); }
 .count { font-size: 12px; color: var(--goodhr-text-secondary); font-variant-numeric: tabular-nums; }
@@ -24,8 +39,11 @@
 .mobileList { display: none; }
 .pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 12px; }
 @media (max-width: 599px) {
-  .runBar { align-items: flex-start; padding: 12px; }
+  .runBar { flex-wrap: wrap; }
+  .runInfo { flex-basis: 100%; }
   .runActions { width: 100%; justify-content: flex-end; }
+  .logRow summary { flex-wrap: wrap; }
+  .logMessage { flex-basis: 100%; padding-left: 12px; }
   .filters { align-items: stretch; }
   .positionSelect { flex-basis: 100%; min-width: 0; width: 100%; }
   .desktopTable { display: none; }

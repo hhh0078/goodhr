@@ -31,6 +31,7 @@ async function fixture(page: Page, agentOnline = true) {
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
     let data: unknown;
     if (path.endsWith("/auto-reply/start")) { expect(request.postDataJSON().platform_account_id).toBe("合成招聘账号"); state.starts++; state.running = true; data = { ok: true, data: { status: "running", task_id: "synthetic-auto-reply" } }; }
+    else if (path === "/api/auto-reply/logs") data = {items:[],next_cursor:"",retention_limit:1000};
     else if (path === "/api/auto-reply/questions/summary") data = { pending_count: 0, positions: [] };
     else if (path === "/api/auto-reply/questions") data = { questions: [], next_cursor: "", pending_count: 0 };
     else if (path.endsWith("/questions") && method === "GET") data = { questions: [] };
@@ -155,8 +156,20 @@ for (const width of [1366, 390]) test(`空话术在岗位和管理员表单保�
 
 /** openReplyWorkspace 只打开统一面板，不能因为查看待办而顺带启动浏览器任务。 */
 async function openReplyWorkspace(page: Page) {
+  // 上一步保存提示不参与本用例；手机顶部提示停在鼠标下时会一直遮住新的紧凑启停按钮。
+  for (const close of await page.locator(".ant-notification-notice-close").all()) if (await close.isVisible()) await close.click();
   await page.getByTestId("auto-reply-global").click();
   const dialog = page.getByRole("dialog", { name: "自动回复", exact: true });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+/** openReplyQuestions 打开工作台后进入独立补充弹框，兼容汇总读取失败时的手动入口。 */
+async function openReplyQuestions(page: Page) {
+  const workspace = await openReplyWorkspace(page);
+  const dialog = page.getByRole("dialog", { name: "待补充消息", exact: true });
+  await expect.poll(async () => await dialog.isVisible() || await workspace.getByRole("button", { name: "待补充消息", exact: true }).isVisible()).toBe(true);
+  if (!await dialog.isVisible()) await workspace.getByRole("button", { name: "待补充消息", exact: true }).click();
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -199,7 +212,7 @@ for (const width of [1440,390]) test(`待确认统一入口 ${width}px 标题原
   expect(badgeBounds!.y+badgeBounds!.height).toBeLessThanOrEqual(toolbarBounds!.y+toolbarBounds!.height);
   expect((await page.getByTestId("auto-reply-global").boundingBox())!.height).toBe(32);
   mkdirSync(output,{recursive:true});await page.screenshot({path:resolve(output,`inbox-entry-${width}.png`),fullPage:true,animations:"disabled"});
-  const dialog=await openReplyWorkspace(page);
+  const dialog=await openReplyQuestions(page);
   await expect(dialog.getByRole("columnheader",{name:"候选人原话",exact:true})).toHaveCount(0);
   const first=dialog.getByRole("textbox",{name:"回复可以确认事项1吗？",exact:true});await first.fill("第一页仍未提交的答复");
   await dialog.getByRole("button",{name:/可以确认事项1吗？/}).click();
@@ -217,7 +230,7 @@ for (const width of [1440,390]) test(`待确认统一入口 ${width}px 标题原
   await expect(first).toHaveValue("第一页仍未提交的答复");
   await dialog.getByRole("button",{name:/可以确认事项1吗？/}).click();
   await expect(dialog.getByText("候选人的合成原话1",{exact:true})).toBeVisible();
-  await dialog.getByText("消息接待",{exact:true}).scrollIntoViewIfNeeded();
+  await dialog.getByText("待确认补充",{exact:true}).scrollIntoViewIfNeeded();
   await expect(page.getByText("已补入对应资料，这条已从工作台移除。",{exact:true})).toHaveCount(0);
   mkdirSync(output,{recursive:true});await page.screenshot({path:resolve(output,`inbox-${width}.png`),fullPage:true,animations:"disabled"});
   const bounds=await dialog.boundingBox();expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width);
@@ -228,8 +241,8 @@ test("待确认汇总失败显示未知，离线仍可回复，处理最后一�
   const {inbox,state}=await inboxFixture(page,false);inbox.rows=inbox.rows.filter(row=>row.id==="inbox-1"||row.id==="inbox-13");inbox.summaryFailure=true;
   await page.route(/http:\/\/127\.0\.0\.1:43999\//,route=>route.abort());
   await page.goto("/admin/positions");await page.addLocatorHandler(page.getByRole("dialog",{name:"请先安装本地程序"}),async()=>{await page.keyboard.press("Escape");});
-  const dialog=await openReplyWorkspace(page);await expect(dialog.getByText("数量暂未读到",{exact:true})).toBeVisible();await expect(dialog.getByText("0 项待处理",{exact:true})).toHaveCount(0);
-  await expect(dialog.getByRole("button",{name:"开始自动回复",exact:true})).toBeVisible();
+  const dialog=await openReplyQuestions(page);await expect(dialog.getByText("数量暂未读到",{exact:true})).toBeVisible();await expect(dialog.getByText("0 项待处理",{exact:true})).toHaveCount(0);
+  await expect(page.getByRole("dialog",{name:"自动回复",exact:true}).getByRole("button",{name:"开始自动回复",exact:true})).toBeVisible();
   inbox.summaryFailure=false;await dialog.getByRole("button",{name:"重试",exact:true}).click();
   await dialog.getByRole("textbox",{name:"回复可以确认事项1吗？",exact:true}).fill("已核实的信息");await dialog.getByRole("button",{name:"保存回复",exact:true}).click();
   await expect(dialog.getByText("这个岗位暂时没有需要补充的问题。",{exact:true})).toBeVisible();
@@ -249,7 +262,7 @@ test("归档失败响应省略来源时，保留原话和答复供重试",async(
     const {source_messages:omitted,...saved}=row;void omitted;await route.fulfill({headers,json:{question:saved}});
   });
   try{
-    await page.goto("/admin/positions");const dialog=await openReplyWorkspace(page);await dialog.getByText("全部记录",{exact:true}).click();
+    await page.goto("/admin/positions");const dialog=await openReplyQuestions(page);await dialog.getByText("全部记录",{exact:true}).click();
     await dialog.getByRole("button",{name:/可以确认事项1吗？/}).click();await dialog.getByRole("textbox",{name:"回复可以确认事项1吗？",exact:true}).fill("已确认答复");
     await dialog.getByRole("button",{name:"保存回复",exact:true}).click();await expect(dialog.getByRole("group",{name:"HR回复：可以确认事项1吗？",exact:true}).getByText("待重试",{exact:true})).toBeVisible();
     await expect(dialog.getByText("候选人的合成原话1",{exact:true})).toBeVisible();await expect(dialog.getByText("原话已清理",{exact:true})).toHaveCount(0);
@@ -268,7 +281,7 @@ for(const width of [1440,390]) test(`补充成功自动移出工作台 ${width}p
     attempts++;await saveGate;await route.fallback();
   });
   try{
-    await page.setViewportSize({width,height:960});await page.goto("/admin/positions");const dialog=await openReplyWorkspace(page);
+    await page.setViewportSize({width,height:960});await page.goto("/admin/positions");const dialog=await openReplyQuestions(page);
     await dialog.getByText("全部记录",{exact:true}).click();await expect(dialog).toHaveCSS("transform","none");
     const editor=dialog.getByRole("group",{name:"HR回复：可以确认事项1吗？",exact:true});
     const input=editor.getByRole("textbox");const save=editor.getByRole("button",{name:/保存回复/});
@@ -286,7 +299,7 @@ for(const width of [1440,390]) test(`补充成功自动移出工作台 ${width}p
     await expect(page.getByText("已补入对应资料，这条已从工作台移除。",{exact:true})).toBeVisible();expect(attempts).toBe(1);
     const readDone=page.waitForResponse(response=>new URL(response.url()).pathname==="/api/auto-reply/questions"&&response.request().method()==="GET");
     holdReads=false;releaseRead();await readDone;
-    await page.reload();const reopened=await openReplyWorkspace(page);await reopened.getByText("全部记录",{exact:true}).click();
+    await page.reload();const reopened=await openReplyQuestions(page);await reopened.getByText("全部记录",{exact:true}).click();
     await expect(reopened.getByRole("textbox",{name:"回复可以确认事项2吗？",exact:true})).toBeVisible();
     await expect(reopened.getByRole("group",{name:"HR回复：可以确认事项1吗？",exact:true})).toHaveCount(0);expect(inbox.replies).toBe(1);
   }finally{releaseSave();releaseRead();}
@@ -303,7 +316,7 @@ test("答复草稿固定首次版本，每次并发更新都需核对，自己�
     question.answer=body.answer;question.version++;question.status="failed";question.error="整理没完成，可以重新保存。";inbox.replies++;
     await route.fulfill({headers:{"access-control-allow-origin":"*"},json:{question}});
   });
-  await page.goto("/admin/positions");const dialog=await openReplyWorkspace(page);
+  await page.goto("/admin/positions");const dialog=await openReplyQuestions(page);
   const row=dialog.getByRole("table").getByRole("row").filter({hasText:"可以确认事项1吗？"});
   const input=row.getByRole("textbox",{name:"回复可以确认事项1吗？",exact:true});
   const save=row.getByRole("button",{name:"保存回复",exact:true});
@@ -688,6 +701,7 @@ test("简历详情区分自动发送和未知招聘方，可分页追溯操作�
 
 test("主动退出先撤销本机内存凭证再返回登录页", async ({ page }) => {
   await fixture(page);
+  await page.route("**/api/auth/logout", route => route.fulfill({ headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" }, json: { ok: true } }));
   let unbound = false;
   await page.route("**/api/v1/session/unbind", async (route) => {
     const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*" };
@@ -731,4 +745,30 @@ test("本地程序重启时，重新绑定和运行组件检查通过前不能�
   await expect.poll(() => bound).toBe(true);
   await expect.poll(() => checks).toBeGreaterThan(0);
   expect(state.starts).toBe(0);
+});
+
+/** 工作台回归：日志占主要区域，补充独立弹框按每次打开自动出现，手机不横向溢出。 */
+for (const width of [1366, 390]) test(`紧凑自动回复工作台与独立补充弹框 ${width}`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 900 });
+  const { base } = await inboxFixture(page);
+  await page.route("**/api/auto-reply/logs?*", route => route.fulfill({ headers: { "access-control-allow-origin": "*" }, json: { items: [{ id: "synthetic-fault", cursor: 1, occurred_at: "2026-11-27T04:52:13Z", title: "process_conversation", status: "failed", description: "候选人会话暂时没读完整", error_detail: "BOSS当前会话的资料按钮编号不一致，暂不操作", run_id: "synthetic-run", duration_ms: 1300 }], next_cursor: "", retention_limit: 1000 } }));
+  await page.goto("/admin/positions");
+  const workspace = await openReplyWorkspace(page);
+  const supplements = page.getByRole("dialog", { name: "待补充消息", exact: true });
+  await expect(supplements).toBeVisible();
+  await supplements.getByRole("button", { name: "关闭", exact: true }).last().click();
+  await expect(supplements).toBeHidden();
+  const logs = workspace.getByTestId("auto-reply-logs");
+  await expect(logs.getByText("处理候选人会话 · 候选人会话暂时没读完整", { exact: true })).toBeVisible();
+  await logs.locator("summary").click();
+  await expect(logs.getByText("BOSS当前会话的资料按钮编号不一致，暂不操作", { exact: true })).toBeVisible();
+  await workspace.getByRole("button", { name: "待补充消息", exact: true }).click();
+  await expect(supplements).toBeVisible();
+  await supplements.getByRole("button", { name: "关闭", exact: true }).last().click();
+  await page.screenshot({ path: testInfo.outputPath(`auto-reply-workbench-${width}.png`), animations: "disabled" });
+  expect(await workspace.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await workspace.getByRole("button", { name: "关闭", exact: true }).last().click();
+  await openReplyWorkspace(page);
+  await expect(supplements).toBeVisible();
+  expect(base.errors).toEqual([]);
 });

@@ -22,6 +22,33 @@ var operationErrorNumberPattern = regexp.MustCompile(`\d+`)
 type ConsecutiveErrorPolicy struct {
 	fingerprint string
 	count       int
+	scopes      map[string]int // 自动回复按稳定对象分别计错，检查窗口和恢复会话交替失败也能及时停止。
+}
+
+// RecordFor 按固定操作对象累计失败，其他候选人成功或另一类错误不能冲掉该对象的重试上限。
+func (p *ConsecutiveErrorPolicy) RecordFor(scope string, err error) error {
+	if err == nil {
+		p.ResetFor(scope)
+		return nil
+	}
+	if ShouldStopTaskImmediately(err) {
+		return err
+	}
+	if p.scopes == nil {
+		p.scopes = make(map[string]int)
+	}
+	p.scopes[scope]++
+	if p.scopes[scope] >= consecutiveOperationErrorLimit || len(p.scopes) > 100 {
+		return fmt.Errorf("同一操作对象连续 3 次处理失败，已停止反复尝试：%w", err)
+	}
+	return nil
+}
+
+// ResetFor 只在当前对象已真正处理成功后清除它的失败次数。
+func (p *ConsecutiveErrorPolicy) ResetFor(scope string) {
+	if p != nil {
+		delete(p.scopes, scope)
+	}
 }
 
 // Record 记录一次操作错误；致命错误立即返回，同类错误连续三次时返回停止原因。
@@ -54,11 +81,12 @@ func (p *ConsecutiveErrorPolicy) Reset() {
 	}
 	p.fingerprint = ""
 	p.count = 0
+	p.scopes = nil
 }
 
 // HasErrors 返回本轮是否仍有连续操作错误，避免空闲提示覆盖尚未恢复的故障。
 func (p *ConsecutiveErrorPolicy) HasErrors() bool {
-	return p != nil && p.count > 0
+	return p != nil && (p.count > 0 || len(p.scopes) > 0)
 }
 
 // ShouldStopTaskImmediately 判断错误是否属于继续运行也不会恢复的岗位级故障。

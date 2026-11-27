@@ -40,7 +40,7 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 		if err != nil {
 			wrapped := fmt.Errorf("读取自动回复岗位列表失败：%w", err)
 			f.log(prepared.Request.TaskID, "load_positions", "warning", time.Now(), wrapped)
-			if stopErr := errorPolicy.Record(wrapped); stopErr != nil {
+			if stopErr := errorPolicy.RecordFor("positions", wrapped); stopErr != nil {
 				return stopErr
 			}
 			if err = waitForNextCheckpoint(ctx, 3); err != nil {
@@ -48,6 +48,7 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 			}
 			continue
 		}
+		errorPolicy.ResetFor("positions")
 		if len(positions) == 0 {
 			errorPolicy.Reset()
 			shared.ReportProgress(f.Logger, prepared.Request.TaskID, prepared.Platform.Name+"暂时没有已开启自动回复的岗位，我先等一小会儿")
@@ -139,12 +140,14 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		if err != nil {
 			f.log(prepared.Request.TaskID, "check_open_conversation", "warning", time.Now(), err)
 			checkpointHadError = true
-			if stopErr := errorPolicy.Record(err); stopErr != nil {
+			if stopErr := errorPolicy.RecordFor("open_window", err); stopErr != nil {
 				return 0, openConversation, stopErr
 			}
 		} else if !stillOpen {
+			errorPolicy.ResetFor("open_window")
 			openConversation = nil
 		} else {
+			errorPolicy.ResetFor("open_window")
 			openVerified, openHasNew = true, hasNewMessage
 		}
 	}
@@ -219,11 +222,12 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		if err != nil {
 			wrapped := fmt.Errorf("读取候选人会话列表失败：%w", err)
 			f.log(prepared.Request.TaskID, "scan_unread_conversations", "warning", time.Now(), wrapped)
-			if stopErr := errorPolicy.Record(wrapped); stopErr != nil {
+			if stopErr := errorPolicy.RecordFor("scan", wrapped); stopErr != nil {
 				return 0, openConversation, stopErr
 			}
 			return 0, openConversation, nil
 		}
+		errorPolicy.ResetFor("scan")
 		if prepared.Platform.Behavior.AutoReplyAllContactInbox {
 			reviewStarted := time.Now()
 			unread, reviews, err = f.reviewAllContacts(ctx, prepared, unread)
@@ -263,7 +267,7 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		conversations = allowed
 	}
 	if len(conversations) == 0 {
-		if !checkpointHadError {
+		if !checkpointHadError && !errorPolicy.HasErrors() {
 			errorPolicy.Reset()
 		}
 		return 0, openConversation, nil
@@ -289,7 +293,7 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 				_, stillOpen, err := replyRuntime.ReadOpenAutoReplyLatestMessage(ctx, f.Browser, prepared.Platform, openConversation.snapshot)
 				if err != nil {
 					f.log(prepared.Request.TaskID, "check_open_after_scan", "warning", time.Now(), err)
-					if stopErr := errorPolicy.Record(err); stopErr != nil {
+					if stopErr := errorPolicy.RecordFor("conversation:"+threadID, err); stopErr != nil {
 						return processed, openConversation, stopErr
 					}
 					continue
@@ -331,14 +335,14 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		}
 		if err != nil {
 			f.log(prepared.Request.TaskID, "process_conversation", "failed", startedAt, err)
-			if stopErr := errorPolicy.Record(err); stopErr != nil {
+			if stopErr := errorPolicy.RecordFor("conversation:"+threadID, err); stopErr != nil {
 				return processed, openConversation, stopErr
 			}
 			continue
 		}
 		// 采集成功后，持续打开的会话改用已落盘的消息游标。列表初次观测的时间仅约束本次采集。
 		current.conversation.ReplyAfter, current.conversation.WitnessDigest = time.Time{}, ""
-		errorPolicy.Reset()
+		errorPolicy.ResetFor("conversation:" + threadID)
 		f.log(prepared.Request.TaskID, "process_conversation", "success", startedAt, nil)
 	}
 	return processed, openConversation, nil

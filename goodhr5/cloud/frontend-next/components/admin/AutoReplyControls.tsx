@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useAdmin } from "./AdminApp";
 import AutoReplyPositionDialog from "./AutoReplyPositionDialog";
 import AutoReplyInbox from "./AutoReplyInbox";
+import AutoReplyLogs from "./AutoReplyLogs";
 import AdminDialog from "./AdminDialog";
 import PositionFloatingStatus, { openPositionFloatingWindow, type PositionAnalysisStatus, type PositionFloatingStatusValue } from "./PositionFloatingStatus";
 import { ensureLocalAgentReady, getToken, localRequest } from "@/lib/admin-api";
@@ -55,6 +56,8 @@ export function AutoReplyGlobalControl() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [replyAccount, setReplyAccount] = useState("");
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [questionsOpen, setQuestionsOpen] = useState(false);
+  const autoOpenQuestions = useRef(false);
   const [summary, setSummary] = useState<ReplyInboxSummary | null>(null);
   const [summaryError, setSummaryError] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -93,8 +96,15 @@ export function AutoReplyGlobalControl() {
   const refreshInbox = useCallback(() => { void readSummary(); }, [readSummary]);
 
   useEffect(() => {
+    if (inboxOpen && autoOpenQuestions.current && summary && !summaryError && !summaryLoading) {
+      autoOpenQuestions.current = false;
+      if (summary.pending_count > 0) setQuestionsOpen(true);
+    }
+  }, [inboxOpen, summary, summaryError, summaryLoading]);
+
+  useEffect(() => {
     summaryGeneration.current += 1; summaryRead.current?.abort(); summaryRead.current = null;
-    setSummary(null); setSummaryError(""); setInboxOpen(false);
+    setSummary(null); setSummaryError(""); setInboxOpen(false); setQuestionsOpen(false); autoOpenQuestions.current = false;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     /** pollSummary 只轮询轻量汇总，隐藏页面时不读取候选人详情。 */
@@ -184,7 +194,7 @@ export function AutoReplyGlobalControl() {
       <span style={{ paddingInlineEnd: 8 }}><Badge showZero size="small" offset={[0, 7]} color={!summaryError && summary?.pending_count === 0 ? "var(--goodhr-text-secondary)" : undefined}
         count={summaryError ? "?" : summary ? summary.pending_count : "…"} overflowCount={99} title={summaryError || (summary ? `${summary.pending_count} 项待确认补充` : "正在核对待确认数量")}>
         <Button data-testid="auto-reply-global" aria-label="自动回复工作台" icon={running ? <CommentOutlined aria-hidden="true" /> : <PlayCircleOutlined aria-hidden="true" />}
-          loading={busy} onClick={() => { setInboxOpen(true); refreshInbox(); if (AUTO_REPLY_ROLLOUT_CLOSED && !running) notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info"); }}>
+          loading={busy} onClick={() => { autoOpenQuestions.current = true; setInboxOpen(true); refreshInbox(); if (AUTO_REPLY_ROLLOUT_CLOSED && !running) notify(AUTO_REPLY_ROLLOUT_MESSAGE, "info"); }}>
           {running ? "自动回复运行中" : "开始自动回复"}
         </Button>
       </Badge></span>
@@ -195,19 +205,21 @@ export function AutoReplyGlobalControl() {
       style={{ overflowWrap: "anywhere" }} />}
     </Flex>
     <AdminDialog open={inboxOpen} title="自动回复" cancelText="关闭" maxWidth="lg" loading={busy} onClose={() => setInboxOpen(false)}>
-      <AutoReplyTestNotice />
       <div className={styles.runBar}>
-        <div className={styles.runInfo}>
-          <div><Typography.Text strong>消息接待</Typography.Text> <Tag color={running ? "success" : task?.status === "failed" ? "error" : undefined}>{running ? "运行中" : task?.status === "failed" ? "已停止" : agentBase ? "未启动" : "本机未连接"}</Tag></div>
-          <p>{statusError || (!agentBase ? "本机暂未连接，待确认问题仍可在这里处理。" : task?.status === "failed" ? failureReason : running ? "我会关注当前平台已开启岗位的新消息。" : AUTO_REPLY_ROLLOUT_CLOSED ? AUTO_REPLY_ROLLOUT_MESSAGE : "开始后，我会按各岗位设置接待候选人。")}</p>
-        </div>
+        <div className={styles.runInfo}><AutoReplyTestNotice compact /></div>
         <div className={styles.runActions}>
+          <Tag color={running ? "success" : task?.status === "failed" ? "error" : undefined}>{running ? "运行中" : task?.status === "failed" ? "已停止" : agentBase ? "未启动" : "本机未连接"}</Tag>
+          <Badge showZero count={summaryError ? "?" : summary ? summary.pending_count : "…"} size="small" overflowCount={999}><Button onClick={() => { setQuestionsOpen(true); refreshInbox(); }}>待补充消息</Button></Badge>
           {blockedCount > 0 && <Button disabled={busy} onClick={() => void retryReports()}>重试待办（{blockedCount}）</Button>}
           <Button type="primary" danger={running} icon={running ? <StopOutlined aria-hidden="true" /> : <PlayCircleOutlined aria-hidden="true" />}
             loading={busy} disabled={AUTO_REPLY_ROLLOUT_CLOSED && !running ? false : !agentBase || task === null} onClick={() => void changeRunning()}>{running ? "停止自动回复" : "开始自动回复"}</Button>
         </div>
       </div>
-      <AutoReplyInbox key={owner} summary={summary} loading={summaryLoading} error={summaryError} active={inboxOpen} onRetry={refreshInbox} onApplied={refreshInbox} />
+      {(statusError || task?.status === "failed") && <Alert type="error" showIcon title={statusError || failureReason} />}
+      <AutoReplyLogs key={owner} active={inboxOpen} />
+    </AdminDialog>
+    <AdminDialog open={inboxOpen && questionsOpen} title="待补充消息" cancelText="关闭" maxWidth="md" onClose={() => setQuestionsOpen(false)}>
+      <AutoReplyInbox key={owner} summary={summary} loading={summaryLoading} error={summaryError} active={inboxOpen && questionsOpen} onRetry={refreshInbox} onApplied={refreshInbox} />
     </AdminDialog>
     <AdminDialog open={accountOpen} title="确认当前招聘账号" confirmText="确认账号并开始" loading={busy}
       confirmDisabled={!replyAccount.trim()} onClose={() => setAccountOpen(false)} onConfirm={() => void changeRunning(replyAccount)}>

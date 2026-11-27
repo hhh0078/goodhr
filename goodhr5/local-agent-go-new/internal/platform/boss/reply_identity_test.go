@@ -52,6 +52,16 @@ func TestBossDeliveryCannotReopenClosedConversation(t *testing.T) {
 	}
 }
 
+// TestBossOpenChatPollAllowsAnotherCandidate 验证处理其他联系人后的窗口切换不算故障，也不为轮询点击旧人。
+func TestBossOpenChatPollAllowsAnotherCandidate(t *testing.T) {
+	b, cfg, snapshot := bossIdentityFixture()
+	b.values["name"] = "另一个候选人"
+	_, opened, err := (&Runtime{}).ReadOpenAutoReplyLatestMessage(context.Background(), b, cfg, snapshot)
+	if err != nil || opened || b.clicks != 0 {
+		t.Fatalf("正常换人被当作错误或发生点击：%v %v %d", opened, err, b.clicks)
+	}
+}
+
 // bossContactFixture 创建带原生key和一个无key置顶行的全部联系人快照。
 func bossContactFixture(total int) (*Runtime, *bossReplyTestBrowser, model.Config) {
 	b, cfg := bossMessagesFixture(nil)
