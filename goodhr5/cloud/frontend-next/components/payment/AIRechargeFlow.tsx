@@ -52,7 +52,7 @@ export default function AIRechargeFlow({ open, wallet, agentBase, onClose, onPai
     busy.current = true;
     try {
       await requirePaymentLocalAgent(agentBase);
-      const accepted = await confirm("支付前请确认", mode === "time" ? `${plan?.name}，实付￥${((plan?.price_cents || 0) / 100).toFixed(2)}，有效${plan?.duration_days}天。AI照常按用量扣额度；续费补足至￥${((plan?.balance_cents || 0) / 100).toFixed(2)}，已有额度更高则保留。套餐到期额度清零，按量充值余额保留。套餐退款和发票请联系作者处理。` : `AI 余额仅用于 GoodHR 内置 AI 调用。${AI_RECHARGE_POLICY}${AI_RECHARGE_REFUND_POLICY}需要开发票请联系作者处理，发票开出后该笔订单不支持退费。`);
+      const accepted = await confirm("支付前请确认", mode === "time" ? `${plan?.name}，实付￥${((plan?.price_cents || 0) / 100).toFixed(2)}，有效${plan?.duration_days}天。套餐额度无限，AI调用照常记账；可用额度不足时需联系作者补充后继续使用。续费延长有效期。套餐到期额度清零，按量充值余额保留。套餐退款和发票请联系作者处理。` : `AI 余额仅用于 GoodHR 内置 AI 调用。${AI_RECHARGE_POLICY}${AI_RECHARGE_REFUND_POLICY}需要开发票请联系作者处理，发票开出后该笔订单不支持退费。`);
       if (!accepted) return;
       setLoading(true);
       await requirePaymentLocalAgent(agentBase);

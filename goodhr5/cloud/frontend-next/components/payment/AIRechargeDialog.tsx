@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import RechargeAIModel from "./RechargeAIModel";
 import AdminDialog from "@/components/admin/AdminDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
+import { timePlanPricing } from "@/lib/ai-time-plan-pricing";
 import {
   AI_RECHARGE_POLICY,
   AI_RECHARGE_REFUND_POLICY,
@@ -61,9 +62,12 @@ export default function AIRechargeDialog({
       {onModeChange ? <Segmented block aria-label="购买方式" style={{ marginBottom: 12 }} value={mode} disabled={loading} options={[{ label: "按量充值", value: "balance" }, { label: "时间套餐", value: "time" }]} onChange={value => onModeChange(value as "balance" | "time")} /> : null}
       {mode === "time" ? <>
         {plansError ? <Alert type="error" showIcon title={plansError} style={{ marginBottom: 12 }} /> : null}
-        {timePlans.length ? <ChoiceCards compact className="goodhr-time-plans" label="选择套餐" columns={1} value={selectedPlan} readOnly={loading} options={timePlans.map(plan => ({ value: plan.id, label: `${plan.name} · ￥${(plan.price_cents / 100).toFixed(2)} / ${plan.duration_days}天`, description: `可用额度 ￥${(plan.balance_cents / 100).toFixed(2)}` }))} onChange={value => onPlanChange?.(String(value))} /> : <Typography.Paragraph type="secondary">{plansLoading ? "正在读取套餐…" : "暂时没有可购买的套餐。"}</Typography.Paragraph>}
-        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 8 }}>AI 调用按实际用量扣额度。续费延长有效期，并把额度补足至所选套餐标准；现有额度更高时保留。</Typography.Paragraph>
-        <Typography.Paragraph type="secondary">到期后套餐额度清零，按量充值余额保留。额度不足可联系作者补充；套餐退款请联系作者处理。</Typography.Paragraph>
+        {timePlans.length ? <ChoiceCards compact className="goodhr-time-plans" label="选择套餐" columns={1} value={selectedPlan} readOnly={loading} options={timePlans.map(plan => {
+          const pricing = timePlanPricing(plan, timePlans);
+          return { value: plan.id, label: `${plan.name}${pricing.bestValue ? "（最划算）" : ""} · ￥${(plan.price_cents / 100).toFixed(2)} / ${plan.duration_days}天`, description: pricing.description };
+        })} onChange={value => onPlanChange?.(String(value))} /> : <Typography.Paragraph type="secondary">{plansLoading ? "正在读取套餐…" : "暂时没有可购买的套餐。"}</Typography.Paragraph>}
+        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 8 }}>有效期内使用，AI 调用照常记账；续费延长有效期。日均价和优惠按各套餐实际天数计算。</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">可用额度不足时，需联系作者补充后继续使用。套餐到期后剩余额度清零，按量充值余额保留；套餐退款请联系作者处理。</Typography.Paragraph>
       </> : <>
       {activePackage ? <Alert type="info" showIcon title="套餐有效期内优先使用套餐额度；这里充值的按量余额会保留，套餐到期后使用。套餐额度不足请联系作者补充。" style={{ marginBottom: 12 }} /> : null}
       <Form.Item layout="vertical" htmlFor={amountID} label="充值金额（元）" style={{ marginBottom: 8 }}>

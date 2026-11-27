@@ -38,21 +38,31 @@ AI_URL_RULES = {
 }
 
 
-TIME_CONFIG_MIGRATIONS = {'0129_ai_time_packages.sql': 'c8763619efe9a5567b9cfa0974af57a2388c97b2aa2bff3581c2189e08ab5cea', '0130_zero_registration_trial.sql': 'd877dfb0905bea1f535eb5c75fd89e5034c4c294e923776c943c5d9e36783858'}
+TIME_CONFIG_MIGRATIONS = {
+    "0129_ai_time_packages.sql": "c8763619efe9a5567b9cfa0974af57a2388c97b2aa2bff3581c2189e08ab5cea",
+    "0130_zero_registration_trial.sql": "d877dfb0905bea1f535eb5c75fd89e5034c4c294e923776c943c5d9e36783858",
+    "0131_ai_time_package_prices.sql": "90beefec595929f40d71f84bc5c950bcc01a2e684db84925b925d1c7a9781a5a",
+}
 
 
 def verify_time_config_upgrade(before, after, migrations, start, end):
-    """逐行核对套餐种子和注册赠送归零，其他配置、旧会员、金额及更新时间全部保留。"""
+    """逐行核对固定套餐种子、注册赠送归零及新订单调价，旧权益、额度和其他配置全部保留。"""
     old = keyed_rows(before, "config_key") if before else {}
     new = keyed_rows(after, "config_key") if after else {}
     seed = "0129_ai_time_packages.sql" in migrations
     trial = "0130_zero_registration_trial.sql" in migrations
+    pricing = "0131_ai_time_package_prices.sql" in migrations
+    prices = {"monthly": 6900, "quarterly": 17900, "yearly": 54900}
     additions = {"system.ai_time_plans"} if seed and "system.ai_time_plans" not in old else set()
     require(set(new) == set(old) | additions, "套餐迁移增删了未经批准的配置行")
     for key, row in old.items():
         expected = copy.deepcopy(row)
         if trial and key == "system.onboarding_config" and isinstance(row.get("config_value"), dict):
             expected["config_value"]["trial_days"] = 0
+        if pricing and key == "system.ai_time_plans" and isinstance(row.get("config_value"), list):
+            for plan in expected["config_value"]:
+                if isinstance(plan, dict) and plan.get("id") in prices:
+                    plan["price_cents"] = prices[plan["id"]]
         require(same_ai_config_value(new[key], expected), "套餐迁移改变了其他配置字段或原更新时间")
     if additions:
         from decimal import ROUND_HALF_UP
@@ -71,6 +81,9 @@ def verify_time_config_upgrade(before, after, migrations, start, end):
                     for key, name, days, amount in (("monthly", "包月套餐", 30, monthly),
                                                    ("quarterly", "季度套餐", 90, monthly * 3),
                                                    ("yearly", "包年套餐", 365, yearly))]
+        if pricing:
+            for plan in expected:
+                plan["price_cents"] = prices[plan["id"]]
         row = new["system.ai_time_plans"]
         require(same_ai_config_value(row.get("config_value"), expected) and row.get("enabled") is True
                 and row.get("description") == "AI时间套餐：价格、天数和独立可用额度（金额单位分）",
@@ -82,7 +95,7 @@ def verify_time_config_upgrade(before, after, migrations, start, end):
         in_window(row["updated_at"], start, end)
     return {"migrations": {name: TIME_CONFIG_MIGRATIONS[name] for name in migrations},
             "exact_config_changes_verified": True, "legacy_member_and_wallet_data_preserved": True,
-            "allowed_data_changes": (["新增system.ai_time_plans"] if seed else []) + (["system.onboarding_config.trial_days=0"] if trial else [])}
+            "allowed_data_changes": (["新增system.ai_time_plans"] if seed else []) + (["system.onboarding_config.trial_days=0"] if trial else []) + (["system.ai_time_plans月季年价格=6900/17900/54900分"] if pricing else [])}
 
 
 def same_ai_config_value(before, after):

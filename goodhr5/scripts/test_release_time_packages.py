@@ -25,7 +25,7 @@ class TimePackageReleaseTests(unittest.TestCase):
         after.append({"id": "11111111-1111-4111-8111-111111111111", "config_key": "system.ai_time_plans",
                       "config_value": plans, "description": "AI时间套餐：价格、天数和独立可用额度（金额单位分）",
                       "enabled": True, "created_at": "2026-11-27T00:30:00Z", "updated_at": "2026-11-27T00:30:00Z"})
-        migrations = list(TIME_CONFIG_MIGRATIONS)
+        migrations = [name for name in TIME_CONFIG_MIGRATIONS if not name.startswith("0131_")]
         result = verify_time_config_upgrade(before, after, migrations, "2026-11-27T00:00:00Z", "2026-11-27T01:00:00Z")
         self.assertTrue(result["exact_config_changes_verified"])
         bad = copy.deepcopy(after)
@@ -38,6 +38,26 @@ class TimePackageReleaseTests(unittest.TestCase):
             target[key] = "bad"
             with self.assertRaises(CutoverError):
                 verify_time_config_upgrade(before, damaged, migrations, "2026-11-27T00:00:00Z", "2026-11-27T01:00:00Z")
+
+    def test_only_catalog_prices_change(self):
+        """新价格只改指定三档，不改天数、999额度、自定义套餐或其他配置。"""
+        before = [{"id": "catalog", "config_key": "system.ai_time_plans", "updated_at": "keep", "enabled": True,
+                   "config_value": [{"id": key, "price_cents": value, "balance_cents": 99900, "duration_days": days}
+                                    for key, value, days in (("monthly", 4000, 30), ("quarterly", 12000, 90), ("yearly", 34000, 365), ("custom", 500, 3))]}]
+        after = copy.deepcopy(before)
+        for plan, price in zip(after[0]["config_value"], (6900, 17900, 54900)):
+            plan["price_cents"] = price
+        migrations = ["0131_ai_time_package_prices.sql"]
+        verify_time_config_upgrade(before, after, migrations, "a", "b")
+        for field in ("balance_cents", "duration_days"):
+            broken = copy.deepcopy(after)
+            broken[0]["config_value"][0][field] = 1
+            with self.assertRaises(CutoverError):
+                verify_time_config_upgrade(before, broken, migrations, "a", "b")
+        broken = copy.deepcopy(after)
+        broken[0]["updated_at"] = "changed"
+        with self.assertRaises(CutoverError):
+            verify_time_config_upgrade(before, broken, migrations, "a", "b")
 
     def test_frozen_sql(self):
         """数据变化例外只适用于本次实际审查的精确SQL。"""
