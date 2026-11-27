@@ -56,6 +56,11 @@ func (p *ConsecutiveErrorPolicy) Reset() {
 	p.count = 0
 }
 
+// HasErrors 返回本轮是否仍有连续操作错误，避免空闲提示覆盖尚未恢复的故障。
+func (p *ConsecutiveErrorPolicy) HasErrors() bool {
+	return p != nil && p.count > 0
+}
+
 // ShouldStopTaskImmediately 判断错误是否属于继续运行也不会恢复的岗位级故障。
 func ShouldStopTaskImmediately(err error) bool {
 	if err == nil {

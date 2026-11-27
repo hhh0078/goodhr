@@ -13,6 +13,7 @@ import (
 // AutoReplyListObservation 是一行平台可见线索，仅对哈希进行持久化。
 type AutoReplyListObservation struct {
 	ThreadID, Signature string
+	Unread              bool // 已核实的可见未读；首次扫描允许读取启动前未回复的来信。
 	PreviewDigest       string
 	ActivityTime        *time.Time
 }
@@ -170,11 +171,11 @@ func (t *AutoReplyTx) ObserveAutoReplyList(platform, account, target string, ite
 				}
 			}
 			recent := o.ActivityTime != nil && !o.ActivityTime.Before(now.Truncate(time.Minute)) && !o.ActivityTime.After(now)
-			if changed || newThread || known[o.ThreadID] || recent {
+			if changed || newThread || known[o.ThreadID] || recent || o.Unread {
 				r.pending = true
 				if !old.pending {
 					r.after = previous
-					if known[o.ThreadID] {
+					if known[o.ThreadID] || o.Unread {
 						r.after = 0
 					} else if previous == 0 {
 						r.after = now.UnixNano()

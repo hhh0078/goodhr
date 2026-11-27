@@ -41,7 +41,7 @@ type activeRun struct {
 	failureMu                                          sync.Mutex
 	failureSequence                                    int64
 	failureNotices                                     []cloud.AutoReplyFailureNotice
-	currentStep, errorMessage                          string
+	currentStep, errorMessage, progressMessage         string
 	analysis                                           shared.AnalysisStatus
 	conversation                                       string
 	mu                                                 sync.Mutex
@@ -415,7 +415,15 @@ func (r *activeRun) fail(message string) {
 func (r *activeRun) state() map[string]any {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return map[string]any{"ok": true, "run_id": r.id, "task_id": r.task, "running": r.status == "running", "status": r.status, "stats": r.stats, "current_step": r.currentStep, "error_message": r.errorMessage, "scanned_count": r.stats.Processed, "greeted_count": r.stats.Succeeded, "skipped_count": r.stats.Skipped, "analysis": r.analysis}
+	step := r.currentStep
+	if r.status == "running" {
+		if r.progressMessage != "" {
+			step = r.progressMessage
+		} else if step == "initialize_auto_reply_page" {
+			step = "正在整理自动回复页面"
+		}
+	}
+	return map[string]any{"ok": true, "run_id": r.id, "task_id": r.task, "running": r.status == "running", "status": r.status, "stats": r.stats, "current_step": step, "error_message": r.errorMessage, "scanned_count": r.stats.Processed, "greeted_count": r.stats.Succeeded, "skipped_count": r.stats.Skipped, "analysis": r.analysis}
 }
 
 // scopeKey 对已验证的用户和设备做稳定隔离。

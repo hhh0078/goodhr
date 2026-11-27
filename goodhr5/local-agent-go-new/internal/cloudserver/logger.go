@@ -39,6 +39,7 @@ func (l *runLogger) BindAutoReplyConversation(conversation, position string) {
 func (l *runLogger) Step(task, flow, step, status string, began time.Time, err error) {
 	l.run.mu.Lock()
 	l.run.currentStep = step
+	l.run.progressMessage = ""
 	l.run.mu.Unlock()
 	details := failurediag.Details(err)
 	description := ""
@@ -70,6 +71,7 @@ func (l *runLogger) ReportAnalysis(task string, s shared.AnalysisStatus) {
 	sameEvent := s.UpdatedAt != "" && l.analysis.UpdatedAt == s.UpdatedAt && l.analysis.Stage == s.Stage
 	l.run.analysis = s
 	l.run.currentStep = s.Stage
+	l.run.progressMessage = ""
 	l.run.mu.Unlock()
 	l.analysis = s
 	l.mu.Unlock()
@@ -163,6 +165,13 @@ func (l *runLogger) UpdateReplyStats(stats shared.Stats) {
 	l.run.mu.Lock()
 	defer l.run.mu.Unlock()
 	l.run.stats = stats
+}
+
+// Progress 更新云端运行的中文进度，不覆盖内部故障阶段，也不为每轮空闲轮询重复写审计记录。
+func (l *runLogger) Progress(_ string, message string) {
+	l.run.mu.Lock()
+	defer l.run.mu.Unlock()
+	l.run.progressMessage = message
 }
 
 // rememberFailure 在权威事件持久化后给发起设备留一份有限的排障小票，不将其作为业务数据。

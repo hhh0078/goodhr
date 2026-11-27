@@ -186,6 +186,7 @@ type DetailBrowser interface {
 
 // Conversation 表示未读会话摘要。
 type Conversation struct {
+	Unread                bool              `json:"unread,omitempty"`         // 当前可见未读数字已核实；只用于发现会话，发送仍由消息账本去重。
 	ReplyAfter            time.Time         `json:"reply_after,omitempty"`    // 首次采集时历史可读，但开始监听以前的消息不触发答复。
 	WitnessDigest         string            `json:"witness_digest,omitempty"` // 已观察到变化的可见摘要，用于核对同分钟的新消息。
 	Index                 int               `json:"index"`
