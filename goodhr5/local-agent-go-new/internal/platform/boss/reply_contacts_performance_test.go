@@ -29,7 +29,7 @@ func (b *changingBossContactsBrowser) FindAll(ctx context.Context, request contr
 	return rows, err
 }
 
-// TestBossContactsReadOnlyIdentityThenPinnedAvatars 验证51行只轻读两字段，11置顶一次成段补头像，原生行不因置顶数量丢缓存。
+// TestBossContactsReadOnlyIdentityThenPinnedAvatars 验证51行仅轻读身份和未读，11置顶一次成段补头像，原生行不因置顶数量丢缓存。
 func TestBossContactsReadOnlyIdentityThenPinnedAvatars(t *testing.T) {
 	r, b, cfg := bossContactFixture(40)
 	for i := 0; i < 10; i++ {
@@ -40,7 +40,7 @@ func TestBossContactsReadOnlyIdentityThenPinnedAvatars(t *testing.T) {
 		t.Fatal("51行与11置顶读取不完整或缓存被清空", len(rows), len(b.requests), len(r.contactRows), err)
 	}
 	first, second := b.requests[0], b.requests[1]
-	if len(first.Fields) != 2 || first.Fields["thread_id"].Description == "" || first.Fields["name"].Description == "" {
+	if len(first.Fields) != 3 || first.Fields["thread_id"].Description == "" || first.Fields["name"].Description == "" || first.Fields["unread_count"].Description == "" {
 		t.Fatal("全表仍读取额外字段", first.Fields)
 	}
 	if second.StartIndex != 40 || second.MaxItems != 11 || len(second.Fields) != 3 || second.Fields["avatar_url"].Description == "" {
@@ -59,6 +59,24 @@ func TestBossContactsReadOnlyIdentityThenPinnedAvatars(t *testing.T) {
 	next, err := r.readBossContacts(context.Background(), b, cfg)
 	if err != nil || len(b.requests) != 2 || next[0].Summary != "候选人0 新问题" || len(r.contactRows) != 40 {
 		t.Fatal("新来信丢失或恢复了全表详情读取", err)
+	}
+}
+
+// TestBossContactsUnreadUsesFreshVisibleCount 验证未读数字每轮重新读取，旧缓存、零值及无效值不会伪造待回复消息。
+func TestBossContactsUnreadUsesFreshVisibleCount(t *testing.T) {
+	r, b, cfg := bossContactFixture(1)
+	for _, count := range []string{"1", "", "99+", "0", "invalid"} {
+		b.contacts[0].Fields["unread_count"] = count
+		rows, err := r.readBossContacts(context.Background(), b, cfg)
+		if count == "invalid" {
+			if err == nil {
+				t.Fatal("无效未读数字没有停止采集")
+			}
+			continue
+		}
+		if err != nil || rows[0].Unread != (count == "1" || count == "99+") || rows[0].Fields["unread_count"] != count {
+			t.Fatalf("未读沿用了旧缓存：count=%s rows=%+v err=%v", count, rows, err)
+		}
 	}
 }
 

@@ -4,6 +4,7 @@ package boss
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
@@ -27,6 +28,9 @@ func (r *Runtime) readBossContacts(ctx context.Context, browser model.Browser, c
 		limit = 100
 	}
 	request := contract.ElementFindAllRequest{Selector: selector, Fields: map[string]contract.SelectorSpec{"thread_id": thread, "name": name}, MaxItems: min(5000, limit), ExpectedMissing: true}
+	if unread, configured := cfg.ConversationFields["unread_count"]; configured {
+		request.Fields["unread_count"] = unread
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		rows, readErr := readBossContactSnapshot(ctx, browser, request)
 		if readErr != nil {
@@ -43,6 +47,8 @@ func (r *Runtime) readBossContacts(ctx context.Context, browser model.Browser, c
 				fresh.Index, fresh.TotalMatches, fresh.Text = row.Index, row.TotalMatches, row.Text
 				fresh.Fields["thread_id"], fresh.Fields["name"] = row.Fields["thread_id"], row.Fields["name"]
 			}
+			// 未读会随打开聊天而消失，每轮采用当前可见值，不能复用旧缓存。
+			fresh.Fields["unread_count"] = row.Fields["unread_count"]
 			// 卡片正文仅用于列表活动摘要和水位；真正的候选人消息仍由聊天历史读取，不能将摘要当入站正文。
 			fresh.Fields["last_message"] = row.Text
 			rows[i] = fresh
@@ -181,6 +187,17 @@ func bossConversations(rows []contract.FindAllItem) ([]model.Conversation, error
 			item.Fields = make(map[string]string)
 		}
 		item.Fields["contact_list_signature"] = common.AutoReplyContactListSignature(item.Name, item.Summary, rows[i].Text, item.Fields["contact_time"])
+		if unread := strings.TrimSuffix(strings.TrimSpace(item.Fields["unread_count"]), "+"); unread != "" {
+			count, err := strconv.Atoi(unread)
+			if err != nil || count < 0 {
+				return nil, fmt.Errorf("BOSS联系人未读数字无法确认，暂不采集")
+			}
+			item.Unread = count > 0
+			if item.Unread {
+				// 将明确未读纳入指纹，使旧版本已建立基线的未读也获得一次核对机会。
+				item.Fields["contact_list_signature"] = common.AutoReplyContactListSignature(item.Name, item.Summary, rows[i].Text+"\x00unread", item.Fields["contact_time"])
+			}
+		}
 		if item.PlatformCandidateID == "" && !strings.HasPrefix(item.PlatformThreadID, "local:") {
 			item.PlatformCandidateID = bossCandidateIDFromThread(item.PlatformThreadID)
 		}

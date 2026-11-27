@@ -64,13 +64,22 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 		}
 		limit, waitSeconds := checkpointSettings(positions, prepared.Position.ID)
 		succeededBefore := stats.Succeeded
-		_, openConversation, err = f.processCheckpoint(
+		shared.ReportProgress(f.Logger, prepared.Request.TaskID, "正在检查候选人消息")
+		var processed int
+		processed, openConversation, err = f.processCheckpoint(
 			ctx, prepared, runtime, replyRuntime, positions, limit, stats, errorPolicy, openConversation,
 		)
 		if err != nil {
 			return err
 		}
 		f.reportCheckpointStats(prepared.Request.TaskID, *stats)
+		if !errorPolicy.HasErrors() {
+			message := "暂时没有新消息，我继续盯着"
+			if processed > 0 {
+				message = "本轮消息已处理，继续等新消息"
+			}
+			shared.ReportProgress(f.Logger, prepared.Request.TaskID, message)
+		}
 		if openConversation != nil {
 			if stats.Succeeded > succeededBefore && lastInboundWasResume(openConversation.snapshot.Messages) {
 				// 已签收的新卡片有独立持久待办，下一轮直接核对下载；普通会话轮换和失败退避照常执行。

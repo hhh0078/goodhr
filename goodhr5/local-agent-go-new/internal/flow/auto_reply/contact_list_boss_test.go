@@ -10,6 +10,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/platform/boss"
+	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/system/failurediag"
 )
@@ -41,7 +42,7 @@ func bossContractFixture() (*bossContractListBrowser, model.Config) {
 	selector := contract.SelectorSpec{Target: contract.SelectorGroup{Selectors: []contract.SelectorCandidate{{Type: "css", Value: "synthetic"}}}}
 	cfg := model.Config{ID: "boss", MessagesURL: "https://example.test/chat", MaxItems: 100, Selectors: map[string]contract.SelectorSpec{"message.drawer": selector, "message.contact_item": selector}, ConversationFields: map[string]contract.SelectorSpec{}}
 	cfg.Behavior.AutoReplyAllContactInbox = true
-	for _, key := range []string{"thread_id", "name", "avatar_url", "last_message"} {
+	for _, key := range []string{"thread_id", "name", "avatar_url", "last_message", "unread_count"} {
 		cfg.ConversationFields[key] = selector
 	}
 	b := &bossContractListBrowser{autoReplyBrowserStub: autoReplyBrowserStub{pages: []contract.PageInfo{{URL: cfg.MessagesURL, Current: true}}}}
@@ -53,6 +54,42 @@ func bossContractFixture() (*bossContractListBrowser, model.Config) {
 		b.rows = append(b.rows, contract.FindAllItem{Text: fields["name"] + " 原消息 昨天", Fields: fields})
 	}
 	return b, cfg
+}
+
+// TestBossStartupUnreadIncludesExistingBaseline 验证初次启动和旧版本已有基线的未读均可处理，确认后相同未读不再排队。
+func TestBossStartupUnreadIncludesExistingBaseline(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprint(legacy), func(t *testing.T) {
+			f, prepared := newReliabilityFlow(t, "")
+			b, cfg := bossContractFixture()
+			f.Browser, prepared.Platform = b, cfg
+			b.rows[20].Fields["unread_count"] = "1"
+			runtime := boss.NewRuntime()
+			rows, err := runtime.ScanUnreadConversations(context.Background(), b, cfg)
+			if err != nil || !rows[20].Unread || len(rows[20].Fields["contact_list_signature"]) != 64 {
+				t.Fatal("平台没有传出可见未读", err)
+			}
+			if legacy {
+				oldRows := append([]model.Conversation(nil), rows...)
+				oldRows[20].Unread = false
+				oldRows[20].Fields = map[string]string{"contact_list_signature": common.AutoReplyContactListSignature(rows[20].Name, rows[20].Summary, b.rows[20].Text, "")}
+				if pending, _, err := f.reviewAllContacts(context.Background(), prepared, oldRows); err != nil || len(pending) != 0 {
+					t.Fatal("旧版本基线准备失败", err)
+				}
+			}
+			pending, reviews, err := f.reviewAllContacts(context.Background(), prepared, rows)
+			if err != nil || len(pending) != 1 || pending[0].PlatformThreadID != "1020-0" || !reviews["1020-0"].After.IsZero() {
+				t.Fatalf("启动前未读没有解除监听时间限制：pending=%d reviews=%d err=%v", len(pending), len(reviews), err)
+			}
+			if err = f.Cloud.AckAutoReplyList(context.Background(), credentials(prepared), "boss", prepared.Request.PlatformAccountID, "", reviews["1020-0"]); err != nil {
+				t.Fatal(err)
+			}
+			pending, _, err = f.reviewAllContacts(context.Background(), prepared, rows)
+			if err != nil || len(pending) != 0 {
+				t.Fatal("相同未读确认后重复进入列表队列", pending, err)
+			}
+		})
+	}
 }
 
 // TestBossAllContactsScanToFlowContract 验证真实BOSS扫描产生完整持久摘要，换位不误判、新来信在Flow中能被准确发现。

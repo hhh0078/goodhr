@@ -57,7 +57,7 @@ func bossContactFixture(total int) (*Runtime, *bossReplyTestBrowser, model.Confi
 	b, cfg := bossMessagesFixture(nil)
 	cfg.MaxItems = 100
 	cfg.Selectors["message.contact_item"] = bossReplySelector("contacts")
-	for _, key := range []string{"thread_id", "name", "avatar_url", "last_message", "contact_time"} {
+	for _, key := range []string{"thread_id", "name", "avatar_url", "last_message", "contact_time", "unread_count"} {
 		cfg.ConversationFields[key] = bossReplySelector(key)
 	}
 	for i := 0; i < total; i++ {

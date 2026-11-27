@@ -39,7 +39,7 @@ func (f *Flow) reviewAllContacts(ctx context.Context, prepared shared.PreparedTa
 		if thread == "" || signature == "" {
 			return nil, nil, failurediag.Wrap(fmt.Errorf("有一条联系人记录的身份或摘要不完整，稍后重新查看"), failurediag.Detail{Source: "联系人列表", Operation: "核对变化", Reason: "联系人稳定编号或变化摘要缺失", Impact: "本轮没有打开候选人或发送消息"})
 		}
-		obs := cloud.AutoReplyListObservation{ThreadID: thread, Signature: signature}
+		obs := cloud.AutoReplyListObservation{ThreadID: thread, Signature: signature, Unread: row.Unread}
 		if preview := strings.TrimSpace(row.Summary); preview != "" {
 			obs.PreviewDigest = fmt.Sprintf("%x", sha256.Sum256([]byte(preview)))
 		}
