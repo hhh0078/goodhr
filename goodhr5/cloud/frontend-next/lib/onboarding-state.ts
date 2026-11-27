@@ -94,13 +94,13 @@ export function onboardingDoneCount(state: OnboardingState): number {
   return [state.environmentReady, Boolean(state.positionId.trim()) && !state.reviewPosition, state.platformLoggedIn && Boolean(state.positionId.trim()) && !state.reviewPosition, state.positionStarted, state.status === "completed"].filter(Boolean).length;
 }
 
-/** onboardingRemainingTime 显示估计区间，网络安装与平台等待期间不制造虚假的倒计时。 */
+/** onboardingRemainingTime 按全程约三分钟估计剩余用时，只随真实完成事实减少，不制造倒计时。 */
 export function onboardingRemainingTime(state: OnboardingState): string {
   if (state.status === "completed") return "已跑通";
-  const estimates = [[3, 8], [2, 3], [1, 2], [1, 2], [1, 3]];
+  const estimates = [1, 0.75, 0.5, 0.25, 0.5];
   const done = [state.environmentReady, Boolean(state.positionId.trim()) && !state.reviewPosition, state.platformLoggedIn && Boolean(state.positionId.trim()) && !state.reviewPosition, state.positionStarted, false];
-  const remaining = estimates.reduce((sum, pair, index) => done[index] ? sum : [sum[0] + pair[0], sum[1] + pair[1]], [0, 0]);
-  return `约 ${remaining[0]}–${remaining[1]} 分钟`;
+  const remaining = estimates.reduce((sum, minutes, index) => done[index] ? sum : sum + minutes, 0);
+  return `约 ${Math.ceil(remaining)} 分钟`;
 }
 
 /** needsPositionRequirement 判断基础或详情任一 AI 模式是否需要岗位要求。 */

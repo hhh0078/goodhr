@@ -146,7 +146,7 @@ test("所有教学点击和填写字段都只改变位置，总进度只计算�
   for (const step of ONBOARDING_STEPS) {
     const state = activeState({ step, completedFields: ["platform", "name", "filter-mode", "detail-mode", "position-requirement", "keywords"] });
     assert.equal(onboardingDoneCount(state), 0, step);
-    assert.equal(onboardingRemainingTime(state), "约 8–18 分钟", step);
+    assert.equal(onboardingRemainingTime(state), "约 3 分钟", step);
   }
   const facts = [
     { environmentReady: true },
@@ -168,7 +168,7 @@ test("已扫描、正在 AI 请求、初筛分数或 AI 错误均不等于首次
   ]) {
     const observed = { ...running, scanned_count: 10, analysis };
     assert.equal(onboardingDoneCount(observed), 4);
-    assert.equal(onboardingRemainingTime(observed), "约 1–3 分钟");
+    assert.equal(onboardingRemainingTime(observed), "约 1 分钟");
     assert.notEqual(observed.status, "completed");
   }
 });
@@ -220,17 +220,17 @@ test("岗位开始入口与弹框开窗登录归入平台准备，确认运行�
   assert.equal(onboardingStage("first-result"), 4);
 });
 
-test("预计耗时随着真实完成事实递减，全部跑通后不再显示等待时间", () => {
+test("预计全程约三分钟并随真实完成事实递减，全部跑通后不再显示等待时间", () => {
   const state = activeState();
-  assert.equal(onboardingRemainingTime(state), "约 8–18 分钟");
+  assert.equal(onboardingRemainingTime(state), "约 3 分钟");
   state.environmentReady = true;
-  assert.equal(onboardingRemainingTime(state), "约 5–10 分钟");
+  assert.equal(onboardingRemainingTime(state), "约 2 分钟");
   state.positionId = "real-position";
-  assert.equal(onboardingRemainingTime(state), "约 3–7 分钟");
+  assert.equal(onboardingRemainingTime(state), "约 2 分钟");
   state.platformLoggedIn = true;
-  assert.equal(onboardingRemainingTime(state), "约 2–5 分钟");
+  assert.equal(onboardingRemainingTime(state), "约 1 分钟");
   state.positionStarted = true;
-  assert.equal(onboardingRemainingTime(state), "约 1–3 分钟");
+  assert.equal(onboardingRemainingTime(state), "约 1 分钟");
   state.status = "completed";
   assert.equal(onboardingRemainingTime(state), "已跑通");
 });
@@ -364,10 +364,10 @@ test("同岗位复核的读取不会绕过字段确认跳回浏览器，即使�
 test("待复核岗位不算本轮岗位和登录已确认，预计时间保留岗位复核与登录步骤", () => {
   const reviewing = activeState({ environmentReady: true, positionId: "saved-position", reviewPosition: true, replaying: true, platformLoggedIn: true });
   assert.equal(onboardingDoneCount(reviewing), 1);
-  assert.equal(onboardingRemainingTime(reviewing), "约 5–10 分钟");
+  assert.equal(onboardingRemainingTime(reviewing), "约 2 分钟");
   const confirmed = { ...reviewing, reviewPosition: false, platformLoggedIn: false };
   assert.equal(onboardingDoneCount(confirmed), 2);
-  assert.equal(onboardingRemainingTime(confirmed), "约 3–7 分钟");
+  assert.equal(onboardingRemainingTime(confirmed), "约 2 分钟");
   assert.equal(onboardingDoneCount({ ...confirmed, platformLoggedIn: true }), 3);
 });
 
