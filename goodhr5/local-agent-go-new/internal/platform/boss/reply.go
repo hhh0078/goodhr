@@ -149,6 +149,11 @@ func (r *Runtime) ReadLatestAutoReplyMessage(ctx context.Context, browser model.
 
 // ReadOpenAutoReplyLatestMessage 仅在 Boss 目标聊天框仍打开时读取最新消息。
 func (r *Runtime) ReadOpenAutoReplyLatestMessage(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (model.ConversationMessage, bool, error) {
+	// 处理其他待办或HR手动切人属于正常窗口变化；同名但编号不符仍由下方严格核验拒绝。
+	name, found, readErr := common.ReadOptional(ctx, browser, cfg, "message.current_name")
+	if readErr != nil || !found || strings.TrimSpace(name) != strings.TrimSpace(snapshot.CandidateName) {
+		return model.ConversationMessage{}, false, readErr
+	}
 	matched, err := bossAutoReplyConversationMatches(ctx, browser, cfg, snapshot)
 	if err != nil || !matched {
 		return model.ConversationMessage{}, false, err
