@@ -7,10 +7,10 @@ import (
 	"strconv"
 )
 
-// AutoReplyLogs 读取当前登录成员的最近千条日志；页码不会参与越权查询，未登录和插件凭证均禁止访问。
+// AutoReplyLogs 读取或清空当前登录成员的展示日志；清空不影响聊天、业务审计和发送去重账本。
 func (s *AutoReplyService) AutoReplyLogs(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeAutoReplyError(w, 405, "METHOD_NOT_ALLOWED", "请使用读取方式查看运行日志")
+	if r.Method != http.MethodGet && r.Method != http.MethodDelete {
+		writeAutoReplyError(w, 405, "METHOD_NOT_ALLOWED", "请使用读取或清空方式处理运行日志")
 		return
 	}
 	access, ok := s.currentRequestContext(w, r, false, false)
@@ -19,6 +19,26 @@ func (s *AutoReplyService) AutoReplyLogs(w http.ResponseWriter, r *http.Request)
 	}
 	if access.Session.Kind == extensionSessionKind {
 		writeAutoReplyError(w, 403, "SESSION_NOT_ALLOWED", "请从管理页面查看运行日志")
+		return
+	}
+	if r.Method == http.MethodDelete {
+		if r.URL.Query().Get("before_start") == "true" {
+			if failure := validateStartAIBalance(s.aiWallet, access.Session.Email); failure != nil {
+				writeAutoReplyError(w, failure.status, failure.code, failure.message)
+				return
+			}
+		}
+		result, err := s.store.db.ExecContext(r.Context(), `DELETE FROM auto_reply_logs l USING users u WHERE u.tenant_id=l.tenant_id AND u.id=l.user_id AND l.tenant_id=$1 AND u.email=$2`, access.Tenant.ID, access.Session.Email)
+		if err != nil {
+			writeAutoReplyStoreError(w, err, "运行日志没清空成功，请重试")
+			return
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			writeAutoReplyStoreError(w, err, "运行日志清空结果暂时无法核对，请重试")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted_count": count})
 		return
 	}
 	before := int64(0)

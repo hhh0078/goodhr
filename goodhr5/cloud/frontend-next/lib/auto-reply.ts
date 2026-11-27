@@ -61,6 +61,13 @@ export type PositionAutoReplyStatus = {
   allow_auto_reply: boolean;
 };
 
+/** clearAutoReplyLogs 清空本人展示日志，失败时抛出错误，供手动清空和启动前清理共用。 */
+export async function clearAutoReplyLogs(beforeStart = false) {
+  const payload = await cloudRequest(`/api/auto-reply/logs${beforeStart ? "?before_start=true" : ""}`, { method: "DELETE" });
+  if (payload?.ok !== true || !Number.isSafeInteger(payload.deleted_count) || payload.deleted_count < 0)
+    throw new Error("日志清空结果没核对成功，请重试。");
+}
+
 /** emptyCompanyProfile 创建不会共享引用的空公司档案表单。 */
 export function emptyCompanyProfile(): CompanyProfile {
   return {

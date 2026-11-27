@@ -16,7 +16,7 @@ import { canUseAutoReply } from "@/lib/subscription";
 import { AUTO_REPLY_ROLLOUT_CLOSED, AUTO_REPLY_ROLLOUT_MESSAGE, isAutoReplyPlatformSupported } from "@/lib/auto-reply-rollout";
 import { loadReplyInboxSummary, type ReplyInboxSummary } from "@/lib/auto-reply-inbox";
 import { isInsufficientStartBalance } from "@/lib/position-start-guard";
-import { loadPositionAutoReplyConfig, loadPositionAutoReplyStatus, savePositionAutoReplyConfig, type PositionAutoReplyStatus } from "@/lib/auto-reply";
+import { clearAutoReplyLogs, loadPositionAutoReplyConfig, loadPositionAutoReplyStatus, savePositionAutoReplyConfig, type PositionAutoReplyStatus } from "@/lib/auto-reply";
 import styles from "./auto-reply-inbox.module.css";
 
 type ReplyTask = {
@@ -53,6 +53,8 @@ export function AutoReplyGlobalControl() {
   const router = useRouter();
   const [task, setTask] = useState<ReplyTask | null>(null);
   const [busy, setBusy] = useState(false);
+  const [logClearing, setLogClearing] = useState(false);
+  const [logsRevision, setLogsRevision] = useState(0);
   const [statusError, setStatusError] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
   const [replyAccount, setReplyAccount] = useState("");
@@ -145,6 +147,7 @@ export function AutoReplyGlobalControl() {
       return;
     }
     const base = agentBase;
+    const token = getToken();
     const stopping = running;
     operation.current = true; setBusy(true);
     let floating: Promise<Window | null> = Promise.resolve(null);
@@ -155,9 +158,13 @@ export function AutoReplyGlobalControl() {
         floating = openPositionFloatingWindow();
         await ensureLocalAgentReady(base);
         if (base !== currentAgent.current) throw new Error("本地连接已变化，请重新开始");
+        if (!token || token !== getToken()) throw new Error("账号已变化，请重新打开自动回复。");
+        await clearAutoReplyLogs(true);
+        if (token !== getToken() || base !== currentAgent.current) throw new Error("连接或账号已变化，请重新开始。");
+        setLogsRevision(value => value + 1);
       }
       const result = await localRequest(base, `/api/v1/local/auto-reply/${stopping ? "stop" : "start"}`, {
-        method: "POST", ...(stopping ? {} : { body: { token: getToken(), platform_account_id: account!.trim() } }), timeoutMS: stopping ? 220000 : 60000,
+        method: "POST", ...(stopping ? {} : { body: { token, platform_account_id: account!.trim() } }), timeoutMS: stopping ? 220000 : 60000,
       });
       if (base !== currentAgent.current) return;
       setTask({ ...result, status: stopping ? taskStatus(result?.status) : "running" });
@@ -173,6 +180,23 @@ export function AutoReplyGlobalControl() {
         else notify(cause instanceof Error ? cause.message : "这次没跑顺，可以再试一次。", "error");
       }
     } finally { operation.current = false; setBusy(false); }
+  }
+  /** clearLogsManually 在确认后只清理本人展示日志，串行处理并重建分页，防止旧轮询回填已清空内容。 */
+  async function clearLogsManually() {
+    if (operation.current) return;
+    const token = getToken();
+    operation.current = true; setBusy(true);
+    try {
+      if (!await confirm("清空运行日志", "确认清空当前账号的自动回复运行日志吗？聊天记录会保留。")) return;
+      if (!token || token !== getToken()) return;
+      setLogClearing(true);
+      await clearAutoReplyLogs();
+      if (token !== getToken()) return;
+      setLogsRevision(value => value + 1);
+      notify("运行日志已清空，后续记录会继续显示。", "success");
+    } catch (cause) {
+      if (token === getToken()) notify(cause instanceof Error ? cause.message : "日志没清空成功，请重试。", "error");
+    } finally { operation.current = false; setBusy(false); setLogClearing(false); }
   }
   /** retryReports 由HR确认后重试报告和简历待办，复用当前账号；不重新发送已处理的聊天。 */
   async function retryReports() {
@@ -222,14 +246,15 @@ export function AutoReplyGlobalControl() {
         </div>
       </div>
       {(statusError || task?.status === "failed") && <Alert type="error" showIcon title={statusError || failureReason} />}
-      <AutoReplyLogs key={owner} active={inboxOpen} />
+      <AutoReplyLogs key={`${owner}:${logsRevision}`} active={inboxOpen} onClear={() => void clearLogsManually()} clearing={logClearing} disabled={busy} />
     </AdminDialog>
     <AdminDialog open={inboxOpen && questionsOpen} title="待补充消息" cancelText="关闭" maxWidth="md" onClose={() => setQuestionsOpen(false)}>
       <AutoReplyInbox key={owner} summary={summary} loading={summaryLoading} error={summaryError} active={inboxOpen && questionsOpen} onRetry={refreshInbox} onApplied={refreshInbox} />
     </AdminDialog>
-    <AdminDialog open={accountOpen} title="确认当前招聘账号" confirmText="确认账号并开始" loading={busy}
+    <AdminDialog open={accountOpen} title="确认当前招聘账号" confirmText="清空日志并开始" loading={busy}
       confirmDisabled={!replyAccount.trim()} onClose={() => setAccountOpen(false)} onConfirm={() => void changeRunning(replyAccount)}>
       <Typography.Paragraph>先打开并登录招聘平台，再填写当前账号名或手机号。我只处理这个平台里已开启自动回复的岗位。</Typography.Paragraph>
+      <Alert type="warning" showIcon title="开始时将会清空日志。" description="确认后清空当前账号的运行日志，再开始自动回复。" />
       <label htmlFor="auto-reply-account">当前招聘账号</label>
       <Input id="auto-reply-account" value={replyAccount} maxLength={200} autoComplete="off" placeholder="招聘页面当前登录的账号名或手机号"
         onChange={(event) => setReplyAccount(event.target.value)} style={{ marginBlock: 8 }} />

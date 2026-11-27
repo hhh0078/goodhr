@@ -10,7 +10,7 @@ const labels: Record<string, string> = { initialize_auto_reply_page: "准备消�
 const statuses: Record<string, string> = { start: "开始", loading: "处理中", started: "开始", success: "完成", result: "结果", sent: "已发送", completed: "完成", failed: "失败", error: "失败", warning: "提醒", skipped: "跳过", stopped: "停止" };
 
 /** AutoReplyLogs 只在面板可见时读取；请求完成后再安排下一轮，换账号或关闭时取消旧请求。 */
-export default function AutoReplyLogs({ active }: { active: boolean }) {
+export default function AutoReplyLogs({ active, onClear, clearing, disabled }: { active: boolean; onClear: () => void; clearing: boolean; disabled: boolean }) {
   const [items, setItems] = useState<ReplyLog[]>([]);
   const [cursors, setCursors] = useState<string[]>([""]);
   const [next, setNext] = useState("");
@@ -47,7 +47,7 @@ export default function AutoReplyLogs({ active }: { active: boolean }) {
     return () => { disposed = true; clearTimeout(timer); controller?.abort(); };
   }, [active, before, retry]);
   return <section aria-label="自动回复运行日志">
-    <div className={styles.heading}><h3>运行日志</h3><span className={styles.count}>{loading && items.length > 0 && <Spin size="small" />} 每个账号保留最近 1000 条</span></div>
+    <div className={styles.heading}><h3>运行日志</h3><div className={styles.logActions}><span className={styles.count}>{loading && items.length > 0 && <Spin size="small" />} 每个账号保留最近 1000 条</span><Button onClick={onClear} loading={clearing} disabled={disabled}>清空日志</Button></div></div>
     {error && <Alert type="error" showIcon title={error} action={<Button size="small" onClick={() => setRetry(value => value + 1)}>重试</Button>} />}
     <div className={styles.logs} aria-busy={loading} data-testid="auto-reply-logs">
       {items.length === 0 && !error && (loading ? <div className={styles.logEmpty}><Spin description="正在翻工作记录…" /></div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有运行记录，开始接待后我会认真记账。" />)}

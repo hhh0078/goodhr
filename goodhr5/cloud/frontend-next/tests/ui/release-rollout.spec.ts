@@ -27,6 +27,7 @@ async function rolloutFixture(page:Page,options:{role?:string;member?:boolean;on
     else if(path==="/api/subscription/status")data={subscription:{active:member,member_type:member?"max":"free",member_name:"合成Max会员",remaining_days:30,allow_auto_reply:member,allow_ai:member}};
     else if(path==="/api/ai-wallet")data={balance:state.balance,balance_units:1009999};
     else if(path==="/api/auto-reply/questions/summary")data={pending_count:0,positions:[]};
+    else if(path==="/api/auto-reply/logs")data=method==="DELETE"?{ok:true,deleted_count:0}:{items:[],next_cursor:"",retention_limit:1000};
     else if(path.endsWith("/auto-reply/status"))data={ok:true,data:{status:state.running?"running":"stopped"}};
     else if(path.endsWith("/auto-reply/start")){state.running=true;state.writes.push({path,body:request.postDataJSON()});data={ok:true,data:{status:"running"}};}
     else if(path.endsWith("/auto-reply/stop")){state.running=false;state.writes.push({path,body:{}});data={ok:true,data:{status:"stopped"}};}
@@ -106,7 +107,7 @@ test("测试提示不阻止确认账号后启动",async({page})=>{
  await workspace.getByRole("button",{name:"开始自动回复",exact:true}).click();
  const account=page.getByRole("dialog",{name:"确认当前招聘账号",exact:true});await expect(account).toBeVisible();
  await account.getByRole("textbox",{name:"当前招聘账号",exact:true}).fill("合成招聘账号");
- await account.getByRole("button",{name:"确认账号并开始",exact:true}).click();
+ await account.getByRole("button",{name:"清空日志并开始",exact:true}).click();
  await expect(workspace.getByRole("button",{name:"停止自动回复",exact:true})).toBeVisible();
  expect(state.writes.filter(item=>item.path.endsWith("/auto-reply/start"))).toHaveLength(1);
 });

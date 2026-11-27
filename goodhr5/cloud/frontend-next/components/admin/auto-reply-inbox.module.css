@@ -20,6 +20,7 @@
 .logEmpty { display: grid; place-items: center; height: 200px; }
 .heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
 .heading h3 { margin: 0; font-size: 14px; font-weight: 650; color: var(--goodhr-text); }
+.logActions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .count { font-size: 12px; color: var(--goodhr-text-secondary); font-variant-numeric: tabular-nums; }
 .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
 .positionSelect { min-width: 240px; max-width: 100%; flex: 1; }

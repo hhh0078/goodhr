@@ -31,7 +31,7 @@ async function fixture(page: Page, agentOnline = true) {
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers });
     let data: unknown;
     if (path.endsWith("/auto-reply/start")) { expect(request.postDataJSON().platform_account_id).toBe("合成招聘账号"); state.starts++; state.running = true; data = { ok: true, data: { status: "running", task_id: "synthetic-auto-reply" } }; }
-    else if (path === "/api/auto-reply/logs") data = {items:[],next_cursor:"",retention_limit:1000};
+    else if (path === "/api/auto-reply/logs") data = method === "DELETE" ? {ok:true,deleted_count:0} : {items:[],next_cursor:"",retention_limit:1000};
     else if (path === "/api/auto-reply/questions/summary") data = { pending_count: 0, positions: [] };
     else if (path === "/api/auto-reply/questions") data = { questions: [], next_cursor: "", pending_count: 0 };
     else if (path.endsWith("/questions") && method === "GET") data = { questions: [] };
@@ -741,7 +741,7 @@ test("本地程序重启时，重新绑定和运行组件检查通过前不能�
   const account = page.getByRole("dialog", { name: "确认当前招聘账号", exact: true });
   await expect(account).toBeVisible();
   await account.getByRole("textbox", { name: "当前招聘账号", exact: true }).fill("合成招聘账号");
-  await account.getByRole("button", { name: "确认账号并开始", exact: true }).click();
+  await account.getByRole("button", { name: "清空日志并开始", exact: true }).click();
   await expect.poll(() => bound).toBe(true);
   await expect.poll(() => checks).toBeGreaterThan(0);
   expect(state.starts).toBe(0);

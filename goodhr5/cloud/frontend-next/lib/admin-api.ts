@@ -199,7 +199,7 @@ export async function requirePaymentLocalAgent(preferredBaseURL = "") {
     if (!baseURL) throw new Error("本地程序未连接");
     await localRequest(baseURL, "/health", { timeoutMS: 1500 });
   } catch {
-    throw new Error("系统无法在线支付。请联系管理员。");
+    throw new Error("请先下载本地程序、连接成功后才能支付。");
   }
 }
 
